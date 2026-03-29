@@ -81,7 +81,13 @@
     <ClInclude Include="functions\GetVoiceParamWithCallSign.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\LostHostageTrapHook.h">
+    <ClInclude Include="functions\LostHostageHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\StepRadioDiscovery.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -98,7 +104,7 @@
     <ClCompile Include="include\log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\SetLuaFunctions.cpp">
+    <ClCompile Include="SetLuaFunctions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="include\FoxHashes.cpp">
@@ -140,7 +146,13 @@
     <ClCompile Include="functions\GetVoiceParamWithCallSign.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\LostHostageTrapHook.cpp">
+    <ClCompile Include="functions\LostHostageHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\StepRadioDiscovery.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

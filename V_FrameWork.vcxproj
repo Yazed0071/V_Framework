@@ -154,6 +154,7 @@
     <ClInclude Include="functions\PlayerVoiceFpkHook.h" />
     <ClInclude Include="functions\State_EnterStandHoldup1.h" />
     <ClInclude Include="functions\StepRadioDiscovery.h" />
+    <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h" />
     <ClInclude Include="functions\UiTextureOverrides.h" />
     <ClInclude Include="functions\VIPHoldupHook.h" />
     <ClInclude Include="functions\VIPRadioHook.h" />
@@ -177,7 +178,8 @@
     <ClCompile Include="functions\LostHostageHook.cpp" />
     <ClCompile Include="functions\MissionCodeGuard.cpp" />
     <ClCompile Include="functions\PlayerVoiceFpkHook.cpp" />
-    <ClCompile Include="functions\SetLuaFunctions.cpp" />
+    <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp" />
+    <ClCompile Include="SetLuaFunctions.cpp" />
     <ClCompile Include="functions\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="functions\State_StandHoldupCancelLookToPlayer.cpp" />
     <ClCompile Include="functions\StepRadioDiscovery.cpp" />

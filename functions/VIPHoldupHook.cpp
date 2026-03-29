@@ -38,7 +38,7 @@ namespace
     static constexpr std::uint32_t HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM = 0x97D0A0FEu;
 
     // Re-dispatch cooldown for the same actor/target on the VIP path.
-    static constexpr ULONGLONG HOLDUP_RECOVERY_DISPATCH_COOLDOWN_MS = 3000ull;
+    static constexpr ULONGLONG HOLDUP_RECOVERY_DISPATCH_COOLDOWN_MS = 6000ull;
 
     // Window where follow-up chatter should be swallowed.
     static constexpr ULONGLONG HOLDUP_VANILLA_SUPPRESS_MS = 4000ull;
@@ -553,7 +553,6 @@ static void __fastcall hkState_StandRecoveryHoldup(
     g_OrigState_StandRecoveryHoldup(self, actorId, proc, evt);
 }
 
-// Adds one important holdup target by original GameObjectId.
 // Params: gameObjectId, isOfficer
 void Add_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer)
 {

@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <unordered_set>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "HookUtils.h"
 #include "log.h"
@@ -12,17 +14,17 @@
 #include "PlayerVoiceFpkHook.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPHoldupHook.h"
-#include <VIPRadioHook.h>
-#include <State_EnterStandHoldup1.h>
-#include <GetVoiceParamWithCallSign.h>
+#include "VIPRadioHook.h"
+#include "State_EnterStandHoldup1.h"
+#include "GetVoiceParamWithCallSign.h"
 #include "LostHostageHook.h"
 #include "StepRadioDiscovery.h"
+#include "tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h"
 
 extern "C" {
     #include "lua.h"
     #include "lauxlib.h"
     #include "lualib.h"
-
 }
 
 namespace
@@ -35,33 +37,33 @@ namespace
     using lua_pushnumber_t = void(__fastcall*)(lua_State* L, lua_Number n);
     using lua_toboolean_t = int(__fastcall*)(lua_State* L, int idx);
 
-    // Absolute address of tpp::ui::UiCommand::SetLuaFunctions.
-    // Params: L (lua_State*)
+    using lua_gettop_t = int(__fastcall*)(lua_State* L);
+    using lua_settop_t = void(__fastcall*)(lua_State* L, int idx);
+    using lua_getfield_t = void(__fastcall*)(lua_State* L, int idx, char* k);
+    using lua_rawgeti_t = void(__fastcall*)(lua_State* L, int idx, int n);
+    using lua_type_t = int(__fastcall*)(lua_State* L, int idx);
+    using lua_isstring_t = int(__fastcall*)(lua_State* L, int idx);
+    using lua_isnumber_t = int(__fastcall*)(lua_State* L, int idx);
+    using lua_objlen_t = size_t(__fastcall*)(lua_State* L, int idx);
+    using lua_pushboolean_t = void(__fastcall*)(lua_State* L, int b);
+
     static constexpr uintptr_t ABS_SetLuaFunctions = 0x1408D78A0ull;
-
-    // Absolute address of fox::LuaRegisterLibrary.
-    // Params: L (lua_State*), libName (const char*), funcs (luaL_Reg*)
     static constexpr uintptr_t ABS_FoxLuaRegisterLibrary = 0x14006B6D0ull;
-
-    // Absolute address of the game's lua_tolstring thunk.
-    // Params: L (lua_State*), idx (int), len (size_t*)
     static constexpr uintptr_t ABS_lua_tolstring = 0x141A123C0ull;
-
-    // Absolute address of the game's lua_tointeger thunk.
-    // Params: L (lua_State*), idx (int)
     static constexpr uintptr_t ABS_lua_tointeger = 0x141A12390ull;
-
-    // Absolute address of the game's lua_tonumber thunk.
-    // Params: L (lua_State*), idx (int)
     static constexpr uintptr_t ABS_lua_tonumber = 0x141A12460ull;
-
-    // Absolute address of the game's lua_pushnumber thunk.
-    // Params: L (lua_State*), n (lua_Number)
     static constexpr uintptr_t ABS_lua_pushnumber = 0x141A11BC0ull;
-
-    // Absolute address of the game's lua_toboolean thunk.
-    // Params: L (lua_State*), idx (int)
     static constexpr uintptr_t ABS_lua_toboolean = 0x141A12330ull;
+
+    static constexpr uintptr_t ABS_lua_gettop = 0x14C1D7D40ull;
+    static constexpr uintptr_t ABS_lua_settop = 0x14C1EBBE0ull;
+    static constexpr uintptr_t ABS_lua_getfield = 0x14C1D7320ull;
+    static constexpr uintptr_t ABS_lua_rawgeti = 0x14C1E9320ull;
+    static constexpr uintptr_t ABS_lua_type = 0x14C1ED760ull;
+    static constexpr uintptr_t ABS_lua_isstring = 0x14C1D9250ull;
+    static constexpr uintptr_t ABS_lua_isnumber = 0x14C1D8C90ull;
+    static constexpr uintptr_t ABS_lua_objlen = 0x14C1DA960ull;
+    static constexpr uintptr_t ABS_lua_pushboolean = 0x14C1DB230ull;
 
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
     static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
@@ -71,60 +73,188 @@ namespace
     static lua_pushnumber_t        g_lua_pushnumber = nullptr;
     static lua_toboolean_t         g_lua_toboolean = nullptr;
 
+    static lua_gettop_t            g_lua_gettop = nullptr;
+    static lua_settop_t            g_lua_settop = nullptr;
+    static lua_getfield_t          g_lua_getfield = nullptr;
+    static lua_rawgeti_t           g_lua_rawgeti = nullptr;
+    static lua_type_t              g_lua_type = nullptr;
+    static lua_isstring_t          g_lua_isstring = nullptr;
+    static lua_isnumber_t          g_lua_isnumber = nullptr;
+    static lua_objlen_t            g_lua_objlen = nullptr;
+    static lua_pushboolean_t       g_lua_pushboolean = nullptr;
+
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
 }
 
-// Resolves the Lua/game functions used by this bridge file.
+// Resolves the Lua/game functions used by this file.
 // Params: none
 static bool ResolveLuaApi()
 {
     if (!g_FoxLuaRegisterLibrary)
-    {
-        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(
-            ResolveGameAddress(ABS_FoxLuaRegisterLibrary));
-    }
+        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(ABS_FoxLuaRegisterLibrary));
 
     if (!g_lua_tolstring)
-    {
-        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(
-            ResolveGameAddress(ABS_lua_tolstring));
-    }
+        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(ABS_lua_tolstring));
 
     if (!g_lua_tointeger)
-    {
-        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(
-            ResolveGameAddress(ABS_lua_tointeger));
-    }
+        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(ABS_lua_tointeger));
 
     if (!g_lua_tonumber)
-    {
-        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(
-            ResolveGameAddress(ABS_lua_tonumber));
-    }
+        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(ABS_lua_tonumber));
 
     if (!g_lua_toboolean)
-    {
-        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(
-            ResolveGameAddress(ABS_lua_toboolean));
-    }
+        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(ABS_lua_toboolean));
 
     if (!g_lua_pushnumber)
-    {
-        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(
-            ResolveGameAddress(ABS_lua_pushnumber));
-    }
+        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(ABS_lua_pushnumber));
+
+    if (!g_lua_gettop)
+        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(ABS_lua_gettop));
+
+    if (!g_lua_settop)
+        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(ABS_lua_settop));
+
+    if (!g_lua_getfield)
+        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(ABS_lua_getfield));
+
+    if (!g_lua_rawgeti)
+        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(ABS_lua_rawgeti));
+
+    if (!g_lua_type)
+        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(ABS_lua_type));
+
+    if (!g_lua_isstring)
+        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(ABS_lua_isstring));
+
+    if (!g_lua_isnumber)
+        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(ABS_lua_isnumber));
+
+    if (!g_lua_objlen)
+        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(ABS_lua_objlen));
+
+    if (!g_lua_pushboolean)
+        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(ABS_lua_pushboolean));
 
     return g_FoxLuaRegisterLibrary &&
         g_lua_tolstring &&
         g_lua_tointeger &&
         g_lua_tonumber &&
         g_lua_toboolean &&
-        g_lua_pushnumber;
+        g_lua_pushnumber &&
+        g_lua_gettop &&
+        g_lua_settop &&
+        g_lua_getfield &&
+        g_lua_rawgeti &&
+        g_lua_type &&
+        g_lua_isstring &&
+        g_lua_isnumber &&
+        g_lua_objlen &&
+        g_lua_pushboolean;
 }
 
-// Registers the V_FrameWork Lua library in the given Lua state.
-// Params: L (lua_State*), libName (const char*), funcs (luaL_Reg*)
+// Returns the current Lua stack top.
+// Params: L
+static int GetLuaTop(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_gettop)
+        return 0;
+
+    return g_lua_gettop(L);
+}
+
+// Sets the Lua stack top.
+// Params: L, idx
+static void SetLuaTop(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_settop)
+        return;
+
+    g_lua_settop(L, idx);
+}
+
+// Pushes one table field onto the stack.
+// Params: L, idx, fieldName
+static void LuaGetField(lua_State* L, int idx, const char* fieldName)
+{
+    if (!ResolveLuaApi() || !g_lua_getfield || !fieldName)
+        return;
+
+    g_lua_getfield(L, idx, const_cast<char*>(fieldName));
+}
+
+// Pushes one array entry onto the stack.
+// Params: L, idx, n
+static void LuaRawGetI(lua_State* L, int idx, int n)
+{
+    if (!ResolveLuaApi() || !g_lua_rawgeti)
+        return;
+
+    g_lua_rawgeti(L, idx, n);
+}
+
+// Returns the Lua value type.
+// Params: L, idx
+static int LuaType(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_type)
+        return -1;
+
+    return g_lua_type(L, idx);
+}
+
+// Returns true if one Lua value is a string.
+// Params: L, idx
+static bool LuaIsString(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_isstring)
+        return false;
+
+    return g_lua_isstring(L, idx) != 0;
+}
+
+// Returns true if one Lua value is a number.
+// Params: L, idx
+static bool LuaIsNumber(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_isnumber)
+        return false;
+
+    return g_lua_isnumber(L, idx) != 0;
+}
+
+// Returns the Lua object length.
+// Params: L, idx
+static size_t LuaObjLen(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_objlen)
+        return 0;
+
+    return g_lua_objlen(L, idx);
+}
+
+// Pushes one boolean back to Lua.
+// Params: L, value
+static void PushLuaBool(lua_State* L, bool value)
+{
+    if (!ResolveLuaApi() || !g_lua_pushboolean)
+        return;
+
+    g_lua_pushboolean(L, value ? 1 : 0);
+}
+
+// Pops values from the Lua stack.
+// Params: L, count
+static void LuaPop(lua_State* L, int count)
+{
+    if (!ResolveLuaApi() || !g_lua_settop)
+        return;
+
+    g_lua_settop(L, -count - 1);
+}
+
+// Registers one C library into Fox Lua.
+// Params: L, libName, funcs
 static bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* funcs)
 {
     if (!ResolveLuaApi() || !L || !libName || !funcs)
@@ -135,8 +265,8 @@ static bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* func
     return true;
 }
 
-// Returns a Lua string argument or nullptr if unavailable.
-// Params: L (lua_State*), idx (int)
+// Returns a Lua string argument.
+// Params: L, idx
 static const char* GetLuaString(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tolstring)
@@ -145,8 +275,8 @@ static const char* GetLuaString(lua_State* L, int idx)
     return g_lua_tolstring(L, idx, nullptr);
 }
 
-// Returns a Lua integer argument using the game's Lua thunk.
-// Params: L (lua_State*), idx (int)
+// Returns a Lua int argument.
+// Params: L, idx
 static int GetLuaInt(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tointeger)
@@ -155,8 +285,8 @@ static int GetLuaInt(lua_State* L, int idx)
     return static_cast<int>(g_lua_tointeger(L, idx));
 }
 
-// Returns a Lua integer as 64-bit using the game's Lua thunk.
-// Params: L (lua_State*), idx (int)
+// Returns a Lua int64 argument.
+// Params: L, idx
 static std::uint64_t GetLuaInt64(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tointeger)
@@ -165,8 +295,8 @@ static std::uint64_t GetLuaInt64(lua_State* L, int idx)
     return static_cast<std::uint64_t>(g_lua_tointeger(L, idx));
 }
 
-// Returns a Lua boolean argument using the game's Lua thunk.
-// Params: L (lua_State*), idx (int)
+// Returns a Lua bool argument.
+// Params: L, idx
 static bool GetLuaBool(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_toboolean)
@@ -175,8 +305,8 @@ static bool GetLuaBool(lua_State* L, int idx)
     return g_lua_toboolean(L, idx) != 0;
 }
 
-// Returns a Lua number argument using the game's Lua thunk.
-// Params: L (lua_State*), idx (int)
+// Returns a Lua float argument.
+// Params: L, idx
 static float GetLuaNumber(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tonumber)
@@ -185,8 +315,8 @@ static float GetLuaNumber(lua_State* L, int idx)
     return static_cast<float>(g_lua_tonumber(L, idx));
 }
 
-// Pushes a Lua number using the game's Lua thunk.
-// Params: L (lua_State*), value (float)
+// Pushes one float back to Lua.
+// Params: L, value
 static void PushLuaNumber(lua_State* L, float value)
 {
     if (!ResolveLuaApi() || !g_lua_pushnumber)
@@ -195,23 +325,23 @@ static void PushLuaNumber(lua_State* L, float value)
     g_lua_pushnumber(L, static_cast<lua_Number>(value));
 }
 
-// Returns true if the Lua state was already registered.
-// Params: L (lua_State*)
+// Returns true if this Lua state was already registered.
+// Params: L
 static bool IsLuaStateRegistered(lua_State* L)
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     return g_RegisteredLuaStates.find(L) != g_RegisteredLuaStates.end();
 }
 
-// Tracks a Lua state after successful registration.
-// Params: L (lua_State*)
+// Tracks one Lua state after registration.
+// Params: L
 static void TrackLuaState(lua_State* L)
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     g_RegisteredLuaStates.insert(L);
 }
 
-// Clears all tracked Lua states.
+// Clears tracked Lua states.
 // Params: none
 static void ClearTrackedLuaStates()
 {
@@ -219,8 +349,8 @@ static void ClearTrackedLuaStates()
     g_RegisteredLuaStates.clear();
 }
 
-// Sets the default equip background texture from an FTEX path.
-// Params: path (string)
+// Sets the default equip background texture.
+// Params: path
 static int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -231,7 +361,7 @@ static int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears the default equip background texture override.
+// Clears the default equip background texture.
 // Params: none
 static int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
 {
@@ -240,8 +370,8 @@ static int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets the enemy-weapon equip background texture from an FTEX path.
-// Params: path (string)
+// Sets the enemy-weapon equip background texture.
+// Params: path
 static int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -252,7 +382,7 @@ static int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears the enemy-weapon equip background texture override.
+// Clears the enemy-weapon equip background texture.
 // Params: none
 static int __cdecl l_ClearEnemyWeaponBgTexture(lua_State* L)
 {
@@ -261,8 +391,8 @@ static int __cdecl l_ClearEnemyWeaponBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets a per-enemy equip background texture from an FTEX path.
-// Params: equipId (number), path (string)
+// Sets one per-enemy equip background texture.
+// Params: equipId, path
 static int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -275,8 +405,8 @@ static int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears a per-enemy equip background texture override.
-// Params: equipId (number)
+// Clears one per-enemy equip background texture.
+// Params: equipId
 static int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -284,8 +414,8 @@ static int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets a per-equip background texture from an FTEX path.
-// Params: equipId (number), path (string)
+// Sets one per-equip background texture.
+// Params: equipId, path
 static int __cdecl l_SetEquipBgTexturePath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -298,8 +428,8 @@ static int __cdecl l_SetEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears a per-equip background texture override.
-// Params: equipId (number)
+// Clears one per-equip background texture.
+// Params: equipId
 static int __cdecl l_ClearEquipBgTexture(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -307,7 +437,7 @@ static int __cdecl l_ClearEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Clears all per-equip background texture overrides.
+// Clears all per-equip background textures.
 // Params: none
 static int __cdecl l_ClearAllEquipBgTextures(lua_State* L)
 {
@@ -316,8 +446,8 @@ static int __cdecl l_ClearAllEquipBgTextures(lua_State* L)
     return 0;
 }
 
-// Sets the loading splash main texture from an FTEX path.
-// Params: path (string)
+// Sets the loading splash main texture.
+// Params: path
 static int __cdecl l_SetLoadingSplashMainTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -328,8 +458,8 @@ static int __cdecl l_SetLoadingSplashMainTexturePath(lua_State* L)
     return 0;
 }
 
-// Sets the loading splash blur texture from an FTEX path.
-// Params: path (string)
+// Sets the loading splash blur texture.
+// Params: path
 static int __cdecl l_SetLoadingSplashBlurTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -340,7 +470,7 @@ static int __cdecl l_SetLoadingSplashBlurTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears both loading splash textures.
+// Clears loading splash textures.
 // Params: none
 static int __cdecl l_ClearLoadingSplashTextures(lua_State* L)
 {
@@ -349,8 +479,8 @@ static int __cdecl l_ClearLoadingSplashTextures(lua_State* L)
     return 0;
 }
 
-// Sets the game over splash main texture from an FTEX path.
-// Params: path (string)
+// Sets the game over splash main texture.
+// Params: path
 static int __cdecl l_SetGameOverSplashMainTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -361,8 +491,8 @@ static int __cdecl l_SetGameOverSplashMainTexturePath(lua_State* L)
     return 0;
 }
 
-// Sets the game over splash blur texture from an FTEX path.
-// Params: path (string)
+// Sets the game over splash blur texture.
+// Params: path
 static int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -373,7 +503,7 @@ static int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears both game over splash textures.
+// Clears game over splash textures.
 // Params: none
 static int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
 {
@@ -382,8 +512,8 @@ static int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
     return 0;
 }
 
-// Sets the custom caution duration in seconds from Lua.
-// Params: seconds (number)
+// Sets the caution timer override.
+// Params: seconds
 static int l_SetCautionStepNormalDurationSeconds(lua_State* L)
 {
     const float seconds = GetLuaNumber(L, 1);
@@ -391,7 +521,7 @@ static int l_SetCautionStepNormalDurationSeconds(lua_State* L)
     return 0;
 }
 
-// Returns the current custom caution duration in seconds to Lua.
+// Gets the caution timer override.
 // Params: none
 static int l_GetCautionStepNormalDurationSeconds(lua_State* L)
 {
@@ -399,7 +529,7 @@ static int l_GetCautionStepNormalDurationSeconds(lua_State* L)
     return 1;
 }
 
-// Disables the custom caution duration override from Lua.
+// Clears the caution timer override.
 // Params: none
 static int l_UnsetCautionStepNormalDurationSeconds(lua_State* L)
 {
@@ -408,7 +538,7 @@ static int l_UnsetCautionStepNormalDurationSeconds(lua_State* L)
     return 0;
 }
 
-// Returns the last observed remaining caution time in seconds to Lua.
+// Gets the remaining caution timer.
 // Params: none
 static int l_GetCautionStepNormalRemainingSeconds(lua_State* L)
 {
@@ -416,8 +546,8 @@ static int l_GetCautionStepNormalRemainingSeconds(lua_State* L)
     return 1;
 }
 
-// Sets a player-type-specific voice FPK override from Lua.
-// Params: playerType (number), path (string)
+// Sets one player voice FPK override.
+// Params: playerType, path
 static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
@@ -430,8 +560,8 @@ static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
     return 0;
 }
 
-// Clears a player-type-specific voice FPK override from Lua.
-// Params: playerType (number)
+// Clears one player voice FPK override.
+// Params: playerType
 static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
@@ -439,7 +569,7 @@ static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
     return 0;
 }
 
-// Clears all player voice FPK overrides from Lua.
+// Clears all player voice FPK overrides.
 // Params: none
 static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 {
@@ -448,28 +578,24 @@ static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
     return 0;
 }
 
-// Sets one VIP-important soldier.
-// Lua params: gameObjectId, isOfficer
+// Marks one VIP-important soldier.
+// Params: gameObjectId, isOfficer
 static int __cdecl l_SetVIPImportant(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const bool isOfficer = GetLuaBool(L, 2);
 
     Add_VIPSleepFaintImportantGameObjectId(gameObjectId, isOfficer);
     Add_VIPHoldupImportantGameObjectId(gameObjectId, isOfficer);
-	Add_VIPRadioImportantGameObjectId(gameObjectId, isOfficer);
-
+    Add_VIPRadioImportantGameObjectId(gameObjectId, isOfficer);
     return 0;
 }
 
 // Removes one VIP-important soldier.
-// Lua params: gameObjectId
+// Params: gameObjectId
 static int __cdecl l_RemoveVIPImportant(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
 
     Remove_VIPSleepFaintImportantGameObjectId(gameObjectId);
     Remove_VIPHoldupImportantGameObjectId(gameObjectId);
@@ -478,7 +604,7 @@ static int __cdecl l_RemoveVIPImportant(lua_State* L)
 }
 
 // Clears all VIP-important soldiers.
-// Lua params: none
+// Params: none
 static int __cdecl l_ClearVIPImportant(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -489,6 +615,8 @@ static int __cdecl l_ClearVIPImportant(lua_State* L)
     return 0;
 }
 
+// Sets the custom non-VIP holdup recovery toggle.
+// Params: enabled
 static int l_SetUseConcernedHoldupRecovery(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1) != 0;
@@ -496,6 +624,8 @@ static int l_SetUseConcernedHoldupRecovery(lua_State* L)
     return 0;
 }
 
+// Sets cowardly holdup reactions toggle.
+// Params: enabled
 static int l_HoldUpReactionCowardlyReactions(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
@@ -503,30 +633,26 @@ static int l_HoldUpReactionCowardlyReactions(lua_State* L)
     return 0;
 }
 
-// Marks one soldier to use the hardcoded call-sign extra override.
-// Lua params: gameObjectId
+// Adds one call-sign-extra soldier.
+// Params: gameObjectId
 static int __cdecl l_AddCallSignExtraSoldier(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     Add_CallSignExtraSoldier(gameObjectId);
     return 0;
 }
 
-// Removes one soldier from the hardcoded call-sign extra override set.
-// Lua params: gameObjectId
+// Removes one call-sign-extra soldier.
+// Params: gameObjectId
 static int __cdecl l_RemoveCallSignExtraSoldier(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     Remove_CallSignExtraSoldier(gameObjectId);
     return 0;
 }
 
-// Clears all soldiers from the hardcoded call-sign extra override set.
-// Lua params: none
+// Clears all call-sign-extra soldiers.
+// Params: none
 static int __cdecl l_ClearCallSignExtraSoldiers(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -534,35 +660,31 @@ static int __cdecl l_ClearCallSignExtraSoldiers(lua_State* L)
     return 0;
 }
 
-// Registers one hostage to track for escape reporting.
-// Lua params: gameObjectId, hostageType
+// Adds one lost hostage.
+// Params: gameObjectId, hostageType
 static int __cdecl l_SetLostHostage(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const int hostageType = GetLuaInt(L, 2);
 
     Add_LostHostageTrap(gameObjectId, hostageType);
     Add_LostHostageDiscovery(gameObjectId, hostageType);
-
     return 0;
 }
 
-// Removes one tracked hostage.
-// Lua params: gameObjectId
+// Removes one lost hostage.
+// Params: gameObjectId
 static int __cdecl l_RemoveLostHostage(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
 
     Remove_LostHostageTrap(gameObjectId);
     Remove_LostHostageDiscovery(gameObjectId);
     return 0;
 }
 
-// Clears all tracked hostages.
-// Lua params: none
+// Clears all lost hostages.
+// Params: none
 static int __cdecl l_ClearLostHostages(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -573,12 +695,31 @@ static int __cdecl l_ClearLostHostages(lua_State* L)
 
 static int __cdecl l_SetLostHostageFromPlayer(lua_State* L)
 {
-    const std::uint32_t gameObjectId =
-        static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const bool playerTookHostage = GetLuaBool(L, 2);
     PlayerTookHostage(gameObjectId, playerTookHostage);
     return 0;
 }
+
+// Enables or disables stealth camo for one mappedIndex.
+// Params: mappedIndex, enabled
+static int __cdecl l_EnableSoldierStealthCamo(lua_State* L)
+{
+    const std::uint32_t mappedIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    const bool enabled = GetLuaBool(L, 2);
+    Set_UpdateOptCamoEnableMappedIndex(mappedIndex, enabled);
+    return 0;
+}
+
+// Clears all per-soldier stealth camo overrides.
+// Params: none
+static int __cdecl l_ClearSoldierStealthCamoOverrides(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_UpdateOptCamoMappedIndexOverrides();
+    return 0;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -607,7 +748,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
     { "RemoveVIPImportant",                     l_RemoveVIPImportant },
     { "ClearVIPImportant",                      l_ClearVIPImportant },
-	{ "HoldUpReactionCowardlyReaction",         l_HoldUpReactionCowardlyReactions },
+    { "HoldUpReactionCowardlyReaction",         l_HoldUpReactionCowardlyReactions },
     { "AddCallSignPatrolSoldier",               l_AddCallSignExtraSoldier },
     { "RemoveCallSignPatrolSoldier",            l_RemoveCallSignExtraSoldier },
     { "ClearCallSignPatrolSoldiers",            l_ClearCallSignExtraSoldiers },
@@ -615,11 +756,13 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "RemoveLostHostage",                      l_RemoveLostHostage },
     { "ClearLostHostages",                      l_ClearLostHostages },
     { "SetLostHostageFromPlayer",               l_SetLostHostageFromPlayer },
+    { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
+    { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
     { nullptr, nullptr }
 };
 
-// Registers V_FrameWork into a UI Lua state only once.
-// Params: L (lua_State*)
+// Registers V_FrameWork into one Lua state once.
+// Params: L
 static void RegisterAllUiLuaLibraries(lua_State* L)
 {
     if (!L)
@@ -634,16 +777,16 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
     }
 }
 
-// Hooked version of SetLuaFunctions that appends V_FrameWork registration.
-// Params: L (lua_State*)
+// Hooked SetLuaFunctions.
+// Params: L
 static void __fastcall hkSetLuaFunctions(lua_State* L)
 {
     g_OrigSetLuaFunctions(L);
     RegisterAllUiLuaLibraries(L);
 }
 
-// Exported Lua loader for require("V_FrameWork").
-// Params: L (lua_State*)
+// Exported require("V_FrameWork") loader.
+// Params: L
 extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
 {
     return RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib) ? 1 : 0;

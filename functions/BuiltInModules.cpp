@@ -46,6 +46,9 @@ bool Uninstall_LostHostage_Hooks();
 bool Install_LostHostageDiscovery_Hooks();
 bool Uninstall_LostHostageDiscovery_Hooks();
 
+bool Install_UpdateOptCamo_Hook();
+bool Uninstall_UpdateOptCamo_Hook();
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -274,6 +277,25 @@ namespace
             Uninstall_LostHostageDiscovery_Hooks();
 		}
 	};
+    class UpdateOptCamoModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "UpdateOptCamo";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_UpdateOptCamo_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_UpdateOptCamo_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -290,6 +312,7 @@ void RegisterBuiltInFeatureModules()
 	static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
 	static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
 	static LostHostageModule s_LostHostageModule;
+    static UpdateOptCamoModule s_UpdateOptCamoModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -306,5 +329,6 @@ void RegisterBuiltInFeatureModules()
 			FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
 			FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
 			FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
+            FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
         });
 }
