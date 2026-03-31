@@ -49,6 +49,12 @@ bool Uninstall_LostHostageDiscovery_Hooks();
 bool Install_UpdateOptCamo_Hook();
 bool Uninstall_UpdateOptCamo_Hook();
 
+bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+
+bool Install_SoundSystem_BeginSoundSystem_Hook();
+bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -296,6 +302,44 @@ namespace
             Uninstall_UpdateOptCamo_Hook();
         }
     };
+    class CassetteTapePlayHookModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CassetteTapePlayHook";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+        }
+    };
+    class SoundSystemBeginModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SoundSystemBegin";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoundSystem_BeginSoundSystem_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoundSystem_BeginSoundSystem_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -313,6 +357,8 @@ void RegisterBuiltInFeatureModules()
 	static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
 	static LostHostageModule s_LostHostageModule;
     static UpdateOptCamoModule s_UpdateOptCamoModule;
+    static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
+    static SoundSystemBeginModule s_SoundSystemBeginModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -330,5 +376,8 @@ void RegisterBuiltInFeatureModules()
 			FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
 			FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
             FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
+
         });
 }

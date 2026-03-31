@@ -155,6 +155,11 @@
     <ClInclude Include="functions\State_EnterStandHoldup1.h" />
     <ClInclude Include="functions\StepRadioDiscovery.h" />
     <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h" />
+    <ClInclude Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h" />
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h" />
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.h" />
+    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
+    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h" />
     <ClInclude Include="functions\UiTextureOverrides.h" />
     <ClInclude Include="functions\VIPHoldupHook.h" />
     <ClInclude Include="functions\VIPRadioHook.h" />
@@ -179,6 +184,11 @@
     <ClCompile Include="functions\MissionCodeGuard.cpp" />
     <ClCompile Include="functions\PlayerVoiceFpkHook.cpp" />
     <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp" />
+    <ClCompile Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.cpp" />
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.cpp" />
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.cpp" />
+    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
+    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
     <ClCompile Include="SetLuaFunctions.cpp" />
     <ClCompile Include="functions\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="functions\State_StandHoldupCancelLookToPlayer.cpp" />

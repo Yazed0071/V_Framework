@@ -20,6 +20,8 @@
 #include "LostHostageHook.h"
 #include "StepRadioDiscovery.h"
 #include "tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h"
+#include "tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
+#include "tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h"
 
 extern "C" {
     #include "lua.h"
@@ -720,6 +722,75 @@ static int __cdecl l_ClearSoldierStealthCamoOverrides(lua_State* L)
     return 0;
 }
 
+// Plays a cassette directly using album and track indices.
+// Params: albumIndex, trackIndex, loopPlay, playAll
+static int __cdecl l_PlayCassetteTapeByAlbumAndTrack(lua_State* L)
+{
+    const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    const std::uint32_t trackIndex = static_cast<std::uint32_t>(GetLuaInt(L, 2));
+
+    bool loopPlay = false;
+    bool playAll = true;
+
+    const int arg3Type = LuaType(L, 3);
+    if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
+    {
+        loopPlay = GetLuaBool(L, 3);
+    }
+
+    const int arg4Type = LuaType(L, 4);
+    if (arg4Type != LUA_TNONE && arg4Type != LUA_TNIL)
+    {
+        playAll = GetLuaBool(L, 4);
+    }
+
+    const bool ok = PlayCassetteByAlbumAndTrack(albumIndex, trackIndex, loopPlay, playAll);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+// Plays a cassette directly using a numeric track id.
+// Params: trackId, loopPlay, playAll
+static int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
+{
+    const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    const std::uint32_t trackId = static_cast<std::uint32_t>(GetLuaInt(L, 2));
+
+    bool loopPlay = false;
+    bool playAll = false;
+
+    const int arg3Type = LuaType(L, 3);
+    if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
+    {
+        loopPlay = GetLuaBool(L, 3);
+    }
+
+    const int arg4Type = LuaType(L, 4);
+    if (arg4Type != LUA_TNONE && arg4Type != LUA_TNIL)
+    {
+        playAll = GetLuaBool(L, 4);
+    }
+
+    const bool ok = PlayCassetteByTrackId(albumIndex, trackId, loopPlay, playAll);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+static int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
+{
+    if (!LuaIsString(L, 1))
+    {
+        PushLuaNumber(L, -1.0f);
+        return 1;
+    }
+
+    const char* trackName = GetLuaString(L, 1);
+    const std::int32_t directPlayTrackId = ResolveTapeTrackDirectPlayId(trackName);
+
+    PushLuaNumber(L, static_cast<float>(directPlayTrackId));
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -758,6 +829,8 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetLostHostageFromPlayer",               l_SetLostHostageFromPlayer },
     { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
     { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
+    { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
+    { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
     { nullptr, nullptr }
 };
 

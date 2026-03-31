@@ -90,6 +90,21 @@
     <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -153,6 +168,21 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
