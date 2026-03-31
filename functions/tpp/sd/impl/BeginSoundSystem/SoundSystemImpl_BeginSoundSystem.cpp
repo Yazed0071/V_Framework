@@ -19,9 +19,14 @@ namespace
     // Params: thisPtr, a2, a3, a4
     using SoundSystemCtor_t = void* (__fastcall*)(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4);
 
+    using GetPlayingTime_t = std::uint32_t(__fastcall*)(void* thisPtr);
+    using GetPlayingTrackId_t = std::uint32_t(__fastcall*)(void* thisPtr);;
+
     static constexpr std::uintptr_t ABS_BeginSoundSystem = 0x140989340ull;
     static constexpr std::uintptr_t ABS_SoundSystemCtor = 0x140989120ull;
     static constexpr std::uintptr_t ABS_g_SoundSystem = 0x142C009F0ull;
+    static constexpr std::uintptr_t ABS_GetPlayingTime = 0x14614A4E0ull;
+    static constexpr std::uintptr_t ABS_GetPlayingTrackId = 0x14614AA30ull;
 
     static constexpr std::uintptr_t kCassettePlayerVtable = 0x142285780ull;
     static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
@@ -71,6 +76,46 @@ static void* ResolveSoundSystemFromGlobal()
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        return nullptr;
+    }
+}
+// Resolves the real SoundMusicPlayer from MusicManager::s_instance.
+// Returns: SoundMusicPlayer pointer or null.
+static void* ResolveSoundMusicPlayerFromMusicManager()
+{
+    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
+
+    void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
+    if (!musicManagerGlobalAddr)
+    {
+        Log("[SoundMusicPlayer] MusicManager::s_instance address resolve failed\n");
+        return nullptr;
+    }
+
+    __try
+    {
+        void* musicManagerInstance = *reinterpret_cast<void**>(musicManagerGlobalAddr);
+        if (!musicManagerInstance)
+        {
+            Log("[SoundMusicPlayer] MusicManager::s_instance is null\n");
+            return nullptr;
+        }
+
+        void* soundMusicPlayer =
+            *reinterpret_cast<void**>(
+                reinterpret_cast<std::uintptr_t>(musicManagerInstance) + 0xA8ull);
+
+        if (!soundMusicPlayer)
+        {
+            Log("[SoundMusicPlayer] soundMusicPlayer is null\n");
+            return nullptr;
+        }
+
+        return soundMusicPlayer;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[SoundMusicPlayer] Exception while resolving MusicManager::s_instance\n");
         return nullptr;
     }
 }
@@ -220,6 +265,74 @@ void* GetGlobalCassetteMusicPlayerFromSoundSystem()
     return g_CachedCassettePlayer;
 }
 
+std::uint32_t GetCassettePlayingTime()
+{
+    void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
+    if (!soundMusicPlayer)
+        return 0;
+
+    void* fnAddr = ResolveGameAddress(ABS_GetPlayingTime);
+    if (!fnAddr)
+    {
+        Log("[CassettePlayTime] GetPlayingTime address resolve failed\n");
+        return 0;
+    }
+
+    GetPlayingTime_t GetPlayingTime =
+        reinterpret_cast<GetPlayingTime_t>(fnAddr);
+
+    __try
+    {
+        const std::uint32_t value = GetPlayingTime(soundMusicPlayer);
+
+        Log(
+            "[CassettePlayTime] soundMusicPlayer=%p value=%u\n",
+            soundMusicPlayer,
+            static_cast<unsigned int>(value));
+
+        return value;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassettePlayTime] Exception while calling GetPlayingTime\n");
+        return 0;
+    }
+}
+
+std::uint32_t GetCassettePlayingTrackId()
+{
+    void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
+    if (!soundMusicPlayer)
+        return 0;
+
+    void* fnAddr = ResolveGameAddress(ABS_GetPlayingTrackId);
+    if (!fnAddr)
+    {
+        Log("[CassetteTrackId] GetPlayingTrackId address resolve failed\n");
+        return 0;
+    }
+
+    GetPlayingTrackId_t GetPlayingTrackId =
+        reinterpret_cast<GetPlayingTrackId_t>(fnAddr);
+
+    __try
+    {
+        const std::uint32_t value = GetPlayingTrackId(soundMusicPlayer);
+
+        Log(
+            "[CassetteTrackId] soundMusicPlayer=%p value=%u (0x%X)\n",
+            soundMusicPlayer,
+            static_cast<unsigned int>(value),
+            static_cast<unsigned int>(value));
+
+        return value;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassetteTrackId] Exception while calling GetPlayingTrackId\n");
+        return 0;
+    }
+}
 // Hooks SoundSystemImpl constructor and caches the created object.
 // Params: thisPtr, a2, a3, a4
 static void* __fastcall hkSoundSystemCtor(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4)

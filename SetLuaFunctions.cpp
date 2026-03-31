@@ -22,6 +22,7 @@
 #include "tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h"
 #include "tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h"
+#include <tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h>
 
 extern "C" {
     #include "lua.h"
@@ -791,6 +792,24 @@ static int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
     return 1;
 }
 
+static int l_GetCassettePlayingTime(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+
+    const std::uint32_t value = GetCassettePlayingTime();
+    PushLuaNumber(L, static_cast<float>(value));
+    return 1;
+}
+
+static int l_GetCassettePlayingTrackId(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+
+    const std::uint32_t value = GetCassettePlayingTrackId();
+    PushLuaNumber(L, static_cast<float>(value));
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -831,6 +850,8 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
     { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
     { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
+    { "GetCassettePlayingTime",                 l_GetCassettePlayingTime },
+    { "GetCassettePlayingTrackId",              l_GetCassettePlayingTrackId },
     { nullptr, nullptr }
 };
 
