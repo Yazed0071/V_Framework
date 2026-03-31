@@ -809,6 +809,57 @@ static int l_GetCassettePlayingTrackId(lua_State* L)
     PushLuaNumber(L, static_cast<float>(value));
     return 1;
 }
+static int __cdecl l_PauseCassette(lua_State* L)
+{
+    std::uint32_t fadeMs = 0;
+
+    const int arg1Type = LuaType(L, 1);
+    if (arg1Type != LUA_TNONE && arg1Type != LUA_TNIL)
+    {
+        fadeMs = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    }
+
+    const std::int32_t errorCode = PauseCassette(fadeMs);
+    PushLuaNumber(L, static_cast<float>(errorCode));
+    return 1;
+}
+
+static int __cdecl l_ResumeCassette(lua_State* L)
+{
+    std::uint32_t fadeMs = 0;
+
+    const int arg1Type = LuaType(L, 1);
+    if (arg1Type != LUA_TNONE && arg1Type != LUA_TNIL)
+    {
+        fadeMs = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    }
+
+    const std::int32_t errorCode = ResumeCassette(fadeMs);
+    PushLuaNumber(L, static_cast<float>(errorCode));
+    return 1;
+}
+
+static int __cdecl l_StopCassette(lua_State* L)
+{
+    std::uint32_t fadeMs = 0;
+    bool stopByUser = false;
+
+    const int arg1Type = LuaType(L, 1);
+    if (arg1Type != LUA_TNONE && arg1Type != LUA_TNIL)
+    {
+        fadeMs = static_cast<std::uint32_t>(GetLuaInt(L, 1));
+    }
+
+    const int arg2Type = LuaType(L, 2);
+    if (arg2Type != LUA_TNONE && arg2Type != LUA_TNIL)
+    {
+        stopByUser = GetLuaBool(L, 2);
+    }
+
+    const std::int32_t errorCode = StopCassette(fadeMs, stopByUser);
+    PushLuaNumber(L, static_cast<float>(errorCode));
+    return 1;
+}
 
 static luaL_Reg g_VFrameWorkLib[] =
 {
@@ -852,6 +903,9 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
     { "GetCassettePlayingTime",                 l_GetCassettePlayingTime },
     { "GetCassettePlayingTrackId",              l_GetCassettePlayingTrackId },
+    { "PauseCassette",                          l_PauseCassette },
+    { "ResumeCassette",                         l_ResumeCassette },
+    { "StopCassette",                           l_StopCassette },
     { nullptr, nullptr }
 };
 

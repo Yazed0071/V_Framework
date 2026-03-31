@@ -19,14 +19,38 @@ namespace
     // Params: thisPtr, a2, a3, a4
     using SoundSystemCtor_t = void* (__fastcall*)(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4);
 
+    // Original SoundMusicPlayer::GetPlayingTime.
+    // Params: thisPtr
     using GetPlayingTime_t = std::uint32_t(__fastcall*)(void* thisPtr);
-    using GetPlayingTrackId_t = std::uint32_t(__fastcall*)(void* thisPtr);;
+
+    // Original SoundMusicPlayer::GetPlayingTrackId.
+    // Params: thisPtr
+    using GetPlayingTrackId_t = std::uint32_t(__fastcall*)(void* thisPtr);
+
+    // Original SoundMusicPlayer::Pause.
+    // Params: thisPtr, outError, fadeMs
+    using PauseMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
+
+    // Original SoundMusicPlayer::Resume.
+    // Params: thisPtr, outError, fadeMs
+    using ResumeMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
+
+    // Original SoundMusicPlayer::Stop.
+    // Params: thisPtr, outError, fadeMs, stopByUser
+    using StopMusicPlayer_t = std::uint32_t* (__fastcall*)(void* thisPtr, std::uint32_t* outError, std::uint32_t fadeMs, std::uint8_t stopByUser);
 
     static constexpr std::uintptr_t ABS_BeginSoundSystem = 0x140989340ull;
     static constexpr std::uintptr_t ABS_SoundSystemCtor = 0x140989120ull;
     static constexpr std::uintptr_t ABS_g_SoundSystem = 0x142C009F0ull;
+
     static constexpr std::uintptr_t ABS_GetPlayingTime = 0x14614A4E0ull;
     static constexpr std::uintptr_t ABS_GetPlayingTrackId = 0x14614AA30ull;
+    static constexpr std::uintptr_t ABS_PauseMusicPlayer = 0x140972C70ull;
+    static constexpr std::uintptr_t ABS_ResumeMusicPlayer = 0x1409739E0ull;
+    static constexpr std::uintptr_t ABS_StopMusicPlayer = 0x146150970ull;
+
+    // MusicManager::s_instance global.
+    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
 
     static constexpr std::uintptr_t kCassettePlayerVtable = 0x142285780ull;
     static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
@@ -79,12 +103,11 @@ static void* ResolveSoundSystemFromGlobal()
         return nullptr;
     }
 }
+
 // Resolves the real SoundMusicPlayer from MusicManager::s_instance.
 // Returns: SoundMusicPlayer pointer or null.
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
-    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
-
     void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
     {
@@ -265,6 +288,8 @@ void* GetGlobalCassetteMusicPlayerFromSoundSystem()
     return g_CachedCassettePlayer;
 }
 
+// Gets the current playing time from SoundMusicPlayer.
+// Returns: raw playing-time value, or 0 on failure.
 std::uint32_t GetCassettePlayingTime()
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -299,6 +324,8 @@ std::uint32_t GetCassettePlayingTime()
     }
 }
 
+// Gets the current playing track id from SoundMusicPlayer.
+// Returns: raw playing-track id, or 0 on failure.
 std::uint32_t GetCassettePlayingTrackId()
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -333,6 +360,125 @@ std::uint32_t GetCassettePlayingTrackId()
         return 0;
     }
 }
+
+// Pauses the current cassette through SoundMusicPlayer.
+// Params: fadeMs
+// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+std::int32_t PauseCassette(std::uint32_t fadeMs)
+{
+    void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
+    if (!soundMusicPlayer)
+        return -1;
+
+    void* fnAddr = ResolveGameAddress(ABS_PauseMusicPlayer);
+    if (!fnAddr)
+    {
+        Log("[CassettePause] Pause address resolve failed\n");
+        return -1;
+    }
+
+    PauseMusicPlayer_t PauseMusicPlayer =
+        reinterpret_cast<PauseMusicPlayer_t>(fnAddr);
+
+    __try
+    {
+        int errorCode = -1;
+        PauseMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
+
+        Log(
+            "[CassettePause] soundMusicPlayer=%p fadeMs=%u errorCode=%d\n",
+            soundMusicPlayer,
+            static_cast<unsigned int>(fadeMs),
+            errorCode);
+
+        return static_cast<std::int32_t>(errorCode);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassettePause] Exception while calling Pause\n");
+        return -1;
+    }
+}
+
+// Resumes the current cassette through SoundMusicPlayer.
+// Params: fadeMs
+// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+std::int32_t ResumeCassette(std::uint32_t fadeMs)
+{
+    void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
+    if (!soundMusicPlayer)
+        return -1;
+
+    void* fnAddr = ResolveGameAddress(ABS_ResumeMusicPlayer);
+    if (!fnAddr)
+    {
+        Log("[CassetteResume] Resume address resolve failed\n");
+        return -1;
+    }
+
+    ResumeMusicPlayer_t ResumeMusicPlayer =
+        reinterpret_cast<ResumeMusicPlayer_t>(fnAddr);
+
+    __try
+    {
+        int errorCode = -1;
+        ResumeMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
+
+        Log(
+            "[CassetteResume] soundMusicPlayer=%p fadeMs=%u errorCode=%d\n",
+            soundMusicPlayer,
+            static_cast<unsigned int>(fadeMs),
+            errorCode);
+
+        return static_cast<std::int32_t>(errorCode);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassetteResume] Exception while calling Resume\n");
+        return -1;
+    }
+}
+
+// Stops the current cassette through SoundMusicPlayer.
+// Params: fadeMs, stopByUser
+// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
+{
+    void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
+    if (!soundMusicPlayer)
+        return -1;
+
+    void* fnAddr = ResolveGameAddress(ABS_StopMusicPlayer);
+    if (!fnAddr)
+    {
+        Log("[CassetteStop] Stop address resolve failed\n");
+        return -1;
+    }
+
+    StopMusicPlayer_t StopMusicPlayer =
+        reinterpret_cast<StopMusicPlayer_t>(fnAddr);
+
+    __try
+    {
+        std::uint32_t errorCode = static_cast<std::uint32_t>(-1);
+        StopMusicPlayer(soundMusicPlayer, &errorCode, fadeMs, stopByUser ? 1 : 0);
+
+        Log(
+            "[CassetteStop] soundMusicPlayer=%p fadeMs=%u stopByUser=%u errorCode=%d\n",
+            soundMusicPlayer,
+            static_cast<unsigned int>(fadeMs),
+            stopByUser ? 1u : 0u,
+            static_cast<int>(errorCode));
+
+        return static_cast<std::int32_t>(errorCode);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassetteStop] Exception while calling Stop\n");
+        return -1;
+    }
+}
+
 // Hooks SoundSystemImpl constructor and caches the created object.
 // Params: thisPtr, a2, a3, a4
 static void* __fastcall hkSoundSystemCtor(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4)
