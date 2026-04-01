@@ -6,7 +6,6 @@
 #include <mutex>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "PlayerVoiceFpkHook.h"
@@ -19,9 +18,11 @@ namespace
 
     // Absolute address of player::voice::LoadPlayerVoiceFpk.
     // Params: fileSlotPath (void*), playerType (uint32_t), playerFaceId (uint32_t)
+    static constexpr std::uintptr_t ABS_LoadPlayerVoiceFpk = 0x146867240ull;
 
     // Absolute address of fox::Path::Path(Path*, PathCode64Ext).
     // Params: outPath (void*), pathCode64Ext (uint64_t)
+    static constexpr std::uintptr_t ABS_FoxPath_Path = 0x1400855B0ull;
 
     static LoadPlayerVoiceFpk_t g_OrigLoadPlayerVoiceFpk = nullptr;
     static FoxPath_Path_t g_FoxPath_Path = nullptr;
@@ -44,7 +45,7 @@ static bool ResolvePlayerVoiceApi()
     if (!g_FoxPath_Path)
     {
         g_FoxPath_Path = reinterpret_cast<FoxPath_Path_t>(
-            ResolveGameAddress(gAddr.FoxPath_Path)
+            ResolveGameAddress(ABS_FoxPath_Path)
             );
     }
 
@@ -117,7 +118,7 @@ bool Install_PlayerVoiceFpk_Hook()
 {
     ResolvePlayerVoiceApi();
 
-    void* target = ResolveGameAddress(gAddr.LoadPlayerVoiceFpk);
+    void* target = ResolveGameAddress(ABS_LoadPlayerVoiceFpk);
     if (!target)
     {
         Log("[Hook] PlayerVoiceFpk: target resolve failed\n");
@@ -138,7 +139,7 @@ bool Install_PlayerVoiceFpk_Hook()
 // Params: none
 bool Uninstall_PlayerVoiceFpk_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerVoiceFpk));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_LoadPlayerVoiceFpk));
     g_OrigLoadPlayerVoiceFpk = nullptr;
     g_FoxPath_Path = nullptr;
 

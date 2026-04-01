@@ -8,7 +8,6 @@
 #include <mutex>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPRadioHook.h"
@@ -27,8 +26,10 @@ namespace
         void(__fastcall*)(void* self, std::uint32_t actorId, std::uint32_t proc, void* evt);
 
     // Absolute address of NoticeActionImpl::State_ComradeAction.
+    static constexpr std::uintptr_t ABS_State_ComradeAction = 0x1414B8D20ull;
 
     // Absolute address of NoticeActionImpl::State_StandToSquatRecoverySleepFaintComradeByTouch.
+    static constexpr std::uintptr_t ABS_State_RecoveryTouch = 0x1414BCEF0ull;
 
     // Event hash used by the game for voice notice.
     static constexpr std::uint32_t HASH_EVENT_VOICE_NOTICE = 0x1077DB8Du;
@@ -740,12 +741,12 @@ void Clear_VIPSleepFaintImportantGameObjectIds()
 bool Install_VIPSleepFaint_Hook()
 {
     const bool okComrade = CreateAndEnableHook(
-        ResolveGameAddress(gAddr.State_ComradeAction),
+        ResolveGameAddress(ABS_State_ComradeAction),
         reinterpret_cast<void*>(&hkState_ComradeAction),
         reinterpret_cast<void**>(&g_OrigState_ComradeAction));
 
     const bool okTouch = CreateAndEnableHook(
-        ResolveGameAddress(gAddr.State_RecoveryTouch),
+        ResolveGameAddress(ABS_State_RecoveryTouch),
         reinterpret_cast<void*>(&hkState_RecoveryTouch),
         reinterpret_cast<void**>(&g_OrigState_RecoveryTouch));
 
@@ -759,8 +760,8 @@ bool Install_VIPSleepFaint_Hook()
 // Params: none
 bool Uninstall_VIPSleepFaint_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_ComradeAction));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_RecoveryTouch));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_State_ComradeAction));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_State_RecoveryTouch));
 
     g_OrigState_ComradeAction = nullptr;
     g_OrigState_RecoveryTouch = nullptr;

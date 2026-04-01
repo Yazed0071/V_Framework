@@ -4,7 +4,6 @@
 #include <cstdint>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "GetTapeTrackDirectPlayId.h"
@@ -15,9 +14,11 @@ namespace
     // Params: thisPtr, trackNameStrCode
     using GetTrackInfoByName_t = void* (__fastcall*)(void* thisPtr, std::int32_t trackNameStrCode);
 
+    static constexpr std::uintptr_t ABS_GetTrackInfoByName = 0x14614C0C0ull;
 
     // Replace this with your real absolute address for:
     // _?s_instance@MusicManager@sd@tpp@@0VGlobalEntityPtr@fox@@A
+    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
 }
 
 // Resolves a direct-play tape track id from a C string.
@@ -35,14 +36,14 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
         return -1;
     }
 
-    void* fnAddr = ResolveGameAddress(gAddr.GetTrackInfoByName);
+    void* fnAddr = ResolveGameAddress(ABS_GetTrackInfoByName);
     if (fnAddr == nullptr)
     {
         Log("[TapeDirectPlayId] GetTrackInfoByName address resolve failed\n");
         return -1;
     }
 
-    void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
+    void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
     if (musicManagerGlobalAddr == nullptr)
     {
         Log("[TapeDirectPlayId] MusicManager::s_instance address resolve failed\n");

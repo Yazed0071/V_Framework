@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "UiTextureOverrides.h"
@@ -51,7 +50,23 @@ namespace
     using lua_objlen_t = size_t(__fastcall*)(lua_State* L, int idx);
     using lua_pushboolean_t = void(__fastcall*)(lua_State* L, int b);
 
+    static constexpr uintptr_t ABS_SetLuaFunctions = 0x1408D78A0ull;
+    static constexpr uintptr_t ABS_FoxLuaRegisterLibrary = 0x14006B6D0ull;
+    static constexpr uintptr_t ABS_lua_tolstring = 0x141A123C0ull;
+    static constexpr uintptr_t ABS_lua_tointeger = 0x141A12390ull;
+    static constexpr uintptr_t ABS_lua_tonumber = 0x141A12460ull;
+    static constexpr uintptr_t ABS_lua_pushnumber = 0x141A11BC0ull;
+    static constexpr uintptr_t ABS_lua_toboolean = 0x141A12330ull;
 
+    static constexpr uintptr_t ABS_lua_gettop = 0x14C1D7D40ull;
+    static constexpr uintptr_t ABS_lua_settop = 0x14C1EBBE0ull;
+    static constexpr uintptr_t ABS_lua_getfield = 0x14C1D7320ull;
+    static constexpr uintptr_t ABS_lua_rawgeti = 0x14C1E9320ull;
+    static constexpr uintptr_t ABS_lua_type = 0x14C1ED760ull;
+    static constexpr uintptr_t ABS_lua_isstring = 0x14C1D9250ull;
+    static constexpr uintptr_t ABS_lua_isnumber = 0x14C1D8C90ull;
+    static constexpr uintptr_t ABS_lua_objlen = 0x14C1DA960ull;
+    static constexpr uintptr_t ABS_lua_pushboolean = 0x14C1DB230ull;
 
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
     static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
@@ -80,49 +95,49 @@ namespace
 static bool ResolveLuaApi()
 {
     if (!g_FoxLuaRegisterLibrary)
-        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(gAddr.FoxLuaRegisterLibrary));
+        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(ABS_FoxLuaRegisterLibrary));
 
     if (!g_lua_tolstring)
-        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(gAddr.lua_tolstring));
+        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(ABS_lua_tolstring));
 
     if (!g_lua_tointeger)
-        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(gAddr.lua_tointeger));
+        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(ABS_lua_tointeger));
 
     if (!g_lua_tonumber)
-        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(gAddr.lua_tonumber));
+        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(ABS_lua_tonumber));
 
     if (!g_lua_toboolean)
-        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(gAddr.lua_toboolean));
+        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(ABS_lua_toboolean));
 
     if (!g_lua_pushnumber)
-        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(gAddr.lua_pushnumber));
+        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(ABS_lua_pushnumber));
 
     if (!g_lua_gettop)
-        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(gAddr.lua_gettop));
+        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(ABS_lua_gettop));
 
     if (!g_lua_settop)
-        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(gAddr.lua_settop));
+        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(ABS_lua_settop));
 
     if (!g_lua_getfield)
-        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(gAddr.lua_getfield));
+        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(ABS_lua_getfield));
 
     if (!g_lua_rawgeti)
-        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(gAddr.lua_rawgeti));
+        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(ABS_lua_rawgeti));
 
     if (!g_lua_type)
-        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(gAddr.lua_type));
+        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(ABS_lua_type));
 
     if (!g_lua_isstring)
-        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(gAddr.lua_isstring));
+        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(ABS_lua_isstring));
 
     if (!g_lua_isnumber)
-        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(gAddr.lua_isnumber));
+        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(ABS_lua_isnumber));
 
     if (!g_lua_objlen)
-        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(gAddr.lua_objlen));
+        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(ABS_lua_objlen));
 
     if (!g_lua_pushboolean)
-        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(gAddr.lua_pushboolean));
+        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(ABS_lua_pushboolean));
 
     return g_FoxLuaRegisterLibrary &&
         g_lua_tolstring &&
@@ -846,7 +861,6 @@ static int __cdecl l_StopCassette(lua_State* L)
     return 1;
 }
 
-
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -932,7 +946,7 @@ bool Install_SetLuaFunctions_Hook()
 {
     ResolveLuaApi();
 
-    void* target = ResolveGameAddress(gAddr.SetLuaFunctions);
+    void* target = ResolveGameAddress(ABS_SetLuaFunctions);
     if (!target)
         return false;
 
@@ -949,7 +963,7 @@ bool Install_SetLuaFunctions_Hook()
 // Params: none
 bool Uninstall_SetLuaFunctions_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetLuaFunctions));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_SetLuaFunctions));
     g_OrigSetLuaFunctions = nullptr;
     ClearTrackedLuaStates();
     return true;

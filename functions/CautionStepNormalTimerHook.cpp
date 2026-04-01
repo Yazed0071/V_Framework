@@ -6,7 +6,6 @@
 #include <cstdio>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 
@@ -16,6 +15,7 @@ namespace
 
     // Absolute address of tpp::gm::impl::cp::CautionAiImpl::DecrementPhaseCounter.
     // Params: self (void*), phaseIndex (uint32_t), knowledge (void*)
+    static constexpr std::uintptr_t ABS_DecrementPhaseCounter = 0x140D6EAA0ull;
 
     static DecrementPhaseCounter_t g_OrigDecrementPhaseCounter = nullptr;
 
@@ -402,7 +402,7 @@ bool Install_CautionStepNormalTimerHook()
 {
     SyncCautionStepNormalDrainFromDuration();
 
-    void* target = ResolveGameAddress(gAddr.DecrementPhaseCounter);
+    void* target = ResolveGameAddress(ABS_DecrementPhaseCounter);
     if (!target)
     {
         LogCautionPhaseTimer("[Hook] CautionPhaseTimer: target resolve failed\n");
@@ -431,7 +431,7 @@ bool Install_CautionStepNormalTimerHook()
 // Params: none
 bool Uninstall_CautionStepNormalTimerHook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.DecrementPhaseCounter));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_DecrementPhaseCounter));
     g_OrigDecrementPhaseCounter = nullptr;
 
     LogCautionPhaseTimer("[Hook] CautionPhaseTimer: removed\n");

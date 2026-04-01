@@ -5,7 +5,6 @@
 #include <cstring>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 
 namespace
@@ -14,6 +13,7 @@ namespace
     // Params: this, trackNameStrCode
     using GetTrackInfoByName_t = void* (__fastcall*)(void* thisPtr, std::int32_t trackNameStrCode);
 
+    static constexpr std::uintptr_t ABS_GetTrackInfoByName = 0x14614C0C0ull;
 
     static GetTrackInfoByName_t g_OrigGetTrackInfoByName = nullptr;
 }
@@ -145,7 +145,7 @@ static void* __fastcall hkGetTrackInfoByName(void* thisPtr, std::int32_t trackNa
 // Params: none
 bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
 {
-    void* target = ResolveGameAddress(gAddr.GetTrackInfoByName);
+    void* target = ResolveGameAddress(ABS_GetTrackInfoByName);
     if (!target)
     {
         Log("[Hook] SoundMusicPlayer::GetTrackInfoByName: address resolve failed\n");
@@ -165,7 +165,7 @@ bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
 // Params: none
 bool Uninstall_SoundMusicPlayer_GetTrackInfoByName_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.GetTrackInfoByName));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_GetTrackInfoByName));
     g_OrigGetTrackInfoByName = nullptr;
     return true;
 }

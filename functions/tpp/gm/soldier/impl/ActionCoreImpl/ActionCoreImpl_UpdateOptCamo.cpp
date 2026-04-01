@@ -6,7 +6,6 @@
 #include <unordered_map>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
@@ -39,6 +38,7 @@ namespace
         ExceptionThrown
     };
 
+    static constexpr std::uintptr_t ABS_UpdateOptCamo = 0x149F65330ull;
     static constexpr std::uint32_t kDesiredOptCamoBit = 0x20000000u;
 
     static UpdateOptCamo_t g_OrigUpdateOptCamo = nullptr;
@@ -279,7 +279,7 @@ static void __fastcall hkUpdateOptCamo(void* self, std::uint32_t actorIndex)
 // Params: none
 bool Install_UpdateOptCamo_Hook()
 {
-    void* target = ResolveGameAddress(gAddr.UpdateOptCamo);
+    void* target = ResolveGameAddress(ABS_UpdateOptCamo);
     if (!target)
     {
         Log("[Hook] UpdateOptCamo: address resolve failed\n");
@@ -299,7 +299,7 @@ bool Install_UpdateOptCamo_Hook()
 // Params: none
 bool Uninstall_UpdateOptCamo_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.UpdateOptCamo));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_UpdateOptCamo));
     g_OrigUpdateOptCamo = nullptr;
 
     {

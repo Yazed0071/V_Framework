@@ -1,7 +1,5 @@
 #include "pch.h"
 #include "FoxHashes.h"
-#include "HookUtils.h"
-#include "AddressSet.h"
 
 #include <Windows.h>
 #include <algorithm>
@@ -10,9 +8,27 @@
 
 namespace
 {
+    static uintptr_t GetExeBase()
+    {
+        return reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    }
+
+    static constexpr uintptr_t EXE_PREFERRED_BASE = 0x140000000ull;
+
+    static constexpr uintptr_t ToRva(uintptr_t absAddr)
+    {
+        return absAddr - EXE_PREFERRED_BASE;
+    }
+
     using FoxStrHash32_t = uint32_t(__fastcall*)(char* str);
     using FoxStrHash64_t = uint64_t(__fastcall*)(char* str);
     using PathHashCode_t = uint64_t(__fastcall*)(char* str);
+
+    // Your reversed addresses
+    static constexpr uintptr_t ABS_FoxStrHash32 = 0x142ECE7F0ull;
+    static constexpr uintptr_t ABS_FoxStrHash64 = 0x14C1BD310ull;
+    static constexpr uintptr_t ABS_PathHashCode = 0x14C1BD5D0ull; // path_hash_code / PathCode64Ext
+
     static FoxStrHash32_t g_FoxStrHash32 = nullptr;
     static FoxStrHash64_t g_FoxStrHash64 = nullptr;
     static PathHashCode_t g_PathHashCode = nullptr;
@@ -25,22 +41,26 @@ namespace FoxHashes
         if (g_FoxStrHash32 && g_FoxStrHash64 && g_PathHashCode)
             return true;
 
+        const uintptr_t base = GetExeBase();
+        if (!base)
+            return false;
+
         if (!g_FoxStrHash32)
         {
             g_FoxStrHash32 = reinterpret_cast<FoxStrHash32_t>(
-                ResolveGameAddress(gAddr.FoxStrHash32));
+                base + ToRva(ABS_FoxStrHash32));
         }
 
         if (!g_FoxStrHash64)
         {
             g_FoxStrHash64 = reinterpret_cast<FoxStrHash64_t>(
-                ResolveGameAddress(gAddr.FoxStrHash64));
+                base + ToRva(ABS_FoxStrHash64));
         }
 
         if (!g_PathHashCode)
         {
             g_PathHashCode = reinterpret_cast<PathHashCode_t>(
-                ResolveGameAddress(gAddr.PathHashCode));
+                base + ToRva(ABS_PathHashCode));
         }
 
         return g_FoxStrHash32 && g_FoxStrHash64 && g_PathHashCode;

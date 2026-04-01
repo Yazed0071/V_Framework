@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "LostHostageHook.h"
@@ -31,6 +30,11 @@ using GetNameIdWithGameObjectId_t = std::uint32_t(__fastcall*)(std::uint16_t gam
 // Game addresses
 // ============================================================
 
+static constexpr std::uintptr_t ADDR_ExecCallback = 0x140A19030ull;
+static constexpr std::uintptr_t ADDR_ConvertRadioTypeToLabel = 0x140D685C0ull;
+static constexpr std::uintptr_t ADDR_AddNoticeInfo = 0x1414DCB60ull;
+static constexpr std::uintptr_t ADDR_StateRadioRequest = 0x14A2ACC00ull;
+static constexpr std::uintptr_t ADDR_GetNameIdWithGameObjectId = 0x146C98180ull;
 
 
 // ============================================================
@@ -199,7 +203,7 @@ static bool ReadBytes(std::uintptr_t addr, std::uint8_t* buf, std::size_t size)
 static bool LoadGetNameIdFunction()
 {
     if (!g_GetNameId)
-        g_GetNameId = reinterpret_cast<GetNameIdWithGameObjectId_t>(ResolveGameAddress(gAddr.GetNameIdWithGameObjectId));
+        g_GetNameId = reinterpret_cast<GetNameIdWithGameObjectId_t>(ResolveGameAddress(ADDR_GetNameIdWithGameObjectId));
     return g_GetNameId != nullptr;
 }
 
@@ -729,10 +733,10 @@ void PlayerTookHostage(std::uint32_t gameObjectId, bool playerTookIt)
 
 bool Install_LostHostage_Hooks()
 {
-    void* addrExec = ResolveGameAddress(gAddr.ExecCallback);
-    void* addrConvert = ResolveGameAddress(gAddr.ConvertRadioTypeToLabel);
-    void* addrNotice = ResolveGameAddress(gAddr.AddNoticeInfo);
-    void* addrRadio = ResolveGameAddress(gAddr.StateRadioRequest);
+    void* addrExec = ResolveGameAddress(ADDR_ExecCallback);
+    void* addrConvert = ResolveGameAddress(ADDR_ConvertRadioTypeToLabel);
+    void* addrNotice = ResolveGameAddress(ADDR_AddNoticeInfo);
+    void* addrRadio = ResolveGameAddress(ADDR_StateRadioRequest);
 
     Log("======== LOSTHOSTAGE BUILD MARKER ========\n");
 
@@ -761,10 +765,10 @@ bool Install_LostHostage_Hooks()
 
 bool Uninstall_LostHostage_Hooks()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.ExecCallback));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.ConvertRadioTypeToLabel));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.AddNoticeInfo));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.StateRadioRequest));
+    DisableAndRemoveHook(ResolveGameAddress(ADDR_ExecCallback));
+    DisableAndRemoveHook(ResolveGameAddress(ADDR_ConvertRadioTypeToLabel));
+    DisableAndRemoveHook(ResolveGameAddress(ADDR_AddNoticeInfo));
+    DisableAndRemoveHook(ResolveGameAddress(ADDR_StateRadioRequest));
 
     g_OrigExecCallback = nullptr;
     g_OrigConvertLabel = nullptr;

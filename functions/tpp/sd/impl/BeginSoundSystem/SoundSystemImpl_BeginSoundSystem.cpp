@@ -5,7 +5,6 @@
 #include <mutex>
 
 #include "HookUtils.h"
-#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
@@ -40,11 +39,21 @@ namespace
     // Params: thisPtr, outError, fadeMs, stopByUser
     using StopMusicPlayer_t = std::uint32_t* (__fastcall*)(void* thisPtr, std::uint32_t* outError, std::uint32_t fadeMs, std::uint8_t stopByUser);
 
+    static constexpr std::uintptr_t ABS_BeginSoundSystem = 0x140989340ull;
+    static constexpr std::uintptr_t ABS_SoundSystemCtor = 0x140989120ull;
+    static constexpr std::uintptr_t ABS_g_SoundSystem = 0x142C009F0ull;
 
+    static constexpr std::uintptr_t ABS_GetPlayingTime = 0x14614A4E0ull;
+    static constexpr std::uintptr_t ABS_GetPlayingTrackId = 0x14614AA30ull;
+    static constexpr std::uintptr_t ABS_PauseMusicPlayer = 0x140972C70ull;
+    static constexpr std::uintptr_t ABS_ResumeMusicPlayer = 0x1409739E0ull;
+    static constexpr std::uintptr_t ABS_StopMusicPlayer = 0x146150970ull;
 
     // MusicManager::s_instance global.
+    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
 
-        static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
+    static constexpr std::uintptr_t kCassettePlayerVtable = 0x142285780ull;
+    static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
     static constexpr std::size_t kSubObjectScanSize = 0x200ull;
 
     static BeginSoundSystem_t g_OrigBeginSoundSystem = nullptr;
@@ -81,7 +90,7 @@ static bool TryReadPtr(const void* address, std::uintptr_t& outValue)
 // Returns: sound-system pointer or null.
 static void* ResolveSoundSystemFromGlobal()
 {
-    void* slot = ResolveGameAddress(gAddr.g_SoundSystem);
+    void* slot = ResolveGameAddress(ABS_g_SoundSystem);
     if (!slot)
         return nullptr;
 
@@ -99,7 +108,7 @@ static void* ResolveSoundSystemFromGlobal()
 // Returns: SoundMusicPlayer pointer or null.
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
-    void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
+    void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
     {
         Log("[SoundMusicPlayer] MusicManager::s_instance address resolve failed\n");
@@ -166,7 +175,7 @@ static void* FindCassettePlayerInStruct(void* basePtr, std::size_t scanSize)
         if (candidate == 0)
             continue;
 
-        if (HasExpectedVtable(reinterpret_cast<void*>(candidate), gAddr.CassettePlayerVtable))
+        if (HasExpectedVtable(reinterpret_cast<void*>(candidate), kCassettePlayerVtable))
         {
             Log("[SoundSystem] Found cassette player at +0x%zX -> %p\n", offset, reinterpret_cast<void*>(candidate));
             return reinterpret_cast<void*>(candidate);
@@ -183,7 +192,7 @@ static void* FindCassettePlayerFromSoundSystemInternal(void* soundSystem)
     if (!soundSystem)
         return nullptr;
 
-    if (HasExpectedVtable(soundSystem, gAddr.CassettePlayerVtable))
+    if (HasExpectedVtable(soundSystem, kCassettePlayerVtable))
     {
         Log("[SoundSystem] Sound system object itself matched cassette player vtable: %p\n", soundSystem);
         return soundSystem;
@@ -287,7 +296,7 @@ std::uint32_t GetCassettePlayingTime()
     if (!soundMusicPlayer)
         return 0;
 
-    void* fnAddr = ResolveGameAddress(gAddr.GetPlayingTime);
+    void* fnAddr = ResolveGameAddress(ABS_GetPlayingTime);
     if (!fnAddr)
     {
         Log("[CassettePlayTime] GetPlayingTime address resolve failed\n");
@@ -323,7 +332,7 @@ std::uint32_t GetCassettePlayingTrackId()
     if (!soundMusicPlayer)
         return 0;
 
-    void* fnAddr = ResolveGameAddress(gAddr.GetPlayingTrackId);
+    void* fnAddr = ResolveGameAddress(ABS_GetPlayingTrackId);
     if (!fnAddr)
     {
         Log("[CassetteTrackId] GetPlayingTrackId address resolve failed\n");
@@ -361,7 +370,7 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
     if (!soundMusicPlayer)
         return -1;
 
-    void* fnAddr = ResolveGameAddress(gAddr.PauseMusicPlayer);
+    void* fnAddr = ResolveGameAddress(ABS_PauseMusicPlayer);
     if (!fnAddr)
     {
         Log("[CassettePause] Pause address resolve failed\n");
@@ -400,7 +409,7 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     if (!soundMusicPlayer)
         return -1;
 
-    void* fnAddr = ResolveGameAddress(gAddr.ResumeMusicPlayer);
+    void* fnAddr = ResolveGameAddress(ABS_ResumeMusicPlayer);
     if (!fnAddr)
     {
         Log("[CassetteResume] Resume address resolve failed\n");
@@ -439,7 +448,7 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
     if (!soundMusicPlayer)
         return -1;
 
-    void* fnAddr = ResolveGameAddress(gAddr.StopMusicPlayer);
+    void* fnAddr = ResolveGameAddress(ABS_StopMusicPlayer);
     if (!fnAddr)
     {
         Log("[CassetteStop] Stop address resolve failed\n");
@@ -510,14 +519,14 @@ static void __fastcall hkBeginSoundSystem()
 // Params: none
 bool Install_SoundSystem_BeginSoundSystem_Hook()
 {
-    void* beginTarget = ResolveGameAddress(gAddr.BeginSoundSystem);
+    void* beginTarget = ResolveGameAddress(ABS_BeginSoundSystem);
     if (!beginTarget)
     {
         Log("[Hook] BeginSoundSystem: address resolve failed\n");
         return false;
     }
 
-    void* ctorTarget = ResolveGameAddress(gAddr.SoundSystemCtor);
+    void* ctorTarget = ResolveGameAddress(ABS_SoundSystemCtor);
     if (!ctorTarget)
     {
         Log("[Hook] SoundSystemImpl ctor: address resolve failed\n");
@@ -544,8 +553,8 @@ bool Install_SoundSystem_BeginSoundSystem_Hook()
 // Params: none
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.BeginSoundSystem));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.SoundSystemCtor));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_BeginSoundSystem));
+    DisableAndRemoveHook(ResolveGameAddress(ABS_SoundSystemCtor));
 
     g_OrigBeginSoundSystem = nullptr;
     g_OrigSoundSystemCtor = nullptr;

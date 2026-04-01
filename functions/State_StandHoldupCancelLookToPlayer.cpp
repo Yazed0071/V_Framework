@@ -7,11 +7,18 @@
 #include <atomic>
 
 #include "MinHook.h"
-#include "HookUtils.h"
-#include "AddressSet.h"
 
 extern void Log(const char* fmt, ...);
 
+// -----------------------------------------------------------------------------
+// Target address
+// VA: 0x14A141910
+// Image base:    0x140000000
+// RVA = VA - ImageBase = 0x0A141910
+// -----------------------------------------------------------------------------
+static constexpr uintptr_t kState_StandHoldupCancelLookToPlayer_RVA = 0x0A141910ULL;
+
+static uintptr_t gBase = 0;
 
 using StateFn_t = void(__fastcall*)(void* holdupThis, uint64_t id, int phase);
 static StateFn_t gOrig_State = nullptr;
@@ -186,14 +193,13 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
 
 bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
 {
-    UNREFERENCED_PARAMETER(hGame);
+    if (!hGame) return false;
 
-    const uintptr_t base = GetExeBase();
-    const uintptr_t target = reinterpret_cast<uintptr_t>(ResolveGameAddress(gAddr.State_StandHoldupCancelLookToPlayer));
-    if (!base || !target) return false;
+    gBase = reinterpret_cast<uintptr_t>(hGame);
+    const uintptr_t target = gBase + kState_StandHoldupCancelLookToPlayer_RVA;
 
     Log("[Holdup] base=%p target=%p (rva=0x%llX)\n",
-        (void*)base, (void*)target, (unsigned long long)ToRva(gAddr.State_StandHoldupCancelLookToPlayer));
+        (void*)gBase, (void*)target, (unsigned long long)kState_StandHoldupCancelLookToPlayer_RVA);
 
     uint8_t pro[16]{};
     __try { std::memcpy(pro, (void*)target, sizeof(pro)); }
@@ -221,13 +227,15 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
 
 bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook()
 {
-    const uintptr_t target = reinterpret_cast<uintptr_t>(ResolveGameAddress(gAddr.State_StandHoldupCancelLookToPlayer));
-    if (!target) return true;
+    if (!gBase) return true;
+
+    const uintptr_t target = gBase + kState_StandHoldupCancelLookToPlayer_RVA;
 
     MH_DisableHook((LPVOID)target);
     MH_RemoveHook((LPVOID)target);
 
     gOrig_State = nullptr;
+    gBase = 0;
     gDetourHits.store(0);
     gFireIdx.store(0);
     std::memset(gFireRing, 0, sizeof(gFireRing));

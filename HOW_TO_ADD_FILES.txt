@@ -1,0 +1,6 @@
+Add these files to the Visual Studio project:
+- functions/AddressSet.h
+- functions/AddressSet.cpp
+- functions/HookMacros.h
+
+No BuiltInModules.cpp change is required for this first step.
