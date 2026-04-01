@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "log.h"
 #include "VIPHoldupHook.h"
 #include "MissionCodeGuard.h"
@@ -19,7 +20,6 @@ namespace
         void(__fastcall*)(void* self, std::uint32_t actorId, int proc, void* evt);
 
     // Absolute address of NoticeActionImpl::State_StandRecoveryHoldup.
-    static constexpr std::uintptr_t ABS_State_StandRecoveryHoldup = 0x1414BCA10ull;
 
     // Event hash for the game's normal voice-notice path.
     static constexpr std::uint32_t HASH_EVENT_VOICE_NOTICE = 0x1077DB8Du;
@@ -650,7 +650,7 @@ bool Get_UseCustomNonVipHoldupRecovery()
 bool Install_VIPHoldup_Hook()
 {
     const bool ok = CreateAndEnableHook(
-        ResolveGameAddress(ABS_State_StandRecoveryHoldup),
+        ResolveGameAddress(gAddr.State_StandRecoveryHoldup),
         reinterpret_cast<void*>(&hkState_StandRecoveryHoldup),
         reinterpret_cast<void**>(&g_OrigState_StandRecoveryHoldup));
 
@@ -662,7 +662,7 @@ bool Install_VIPHoldup_Hook()
 // Params: none
 bool Uninstall_VIPHoldup_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_State_StandRecoveryHoldup));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_StandRecoveryHoldup));
     g_OrigState_StandRecoveryHoldup = nullptr;
 
     {

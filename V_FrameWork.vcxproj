@@ -142,6 +142,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AddressSet.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="functions\BuiltInModules.h" />
     <ClInclude Include="functions\CautionStepNormalTimerHook.h" />
@@ -174,6 +175,7 @@
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AddressSet.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="functions\BuiltInModules.cpp" />
     <ClCompile Include="functions\GetVoiceParamWithCallSign.cpp" />

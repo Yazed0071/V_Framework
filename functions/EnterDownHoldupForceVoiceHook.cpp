@@ -5,6 +5,7 @@
 #include <atomic>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 
@@ -20,7 +21,6 @@ namespace
         void(__fastcall*)(void* self, std::uint32_t actorId, std::uint32_t proc);
 
     // Absolute address of HoldupActionImpl::State_EnterDownHoldup.
-    static constexpr std::uintptr_t ABS_State_EnterDownHoldup = 0x14A140940ull;
 
     static State_EnterDownHoldup_t g_OrigState_EnterDownHoldup = nullptr;
 
@@ -216,7 +216,7 @@ static void __fastcall hkState_EnterDownHoldup(
 // Params: none
 bool Install_State_EnterDownHoldupForceVoice_Hook()
 {
-    void* target = ResolveGameAddress(ABS_State_EnterDownHoldup);
+    void* target = ResolveGameAddress(gAddr.State_EnterDownHoldup);
     if (!target)
     {
         Log("[HoldupDownForce] target resolve failed\n");
@@ -236,7 +236,7 @@ bool Install_State_EnterDownHoldupForceVoice_Hook()
 // Params: none
 bool Uninstall_State_EnterDownHoldupForceVoice_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_State_EnterDownHoldup));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterDownHoldup));
     g_OrigState_EnterDownHoldup = nullptr;
 
     Log("[HoldupDownForce] Removed\n");

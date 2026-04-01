@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
@@ -34,8 +35,6 @@ namespace
         std::uint8_t loopPlayFlag,
         std::uint8_t allOrOneFlag);
 
-    static constexpr std::uintptr_t ABS_CassetteStart = 0x149310440ull;
-    static constexpr std::uintptr_t ABS_PlayOrPauseSelectedTrack = 0x140EF6BD0ull;
     static constexpr std::size_t kMusicPlayerPlayVtableOffset = 0xF0ull;
 
     // Copy buffer for callbackBase + 0xD80.
@@ -604,14 +603,14 @@ static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlaye
 // Params: none
 bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
-    void* startTarget = ResolveGameAddress(ABS_CassetteStart);
+    void* startTarget = ResolveGameAddress(gAddr.CassetteStart);
     if (!startTarget)
     {
         Log("[Hook] Cassette Start: address resolve failed\n");
         return false;
     }
 
-    void* playTarget = ResolveGameAddress(ABS_PlayOrPauseSelectedTrack);
+    void* playTarget = ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack);
     if (!playTarget)
     {
         Log("[Hook] Cassette PlayOrPauseSelectedTrack: address resolve failed\n");
@@ -638,8 +637,8 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 // Params: none
 bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_CassetteStart));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_PlayOrPauseSelectedTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteStart));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack));
 
     g_OrigCassetteStart = nullptr;
     g_OrigPlayOrPauseSelectedTrack = nullptr;

@@ -25,7 +25,7 @@ inline constexpr uintptr_t ToRva(uintptr_t absAddr)
 inline void* ResolveGameAddress(uintptr_t absAddr)
 {
     const uintptr_t base = GetExeBase();
-    if (!base)
+    if (!base || absAddr < EXE_PREFERRED_BASE)
         return nullptr;
 
     return reinterpret_cast<void*>(base + ToRva(absAddr));

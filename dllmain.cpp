@@ -6,6 +6,7 @@
 #include "MinHook.h"
 #include "log.h"
 #include "BuiltInModules.h"
+#include "AddressSet.h"
 #include "FeatureModule.h"
 
 namespace
@@ -43,6 +44,14 @@ static DWORD WINAPI InitThread(LPVOID)
 
     Log("[DLL] InitThread started.\n");
 
+    HMODULE hGame = GetModuleHandleW(nullptr);
+    if (!ResolveAddressSet(hGame))
+    {
+        Log("[DLL] ResolveAddressSet -> FAIL\n");
+        return 0;
+    }
+    Log("[DLL] ResolveAddressSet -> OK (%s)\n", GetGameBuildName(gGameBuild));
+
     const MH_STATUS st = MH_Initialize();
     Log("[DLL] MH_Initialize -> %d\n", static_cast<int>(st));
     if (st != MH_OK && st != MH_ERROR_ALREADY_INITIALIZED)
@@ -50,10 +59,7 @@ static DWORD WINAPI InitThread(LPVOID)
 
     RegisterBuiltInFeatureModules();
 
-
-
-    HMODULE hGame = GetModuleHandleW(nullptr);
-    const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
+        const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
     Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
 
     Log("[DLL] InitThread done.\n");

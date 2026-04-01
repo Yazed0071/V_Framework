@@ -3,11 +3,11 @@
 #include <cstdint>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "MissionCodeGuard.h"
 
 namespace
 {
-    static constexpr std::uintptr_t ABS_GetCurrentMissionCode = 0x145E5EE70ull;
 
     using GetCurrentMissionCode_t = std::uint16_t(__fastcall*)();
 
@@ -21,7 +21,7 @@ namespace MissionCodeGuard
         if (!g_GetCurrentMissionCode)
         {
             g_GetCurrentMissionCode =
-                reinterpret_cast<GetCurrentMissionCode_t>(ResolveGameAddress(ABS_GetCurrentMissionCode));
+                reinterpret_cast<GetCurrentMissionCode_t>(ResolveGameAddress(gAddr.GetCurrentMissionCode));
         }
 
         if (!g_GetCurrentMissionCode)

@@ -378,6 +378,5 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
-
         });
 }

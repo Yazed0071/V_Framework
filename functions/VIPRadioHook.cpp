@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "VIPRadioHook.h"
@@ -16,19 +17,15 @@ namespace
 {
     // Address of tpp::gm::corpse::impl::CorpseManagerImpl::RequestCorpse.
     // Params: self, animControl, ragdollPlugin, facialPlugin, facialParam, location, originalGameObjectId, inheritanceInfo, fromScript
-    static constexpr uintptr_t ABS_RequestCorpse = 0x140A69070ull;
 
     // Address of tpp::gm::impl::cp::ActionControllerImpl::StateRadio.
     // Params: self, slot, proc
-    static constexpr uintptr_t ABS_StateRadio = 0x140D69140ull;
 
     // Address of tpp::gm::impl::cp::anonymous_namespace::RadioSpeechHandlerImpl::CallWithRadioType.
     // Params: self, outHandle, ownerIndex, radioType, arg5
-    static constexpr uintptr_t ABS_CallWithRadioType = 0x1473CFF10ull;
 
     // Address of tpp::gm::impl::cp::anonymous_namespace::RadioSpeechHandlerImpl::CallImpl.
     // Params: selfMinus20, outHandle, ownerIndex, speechLabel, arg5
-    static constexpr uintptr_t ABS_CallImpl = 0x1473CFCD0ull;
 
     // CPR0040: body found.
     static constexpr std::uint8_t kRadioTypeBodyFound = 0x0E;
@@ -602,11 +599,11 @@ void Clear_VIPRadioImportantGameObjectIds()
 // Params: none
 bool Install_VIPRadio_Hook()
 {
-    g_CallImpl = reinterpret_cast<CallImpl_t>(ResolveGameAddress(ABS_CallImpl));
+    g_CallImpl = reinterpret_cast<CallImpl_t>(ResolveGameAddress(gAddr.CallImpl));
 
-    void* requestCorpseTarget = ResolveGameAddress(ABS_RequestCorpse);
-    void* stateRadioTarget = ResolveGameAddress(ABS_StateRadio);
-    void* callWithRadioTypeTarget = ResolveGameAddress(ABS_CallWithRadioType);
+    void* requestCorpseTarget = ResolveGameAddress(gAddr.RequestCorpse);
+    void* stateRadioTarget = ResolveGameAddress(gAddr.StateRadio);
+    void* callWithRadioTypeTarget = ResolveGameAddress(gAddr.CallWithRadioType);
 
     if (!g_CallImpl || !requestCorpseTarget || !stateRadioTarget || !callWithRadioTypeTarget)
     {
@@ -639,9 +636,9 @@ bool Install_VIPRadio_Hook()
 // Params: none
 bool Uninstall_VIPRadio_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_RequestCorpse));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_StateRadio));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_CallWithRadioType));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.RequestCorpse));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.StateRadio));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CallWithRadioType));
 
     g_OrigRequestCorpse = nullptr;
     g_OrigStateRadio = nullptr;

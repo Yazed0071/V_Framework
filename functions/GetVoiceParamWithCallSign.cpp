@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "HookUtils.h"
+#include "AddressSet.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "GetVoiceParamWithCallSign.h"
@@ -21,7 +22,6 @@ namespace
     using GetBaseVoiceParam_t = std::uint64_t(__fastcall*)(void* obj28, std::uint32_t ownerIndexLow8);
 
     // Absolute address of RadioSpeechHandlerImpl::GetVoiceParamWithCallSign.
-    static constexpr std::uintptr_t ABS_GetVoiceParamWithCallSign = 0x140DA3170ull;
 
     // Turn this on only if you want every matching-base call logged.
     static constexpr bool kLogBaseMatchMisses = true;
@@ -509,7 +509,7 @@ void Clear_CallSignExtraSoldiers()
 // Params: none
 bool Install_CallSignExtra_Hook()
 {
-    void* target = ResolveGameAddress(ABS_GetVoiceParamWithCallSign);
+    void* target = ResolveGameAddress(gAddr.GetVoiceParamWithCallSign);
     if (!target)
     {
         Log("[Hook] CallSignExtra: target resolve failed\n");
@@ -529,7 +529,7 @@ bool Install_CallSignExtra_Hook()
 // Params: none
 bool Uninstall_CallSignExtra_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_GetVoiceParamWithCallSign));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.GetVoiceParamWithCallSign));
     g_OrigGetVoiceParamWithCallSign = nullptr;
 
     {
