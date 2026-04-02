@@ -6,7 +6,6 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 
-
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
 
@@ -64,6 +63,10 @@ bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
 bool Install_CassetteTapeSetCurrentAlbum_Hook();
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 
+// Pickable runtime cache hooks.
+// Params: none
+bool Install_TppPickableHooks();
+bool Uninstall_TppPickableHooks();
 
 namespace
 {
@@ -205,6 +208,7 @@ namespace
             Uninstall_VIPSleepFaint_Hook();
         }
     };
+
     class VIPHoldupModule final : public IFeatureModule
     {
     public:
@@ -224,75 +228,88 @@ namespace
             Uninstall_VIPHoldup_Hook();
         }
     };
-	class VIPRadioModule final : public IFeatureModule
-	{
-	public:
-		const char* GetName() const override
-		{
-			return "VIPRadio";
-		}
-		bool Install(HMODULE hGame) override
-		{
-			UNREFERENCED_PARAMETER(hGame);
-			return Install_VIPRadio_Hook();
-		}
-		void Uninstall() override
-		{
-			Uninstall_VIPRadio_Hook();
-		}
-	};
-	class HoldUpReactionCowardlyReactionsModule final : public IFeatureModule
-	{
-	public:
-		const char* GetName() const override
-		{
-			return "HoldUpReactionCowardlyReactions";
-		}
-		bool Install(HMODULE hGame) override
-		{
-			UNREFERENCED_PARAMETER(hGame);
-			return Install_HoldUpReactionCowardlyReactions_Hook();
-		}
-		void Uninstall() override
-		{
-			Uninstall_HoldUpReactionCowardlyReactions_Hook();
-		}
-	};
-	class PerSoldierCallSignOverrideModule final : public IFeatureModule
-	{
-	public:
-		const char* GetName() const override
-		{
-			return "PerSoldierCallSignOverride";
-		}
-		bool Install(HMODULE hGame) override
-		{
-			UNREFERENCED_PARAMETER(hGame);
-			return Install_CallSignExtra_Hook();
-		}
-		void Uninstall() override
-		{
-			Uninstall_CallSignExtra_Hook();
-		}
-	};
-	class LostHostageModule final : public IFeatureModule
-	{
-	public:
-		const char* GetName() const override
-		{
-			return "LostHostage";
-		}
-		bool Install(HMODULE hGame) override
-		{
-			UNREFERENCED_PARAMETER(hGame);
-			return Install_LostHostage_Hooks() && Install_LostHostageDiscovery_Hooks();
-		}
-		void Uninstall() override
-		{
-			Uninstall_LostHostage_Hooks();
+
+    class VIPRadioModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VIPRadio";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VIPRadio_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VIPRadio_Hook();
+        }
+    };
+
+    class HoldUpReactionCowardlyReactionsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "HoldUpReactionCowardlyReactions";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_HoldUpReactionCowardlyReactions_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_HoldUpReactionCowardlyReactions_Hook();
+        }
+    };
+
+    class PerSoldierCallSignOverrideModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PerSoldierCallSignOverride";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CallSignExtra_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CallSignExtra_Hook();
+        }
+    };
+
+    class LostHostageModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "LostHostage";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_LostHostage_Hooks() && Install_LostHostageDiscovery_Hooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_LostHostage_Hooks();
             Uninstall_LostHostageDiscovery_Hooks();
-		}
-	};
+        }
+    };
+
     class UpdateOptCamoModule final : public IFeatureModule
     {
     public:
@@ -312,6 +329,7 @@ namespace
             Uninstall_UpdateOptCamo_Hook();
         }
     };
+
     class CassetteTapePlayHookModule final : public IFeatureModule
     {
     public:
@@ -331,6 +349,7 @@ namespace
             Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
         }
     };
+
     class SoundSystemBeginModule final : public IFeatureModule
     {
     public:
@@ -350,6 +369,7 @@ namespace
             Uninstall_SoundSystem_BeginSoundSystem_Hook();
         }
     };
+
     class CustomTapesModule final : public IFeatureModule
     {
     public:
@@ -369,6 +389,7 @@ namespace
             Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
         }
     };
+
     class CustomTapeOwnershipModule final : public IFeatureModule
     {
     public:
@@ -388,6 +409,7 @@ namespace
             Uninstall_CustomTapeOwnership_Hooks();
         }
     };
+
     class CassetteTapeSetCurrentAlbumModule final : public IFeatureModule
     {
     public:
@@ -406,7 +428,27 @@ namespace
         {
             Uninstall_CassetteTapeSetCurrentAlbum_Hook();
         }
-    }; 
+    };
+
+    class TppPickableModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "TppPickable";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_TppPickableHooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_TppPickableHooks();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -419,16 +461,17 @@ void RegisterBuiltInFeatureModules()
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
     static VIPSleepFaintModule s_VIPSleepFaintModule;
     static VIPHoldupModule s_VIPHoldupModule;
-	static VIPRadioModule s_VIPRadioModule;
-	static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
-	static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
-	static LostHostageModule s_LostHostageModule;
+    static VIPRadioModule s_VIPRadioModule;
+    static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
+    static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
+    static LostHostageModule s_LostHostageModule;
     static UpdateOptCamoModule s_UpdateOptCamoModule;
     static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static CustomTapesModule s_CustomTapesModule;
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
+    static TppPickableModule s_TppPickableModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -442,15 +485,15 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
-			FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
-			FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
-			FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
-			FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
+            FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
+            FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
+            FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
+            FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
             FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
-
+            FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
         });
 }
