@@ -7,6 +7,7 @@
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "State_EnterStandHoldup1.h"
+#include "AddressSet.h"
 
 namespace
 {
@@ -21,14 +22,8 @@ namespace
         void(__fastcall*)(void* self, std::uint32_t actorId);
 
     // Absolute address of HoldupActionImpl::State_EnterStandHoldup1.
-    static constexpr std::uintptr_t ABS_State_EnterStandHoldup1 = 0x14A140C00ull;
-
     // Absolute address of HoldupActionImpl::State_EnterStandHoldupUnarmed.
-    static constexpr std::uintptr_t ABS_State_EnterStandHoldupUnarmed = 0x14A141500ull;
-
     // Absolute address of HoldupActionImpl::AddNoise.
-    static constexpr std::uintptr_t ABS_AddNoise = 0x14147F240ull;
-
     // Reaction category used by the game's notice reaction manager.
     static constexpr std::uint32_t HASH_REACTION_CATEGORY_NOTICE = 0x95EA16B0u;
 
@@ -303,10 +298,10 @@ static void __fastcall hkState_EnterStandHoldupUnarmed(
 // Params: none
 bool Install_HoldUpReactionCowardlyReactions_Hook()
 {
-    g_AddNoise = reinterpret_cast<AddNoise_t>(ResolveGameAddress(ABS_AddNoise));
+    g_AddNoise = reinterpret_cast<AddNoise_t>(ResolveGameAddress(gAddr.AddNoise));
 
-    void* targetStandHoldup1 = ResolveGameAddress(ABS_State_EnterStandHoldup1);
-    void* targetStandHoldupUnarmed = ResolveGameAddress(ABS_State_EnterStandHoldupUnarmed);
+    void* targetStandHoldup1 = ResolveGameAddress(gAddr.State_EnterStandHoldup1);
+    void* targetStandHoldupUnarmed = ResolveGameAddress(gAddr.State_EnterStandHoldupUnarmed);
 
     if (!targetStandHoldup1 || !targetStandHoldupUnarmed)
     {
@@ -334,8 +329,8 @@ bool Install_HoldUpReactionCowardlyReactions_Hook()
 // Params: none
 bool Uninstall_HoldUpReactionCowardlyReactions_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_State_EnterStandHoldup1));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_State_EnterStandHoldupUnarmed));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterStandHoldup1));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterStandHoldupUnarmed));
 
     g_OrigState_EnterStandHoldup1 = nullptr;
     g_OrigState_EnterStandHoldupUnarmed = nullptr;

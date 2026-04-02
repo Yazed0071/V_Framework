@@ -9,6 +9,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
+#include "AddressSet.h"
 
 namespace
 {
@@ -19,20 +20,12 @@ namespace
 
     // Absolute address of ui::equip::SetEquipBackgroundTexture.
     // Params: equipId (int), sortieWeaponNode (void*)
-    static constexpr uintptr_t ABS_SetEquipBackgroundTexture = 0x145F236F0ull;
-
     // Absolute address of fox::ui::ModelNodeMesh::SetTextureName.
     // Params: modelNodeMesh (void*), textureHash (uint64_t), slotHash (uint64_t), unk (int)
-    static constexpr uintptr_t ABS_SetTextureName = 0x141DC78F0ull;
-
     // Absolute address of ui::loading::LoadingScreenOrGameOverSplash2.
     // Params: self (void*)
-    static constexpr uintptr_t ABS_LoadingScreenOrGameOverSplash2 = 0x145CD0630ull;
-
     // Absolute address of tpp::ui::menu::GameOverEvCall::MainLayout::SetVisible.
     // Params: layout (uint64_t*), visible (char)
-    static constexpr uintptr_t ABS_GameOverSetVisible = 0x145CB8890ull;
-
     // Slot hash used by the equip background function for Mask_Texture.
     static uint64_t g_MaskTextureSlotHash = 0;
 
@@ -118,7 +111,7 @@ namespace
         if (!g_SetTextureName)
         {
             g_SetTextureName = reinterpret_cast<SetTextureName_t>(
-                ResolveGameAddress(ABS_SetTextureName));
+                ResolveGameAddress(gAddr.SetTextureName));
         }
 
         if (g_MaskTextureSlotHash == 0)
@@ -430,9 +423,9 @@ bool Install_UiTextureOverrides_Hook()
 {
     ResolveUiHelpers();
 
-    void* targetEquip = ResolveGameAddress(ABS_SetEquipBackgroundTexture);
-    void* targetLoading = ResolveGameAddress(ABS_LoadingScreenOrGameOverSplash2);
-    void* targetGameOver = ResolveGameAddress(ABS_GameOverSetVisible);
+    void* targetEquip = ResolveGameAddress(gAddr.SetEquipBackgroundTexture);
+    void* targetLoading = ResolveGameAddress(gAddr.LoadingScreenOrGameOverSplash2);
+    void* targetGameOver = ResolveGameAddress(gAddr.GameOverSetVisible);
 
     if (!targetEquip || !targetLoading || !targetGameOver || !g_SetTextureName)
         return false;
@@ -459,9 +452,9 @@ bool Install_UiTextureOverrides_Hook()
 
 bool Uninstall_UiTextureOverrides_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_SetEquipBackgroundTexture));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_LoadingScreenOrGameOverSplash2));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_GameOverSetVisible));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetEquipBackgroundTexture));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadingScreenOrGameOverSplash2));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.GameOverSetVisible));
 
     g_OrigSetEquipBackgroundTexture = nullptr;
     g_OrigLoadingScreenOrGameOverSplash2 = nullptr;

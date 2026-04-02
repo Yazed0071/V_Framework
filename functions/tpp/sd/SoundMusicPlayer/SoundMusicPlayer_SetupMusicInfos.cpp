@@ -16,6 +16,7 @@
 #include "FoxHashes.h"
 #include "SoundMusicPlayer_SetupMusicInfos.h"
 #include "CustomTapeOwnership.h"
+#include "AddressSet.h"
 
 namespace
 {
@@ -24,13 +25,6 @@ namespace
     using ArrayBaseFree_t = void(__fastcall*)(void* data, std::uint32_t tag);
     using SubtitleManagerGet_t = void* (__fastcall*)();
     using GetVoiceLanguage_t = int(__fastcall*)(void* subtitleManager);
-
-    static constexpr std::uintptr_t ABS_SetupMusicInfos = 0x140974880ull;
-    static constexpr std::uintptr_t ABS_KernelAllocAligned = 0x140015F20ull;
-    static constexpr std::uintptr_t ABS_ArrayBaseFree = 0x140015EF0ull;
-    static constexpr std::uintptr_t ABS_SubtitleManager_Get = 0x1404D2770ull;
-    static constexpr std::uintptr_t ABS_GetVoiceLanguage = 0x1404D2AD0ull;
-    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
 
     static constexpr std::uint32_t kFoxAllocTag = 0x5006Fu;
     static constexpr std::size_t kFileNameMaxChars = 15u;
@@ -141,7 +135,7 @@ namespace
 // Params: sizeBytes, alignment
 static void* GameAllocAligned(std::uint64_t sizeBytes, std::uint64_t alignment)
 {
-    void* fnAddr = ResolveGameAddress(ABS_KernelAllocAligned);
+    void* fnAddr = ResolveGameAddress(gAddr.KernelAllocAligned);
     if (!fnAddr)
         return nullptr;
 
@@ -158,7 +152,7 @@ static void GameFree(void* data)
     if (!data)
         return;
 
-    void* fnAddr = ResolveGameAddress(ABS_ArrayBaseFree);
+    void* fnAddr = ResolveGameAddress(gAddr.ArrayBaseFree);
     if (!fnAddr)
         return;
 
@@ -172,8 +166,8 @@ static void GameFree(void* data)
 // Params: none
 static bool IsJapaneseVoiceLanguage()
 {
-    void* getMgrAddr = ResolveGameAddress(ABS_SubtitleManager_Get);
-    void* getLangAddr = ResolveGameAddress(ABS_GetVoiceLanguage);
+    void* getMgrAddr = ResolveGameAddress(gAddr.SubtitleManager_Get);
+    void* getLangAddr = ResolveGameAddress(gAddr.GetVoiceLanguage);
     if (!getMgrAddr || !getLangAddr)
         return false;
 
@@ -789,7 +783,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 // Returns: SoundMusicPlayer pointer or null.
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
-    void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
+    void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
     {
         Log("[CustomTapes] MusicManager::s_instance address resolve failed\n");
@@ -871,7 +865,7 @@ bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
 {
     Log("[CustomTapes] Install_SoundMusicPlayer_SetupMusicInfos_Hook begin\n");
 
-    void* target = ResolveGameAddress(ABS_SetupMusicInfos);
+    void* target = ResolveGameAddress(gAddr.SetupMusicInfos);
     if (!target)
     {
         Log("[CustomTapes] SetupMusicInfos address resolve failed\n");
@@ -896,7 +890,7 @@ bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
 // Params: none
 bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_SetupMusicInfos));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetupMusicInfos));
     g_OrigSetupMusicInfos = nullptr;
     g_LastSoundMusicPlayer = nullptr;
 

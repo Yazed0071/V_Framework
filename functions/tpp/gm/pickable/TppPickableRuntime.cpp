@@ -7,11 +7,10 @@
 #include "MinHook.h"
 #include "log.h"
 #include "TppPickableRuntime.h"
+#include "AddressSet.h"
 
 namespace
 {
-    static constexpr uintptr_t kAbsCopyAndAdjustInfo = 0x140FB9000ull;
-
     static std::unordered_map<std::uint16_t, std::uint16_t> g_PickableCountOverrides;
     static std::mutex g_PickableCountOverridesMutex;
 
@@ -223,7 +222,7 @@ bool Install_TppPickableHooks()
     if (g_TppPickableHooksInstalled)
         return true;
 
-    void* target = reinterpret_cast<void*>(kAbsCopyAndAdjustInfo);
+    void* target = reinterpret_cast<void*>(gAddr.CopyAndAdjustInfo);
 
     if (MH_CreateHook(
         target,
@@ -254,7 +253,7 @@ bool Uninstall_TppPickableHooks()
     if (!g_TppPickableHooksInstalled)
         return true;
 
-    void* target = reinterpret_cast<void*>(kAbsCopyAndAdjustInfo);
+    void* target = reinterpret_cast<void*>(gAddr.CopyAndAdjustInfo);
 
     MH_DisableHook(target);
     MH_RemoveHook(target);

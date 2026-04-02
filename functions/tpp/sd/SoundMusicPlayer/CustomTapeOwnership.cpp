@@ -16,6 +16,8 @@
 #include "FoxHashes.h"
 #include "CustomTapeOwnership.h"
 
+#include "AddressSet.h"
+
 extern "C"
 {
     #include "lua.h"
@@ -54,19 +56,6 @@ namespace
     using lua_tolstring_t = const char* (__fastcall*)(lua_State* luaState, int idx, size_t* len);
     using lua_toboolean_t = int(__fastcall*)(lua_State* luaState, int idx);
     using lua_pushboolean_t = void(__fastcall*)(lua_State* luaState, int value);
-
-    static constexpr std::uintptr_t ABS_AddCassetteTapeTrack = 0x1466A5770ull;
-    static constexpr std::uintptr_t ABS_IsGotCassetteTapeTrack = 0x1466EC350ull;
-    static constexpr std::uintptr_t ABS_SetCassetteTapeTrackNewFlag = 0x140AAC670ull;
-    static constexpr std::uintptr_t ABS_CollectGotTapes = 0x149309EA0ull;
-    static constexpr std::uintptr_t ABS_GetTrackInfoByName = 0x14614C0C0ull;
-    static constexpr std::uintptr_t ABS_GetQuarkSystemTable = 0x140BFF3F0ull;
-    static constexpr std::uintptr_t ABS_MusicManager_s_instance = 0x142BFFAC8ull;
-    static constexpr std::uintptr_t ABS_lua_isstring = 0x14C1D9250ull;
-    static constexpr std::uintptr_t ABS_lua_type = 0x14C1ED760ull;
-    static constexpr std::uintptr_t ABS_lua_tolstring = 0x141A123C0ull;
-    static constexpr std::uintptr_t ABS_lua_toboolean = 0x141A12330ull;
-    static constexpr std::uintptr_t ABS_lua_pushboolean = 0x14C1DB230ull;
 
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
     static constexpr std::int16_t kCustomSaveIndexMax = 999;
@@ -117,19 +106,19 @@ static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, 
 static bool ResolveLuaHelpers()
 {
     if (!g_lua_isstring)
-        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(ABS_lua_isstring));
+        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(gAddr.lua_isstring));
 
     if (!g_lua_type)
-        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(ABS_lua_type));
+        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(gAddr.lua_type));
 
     if (!g_lua_tolstring)
-        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(ABS_lua_tolstring));
+        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(gAddr.lua_tolstring));
 
     if (!g_lua_toboolean)
-        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(ABS_lua_toboolean));
+        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(gAddr.lua_toboolean));
 
     if (!g_lua_pushboolean)
-        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(ABS_lua_pushboolean));
+        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(gAddr.lua_pushboolean));
 
     return g_lua_isstring && g_lua_type && g_lua_tolstring && g_lua_toboolean && g_lua_pushboolean;
 }
@@ -242,7 +231,7 @@ static std::string EscapeForLuaLongString(const std::string& value)
 // Params: none
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
-    void* musicManagerGlobalAddr = ResolveGameAddress(ABS_MusicManager_s_instance);
+    void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
         return nullptr;
 
@@ -271,7 +260,7 @@ static void* ResolveTrackInfoByName(const char* trackName)
     if (trackNameStrCode == 0)
         return nullptr;
 
-    void* fnAddr = ResolveGameAddress(ABS_GetTrackInfoByName);
+    void* fnAddr = ResolveGameAddress(gAddr.GetTrackInfoByName);
     if (!fnAddr)
         return nullptr;
 
@@ -879,7 +868,7 @@ static void PushLuaBool(lua_State* luaState, bool value)
 // Params: none
 static std::uint8_t* ResolveLiveCassetteFlagTable()
 {
-    void* fnAddr = ResolveGameAddress(ABS_GetQuarkSystemTable);
+    void* fnAddr = ResolveGameAddress(gAddr.GetQuarkSystemTable);
     if (!fnAddr)
         return nullptr;
 
@@ -1346,7 +1335,7 @@ bool Install_CustomTapeOwnership_Hooks()
     bool okSetNew = false;
     bool okCollect = false;
 
-    if (void* target = ResolveGameAddress(ABS_AddCassetteTapeTrack))
+    if (void* target = ResolveGameAddress(gAddr.AddCassetteTapeTrack))
     {
         okAdd = CreateAndEnableHook(
             target,
@@ -1354,7 +1343,7 @@ bool Install_CustomTapeOwnership_Hooks()
             reinterpret_cast<void**>(&g_OrigAddCassetteTapeTrack));
     }
 
-    if (void* target = ResolveGameAddress(ABS_IsGotCassetteTapeTrack))
+    if (void* target = ResolveGameAddress(gAddr.IsGotCassetteTapeTrack))
     {
         okIsGot = CreateAndEnableHook(
             target,
@@ -1362,7 +1351,7 @@ bool Install_CustomTapeOwnership_Hooks()
             reinterpret_cast<void**>(&g_OrigIsGotCassetteTapeTrack));
     }
 
-    if (void* target = ResolveGameAddress(ABS_SetCassetteTapeTrackNewFlag))
+    if (void* target = ResolveGameAddress(gAddr.SetCassetteTapeTrackNewFlag))
     {
         okSetNew = CreateAndEnableHook(
             target,
@@ -1370,7 +1359,7 @@ bool Install_CustomTapeOwnership_Hooks()
             reinterpret_cast<void**>(&g_OrigSetCassetteTapeTrackNewFlag));
     }
 
-    if (void* target = ResolveGameAddress(ABS_CollectGotTapes))
+    if (void* target = ResolveGameAddress(gAddr.CollectGotTapes))
     {
         okCollect = CreateAndEnableHook(
             target,
@@ -1391,10 +1380,10 @@ bool Install_CustomTapeOwnership_Hooks()
 bool Uninstall_CustomTapeOwnership_Hooks()
 {
     EnsureCustomTapeStateLoaded();
-    DisableAndRemoveHook(ResolveGameAddress(ABS_AddCassetteTapeTrack));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_IsGotCassetteTapeTrack));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_SetCassetteTapeTrackNewFlag));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_CollectGotTapes));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.AddCassetteTapeTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.IsGotCassetteTapeTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetCassetteTapeTrackNewFlag));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectGotTapes));
 
     g_OrigAddCassetteTapeTrack = nullptr;
     g_OrigIsGotCassetteTapeTrack = nullptr;

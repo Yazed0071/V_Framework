@@ -7,6 +7,7 @@
 #include "log.h"
 #include "tpp/ui/menu/impl/MbDvcCassetteTapeCallbackImpl/MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h"
 #include "tpp/sd/SoundMusicPlayer/CustomTapeOwnership.h"
+#include "AddressSet.h"
 
 namespace
 {
@@ -14,8 +15,6 @@ namespace
 
     using GetCurrentAlbumInfo_t = void* (__fastcall*)(void* soundPlayer);
     using GetTrackInfoByAlbumIndex_t = void* (__fastcall*)(void* soundPlayer, std::uint64_t albumId, std::uint32_t trackIndex);
-
-    static constexpr std::uintptr_t ABS_SetCurrentAlbum = 0x140EF7A50ull;
 
     static SetCurrentAlbum_t g_OrigSetCurrentAlbum = nullptr;
 }
@@ -183,7 +182,7 @@ static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
 // Params: none
 bool Install_CassetteTapeSetCurrentAlbum_Hook()
 {
-    void* target = ResolveGameAddress(ABS_SetCurrentAlbum);
+    void* target = ResolveGameAddress(gAddr.SetCurrentAlbum);
     if (!target)
     {
         Log("[CassetteMenu] SetCurrentAlbum resolve failed\n");
@@ -203,7 +202,7 @@ bool Install_CassetteTapeSetCurrentAlbum_Hook()
 // Params: none
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_SetCurrentAlbum));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetCurrentAlbum));
     g_OrigSetCurrentAlbum = nullptr;
     return true;
 }

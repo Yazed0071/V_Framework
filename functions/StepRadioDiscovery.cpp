@@ -13,14 +13,12 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
+#include "AddressSet.h"
 
 namespace
 {
     using CheckSightNoticeHostage_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, std::uint64_t param3, void* tracker);
     using StepRadioDiscovery_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, int step, void* info);
-
-    static constexpr std::uintptr_t ABS_CheckSightNoticeHostage = 0x1414E1090ull;
-    static constexpr std::uintptr_t ABS_StepRadioDiscovery = 0x14150F2C0ull;
 
     static constexpr std::uint16_t LHD_INVALID_TARGET_ID = 0xFFFFu;
     static constexpr std::uint32_t LHD_INVALID_SOLDIER_ID = 0xFFFFFFFFu;
@@ -622,8 +620,8 @@ void Dump_LostHostageDiscovery()
 
 bool Install_LostHostageDiscovery_Hooks()
 {
-    void* checkSightTarget = ResolveGameAddress(ABS_CheckSightNoticeHostage);
-    void* stepTarget = ResolveGameAddress(ABS_StepRadioDiscovery);
+    void* checkSightTarget = ResolveGameAddress(gAddr.CheckSightNoticeHostage);
+    void* stepTarget = ResolveGameAddress(gAddr.StepRadioDiscovery);
 
     if (!checkSightTarget || !stepTarget)
     {
@@ -657,8 +655,8 @@ bool Install_LostHostageDiscovery_Hooks()
 
 bool Uninstall_LostHostageDiscovery_Hooks()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_CheckSightNoticeHostage));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_StepRadioDiscovery));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CheckSightNoticeHostage));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.StepRadioDiscovery));
 
     g_LHD_OrigCheckSightNoticeHostage = nullptr;
     g_LHD_OrigStepRadioDiscovery = nullptr;
