@@ -158,6 +158,7 @@
     <ClInclude Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.h" />
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h" />
     <ClInclude Include="functions\UiTextureOverrides.h" />
@@ -187,6 +188,7 @@
     <ClCompile Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.cpp" />
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
     <ClCompile Include="SetLuaFunctions.cpp" />

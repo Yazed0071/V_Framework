@@ -55,6 +55,9 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
 bool Install_SoundSystem_BeginSoundSystem_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
 
+bool Install_SoundMusicPlayer_SetupMusicInfos_Hook();
+bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -340,6 +343,25 @@ namespace
             Uninstall_SoundSystem_BeginSoundSystem_Hook();
         }
     };
+    class CustomTapesModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CustomTapes";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoundMusicPlayer_SetupMusicInfos_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -359,10 +381,12 @@ void RegisterBuiltInFeatureModules()
     static UpdateOptCamoModule s_UpdateOptCamoModule;
     static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
+    static CustomTapesModule s_CustomTapesModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
         {
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);

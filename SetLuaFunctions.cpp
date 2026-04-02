@@ -23,6 +23,7 @@
 #include "tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h"
 #include <tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h>
+#include "tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h"
 
 extern "C" {
     #include "lua.h"
@@ -350,6 +351,65 @@ static void ClearTrackedLuaStates()
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     g_RegisteredLuaStates.clear();
+}
+
+// Reads one required string field from a Lua table.
+// Params: L, fieldName, outValue
+static bool LuaReadRequiredStringField(lua_State* L, const char* fieldName, std::string& outValue)
+{
+    outValue.clear();
+
+    LuaGetField(L, -1, fieldName);
+    const bool ok = LuaIsString(L, -1);
+
+    if (ok)
+    {
+        const char* value = GetLuaString(L, -1);
+        if (value && value[0] != '\0')
+        {
+            outValue = value;
+        }
+        else
+        {
+            LuaPop(L, 1);
+            return false;
+        }
+    }
+
+    LuaPop(L, 1);
+    return ok && !outValue.empty();
+}
+
+// Reads one optional signed integer field from a Lua table.
+// Params: L, fieldName, defaultValue
+static std::int32_t LuaReadOptionalIntField(lua_State* L, const char* fieldName, std::int32_t defaultValue)
+{
+    LuaGetField(L, -1, fieldName);
+
+    std::int32_t value = defaultValue;
+    if (LuaIsNumber(L, -1))
+    {
+        value = static_cast<std::int32_t>(GetLuaInt(L, -1));
+    }
+
+    LuaPop(L, 1);
+    return value;
+}
+
+// Reads one optional unsigned integer field from a Lua table.
+// Params: L, fieldName, defaultValue
+static std::uint32_t LuaReadOptionalUIntField(lua_State* L, const char* fieldName, std::uint32_t defaultValue)
+{
+    LuaGetField(L, -1, fieldName);
+
+    std::uint32_t value = defaultValue;
+    if (LuaIsNumber(L, -1))
+    {
+        value = static_cast<std::uint32_t>(GetLuaInt(L, -1));
+    }
+
+    LuaPop(L, 1);
+    return value;
 }
 
 // Sets the default equip background texture.
@@ -861,6 +921,101 @@ static int __cdecl l_StopCassette(lua_State* L)
     return 1;
 }
 
+// Registers custom cassette albums and tracks.
+// Params: tapeInfoTable
+static int __cdecl l_RegisterCustomTapes(lua_State* L)
+{
+    Log("[CustomTapes] l_RegisterCustomTapes entered\n");
+
+    if (LuaType(L, 1) != LUA_TTABLE)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    std::vector<CustomTapeAlbumDefinition> albums;
+    std::vector<CustomTapeTrackDefinition> tracks;
+
+    LuaGetField(L, 1, "albums");
+    if (LuaType(L, -1) == LUA_TTABLE)
+    {
+        const std::size_t albumCount = LuaObjLen(L, -1);
+
+        for (std::size_t i = 1; i <= albumCount; ++i)
+        {
+            LuaRawGetI(L, -1, static_cast<int>(i));
+            if (LuaType(L, -1) == LUA_TTABLE)
+            {
+                CustomTapeAlbumDefinition def;
+
+                const bool hasAlbumId = LuaReadRequiredStringField(L, "albumId", def.albumId);
+                const bool hasLangId = LuaReadRequiredStringField(L, "langId", def.langId);
+                const bool hasType = LuaReadRequiredStringField(L, "type", def.type);
+                def.typeValue = LuaReadOptionalIntField(L, "typeValue", -1);
+
+                if (hasAlbumId && hasLangId && (hasType || def.typeValue >= 0))
+                {
+                    albums.push_back(def);
+                }
+            }
+
+            LuaPop(L, 1);
+        }
+    }
+    LuaPop(L, 1);
+
+    LuaGetField(L, 1, "tracks");
+    if (LuaType(L, -1) == LUA_TTABLE)
+    {
+        const std::size_t trackCount = LuaObjLen(L, -1);
+
+        for (std::size_t i = 1; i <= trackCount; ++i)
+        {
+            LuaRawGetI(L, -1, static_cast<int>(i));
+            if (LuaType(L, -1) == LUA_TTABLE)
+            {
+                CustomTapeTrackDefinition def;
+
+                const bool hasAlbumId = LuaReadRequiredStringField(L, "albumId", def.albumId);
+                const bool hasLangId = LuaReadRequiredStringField(L, "langId", def.langId);
+                const bool hasFileName = LuaReadRequiredStringField(L, "fileName", def.fileName);
+
+                def.saveIndex = static_cast<std::int16_t>(
+                    LuaReadOptionalIntField(L, "saveIndex", -1));
+                def.dataTimeJp = LuaReadOptionalUIntField(L, "dataTimeJp", 0);
+                def.dataTimeEn = LuaReadOptionalUIntField(L, "dataTimeEn", 0);
+                def.important = static_cast<std::uint16_t>(
+                    LuaReadOptionalUIntField(L, "important", 0));
+                def.special = static_cast<std::uint16_t>(
+                    LuaReadOptionalUIntField(L, "special", 0));
+
+                if (hasAlbumId && hasLangId && hasFileName)
+                {
+                    tracks.push_back(def);
+                }
+            }
+
+            LuaPop(L, 1);
+        }
+    }
+    LuaPop(L, 1);
+
+    Log("[CustomTapes] parsed albums=%zu tracks=%zu\n", albums.size(), tracks.size());
+
+    const bool ok = Register_CustomTapes(albums, tracks);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+// Clears all registered custom cassette albums and tracks.
+// Params: none
+static int __cdecl l_ClearCustomTapes(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_CustomTapes();
+    return 0;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -906,6 +1061,8 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "PauseCassette",                          l_PauseCassette },
     { "ResumeCassette",                         l_ResumeCassette },
     { "StopCassette",                           l_StopCassette },
+    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
+    { "ClearCustomTapes",                       l_ClearCustomTapes },
     { nullptr, nullptr }
 };
 
