@@ -27,3 +27,13 @@ bool PlayCassetteByTrackId(
     std::uint32_t trackId,
     bool loopPlay,
     bool playAll);
+
+// Gets the current cassette speaker state from the cached cassette callback.
+// Params: outEnabled
+// Returns: true on success, false on failure.
+bool IsCassetteSpeakerEnabled(bool& outEnabled);
+
+// Sets the cassette speaker state on the cached cassette callback.
+// Params: enabled
+// Returns: true on success, false on failure.
+bool SetCassetteSpeakerEnabled(bool enabled);

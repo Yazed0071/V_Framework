@@ -10,6 +10,7 @@
 #include "MissionCodeGuard.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "tpp/sd/impl/BeginSoundSystem/SoundSystemImpl_BeginSoundSystem.h"
+#include "AddressSet.h"
 
 namespace
 {
@@ -34,9 +35,27 @@ namespace
         std::uint8_t loopPlayFlag,
         std::uint8_t allOrOneFlag);
 
-    static constexpr std::uintptr_t ABS_CassetteStart = 0x149310440ull;
-    static constexpr std::uintptr_t ABS_PlayOrPauseSelectedTrack = 0x140EF6BD0ull;
+    // Reads the cassette player state.
+    // Params: player
+    using CassettePlayerGetState_t = int(__fastcall*)(void* player);
+
+    // Sets the cassette speaker mode.
+    // Params: player, outResult, targetMode
+    using CassettePlayerSetSpeakerMode_t =
+        std::uint32_t* (__fastcall*)(void* player, void* outResult, std::uint32_t targetMode);
+
+    // Gets the cassette speaker mode.
+    // Params: player
+    using CassettePlayerGetSpeakerMode_t = int(__fastcall*)(void* player);
+
     static constexpr std::size_t kMusicPlayerPlayVtableOffset = 0xF0ull;
+    static constexpr std::size_t kCassettePlayerGetStateVtableOffset = 0xD8ull;
+    static constexpr std::size_t kCassettePlayerSetSpeakerModeVtableOffset = 0x1A0ull;
+    static constexpr std::size_t kCassettePlayerGetSpeakerModeVtableOffset = 0x1A8ull;
+
+    static constexpr std::uint32_t kCassetteSpeakerModeDisabled = 0u;
+    static constexpr std::uint32_t kCassetteSpeakerModeEnabled = 1u;
+
 
     // Copy buffer for callbackBase + 0xD80.
     static constexpr std::size_t kTapeIdTableSize = 0x200ull;
@@ -568,6 +587,206 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
     return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
 }
 
+// Resolves one function pointer from the cassette player vtable.
+// Params: player, vtableOffset
+static void* ResolveCassettePlayerVtableFunction(void* player, std::size_t vtableOffset)
+{
+    if (!player)
+        return nullptr;
+
+    __try
+    {
+        const std::uintptr_t vtable = *reinterpret_cast<const std::uintptr_t*>(player);
+        if (!vtable)
+            return nullptr;
+
+        const std::uintptr_t target =
+            *reinterpret_cast<const std::uintptr_t*>(vtable + vtableOffset);
+        if (!target)
+            return nullptr;
+
+        return reinterpret_cast<void*>(target);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+// Resolves the cached cassette callback and its player.
+// Params: outCallbackBase, outPlayer
+static bool ResolveCachedCassetteCallbackAndPlayer(void*& outCallbackBase, void*& outPlayer)
+{
+    outCallbackBase = nullptr;
+    outPlayer = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
+        outCallbackBase = g_LastCassetteCallbackBase;
+    }
+
+    if (!outCallbackBase)
+        return false;
+
+    outPlayer = ResolveMusicPlayerFromCassetteCallback(outCallbackBase);
+    return outPlayer != nullptr;
+}
+
+// Returns true if the current cassette player state allows speaker switching.
+// Params: player
+static bool CanSwitchCassetteSpeakerMode(void* player)
+{
+    if (!player)
+        return false;
+
+    void* fnAddr = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetStateVtableOffset);
+    if (!fnAddr)
+        return false;
+
+    CassettePlayerGetState_t getState =
+        reinterpret_cast<CassettePlayerGetState_t>(fnAddr);
+
+    __try
+    {
+        const int state = getState(player);
+        return static_cast<unsigned int>(state - 4) >= 2u;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+// Gets the current cassette speaker state from the cached cassette callback.
+// Params: outEnabled
+// Returns: true on success, false on failure.
+bool IsCassetteSpeakerEnabled(bool& outEnabled)
+{
+    outEnabled = false;
+
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return false;
+
+    void* callbackBase = nullptr;
+    void* player = nullptr;
+    if (!ResolveCachedCassetteCallbackAndPlayer(callbackBase, player))
+    {
+        Log("[CassetteSpeaker] Get: cached callback/player not ready\n");
+        return false;
+    }
+
+    if (!CanSwitchCassetteSpeakerMode(player))
+    {
+        Log("[CassetteSpeaker] Get: player state does not allow switching callback=%p player=%p\n", callbackBase, player);
+        return false;
+    }
+
+    void* fnAddr = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetSpeakerModeVtableOffset);
+    if (!fnAddr)
+    {
+        Log("[CassetteSpeaker] Get: mode getter not resolved\n");
+        return false;
+    }
+
+    CassettePlayerGetSpeakerMode_t getSpeakerMode =
+        reinterpret_cast<CassettePlayerGetSpeakerMode_t>(fnAddr);
+
+    __try
+    {
+        const int currentMode = getSpeakerMode(player);
+        if (currentMode != static_cast<int>(kCassetteSpeakerModeDisabled) &&
+            currentMode != static_cast<int>(kCassetteSpeakerModeEnabled))
+        {
+            Log("[CassetteSpeaker] Get: unexpected mode=%d callback=%p player=%p\n", currentMode, callbackBase, player);
+            return false;
+        }
+
+        outEnabled = currentMode == static_cast<int>(kCassetteSpeakerModeEnabled);
+
+        Log("[CassetteSpeaker] Get: callback=%p player=%p mode=%d enabled=%d\n", callbackBase, player, currentMode, outEnabled ? 1 : 0);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassetteSpeaker] Get: exception while reading mode\n");
+        return false;
+    }
+}
+
+// Sets the cassette speaker state on the cached cassette callback.
+// Params: enabled
+// Returns: true on success, false on failure.
+bool SetCassetteSpeakerEnabled(bool enabled)
+{
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return false;
+
+    void* callbackBase = nullptr;
+    void* player = nullptr;
+    if (!ResolveCachedCassetteCallbackAndPlayer(callbackBase, player))
+    {
+        Log("[CassetteSpeaker] Set: cached callback/player not ready enabled=%d\n", enabled ? 1 : 0);
+        return false;
+    }
+
+    if (!CanSwitchCassetteSpeakerMode(player))
+    {
+        Log("[CassetteSpeaker] Set: player state does not allow switching callback=%p player=%p enabled=%d\n", callbackBase, player, enabled ? 1 : 0);
+        return false;
+    }
+
+    bool currentEnabled = false;
+    if (!IsCassetteSpeakerEnabled(currentEnabled))
+        return false;
+
+    if (currentEnabled == enabled)
+    {
+        Log("[CassetteSpeaker] Set: already in requested state enabled=%d\n", enabled ? 1 : 0);
+        return true;
+    }
+
+    void* fnAddr = ResolveCassettePlayerVtableFunction(player, kCassettePlayerSetSpeakerModeVtableOffset);
+    if (!fnAddr)
+    {
+        Log("[CassetteSpeaker] Set: setter not resolved enabled=%d\n", enabled ? 1 : 0);
+        return false;
+    }
+
+    CassettePlayerSetSpeakerMode_t setSpeakerMode =
+        reinterpret_cast<CassettePlayerSetSpeakerMode_t>(fnAddr);
+
+    std::uint8_t resultStorage[0x20] = {};
+
+    __try
+    {
+        const std::uint32_t targetMode = enabled ? kCassetteSpeakerModeEnabled : kCassetteSpeakerModeDisabled;
+        std::uint32_t* result = setSpeakerMode(player, resultStorage, targetMode);
+        if (!result)
+        {
+            Log("[CassetteSpeaker] Set: setter returned null enabled=%d\n", enabled ? 1 : 0);
+            return false;
+        }
+
+        const bool ok = ((*result >> 31) & 1u) == 0;
+
+        Log(
+            "[CassetteSpeaker] Set: callback=%p player=%p targetMode=%u enabled=%d ok=%d raw=%08X\n",
+            callbackBase,
+            player,
+            static_cast<unsigned int>(targetMode),
+            enabled ? 1 : 0,
+            ok ? 1 : 0,
+            static_cast<unsigned int>(*result));
+
+        return ok;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Log("[CassetteSpeaker] Set: exception while calling setter enabled=%d\n", enabled ? 1 : 0);
+        return false;
+    }
+}
+
 // Resolves the real lower-level play function and player.
 // Params: outPlayFn, outPlayer
 // Returns: true on success, false on failure.
@@ -604,14 +823,14 @@ static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlaye
 // Params: none
 bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
-    void* startTarget = ResolveGameAddress(ABS_CassetteStart);
+    void* startTarget = ResolveGameAddress(gAddr.CassetteStart);
     if (!startTarget)
     {
         Log("[Hook] Cassette Start: address resolve failed\n");
         return false;
     }
 
-    void* playTarget = ResolveGameAddress(ABS_PlayOrPauseSelectedTrack);
+    void* playTarget = ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack);
     if (!playTarget)
     {
         Log("[Hook] Cassette PlayOrPauseSelectedTrack: address resolve failed\n");
@@ -638,8 +857,8 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 // Params: none
 bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
-    DisableAndRemoveHook(ResolveGameAddress(ABS_CassetteStart));
-    DisableAndRemoveHook(ResolveGameAddress(ABS_PlayOrPauseSelectedTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteStart));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack));
 
     g_OrigCassetteStart = nullptr;
     g_OrigPlayOrPauseSelectedTrack = nullptr;
