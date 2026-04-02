@@ -24,6 +24,7 @@
 #include "tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h"
 #include <tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h>
 #include "tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h"
+#include <tpp\sd\SoundMusicPlayer\CustomTapeOwnership.h>
 
 extern "C" {
     #include "lua.h"
@@ -989,6 +990,9 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
                 def.special = static_cast<std::uint16_t>(
                     LuaReadOptionalUIntField(L, "special", 0));
 
+                // Optional. If omitted in Lua, defaults to false.
+                def.unlocked = LuaReadOptionalUIntField(L, "unlocked", 0) != 0;
+
                 if (hasAlbumId && hasLangId && hasFileName)
                 {
                     tracks.push_back(def);
@@ -1062,7 +1066,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ResumeCassette",                         l_ResumeCassette },
     { "StopCassette",                           l_StopCassette },
     { "RegisterCustomTapes",                    l_RegisterCustomTapes },
-    { "ClearCustomTapes",                       l_ClearCustomTapes },
+    //{ "ClearCustomTapes",                       l_ClearCustomTapes }, automated
     { nullptr, nullptr }
 };
 

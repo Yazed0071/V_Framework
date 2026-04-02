@@ -25,6 +25,7 @@ struct CustomTapeTrackDefinition
     std::uint32_t dataTimeEn = 0;
     std::uint16_t important = 0;
     std::uint16_t special = 0;
+    bool unlocked = false;
     std::string fileName;
 };
 
@@ -46,15 +47,3 @@ bool Register_CustomTapes(
 // Note: this does not live-remove already injected tape entries.
 // Params: none
 void Clear_CustomTapes();
-
-// Returns true if this saveIndex belongs to a custom cassette track.
-// Params: saveIndex
-bool IsCustomCassetteSaveIndex(short saveIndex);
-
-// Returns true if this custom cassette track is marked owned in the custom store.
-// Params: saveIndex
-bool IsCustomCassetteTrackOwned(short saveIndex);
-
-// Marks one custom cassette track as owned or not owned in the custom store.
-// Params: saveIndex, owned
-void SetCustomCassetteTrackOwned(short saveIndex, bool owned);

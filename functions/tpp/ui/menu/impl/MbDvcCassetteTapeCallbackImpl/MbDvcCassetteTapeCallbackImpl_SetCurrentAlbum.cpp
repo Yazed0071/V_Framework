@@ -175,6 +175,7 @@ static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
         return;
 
     g_OrigSetCurrentAlbum(thisPtr, albumId);
+    Sync_CustomTapeStateToLiveTable();
     RebuildAcceptedTrackIdsForCurrentAlbum(thisPtr, albumId);
 }
 

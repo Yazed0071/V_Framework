@@ -15,6 +15,7 @@
 #include "log.h"
 #include "FoxHashes.h"
 #include "SoundMusicPlayer_SetupMusicInfos.h"
+#include "CustomTapeOwnership.h"
 
 namespace
 {
@@ -45,51 +46,6 @@ namespace
 
     static std::mutex g_CustomTapeMutex;
     static CustomTapeRegistry g_CustomTapeRegistry;
-
-    static std::mutex g_CustomCassetteOwnershipMutex;
-    static std::unordered_set<short> g_CustomCassetteSaveIndices;
-    static std::unordered_set<short> g_CustomOwnedCassetteSaveIndices;
-}
-
-// Returns true if this saveIndex belongs to a custom cassette track.
-// Params: saveIndex
-bool IsCustomCassetteSaveIndex(short saveIndex)
-{
-    if (saveIndex < 0)
-        return false;
-
-    std::lock_guard<std::mutex> lock(g_CustomCassetteOwnershipMutex);
-    return g_CustomCassetteSaveIndices.find(saveIndex) != g_CustomCassetteSaveIndices.end();
-}
-
-// Returns true if this custom cassette track is marked owned in the custom store.
-// Params: saveIndex
-bool IsCustomCassetteTrackOwned(short saveIndex)
-{
-    if (saveIndex < 0)
-        return false;
-
-    std::lock_guard<std::mutex> lock(g_CustomCassetteOwnershipMutex);
-    return g_CustomOwnedCassetteSaveIndices.find(saveIndex) != g_CustomOwnedCassetteSaveIndices.end();
-}
-
-// Marks one custom cassette track as owned or not owned in the custom store.
-// Params: saveIndex, owned
-void SetCustomCassetteTrackOwned(short saveIndex, bool owned)
-{
-    if (saveIndex < 0)
-        return;
-
-    std::lock_guard<std::mutex> lock(g_CustomCassetteOwnershipMutex);
-
-    if (owned)
-    {
-        g_CustomOwnedCassetteSaveIndices.insert(saveIndex);
-    }
-    else
-    {
-        g_CustomOwnedCassetteSaveIndices.erase(saveIndex);
-    }
 }
 
 #pragma pack(push, 1)
@@ -98,29 +54,29 @@ void SetCustomCassetteTrackOwned(short saveIndex, bool owned)
 // Params: none
 struct TapeAlbumRecord
 {
-    std::uint64_t albumId;     // 0x00
-    std::uint64_t langId;      // 0x08
-    std::uint16_t trackCount;  // 0x10
-    std::uint16_t type;        // 0x12
-    std::uint32_t pad14;       // 0x14
+    std::uint64_t albumId;
+    std::uint64_t langId;
+    std::uint16_t trackCount;
+    std::uint16_t type;
+    std::uint32_t pad14;
 };
 
 // Holds one in-memory tape track record.
 // Params: none
 struct TapeTrackRecord
 {
-    std::uint64_t albumId;           // 0x00
-    std::uint64_t langId;            // 0x08
-    std::uint32_t fileNameStrCode;   // 0x10
-    std::uint32_t directPlayTrackId; // 0x14
-    std::uint32_t dataTime;          // 0x18
-    std::int16_t  saveIndex;         // 0x1C
-    std::int16_t  albumTrackIndex;   // 0x1E
-    std::uint16_t sourceType;        // 0x20
-    std::uint16_t special;           // 0x22
-    std::uint16_t important;         // 0x24
-    char          fileName[0x10];    // 0x26
-    std::uint8_t  reserved[2];       // 0x36
+    std::uint64_t albumId;
+    std::uint64_t langId;
+    std::uint32_t fileNameStrCode;
+    std::uint32_t directPlayTrackId;
+    std::uint32_t dataTime;
+    std::int16_t  saveIndex;
+    std::int16_t  albumTrackIndex;
+    std::uint16_t sourceType;
+    std::uint16_t special;
+    std::uint16_t important;
+    char          fileName[0x10];
+    std::uint8_t  reserved[2];
 };
 
 #pragma pack(pop)
@@ -155,14 +111,17 @@ namespace
     // Params: none
     struct PreparedCustomTrack
     {
+        std::string albumId;
+        std::string fileName;
         std::uint64_t albumIdHash = 0;
         std::uint64_t langIdHash = 0;
         std::uint32_t fileNameStrCode = 0;
         std::uint32_t dataTime = 0;
-        std::int16_t saveIndex = -1;
+        std::int16_t requestedSaveIndex = -1;
+        std::int16_t resolvedSaveIndex = -1;
         std::uint16_t special = 0;
         std::uint16_t important = 0;
-        std::string fileName;
+        bool unlocked = false;
     };
 
     // Holds a POD snapshot of the live SoundMusicPlayer arrays and counters.
@@ -323,25 +282,6 @@ static const TapeAlbumRecord* FindAlbumRecordByHash(
     }
 
     return nullptr;
-}
-
-// Returns the highest direct-play track id currently in the player.
-// Params: tracks, count
-static std::uint32_t GetMaxDirectPlayTrackId(
-    const TapeTrackRecord* tracks,
-    std::uint32_t count)
-{
-    std::uint32_t maxId = 0;
-
-    if (!tracks)
-        return maxId;
-
-    for (std::uint32_t i = 0; i < count; ++i)
-    {
-        maxId = (std::max)(maxId, tracks[i].directPlayTrackId);
-    }
-
-    return maxId;
 }
 
 // Copies the current registry under lock.
@@ -522,13 +462,15 @@ static void PrepareCustomTracks(
         }
 
         PreparedCustomTrack prepared;
+        prepared.albumId = def.albumId;
+        prepared.fileName = def.fileName;
         prepared.albumIdHash = albumIdHash;
         prepared.langIdHash = langIdHash;
         prepared.fileNameStrCode = fileNameStrCode;
-        prepared.saveIndex = def.saveIndex;
+        prepared.requestedSaveIndex = def.saveIndex;
         prepared.special = def.special;
         prepared.important = def.important;
-        prepared.fileName = def.fileName;
+        prepared.unlocked = def.unlocked;
 
         prepared.dataTime = isJapaneseVoice ? def.dataTimeJp : def.dataTimeEn;
         if (prepared.dataTime == 0)
@@ -540,19 +482,59 @@ static void PrepareCustomTracks(
     }
 }
 
-// Remembers accepted custom save indices for later UI ownership checks.
+// Resolves persistent custom save indices for prepared tracks.
+// Reuses existing albumId+fileName matches and creates missing entries.
 // Params: preparedTracks
-static void RememberCustomSaveIndices(const std::vector<PreparedCustomTrack>& preparedTracks)
+static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& preparedTracks)
 {
-    std::lock_guard<std::mutex> lock(g_CustomCassetteOwnershipMutex);
-
-    for (const PreparedCustomTrack& track : preparedTracks)
+    for (PreparedCustomTrack& track : preparedTracks)
     {
-        if (track.saveIndex >= 0)
+        std::int16_t resolvedSaveIndex = -1;
+        bool wasCreated = false;
+
+        const bool ok = ResolveOrCreateCustomTapeSaveIndex(
+            track.requestedSaveIndex,
+            track.albumId.c_str(),
+            track.fileName.c_str(),
+            resolvedSaveIndex,
+            wasCreated);
+
+        if (!ok || resolvedSaveIndex < 0)
         {
-            g_CustomCassetteSaveIndices.insert(track.saveIndex);
+            Log(
+                "[CustomTapes] Failed resolving saveIndex for albumId=%s fileName=%s requested=%d\n",
+                track.albumId.c_str(),
+                track.fileName.c_str(),
+                static_cast<int>(track.requestedSaveIndex));
+            return false;
         }
+
+        track.resolvedSaveIndex = resolvedSaveIndex;
+
+        Register_CustomTapeStateTrackMetadata(
+            track.resolvedSaveIndex,
+            track.albumId.c_str(),
+            track.fileName.c_str());
+
+        if (wasCreated)
+        {
+            InitializeCustomTapeStateIfMissing(
+                track.resolvedSaveIndex,
+                track.unlocked,
+                track.unlocked);
+        }
+
+        Log(
+            "[CustomTapes] Resolved track albumId=%s fileName=%s requested=%d resolved=%d created=%d unlocked=%d\n",
+            track.albumId.c_str(),
+            track.fileName.c_str(),
+            static_cast<int>(track.requestedSaveIndex),
+            static_cast<int>(track.resolvedSaveIndex),
+            wasCreated ? 1 : 0,
+            track.unlocked ? 1 : 0);
     }
+
+    return true;
 }
 
 // Injects validated custom albums and tracks into the built player arrays.
@@ -613,7 +595,11 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     PrepareCustomAlbums(registry, oldAlbums, oldTotalAlbumCount, preparedAlbums);
     PrepareCustomTracks(registry, isJapaneseVoice, preparedAlbums, preparedTracks);
 
-    RememberCustomSaveIndices(preparedTracks);
+    if (!ResolvePreparedTrackSaveIndices(preparedTracks))
+    {
+        Log("[CustomTapes] ResolvePreparedTrackSaveIndices failed\n");
+        return false;
+    }
 
     Log("[CustomTapes] prepared albums=%zu tracks=%zu\n", preparedAlbums.size(), preparedTracks.size());
 
@@ -732,12 +718,9 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         dst.albumId = src.albumIdHash;
         dst.langId = src.langIdHash;
         dst.fileNameStrCode = src.fileNameStrCode;
-
-        // Match the current working behavior you already tested.
         dst.directPlayTrackId = oldLuaTrackCount + i;
-
         dst.dataTime = src.dataTime;
-        dst.saveIndex = src.saveIndex;
+        dst.saveIndex = src.resolvedSaveIndex;
         dst.sourceType = 2;
         dst.special = src.special;
         dst.important = src.important;
@@ -759,11 +742,12 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         strncpy_s(dst.fileName, sizeof(dst.fileName), src.fileName.c_str(), _TRUNCATE);
 
         Log(
-            "[CustomTapes] Injected track fileName=%s directPlayTrackId=%u albumTrackIndex=%d saveIndex=%d\n",
+            "[CustomTapes] Injected track fileName=%s directPlayTrackId=%u albumTrackIndex=%d saveIndex=%d unlocked=%d\n",
             dst.fileName,
             dst.directPlayTrackId,
             static_cast<int>(dst.albumTrackIndex),
-            static_cast<int>(dst.saveIndex));
+            static_cast<int>(dst.saveIndex),
+            src.unlocked ? 1 : 0);
     }
 
     if (oldTracks && oldTrackTailCount > 0)
@@ -922,12 +906,6 @@ bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook()
         g_CustomTapeRegistry.tracks.clear();
     }
 
-    {
-        std::lock_guard<std::mutex> lock(g_CustomCassetteOwnershipMutex);
-        g_CustomCassetteSaveIndices.clear();
-        g_CustomOwnedCassetteSaveIndices.clear();
-    }
-
     return true;
 }
 
@@ -961,8 +939,7 @@ bool Register_CustomTapes(
 }
 
 // Clears all custom albums and tracks.
-// Note: this only clears the pending registry. It does not live-remove already injected entries
-// and it does not clear ownership state for already injected custom tracks.
+// Note: this only clears the pending registry. It does not live-remove already injected entries.
 // Params: none
 void Clear_CustomTapes()
 {
