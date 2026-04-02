@@ -116,6 +116,7 @@ namespace
         std::uint16_t special = 0;
         std::uint16_t important = 0;
         bool unlocked = false;
+        bool usePersistentSaveIndex = true;
     };
 
     // Holds a POD snapshot of the live SoundMusicPlayer arrays and counters.
@@ -278,6 +279,25 @@ static const TapeAlbumRecord* FindAlbumRecordByHash(
     return nullptr;
 }
 
+// Finds one mutable album record by StrCode64 album id.
+// Params: albums, count, albumIdHash
+static TapeAlbumRecord* FindMutableAlbumRecordByHash(
+    TapeAlbumRecord* albums,
+    std::uint32_t count,
+    std::uint64_t albumIdHash)
+{
+    if (!albums || count == 0 || albumIdHash == 0)
+        return nullptr;
+
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        if (albums[i].albumId == albumIdHash)
+            return &albums[i];
+    }
+
+    return nullptr;
+}
+
 // Copies the current registry under lock.
 // Params: outRegistry
 static void CopyCustomTapeRegistry(CustomTapeRegistry& outRegistry)
@@ -306,6 +326,28 @@ static const char* GetStockAlbumIdForTypeName(const std::string& typeName)
         return "tp_sp_01_01";
 
     return nullptr;
+}
+
+// Returns true when one track should keep the stock mission-info saveIndex behavior.
+// Params: albumId, requestedSaveIndex
+static bool ShouldUseStockMissionInfoSaveIndex(
+    const std::string& albumId,
+    std::int16_t requestedSaveIndex)
+{
+    return albumId == "tp_mission_01" && requestedSaveIndex < 0;
+}
+
+// Returns true when one track is allowed to target an already-existing stock mission-info album.
+// Params: albumIdHash, existingAlbums, existingAlbumCount
+static bool ShouldAllowTrackOnExistingMissionInfoAlbum(
+    std::uint64_t albumIdHash,
+    const TapeAlbumRecord* existingAlbums,
+    std::uint32_t existingAlbumCount)
+{
+    if (albumIdHash != FoxHashes::StrCode64("tp_mission_01"))
+        return false;
+
+    return FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr;
 }
 
 // Validates and prepares custom albums against the current player arrays.
@@ -403,11 +445,14 @@ static void PrepareCustomAlbums(
     }
 }
 
-// Validates and prepares custom tracks against the validated custom albums.
-// Params: registry, isJapaneseVoice, validAlbums, outTracks
+// Validates and prepares custom tracks against the validated custom albums
+// and the existing stock mission-info album.
+// Params: registry, isJapaneseVoice, existingAlbums, existingAlbumCount, validAlbums, outTracks
 static void PrepareCustomTracks(
     const CustomTapeRegistry& registry,
     bool isJapaneseVoice,
+    const TapeAlbumRecord* existingAlbums,
+    std::uint32_t existingAlbumCount,
     const std::vector<PreparedCustomAlbum>& validAlbums,
     std::vector<PreparedCustomTrack>& outTracks)
 {
@@ -446,7 +491,16 @@ static void PrepareCustomTracks(
             continue;
         }
 
-        if (validAlbumIds.find(albumIdHash) == validAlbumIds.end())
+        const bool acceptedCustomAlbum =
+            validAlbumIds.find(albumIdHash) != validAlbumIds.end();
+
+        const bool acceptedExistingMissionAlbum =
+            ShouldAllowTrackOnExistingMissionInfoAlbum(
+                albumIdHash,
+                existingAlbums,
+                existingAlbumCount);
+
+        if (!acceptedCustomAlbum && !acceptedExistingMissionAlbum)
         {
             Log(
                 "[CustomTapes] Skipping track %s because its album was not accepted: %s\n",
@@ -462,9 +516,12 @@ static void PrepareCustomTracks(
         prepared.langIdHash = langIdHash;
         prepared.fileNameStrCode = fileNameStrCode;
         prepared.requestedSaveIndex = def.saveIndex;
+        prepared.resolvedSaveIndex = def.saveIndex;
         prepared.special = def.special;
         prepared.important = def.important;
         prepared.unlocked = def.unlocked;
+        prepared.usePersistentSaveIndex =
+            !ShouldUseStockMissionInfoSaveIndex(def.albumId, def.saveIndex);
 
         prepared.dataTime = isJapaneseVoice ? def.dataTimeJp : def.dataTimeEn;
         if (prepared.dataTime == 0)
@@ -472,17 +529,39 @@ static void PrepareCustomTracks(
             prepared.dataTime = isJapaneseVoice ? def.dataTimeEn : def.dataTimeJp;
         }
 
+        Log(
+            "[CustomTapes] Prepared track albumId=%s fileName=%s requestedSaveIndex=%d persistent=%d existingMissionAlbum=%d\n",
+            prepared.albumId.c_str(),
+            prepared.fileName.c_str(),
+            static_cast<int>(prepared.requestedSaveIndex),
+            prepared.usePersistentSaveIndex ? 1 : 0,
+            acceptedExistingMissionAlbum ? 1 : 0);
+
         outTracks.push_back(prepared);
     }
 }
 
-// Resolves persistent custom save indices for prepared tracks.
-// Reuses existing albumId+fileName matches and creates missing entries.
+// Resolves save indices for prepared tracks.
+// Mission-info tracks can keep stock-style negative save indices.
+// Other tracks use the persistent custom save-index allocator.
 // Params: preparedTracks
 static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& preparedTracks)
 {
     for (PreparedCustomTrack& track : preparedTracks)
     {
+        if (!track.usePersistentSaveIndex)
+        {
+            track.resolvedSaveIndex = track.requestedSaveIndex;
+
+            Log(
+                "[CustomTapes] Preserving stock mission-info saveIndex for albumId=%s fileName=%s saveIndex=%d\n",
+                track.albumId.c_str(),
+                track.fileName.c_str(),
+                static_cast<int>(track.resolvedSaveIndex));
+
+            continue;
+        }
+
         std::int16_t resolvedSaveIndex = -1;
         bool wasCreated = false;
 
@@ -587,7 +666,13 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     std::vector<PreparedCustomTrack> preparedTracks;
 
     PrepareCustomAlbums(registry, oldAlbums, oldTotalAlbumCount, preparedAlbums);
-    PrepareCustomTracks(registry, isJapaneseVoice, preparedAlbums, preparedTracks);
+    PrepareCustomTracks(
+        registry,
+        isJapaneseVoice,
+        oldAlbums,
+        oldTotalAlbumCount,
+        preparedAlbums,
+        preparedTracks);
 
     if (!ResolvePreparedTrackSaveIndices(preparedTracks))
     {
@@ -665,8 +750,6 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         return false;
     }
 
-    std::unordered_map<std::uint64_t, TapeAlbumRecord*> newCustomAlbumMap;
-
     for (std::uint32_t i = 0; i < customAlbumCount; ++i)
     {
         TapeAlbumRecord& dst = newAlbums[oldLuaAlbumCount + i];
@@ -677,8 +760,6 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         dst.trackCount = 0;
         dst.type = src.type;
         dst.pad14 = 0;
-
-        newCustomAlbumMap[src.albumIdHash] = &dst;
     }
 
     if (oldAlbums && oldAlbumTailCount > 0)
@@ -721,11 +802,13 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         dst.reserved[0] = 0;
         dst.reserved[1] = 0;
 
-        auto itAlbum = newCustomAlbumMap.find(src.albumIdHash);
-        if (itAlbum != newCustomAlbumMap.end() && itAlbum->second)
+        TapeAlbumRecord* targetAlbum =
+            FindMutableAlbumRecordByHash(newAlbums, newTotalAlbumCount, src.albumIdHash);
+
+        if (targetAlbum)
         {
-            dst.albumTrackIndex = static_cast<std::int16_t>(itAlbum->second->trackCount);
-            itAlbum->second->trackCount = static_cast<std::uint16_t>(itAlbum->second->trackCount + 1u);
+            dst.albumTrackIndex = static_cast<std::int16_t>(targetAlbum->trackCount);
+            targetAlbum->trackCount = static_cast<std::uint16_t>(targetAlbum->trackCount + 1u);
         }
         else
         {
@@ -736,12 +819,13 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         strncpy_s(dst.fileName, sizeof(dst.fileName), src.fileName.c_str(), _TRUNCATE);
 
         Log(
-            "[CustomTapes] Injected track fileName=%s directPlayTrackId=%u albumTrackIndex=%d saveIndex=%d unlocked=%d\n",
+            "[CustomTapes] Injected track fileName=%s directPlayTrackId=%u albumTrackIndex=%d saveIndex=%d unlocked=%d persistent=%d\n",
             dst.fileName,
             dst.directPlayTrackId,
             static_cast<int>(dst.albumTrackIndex),
             static_cast<int>(dst.saveIndex),
-            src.unlocked ? 1 : 0);
+            src.unlocked ? 1 : 0,
+            src.usePersistentSaveIndex ? 1 : 0);
     }
 
     if (oldTracks && oldTrackTailCount > 0)
