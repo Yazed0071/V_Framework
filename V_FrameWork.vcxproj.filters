@@ -108,6 +108,12 @@
     <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\CustomTapeOwnership.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -189,6 +195,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\CustomTapeOwnership.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

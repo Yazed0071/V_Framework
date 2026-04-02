@@ -7,6 +7,9 @@
 #include "FeatureModule.h"
 
 
+bool Install_CustomTapeOwnership_Hooks();
+bool Uninstall_CustomTapeOwnership_Hooks();
+
 bool Install_SetLuaFunctions_Hook();
 bool Uninstall_SetLuaFunctions_Hook();
 
@@ -57,6 +60,10 @@ bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
 
 bool Install_SoundMusicPlayer_SetupMusicInfos_Hook();
 bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+
+bool Install_CassetteTapeSetCurrentAlbum_Hook();
+bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+
 
 namespace
 {
@@ -362,6 +369,44 @@ namespace
             Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
         }
     };
+    class CustomTapeOwnershipModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CustomTapeOwnership";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CustomTapeOwnership_Hooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CustomTapeOwnership_Hooks();
+        }
+    };
+    class CassetteTapeSetCurrentAlbumModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CassetteTapeSetCurrentAlbum";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CassetteTapeSetCurrentAlbum_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+        }
+    }; 
 }
 
 void RegisterBuiltInFeatureModules()
@@ -382,6 +427,8 @@ void RegisterBuiltInFeatureModules()
     static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static CustomTapesModule s_CustomTapesModule;
+    static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
+    static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -402,6 +449,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
 
         });
 }
