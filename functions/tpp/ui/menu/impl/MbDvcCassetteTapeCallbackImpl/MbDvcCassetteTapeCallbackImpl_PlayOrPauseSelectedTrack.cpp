@@ -543,40 +543,73 @@ static void __fastcall hkMusicPlayerPlay(
     }
 }
 
-// Hooks cassette Start and caches the callback-owned tape-id table.
-// Params: cassetteCallbackBase
 static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
 {
+    Log(
+        "[CassettePlay] hkCassetteStart entered callback=%p orig=%p\n",
+        cassetteCallbackBase,
+        g_OrigCassetteStart);
+
     if (!g_OrigCassetteStart)
+    {
+        Log("[CassettePlay] hkCassetteStart: orig is null\n");
         return;
+    }
 
     g_OrigCassetteStart(cassetteCallbackBase);
 
-    if (MissionCodeGuard::ShouldBypassHooks())
+    const bool bypass = MissionCodeGuard::ShouldBypassHooks();
+    Log(
+        "[CassettePlay] hkCassetteStart bypass=%d callback=%p\n",
+        bypass ? 1 : 0,
+        cassetteCallbackBase);
+
+    if (bypass)
         return;
 
-    g_LastCassetteCallbackBase = cassetteCallbackBase;
+    {
+        std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
+        g_LastCassetteCallbackBase = cassetteCallbackBase;
+    }
+
     CacheTapeIdTableFromCassetteCallback(cassetteCallbackBase);
 
     Log("[CassettePlay] Cassette Start cached callback=%p\n", cassetteCallbackBase);
 }
 
-// Hooks the menu wrapper and lazily installs the real play hook.
-// Params: cassetteCallbackBase
 static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
 {
-    if (!g_OrigPlayOrPauseSelectedTrack)
-        return false;
+    Log(
+        "[CassettePlay] hkPlayOrPauseSelectedTrack entered callback=%p orig=%p\n",
+        cassetteCallbackBase,
+        g_OrigPlayOrPauseSelectedTrack);
 
-    if (MissionCodeGuard::ShouldBypassHooks())
+    if (!g_OrigPlayOrPauseSelectedTrack)
+    {
+        Log("[CassettePlay] hkPlayOrPauseSelectedTrack: orig is null\n");
+        return false;
+    }
+
+    const bool bypass = MissionCodeGuard::ShouldBypassHooks();
+    Log(
+        "[CassettePlay] hkPlayOrPauseSelectedTrack bypass=%d callback=%p\n",
+        bypass ? 1 : 0,
+        cassetteCallbackBase);
+
+    if (bypass)
         return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
 
-    g_LastCassetteCallbackBase = cassetteCallbackBase;
+    {
+        std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
+        g_LastCassetteCallbackBase = cassetteCallbackBase;
+    }
+
     CacheTapeIdTableFromCassetteCallback(cassetteCallbackBase);
 
     void* musicPlayer = ResolveMusicPlayerFromCassetteCallback(cassetteCallbackBase);
     if (musicPlayer)
     {
+        Log("[CassettePlay] hkPlayOrPauseSelectedTrack resolved musicPlayer=%p\n", musicPlayer);
         TryInstallMusicPlayerPlayHook(musicPlayer);
     }
     else

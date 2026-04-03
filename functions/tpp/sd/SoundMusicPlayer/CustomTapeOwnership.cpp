@@ -58,7 +58,7 @@ namespace
     using lua_pushboolean_t = void(__fastcall*)(lua_State* luaState, int value);
 
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
-    static constexpr std::int16_t kCustomSaveIndexMax = 20000;
+    static constexpr std::int16_t kCustomSaveIndexMax = 2000;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
 
     // Persisted custom tape state entry.
