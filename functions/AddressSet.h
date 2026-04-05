@@ -62,6 +62,7 @@ namespace AddressSetRuntime
         uintptr_t SetCassetteTapeTrackNewFlag = 0;
         uintptr_t SetCurrentAlbum = 0;
         uintptr_t SetEquipBackgroundTexture = 0;
+        uintptr_t GetIconFtexPath = 0;
         uintptr_t SetLuaFunctions = 0;
         uintptr_t SetTextureName = 0;
         uintptr_t SetupMusicInfos = 0;
@@ -94,7 +95,19 @@ namespace AddressSetRuntime
         uintptr_t lua_tolstring = 0;
         uintptr_t lua_tonumber = 0;
         uintptr_t lua_type = 0;
-    };
+        uintptr_t EquipIdHashTable = 0;
+        uintptr_t RegisterConstantEquipId = 0;
+        uintptr_t lua_createtable = 0;
+        uintptr_t lua_pushlstring = 0;
+        uintptr_t lua_pushstring = 0;
+        uintptr_t lua_pushvalue = 0;
+        uintptr_t lua_rawset = 0;
+        uintptr_t lua_settable = 0;
+        uintptr_t lua_gettable = 0;
+        uintptr_t lua_next = 0;
+        uintptr_t lua_pushnil = 0;
+        uintptr_t EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2 = 0;
+    }; 
 
     inline GameBuild& GetGameBuild()
     {
@@ -153,6 +166,7 @@ namespace AddressSetRuntime
             0x140AAC670ull, // SetCassetteTapeTrackNewFlag
             0x140EF7A50ull, // SetCurrentAlbum
             0x145F236F0ull, // SetEquipBackgroundTexture
+            0x145E62540ull, // GetIconFtexPath
             0x1408D78A0ull, // SetLuaFunctions
             0x141DC78F0ull, // SetTextureName
             0x140974880ull, // SetupMusicInfos
@@ -185,6 +199,19 @@ namespace AddressSetRuntime
             0x141A123C0ull, // lua_tolstring
             0x141A12460ull, // lua_tonumber
             0x14C1ED760ull, // lua_type
+            0x142C24C90ull, // EquipIdHashTable
+            0x1464A5410ull, // RegisterConstantEquipId
+            0x141A110F0ull, // lua_createtable
+            0x141A11B30ull, // lua_pushlstring
+            0x141A11BE0ull, // lua_pushstring
+            0x141A11C40ull, // lua_pushvalue
+            0x141A11D90ull, // lua_rawset
+            0x141A121B0ull, // lua_settable
+            0x14C1D7C10ull, // lua_gettable
+            0x14C1DA770ull, // lua_next
+            0x14C1E7CC0ull, // lua_pushnil
+            0x140A41410ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
+            
         };
 
         return value;
@@ -235,6 +262,7 @@ namespace AddressSetRuntime
             0x0ull, // SetCassetteTapeTrackNewFlag
             0x0ull, // SetCurrentAlbum
             0x0ull, // SetEquipBackgroundTexture
+            0x0ull, // GetIconFtexPath
             0x0ull, // SetLuaFunctions
             0x0ull, // SetTextureName
             0x0ull, // SetupMusicInfos
@@ -267,6 +295,18 @@ namespace AddressSetRuntime
             0x0ull, // lua_tolstring
             0x0ull, // lua_tonumber
             0x0ull, // lua_type
+            0x0ull, // EquipIdHashTable
+            0x0ull, // RegisterConstantEquipId
+            0x0ull, // lua_createtable
+            0x0ull, // lua_pushlstring
+            0x0ull, // lua_pushstring
+            0x0ull, // lua_pushvalue
+            0x0ull, // lua_rawset
+            0x0ull, // lua_settable
+            0x0ull, // lua_gettable
+            0x0ull, // lua_next
+            0x0ull, // lua_pushnil
+            0x0ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
         };
 
         return value;

@@ -120,6 +120,15 @@
     <ClInclude Include="functions\AddressSet.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -210,6 +219,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\tpp\gm\pickable\TppPickableRuntime.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

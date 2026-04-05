@@ -26,6 +26,9 @@
 #include "tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h"
 #include <tpp\sd\SoundMusicPlayer\CustomTapeOwnership.h>
 #include <tpp\gm\pickable\TppPickableRuntime.h>
+#include "tpp\gm\impl\equip\`anonymous_namespace'\`anonymous_namespace'_RegisterConstantEquipId.h"
+#include "tpp\ui\utility\utility_GetIconFtexPath.h"
+#include "functions/tpp/gm/impl/equip/EquipParameters_GunBasic.h"
 
 #include "AddressSet.h"
 
@@ -33,6 +36,7 @@ extern "C" {
     #include "lua.h"
     #include "lauxlib.h"
     #include "lualib.h"
+
 }
 
 namespace
@@ -269,6 +273,8 @@ static void LuaPop(lua_State* L, int count)
 
     g_lua_settop(L, -count - 1);
 }
+
+
 
 // Registers one C library into Fox Lua.
 // Params: L, libName, funcs
@@ -1098,57 +1104,118 @@ static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
     return 1;
 }
 
+// Sets one per-equip icon FTEX path.
+// Params: equipId, path
+static int __cdecl l_SetEquipIdIconFtexPath(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    const char* rawPath = GetLuaString(L, 2);
+
+    if (!rawPath || !*rawPath)
+        return 0;
+
+    EquipIcon_SetEquipIdIconFtexPath(equipId, FoxHashes::PathCode64Ext(rawPath));
+    return 0;
+}
+
+// Clears one per-equip icon FTEX path.
+// Params: equipId
+static int __cdecl l_ClearIconFtexPath(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    EquipIcon_ClearIconFtexPath(equipId);
+    return 0;
+}
+
+// Clears all per-equip icon FTEX paths.
+// Params: none
+static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EquipIcon_ClearAllIconFtexPaths();
+    return 0;
+}
+
+
+// Registers one custom EquipId and returns the numeric id.
+// Params: equipName
+static int __cdecl l_RegisterConstantEquipId(lua_State* L)
+{
+    const char* equipName = GetLuaString(L, 1);
+    if (!equipName || !equipName[0])
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    std::uint32_t equipId = 0;
+    const bool ok = Register_CustomEquipId_FromLua(L, equipName, equipId);
+    if (!ok)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    PushLuaNumber(L, static_cast<float>(equipId));
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
-    { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
-    { "ClearDefaultEquipBgTexture",             l_ClearDefaultEquipBgTexture },
-    { "SetEquipBgTexturePath",                  l_SetEquipBgTexturePath },
-    { "ClearEquipBgTexture",                    l_ClearEquipBgTexture },
-    { "SetEnemyWeaponBgTexturePath",            l_SetEnemyWeaponBgTexturePath },
-    { "ClearEnemyWeaponBgTexture",              l_ClearEnemyWeaponBgTexture },
-    { "SetEnemyEquipBgTexturePath",             l_SetEnemyEquipBgTexturePath },
-    { "ClearEnemyEquipBgTexture",               l_ClearEnemyEquipBgTexture },
-    { "ClearAllEquipBgTextures",                l_ClearAllEquipBgTextures },
-    { "SetLoadingSplashMainTexturePath",        l_SetLoadingSplashMainTexturePath },
-    { "SetLoadingSplashBlurTexturePath",        l_SetLoadingSplashBlurTexturePath },
-    { "ClearLoadingSplashTextures",             l_ClearLoadingSplashTextures },
-    { "SetGameOverSplashMainTexturePath",       l_SetGameOverSplashMainTexturePath },
-    { "SetGameOverSplashBlurTexturePath",       l_SetGameOverSplashBlurTexturePath },
-    { "ClearGameOverSplashTextures",            l_ClearGameOverSplashTextures },
-    { "SetCautionStepNormalDurationSeconds",    l_SetCautionStepNormalDurationSeconds },
-    { "GetCautionStepNormalDurationSeconds",    l_GetCautionStepNormalDurationSeconds },
-    { "UnsetCautionStepNormalDurationSeconds",  l_UnsetCautionStepNormalDurationSeconds },
-    { "GetCautionStepNormalRemainingSeconds",   l_GetCautionStepNormalRemainingSeconds },
-    { "SetPlayerVoiceFpkPathForType",           l_SetPlayerVoiceFpkPathForType },
-    { "ClearPlayerVoiceFpkPathForType",         l_ClearPlayerVoiceFpkPathForType },
-    { "ClearAllPlayerVoiceFpkOverrides",        l_ClearAllPlayerVoiceFpkOverrides },
-    { "SetVIPImportant",                        l_SetVIPImportant },
-    { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
-    { "RemoveVIPImportant",                     l_RemoveVIPImportant },
-    { "ClearVIPImportant",                      l_ClearVIPImportant },
-    { "HoldUpReactionCowardlyReaction",         l_HoldUpReactionCowardlyReactions },
-    { "AddCallSignPatrolSoldier",               l_AddCallSignExtraSoldier },
-    { "RemoveCallSignPatrolSoldier",            l_RemoveCallSignExtraSoldier },
-    { "ClearCallSignPatrolSoldiers",            l_ClearCallSignExtraSoldiers },
-    { "SetLostHostage",                         l_SetLostHostage },
-    { "RemoveLostHostage",                      l_RemoveLostHostage },
-    { "ClearLostHostages",                      l_ClearLostHostages },
-    { "SetLostHostageFromPlayer",               l_SetLostHostageFromPlayer },
-    { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
-    { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
-    { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
-    { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
-    { "GetCassettePlayingTime",                 l_GetCassettePlayingTime },
-    { "GetCassettePlayingTrackId",              l_GetCassettePlayingTrackId },
-    { "PauseCassette",                          l_PauseCassette },
-    { "ResumeCassette",                         l_ResumeCassette },
-    { "StopCassette",                           l_StopCassette },
-    { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
-    { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
-    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
-    //{ "ClearCustomTapes",                     l_ClearCustomTapes }, automated
-    { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
-    { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
+    { "SetDefaultEquipBgTexturePath",                           l_SetDefaultEquipBgTexturePath },
+    { "ClearDefaultEquipBgTexture",                             l_ClearDefaultEquipBgTexture },
+    { "SetEquipBgTexturePath",                                  l_SetEquipBgTexturePath },
+    { "ClearEquipBgTexture",                                    l_ClearEquipBgTexture },
+    { "SetEnemyWeaponBgTexturePath",                            l_SetEnemyWeaponBgTexturePath },
+    { "ClearEnemyWeaponBgTexture",                              l_ClearEnemyWeaponBgTexture },
+    { "SetEnemyEquipBgTexturePath",                             l_SetEnemyEquipBgTexturePath },
+    { "ClearEnemyEquipBgTexture",                               l_ClearEnemyEquipBgTexture },
+    { "ClearAllEquipBgTextures",                                l_ClearAllEquipBgTextures },
+    { "SetLoadingSplashMainTexturePath",                        l_SetLoadingSplashMainTexturePath },
+    { "SetLoadingSplashBlurTexturePath",                        l_SetLoadingSplashBlurTexturePath },
+    { "ClearLoadingSplashTextures",                             l_ClearLoadingSplashTextures },
+    { "SetGameOverSplashMainTexturePath",                       l_SetGameOverSplashMainTexturePath },
+    { "SetGameOverSplashBlurTexturePath",                       l_SetGameOverSplashBlurTexturePath },
+    { "ClearGameOverSplashTextures",                            l_ClearGameOverSplashTextures },
+    { "SetCautionStepNormalDurationSeconds",                    l_SetCautionStepNormalDurationSeconds },
+    { "GetCautionStepNormalDurationSeconds",                    l_GetCautionStepNormalDurationSeconds },
+    { "UnsetCautionStepNormalDurationSeconds",                  l_UnsetCautionStepNormalDurationSeconds },
+    { "GetCautionStepNormalRemainingSeconds",                   l_GetCautionStepNormalRemainingSeconds },
+    { "SetPlayerVoiceFpkPathForType",                           l_SetPlayerVoiceFpkPathForType },
+    { "ClearPlayerVoiceFpkPathForType",                         l_ClearPlayerVoiceFpkPathForType },
+    { "ClearAllPlayerVoiceFpkOverrides",                        l_ClearAllPlayerVoiceFpkOverrides },
+    { "SetVIPImportant",                                        l_SetVIPImportant },
+    { "SetUseConcernedHoldupRecovery",                          l_SetUseConcernedHoldupRecovery },
+    { "RemoveVIPImportant",                                     l_RemoveVIPImportant },
+    { "ClearVIPImportant",                                      l_ClearVIPImportant },
+    { "HoldUpReactionCowardlyReaction",                         l_HoldUpReactionCowardlyReactions },
+    { "AddCallSignPatrolSoldier",                               l_AddCallSignExtraSoldier },
+    { "RemoveCallSignPatrolSoldier",                            l_RemoveCallSignExtraSoldier },
+    { "ClearCallSignPatrolSoldiers",                            l_ClearCallSignExtraSoldiers },
+    { "SetLostHostage",                                         l_SetLostHostage },
+    { "RemoveLostHostage",                                      l_RemoveLostHostage },
+    { "ClearLostHostages",                                      l_ClearLostHostages },
+    { "SetLostHostageFromPlayer",                               l_SetLostHostageFromPlayer },
+    { "EnableSoldierStealthCamo",                               l_EnableSoldierStealthCamo },
+    { "ClearSoldierStealthCamoOverrides",                       l_ClearSoldierStealthCamoOverrides },
+    { "PlayCassetteTapeByTrackId",                              l_PlayCassetteTapeByTrackId },
+    { "GetTapeTrackDirectPlayId",                               l_GetTapeTrackDirectPlayId },
+    { "GetCassettePlayingTime",                                 l_GetCassettePlayingTime },
+    { "GetCassettePlayingTrackId",                              l_GetCassettePlayingTrackId },
+    { "PauseCassette",                                          l_PauseCassette },
+    { "ResumeCassette",                                         l_ResumeCassette },
+    { "StopCassette",                                           l_StopCassette },
+    { "IsCassetteSpeakerEnabled",                               l_IsCassetteSpeakerEnabled },
+    { "SetCassetteSpeakerEnabled",                              l_SetCassetteSpeakerEnabled },
+    { "RegisterCustomTapes",                                    l_RegisterCustomTapes },
+    //{ "ClearCustomTapes",                                     l_ClearCustomTapes }, automated
+    { "SetPickableCountRawByIndex",                             l_SetPickableCountRawByIndex },
+    { "GetPickableCountRawByIndex",                             l_GetPickableCountRawByIndex },
+    { "RegisterConstantEquipId",                                l_RegisterConstantEquipId },
+    { "SetEquipIdIconFtexPath",                                 l_SetEquipIdIconFtexPath },
+    { "ClearIconFtexPath",                                      l_ClearIconFtexPath },
+    { "ClearAllIconFtexPaths",                                  l_ClearAllIconFtexPaths },
+    { "SetEquipGunBasic",                                       l_SetGunBasic },
     { nullptr, nullptr }
 };
 

@@ -15,6 +15,9 @@ bool Uninstall_SetLuaFunctions_Hook();
 bool Install_UiTextureOverrides_Hook();
 bool Uninstall_UiTextureOverrides_Hook();
 
+bool Install_EquipIconFtexPath_Hook();
+bool Uninstall_EquipIconFtexPath_Hook();
+
 bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame);
 bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
 
@@ -63,10 +66,14 @@ bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
 bool Install_CassetteTapeSetCurrentAlbum_Hook();
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 
-// Pickable runtime cache hooks.
-// Params: none
 bool Install_TppPickableHooks();
 bool Uninstall_TppPickableHooks();
+
+bool Install_RegisterConstantEquipId_Hook();
+bool Uninstall_RegisterConstantEquipId_Hook();
+
+bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+void Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
 
 namespace
 {
@@ -87,6 +94,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_SetLuaFunctions_Hook();
+        }
+    };
+
+    class EquipIconFtexPathModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipIconFtexPath";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_EquipIconFtexPath_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_EquipIconFtexPath_Hook();
         }
     };
 
@@ -449,11 +476,50 @@ namespace
             Uninstall_TppPickableHooks();
         }
     };
+    class RegisterConstantEquipIdModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "RegisterConstantEquipId";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_RegisterConstantEquipId_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_RegisterConstantEquipId_Hook();
+        }
+    };
+	class EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+		}
+		void Uninstall() override
+		{
+			Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+		}
+	};
 }
 
 void RegisterBuiltInFeatureModules()
 {
+
     static LuaBridgeModule s_LuaBridgeModule;
+    static EquipIconFtexPathModule s_EquipIconFtexPathModule;
+	static EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module s_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
@@ -472,12 +538,16 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
+    static RegisterConstantEquipIdModule s_RegisterConstantEquipIdModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
         {
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
+            FeatureModuleRegistry::Instance().Register(&s_RegisterConstantEquipIdModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module);
+            FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
