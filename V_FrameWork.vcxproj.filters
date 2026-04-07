@@ -120,13 +120,31 @@
     <ClInclude Include="functions\AddressSet.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.h">
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h">
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.h">
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\CustomEquipIdState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -221,13 +239,31 @@
     <ClCompile Include="functions\tpp\gm\pickable\TppPickableRuntime.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.cpp">
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp">
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.cpp">
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\CustomEquipIdState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

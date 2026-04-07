@@ -1,4 +1,10 @@
 #include "pch.h"
+extern "C" {
+    #include "lua.h"
+    #include "lauxlib.h"
+    #include "lualib.h"
+}
+
 #include <Windows.h>
 #include <cstdint>
 #include <unordered_set>
@@ -26,18 +32,16 @@
 #include "tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h"
 #include <tpp\sd\SoundMusicPlayer\CustomTapeOwnership.h>
 #include <tpp\gm\pickable\TppPickableRuntime.h>
-#include "tpp\gm\impl\equip\`anonymous_namespace'\`anonymous_namespace'_RegisterConstantEquipId.h"
-#include "tpp\ui\utility\utility_GetIconFtexPath.h"
-#include "functions/tpp/gm/impl/equip/EquipParameters_GunBasic.h"
 
 #include "AddressSet.h"
-
-extern "C" {
-    #include "lua.h"
-    #include "lauxlib.h"
-    #include "lualib.h"
-
-}
+#include <tpp\gm\impl\equip\`anonymous_namespace'\RegisterConstantEquipId.h>
+#include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareWPs.h"
+#include "tpp\gm\impl\equip\`anonymous_namespace'\EquipParameters_GunBasic.h"
+#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipIdTable_AddToEquipIdTable.h>
+#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipDevelop_AddToEquipDevelopTable.h>
+#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipMotionData.h>
+#include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareSWPs.h>
+#include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 
 namespace
 {
@@ -48,7 +52,6 @@ namespace
     using lua_tonumber_t = lua_Number(__fastcall*)(lua_State* L, int idx);
     using lua_pushnumber_t = void(__fastcall*)(lua_State* L, lua_Number n);
     using lua_toboolean_t = int(__fastcall*)(lua_State* L, int idx);
-
     using lua_gettop_t = int(__fastcall*)(lua_State* L);
     using lua_settop_t = void(__fastcall*)(lua_State* L, int idx);
     using lua_getfield_t = void(__fastcall*)(lua_State* L, int idx, char* k);
@@ -58,6 +61,16 @@ namespace
     using lua_isnumber_t = int(__fastcall*)(lua_State* L, int idx);
     using lua_objlen_t = size_t(__fastcall*)(lua_State* L, int idx);
     using lua_pushboolean_t = void(__fastcall*)(lua_State* L, int b);
+    using lua_pushstring_t = void(__fastcall*)(lua_State* L, char* s);
+    using lua_createtable_t = void(__fastcall*)(lua_State* L, int narr, int nrec);
+    using lua_rawset_t = void(__fastcall*)(lua_State* L, int idx);
+    using lua_settable_t = void(__fastcall*)(lua_State* L, int idx);
+    using lua_pushnil_t = void(__fastcall*)(lua_State* L);
+    using lua_next_t = int(__fastcall*)(lua_State* L, int idx);
+    using lua_gettable_t = void(__fastcall*)(lua_State* L, int idx);
+    using lua_pushvalue_t = void(__fastcall*)(lua_State* L, int idx);
+
+    static constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
     // English bootstrap addresses for the Lua bridge.
     // These are used before version_info.txt is resolved so the bridge can hook as early as the original build.
@@ -77,6 +90,14 @@ namespace
     static constexpr uintptr_t BOOTSTRAP_EN_lua_isnumber = 0x14C1D8C90ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_objlen = 0x14C1DA960ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_pushboolean = 0x14C1DB230ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushstring = 0x14C1E7EE0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_createtable = 0x14C1D6320ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_rawset = 0x14C1E9CF0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_settable = 0x14C1EB2B0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushnil = 0x14C1E7CC0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_next = 0x14C1DA770ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_gettable = 0x14C1D7C10ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue = 0x14C1E87E0ull;
 
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
     static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
@@ -85,7 +106,6 @@ namespace
     static lua_tonumber_t          g_lua_tonumber = nullptr;
     static lua_pushnumber_t        g_lua_pushnumber = nullptr;
     static lua_toboolean_t         g_lua_toboolean = nullptr;
-
     static lua_gettop_t            g_lua_gettop = nullptr;
     static lua_settop_t            g_lua_settop = nullptr;
     static lua_getfield_t          g_lua_getfield = nullptr;
@@ -95,6 +115,14 @@ namespace
     static lua_isnumber_t          g_lua_isnumber = nullptr;
     static lua_objlen_t            g_lua_objlen = nullptr;
     static lua_pushboolean_t       g_lua_pushboolean = nullptr;
+    static lua_pushstring_t        g_lua_pushstring = nullptr;
+    static lua_createtable_t       g_lua_createtable = nullptr;
+    static lua_rawset_t            g_lua_rawset = nullptr;
+    static lua_settable_t          g_lua_settable = nullptr;
+    static lua_pushnil_t           g_lua_pushnil = nullptr;
+    static lua_next_t              g_lua_next = nullptr;
+    static lua_gettable_t          g_lua_gettable = nullptr;
+    static lua_pushvalue_t         g_lua_pushvalue = nullptr;
 
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
@@ -157,6 +185,32 @@ static bool ResolveLuaApi()
     if (!g_lua_pushboolean)
         g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushboolean, BOOTSTRAP_EN_lua_pushboolean)));
 
+    if (!g_lua_pushstring)
+        g_lua_pushstring = reinterpret_cast<lua_pushstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushstring, BOOTSTRAP_EN_lua_pushstring)));
+
+    if (!g_lua_createtable)
+        g_lua_createtable = reinterpret_cast<lua_createtable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_createtable, BOOTSTRAP_EN_lua_createtable)));
+
+    if (!g_lua_rawset)
+        g_lua_rawset = reinterpret_cast<lua_rawset_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_rawset, BOOTSTRAP_EN_lua_rawset)));
+
+    if (!g_lua_settable)
+        g_lua_settable = reinterpret_cast<lua_settable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_settable, BOOTSTRAP_EN_lua_settable)));
+
+    if (!g_lua_pushnil)
+        g_lua_pushnil = reinterpret_cast<lua_pushnil_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushnil, BOOTSTRAP_EN_lua_pushnil)));
+
+    if (!g_lua_next)
+        g_lua_next = reinterpret_cast<lua_next_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_next, BOOTSTRAP_EN_lua_next)));
+
+    if (!g_lua_gettable)
+        g_lua_gettable = reinterpret_cast<lua_gettable_t>(
+            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_gettable, BOOTSTRAP_EN_lua_gettable)));
+
+    if (!g_lua_pushvalue)
+        g_lua_pushvalue = reinterpret_cast<lua_pushvalue_t>(
+            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushvalue, BOOTSTRAP_EN_lua_pushvalue)));
+
     return g_FoxLuaRegisterLibrary &&
         g_lua_tolstring &&
         g_lua_tointeger &&
@@ -166,12 +220,20 @@ static bool ResolveLuaApi()
         g_lua_gettop &&
         g_lua_settop &&
         g_lua_getfield &&
+        g_lua_gettable &&
         g_lua_rawgeti &&
         g_lua_type &&
         g_lua_isstring &&
         g_lua_isnumber &&
         g_lua_objlen &&
-        g_lua_pushboolean;
+        g_lua_pushboolean &&
+        g_lua_pushvalue &&
+        g_lua_pushstring &&
+        g_lua_createtable &&
+        g_lua_rawset &&
+        g_lua_settable &&
+        g_lua_pushnil &&
+        g_lua_next;
 }
 
 // Returns the current Lua stack top.
@@ -273,8 +335,6 @@ static void LuaPop(lua_State* L, int count)
 
     g_lua_settop(L, -count - 1);
 }
-
-
 
 // Registers one C library into Fox Lua.
 // Params: L, libName, funcs
@@ -429,6 +489,70 @@ static std::uint32_t LuaReadOptionalUIntField(lua_State* L, const char* fieldNam
 
     LuaPop(L, 1);
     return value;
+}
+
+static void LuaPushString(lua_State* L, const char* value)
+{
+    if (!ResolveLuaApi() || !g_lua_pushstring || !value)
+        return;
+
+    g_lua_pushstring(L, const_cast<char*>(value));
+}
+
+static void LuaCreateTable(lua_State* L, int narr, int nrec)
+{
+    if (!ResolveLuaApi() || !g_lua_createtable)
+        return;
+
+    g_lua_createtable(L, narr, nrec);
+}
+
+static void LuaGetTable(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_gettable)
+        return;
+
+    g_lua_gettable(L, idx);
+}
+
+static void LuaRawSet(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_rawset)
+        return;
+
+    g_lua_rawset(L, idx);
+}
+
+static void LuaSetTable(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_settable)
+        return;
+
+    g_lua_settable(L, idx);
+}
+
+static void LuaPushNil(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_pushnil)
+        return;
+
+    g_lua_pushnil(L);
+}
+
+static int LuaNext(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_next)
+        return 0;
+
+    return g_lua_next(L, idx);
+}
+
+static void LuaPushValue(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_pushvalue)
+        return;
+
+    g_lua_pushvalue(L, idx);
 }
 
 // Sets the default equip background texture.
@@ -888,6 +1012,7 @@ static int l_GetCassettePlayingTrackId(lua_State* L)
     PushLuaNumber(L, static_cast<float>(value));
     return 1;
 }
+
 static int __cdecl l_PauseCassette(lua_State* L)
 {
     std::uint32_t fadeMs = 0;
@@ -1028,14 +1153,11 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
                 const bool hasLangId = LuaReadRequiredStringField(L, "langId", def.langId);
                 const bool hasFileName = LuaReadRequiredStringField(L, "fileName", def.fileName);
 
-                def.saveIndex = static_cast<std::int16_t>(
-                    LuaReadOptionalIntField(L, "saveIndex", -1));
+                def.saveIndex = static_cast<std::int16_t>(LuaReadOptionalIntField(L, "saveIndex", -1));
                 def.dataTimeJp = LuaReadOptionalUIntField(L, "dataTimeJp", 0);
                 def.dataTimeEn = LuaReadOptionalUIntField(L, "dataTimeEn", 0);
-                def.important = static_cast<std::uint16_t>(
-                    LuaReadOptionalUIntField(L, "important", 0));
-                def.special = static_cast<std::uint16_t>(
-                    LuaReadOptionalUIntField(L, "special", 0));
+                def.important = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "important", 0));
+                def.special = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "special", 0));
 
                 // Optional. If omitted in Lua, defaults to false.
                 def.unlocked = LuaReadOptionalUIntField(L, "unlocked", 0) != 0;
@@ -1066,7 +1188,6 @@ static int __cdecl l_ClearCustomTapes(lua_State* L)
     Clear_CustomTapes();
     return 0;
 }
-
 
 // Sets one pickable countRaw override by locator index.
 // Params: locatorIndex, countRaw
@@ -1104,118 +1225,70 @@ static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
     return 1;
 }
 
-// Sets one per-equip icon FTEX path.
-// Params: equipId, path
-static int __cdecl l_SetEquipIdIconFtexPath(lua_State* L)
-{
-    const int equipId = GetLuaInt(L, 1);
-    const char* rawPath = GetLuaString(L, 2);
-
-    if (!rawPath || !*rawPath)
-        return 0;
-
-    EquipIcon_SetEquipIdIconFtexPath(equipId, FoxHashes::PathCode64Ext(rawPath));
-    return 0;
-}
-
-// Clears one per-equip icon FTEX path.
-// Params: equipId
-static int __cdecl l_ClearIconFtexPath(lua_State* L)
-{
-    const int equipId = GetLuaInt(L, 1);
-    EquipIcon_ClearIconFtexPath(equipId);
-    return 0;
-}
-
-// Clears all per-equip icon FTEX paths.
-// Params: none
-static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    EquipIcon_ClearAllIconFtexPaths();
-    return 0;
-}
-
-
-// Registers one custom EquipId and returns the numeric id.
-// Params: equipName
-static int __cdecl l_RegisterConstantEquipId(lua_State* L)
-{
-    const char* equipName = GetLuaString(L, 1);
-    if (!equipName || !equipName[0])
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    std::uint32_t equipId = 0;
-    const bool ok = Register_CustomEquipId_FromLua(L, equipName, equipId);
-    if (!ok)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    PushLuaNumber(L, static_cast<float>(equipId));
-    return 1;
-}
-
 static luaL_Reg g_VFrameWorkLib[] =
 {
-    { "SetDefaultEquipBgTexturePath",                           l_SetDefaultEquipBgTexturePath },
-    { "ClearDefaultEquipBgTexture",                             l_ClearDefaultEquipBgTexture },
-    { "SetEquipBgTexturePath",                                  l_SetEquipBgTexturePath },
-    { "ClearEquipBgTexture",                                    l_ClearEquipBgTexture },
-    { "SetEnemyWeaponBgTexturePath",                            l_SetEnemyWeaponBgTexturePath },
-    { "ClearEnemyWeaponBgTexture",                              l_ClearEnemyWeaponBgTexture },
-    { "SetEnemyEquipBgTexturePath",                             l_SetEnemyEquipBgTexturePath },
-    { "ClearEnemyEquipBgTexture",                               l_ClearEnemyEquipBgTexture },
-    { "ClearAllEquipBgTextures",                                l_ClearAllEquipBgTextures },
-    { "SetLoadingSplashMainTexturePath",                        l_SetLoadingSplashMainTexturePath },
-    { "SetLoadingSplashBlurTexturePath",                        l_SetLoadingSplashBlurTexturePath },
-    { "ClearLoadingSplashTextures",                             l_ClearLoadingSplashTextures },
-    { "SetGameOverSplashMainTexturePath",                       l_SetGameOverSplashMainTexturePath },
-    { "SetGameOverSplashBlurTexturePath",                       l_SetGameOverSplashBlurTexturePath },
-    { "ClearGameOverSplashTextures",                            l_ClearGameOverSplashTextures },
-    { "SetCautionStepNormalDurationSeconds",                    l_SetCautionStepNormalDurationSeconds },
-    { "GetCautionStepNormalDurationSeconds",                    l_GetCautionStepNormalDurationSeconds },
-    { "UnsetCautionStepNormalDurationSeconds",                  l_UnsetCautionStepNormalDurationSeconds },
-    { "GetCautionStepNormalRemainingSeconds",                   l_GetCautionStepNormalRemainingSeconds },
-    { "SetPlayerVoiceFpkPathForType",                           l_SetPlayerVoiceFpkPathForType },
-    { "ClearPlayerVoiceFpkPathForType",                         l_ClearPlayerVoiceFpkPathForType },
-    { "ClearAllPlayerVoiceFpkOverrides",                        l_ClearAllPlayerVoiceFpkOverrides },
-    { "SetVIPImportant",                                        l_SetVIPImportant },
-    { "SetUseConcernedHoldupRecovery",                          l_SetUseConcernedHoldupRecovery },
-    { "RemoveVIPImportant",                                     l_RemoveVIPImportant },
-    { "ClearVIPImportant",                                      l_ClearVIPImportant },
-    { "HoldUpReactionCowardlyReaction",                         l_HoldUpReactionCowardlyReactions },
-    { "AddCallSignPatrolSoldier",                               l_AddCallSignExtraSoldier },
-    { "RemoveCallSignPatrolSoldier",                            l_RemoveCallSignExtraSoldier },
-    { "ClearCallSignPatrolSoldiers",                            l_ClearCallSignExtraSoldiers },
-    { "SetLostHostage",                                         l_SetLostHostage },
-    { "RemoveLostHostage",                                      l_RemoveLostHostage },
-    { "ClearLostHostages",                                      l_ClearLostHostages },
-    { "SetLostHostageFromPlayer",                               l_SetLostHostageFromPlayer },
-    { "EnableSoldierStealthCamo",                               l_EnableSoldierStealthCamo },
-    { "ClearSoldierStealthCamoOverrides",                       l_ClearSoldierStealthCamoOverrides },
-    { "PlayCassetteTapeByTrackId",                              l_PlayCassetteTapeByTrackId },
-    { "GetTapeTrackDirectPlayId",                               l_GetTapeTrackDirectPlayId },
-    { "GetCassettePlayingTime",                                 l_GetCassettePlayingTime },
-    { "GetCassettePlayingTrackId",                              l_GetCassettePlayingTrackId },
-    { "PauseCassette",                                          l_PauseCassette },
-    { "ResumeCassette",                                         l_ResumeCassette },
-    { "StopCassette",                                           l_StopCassette },
-    { "IsCassetteSpeakerEnabled",                               l_IsCassetteSpeakerEnabled },
-    { "SetCassetteSpeakerEnabled",                              l_SetCassetteSpeakerEnabled },
-    { "RegisterCustomTapes",                                    l_RegisterCustomTapes },
-    //{ "ClearCustomTapes",                                     l_ClearCustomTapes }, automated
-    { "SetPickableCountRawByIndex",                             l_SetPickableCountRawByIndex },
-    { "GetPickableCountRawByIndex",                             l_GetPickableCountRawByIndex },
-    { "RegisterConstantEquipId",                                l_RegisterConstantEquipId },
-    { "SetEquipIdIconFtexPath",                                 l_SetEquipIdIconFtexPath },
-    { "ClearIconFtexPath",                                      l_ClearIconFtexPath },
-    { "ClearAllIconFtexPaths",                                  l_ClearAllIconFtexPaths },
-    { "SetEquipGunBasic",                                       l_SetGunBasic },
+    { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
+    { "ClearDefaultEquipBgTexture",             l_ClearDefaultEquipBgTexture },
+    { "SetEquipBgTexturePath",                  l_SetEquipBgTexturePath },
+    { "ClearEquipBgTexture",                    l_ClearEquipBgTexture },
+    { "SetEnemyWeaponBgTexturePath",            l_SetEnemyWeaponBgTexturePath },
+    { "ClearEnemyWeaponBgTexture",              l_ClearEnemyWeaponBgTexture },
+    { "SetEnemyEquipBgTexturePath",             l_SetEnemyEquipBgTexturePath },
+    { "ClearEnemyEquipBgTexture",               l_ClearEnemyEquipBgTexture },
+    { "ClearAllEquipBgTextures",                l_ClearAllEquipBgTextures },
+    { "SetLoadingSplashMainTexturePath",        l_SetLoadingSplashMainTexturePath },
+    { "SetLoadingSplashBlurTexturePath",        l_SetLoadingSplashBlurTexturePath },
+    { "ClearLoadingSplashTextures",             l_ClearLoadingSplashTextures },
+    { "SetGameOverSplashMainTexturePath",       l_SetGameOverSplashMainTexturePath },
+    { "SetGameOverSplashBlurTexturePath",       l_SetGameOverSplashBlurTexturePath },
+    { "ClearGameOverSplashTextures",            l_ClearGameOverSplashTextures },
+    { "SetCautionStepNormalDurationSeconds",    l_SetCautionStepNormalDurationSeconds },
+    { "GetCautionStepNormalDurationSeconds",    l_GetCautionStepNormalDurationSeconds },
+    { "UnsetCautionStepNormalDurationSeconds",  l_UnsetCautionStepNormalDurationSeconds },
+    { "GetCautionStepNormalRemainingSeconds",   l_GetCautionStepNormalRemainingSeconds },
+    { "SetPlayerVoiceFpkPathForType",           l_SetPlayerVoiceFpkPathForType },
+    { "ClearPlayerVoiceFpkPathForType",         l_ClearPlayerVoiceFpkPathForType },
+    { "ClearAllPlayerVoiceFpkOverrides",        l_ClearAllPlayerVoiceFpkOverrides },
+    { "SetVIPImportant",                        l_SetVIPImportant },
+    { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
+    { "RemoveVIPImportant",                     l_RemoveVIPImportant },
+    { "ClearVIPImportant",                      l_ClearVIPImportant },
+    { "HoldUpReactionCowardlyReaction",         l_HoldUpReactionCowardlyReactions },
+    { "AddCallSignPatrolSoldier",               l_AddCallSignExtraSoldier },
+    { "RemoveCallSignPatrolSoldier",            l_RemoveCallSignExtraSoldier },
+    { "ClearCallSignPatrolSoldiers",            l_ClearCallSignExtraSoldiers },
+    { "SetLostHostage",                         l_SetLostHostage },
+    { "RemoveLostHostage",                      l_RemoveLostHostage },
+    { "ClearLostHostages",                      l_ClearLostHostages },
+    { "SetLostHostageFromPlayer",               l_SetLostHostageFromPlayer },
+    { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
+    { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
+    { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
+    { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
+    { "GetCassettePlayingTime",                 l_GetCassettePlayingTime },
+    { "GetCassettePlayingTrackId",              l_GetCassettePlayingTrackId },
+    { "PauseCassette",                          l_PauseCassette },
+    { "ResumeCassette",                         l_ResumeCassette },
+    { "StopCassette",                           l_StopCassette },
+    { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
+    { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
+    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
+    //{ "ClearCustomTapes",                     l_ClearCustomTapes }, automated
+    { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
+    { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
+    { "RegisterConstantEquipId",                RegisterConstantEquipId::Lua_RegisterConstantEquipId },
+    { "DeclareWPs",                             DeclareWPs::Lua_DeclareWPs },
+    { "SetGunBasic",                            l_SetGunBasic },
+    { "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
+    { "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
+    { "AddEquipMotionDataEntry",                EquipMotionData::Lua_AddEquipMotionDataEntry },
+    { "RemoveEquipMotionDataEntry",             EquipMotionData::Lua_RemoveEquipMotionDataEntry },
+    { "ClearEquipMotionDataEntries",            EquipMotionData::Lua_ClearEquipMotionDataEntries },
+    { "AddEquipMotionDataTable",                EquipMotionData::Lua_AddEquipMotionDataTable },
+    { "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
+    { "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
+    { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
+    { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { nullptr, nullptr }
 };
 
@@ -1267,6 +1340,122 @@ bool Install_SetLuaFunctions_Hook()
     }
 
     ResolveLuaApi();
+
+    RegisterConstantEquipId::Deps deps{};
+    deps.ResolveLuaApi = &ResolveLuaApi;
+    deps.GetLuaTop = &GetLuaTop;
+    deps.LuaGetField = &LuaGetField;
+    deps.LuaType = &LuaType;
+    deps.LuaIsString = &LuaIsString;
+    deps.LuaIsNumber = &LuaIsNumber;
+    deps.LuaPop = &LuaPop;
+    deps.GetLuaString = &GetLuaString;
+    deps.GetLuaInt = &GetLuaInt;
+    deps.PushLuaNumber = &PushLuaNumber;
+    deps.LuaPushString = &LuaPushString;
+    deps.LuaCreateTable = &LuaCreateTable;
+    deps.LuaRawSet = &LuaRawSet;
+    deps.LuaSetTable = &LuaSetTable;
+    deps.LuaPushNil = &LuaPushNil;
+    deps.LuaNext = &LuaNext;
+
+    DeclareWPs::Deps declareWpDeps{};
+    declareWpDeps.ResolveLuaApi = &ResolveLuaApi;
+
+    declareWpDeps.GetLuaTop = &GetLuaTop;
+    declareWpDeps.LuaGetField = &LuaGetField;
+    declareWpDeps.LuaType = &LuaType;
+    declareWpDeps.LuaPop = &LuaPop;
+
+    declareWpDeps.GetLuaString = &GetLuaString;
+    declareWpDeps.PushLuaNumber = &PushLuaNumber;
+
+    declareWpDeps.LuaPushString = &LuaPushString;
+    declareWpDeps.LuaCreateTable = &LuaCreateTable;
+    declareWpDeps.LuaRawSet = &LuaRawSet;
+    declareWpDeps.LuaSetTable = &LuaSetTable;
+    declareWpDeps.GetLuaInt = &GetLuaInt;
+    declareWpDeps.LuaPushNil = &LuaPushNil;
+    declareWpDeps.LuaNext = &LuaNext;
+    RegisterConstantEquipId::Bind(deps);
+    DeclareWPs::Bind(declareWpDeps);
+
+    EquipIdTableAdd::Deps equipIdDeps{};
+    equipIdDeps.ResolveLuaApi = &ResolveLuaApi;
+    equipIdDeps.GetLuaTop = &GetLuaTop;
+    equipIdDeps.LuaType = &LuaType;
+    equipIdDeps.LuaIsNumber = &LuaIsNumber;
+    equipIdDeps.LuaIsString = &LuaIsString;
+    equipIdDeps.LuaObjLen = &LuaObjLen;
+    equipIdDeps.LuaPop = &LuaPop;
+
+    equipIdDeps.GetLuaString = &GetLuaString;
+    equipIdDeps.GetLuaInt = &GetLuaInt;
+    equipIdDeps.PushLuaNumber = &PushLuaNumber;
+
+    equipIdDeps.LuaPushString = &LuaPushString;
+    equipIdDeps.LuaCreateTable = &LuaCreateTable;
+    equipIdDeps.LuaRawSet = &LuaRawSet;
+    equipIdDeps.LuaSetTable = &LuaSetTable;
+    equipIdDeps.LuaRawGetI = &LuaRawGetI;
+    equipIdDeps.LuaPushValue = &LuaPushValue;
+    EquipIdTableAdd::Bind(equipIdDeps);
+
+
+    EquipDevelopAdd::Deps equipDevelopDeps{};
+    equipDevelopDeps.ResolveLuaApi = &ResolveLuaApi;
+    equipDevelopDeps.GetLuaTop = &GetLuaTop;
+    equipDevelopDeps.LuaType = &LuaType;
+    equipDevelopDeps.LuaSetTop = &SetLuaTop;
+    equipDevelopDeps.GetLuaString = &GetLuaString;
+    equipDevelopDeps.GetLuaInt = &GetLuaInt;
+    equipDevelopDeps.PushLuaNumber = &PushLuaNumber;
+    equipDevelopDeps.LuaPushString = &LuaPushString;
+    equipDevelopDeps.LuaCreateTable = &LuaCreateTable;
+    equipDevelopDeps.LuaGetTable = &LuaGetTable;
+    equipDevelopDeps.LuaSetTable = &LuaSetTable;
+    EquipDevelopAdd::Bind(equipDevelopDeps);
+
+
+    EquipMotionData::Deps equipMotionDeps{};
+    equipMotionDeps.ResolveLuaApi = &ResolveLuaApi;
+    equipMotionDeps.GetLuaTop = &GetLuaTop;
+    equipMotionDeps.LuaType = &LuaType;
+    equipMotionDeps.GetLuaInt = &GetLuaInt;
+    equipMotionDeps.GetLuaString = &GetLuaString;
+    equipMotionDeps.LuaObjLen = &LuaObjLen;
+    equipMotionDeps.LuaSetTop = &SetLuaTop;
+    equipMotionDeps.PushLuaNumber = &PushLuaNumber;
+    equipMotionDeps.LuaPushString = &LuaPushString;
+    equipMotionDeps.LuaCreateTable = &LuaCreateTable;
+    equipMotionDeps.LuaGetField = &LuaGetField;
+    equipMotionDeps.LuaRawGetI = &LuaRawGetI;
+    equipMotionDeps.LuaGetTable = &LuaGetTable;
+    equipMotionDeps.LuaSetTable = &LuaSetTable;
+    equipMotionDeps.LuaPushValue = &LuaPushValue;
+    EquipMotionData::Bind(equipMotionDeps);
+
+
+    DeclareSWPs::Deps declareSwpDeps{};
+    declareSwpDeps.ResolveLuaApi = &ResolveLuaApi;
+    declareSwpDeps.GetLuaTop = &GetLuaTop;
+    declareSwpDeps.LuaGetField = &LuaGetField;
+    declareSwpDeps.LuaType = &LuaType;
+    declareSwpDeps.LuaPop = &LuaPop;
+    declareSwpDeps.GetLuaString = &GetLuaString;
+    declareSwpDeps.PushLuaNumber = &PushLuaNumber;
+    declareSwpDeps.LuaPushString = &LuaPushString;
+    declareSwpDeps.LuaCreateTable = &LuaCreateTable;
+    declareSwpDeps.LuaRawSet = &LuaRawSet;
+    declareSwpDeps.LuaSetTable = &LuaSetTable;
+    DeclareSWPs::Bind(declareSwpDeps);
+
+    SupportWeaponType::Deps supportWeaponTypeDeps{};
+    supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
+    supportWeaponTypeDeps.LuaType = &LuaType;
+    supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
+
+    SupportWeaponType::Bind(supportWeaponTypeDeps);
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
     void* target = ResolveGameAddress(setLuaFunctionsAddr);

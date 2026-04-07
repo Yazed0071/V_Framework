@@ -5,6 +5,7 @@
 
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
+#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipIdTable_AddToEquipIdTable.h>
 
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
@@ -14,9 +15,6 @@ bool Uninstall_SetLuaFunctions_Hook();
 
 bool Install_UiTextureOverrides_Hook();
 bool Uninstall_UiTextureOverrides_Hook();
-
-bool Install_EquipIconFtexPath_Hook();
-bool Uninstall_EquipIconFtexPath_Hook();
 
 bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame);
 bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
@@ -69,11 +67,33 @@ bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 bool Install_TppPickableHooks();
 bool Uninstall_TppPickableHooks();
 
-bool Install_RegisterConstantEquipId_Hook();
-bool Uninstall_RegisterConstantEquipId_Hook();
-
 bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
-void Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+
+namespace EquipIdTableAdd
+{
+    bool Install_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+    bool Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+}
+
+namespace EquipDevelopAdd
+{
+	bool Install_TppMotherBaseManagement_EquipDevelopHooks();
+	bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+}
+
+namespace EquipMotionData
+{
+	bool Install_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+	bool Uninstall_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+}
+
+namespace SupportWeaponType
+{
+    bool Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+	bool Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+}
+
 
 namespace
 {
@@ -94,26 +114,6 @@ namespace
         void Uninstall() override
         {
             Uninstall_SetLuaFunctions_Hook();
-        }
-    };
-
-    class EquipIconFtexPathModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "EquipIconFtexPath";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_EquipIconFtexPath_Hook();
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_EquipIconFtexPath_Hook();
         }
     };
 
@@ -476,31 +476,12 @@ namespace
             Uninstall_TppPickableHooks();
         }
     };
-    class RegisterConstantEquipIdModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "RegisterConstantEquipId";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_RegisterConstantEquipId_Hook();
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_RegisterConstantEquipId_Hook();
-        }
-    };
-	class EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module final : public IFeatureModule
+	class EquipParameterTablesReloadModule final : public IFeatureModule
 	{
 	public:
 		const char* GetName() const override
 		{
-			return "EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2";
+			return "EquipParameterTablesReload";
 		}
 		bool Install(HMODULE hGame) override
 		{
@@ -512,14 +493,87 @@ namespace
 			Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
 		}
 	};
+    class EquipIdTableReloadModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipIdTableReload";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return EquipIdTableAdd::Install_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+        }
+
+        void Uninstall() override
+        {
+            EquipIdTableAdd::Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+        }
+    };
+	class EquipDevelopReloadModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipDevelopReload";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return EquipDevelopAdd::Install_TppMotherBaseManagement_EquipDevelopHooks();
+		}
+		void Uninstall() override
+		{
+			EquipDevelopAdd::Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+		}
+	};
+	class EquipMotionDataReloadModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipMotionDataReload";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return EquipMotionData::Install_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+		}
+		void Uninstall() override
+		{
+			EquipMotionData::Uninstall_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+		}
+	};
+	class SetSupportWeaponTypeModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "SetSupportWeaponType";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return SupportWeaponType::Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+		}
+		void Uninstall() override
+		{
+			SupportWeaponType::Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+		}
+	};
+
 }
 
 void RegisterBuiltInFeatureModules()
 {
-
     static LuaBridgeModule s_LuaBridgeModule;
-    static EquipIconFtexPathModule s_EquipIconFtexPathModule;
-	static EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module s_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module;
+	static EquipParameterTablesReloadModule s_EquipParameterTablesReloadModule;
+    static EquipIdTableReloadModule s_EquipIdTableReloadModule;
+	static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
+	static EquipMotionDataReloadModule s_EquipMotionDataReloadModule;
+	static EquipDevelopReloadModule s_EquipDevelopReloadModule;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
@@ -538,16 +592,17 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
-    static RegisterConstantEquipIdModule s_RegisterConstantEquipIdModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
         {
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
-            FeatureModuleRegistry::Instance().Register(&s_RegisterConstantEquipIdModule);
-			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2Module);
-            FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipIdTableReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_SetSupportWeaponTypeModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipMotionDataReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipDevelopReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);

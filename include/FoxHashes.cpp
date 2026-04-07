@@ -10,7 +10,6 @@
 
 namespace
 {
-
     using FoxStrHash32_t = uint32_t(__fastcall*)(char* str);
     using FoxStrHash64_t = uint64_t(__fastcall*)(char* str);
     using PathHashCode_t = uint64_t(__fastcall*)(char* str);

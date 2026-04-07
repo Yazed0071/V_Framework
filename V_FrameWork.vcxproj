@@ -114,6 +114,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>$(SolutionDir)\functions;$(SolutionDir)\include;$(SolutionDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -132,6 +133,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>$(SolutionDir)\functions;$(SolutionDir)\include;$(SolutionDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -155,8 +157,15 @@
     <ClInclude Include="functions\PlayerVoiceFpkHook.h" />
     <ClInclude Include="functions\State_EnterStandHoldup1.h" />
     <ClInclude Include="functions\StepRadioDiscovery.h" />
-    <ClInclude Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.h" />
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\CustomEquipIdState.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.h" />
     <ClInclude Include="functions\tpp\gm\pickable\TppPickableRuntime.h" />
     <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h" />
     <ClInclude Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h" />
@@ -167,7 +176,6 @@
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h" />
-    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h" />
     <ClInclude Include="functions\UiTextureOverrides.h" />
     <ClInclude Include="functions\VIPHoldupHook.h" />
     <ClInclude Include="functions\VIPRadioHook.h" />
@@ -191,8 +199,15 @@
     <ClCompile Include="functions\LostHostageHook.cpp" />
     <ClCompile Include="functions\MissionCodeGuard.cpp" />
     <ClCompile Include="functions\PlayerVoiceFpkHook.cpp" />
-    <ClCompile Include="functions\tpp\gm\impl\equip\EquipParameters_GunBasic.cpp" />
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\`anonymous_namespace%27_RegisterConstantEquipId.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\CustomEquipIdState.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.cpp" />
     <ClCompile Include="functions\tpp\gm\pickable\TppPickableRuntime.cpp" />
     <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp" />
     <ClCompile Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.cpp" />
@@ -203,7 +218,6 @@
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
-    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="SetLuaFunctions.cpp" />
     <ClCompile Include="functions\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="functions\State_StandHoldupCancelLookToPlayer.cpp" />
