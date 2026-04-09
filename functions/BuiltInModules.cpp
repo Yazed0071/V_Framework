@@ -94,6 +94,9 @@ namespace SupportWeaponType
 	bool Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
 }
 
+bool Install_ReadReceiverParameter2_Hook();
+bool Uninstall_ReadReceiverParameter2_Hook();
+
 
 namespace
 {
@@ -563,6 +566,25 @@ namespace
 			SupportWeaponType::Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
 		}
 	};
+    class ReadReceiverParameter2Module final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ReadReceiverParameter2";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_ReadReceiverParameter2_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_ReadReceiverParameter2_Hook();
+        }
+    };
 
 }
 
@@ -574,6 +596,7 @@ void RegisterBuiltInFeatureModules()
 	static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
 	static EquipMotionDataReloadModule s_EquipMotionDataReloadModule;
 	static EquipDevelopReloadModule s_EquipDevelopReloadModule;
+    static ReadReceiverParameter2Module s_ReadReceiverParameter2Module;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
@@ -596,6 +619,7 @@ void RegisterBuiltInFeatureModules()
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
         {
+            FeatureModuleRegistry::Instance().Register(&s_ReadReceiverParameter2Module);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
 			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);

@@ -111,6 +111,7 @@ namespace AddressSetRuntime
         uintptr_t EquipMotionDataTableImpl_ReloadEquipMotionData = 0;
 		uintptr_t EquipMotionDataTableImpl_ReadMotionDataTable = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
+        uintptr_t ReadReceiverParameter2 = 0;
 
     };
 
@@ -220,6 +221,7 @@ namespace AddressSetRuntime
             0x1463B2BF0ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
 			0x1463B0B60ull, // EquipMotionDataTableImpl_ReadMotionDataTable
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
+            0x140A3F3C0ull, // ReadReceiverParameter2
         };
 
         return value;
@@ -320,6 +322,7 @@ namespace AddressSetRuntime
 			0x0ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
 			0x0ull, // EquipMotionDataTableImpl_ReadMotionDataTable
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
+            0x0ull, // ReadReceiverParameter2
         };
 
         return value;

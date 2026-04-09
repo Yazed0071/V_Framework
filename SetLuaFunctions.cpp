@@ -43,6 +43,8 @@ extern "C" {
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareSWPs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
+#include "tpp/gm/impl/equip/`anonymous_namespace'/EquipParameters_ReceiverParameter2.h"
+
 
 namespace
 {
@@ -1291,6 +1293,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
+    { "SetReceiverParameter2",                  l_SetReceiverParameter2 },
     { nullptr, nullptr }
 };
 
@@ -1479,6 +1482,8 @@ bool Install_SetLuaFunctions_Hook()
     declareRcDeps.LuaNext = &LuaNext;
 
     DeclareRCs::Bind(declareRcDeps);
+
+
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
     void* target = ResolveGameAddress(setLuaFunctionsAddr);
