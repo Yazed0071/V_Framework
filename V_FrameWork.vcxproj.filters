@@ -147,6 +147,9 @@
     <ClInclude Include="functions\tpp\gm\impl\equip\CustomEquipIdState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -264,6 +267,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\tpp\gm\impl\equip\CustomEquipIdState.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

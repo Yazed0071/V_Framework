@@ -43,6 +43,11 @@ extern "C" {
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareSWPs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
+#include "tpp/gm/impl/equip/`anonymous_namespace'/EquipParameters_ReceiverParameter2.h"
+#include "tpp/gm/impl/equip/`anonymous_namespace'/EquipMotionAssignments.h"
+#include "tpp/gm/impl/equip/`anonymous_namespace'/ReceiverChimeraPartsInfoTable.h"
+#include "tpp/player/appearance/parts_LoadPlayerPartsFpk.h"
+#include <tpp\player\appearance\parts_LoadPlayerCamoFpk.h>
 
 namespace
 {
@@ -1291,6 +1296,17 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
+    { "SetReceiverParameter2",                  l_SetReceiverParameter2 },
+    { "AddEquipMotionAssignment",               EquipMotionAssignments::Lua_AddEquipMotionAssignment },
+    { "ClearEquipMotionAssignments",            EquipMotionAssignments::Lua_ClearEquipMotionAssignments },
+    { "SetReceiverchimeraPartsInfoTable",       ReceiverChimeraPartsInfoTable::Lua_SetReceiverchimeraPartsInfoTable },
+    { "ClearReceiverchimeraPartsInfoTable",     ReceiverChimeraPartsInfoTable::Lua_ClearReceiverchimeraPartsInfoTable },
+    { "RegisterCustomPlayerPartsFpk",           PlayerPartsFpkHook::Lua_RegisterCustomPlayerPartsFpk },
+    { "RemoveCustomPlayerPartsFpk",             PlayerPartsFpkHook::Lua_RemoveCustomPlayerPartsFpk },
+    { "ClearCustomPlayerPartsFpk",              PlayerPartsFpkHook::Lua_ClearCustomPlayerPartsFpk },
+    { "RegisterCustomPlayerCamoFpk",            PlayerCamoFpkHook::Lua_RegisterCustomPlayerCamoFpk },
+    { "RemoveCustomPlayerCamoFpk",              PlayerCamoFpkHook::Lua_RemoveCustomPlayerCamoFpk },
+    { "ClearCustomPlayerCamoFpk",               PlayerCamoFpkHook::Lua_ClearCustomPlayerCamoFpk },
     { nullptr, nullptr }
 };
 
@@ -1456,6 +1472,7 @@ bool Install_SetLuaFunctions_Hook()
     supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
     supportWeaponTypeDeps.LuaType = &LuaType;
     supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
+
     SupportWeaponType::Bind(supportWeaponTypeDeps);
 
     DeclareRCs::Deps declareRcDeps{};
@@ -1479,6 +1496,50 @@ bool Install_SetLuaFunctions_Hook()
     declareRcDeps.LuaNext = &LuaNext;
 
     DeclareRCs::Bind(declareRcDeps);
+
+    EquipMotionAssignments::Deps equipMotionAssignmentsDeps{};
+    equipMotionAssignmentsDeps.ResolveLuaApi = &ResolveLuaApi;
+    equipMotionAssignmentsDeps.GetLuaTop = &GetLuaTop;
+    equipMotionAssignmentsDeps.LuaType = &LuaType;
+    equipMotionAssignmentsDeps.GetLuaInt = &GetLuaInt;
+    equipMotionAssignmentsDeps.LuaObjLen = &LuaObjLen;
+    equipMotionAssignmentsDeps.LuaSetTop = &SetLuaTop;
+    equipMotionAssignmentsDeps.PushLuaNumber = &PushLuaNumber;
+    equipMotionAssignmentsDeps.LuaPushString = &LuaPushString;
+    equipMotionAssignmentsDeps.LuaCreateTable = &LuaCreateTable;
+    equipMotionAssignmentsDeps.LuaGetField = &LuaGetField;
+    equipMotionAssignmentsDeps.LuaRawGetI = &LuaRawGetI;
+    equipMotionAssignmentsDeps.LuaGetTable = &LuaGetTable;
+    equipMotionAssignmentsDeps.LuaSetTable = &LuaSetTable;
+    equipMotionAssignmentsDeps.LuaPushValue = &LuaPushValue;
+    EquipMotionAssignments::Bind(equipMotionAssignmentsDeps);
+
+    ReceiverChimeraPartsInfoTable::Deps receiverChimeraDeps{};
+    receiverChimeraDeps.ResolveLuaApi = &ResolveLuaApi;
+    receiverChimeraDeps.GetLuaTop = &GetLuaTop;
+    receiverChimeraDeps.LuaType = &LuaType;
+    receiverChimeraDeps.GetLuaInt = &GetLuaInt;
+    receiverChimeraDeps.LuaObjLen = &LuaObjLen;
+    receiverChimeraDeps.LuaSetTop = &SetLuaTop;
+    receiverChimeraDeps.PushLuaNumber = &PushLuaNumber;
+    receiverChimeraDeps.LuaPushString = &LuaPushString;
+    receiverChimeraDeps.LuaCreateTable = &LuaCreateTable;
+    receiverChimeraDeps.LuaGetField = &LuaGetField;
+    receiverChimeraDeps.LuaRawGetI = &LuaRawGetI;
+    receiverChimeraDeps.LuaGetTable = &LuaGetTable;
+    receiverChimeraDeps.LuaSetTable = &LuaSetTable;
+    receiverChimeraDeps.LuaPushValue = &LuaPushValue;
+    ReceiverChimeraPartsInfoTable::Bind(receiverChimeraDeps);
+
+    PlayerPartsFpkHook::LuaBindings suitLua{};
+    suitLua.ResolveLuaApi = ResolveLuaApi;
+    suitLua.GetLuaTop = GetLuaTop;
+    suitLua.LuaType = LuaType;
+    suitLua.GetLuaInt = GetLuaInt;
+    suitLua.GetLuaString = GetLuaString;
+    suitLua.PushLuaNumber = PushLuaNumber;
+
+    PlayerPartsFpkHook::BindLua(suitLua);
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
     void* target = ResolveGameAddress(setLuaFunctionsAddr);

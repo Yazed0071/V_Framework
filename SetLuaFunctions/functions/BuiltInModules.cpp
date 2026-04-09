@@ -1,0 +1,752 @@
+#include "pch.h"
+
+#include <Windows.h>
+#include <mutex>
+
+#include "BuiltInModules.h"
+#include "FeatureModule.h"
+#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipIdTable_AddToEquipIdTable.h>
+
+bool Install_CustomTapeOwnership_Hooks();
+bool Uninstall_CustomTapeOwnership_Hooks();
+
+bool Install_SetLuaFunctions_Hook();
+bool Uninstall_SetLuaFunctions_Hook();
+
+bool Install_UiTextureOverrides_Hook();
+bool Uninstall_UiTextureOverrides_Hook();
+
+bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame);
+bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
+
+bool Install_CautionStepNormalTimerHook();
+bool Uninstall_CautionStepNormalTimerHook();
+
+bool Install_PlayerVoiceFpk_Hook();
+bool Uninstall_PlayerVoiceFpk_Hook();
+
+bool Install_State_EnterDownHoldupForceVoice_Hook();
+bool Uninstall_State_EnterDownHoldupForceVoice_Hook();
+
+bool Install_VIPSleepFaint_Hook();
+bool Uninstall_VIPSleepFaint_Hook();
+
+bool Install_VIPHoldup_Hook();
+bool Uninstall_VIPHoldup_Hook();
+
+bool Install_VIPRadio_Hook();
+bool Uninstall_VIPRadio_Hook();
+
+bool Install_HoldUpReactionCowardlyReactions_Hook();
+bool Uninstall_HoldUpReactionCowardlyReactions_Hook();
+
+bool Install_CallSignExtra_Hook();
+bool Uninstall_CallSignExtra_Hook();
+
+bool Install_LostHostage_Hooks();
+bool Uninstall_LostHostage_Hooks();
+
+bool Install_LostHostageDiscovery_Hooks();
+bool Uninstall_LostHostageDiscovery_Hooks();
+
+bool Install_UpdateOptCamo_Hook();
+bool Uninstall_UpdateOptCamo_Hook();
+
+bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+
+bool Install_SoundSystem_BeginSoundSystem_Hook();
+bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
+
+bool Install_SoundMusicPlayer_SetupMusicInfos_Hook();
+bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+
+bool Install_CassetteTapeSetCurrentAlbum_Hook();
+bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+
+bool Install_TppPickableHooks();
+bool Uninstall_TppPickableHooks();
+
+bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+
+namespace EquipIdTableAdd
+{
+    bool Install_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+    bool Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+}
+
+namespace EquipDevelopAdd
+{
+	bool Install_TppMotherBaseManagement_EquipDevelopHooks();
+	bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+}
+
+namespace EquipMotionData
+{
+	bool Install_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+	bool Uninstall_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+    bool Install_ReadMotionDataTable_Hook();
+    bool Uninstall_ReadMotionDataTable_Hook();
+}
+
+namespace SupportWeaponType
+{
+    bool Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+	bool Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+}
+
+bool Install_ReadReceiverParameter2_Hook();
+bool Uninstall_ReadReceiverParameter2_Hook();
+
+namespace EquipMotionAssignments
+{
+    bool Install_EquipMotionDataTableImpl_ReadMotionDataTable2_Hook();
+    bool Uninstall_EquipMotionDataTableImpl_ReadMotionDataTable2_Hook();
+}
+
+namespace ReceiverChimeraPartsInfoTable
+{
+    bool Install_ReadPartsPackageInfoIndexTable_Hook();
+    bool Uninstall_ReadPartsPackageInfoIndexTable_Hook();
+}
+namespace PlayerPartsFpkHook
+{
+	bool Install();
+	bool Uninstall();
+}
+namespace PlayerCamoFpkHook
+{
+	bool Install();
+	bool Uninstall();
+}
+
+namespace
+{
+    class LuaBridgeModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "LuaBridge";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SetLuaFunctions_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SetLuaFunctions_Hook();
+        }
+    };
+
+    class UiTextureOverridesModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "UiTextureOverrides";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_UiTextureOverrides_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_UiTextureOverrides_Hook();
+        }
+    };
+
+    class HoldupCancelLookToPlayerModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "HoldupCancelLookToPlayer";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            return Install_State_StandHoldupCancelLookToPlayer_Hook(hGame);
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
+        }
+    };
+
+    class CautionTimerModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CautionTimer";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CautionStepNormalTimerHook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CautionStepNormalTimerHook();
+        }
+    };
+
+    class PlayerVoiceFpkModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PlayerVoiceFpk";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_PlayerVoiceFpk_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_PlayerVoiceFpk_Hook();
+        }
+    };
+
+    class EnterDownHoldupForceVoiceModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EnterDownHoldupForceVoice";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_State_EnterDownHoldupForceVoice_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_State_EnterDownHoldupForceVoice_Hook();
+        }
+    };
+
+    class VIPSleepFaintModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VIPSleepFaint";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VIPSleepFaint_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VIPSleepFaint_Hook();
+        }
+    };
+
+    class VIPHoldupModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VIPHoldup";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VIPHoldup_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VIPHoldup_Hook();
+        }
+    };
+
+    class VIPRadioModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VIPRadio";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VIPRadio_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VIPRadio_Hook();
+        }
+    };
+
+    class HoldUpReactionCowardlyReactionsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "HoldUpReactionCowardlyReactions";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_HoldUpReactionCowardlyReactions_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_HoldUpReactionCowardlyReactions_Hook();
+        }
+    };
+
+    class PerSoldierCallSignOverrideModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PerSoldierCallSignOverride";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CallSignExtra_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CallSignExtra_Hook();
+        }
+    };
+
+    class LostHostageModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "LostHostage";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_LostHostage_Hooks() && Install_LostHostageDiscovery_Hooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_LostHostage_Hooks();
+            Uninstall_LostHostageDiscovery_Hooks();
+        }
+    };
+
+    class UpdateOptCamoModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "UpdateOptCamo";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_UpdateOptCamo_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_UpdateOptCamo_Hook();
+        }
+    };
+
+    class CassetteTapePlayHookModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CassetteTapePlayHook";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
+        }
+    };
+
+    class SoundSystemBeginModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SoundSystemBegin";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoundSystem_BeginSoundSystem_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoundSystem_BeginSoundSystem_Hook();
+        }
+    };
+
+    class CustomTapesModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CustomTapes";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoundMusicPlayer_SetupMusicInfos_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+        }
+    };
+
+    class CustomTapeOwnershipModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CustomTapeOwnership";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CustomTapeOwnership_Hooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CustomTapeOwnership_Hooks();
+        }
+    };
+
+    class CassetteTapeSetCurrentAlbumModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CassetteTapeSetCurrentAlbum";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CassetteTapeSetCurrentAlbum_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+        }
+    };
+
+    class TppPickableModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "TppPickable";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_TppPickableHooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_TppPickableHooks();
+        }
+    };
+	class EquipParameterTablesReloadModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipParameterTablesReload";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+		}
+		void Uninstall() override
+		{
+			Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+		}
+	};
+    class EquipIdTableReloadModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipIdTableReload";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return EquipIdTableAdd::Install_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+        }
+
+        void Uninstall() override
+        {
+            EquipIdTableAdd::Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
+        }
+    };
+	class EquipDevelopReloadModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipDevelopReload";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return EquipDevelopAdd::Install_TppMotherBaseManagement_EquipDevelopHooks();
+		}
+		void Uninstall() override
+		{
+			EquipDevelopAdd::Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+		}
+	};
+	class EquipMotionDataReloadModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipMotionDataReload";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return EquipMotionData::Install_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook() && EquipMotionData::Install_ReadMotionDataTable_Hook();
+        }                                                                                            
+		void Uninstall() override
+		{
+			EquipMotionData::Uninstall_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
+            EquipMotionData::Uninstall_ReadMotionDataTable_Hook();
+		}
+	};
+	class SetSupportWeaponTypeModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "SetSupportWeaponType";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return SupportWeaponType::Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+		}
+		void Uninstall() override
+		{
+			SupportWeaponType::Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+		}
+	};
+    class ReadReceiverParameter2Module final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ReadReceiverParameter2";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_ReadReceiverParameter2_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_ReadReceiverParameter2_Hook();
+        }
+    };
+    class EquipMotionAssignmentsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipMotionAssignments";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return EquipMotionAssignments::Install_EquipMotionDataTableImpl_ReadMotionDataTable2_Hook();
+        }
+
+        void Uninstall() override
+        {
+            EquipMotionAssignments::Uninstall_EquipMotionDataTableImpl_ReadMotionDataTable2_Hook();
+        }
+    };
+    class ReceiverChimeraPartsInfoTableModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ReceiverChimeraPartsInfoTable";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return ReceiverChimeraPartsInfoTable::Install_ReadPartsPackageInfoIndexTable_Hook();
+        }
+
+        void Uninstall() override
+        {
+            ReceiverChimeraPartsInfoTable::Uninstall_ReadPartsPackageInfoIndexTable_Hook();
+        }
+    };
+	class PlayerPartsFpkHookModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "PlayerPartsFpkHook";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return PlayerPartsFpkHook::Install();
+		}
+		void Uninstall() override
+		{
+			PlayerPartsFpkHook::Uninstall();
+		}
+	};
+	class PlayerCamoFpkHookModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "PlayerCamoFpkHook";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return PlayerCamoFpkHook::Install();
+		}
+		void Uninstall() override
+		{
+			PlayerCamoFpkHook::Uninstall();
+		}
+	};
+
+}
+
+void RegisterBuiltInFeatureModules()
+{
+    static LuaBridgeModule s_LuaBridgeModule;
+	static EquipParameterTablesReloadModule s_EquipParameterTablesReloadModule;
+    static EquipIdTableReloadModule s_EquipIdTableReloadModule;
+	static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
+	static EquipMotionDataReloadModule s_EquipMotionDataReloadModule;
+	static EquipMotionAssignmentsModule s_EquipMotionAssignmentsModule;
+    static ReceiverChimeraPartsInfoTableModule s_ReceiverChimeraPartsInfoTableModule;
+	static EquipDevelopReloadModule s_EquipDevelopReloadModule;
+    static ReadReceiverParameter2Module s_ReadReceiverParameter2Module;
+    static UiTextureOverridesModule s_UiTextureOverridesModule;
+    static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
+    static CautionTimerModule s_CautionTimerModule;
+    static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
+    static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
+    static VIPSleepFaintModule s_VIPSleepFaintModule;
+    static VIPHoldupModule s_VIPHoldupModule;
+    static VIPRadioModule s_VIPRadioModule;
+    static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
+    static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
+    static LostHostageModule s_LostHostageModule;
+    static UpdateOptCamoModule s_UpdateOptCamoModule;
+    static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
+    static SoundSystemBeginModule s_SoundSystemBeginModule;
+    static CustomTapesModule s_CustomTapesModule;
+    static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
+    static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
+    static TppPickableModule s_TppPickableModule;
+	static PlayerPartsFpkHookModule s_PlayerPartsFpkHookModule;
+	static PlayerCamoFpkHookModule s_PlayerCamoFpkHookModule;
+
+    static std::once_flag s_Once;
+    std::call_once(s_Once, []()
+        {
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
+            FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);
+            FeatureModuleRegistry::Instance().Register(&s_ReadReceiverParameter2Module);
+            FeatureModuleRegistry::Instance().Register(&s_EquipIdTableReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_SetSupportWeaponTypeModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipMotionDataReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipMotionAssignmentsModule);
+			FeatureModuleRegistry::Instance().Register(&s_ReceiverChimeraPartsInfoTableModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipDevelopReloadModule);
+            FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
+            FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
+            FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
+            FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
+            FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
+            FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
+            FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
+            FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
+            FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
+            FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
+            FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
+            FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
+			FeatureModuleRegistry::Instance().Register(&s_PlayerPartsFpkHookModule);
+			FeatureModuleRegistry::Instance().Register(&s_PlayerCamoFpkHookModule);
+        });
+}
