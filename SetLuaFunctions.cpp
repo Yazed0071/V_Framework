@@ -39,11 +39,9 @@ extern "C" {
 #include "tpp\gm\impl\equip\`anonymous_namespace'\EquipParameters_GunBasic.h"
 #include <tpp\gm\impl\equip\`anonymous_namespace'\EquipIdTable_AddToEquipIdTable.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\EquipDevelop_AddToEquipDevelopTable.h>
-#include <tpp\gm\impl\equip\`anonymous_namespace'\EquipMotionData.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareSWPs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
-#include "tpp/gm/impl/equip/`anonymous_namespace'/EquipParameters_ReceiverParameter2.h"
 
 
 namespace
@@ -1284,16 +1282,11 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetGunBasic",                            l_SetGunBasic },
     { "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
     { "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
-    { "AddEquipMotionDataEntry",                EquipMotionData::Lua_AddEquipMotionDataEntry },
-    { "RemoveEquipMotionDataEntry",             EquipMotionData::Lua_RemoveEquipMotionDataEntry },
-    { "ClearEquipMotionDataEntries",            EquipMotionData::Lua_ClearEquipMotionDataEntries },
-    { "AddEquipMotionDataTable",                EquipMotionData::Lua_AddEquipMotionDataTable },
     { "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
     { "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
     { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
-    { "SetReceiverParameter2",                  l_SetReceiverParameter2 },
     { nullptr, nullptr }
 };
 
@@ -1422,25 +1415,6 @@ bool Install_SetLuaFunctions_Hook()
     EquipDevelopAdd::Bind(equipDevelopDeps);
 
 
-    EquipMotionData::Deps equipMotionDeps{};
-    equipMotionDeps.ResolveLuaApi = &ResolveLuaApi;
-    equipMotionDeps.GetLuaTop = &GetLuaTop;
-    equipMotionDeps.LuaType = &LuaType;
-    equipMotionDeps.GetLuaInt = &GetLuaInt;
-    equipMotionDeps.GetLuaString = &GetLuaString;
-    equipMotionDeps.LuaObjLen = &LuaObjLen;
-    equipMotionDeps.LuaSetTop = &SetLuaTop;
-    equipMotionDeps.PushLuaNumber = &PushLuaNumber;
-    equipMotionDeps.LuaPushString = &LuaPushString;
-    equipMotionDeps.LuaCreateTable = &LuaCreateTable;
-    equipMotionDeps.LuaGetField = &LuaGetField;
-    equipMotionDeps.LuaRawGetI = &LuaRawGetI;
-    equipMotionDeps.LuaGetTable = &LuaGetTable;
-    equipMotionDeps.LuaSetTable = &LuaSetTable;
-    equipMotionDeps.LuaPushValue = &LuaPushValue;
-    EquipMotionData::Bind(equipMotionDeps);
-
-
     DeclareSWPs::Deps declareSwpDeps{};
     declareSwpDeps.ResolveLuaApi = &ResolveLuaApi;
     declareSwpDeps.GetLuaTop = &GetLuaTop;
@@ -1482,7 +1456,6 @@ bool Install_SetLuaFunctions_Hook()
     declareRcDeps.LuaNext = &LuaNext;
 
     DeclareRCs::Bind(declareRcDeps);
-
 
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
