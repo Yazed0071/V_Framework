@@ -89,6 +89,12 @@ namespace SupportWeaponType
 	bool Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
 }
 
+namespace DeclareAMs
+{
+    bool Install_DeclareAMs_Hook();
+    bool Uninstall_DeclareAMs_Hook();
+}
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -540,6 +546,25 @@ namespace
 			SupportWeaponType::Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
 		}
 	};
+    class DeclareAMsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "DeclareAMs";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return DeclareAMs::Install_DeclareAMs_Hook();
+        }
+
+        void Uninstall() override
+        {
+            DeclareAMs::Uninstall_DeclareAMs_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -550,6 +575,7 @@ void RegisterBuiltInFeatureModules()
 	static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
 	static EquipDevelopReloadModule s_EquipDevelopReloadModule;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
+	static DeclareAMsModule s_DeclareAMsModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
@@ -576,6 +602,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
 			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIdTableReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_DeclareAMsModule);
 			FeatureModuleRegistry::Instance().Register(&s_SetSupportWeaponTypeModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);

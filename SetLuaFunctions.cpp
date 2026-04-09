@@ -42,6 +42,7 @@ extern "C" {
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareSWPs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
+#include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareAMs.h>
 
 
 namespace
@@ -1287,6 +1288,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
+    { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
     { nullptr, nullptr }
 };
 
@@ -1456,6 +1458,24 @@ bool Install_SetLuaFunctions_Hook()
     declareRcDeps.LuaNext = &LuaNext;
 
     DeclareRCs::Bind(declareRcDeps);
+
+
+    DeclareAMs::Deps declareAmDeps{};
+    declareAmDeps.ResolveLuaApi = &ResolveLuaApi;
+    declareAmDeps.GetLuaTop = &GetLuaTop;
+    declareAmDeps.LuaType = &LuaType;
+    declareAmDeps.GetLuaString = &GetLuaString;
+    declareAmDeps.GetLuaInt = &GetLuaInt;
+    declareAmDeps.LuaSetTop = &SetLuaTop;
+    declareAmDeps.PushLuaNumber = &PushLuaNumber;
+    declareAmDeps.LuaPushString = &LuaPushString;
+    declareAmDeps.LuaCreateTable = &LuaCreateTable;
+    declareAmDeps.LuaGetField = &LuaGetField;
+    declareAmDeps.LuaSetTable = &LuaSetTable;
+    declareAmDeps.LuaPushNil = &LuaPushNil;
+    declareAmDeps.LuaNext = &LuaNext;
+    declareAmDeps.LuaRawSet = &LuaRawSet;
+    DeclareAMs::Bind(declareAmDeps);
 
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
