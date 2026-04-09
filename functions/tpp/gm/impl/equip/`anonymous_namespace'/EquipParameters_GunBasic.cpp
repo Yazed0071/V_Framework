@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "EquipParameters_GunBasic.h"
+#include "SetEquipParameters.h"
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -84,8 +85,6 @@ namespace
     static lua_pushvalue_t   g_lua_pushvalue = nullptr;
 }
 
-// Resolves the Lua bridge functions used by this file.
-// Params: none
 static bool ResolveLuaApi()
 {
     if (!g_lua_getfield)
@@ -130,8 +129,6 @@ static bool ResolveLuaApi()
         g_lua_pushvalue;
 }
 
-// Pushes one table field onto the stack.
-// Params: L, idx, fieldName
 static void LuaGetField(lua_State* L, int idx, const char* fieldName)
 {
     if (!ResolveLuaApi() || !fieldName)
@@ -140,15 +137,11 @@ static void LuaGetField(lua_State* L, int idx, const char* fieldName)
     g_lua_getfield(L, idx, const_cast<char*>(fieldName));
 }
 
-// Returns true if one Lua value is a number.
-// Params: L, idx
 static bool LuaIsNumber(lua_State* L, int idx)
 {
     return ResolveLuaApi() && g_lua_isnumber(L, idx) != 0;
 }
 
-// Returns one Lua integer.
-// Params: L, idx
 static std::int32_t LuaToInt(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -157,8 +150,6 @@ static std::int32_t LuaToInt(lua_State* L, int idx)
     return static_cast<std::int32_t>(g_lua_tointeger(L, idx));
 }
 
-// Sets the Lua stack top.
-// Params: L, idx
 static void LuaSetTop(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -167,8 +158,6 @@ static void LuaSetTop(lua_State* L, int idx)
     g_lua_settop(L, idx);
 }
 
-// Pushes one number.
-// Params: L, value
 static void LuaPushNumber(lua_State* L, lua_Number value)
 {
     if (!ResolveLuaApi())
@@ -177,8 +166,6 @@ static void LuaPushNumber(lua_State* L, lua_Number value)
     g_lua_pushnumber(L, value);
 }
 
-// Runs lua_gettable.
-// Params: L, idx
 static void LuaGetTable(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -187,8 +174,6 @@ static void LuaGetTable(lua_State* L, int idx)
     g_lua_gettable(L, idx);
 }
 
-// Runs lua_settable.
-// Params: L, idx
 static void LuaSetTable(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -197,8 +182,6 @@ static void LuaSetTable(lua_State* L, int idx)
     g_lua_settable(L, idx);
 }
 
-// Pushes nil.
-// Params: L
 static void LuaPushNil(lua_State* L)
 {
     if (!ResolveLuaApi())
@@ -207,8 +190,6 @@ static void LuaPushNil(lua_State* L)
     g_lua_pushnil(L);
 }
 
-// Runs lua_next.
-// Params: L, idx
 static int LuaNext(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -217,8 +198,6 @@ static int LuaNext(lua_State* L, int idx)
     return g_lua_next(L, idx);
 }
 
-// Returns the current stack top.
-// Params: L
 static int LuaGetTop(lua_State* L)
 {
     if (!ResolveLuaApi())
@@ -227,8 +206,6 @@ static int LuaGetTop(lua_State* L)
     return g_lua_gettop(L);
 }
 
-// Returns the Lua type.
-// Params: L, idx
 static int LuaType(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -237,15 +214,11 @@ static int LuaType(lua_State* L, int idx)
     return g_lua_type(L, idx);
 }
 
-// Returns true if one Lua value is a table.
-// Params: L, idx
 static bool LuaIsTable(lua_State* L, int idx)
 {
     return LuaType(L, idx) == LUA_TTABLE;
 }
 
-// Runs lua_createtable.
-// Params: L, narr, nrec
 static void LuaCreateTable(lua_State* L, int narr, int nrec)
 {
     if (!ResolveLuaApi())
@@ -254,8 +227,6 @@ static void LuaCreateTable(lua_State* L, int narr, int nrec)
     g_lua_createtable(L, narr, nrec);
 }
 
-// Runs lua_pushvalue.
-// Params: L, idx
 static void LuaPushValue(lua_State* L, int idx)
 {
     if (!ResolveLuaApi())
@@ -264,15 +235,11 @@ static void LuaPushValue(lua_State* L, int idx)
     g_lua_pushvalue(L, idx);
 }
 
-// Returns true if one row has useful data.
-// Params: entry
 static bool IsValidGunBasicEntry(const GunBasicEntry& entry)
 {
     return entry.weaponId > 0;
 }
 
-// Reads one optional integer field from a Lua table currently at stack top.
-// Params: L, fieldName, defaultValue, outValue
 static void ReadOptionalIntField(lua_State* L, const char* fieldName, std::int32_t defaultValue, std::int32_t& outValue)
 {
     outValue = defaultValue;
@@ -285,8 +252,6 @@ static void ReadOptionalIntField(lua_State* L, const char* fieldName, std::int32
     LuaSetTop(L, -2);
 }
 
-// Reads one required integer field from a Lua table currently at stack top.
-// Params: L, fieldName, outValue
 static bool ReadRequiredIntField(lua_State* L, const char* fieldName, std::int32_t& outValue)
 {
     outValue = 0;
@@ -301,8 +266,6 @@ static bool ReadRequiredIntField(lua_State* L, const char* fieldName, std::int32
     return ok;
 }
 
-// Reads one array int field from a row table.
-// Params: L, rowIndex, fieldIndex1Based, defaultValue
 static std::int32_t ReadArrayIntField(lua_State* L, int rowIndex, int fieldIndex1Based, std::int32_t defaultValue)
 {
     LuaPushNumber(L, static_cast<lua_Number>(fieldIndex1Based));
@@ -318,8 +281,6 @@ static std::int32_t ReadArrayIntField(lua_State* L, int rowIndex, int fieldIndex
     return value;
 }
 
-// Writes one array int field into a row table.
-// Params: L, rowIndex, fieldIndex1Based, value
 static void WriteArrayIntField(lua_State* L, int rowIndex, int fieldIndex1Based, std::int32_t value)
 {
     LuaPushNumber(L, static_cast<lua_Number>(fieldIndex1Based));
@@ -327,8 +288,6 @@ static void WriteArrayIntField(lua_State* L, int rowIndex, int fieldIndex1Based,
     LuaSetTable(L, rowIndex);
 }
 
-// Returns Lua array size.
-// Params: L, tableIndex
 static int GetLuaArraySize(lua_State* L, int tableIndex)
 {
     int count = 0;
@@ -343,8 +302,6 @@ static int GetLuaArraySize(lua_State* L, int tableIndex)
     return count;
 }
 
-// Returns the maximum weaponId currently queued.
-// Params: none
 static std::uint32_t GetMaxQueuedWeaponId()
 {
     std::uint32_t maxWeaponId = kStockGunBasicMaxWeaponId;
@@ -358,8 +315,6 @@ static std::uint32_t GetMaxQueuedWeaponId()
     return maxWeaponId;
 }
 
-// Ensures the shadow gunBasic buffer is large enough for the current highest weaponId.
-// Params: none
 static bool EnsureGunBasicShadowCapacity()
 {
     const std::uint32_t requiredCapacity = GetMaxQueuedWeaponId();
@@ -394,18 +349,6 @@ static bool EnsureGunBasicShadowCapacity()
     return true;
 }
 
-// Returns the current gunBasic pointer stored in EquipParameterTablesImpl.
-// Params: _this
-static void* GetEquipParameterTablesGunBasicPtr(void* _this)
-{
-    if (!_this)
-        return nullptr;
-
-    return *reinterpret_cast<void**>(reinterpret_cast<std::uint8_t*>(_this) + kEquipParameterTablesImpl_GunBasicPtr_Offset);
-}
-
-// Replaces EquipParameterTablesImpl->gunBasic pointer with our shadow buffer.
-// Params: _this
 static bool RedirectGunBasicPointerToShadow(void* _this)
 {
     if (!_this)
@@ -432,8 +375,6 @@ static bool RedirectGunBasicPointerToShadow(void* _this)
     return true;
 }
 
-// Queues or replaces one custom gunBasic row.
-// Params: entry
 static void QueueGunBasicEntry(const GunBasicEntry& entry)
 {
     if (!IsValidGunBasicEntry(entry))
@@ -460,8 +401,6 @@ static void QueueGunBasicEntry(const GunBasicEntry& entry)
     Log("[GunBasic] Queued new entry weaponId=0x%X\n", entry.weaponId);
 }
 
-// Applies all queued gunBasic rows into param_1["gunBasic"].
-// Params: L
 static void ApplyAllQueuedGunBasic(lua_State* L)
 {
     if (!L)
@@ -562,8 +501,6 @@ static void ApplyAllQueuedGunBasic(lua_State* L)
     LuaSetTop(L, -2);
 }
 
-// Hooked stock ReloadEquipParameterTablesImpl2.
-// Params: _this, L
 static int __fastcall hkReloadEquipParameterTablesImpl2(void* _this, lua_State* L)
 {
     if (_this)
@@ -579,6 +516,7 @@ static int __fastcall hkReloadEquipParameterTablesImpl2(void* _this, lua_State* 
     if (L && LuaIsTable(L, -1))
     {
         ApplyAllQueuedGunBasic(L);
+        EquipParams::ApplyQueuedEquipParameters_LuaTables(L);
     }
 
     if (g_OrigReloadEquipParameterTablesImpl2)
@@ -587,8 +525,6 @@ static int __fastcall hkReloadEquipParameterTablesImpl2(void* _this, lua_State* 
     return 0;
 }
 
-// Lua bridge for V_FrameWork.SetGunBasic{...}.
-// Params: L
 int __cdecl l_SetGunBasic(lua_State* L)
 {
     if (!L || !LuaIsTable(L, 1))
@@ -621,7 +557,7 @@ int __cdecl l_SetGunBasic(lua_State* L)
     if (entry.weaponGrade < 1)
         entry.weaponGrade = 1;
     else if (entry.weaponGrade > 15)
-		entry.weaponGrade = 15;
+        entry.weaponGrade = 15;
 
     LuaSetTop(L, -2);
 
@@ -629,8 +565,6 @@ int __cdecl l_SetGunBasic(lua_State* L)
     return 0;
 }
 
-// Installs the reload hook.
-// Params: none
 bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook()
 {
     if (g_ReloadEquipParameterTablesImpl2HookInstalled)
@@ -666,8 +600,6 @@ bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook()
     return true;
 }
 
-// Uninstalls the reload hook.
-// Params: none
 bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook()
 {
     if (!g_ReloadEquipParameterTablesImpl2HookInstalled)

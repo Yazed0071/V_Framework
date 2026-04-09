@@ -43,6 +43,7 @@ extern "C" {
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetSupportWeaponTypeId.h>
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareAMs.h>
+#include <tpp\gm\impl\equip\`anonymous_namespace'\SetEquipParameters.h>
 
 
 namespace
@@ -459,6 +460,14 @@ static bool LuaReadRequiredStringField(lua_State* L, const char* fieldName, std:
 
     LuaPop(L, 1);
     return ok && !outValue.empty();
+}
+
+static double LuaToNumber(lua_State* L, int idx)
+{
+    if (!ResolveLuaApi() || !g_lua_tonumber)
+        return 0.0;
+
+    return static_cast<double>(g_lua_tonumber(L, idx));
 }
 
 // Reads one optional signed integer field from a Lua table.
@@ -1289,6 +1298,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
     { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
+    { "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
     { nullptr, nullptr }
 };
 
@@ -1476,6 +1486,25 @@ bool Install_SetLuaFunctions_Hook()
     declareAmDeps.LuaNext = &LuaNext;
     declareAmDeps.LuaRawSet = &LuaRawSet;
     DeclareAMs::Bind(declareAmDeps);
+
+    EquipParams::Deps equipParamsDeps{};
+    equipParamsDeps.ResolveLuaApi = &ResolveLuaApi;
+    equipParamsDeps.GetLuaTop = &GetLuaTop;
+    equipParamsDeps.LuaType = &LuaType;
+    equipParamsDeps.GetLuaInt = &GetLuaInt;
+    equipParamsDeps.GetLuaNumber = &LuaToNumber;
+    equipParamsDeps.GetLuaString = &GetLuaString;
+    equipParamsDeps.LuaObjLen = &LuaObjLen;
+    equipParamsDeps.LuaSetTop = &SetLuaTop;
+    equipParamsDeps.PushLuaNumber = &PushLuaNumber;
+    equipParamsDeps.LuaPushString = &LuaPushString;
+    equipParamsDeps.LuaCreateTable = &LuaCreateTable;
+    equipParamsDeps.LuaGetField = &LuaGetField;
+    equipParamsDeps.LuaRawGetI = &LuaRawGetI;
+    equipParamsDeps.LuaGetTable = &LuaGetTable;
+    equipParamsDeps.LuaSetTable = &LuaSetTable;
+    equipParamsDeps.LuaPushValue = &LuaPushValue;
+    EquipParams::Bind(equipParamsDeps);
 
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);

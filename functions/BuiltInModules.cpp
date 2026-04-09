@@ -95,6 +95,12 @@ namespace DeclareAMs
     bool Uninstall_DeclareAMs_Hook();
 }
 
+namespace EquipParams
+{
+    bool Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+    bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+}
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -565,11 +571,31 @@ namespace
             DeclareAMs::Uninstall_DeclareAMs_Hook();
         }
     };
+    class EquipParamsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipParams";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return EquipParams::Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+        }
+
+        void Uninstall() override
+        {
+            EquipParams::Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
 {
     static LuaBridgeModule s_LuaBridgeModule;
+	static EquipParamsModule s_EquipParamsModule;
 	static EquipParameterTablesReloadModule s_EquipParameterTablesReloadModule;
     static EquipIdTableReloadModule s_EquipIdTableReloadModule;
 	static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
@@ -598,6 +624,7 @@ void RegisterBuiltInFeatureModules()
     std::call_once(s_Once, []()
         {
 			FeatureModuleRegistry::Instance().Register(&s_EquipDevelopReloadModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipParamsModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
 			FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);

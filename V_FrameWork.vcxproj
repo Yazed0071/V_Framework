@@ -166,6 +166,7 @@
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.h" />
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.h" />
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.h" />
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.h" />
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.h" />
     <ClInclude Include="functions\tpp\gm\pickable\TppPickableRuntime.h" />
     <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h" />
@@ -209,6 +210,7 @@
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.cpp" />
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.cpp" />
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.cpp" />
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.cpp" />
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.cpp" />
     <ClCompile Include="functions\tpp\gm\pickable\TppPickableRuntime.cpp" />
     <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp" />
