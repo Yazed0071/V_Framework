@@ -101,6 +101,10 @@ namespace EquipParams
     bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
 }
 
+bool Install_EquipIconFtexPath_Hook();
+bool Uninstall_EquipIconFtexPath_Hook();
+
+
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -590,6 +594,23 @@ namespace
             EquipParams::Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
         }
     };
+	class EquipIconFtexPathModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "EquipIconFtexPath";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return Install_EquipIconFtexPath_Hook();
+		}
+		void Uninstall() override
+		{
+			Uninstall_EquipIconFtexPath_Hook();
+		}
+	};
 }
 
 void RegisterBuiltInFeatureModules()
@@ -619,6 +640,7 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
+	static EquipIconFtexPathModule s_EquipIconFtexPathModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -648,5 +670,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
+			FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
         });
 }

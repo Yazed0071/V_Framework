@@ -178,6 +178,7 @@
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
     <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h" />
+    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h" />
     <ClInclude Include="functions\UiTextureOverrides.h" />
     <ClInclude Include="functions\VIPHoldupHook.h" />
     <ClInclude Include="functions\VIPRadioHook.h" />
@@ -222,6 +223,7 @@
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
     <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
+    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="SetLuaFunctions.cpp" />
     <ClCompile Include="functions\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="functions\State_StandHoldupCancelLookToPlayer.cpp" />

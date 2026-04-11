@@ -44,6 +44,7 @@ extern "C" {
 #include "tpp\gm\impl\equip\`anonymous_namespace'\DeclareRCs.h"
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareAMs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetEquipParameters.h>
+#include "tpp/ui/utility/utility_GetIconFtexPath.h"
 
 
 namespace
@@ -1236,6 +1237,38 @@ static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
     return 1;
 }
 
+// Sets one per-equip icon FTEX path.
+// Params: equipId, path
+static int __cdecl l_SetEquipIdIconFtexPath(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    const char* rawPath = GetLuaString(L, 2);
+
+    if (!rawPath || !*rawPath)
+        return 0;
+
+    EquipIcon_SetEquipIdIconFtexPath(equipId, FoxHashes::PathCode64Ext(rawPath));
+    return 0;
+}
+
+// Clears one per-equip icon FTEX path.
+// Params: equipId
+static int __cdecl l_ClearIconFtexPath(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    EquipIcon_ClearIconFtexPath(equipId);
+    return 0;
+}
+
+// Clears all per-equip icon FTEX paths.
+// Params: none
+static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EquipIcon_ClearAllIconFtexPaths();
+    return 0;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -1299,6 +1332,9 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
     { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
     { "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
+    { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
+    { "ClearIconFtexPath",                      l_ClearIconFtexPath },
+    { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
     { nullptr, nullptr }
 };
 

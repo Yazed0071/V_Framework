@@ -110,6 +110,7 @@ namespace AddressSetRuntime
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
         uintptr_t DeclareAMs = 0;
+        uintptr_t GetIconFtexPath = 0;
 
     };
 
@@ -218,6 +219,7 @@ namespace AddressSetRuntime
             0x1466F4600ull, // TppMotherBaseManagement_RegFlwDev
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x1464AE4F0ull, // DeclareAMs
+            0x145E62540ull, // GetIconFtexPath
 
         };
 
@@ -318,6 +320,7 @@ namespace AddressSetRuntime
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x0ull, // DeclareAMs
+			0x0ull, // GetIconFtexPath
         };
 
         return value;

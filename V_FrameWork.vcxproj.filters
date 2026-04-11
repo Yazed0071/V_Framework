@@ -135,9 +135,6 @@
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -150,7 +147,13 @@
     <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_ReceiverParameter2.h">
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareAMs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -260,9 +263,6 @@
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipMotionData.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -275,7 +275,13 @@
     <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_ReceiverParameter2.cpp">
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareAMs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
