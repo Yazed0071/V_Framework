@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 struct lua_State;
 
@@ -27,6 +28,8 @@ namespace EquipDevelopAdd
     void Bind(const Deps& deps);
 
     int __cdecl Lua_AddToEquipDevelopTable(lua_State* L);
+
+    bool TryGetFlowIndexForDevelopId(std::uint16_t developId, std::uint16_t& outFlowIndex);
 
     bool Install_TppMotherBaseManagement_EquipDevelopHooks();
     bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();

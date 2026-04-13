@@ -17,7 +17,6 @@ extern "C" {
 #include "FoxHashes.h"
 #include "UiTextureOverrides.h"
 #include "CautionStepNormalTimerHook.h"
-#include "PlayerVoiceFpkHook.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPHoldupHook.h"
 #include "VIPRadioHook.h"
@@ -45,6 +44,11 @@ extern "C" {
 #include <tpp\gm\impl\equip\`anonymous_namespace'\DeclareAMs.h>
 #include <tpp\gm\impl\equip\`anonymous_namespace'\SetEquipParameters.h>
 #include "tpp/ui/utility/utility_GetIconFtexPath.h"
+#include <tpp\player\voice\PlayerVoiceFpkHook.h>
+#include "tpp/player/appearance/InitCamoufTable.h"
+#include <tpp\player\appearance\CustomSuitRegistry.h>
+#include <tpp\player\appearance\PlayerSuitResolverHook.h>
+#include <tpp\player\appearance\PlayerPartsPathHook.h>
 
 
 namespace
@@ -501,6 +505,46 @@ static std::uint32_t LuaReadOptionalUIntField(lua_State* L, const char* fieldNam
 
     LuaPop(L, 1);
     return value;
+}
+
+static bool TryReadTableIntField(lua_State* L, int tableIndex, const char* fieldName, int& outValue)
+{
+    outValue = 0;
+    LuaGetField(L, tableIndex, const_cast<char*>(fieldName));
+
+    const bool ok = (LuaType(L, -1) == 3);
+    if (ok)
+        outValue = GetLuaInt(L, -1);
+
+    SetLuaTop(L, -2);
+    return ok;
+}
+
+static bool TryReadTableStringField(lua_State* L, int tableIndex, const char* fieldName, const char*& outValue)
+{
+    outValue = nullptr;
+    LuaGetField(L, tableIndex, const_cast<char*>(fieldName));
+
+    const bool ok = (LuaType(L, -1) == 4);
+    if (ok)
+        outValue = GetLuaString(L, -1);
+
+    SetLuaTop(L, -2);
+    return ok;
+}
+
+static bool TryReadTableBoolField(lua_State* L, int tableIndex, const char* fieldName, bool defaultValue)
+{
+    LuaGetField(L, tableIndex, const_cast<char*>(fieldName));
+
+    const int type = LuaType(L, -1);
+    bool result = defaultValue;
+
+    if (type != 0)
+        result = GetLuaBool(L, -1) != 0;
+
+    SetLuaTop(L, -2);
+    return result;
 }
 
 static void LuaPushString(lua_State* L, const char* value)
@@ -1269,6 +1313,104 @@ static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
     return 0;
 }
 
+static int __cdecl l_SetCamoValue(lua_State* L)
+{
+    const int camoType = GetLuaInt(L, 1);
+    const int materialType = GetLuaInt(L, 2);
+    const int value = GetLuaInt(L, 3);
+
+    const bool ok = Set_CamoValue(
+        static_cast<std::uint32_t>(camoType),
+        static_cast<std::uint32_t>(materialType),
+        value
+    );
+
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+static int __cdecl l_CloneCamoRow(lua_State* L)
+{
+    const int dstCamoType = GetLuaInt(L, 1);
+    const int srcCamoType = GetLuaInt(L, 2);
+
+    const bool ok = Clone_CamoRow(
+        static_cast<std::uint32_t>(dstCamoType),
+        static_cast<std::uint32_t>(srcCamoType)
+    );
+
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+static int __cdecl l_SetPlayerPartsPath(lua_State* L)
+{
+    if (LuaType(L, 1) != 5)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    int playerTypeInt = 0;
+    const char* partsPath = nullptr;
+    const char* fpkPath = nullptr;
+
+    const bool havePlayerType = TryReadTableIntField(L, 1, "playerType", playerTypeInt);
+    const bool havePartsPath = TryReadTableStringField(L, 1, "partsPath", partsPath);
+    const bool haveFpkPath = TryReadTableStringField(L, 1, "fpkPath", fpkPath);
+
+    const bool enableHead = TryReadTableBoolField(L, 1, "enableHead", true);
+    const bool enableHand = TryReadTableBoolField(L, 1, "enableHand", true);
+    const bool enableCamo = TryReadTableBoolField(L, 1, "enableCamo", true);
+
+    if (!havePlayerType || !havePartsPath || !haveFpkPath || !partsPath || !fpkPath)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    std::uint8_t playerPartsType = 0xFF;
+    const bool ok = RegisterCustomSuit(
+        static_cast<std::uint8_t>(playerTypeInt & 0xFF),
+        enableHead,
+        enableHand,
+        enableCamo,
+        partsPath,
+        fpkPath,
+        playerPartsType
+    );
+
+    if (!ok)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    PushLuaNumber(L, static_cast<float>(playerPartsType));
+    return 1;
+}
+
+static int __cdecl l_LinkDevelopIdToPlayerSuit(lua_State* L)
+{
+    const int developId = GetLuaInt(L, 1);
+    const int partsType = GetLuaInt(L, 2);
+
+    std::uint16_t flowIndex = 0xFFFF;
+    EquipDevelopAdd::TryGetFlowIndexForDevelopId(
+        static_cast<std::uint16_t>(developId & 0xFFFF),
+        flowIndex
+    );
+
+    const bool ok = LinkDevelopIdToPlayerSuitEx(
+        static_cast<std::uint16_t>(developId & 0xFFFF),
+        flowIndex,
+        static_cast<std::uint8_t>(partsType & 0xFF)
+    );
+
+    PushLuaBool(L, ok);
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -1335,6 +1477,11 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
+    { "SetCamoValue",                           l_SetCamoValue },
+    { "CloneCamoRow",                           l_CloneCamoRow },
+    { "SetPlayerPartsPath",                     l_SetPlayerPartsPath },
+	{ "LinkDevelopIdToPlayerSuit",              l_LinkDevelopIdToPlayerSuit }
+,
     { nullptr, nullptr }
 };
 

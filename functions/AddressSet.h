@@ -111,7 +111,17 @@ namespace AddressSetRuntime
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
         uintptr_t DeclareAMs = 0;
         uintptr_t GetIconFtexPath = 0;
-
+        uintptr_t LoadPlayerPartsParts = 0;
+        uintptr_t LoadPlayerPartsFpk = 0;
+        uintptr_t ResolveSuitToPartsType = 0;
+        uintptr_t Player2BlockController_LoadPartsNew = 0;
+        uintptr_t UpdatePartsStatus = 0;
+        uintptr_t MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode = 0;
+        uintptr_t ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode = 0;
+        uintptr_t ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode = 0;
+        uintptr_t CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo = 0;
+        uintptr_t ResourceTable_DoesNeedFaceFova = 0;
+        uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -220,7 +230,17 @@ namespace AddressSetRuntime
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x1464AE4F0ull, // DeclareAMs
             0x145E62540ull, // GetIconFtexPath
-
+            0x146865F80ull, // LoadPlayerPartsParts
+			0x146866C80ull, // LoadPlayerPartsFpk
+			0x141E02930ull, // ResolveSuitToPartsType
+			0x1409B3B60ull, // Player2BlockController_LoadPartsNew
+			0x1409CC380ull, // UpdatePartsStatus
+            0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
+            0x1416A3670ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+            0x1416A4280ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+            0x14A49DA70ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
+            0x140AE84B0ull, // ResourceTable_DoesNeedFaceFova
+            0x140AE8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
         };
 
         return value;
@@ -321,6 +341,17 @@ namespace AddressSetRuntime
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x0ull, // DeclareAMs
 			0x0ull, // GetIconFtexPath
+            0x0ull, // LoadPlayerPartsParts
+			0x0ull, // LoadPlayerPartsFpk
+			0x0ull, // ResolveSuitToPartsType
+			0x0ull, // Player2BlockController_LoadPartsNew
+			0x0ull, // UpdatePartsStatus
+            0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
+			0x0ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+			0x0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+			0x0ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
+			0x0ull, // ResourceTable_DoesNeedFaceFova
+			0x0ull, // ResourceTable_DoesNeedFaceFovaForAvatar
         };
 
         return value;

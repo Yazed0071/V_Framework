@@ -51,7 +51,7 @@
     <ClInclude Include="functions\CautionStepNormalTimerHook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="functions\PlayerVoiceFpkHook.h">
+    <ClInclude Include="functions\tpp\player\voice\PlayerVoiceFpkHook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="functions\FeatureModule.h">
@@ -70,9 +70,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="functions\VIPRadioHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\MissionCodeGuard.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="functions\State_EnterStandHoldup1.h">
@@ -156,6 +153,36 @@
     <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\InitCamoufTable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\PlayerPartsPathHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\PlayerSuitResolverHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\CustomSuitRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\MissionCodeGuard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\ChangePlayerInfoToForceAvatarFromOriginal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\MissionPrepPlayerPartsRequestHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\ItemSelectorSuitCommitHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\CharacterSelectorPreserveHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="functions\tpp\player\appearance\PlayerFaceFovaGateHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -182,7 +209,7 @@
     <ClCompile Include="functions\CautionStepNormalTimerHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="functions\PlayerVoiceFpkHook.cpp">
+    <ClCompile Include="functions\tpp\player\voice\PlayerVoiceFpkHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\FeatureModule.cpp">
@@ -282,6 +309,36 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\InitCamoufTable.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\PlayerPartsPathHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\PlayerSuitResolverHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\CustomSuitRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\ChangePlayerInfoToForceAvatarFromOriginal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\UpdatePartsStatusProbe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\MissionPrepPlayerPartsRequestHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\ItemSelectorSuitCommitHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\CharacterSelectorPreserveHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="functions\tpp\player\appearance\PlayerFaceFovaGateHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

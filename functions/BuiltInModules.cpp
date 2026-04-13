@@ -104,6 +104,29 @@ namespace EquipParams
 bool Install_EquipIconFtexPath_Hook();
 bool Uninstall_EquipIconFtexPath_Hook();
 
+bool Install_PlayerSuitResolver_Hook();
+bool Uninstall_PlayerSuitResolver_Hook();
+
+bool Install_PlayerPartsPath_Hook();
+bool Uninstall_PlayerPartsPath_Hook();
+
+bool Install_ChangePlayerInfoToForceAvatarFromOriginal_Hook();
+bool Uninstall_ChangePlayerInfoToForceAvatarFromOriginal_Hook();
+
+bool Install_UpdatePartsStatusProbe_Hook();
+bool Uninstall_UpdatePartsStatusProbe_Hook();
+
+bool Install_MissionPrepPlayerPartsRequest_Hook();
+bool Uninstall_MissionPrepPlayerPartsRequest_Hook();
+
+bool Install_ItemSelectorSuitCommit_Hook();
+bool Uninstall_ItemSelectorSuitCommit_Hook();
+
+bool Install_CharacterSelectorPreserve_Hook();
+bool Uninstall_CharacterSelectorPreserve_Hook();
+
+bool Install_PlayerFaceFovaGate_Hook();
+bool Uninstall_PlayerFaceFovaGate_Hook();
 
 namespace
 {
@@ -611,6 +634,84 @@ namespace
 			Uninstall_EquipIconFtexPath_Hook();
 		}
 	};
+    class PlayerPartsPathModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PlayerPartsPath";
+        }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_PlayerPartsPath_Hook();
+        }
+        void Uninstall() override
+        {
+            Uninstall_PlayerPartsPath_Hook();
+        }
+    };
+	class PlayerSuitResolverModule final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "PlayerSuitResolver";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+            return Install_PlayerSuitResolver_Hook();
+		}
+		void Uninstall() override
+		{
+			Uninstall_PlayerSuitResolver_Hook();
+		}
+
+	};
+	class ChangePlayerInfoToForceAvatarFromOriginalModule final : public IFeatureModule
+	{
+    public:
+        const char* GetName() const override
+        {
+            return "ChangePlayerInfoToForceAvatarFromOriginal";
+        }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_ChangePlayerInfoToForceAvatarFromOriginal_Hook();
+        }
+        void Uninstall() override
+        {
+            Uninstall_ChangePlayerInfoToForceAvatarFromOriginal_Hook();
+        }
+
+    };
+	class UpdatePartsStatusProbe final : public IFeatureModule
+	{
+	public:
+		const char* GetName() const override
+		{
+			return "UpdatePartsStatusProbe";
+		}
+		bool Install(HMODULE hGame) override
+		{
+			UNREFERENCED_PARAMETER(hGame);
+			return Install_UpdatePartsStatusProbe_Hook() && 
+                Install_MissionPrepPlayerPartsRequest_Hook() && 
+                Install_ItemSelectorSuitCommit_Hook() && 
+                Install_CharacterSelectorPreserve_Hook() && 
+                Install_PlayerFaceFovaGate_Hook();
+		}
+		void Uninstall() override
+		{
+			Uninstall_UpdatePartsStatusProbe_Hook();
+            Uninstall_MissionPrepPlayerPartsRequest_Hook();
+            Uninstall_ItemSelectorSuitCommit_Hook();
+            Uninstall_CharacterSelectorPreserve_Hook();
+            Uninstall_PlayerFaceFovaGate_Hook();
+		}
+	};
 }
 
 void RegisterBuiltInFeatureModules()
@@ -641,6 +742,10 @@ void RegisterBuiltInFeatureModules()
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
 	static EquipIconFtexPathModule s_EquipIconFtexPathModule;
+    static PlayerPartsPathModule s_PlayerPartsPathModule;
+	static PlayerSuitResolverModule s_PlayerSuitResolverModule;
+	static ChangePlayerInfoToForceAvatarFromOriginalModule s_ChangePlayerInfoToForceAvatarFromOriginalModule;
+	static UpdatePartsStatusProbe s_UpdatePartsStatusProbe;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -671,5 +776,9 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
 			FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerPartsPathModule);
+			FeatureModuleRegistry::Instance().Register(&s_PlayerSuitResolverModule);
+			FeatureModuleRegistry::Instance().Register(&s_ChangePlayerInfoToForceAvatarFromOriginalModule);
+			FeatureModuleRegistry::Instance().Register(&s_UpdatePartsStatusProbe);
         });
 }

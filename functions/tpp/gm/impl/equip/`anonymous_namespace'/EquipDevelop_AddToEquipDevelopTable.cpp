@@ -44,6 +44,13 @@ namespace
         std::uint16_t flowIndex = 0; // p50
     };
 
+    struct PendingDevelopRequest
+    {
+        std::string key;
+        std::vector<FieldValue> constFields;
+        std::vector<FieldValue> flowFields;
+    };
+
     EquipDevelopAdd::Deps g_Deps{};
 
     RegCstDev_t g_OrigRegCstDev = nullptr;
@@ -54,6 +61,8 @@ namespace
 
     std::mutex g_StateMutex;
     std::unordered_map<std::string, DevelopKeyIds> g_KeyRegistry;
+    std::vector<PendingDevelopRequest> g_PendingRequests;
+    bool g_IsFlushingPending = false;
 
     std::uint32_t g_NextDevelopId = 0;
     std::uint32_t g_NextFlowIndex = 0;
@@ -64,17 +73,23 @@ namespace
     constexpr int LUA_TSTRING_CONST = 4;
     constexpr int LUA_TTABLE_CONST = 5;
 
+    // Bootstrap values for the current English build you are using.
+    // These are the same working custom ranges your logs already showed.
+    constexpr std::uint32_t kBootstrapDevelopIdStart = 51006;
+    constexpr std::uint32_t kBootstrapFlowIndexStart = 922;
+    constexpr std::uint32_t kMaxAllocId = 0xFFFEu;
+
     static const NamedFieldSpec k_ConstFieldSpecs[] =
     {
-        { "p01", nullptr },
-        { "p02", nullptr },
-        { "p03", nullptr },
-        { "p04", nullptr },
-        { "p05", nullptr },
-        { "p06", nullptr },
-        { "p07", nullptr },
-        { "p08", nullptr },
-        { "p09", nullptr },
+        { "p01", "equipID" },
+        { "p02", "equipDevelopTypeID" },
+        { "p03", "baseEquipDevelopId" },
+        { "p04", "skill" },
+        { "p05", "bluePrintId" },
+        { "p06", "langEquipName" },
+        { "p07", "langEquipInfo" },
+        { "p08", "iconFtexPath" },
+        { "p09", "equipDevelopGroupID" },
 
         { "p10", "langPowerUpInfo0"  },
         { "p11", "langPowerUpInfo1"  },
@@ -89,13 +104,13 @@ namespace
         { "p20", "langPowerUpInfo10" },
         { "p21", "langPowerUpInfo11" },
 
-        { "p30", nullptr },
-        { "p31", nullptr },
-        { "p32", nullptr },
-        { "p33", nullptr },
-        { "p34", nullptr },
-        { "p35", nullptr },
-        { "p36", nullptr }
+        { "p30", "langEquipRealName" },
+        { "p31", "isResultRankLimited" },
+        { "p32", "isCustomEnable" },
+        { "p33", "isColorChangeEnable" },
+        { "p34", "unk34" },
+        { "p35", "isSecurityStaffEquip" },
+        { "p36", "unk36" }
     };
 
     static const char* k_FlowFieldNames[] =
@@ -219,6 +234,138 @@ namespace
         g_Deps.LuaSetTable(L, absIndex);
     }
 
+    static bool AreStockDevelopTablesReady_NoLock()
+    {
+        return g_ObservedAnyDevelopId && g_ObservedAnyFlowIndex;
+    }
+
+    static bool CanInjectRowsNow_NoLock()
+    {
+        return
+            g_OrigRegCstDev &&
+            g_OrigRegFlwDev &&
+            AreStockDevelopTablesReady_NoLock();
+    }
+
+    static void EnsureAllocatorSeeded_NoLock()
+    {
+        if (g_NextDevelopId < kBootstrapDevelopIdStart)
+            g_NextDevelopId = kBootstrapDevelopIdStart;
+
+        if (g_NextFlowIndex < kBootstrapFlowIndexStart)
+            g_NextFlowIndex = kBootstrapFlowIndexStart;
+    }
+
+    static bool TryGetIdsForKey_NoLock(
+        const std::string& key,
+        std::uint16_t& outDevelopId,
+        std::uint16_t& outFlowIndex)
+    {
+        const auto found = g_KeyRegistry.find(key);
+        if (found == g_KeyRegistry.end())
+            return false;
+
+        outDevelopId = found->second.developId;
+        outFlowIndex = found->second.flowIndex;
+        return true;
+    }
+
+    static bool TryGetIdsForKey(
+        const std::string& key,
+        std::uint16_t& outDevelopId,
+        std::uint16_t& outFlowIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+        return TryGetIdsForKey_NoLock(key, outDevelopId, outFlowIndex);
+    }
+
+    static PendingDevelopRequest* FindPendingRequest_NoLock(const std::string& key)
+    {
+        for (auto& req : g_PendingRequests)
+        {
+            if (req.key == key)
+                return &req;
+        }
+        return nullptr;
+    }
+
+    static bool GetOrCreateIdsForKey(
+        const std::string& key,
+        std::uint16_t& outDevelopId,
+        std::uint16_t& outFlowIndex,
+        bool& outCreated)
+    {
+        outDevelopId = 0;
+        outFlowIndex = 0;
+        outCreated = false;
+
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+
+        if (key.empty())
+            return false;
+
+        const auto found = g_KeyRegistry.find(key);
+        if (found != g_KeyRegistry.end())
+        {
+            outDevelopId = found->second.developId;
+            outFlowIndex = found->second.flowIndex;
+            return true;
+        }
+
+        EnsureAllocatorSeeded_NoLock();
+
+        if (g_NextDevelopId > kMaxAllocId || g_NextFlowIndex > kMaxAllocId)
+        {
+            Log("[EquipDevelop] ID allocator overflow\n");
+            return false;
+        }
+
+        DevelopKeyIds ids{};
+        ids.developId = static_cast<std::uint16_t>(g_NextDevelopId++);
+        ids.flowIndex = static_cast<std::uint16_t>(g_NextFlowIndex++);
+
+        g_KeyRegistry.emplace(key, ids);
+
+        outDevelopId = ids.developId;
+        outFlowIndex = ids.flowIndex;
+        outCreated = true;
+
+        Log(
+            "[EquipDevelop] Reserved key=%s p00=%u p50=%u\n",
+            key.c_str(),
+            static_cast<unsigned>(outDevelopId),
+            static_cast<unsigned>(outFlowIndex)
+        );
+
+        return true;
+    }
+
+    static void QueueOrUpdatePendingRequest(
+        const std::string& key,
+        const std::vector<FieldValue>& constFields,
+        const std::vector<FieldValue>& flowFields)
+    {
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+
+        if (key.empty())
+            return;
+
+        if (PendingDevelopRequest* existing = FindPendingRequest_NoLock(key))
+        {
+            existing->constFields = constFields;
+            existing->flowFields = flowFields;
+            return;
+        }
+
+        PendingDevelopRequest req{};
+        req.key = key;
+        req.constFields = constFields;
+        req.flowFields = flowFields;
+        g_PendingRequests.push_back(std::move(req));
+
+        Log("[EquipDevelop] Queued key=%s until stock develop tables were observed\n", key.c_str());
+    }
+
     static void ObserveDevelopId(std::uint32_t developId)
     {
         std::lock_guard<std::mutex> lock(g_StateMutex);
@@ -235,46 +382,6 @@ namespace
         g_ObservedAnyFlowIndex = true;
         if (flowIndex >= g_NextFlowIndex)
             g_NextFlowIndex = flowIndex + 1;
-    }
-
-    static bool ReserveIdsForKey(
-        const std::string& key,
-        std::uint16_t& outDevelopId,
-        std::uint16_t& outFlowIndex)
-    {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
-
-        if (key.empty())
-            return false;
-
-        if (!g_ObservedAnyDevelopId || !g_ObservedAnyFlowIndex)
-        {
-            Log("[EquipDevelop] Refusing allocation before stock develop tables were observed\n");
-            return false;
-        }
-
-        const auto found = g_KeyRegistry.find(key);
-        if (found != g_KeyRegistry.end())
-        {
-            Log("[EquipDevelop] Key already registered, skipping: %s\n", key.c_str());
-            return false;
-        }
-
-        if (g_NextDevelopId > 0xFFFFu || g_NextFlowIndex > 0xFFFFu)
-        {
-            Log("[EquipDevelop] ID allocator overflow\n");
-            return false;
-        }
-
-        DevelopKeyIds ids{};
-        ids.developId = static_cast<std::uint16_t>(g_NextDevelopId++);
-        ids.flowIndex = static_cast<std::uint16_t>(g_NextFlowIndex++);
-
-        g_KeyRegistry.emplace(key, ids);
-
-        outDevelopId = ids.developId;
-        outFlowIndex = ids.flowIndex;
-        return true;
     }
 
     static void CollectKnownFields(
@@ -454,29 +561,27 @@ namespace
         }
     }
 
-    static bool RegisterDevelopPairImmediate(
+    static bool InjectReservedDevelopPair(
         lua_State* L,
-        const std::string& key,
-        const std::vector<FieldValue>& constFields,
-        const std::vector<FieldValue>& flowFields,
+        const PendingDevelopRequest& req,
         std::uint16_t* outDevelopId = nullptr,
         std::uint16_t* outFlowIndex = nullptr)
     {
-        if (!L || !g_OrigRegCstDev || !g_OrigRegFlwDev)
+        if (!L || !EnsureLuaReady())
             return false;
 
         std::uint16_t developId = 0;
         std::uint16_t flowIndex = 0;
-        if (!ReserveIdsForKey(key, developId, flowIndex))
+        if (!TryGetIdsForKey(req.key, developId, flowIndex))
             return false;
 
         g_Deps.LuaSetTop(L, 0);
-        BuildConstRowTable(L, developId, constFields);
+        BuildConstRowTable(L, developId, req.constFields);
         g_OrigRegCstDev(L);
         ObserveDevelopId(developId);
 
         g_Deps.LuaSetTop(L, 0);
-        BuildFlowRowTable(L, flowIndex, flowFields);
+        BuildFlowRowTable(L, flowIndex, req.flowFields);
         g_OrigRegFlwDev(L);
         ObserveFlowIndex(flowIndex);
 
@@ -489,11 +594,68 @@ namespace
 
         Log(
             "[EquipDevelop] Registered key=%s p00=%u p50=%u\n",
-            key.c_str(),
+            req.key.c_str(),
             static_cast<unsigned>(developId),
-            static_cast<unsigned>(flowIndex));
+            static_cast<unsigned>(flowIndex)
+        );
 
         return true;
+    }
+
+    static void FlushPendingRegistrations(lua_State* L)
+    {
+        if (!L || !EnsureLuaReady())
+            return;
+
+        std::vector<PendingDevelopRequest> work;
+        {
+            std::lock_guard<std::mutex> lock(g_StateMutex);
+
+            if (g_IsFlushingPending)
+                return;
+
+            if (!CanInjectRowsNow_NoLock())
+                return;
+
+            if (g_PendingRequests.empty())
+                return;
+
+            g_IsFlushingPending = true;
+            work = g_PendingRequests;
+        }
+
+        std::vector<std::string> completedKeys;
+
+        for (const PendingDevelopRequest& req : work)
+        {
+            std::uint16_t developId = 0;
+            std::uint16_t flowIndex = 0;
+
+            if (InjectReservedDevelopPair(L, req, &developId, &flowIndex))
+                completedKeys.push_back(req.key);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(g_StateMutex);
+
+            if (!completedKeys.empty())
+            {
+                g_PendingRequests.erase(
+                    std::remove_if(
+                        g_PendingRequests.begin(),
+                        g_PendingRequests.end(),
+                        [&](const PendingDevelopRequest& req)
+                        {
+                            return std::find(
+                                completedKeys.begin(),
+                                completedKeys.end(),
+                                req.key) != completedKeys.end();
+                        }),
+                    g_PendingRequests.end());
+            }
+
+            g_IsFlushingPending = false;
+        }
     }
 
     static void __fastcall hkRegCstDev(lua_State* L)
@@ -507,6 +669,8 @@ namespace
 
         if (g_OrigRegCstDev)
             g_OrigRegCstDev(L);
+
+        FlushPendingRegistrations(L);
     }
 
     static void __fastcall hkRegFlwDev(lua_State* L)
@@ -520,6 +684,8 @@ namespace
 
         if (g_OrigRegFlwDev)
             g_OrigRegFlwDev(L);
+
+        FlushPendingRegistrations(L);
     }
 }
 
@@ -544,11 +710,62 @@ namespace EquipDevelopAdd
 
         std::uint16_t developId = 0;
         std::uint16_t flowIndex = 0;
-        if (!RegisterDevelopPairImmediate(L, key, constFields, flowFields, &developId, &flowIndex))
+        bool created = false;
+
+        if (!GetOrCreateIdsForKey(key, developId, flowIndex, created))
+        {
+            Log("[EquipDevelop] Failed to reserve ids for key=%s\n", key.c_str());
             return 0;
+        }
+
+        // Already fully known: keep returning the same stable develop id.
+        if (!created)
+        {
+            bool stillPending = false;
+            {
+                std::lock_guard<std::mutex> lock(g_StateMutex);
+                stillPending = (FindPendingRequest_NoLock(key) != nullptr);
+            }
+
+            if (!stillPending)
+            {
+                Log(
+                    "[EquipDevelop] Reusing key=%s p00=%u p50=%u\n",
+                    key.c_str(),
+                    static_cast<unsigned>(developId),
+                    static_cast<unsigned>(flowIndex)
+                );
+
+                g_Deps.PushLuaNumber(L, static_cast<float>(developId));
+                return 1;
+            }
+        }
+
+        // New key, or existing key still pending injection.
+        QueueOrUpdatePendingRequest(key, constFields, flowFields);
+
+        // If vanilla develop tables are already live, inject immediately.
+        FlushPendingRegistrations(L);
 
         g_Deps.PushLuaNumber(L, static_cast<float>(developId));
         return 1;
+    }
+
+    bool TryGetFlowIndexForDevelopId(std::uint16_t developId, std::uint16_t& outFlowIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+
+        for (const auto& kv : g_KeyRegistry)
+        {
+            if (kv.second.developId == developId)
+            {
+                outFlowIndex = kv.second.flowIndex;
+                return true;
+            }
+        }
+
+        outFlowIndex = 0xFFFF;
+        return false;
     }
 
     bool Install_TppMotherBaseManagement_EquipDevelopHooks()
