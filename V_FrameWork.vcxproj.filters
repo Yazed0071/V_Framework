@@ -1,349 +1,174 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Source Files">
+    <Filter Include="Core">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="Header Files">
+    <Filter Include="Lua">
+      <UniqueIdentifier>{A1B2C3D4-1111-2222-3333-444455556666}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\Soldier">
+      <UniqueIdentifier>{A1B2C3D4-2222-3333-4444-555566667777}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\Equip">
+      <UniqueIdentifier>{A1B2C3D4-3333-4444-5555-666677778888}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\Player">
+      <UniqueIdentifier>{A1B2C3D4-4444-5555-6666-777788889999}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\Sound">
+      <UniqueIdentifier>{A1B2C3D4-5555-6666-7777-88889999AAAA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\UI">
+      <UniqueIdentifier>{A1B2C3D4-6666-7777-8888-9999AAAABBBB}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hooks\Pickable">
+      <UniqueIdentifier>{A1B2C3D4-7777-8888-9999-AAAABBBBCCCC}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
-    </Filter>
-    <Filter Include="Resource Files">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="framework.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="pch.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\MinHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\lauxlib.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\log.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\lua.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\luaconf.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\lualib.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\FoxHashes.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\HookUtils.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\UiTextureOverrides.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\CautionStepNormalTimerHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\voice\PlayerVoiceFpkHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\FeatureModule.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\BuiltInModules.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\EnterDownHoldupForceVoiceHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\VIPSleepFaintHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\VIPHoldupHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\VIPRadioHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\State_EnterStandHoldup1.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\GetVoiceParamWithCallSign.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\LostHostageHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\StepRadioDiscovery.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\sd\SoundMusicPlayer\CustomTapeOwnership.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\pickable\TppPickableRuntime.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\AddressSet.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\CustomEquipIdState.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareAMs.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\ui\utility\utility_GetIconFtexPath.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\InitCamoufTable.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\PlayerPartsPathHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\PlayerSuitResolverHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\CustomSuitRegistry.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\MissionCodeGuard.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\ChangePlayerInfoToForceAvatarFromOriginal.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\MissionPrepPlayerPartsRequestHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\ItemSelectorSuitCommitHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\CharacterSelectorPreserveHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="functions\tpp\player\appearance\PlayerFaceFovaGateHook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <!-- Core headers -->
+    <ClInclude Include="src\core\framework.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\pch.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\AddressSet.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\HookUtils.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\FeatureModule.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\BuiltInModules.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\MissionCodeGuard.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\V_FrameWorkState.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\V_FrameWorkModLoader.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\FoxHashes.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\log.h"><Filter>Core</Filter></ClInclude>
+    <!-- Third-party headers -->
+    <ClInclude Include="include\lauxlib.h"><Filter>ThirdParty</Filter></ClInclude>
+    <ClInclude Include="include\lua.h"><Filter>ThirdParty</Filter></ClInclude>
+    <ClInclude Include="include\luaconf.h"><Filter>ThirdParty</Filter></ClInclude>
+    <ClInclude Include="include\lualib.h"><Filter>ThirdParty</Filter></ClInclude>
+    <ClInclude Include="include\MinHook.h"><Filter>ThirdParty</Filter></ClInclude>
+    <!-- Soldier headers -->
+    <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\LostHostageHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\VIPRadioHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <!-- Equip headers -->
+    <ClInclude Include="src\hooks\equip\CustomEquipIdState.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\DeclareAMs.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\DeclareRCs.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\DeclareSWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\DeclareWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\SetEquipParameters.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <!-- Player headers -->
+    <ClInclude Include="src\hooks\player\CustomSuitRegistry.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\InitCamoufTable.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerPartsPathHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerSuitResolverHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerFaceFovaGateHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerFaceEquipRepairHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerHeadOptionSelectionCountHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerHeadOptionUiHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\CharacterSelectorPreserveHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\SuitVariantHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <!-- Sound headers -->
+    <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.h"><Filter>Hooks\Sound</Filter></ClInclude>
+    <!-- UI headers -->
+    <ClInclude Include="src\hooks\ui\UiTextureOverrides.h"><Filter>Hooks\UI</Filter></ClInclude>
+    <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h"><Filter>Hooks\UI</Filter></ClInclude>
+    <!-- Pickable headers -->
+    <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h"><Filter>Hooks\Pickable</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dllmain.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="pch.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\State_StandHoldupCancelLookToPlayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="include\log.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="SetLuaFunctions.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="include\FoxHashes.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\UiTextureOverrides.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\CautionStepNormalTimerHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\voice\PlayerVoiceFpkHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\FeatureModule.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\BuiltInModules.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\EnterDownHoldupForceVoiceHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\VIPSleepFaintHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\VIPHoldupHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\VIPRadioHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\MissionCodeGuard.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\State_EnterStandHoldup1.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\GetVoiceParamWithCallSign.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\LostHostageHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\StepRadioDiscovery.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\soldier\impl\ActionCoreImpl\ActionCoreImpl_UpdateOptCamo.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\sd\impl\BeginSoundSystem\SoundSystemImpl_BeginSoundSystem.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_Start.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_GetTrackInfoByName.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\GetTapeTrackDirectPlayId.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\SoundMusicPlayer_SetupMusicInfos.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\sd\SoundMusicPlayer\CustomTapeOwnership.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\ui\menu\impl\MbDvcCassetteTapeCallbackImpl\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\pickable\TppPickableRuntime.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\RegisterConstantEquipId.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareWPs.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipParameters_GunBasic.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipIdTable_AddToEquipIdTable.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\EquipDevelop_AddToEquipDevelopTable.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareSWPs.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetSupportWeaponTypeId.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\CustomEquipIdState.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareRCs.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\DeclareAMs.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\gm\impl\equip\`anonymous_namespace%27\SetEquipParameters.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\ui\utility\utility_GetIconFtexPath.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\InitCamoufTable.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\PlayerPartsPathHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\PlayerSuitResolverHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\CustomSuitRegistry.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\ChangePlayerInfoToForceAvatarFromOriginal.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\UpdatePartsStatusProbe.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\MissionPrepPlayerPartsRequestHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\ItemSelectorSuitCommitHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\CharacterSelectorPreserveHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="functions\tpp\player\appearance\PlayerFaceFovaGateHook.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Library Include="lib\libMinHook.x64.lib" />
-    <Library Include="lib\libMinHook.x86.lib" />
+    <!-- Core sources -->
+    <ClCompile Include="src\core\dllmain.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\pch.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\BuiltInModules.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\FeatureModule.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\MissionCodeGuard.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\V_FrameWorkState.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\V_FrameWorkModLoader.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\FoxHashes.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\log.cpp"><Filter>Core</Filter></ClCompile>
+    <!-- Lua sources -->
+    <ClCompile Include="src\lua\SetLuaFunctions.cpp"><Filter>Lua</Filter></ClCompile>
+    <!-- Soldier sources -->
+    <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\State_StandHoldupCancelLookToPlayer.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <!-- Equip sources -->
+    <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\DeclareAMs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\DeclareRCs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\DeclareWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <!-- Player sources -->
+    <ClCompile Include="src\hooks\player\CustomSuitRegistry.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerPartsPathHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerSuitResolverHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerFaceFovaGateHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerFaceEquipRepairHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerHeadOptionSelectionCountHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerHeadOptionUiHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\UpdatePartsStatusProbe.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\CharacterSelectorPreserveHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\SuitVariantHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <!-- Sound sources -->
+    <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
+    <!-- UI sources -->
+    <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp"><Filter>Hooks\UI</Filter></ClCompile>
+    <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp"><Filter>Hooks\UI</Filter></ClCompile>
+    <!-- Pickable sources -->
+    <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp"><Filter>Hooks\Pickable</Filter></ClCompile>
   </ItemGroup>
 </Project>

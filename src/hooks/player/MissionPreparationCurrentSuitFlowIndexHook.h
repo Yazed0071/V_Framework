@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MissionPreparationCurrentSuitFlowIndex_Hook();
+bool Uninstall_MissionPreparationCurrentSuitFlowIndex_Hook();

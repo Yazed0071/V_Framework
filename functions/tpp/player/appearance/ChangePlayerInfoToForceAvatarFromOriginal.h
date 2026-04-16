@@ -1,5 +1,0 @@
-#pragma once
-
-
-bool Install_ChangePlayerInfoToForceAvatarFromOriginal_Hook();
-bool Uninstall_ChangePlayerInfoToForceAvatarFromOriginal_Hook();

@@ -1,0 +1,892 @@
+################################################################################
+#                                                                              #
+#                     V_FrameWork Modding API Reference                        #
+#                                                                              #
+#  A complete guide to every function available for MGSV:TPP modders.          #
+#  Use this as a reference when building mods with V_FrameWork.                #
+#                                                                              #
+################################################################################
+
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  GETTING STARTED .......................... How mods work with V_FrameWork
+  MODULE: V_TppPlayer .................... Outfits, voice, camo gameplay
+  MODULE: V_TppEquip ..................... Weapons, equipment, develop entries
+  MODULE: V_TppCassette .................. Cassette tape playback & registration
+  MODULE: V_TppUI ........................ Loading screen, game over, equip BGs
+  MODULE: V_TppCommandPost ............... Caution phase duration
+  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
+  MODULE: V_TppHostage ................... Lost hostage tracking
+  MODULE: V_TppPickable .................. Pickable item count overrides
+  RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
+  APPENDIX A: PlayerType values .......... 0=Snake, 1=DD_Male, etc.
+  APPENDIX B: PlayerCamoType names ....... All 117 camo type names
+  APPENDIX C: Material type names ........ All 82 material type names
+  APPENDIX D: Develop flow field names ... Readable aliases for p51-p74
+  APPENDIX E: Save file format ........... V_FrameWork_State.lua structure
+
+
+================================================================================
+GETTING STARTED
+================================================================================
+
+  V_FrameWork is a DLL hook framework for MGSV:TPP. It intercepts game
+  functions at runtime and exposes them to Lua, letting mods add new content
+  (weapons, outfits, cassette tapes, etc.) without replacing game files.
+
+  WRAPPER MODULES vs RAW API
+  --------------------------
+  - Use the V_TppXxx wrapper modules (V_TppPlayer, V_TppEquip, etc.) whenever
+    possible. They validate inputs, provide defaults, and handle linking.
+  - The raw V_FrameWork.* functions are the underlying C++ bridge. Use them
+    only when the wrappers don't cover your use case.
+
+  MOD STRUCTURE
+  -------------
+  A mod is a Lua file that returns a table with lifecycle functions:
+
+    local this = {}
+
+    function this.Init(missionTable)
+        -- Called when the mission starts. Register outfits, VIPs, etc.
+    end
+
+    function this.LoadLibraries()
+        -- Called once when modules load. Register tapes, equipment, etc.
+    end
+
+    return this
+
+  SAVE FILE
+  ---------
+  V_FrameWork persists mod data in mod/saves/V_FrameWork_State.lua.
+  Keys are "modName:itemName" strings. Multiple mods never conflict.
+  See APPENDIX E for the file format.
+
+
+================================================================================
+MODULE: V_TppPlayer
+================================================================================
+
+  Manages player outfits, voice overrides, and camo gameplay values.
+
+  --------------------------------------------------------------------------
+  AddOutfit(outfitData)
+  --------------------------------------------------------------------------
+
+    The main function for adding custom outfits. Handles everything:
+    suit registration, develop entry, linking, FV2 visuals, body variants,
+    and camo gameplay values — all in one call.
+
+    PARAMETERS (table):
+      playerType    number    REQUIRED  See APPENDIX A.
+      partsPath     string    REQUIRED  .parts asset path
+      fpkPath       string    REQUIRED  .fpk asset path
+      enableHead    bool      optional  Show DD/Snake hair/face. Default: true
+      enableHand    bool      optional  Show bionic arm. Default: true
+      fv2Path       string    optional  Custom FV2 visual variation file
+      fv2FpkPath    string    optional  FPK containing the FV2 file
+      camoCloneFrom string/num optional Clone camo bonuses from this pattern
+      camoValues    table     optional  Array of 82 numbers (camo bonus values)
+      variants      table     optional  Array of body variant entries (see below)
+      develop       table     REQUIRED  { const = {...}, flow = {...} }
+
+    DEVELOP CONST FIELDS:
+      equipID, equipDevelopTypeID, baseEquipDevelopId, skill, bluePrintId,
+      langEquipName*, langEquipInfo*, langEquipRealName*, iconFtexPath,
+      equipDevelopGroupID, isResultRankLimited, isCustomEnable,
+      isColorChangeEnable, unk34, isSecurityStaffEquip, unk36
+      (* defaults to "sub_mission_untitle" if omitted)
+
+    DEVELOP FLOW FIELDS (accept p51-p74 OR readable names):
+      See APPENDIX D for the full list.
+
+    VARIANT ENTRIES (each is a table):
+      partsPath     string    REQUIRED
+      fpkPath       string    REQUIRED
+      langId        string    optional  Language ID for UI display
+      enableHead    bool      optional  Inherits from base if omitted
+      enableHand    bool      optional  Inherits from base if omitted
+      fv2Path       string    optional
+      fv2FpkPath    string    optional
+
+    RETURNS: partsType (number), developId (number)
+
+    EXAMPLE — Simple outfit:
+
+      V_TppPlayer.AddOutfit({
+          playerType = 2,
+          partsPath  = "/Assets/tpp/parts/chara/sna/my_outfit.parts",
+          fpkPath    = "/Assets/tpp/pack/chara/my_mod/my_outfit.fpk",
+          enableHead = true,
+          enableHand = false,
+          develop = {
+              const = {
+                  equipID = TppEquip.EQP_SUIT,
+                  equipDevelopTypeID = TppMbDev.EQP_DEV_TYPE_Suit,
+                  iconFtexPath = "/Assets/tpp/ui/texture/EquipIcon/suit/my_icon",
+                  equipDevelopGroupID = TppMbDev.EQP_DEV_GROUP_TOOL_360,
+                  unk36 = 1,
+              },
+              flow = { grade = 4 }
+          }
+      })
+
+    EXAMPLE — Outfit with FV2 visual + camo gameplay:
+
+      V_TppPlayer.AddOutfit({
+          playerType = 2,
+          partsPath  = "/Assets/tpp/parts/chara/sna/desert_suit.parts",
+          fpkPath    = "/Assets/tpp/pack/chara/my_mod/desert_suit.fpk",
+          fv2Path    = "/Assets/tpp/fova/chara/my_mod/desert_skin.fv2",
+          fv2FpkPath = "/Assets/tpp/pack/chara/my_mod/desert_fova.fpk",
+          camoCloneFrom = "SANDSTORM",  -- same stealth bonuses as Sandstorm
+          develop = { const = { ... }, flow = { ... } }
+      })
+
+    EXAMPLE — Outfit with body variants (zipped/unzipped):
+
+      V_TppPlayer.AddOutfit({
+          playerType = 2,
+          partsPath  = "/Assets/.../jacket_zipped.parts",
+          fpkPath    = "/Assets/.../jacket_zipped.fpk",
+          enableHead = true,
+          variants = {
+              { langId = "my_mod_unzipped",
+                partsPath = "/Assets/.../jacket_unzipped.parts",
+                fpkPath   = "/Assets/.../jacket_unzipped.fpk" },
+              { langId = "my_mod_no_jacket",
+                partsPath = "/Assets/.../no_jacket.parts",
+                fpkPath   = "/Assets/.../no_jacket.fpk" },
+          },
+          develop = { const = { ... }, flow = { ... } }
+      })
+
+    EXAMPLE — Outfit with custom camo values (full control):
+
+      V_TppPlayer.AddOutfit({
+          playerType = 0,
+          partsPath  = "/Assets/.../forest_suit.parts",
+          fpkPath    = "/Assets/.../forest_suit.fpk",
+          camoValues = {
+              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+              50,0,0,50,50,50,50,50,50,50, 0,50,0,0,0,50,50,0,0,0,0,0
+          },
+          develop = { const = { ... }, flow = { ... } }
+      })
+
+  --------------------------------------------------------------------------
+  SetCamoValue(camoType, materialType, value)
+  --------------------------------------------------------------------------
+
+    Sets one cell in the camo effectiveness table.
+    Accepts string names OR numeric indices for camoType and materialType.
+    Changes apply immediately to the game engine.
+
+    PARAMETERS:
+      camoType      string/number  Camo pattern. See APPENDIX B.
+      materialType  string/number  Surface material. See APPENDIX C.
+      value         number         Stealth bonus (0 = none, 50 = full)
+
+    RETURNS: bool
+
+    EXAMPLE:
+      V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_LEAF", 50)
+      V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_ROCK_A", 50)
+      V_TppPlayer.SetCamoValue(0, 60, 50)  -- same as first line
+
+  --------------------------------------------------------------------------
+  CloneCamoRow(dstCamoType, srcCamoType)
+  --------------------------------------------------------------------------
+
+    Copies all 82 material bonus values from one camo pattern to another.
+    Useful for giving a custom pattern the same effectiveness as an existing one,
+    then tweaking individual values.
+
+    PARAMETERS:
+      dstCamoType   string/number  Destination camo pattern
+      srcCamoType   string/number  Source camo pattern to copy from
+
+    RETURNS: bool
+
+    EXAMPLE — Make BLACK camo work like WOODLAND, then remove sand bonus:
+      V_TppPlayer.CloneCamoRow("BLACK", "WOODLAND")
+      V_TppPlayer.SetCamoValue("BLACK", "MTR_SAND_A", 0)
+      V_TppPlayer.SetCamoValue("BLACK", "MTR_SAND_B", 0)
+
+  --------------------------------------------------------------------------
+  ImportCamoRow(camoType, valuesTable)
+  --------------------------------------------------------------------------
+
+    Bulk-imports up to 82 values into one camo row from a Lua array.
+
+    PARAMETERS:
+      camoType      string/number  Target camo pattern
+      valuesTable   table          Array of up to 82 numbers
+
+    RETURNS: bool
+
+    EXAMPLE:
+      V_TppPlayer.ImportCamoRow("OLIVEDRAB", {
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          50,0,0,50,50,50,50,50,50,50,0,50,0,0,0,50,50,0,0,0,0,0
+      })
+
+  --------------------------------------------------------------------------
+  SetPlayerVoiceFpkPathForType(playerType, path)
+  --------------------------------------------------------------------------
+
+    Overrides the voice FPK for a player character type.
+
+    PARAMETERS:
+      playerType  number  0-3 (see APPENDIX A)
+      path        string  FPK asset path
+
+    EXAMPLE:
+      V_TppPlayer.SetPlayerVoiceFpkPathForType(0, "/Assets/.../custom_voice.fpk")
+
+  --------------------------------------------------------------------------
+  ClearPlayerVoiceFpkPathForType(playerType)
+  --------------------------------------------------------------------------
+
+    Removes the voice override for one player type.
+
+    PARAMETERS:
+      playerType  number  0-3
+
+  --------------------------------------------------------------------------
+  ClearAllPlayerVoiceFpkOverrides()
+  --------------------------------------------------------------------------
+
+    Removes all voice overrides for all player types.
+
+
+================================================================================
+MODULE: V_TppEquip
+================================================================================
+
+  Manages weapons, equipment registration, and develop table entries.
+
+  --------------------------------------------------------------------------
+  RegisterConstantEquipId(equipName)
+  --------------------------------------------------------------------------
+
+    Reserves a unique numeric equip ID. Stable across sessions via save file.
+
+    PARAMETERS:
+      equipName  string  Unique name (e.g. "EQP_WP_MyMod_AK12")
+
+    RETURNS: number (equipId)
+
+    EXAMPLE:
+      local equipId = V_TppEquip.RegisterConstantEquipId("EQP_WP_MyMod_AK12")
+
+  --------------------------------------------------------------------------
+  DeclareWPs(weaponName)
+  --------------------------------------------------------------------------
+
+    Declares a weapon part constant in TppEquip.
+
+    PARAMETERS:
+      weaponName  string
+
+    RETURNS: number (wpId)
+
+    EXAMPLE:
+      local wpId = V_TppEquip.DeclareWPs("WP_MyMod_AK12_00")
+
+  --------------------------------------------------------------------------
+  DeclareSWPs(supportWeaponName)
+  --------------------------------------------------------------------------
+
+    Declares a support weapon constant.
+
+    PARAMETERS:
+      supportWeaponName  string
+
+    RETURNS: number (swpId)
+
+    EXAMPLE:
+      V_TppEquip.DeclareSWPs("EQP_SWP_ChaffGrenade")
+
+  --------------------------------------------------------------------------
+  SetSupportWeaponType(supportWeaponId, swpType)
+  --------------------------------------------------------------------------
+
+    Assigns a type to a support weapon.
+
+    PARAMETERS:
+      supportWeaponId  number
+      swpType          number
+
+  --------------------------------------------------------------------------
+  AddToEquipIdTable(equipTable)
+  --------------------------------------------------------------------------
+
+    Registers equip entries in the game's equip ID table.
+
+    PARAMETERS:
+      equipTable  table  Array of entries. Each entry:
+                         { equipId, type, baseWeapon, block, partsPath, fpkPath }
+
+    EXAMPLE:
+      V_TppEquip.AddToEquipIdTable({
+          { equipId, TppEquip.EQP_TYPE_Assault, 290,
+            TppEquip.EQP_BLOCK_MISSION,
+            "/Assets/.../my_gun.parts",
+            "/Assets/.../my_gun.fpk" },
+      })
+
+  --------------------------------------------------------------------------
+  SetGunBasic(gunBasic)
+  --------------------------------------------------------------------------
+
+    Sets gun parameters for a weapon. weaponId is REQUIRED.
+
+    PARAMETERS:
+      gunBasic  table  { weaponId (REQUIRED), receiverId, barrelId, ammoId,
+                         stockId, muzzleId, grade, ... }
+
+    EXAMPLE:
+      V_TppEquip.SetGunBasic({
+          weaponId   = wpId,
+          receiverId = 30014,
+          barrelId   = 30115,
+          ammoId     = 30034,
+          grade      = 8,
+      })
+
+  --------------------------------------------------------------------------
+  AddToEquipDevelopTable(key, developData)
+  --------------------------------------------------------------------------
+
+    Adds a develop entry (shows in Mother Base R&D). The key should be
+    "ModName:ItemName" format for stable persistence.
+
+    PARAMETERS:
+      key          string  Unique key (e.g. "MyMod:AK12")
+      developData  table   { const = {...}, flow = {...} }
+
+    RETURNS: number (developId)
+
+    NOTE: Flow fields accept both raw names (p51-p74) and readable names.
+          See APPENDIX D for the full list.
+
+    EXAMPLE:
+      local devId = V_TppEquip.AddToEquipDevelopTable("MyMod:AK12", {
+          const = {
+              equipID = equipId,
+              equipDevelopTypeID = TppMbDev.EQP_DEV_TYPE_Assault,
+              langEquipName = "my_gun_name",
+              langEquipInfo = "my_gun_desc",
+              iconFtexPath = "/Assets/.../my_gun_icon",
+              equipDevelopGroupID = TppMbDev.EQP_DEV_GROUP_WEAPON_120,
+              unk36 = 1,
+          },
+          flow = {
+              grade = 8,
+              developGmpCost = 50000,
+              resourceType1 = "CommonMetal",
+              resourceType1Count = 260,
+              resourceType2 = "PreciousMetal",
+              resourceType2Count = 50,
+          }
+      })
+
+  --------------------------------------------------------------------------
+  AddEquipMotionDataTable(motionDataTable)
+  --------------------------------------------------------------------------
+
+    Adds motion data entries for weapon animations.
+
+    PARAMETERS:
+      motionDataTable  table
+
+  --------------------------------------------------------------------------
+  SetEquipIdIconFtexPath(equipId, path) / ClearIconFtexPath(equipId)
+  --------------------------------------------------------------------------
+
+    Sets or clears the icon texture for an equip slot.
+
+    EXAMPLE:
+      V_TppEquip.SetEquipIdIconFtexPath(equipId, "/Assets/.../my_icon")
+
+
+================================================================================
+MODULE: V_TppCassette
+================================================================================
+
+  Controls cassette tape playback and registers custom albums/tracks.
+
+  --------------------------------------------------------------------------
+  RegisterCustomCassetteAlbum(albumInfo, trackList)
+  --------------------------------------------------------------------------
+
+    Registers a custom cassette album with tracks. One call does everything.
+
+    PARAMETERS:
+      albumInfo  table  Album metadata:
+        albumId    string  REQUIRED  Unique album identifier
+        langId     string  optional  Language ID for album name
+                                     (default: "sub_mission_untitle")
+        type       string  optional  Album type
+                                     (default: "PREINSTALL_BRIEFING")
+
+      trackList  table  Array of track entries:
+        fileName     string  REQUIRED  Audio file name (without extension)
+        langId       string  optional  Language ID for track name
+                                       (default: "sub_mission_untitle")
+        dataTimeJp   number  optional  Duration in ms, Japanese (default: 0)
+        dataTimeEn   number  optional  Duration in ms, English (default: 0)
+        important    number  optional  (default: 0)
+        special      number  optional  (default: 0)
+        unlocked     number  optional  (default: 0)
+        saveIndex    number  optional  Hint for save index (default: 300)
+
+    RETURNS: bool
+
+    EXAMPLE:
+      V_TppCassette.RegisterCustomCassetteAlbum(
+          { albumId = "my_album", langId = "my_album_title",
+            type = "PREINSTALL_MUSIC" },
+          {
+              { langId = "track_1", fileName = "my_song_001",
+                dataTimeJp = 180000, dataTimeEn = 180000 },
+              { langId = "track_2", fileName = "my_song_002",
+                dataTimeJp = 240000, dataTimeEn = 240000 },
+          }
+      )
+
+  --------------------------------------------------------------------------
+  PlayCassetteTape(trackOrName, isLoop, playAll)
+  --------------------------------------------------------------------------
+
+    Plays a cassette tape. Accepts a track name (string) or track ID (number).
+
+    PARAMETERS:
+      trackOrName  string/number  Track name or direct play ID
+      isLoop       bool           optional  Loop playback (default: false)
+      playAll      bool           optional  Play all tracks (default: false)
+
+    RETURNS: bool
+
+    EXAMPLE:
+      V_TppCassette.PlayCassetteTape("my_song_001")
+      V_TppCassette.PlayCassetteTape("my_song_001", true)    -- loop
+      V_TppCassette.PlayCassetteTape(243, false, true)        -- by ID, play all
+
+  --------------------------------------------------------------------------
+  PauseCassette(fadeSec) / ResumeCassette(fadeSec) / StopCassette(fadeSec, stopByUser)
+  --------------------------------------------------------------------------
+
+    Controls playback. fadeSec is in SECONDS (converted to ms internally).
+
+    PARAMETERS:
+      fadeSec     number  optional  Fade duration in seconds (default: 0)
+      stopByUser  bool    optional  Was stop triggered by player (default: false)
+
+    EXAMPLES:
+      V_TppCassette.PauseCassette(0.5)
+      V_TppCassette.ResumeCassette(0.5)
+      V_TppCassette.StopCassette(1.0, true)
+
+  --------------------------------------------------------------------------
+  GetCassettePlayingTime() / GetCassettePlayingTrackId()
+  --------------------------------------------------------------------------
+
+    Returns playback info. Time is in milliseconds.
+
+    EXAMPLE:
+      local ms = V_TppCassette.GetCassettePlayingTime()
+      local trackId = V_TppCassette.GetCassettePlayingTrackId()
+
+  --------------------------------------------------------------------------
+  SetCassetteSpeakerEnabled(enable) / IsCassetteSpeakerEnabled()
+  --------------------------------------------------------------------------
+
+    Toggles or checks the cassette speaker output mode.
+
+    EXAMPLE:
+      V_TppCassette.SetCassetteSpeakerEnabled(true)
+      if V_TppCassette.IsCassetteSpeakerEnabled() then ... end
+
+
+================================================================================
+MODULE: V_TppUI
+================================================================================
+
+  Overrides in-game UI textures. All paths are FTEX asset paths.
+
+  EQUIP BACKGROUNDS
+  -----------------
+  SetDefaultEquipBackgroundTexture(path)      Set fallback equip BG
+  UnsetDefaultEquipBackgroundTexture()        Clear fallback
+  SetWeaponEquipBackgroundTexture(id, path)   Set per-weapon BG
+  UnsetWeaponEquipBackgroundTexture(id)       Clear per-weapon BG
+  SetEnemyDefaultEquipBackgroundTexture(path) Set enemy default BG
+  UnsetEnemyDefaultEquipBackgroundTexture()   Clear enemy default
+  SetEnemyWeaponEquipBackgroundTexture(id, path) Set per-enemy-weapon BG
+  UnsetEnemyWeaponEquipBackgroundTexture(id)  Clear per-enemy-weapon BG
+  ClearAllEquipBackgroundTexture()            Clear ALL BG overrides
+
+  LOADING SCREEN
+  --------------
+  SetLoadingScreenBackgroundTexture(path)     Main loading texture
+  SetLoadingScreenBlurBackgroundTexture(path) Blur layer texture
+  UnsetLoadingScreenBackgroundTexture()       Clear both
+
+  GAME OVER SCREEN
+  ----------------
+  SetGameOverScreenBackgroundTexture(path)     Main game over texture
+  SetGameOverScreenBlurBackgroundTexture(path) Blur layer texture
+  UnsetGameOverScreenBackgroundTexture()       Clear both
+
+  EXAMPLE:
+    V_TppUI.SetLoadingScreenBackgroundTexture(
+        "/Assets/tpp/ui/texture/my_loading_screen.ftex")
+
+
+================================================================================
+MODULE: V_TppCommandPost
+================================================================================
+
+  Controls the caution phase duration (how long guards stay alert before
+  returning to sneak phase).
+
+  SetCautionPhaseDuration(seconds)     Set custom duration
+  GetCautionPhaseDuration()            Get current duration -> number
+  UnsetCautionPhaseDuration()          Restore vanilla behavior
+  GetRemainingCautionPhaseTime()       Get remaining time -> number
+
+  EXAMPLE:
+    V_TppCommandPost.SetCautionPhaseDuration(120)  -- 2 minutes
+    local remaining = V_TppCommandPost.GetRemainingCautionPhaseTime()
+
+
+================================================================================
+MODULE: V_TppEnemy
+================================================================================
+
+  Modifies enemy/soldier behaviors. Functions that take a soldier accept
+  either a string name (e.g. "sol_vip_0000") or a numeric gameObjectId.
+
+  VIP SYSTEM
+  ----------
+  SetVIPImportant(soldier, isOfficer)   Mark as VIP
+  RemoveVIPImportant(soldier)           Remove VIP status
+  ClearVIPImportant()                   Clear all VIPs
+
+  EXAMPLE:
+    V_TppEnemy.SetVIPImportant("sol_vip_0000", false)
+    V_TppEnemy.SetVIPImportant("sol_interrogator", true)  -- officer
+
+  HOLDUP BEHAVIOR
+  ---------------
+  SetUseConcernedHoldupRecovery(enable)    Concerned recovery behavior
+  HoldUpReactionCowardlyReaction(enable)   Cowardly reactions
+
+  CALL SIGN PATROL
+  ----------------
+  AddCallSignPatrolSoldier(soldier)     Add to patrol list
+  RemoveCallSignPatrolSoldier(soldier)  Remove from patrol
+  ClearCallSignPatrolSoldiers()         Clear all
+
+  STEALTH CAMO
+  -------------
+  EnableSoldierStealthCamo(soldier, enable)  Per-soldier. enable default: true
+  EnableAllSoldierStealthCamo(enable)        All soldiers in mission
+  EnableClosestSoldierCamo(enable)           Closest N soldiers to player
+  ClearSoldierStealthCamoOverrides()         Reset all
+
+  UTILITY
+  -------
+  CheckEnemyDistance(gameObjectId)           Distance to player -> number
+  GetAllMissionSoldiersByDistance()          Sorted list -> table
+
+  EXAMPLE:
+    V_TppEnemy.EnableClosestSoldierCamo(true)
+    local soldiers = V_TppEnemy.GetAllMissionSoldiersByDistance()
+    for _, s in ipairs(soldiers) do
+        InfCore.Log(s.soldierName .. " dist=" .. s.distance)
+    end
+
+
+================================================================================
+MODULE: V_TppHostage
+================================================================================
+
+  Tracks lost hostages for the radio speech override system.
+  Gender: 0 = male, 1 = female, 2 = child.
+
+  SetLostHostage(hostage, gender)            Track a lost hostage
+  RemoveLostHostage(hostage)                 Stop tracking
+  ClearLostHostages()                        Clear all
+  SetLostHostageFromPlayer(hostage, enable)  Mark player-caused escape
+
+  EXAMPLE:
+    V_TppHostage.SetLostHostage("hostage_0001", 1)  -- female
+    V_TppHostage.SetLostHostageFromPlayer("hostage_0001", true)
+
+
+================================================================================
+MODULE: V_TppPickable
+================================================================================
+
+  Overrides pickable item counts at locators.
+
+  SetCountRaw(locatorName, countRaw)   Override count at locator
+  GetCountRaw(locatorName)             Get current count -> number or nil
+
+  EXAMPLE:
+    V_TppPickable.SetCountRaw("pickup_herb_0005", 3)
+    local count = V_TppPickable.GetCountRaw("pickup_herb_0005")
+
+
+================================================================================
+RAW API: V_FrameWork.*
+================================================================================
+
+  These are the low-level C++ bridge functions. The V_TppXxx wrappers call
+  these internally. Use raw functions only when wrappers don't cover your case.
+
+  UI TEXTURES
+    SetDefaultEquipBgTexturePath(path)
+    ClearDefaultEquipBgTexture()
+    SetEquipBgTexturePath(equipId, path)
+    ClearEquipBgTexture(equipId)
+    SetEnemyWeaponBgTexturePath(path)
+    ClearEnemyWeaponBgTexture()
+    SetEnemyEquipBgTexturePath(equipId, path)
+    ClearEnemyEquipBgTexture(equipId)
+    ClearAllEquipBgTextures()
+    SetLoadingSplashMainTexturePath(path)
+    SetLoadingSplashBlurTexturePath(path)
+    ClearLoadingSplashTextures()
+    SetGameOverSplashMainTexturePath(path)
+    SetGameOverSplashBlurTexturePath(path)
+    ClearGameOverSplashTextures()
+
+  CAUTION PHASE
+    SetCautionStepNormalDurationSeconds(seconds)  -> nothing
+    GetCautionStepNormalDurationSeconds()          -> number
+    UnsetCautionStepNormalDurationSeconds()        -> nothing
+    GetCautionStepNormalRemainingSeconds()         -> number
+
+  PLAYER VOICE
+    SetPlayerVoiceFpkPathForType(playerType, path) -> nothing
+    ClearPlayerVoiceFpkPathForType(playerType)     -> nothing
+    ClearAllPlayerVoiceFpkOverrides()              -> nothing
+
+  ENEMY / SOLDIER
+    SetVIPImportant(gameObjectId, isOfficer)       -> nothing
+    RemoveVIPImportant(gameObjectId)               -> nothing
+    ClearVIPImportant()                            -> nothing
+    SetUseConcernedHoldupRecovery(enable)           -> nothing
+    HoldUpReactionCowardlyReaction(enable)          -> nothing
+    AddCallSignPatrolSoldier(gameObjectId)          -> nothing
+    RemoveCallSignPatrolSoldier(gameObjectId)       -> nothing
+    ClearCallSignPatrolSoldiers()                   -> nothing
+    EnableSoldierStealthCamo(actorIndex, enable)     -> nothing
+    ClearSoldierStealthCamoOverrides()              -> nothing
+
+  HOSTAGE
+    SetLostHostage(gameObjectId, gender)            -> nothing
+    RemoveLostHostage(gameObjectId)                 -> nothing
+    ClearLostHostages()                             -> nothing
+    SetLostHostageFromPlayer(gameObjectId, enable)  -> nothing
+
+  CASSETTE TAPES
+    PlayCassetteTapeByTrackId(mode, trackId, isLoop, playAll) -> nothing
+    GetTapeTrackDirectPlayId(trackName)             -> number
+    GetCassettePlayingTime()                        -> number (ms)
+    GetCassettePlayingTrackId()                     -> number
+    PauseCassette(fadeMs)                           -> nothing
+    ResumeCassette(fadeMs)                          -> nothing
+    StopCassette(fadeMs, stopByUser)                -> nothing
+    IsCassetteSpeakerEnabled()                      -> bool
+    SetCassetteSpeakerEnabled(enable)               -> nothing
+    RegisterCustomTapes(tapeData)                   -> nothing
+
+  PICKABLE ITEMS
+    SetPickableCountRawByIndex(locatorIndex, countRaw) -> nothing
+    GetPickableCountRawByIndex(locatorIndex)            -> number
+
+  EQUIPMENT
+    RegisterConstantEquipId(equipName)              -> number
+    DeclareWPs(weaponName)                          -> number
+    DeclareSWPs(supportWeaponName)                  -> number
+    DeclareRCs(receiverName)                        -> number
+    DeclareAMs(ammoName)                            -> number
+    SetGunBasic(gunBasicTable)                      -> nothing
+    AddToEquipIdTable(equipTable)                   -> nothing
+    AddToEquipDevelopTable(key, developData)         -> number
+    SetSupportWeaponType(id, type)                  -> nothing
+    RemoveSupportWeaponType(id)                     -> nothing
+    ClearSupportWeaponTypes()                       -> nothing
+    SetEquipParameters(params)                      -> nothing
+    SetEquipIdIconFtexPath(equipId, path)            -> nothing
+    ClearIconFtexPath(equipId)                      -> nothing
+    ClearAllIconFtexPaths()                         -> nothing
+
+  PLAYER OUTFIT
+    SetPlayerPartsPath(outfitTable)                 -> number or false
+    LinkDevelopIdToPlayerSuit(developId, partsType)  -> bool
+    AllocateVariantGroupId()                        -> number
+    SetVariantGroup(partsType, groupId, index)       -> bool
+
+  CAMO
+    SetCamoValue(camoType, materialType, value)     -> bool
+    CloneCamoRow(dstCamoType, srcCamoType)           -> bool
+    ImportCamoRow(camoType, valuesTable)             -> bool
+
+  MOD SYSTEM
+    GetModFiles()                                   -> table
+
+
+================================================================================
+APPENDIX A: PlayerType Values
+================================================================================
+
+  0 = Snake (Venom Snake)
+  1 = DD_Male (Diamond Dogs male soldier)
+  2 = DD_Female (Diamond Dogs female soldier)
+  3 = Avatar (custom avatar)
+  4 = Liquid
+  5 = Ocelot
+  6 = Quiet
+
+
+================================================================================
+APPENDIX B: PlayerCamoType Names (0-116)
+================================================================================
+
+  Used with SetCamoValue, CloneCamoRow, ImportCamoRow.
+
+   0 OLIVEDRAB          1 SPLITTER           2 SQUARE
+   3 TIGERSTRIPE        4 GOLDTIGER          5 FOXTROT
+   6 WOODLAND           7 WETWORK            8 ARBANGRAY
+   9 ARBANBLUE         10 SANDSTORM         11 REALTREE
+  12 INVISIBLE         13 BLACK             14 SNEAKING_SUIT_GZ
+  15 SNEAKING_SUIT_TPP 16 BATTLEDRESS       17 PARASITE
+  18 NAKED             19 LEATHER           20 SOLIDSNAKE
+  21 NINJA             22 RAIDEN            23 HOSPITAL
+  24 GOLD              25 SILVER            26 PANTHER
+  27 AVATAR_EDIT_MAN   28 MGS3              29 MGS3_NAKED
+  30 MGS3_SNEAKING     31 MGS3_TUXEDO       32 EVA_CLOSE
+  33 EVA_OPEN          34 BOSS_CLOSE        35 BOSS_OPEN
+  36 C23               37 C24               38 C27
+  39 C29               40 C30               41 C35
+  42 C38               43 C39               44 C42
+  45 C46               46 C49               47 C52
+  48 C16               49 C17               50 C18
+  51 C19               52 C20               53 C22
+  54 C25               55 C26               56 C28
+  57 C31               58 C32               59 C33
+  60 C36               61 C37               62 C40
+  63 C41               64 C43               65 C44
+  66 C45               67 C47               68 C48
+  69 C50               70 C51               71 C53
+  72 C54               73 C55               74 C56
+  75 C57               76 C58               77 C59
+  78 C60
+  79-90   SWIMWEAR_C00 through SWIMWEAR_C53
+  91-102  SWIMWEAR_G_C00 through SWIMWEAR_G_C53
+  103-114 SWIMWEAR_H_C00 through SWIMWEAR_H_C53
+  115 OCELOT            116 QUIET
+
+
+================================================================================
+APPENDIX C: Material Type Names (0-81)
+================================================================================
+
+  Used with SetCamoValue as the second argument.
+
+   0 MTR_IRON_A     1 MTR_IRON_B     2 MTR_IRON_C     3 MTR_IRON_D
+   4 MTR_IRON_E     5 MTR_IRON_F     6 MTR_IRON_G     7 MTR_IRON_M
+   8 MTR_IRON_N     9 MTR_IRON_W    10 MTR_PIPE_A    11 MTR_PIPE_B
+  12 MTR_PIPE_S    13 MTR_TIN_A     14 MTR_FENC_A    15 MTR_FENC_B
+  16 MTR_FENC_F    17 MTR_CONC_A    18 MTR_CONC_B    19 MTR_BRIC_A
+  20 MTR_PLAS_A    21 MTR_PLAS_B    22 MTR_PLAS_W    23 MTR_PAPE_A
+  24 MTR_PAPE_B    25 MTR_PAPE_C    26 MTR_PAPE_D    27 MTR_RUBB_A
+  28 MTR_RUBB_B    29 MTR_CLOT_A    30 MTR_CLOT_B    31 MTR_CLOT_C
+  32 MTR_CLOT_D    33 MTR_CLOT_E    34 MTR_GLAS_A    35 MTR_GLAS_B
+  36 MTR_GLAS_C    37 MTR_VINL_A    38 MTR_VINL_W    39 MTR_TILE_A
+  40 MTR_TLRF_A    41 MTR_ALRM_A    42 MTR_COPS_A    43 MTR_COPS_B
+  44 MTR_BRIR_A    45 MTR_BLOD_A    46 MTR_SOIL_A    47 MTR_SOIL_B
+  48 MTR_SOIL_C    49 MTR_SOIL_D    50 MTR_SOIL_E    51 MTR_SOIL_F
+  52 MTR_SOIL_G    53 MTR_SOIL_H    54 MTR_SOIL_R    55 MTR_SOIL_W
+  56 MTR_GRAV_A    57 MTR_SAND_A    58 MTR_SAND_B    59 MTR_SAND_C
+  60 MTR_LEAF      61 MTR_RLEF      62 MTR_RLEF_B    63 MTR_WOOD_A
+  64 MTR_WOOD_B    65 MTR_WOOD_C    66 MTR_WOOD_D    67 MTR_WOOD_G
+  68 MTR_WOOD_M    69 MTR_WOOD_W    70 MTR_FWOD_A    71 MTR_PLNT_A
+  72 MTR_ROCK_A    73 MTR_ROCK_B    74 MTR_ROCK_P    75 MTR_MOSS_A
+  76 MTR_TURF_A    77 MTR_WATE_A    78 MTR_WATE_B    79 MTR_WATE_C
+  80 MTR_AIR_A     81 MTR_NONE_A
+
+
+================================================================================
+APPENDIX D: Develop Flow Field Names
+================================================================================
+
+  Use either the raw name (p51) or the readable alias in flow tables.
+
+  Raw  | Readable Name             | Description
+  -----|---------------------------|----------------------------------
+  p51  | sideGrade                 | Side-grade level
+  p52  | grade                     | Equipment grade/tier
+  p53  | developGmpCost            | GMP cost to develop
+  p54  | usageGmpCost              | GMP cost per use/deployment
+  p55  | sectionLvForDevelop       | Required section level
+  p56  | sectionID2ForDevelop      | Secondary section ID
+  p57  | sectionLv2ForDevelop      | Secondary section level
+  p58  | resourceType1             | Resource type 1 name (string)
+  p59  | resourceType1Count        | Resource type 1 amount
+  p60  | resourceType2             | Resource type 2 name (string)
+  p61  | resourceType2Count        | Resource type 2 amount
+  p62  | initialAvailable          | Available from start (0/1)
+  p63  | sectionIDForDevelop       | Primary section ID
+  p64  | developSectionLv          | Develop section level
+  p65  | resourceUsageType1        | Usage resource type 1 (string)
+  p66  | resourceUsageType1Count   | Usage resource type 1 amount
+  p67  | resourceUsageType2        | Usage resource type 2 (string)
+  p68  | resourceUsageType2Count   | Usage resource type 2 amount
+  p69  | displayInfo               | Display info flags
+  p70  | unk70                     | Unknown
+  p71  | developTimeMinute         | Development time in minutes
+  p72  | isValidMbCoin             | Can use MB coins (0/1)
+  p73  | intimacyPoint             | Buddy intimacy requirement (if the equipment is for buddies)
+  p74  | isFobAvailable            | Available in FOB (0/1)
+
+
+================================================================================
+APPENDIX E: Save File Format
+================================================================================
+
+  File: mod/saves/V_FrameWork_State.lua
+
+  return {
+      equips = {
+          ["ModName:ItemName"] = { equipId = 1545, developId = 800 },
+      },
+      tapes = {
+          ["AlbumId:FileName"] = { saveIndex = 200, owned = true, new = false },
+      },
+  }
+
+  - Keys are strings in "namespace:name" format
+  - equipId / developId / saveIndex are stable across sessions
+  - owned = player has collected this tape
+  - new = tape hasn't been listened to yet (shows "NEW" in UI)
+  - Orphaned entries (mod uninstalled) are harmless — just ignored
+
+
+################################################################################
+#                          END OF API REFERENCE                                #
+################################################################################
