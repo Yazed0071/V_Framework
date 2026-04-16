@@ -38,13 +38,6 @@ namespace
         std::uint8_t  ba0_extra = 0xFF;
     };
 
-    static bool IsCustomLiveState(const LivePlayerAppearance& s)
-    {
-        return
-            (s.f8_partsType >= 0x40 && s.f8_partsType <= 0x7F) ||
-            (s.f9_camoType >= 0x80 && s.f9_camoType <= 0xFE);
-    }
-
     static bool IsCustomLiveAppearance(const LivePlayerAppearance& s)
     {
         return
@@ -116,69 +109,44 @@ namespace
         const std::uint8_t* blob,
         const LivePlayerAppearance* live)
     {
+        // Only log when a custom suit is involved (avoid per-frame spam for vanilla)
         const std::uint8_t b00 = ReadU8(blob, 0x00);
+        const bool isCustomBlob = (b00 >= 0x40 && b00 <= 0x7F);
+        const bool isCustomLive = live && IsCustomLiveAppearance(*live);
+        if (!isCustomBlob && !isCustomLive)
+            return;
+
         const std::uint8_t b01 = ReadU8(blob, 0x01);
         const std::uint8_t b02 = ReadU8(blob, 0x02);
         const std::uint8_t b03 = ReadU8(blob, 0x03);
-
         const std::uint32_t flags = ReadU32(blob, 0xBC);
-        const std::uint8_t requestedPlayerType = ReadU8(blob, 0xC0);
-        const std::uint64_t requestedIdentity = ReadU64(blob, 0xC8);
-
-        const std::uint64_t q00 = ReadU64(blob, 0x00);
-        const std::uint64_t q08 = ReadU64(blob, 0x08);
-        const std::uint64_t q10 = ReadU64(blob, 0x10);
-        const std::uint64_t q18 = ReadU64(blob, 0x18);
 
         if (live)
         {
             Log(
                 "[MissionPrepPartsReq] %s idx=%d apply=%u "
-                "blob{00=%02X 01=%02X 02=%02X 03=%02X flags=%08X type=%02X id=%016llX "
-                "q00=%016llX q08=%016llX q10=%016llX q18=%016llX} "
-                "live{f8=%02X f9=%02X fb=%02X fc=%04X fe=%04X ba0=%02X}\n",
-                phase,
-                param_2,
-                static_cast<unsigned>(param_4),
-                static_cast<unsigned>(b00),
-                static_cast<unsigned>(b01),
-                static_cast<unsigned>(b02),
-                static_cast<unsigned>(b03),
+                "blob{00=%02X 01=%02X 02=%02X 03=%02X flags=%08X} "
+                "live{f8=%02X f9=%02X fb=%02X fc=%04X fe=%04X}\n",
+                phase, param_2, static_cast<unsigned>(param_4),
+                static_cast<unsigned>(b00), static_cast<unsigned>(b01),
+                static_cast<unsigned>(b02), static_cast<unsigned>(b03),
                 static_cast<unsigned>(flags),
-                static_cast<unsigned>(requestedPlayerType),
-                static_cast<unsigned long long>(requestedIdentity),
-                static_cast<unsigned long long>(q00),
-                static_cast<unsigned long long>(q08),
-                static_cast<unsigned long long>(q10),
-                static_cast<unsigned long long>(q18),
                 static_cast<unsigned>(live->f8_partsType),
                 static_cast<unsigned>(live->f9_camoType),
                 static_cast<unsigned>(live->fb_playerType),
                 static_cast<unsigned>(live->fc_faceId),
-                static_cast<unsigned>(live->fe_headOption),
-                static_cast<unsigned>(live->ba0_extra)
+                static_cast<unsigned>(live->fe_headOption)
             );
         }
         else
         {
             Log(
                 "[MissionPrepPartsReq] %s idx=%d apply=%u "
-                "blob{00=%02X 01=%02X 02=%02X 03=%02X flags=%08X type=%02X id=%016llX "
-                "q00=%016llX q08=%016llX q10=%016llX q18=%016llX}\n",
-                phase,
-                param_2,
-                static_cast<unsigned>(param_4),
-                static_cast<unsigned>(b00),
-                static_cast<unsigned>(b01),
-                static_cast<unsigned>(b02),
-                static_cast<unsigned>(b03),
-                static_cast<unsigned>(flags),
-                static_cast<unsigned>(requestedPlayerType),
-                static_cast<unsigned long long>(requestedIdentity),
-                static_cast<unsigned long long>(q00),
-                static_cast<unsigned long long>(q08),
-                static_cast<unsigned long long>(q10),
-                static_cast<unsigned long long>(q18)
+                "blob{00=%02X 01=%02X 02=%02X 03=%02X flags=%08X}\n",
+                phase, param_2, static_cast<unsigned>(param_4),
+                static_cast<unsigned>(b00), static_cast<unsigned>(b01),
+                static_cast<unsigned>(b02), static_cast<unsigned>(b03),
+                static_cast<unsigned>(flags)
             );
         }
     }
@@ -300,7 +268,7 @@ static void __fastcall hkRequestToChangePlayerPartsInMissionPreparationMode(
     const bool haveAfter = TryReadLivePlayerAppearance(after);
     LogBlobSummary("out", param_2, param_4, blob, haveAfter ? &after : nullptr);
 
-    if (haveAfter && !IsCustomLiveState(after))
+    if (haveAfter && !IsCustomLiveAppearance(after))
         ClearActiveCustomSuit();
 }
 

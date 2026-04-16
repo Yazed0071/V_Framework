@@ -138,14 +138,38 @@ namespace
             }
             else
             {
+                // No preserved state — write safe vanilla defaults to prevent
+                // garbage custom values from corrupting the character switch.
+                const std::uint8_t safeArm = 0;
+                const std::uint8_t safeFace = 0;
+                const std::uint8_t safeUnk = 0;
+
+                if (playerType == 0 || playerType == 3)
+                {
+                    state[0x1994] = safeArm;
+                    state[0x1995] = safeFace;
+                    state[0x1998] = safeUnk;
+                }
+                else if (playerType == 1 || playerType == 2)
+                {
+                    state[0x1999] = safeArm;
+                    state[0x199A] = safeFace;
+                    state[0x199E] = safeUnk;
+                }
+
                 Log(
-                    "[CharSelectPreserve] skip custom live, no preserved state type=0x%02X arm=%u faceEquip=%u\n",
+                    "[CharSelectPreserve] forced vanilla defaults type=0x%02X (was arm=%u face=%u)\n",
                     static_cast<unsigned>(playerType),
                     static_cast<unsigned>(armType),
                     static_cast<unsigned>(faceEquipId)
                 );
             }
 
+            // NOTE: Do NOT clear Quark F8/F9 here — this hook fires when the
+            // character selector OPENS, not when a switch actually happens.
+            // Clearing F8 here would nuke the custom suit even if the user
+            // closes the selector without changing characters.
+            // The LoadPartsNew safety fallback handles the actual mismatch.
             return;
         }
 

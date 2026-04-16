@@ -11,23 +11,25 @@
 namespace
 {
     using GetQuarkSystemTable_t = void* (__fastcall*)();
+    using AddListSuit_t = void(__fastcall*)(
+        void* self, std::uint32_t* rowCounter, std::uint16_t suitId, void* param4);
+
+    // ---- Parked typedefs (HEAD OPTION cycling) ----
     using GetSuitVariation_t = std::uint8_t(__fastcall*)(void* self, std::uint16_t suitId);
     using HeadOptionTableLookup_t = std::uint64_t(__fastcall*)(
         void* self, std::int16_t* outIndex, std::uint64_t equipKey);
     using SetupCharacterSlotSelect_t = void(__fastcall*)(void* self);
-    using AddListSuit_t = void(__fastcall*)(
-        void* self, std::uint32_t* rowCounter, std::uint16_t suitId, void* param4);
 
+    // ---- Active state ----
     static GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
+    static AddListSuit_t g_OrigAddListSuit = nullptr;
+    static void* g_HookedAddListSuitAddr = nullptr;
+    static bool g_Installed = false;
+
+    // ---- Parked state (HEAD OPTION cycling) ----
     static GetSuitVariation_t g_OrigGetSuitVariation = nullptr;
     static HeadOptionTableLookup_t g_OrigHeadOptionTableLookup = nullptr;
     static SetupCharacterSlotSelect_t g_OrigSetupCharSlotSelect = nullptr;
-    static AddListSuit_t g_OrigAddListSuit = nullptr;
-    static void* g_HookedFuncAddr = nullptr;
-    static void* g_HookedHeadOptionAddr = nullptr;
-    static void* g_HookedSetupCharSlotAddr = nullptr;
-    static void* g_HookedAddListSuitAddr = nullptr;
-    static bool g_Installed = false;
 
     static bool ResolveApis()
     {
@@ -190,80 +192,41 @@ namespace
     static void __fastcall hkAddListSuit(
         void* self, std::uint32_t* rowCounter, std::uint16_t suitId, void* param4)
     {
-        const std::uint32_t rowBefore = *rowCounter;
-
-        // Log every call to see what suitId values the game passes
-        static std::uint16_t s_lastSuitId = 0xFFFF;
-        if (suitId != s_lastSuitId)
+        // suitId in AddListSuit is the FLOW INDEX (p50), not developId (p00).
+        // Per-playerType filtering: if this is a custom suit and the current
+        // playerType doesn't match, skip it entirely (don't add to menu).
+        const CustomSuitEntry* entry = nullptr;
+        if (TryGetCustomSuitByFlowIndex(suitId, &entry) && entry)
         {
-            Log("[AddListSuit] suitId=%u (0x%04X) rowBefore=%u\n",
-                static_cast<unsigned>(suitId), static_cast<unsigned>(suitId), rowBefore);
-            s_lastSuitId = suitId;
+            // Read current playerType from Quark live state
+            std::uint8_t currentPlayerType = 0xFF;
+            if (ResolveApis())
+            {
+                auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+                if (qt)
+                {
+                    auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                    if (q98)
+                    {
+                        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                        if (state)
+                            currentPlayerType = state[0xFB];
+                    }
+                }
+            }
+
+            if (currentPlayerType != 0xFF && entry->playerType != currentPlayerType)
+            {
+                Log("[AddListSuit] filtered suitId=%u playerType=%u (current=%u)\n",
+                    static_cast<unsigned>(suitId),
+                    static_cast<unsigned>(entry->playerType),
+                    static_cast<unsigned>(currentPlayerType));
+                return; // Don't add to menu
+            }
         }
 
         // Call original
         g_OrigAddListSuit(self, rowCounter, suitId, param4);
-
-        const std::uint32_t rowAfter = *rowCounter;
-
-        // If the original didn't add a row, nothing to do
-        if (rowAfter <= rowBefore)
-            return;
-
-        // The suit was added at row index = rowAfter - 1
-        const std::uint32_t row = rowAfter - 1;
-
-        // Check if this suitId belongs to a custom suit with enableHead
-        const CustomSuitEntry* entry = nullptr;
-        if (!TryGetCustomSuitByDevelopId(suitId, &entry) || !entry)
-            return;
-
-        if (!entry->IsFaceEnabled())
-            return;
-
-        // This custom suit has enableHead=true.
-        // The original likely put it on the "weapon path" with only 2 sub-entries
-        // (variant=7 at sub 0, variant=0 at sub 1, sub-count=1).
-        // We need to add head option sub-entries so the user can cycle
-        // NONE/BALACLAVA/HEADGEAR.
-        //
-        // For HEAD OPTION, the sub-slot variantIndex values map to faceEquipId:
-        //   variantIndex 7 = NAKED variant (also used as "no headgear" = NONE)
-        //   variantIndex 0 = NORMAL (with headgear = BALACLAVA)
-        //   variantIndex 1 = SCARFED variant (HEADGEAR)
-        //
-        // We overwrite the sub-entries to have 3 entries with the proper variant indices.
-
-        auto* base = reinterpret_cast<std::uint8_t*>(self);
-
-        // Read what the original wrote for the selector code
-        const std::uint32_t origSelector =
-            *reinterpret_cast<std::uint32_t*>(base + (row * 0xFULL) * 0xC + 0xcc40);
-        const std::uint8_t origCamoType =
-            base[(row * 0xFULL) * 0xC + 0xcc48];
-
-        // Sub 0: variant=7 (NAKED body / no headgear → HEAD OPTION: NONE)
-        auto writeSubSlot = [&](std::uint32_t subIdx, std::uint32_t selector,
-                                std::uint32_t variantIdx, std::uint8_t camo)
-        {
-            const std::uint64_t off = (row * 0xFULL + subIdx) * 0xC + 0xcc40;
-            *reinterpret_cast<std::uint32_t*>(base + off + 0) = selector;
-            *reinterpret_cast<std::uint32_t*>(base + off + 4) = variantIdx;
-            base[off + 8] = camo;
-        };
-
-        // Write 3 sub-entries:
-        writeSubSlot(0, origSelector, 7, origCamoType); // NONE (naked/no headgear)
-        writeSubSlot(1, origSelector, 0, origCamoType); // BALACLAVA (normal)
-        writeSubSlot(2, origSelector, 1, origCamoType); // HEADGEAR (scarfed)
-
-        // Set sub-count to 2 (meaning max sub-index = 2 → 3 entries: 0,1,2)
-        base[row + 0xc040] = 2;
-        // bc40 stores total count including base
-        base[row + 0xbc40] = 3;
-
-        Log("[AddListSuit] custom suitId=%u row=%u: injected 3 head option sub-entries (selector=0x%X)\n",
-            static_cast<unsigned>(suitId), row, origSelector);
     }
 
     // Hook for SetupCharacterSlotSelectPrefabListElement (0x1416bf490).
@@ -311,91 +274,23 @@ bool Install_SuitVariant_Hooks()
         return true;
     }
 
-    // Hook GetSuitVariation by resolved address
-    void* funcAddr = (gAddr.GetSuitVariation != 0)
-        ? ResolveGameAddress(gAddr.GetSuitVariation)
-        : nullptr;
+    // ---- Parked hooks (HEAD OPTION cycling — needs +0x9c88 table injection) ----
+    // GetSuitVariation, HeadOptionTableLookup, SetupCharSlotSelect
+    // Code preserved in hook functions above but not installed.
 
-    if (funcAddr)
-    {
-        const bool ok = CreateAndEnableHook(
-            funcAddr,
-            reinterpret_cast<void*>(&hkGetSuitVariation),
-            reinterpret_cast<void**>(&g_OrigGetSuitVariation)
-        );
-
-        if (ok)
-        {
-            Log("[Hook] SuitVariant: Hooked GetSuitVariation at %p\n", funcAddr);
-            g_HookedFuncAddr = funcAddr;
-        }
-        else
-        {
-            Log("[Hook] SuitVariant: MinHook failed for GetSuitVariation at %p\n", funcAddr);
-        }
-    }
-
-    // Hook HeadOptionTableLookup (FUN_1460af810)
-    if (gAddr.HeadOptionTableLookup != 0)
-    {
-        void* headOptAddr = ResolveGameAddress(gAddr.HeadOptionTableLookup);
-        if (headOptAddr)
-        {
-            const bool okHead = CreateAndEnableHook(
-                headOptAddr,
-                reinterpret_cast<void*>(&hkHeadOptionTableLookup),
-                reinterpret_cast<void**>(&g_OrigHeadOptionTableLookup)
-            );
-
-            if (okHead)
-            {
-                g_HookedHeadOptionAddr = headOptAddr;
-                Log("[Hook] SuitVariant: Hooked HeadOptionTableLookup at %p\n", headOptAddr);
-            }
-            else
-            {
-                Log("[Hook] SuitVariant: MinHook failed for HeadOptionTableLookup at %p\n", headOptAddr);
-            }
-        }
-    }
-
-    // Hook SetupCharacterSlotSelectPrefabListElement to force bVar14=1
-    if (gAddr.SetupCharacterSlotSelectPrefabListElement != 0)
-    {
-        void* setupAddr = ResolveGameAddress(gAddr.SetupCharacterSlotSelectPrefabListElement);
-        if (setupAddr)
-        {
-            const bool okSetup = CreateAndEnableHook(
-                setupAddr,
-                reinterpret_cast<void*>(&hkSetupCharacterSlotSelect),
-                reinterpret_cast<void**>(&g_OrigSetupCharSlotSelect)
-            );
-
-            if (okSetup)
-            {
-                g_HookedSetupCharSlotAddr = setupAddr;
-                Log("[Hook] SuitVariant: Hooked SetupCharSlotSelect at %p\n", setupAddr);
-            }
-            else
-            {
-                Log("[Hook] SuitVariant: MinHook failed for SetupCharSlotSelect at %p\n", setupAddr);
-            }
-        }
-    }
-
-    // Hook AddListSuit to inject head option sub-entries for custom suits
+    // Hook AddListSuit — per-playerType filtering + future body variants
     if (gAddr.AddListSuit != 0)
     {
         void* addListAddr = ResolveGameAddress(gAddr.AddListSuit);
         if (addListAddr)
         {
-            const bool okAdd = CreateAndEnableHook(
+            const bool ok = CreateAndEnableHook(
                 addListAddr,
                 reinterpret_cast<void*>(&hkAddListSuit),
                 reinterpret_cast<void**>(&g_OrigAddListSuit)
             );
 
-            if (okAdd)
+            if (ok)
             {
                 g_HookedAddListSuitAddr = addListAddr;
                 Log("[Hook] SuitVariant: Hooked AddListSuit at %p\n", addListAddr);
@@ -407,8 +302,7 @@ bool Install_SuitVariant_Hooks()
         }
     }
 
-    g_Installed = (g_HookedFuncAddr != nullptr) || (g_HookedHeadOptionAddr != nullptr) ||
-                  (g_HookedSetupCharSlotAddr != nullptr) || (g_HookedAddListSuitAddr != nullptr);
+    g_Installed = (g_HookedAddListSuitAddr != nullptr);
     Log("[Hook] SuitVariant: %s\n", g_Installed ? "OK" : "no hooks installed");
     return true;
 }
@@ -418,32 +312,12 @@ bool Uninstall_SuitVariant_Hooks()
     if (!g_Installed)
         return true;
 
-    if (g_HookedFuncAddr)
-    {
-        DisableAndRemoveHook(g_HookedFuncAddr);
-        g_HookedFuncAddr = nullptr;
-    }
-
-    if (g_HookedHeadOptionAddr)
-    {
-        DisableAndRemoveHook(g_HookedHeadOptionAddr);
-        g_HookedHeadOptionAddr = nullptr;
-    }
-
-    if (g_HookedSetupCharSlotAddr)
-    {
-        DisableAndRemoveHook(g_HookedSetupCharSlotAddr);
-        g_HookedSetupCharSlotAddr = nullptr;
-    }
-
     if (g_HookedAddListSuitAddr)
     {
         DisableAndRemoveHook(g_HookedAddListSuitAddr);
         g_HookedAddListSuitAddr = nullptr;
     }
 
-    g_OrigGetSuitVariation = nullptr;
-    g_OrigSetupCharSlotSelect = nullptr;
     g_OrigAddListSuit = nullptr;
     g_Installed = false;
 

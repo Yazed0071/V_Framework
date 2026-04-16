@@ -696,8 +696,10 @@ namespace
             allOk &= Install_CharacterSelectorPreserve_Hook();
             allOk &= Install_PlayerFaceFovaGate_Hook();
             allOk &= Install_PlayerHeadOptionRepair_Hook();
-            Install_PlayerHeadOptionUi_Hook();
-            Install_PlayerHeadOptionSelectionCount_Hook();
+            // HEAD OPTION cycling (BALACLAVA/HEADGEAR) parked for now.
+            // enableHead=true still works for face/hair loading via DoesNeedFaceFova.
+            // Install_PlayerHeadOptionUi_Hook();
+            // Install_PlayerHeadOptionSelectionCount_Hook();
             Install_MissionPrepUpdateLoadMark_Hook();
             Install_MissionPreparationCurrentSuitFlowIndex_Hook();
             return allOk;
@@ -710,8 +712,8 @@ namespace
             Uninstall_ItemSelectorSuitCommit_Hook();
             Uninstall_CharacterSelectorPreserve_Hook();
             Uninstall_PlayerFaceFovaGate_Hook();
-            Uninstall_PlayerHeadOptionUi_Hook();
-            Uninstall_PlayerHeadOptionSelectionCount_Hook();
+            // Uninstall_PlayerHeadOptionUi_Hook();
+            // Uninstall_PlayerHeadOptionSelectionCount_Hook();
             Uninstall_MissionPrepUpdateLoadMark_Hook();
             Uninstall_MissionPreparationCurrentSuitFlowIndex_Hook();
         }

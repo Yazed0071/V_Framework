@@ -229,13 +229,6 @@ void RememberPreservedLoadPartsAppearance(
     slot.faceEquipId = faceEquipId;
     slot.faceEquipUnk = faceEquipUnk;
 
-    Log(
-        "[CustomSuit] Preserve loadparts type=0x%02X arm=%u faceEquip=%u unk=0x%02X\n",
-        static_cast<unsigned>(playerType),
-        static_cast<unsigned>(slot.armType),
-        static_cast<unsigned>(slot.faceEquipId),
-        static_cast<unsigned>(slot.faceEquipUnk)
-    );
 }
 
 void RememberPreservedHeadOption(
@@ -298,14 +291,6 @@ void RememberPreservedFullAppearance(
     if (headOption != 0 && headOption != 0xFFFF)
         slot.headOption = headOption;
 
-    Log(
-        "[CustomSuit] Preserve full type=0x%02X arm=%u faceEquip=%u unk=0x%02X head=0x%04X\n",
-        static_cast<unsigned>(playerType),
-        static_cast<unsigned>(slot.armType),
-        static_cast<unsigned>(slot.faceEquipId),
-        static_cast<unsigned>(slot.faceEquipUnk),
-        static_cast<unsigned>(slot.headOption)
-    );
 }
 
 bool TryGetPreservedAppearance(

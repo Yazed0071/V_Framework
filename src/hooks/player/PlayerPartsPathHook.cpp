@@ -173,17 +173,10 @@ static std::uint64_t* __fastcall hkLoadPlayerCamoFpk(
 
     const CustomSuitEntry* entry = nullptr;
     if (TryGetCustomSuitByPartsType(effectivePartsType, &entry) &&
-        entry)
+        entry && entry->playerType == static_cast<std::uint8_t>(playerType))
     {
         if (entry->IsCamoCustom())
-        {
-            Log(
-                "[PlayerPartsPath] CAMO custom partsType=%u camo=%u\n",
-                static_cast<unsigned>(entry->customPartsType),
-                static_cast<unsigned>(playerCamoType)
-            );
             return WriteFoxPath(outPath, entry->camoFpk);
-        }
 
         // Custom suit with no camo override: return empty path (null hash)
         // to avoid the game indexing camo arrays with an unknown partsType.
@@ -208,7 +201,8 @@ static std::uint64_t* __fastcall hkLoadPlayerSnakeBlackDiamondFpk(
     {
         const CustomSuitEntry* entry = nullptr;
         if (TryGetCustomSuitByPartsType(effectivePartsType, &entry) &&
-            entry && !entry->IsDiamondEnabled())
+            entry && entry->playerType == static_cast<std::uint8_t>(playerType) &&
+            !entry->IsDiamondEnabled())
         {
             // Custom suit does not want black diamond: return empty path.
             if (ResolveFoxPathApi())
@@ -232,14 +226,9 @@ static std::uint64_t* __fastcall hkLoadPlayerPartsParts(
 
     const CustomSuitEntry* entry = nullptr;
     if (TryGetCustomSuitByPartsType(effectivePartsType, &entry) &&
-        entry && entry->partsPathCode64Ext != 0)
+        entry && entry->partsPathCode64Ext != 0 &&
+        entry->playerType == static_cast<std::uint8_t>(playerType))
     {
-        Log(
-            "[PlayerPartsPath] PARTS custom partsType=%u playerType=%u\n",
-            static_cast<unsigned>(entry->customPartsType),
-            static_cast<unsigned>(playerType)
-        );
-
         return WriteFoxPath(outPath, entry->partsPathCode64Ext);
     }
 
@@ -256,14 +245,9 @@ static std::uint64_t* __fastcall hkLoadPlayerPartsFpk(
 
     const CustomSuitEntry* entry = nullptr;
     if (TryGetCustomSuitByPartsType(effectivePartsType, &entry) &&
-        entry && entry->fpkPathCode64Ext != 0)
+        entry && entry->fpkPathCode64Ext != 0 &&
+        entry->playerType == static_cast<std::uint8_t>(playerType))
     {
-        Log(
-            "[PlayerPartsPath] FPK custom partsType=%u playerType=%u\n",
-            static_cast<unsigned>(entry->customPartsType),
-            static_cast<unsigned>(playerType)
-        );
-
         return WriteFoxPath(outPath, entry->fpkPathCode64Ext);
     }
 
@@ -278,10 +262,40 @@ static void __fastcall hkLoadPartsNew(
 {
     const CustomSuitEntry* entry = nullptr;
     const bool isCustom = playerInfo &&
-        TryGetCustomSuitByPartsType(playerInfo->playerPartsType, &entry) && entry;
+        TryGetCustomSuitByPartsType(playerInfo->playerPartsType, &entry) && entry &&
+        entry->playerType == static_cast<std::uint8_t>(playerInfo->playerType);
 
     if (playerInfo)
     {
+        // Safety: if partsType is in the custom range (≥0x40) but doesn't belong
+        // to the current playerType, rewrite to vanilla OLIVE_DRAB (0x00) to
+        // prevent the game from getting stuck trying to resolve an unknown partsType.
+        // Also clear Quark state +0xF8 to prevent the dirty-check loop.
+        if (!isCustom && playerInfo->playerPartsType >= 0x40 && playerInfo->playerPartsType <= 0x7F)
+        {
+            playerInfo->playerPartsType = 0x00; // OLIVE_DRAB — safe fallback
+            playerInfo->playerCamoType = 0x00;
+
+            // Clear the Quark live state so the game's dirty-check doesn't
+            // see a mismatch and endlessly re-request loading.
+            if (ResolveQuarkApi())
+            {
+                auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+                if (qt)
+                {
+                    auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                    if (q98)
+                    {
+                        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                        if (state && state[0xF8] >= 0x40 && state[0xF8] <= 0x7F)
+                        {
+                            state[0xF8] = 0x00; // partsType
+                            state[0xF9] = 0x00; // camoType/selector
+                        }
+                    }
+                }
+            }
+        }
 
         if (!isCustom)
         {
@@ -341,22 +355,6 @@ static void __fastcall hkLoadPartsNew(
             playerInfo->playerFaceEquipUnk =
                 static_cast<std::uint8_t>(playerInfo->playerFaceEquipUnk & 0xF8);
 
-            Log(
-                "[PlayerPartsPath] LoadPartsNew override idx=%u partsType=%u type=%u face=%u arm=%u camo=%u armType=%u faceEquip=%u unk=0x%02X quark{arm=%u face=%u unk=0x%02X head=0x%04X}\n",
-                static_cast<unsigned>(playerIndex),
-                static_cast<unsigned>(entry->customPartsType),
-                static_cast<unsigned>(entry->playerType),
-                entry->IsFaceEnabled() ? 1u : 0u,
-                entry->IsArmEnabled() ? 1u : 0u,
-                entry->IsCamoEnabled() ? 1u : 0u,
-                static_cast<unsigned>(playerInfo->playerArmType),
-                static_cast<unsigned>(playerInfo->playerFaceEquipId),
-                static_cast<unsigned>(playerInfo->playerFaceEquipUnk),
-                haveQuark ? static_cast<unsigned>(quark.armType) : 0u,
-                haveQuark ? static_cast<unsigned>(quark.faceEquipId) : 0u,
-                haveQuark ? static_cast<unsigned>(quark.faceEquipUnk) : 0u,
-                haveQuark ? static_cast<unsigned>(quark.headOption) : 0u
-            );
         }
     }
 
