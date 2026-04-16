@@ -23,6 +23,7 @@ namespace
     using HeadOptionTableLookup_t = std::uint64_t(__fastcall*)(
         void* self, std::int16_t* outIndex, std::uint64_t equipKey);
     using SetupCharacterSlotSelect_t = void(__fastcall*)(void* self);
+    using GetSelectionNum_t = char(__fastcall*)(void* self);
 
     // ---- SetItemDetail typedef ----
     // Decompiled signature (from mgsvtpp.exe.c line 2967711):
@@ -63,10 +64,11 @@ namespace
     static IsDeveloped_t g_OrigIsDeveloped = nullptr;
     static void* g_HookedIsDevelopedAddr = nullptr;
 
-    // ---- Parked state (HEAD OPTION cycling) ----
+    // ---- HEAD OPTION cycling state ----
     static GetSuitVariation_t g_OrigGetSuitVariation = nullptr;
     static HeadOptionTableLookup_t g_OrigHeadOptionTableLookup = nullptr;
     static SetupCharacterSlotSelect_t g_OrigSetupCharSlotSelect = nullptr;
+    static GetSelectionNum_t g_OrigGetSelectionNum = nullptr;
 
     static bool ResolveApis()
     {
@@ -335,6 +337,48 @@ namespace
         g_OrigSetItemDetail(self, flowIndex);
     }
 
+    // Hook for GetSelectionNum (0x1416bc2c0).
+    // Returns: 1 = single row, 2 = two rows (no head option), 3 = three rows (has head option).
+    // The original calls vtable+0x460 (GetSuitVariation) on the system object but
+    // that vtable entry points to a different concrete function than what we hooked.
+    // Fix: override the return value directly for custom suits with IsFaceEnabled.
+    static char __fastcall hkGetSelectionNum(void* self)
+    {
+        const char result = g_OrigGetSelectionNum(self);
+
+        // Only upgrade 2→3 (add HEAD OPTION row). Don't touch other values.
+        if (result == 2)
+        {
+            // Check if a custom suit with face support is currently equipped
+            if (ResolveApis())
+            {
+                auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+                if (qt)
+                {
+                    auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                    if (q98)
+                    {
+                        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                        if (state)
+                        {
+                            const std::uint8_t livePartsType = state[0xF8];
+                            const CustomSuitEntry* entry = nullptr;
+                            if (TryGetCustomSuitByPartsType(livePartsType, &entry) &&
+                                entry && entry->IsFaceEnabled())
+                            {
+                                Log("[GetSelectionNum] forced 2->3 for partsType=0x%02X\n",
+                                    static_cast<unsigned>(livePartsType));
+                                return 3;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
     // Our replacement for GetSuitVariation (vtable+0x460).
     // Returns: bit 0 = has scarf variant, bit 1 = has naked variant.
     // Returns non-zero for custom suits with variant groups.
@@ -347,11 +391,13 @@ namespace
     // with a vanilla suit equipped.
     static std::uint8_t __fastcall hkGetSuitVariation(void* self, std::uint16_t suitId)
     {
-        // Try to find by developId, then by partsType, then by selectorCode
+        // Try flowIndex first (GetSelectionNum passes the flowIndex from
+        // GetCurrentSuitFlowIndex), then developId, partsType, selectorCode.
         const CustomSuitEntry* entry = nullptr;
-        if (!TryGetCustomSuitByDevelopId(suitId, &entry) || !entry)
+        if (!TryGetCustomSuitByFlowIndex(suitId, &entry) || !entry)
         {
-            TryGetCustomSuitByPartsType(static_cast<std::uint8_t>(suitId & 0xFF), &entry);
+            if (!TryGetCustomSuitByDevelopId(suitId, &entry) || !entry)
+                TryGetCustomSuitByPartsType(static_cast<std::uint8_t>(suitId & 0xFF), &entry);
         }
         if (!entry)
         {
@@ -573,11 +619,69 @@ bool Install_SuitVariant_Hooks()
         return true;
     }
 
-    // ---- Parked hooks (HEAD OPTION cycling — needs +0x9c88 table injection) ----
-    // GetSuitVariation, HeadOptionTableLookup, SetupCharSlotSelect
-    // Code preserved in hook functions above but not installed.
+    // ---- HEAD OPTION cycling hooks ----
 
-    // Hook AddListSuit — per-playerType filtering + future body variants
+    // Hook GetSelectionNum — force 3 (has head option) for custom suits with face
+    if (gAddr.MissionPrep_GetSelectionNum != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.MissionPrep_GetSelectionNum);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkGetSelectionNum),
+                reinterpret_cast<void**>(&g_OrigGetSelectionNum));
+            if (ok)
+                Log("[Hook] SuitVariant: Hooked GetSelectionNum at %p\n", addr);
+        }
+    }
+
+    // Hook GetSuitVariation (vtable+0x460) — returns bits for head/body variants
+    if (gAddr.GetSuitVariation != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.GetSuitVariation);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkGetSuitVariation),
+                reinterpret_cast<void**>(&g_OrigGetSuitVariation));
+            if (ok)
+                Log("[Hook] SuitVariant: Hooked GetSuitVariation at %p\n", addr);
+        }
+    }
+
+    // Hook HeadOptionTableLookup (FUN_1460af810) — force match for custom suits
+    if (gAddr.HeadOptionTableLookup != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.HeadOptionTableLookup);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkHeadOptionTableLookup),
+                reinterpret_cast<void**>(&g_OrigHeadOptionTableLookup));
+            if (ok)
+                Log("[Hook] SuitVariant: Hooked HeadOptionTableLookup at %p\n", addr);
+        }
+    }
+
+    // Hook SetupCharacterSlotSelectPrefabListElement — force bVar14 for cycling
+    if (gAddr.SetupCharacterSlotSelectPrefabListElement != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.SetupCharacterSlotSelectPrefabListElement);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkSetupCharacterSlotSelect),
+                reinterpret_cast<void**>(&g_OrigSetupCharSlotSelect));
+            if (ok)
+                Log("[Hook] SuitVariant: Hooked SetupCharSlotSelect at %p\n", addr);
+        }
+    }
+
+    // Hook AddListSuit — per-playerType filtering + head option entries
     if (gAddr.AddListSuit != 0)
     {
         void* addListAddr = ResolveGameAddress(gAddr.AddListSuit);
