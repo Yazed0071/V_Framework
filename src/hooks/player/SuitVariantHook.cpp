@@ -13,6 +13,9 @@ namespace
     using GetQuarkSystemTable_t = void* (__fastcall*)();
     using AddListSuit_t = void(__fastcall*)(
         void* self, std::uint32_t* rowCounter, std::uint16_t suitId, void* param4);
+    using IsEnableCurrentSuit_t = bool(__fastcall*)(void* self);
+    using SetupEquipPanelParam_t = void(__fastcall*)(
+        void* self, void* panelData, std::uint32_t slotIndex);
 
     // ---- Parked typedefs (HEAD OPTION cycling) ----
     using GetSuitVariation_t = std::uint8_t(__fastcall*)(void* self, std::uint16_t suitId);
@@ -23,7 +26,11 @@ namespace
     // ---- Active state ----
     static GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
     static AddListSuit_t g_OrigAddListSuit = nullptr;
+    static IsEnableCurrentSuit_t g_OrigIsEnableCurrentSuit = nullptr;
+    static SetupEquipPanelParam_t g_OrigSetupEquipPanelParam = nullptr;
     static void* g_HookedAddListSuitAddr = nullptr;
+    static void* g_HookedIsEnableCurrentSuitAddr = nullptr;
+    static void* g_HookedSetupEquipPanelParamAddr = nullptr;
     static bool g_Installed = false;
 
     // ---- Parked state (HEAD OPTION cycling) ----
@@ -41,14 +48,92 @@ namespace
         return g_GetQuarkSystemTable != nullptr;
     }
 
+    // Hook for IsEnableCurrentSuit — returns true when a custom suit is
+    // equipped so the EQP badge and suit panel info display correctly.
+    // The original checks vtable+0x478(flowIndex) which fails for custom suits.
+    static bool __fastcall hkIsEnableCurrentSuit(void* self)
+    {
+        // Check if live Quark state has a custom suit for the current playerType
+        if (ResolveApis())
+        {
+            auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+            if (qt)
+            {
+                auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                if (q98)
+                {
+                    auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                    if (state)
+                    {
+                        const std::uint8_t livePartsType = state[0xF8];
+                        const CustomSuitEntry* entry = nullptr;
+                        if (TryGetCustomSuitByPartsType(livePartsType, &entry) && entry)
+                            return true;
+                    }
+                }
+            }
+        }
+
+        return g_OrigIsEnableCurrentSuit(self);
+    }
+
+    // Hook for SetupEquipPanelParam — fixes blank UNIFORMS panel for custom suits.
+    // The original checks vtable+0x188(slotIndex) on the loadout controller,
+    // which returns false for custom suits → skips icon/name display.
+    // After the original runs, if a custom suit is live and the panel is blank,
+    // force the "isDeveloped" flag so the game populates the display.
+    //
+    // Panel layout (EquipPanelInfo at panelData):
+    //   +0x178 = equipId (uint16) — the suit's flowIndex
+    //   +0x17a = displayId (uint16) — resolved icon/name key
+    //   +0x17c = isDeveloped (byte) — controls whether details show
+    static void __fastcall hkSetupEquipPanelParam(
+        void* self, void* panelData, std::uint32_t slotIndex)
+    {
+        g_OrigSetupEquipPanelParam(self, panelData, slotIndex);
+
+        // Only fix suit slots (0, 1, 2)
+        if (slotIndex > 2 || !panelData)
+            return;
+
+        auto* panel = reinterpret_cast<std::uint8_t*>(panelData);
+        const std::uint8_t isDeveloped = panel[0x17c];
+
+        // If already showing as developed, nothing to fix
+        if (isDeveloped != 0)
+            return;
+
+        // Check if live Quark state has a custom suit
+        if (!ResolveApis())
+            return;
+
+        auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+        if (!qt) return;
+        auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+        if (!q98) return;
+        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+        if (!state) return;
+
+        const std::uint8_t livePartsType = state[0xF8];
+        const CustomSuitEntry* entry = nullptr;
+        if (!TryGetCustomSuitByPartsType(livePartsType, &entry) || !entry)
+            return;
+
+        // Force the panel to show as developed
+        panel[0x17c] = 1;
+
+        Log("[SetupEquipPanel] forced isDeveloped=1 for custom suit partsType=0x%02X slot=%u\n",
+            static_cast<unsigned>(livePartsType), slotIndex);
+    }
+
     // Our replacement for GetSuitVariation (vtable+0x460).
     // Returns: bit 0 = has scarf variant, bit 1 = has naked variant.
-    // For custom suits with variant groups, we return non-zero.
+    // Returns non-zero for custom suits with variant groups.
     //
     // IMPORTANT: The second parameter `suitId` is the suit equipId that
     // GetSelectionNum passes when checking whether the *browsed* suit
     // (not the currently equipped one) has body variants.
-    // Previously we ignored it and read the equipped suit via vtable+0x608,
+    // Previously this was ignored, reading the equipped suit via vtable+0x608,
     // which meant HEAD OPTION never appeared while browsing a custom suit
     // with a vanilla suit equipped.
     static std::uint8_t __fastcall hkGetSuitVariation(void* self, std::uint16_t suitId)
@@ -149,7 +234,7 @@ namespace
             return 1;
         }
 
-        // Fallback: also check live Quark state in case we're in the
+        // Fallback: also check live Quark state in case this is the
         // confirm/apply path where the suit is already set
         if (ResolveApis())
         {
@@ -233,7 +318,7 @@ namespace
     // After the original runs, force bVar14=1 on the head option UI element
     // so BALACLAVA/HEADGEAR options are available for cycling.
     // The original only sets bVar14=1 for vanilla suits in the head option table.
-    // For custom suits with enableHead, we force it.
+    // Forced for custom suits with enableHead.
     //
     // Layout: self+0x2b48 = pointer to first UI element (head option slot 0)
     //         element+0xb8 = bVar14 flag (controls head option cycling availability)
@@ -302,7 +387,49 @@ bool Install_SuitVariant_Hooks()
         }
     }
 
-    g_Installed = (g_HookedAddListSuitAddr != nullptr);
+    // Hook IsEnableCurrentSuit — EQP badge + suit panel for custom suits
+    if (gAddr.IsEnableCurrentSuit != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.IsEnableCurrentSuit);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkIsEnableCurrentSuit),
+                reinterpret_cast<void**>(&g_OrigIsEnableCurrentSuit)
+            );
+
+            if (ok)
+            {
+                g_HookedIsEnableCurrentSuitAddr = addr;
+                Log("[Hook] SuitVariant: Hooked IsEnableCurrentSuit at %p\n", addr);
+            }
+        }
+    }
+
+    // Hook SetupEquipPanelParam — fix blank UNIFORMS panel for custom suits
+    if (gAddr.SetupEquipPanelParam != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.SetupEquipPanelParam);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkSetupEquipPanelParam),
+                reinterpret_cast<void**>(&g_OrigSetupEquipPanelParam)
+            );
+
+            if (ok)
+            {
+                g_HookedSetupEquipPanelParamAddr = addr;
+                Log("[Hook] SuitVariant: Hooked SetupEquipPanelParam at %p\n", addr);
+            }
+        }
+    }
+
+    g_Installed = (g_HookedAddListSuitAddr != nullptr) ||
+                  (g_HookedIsEnableCurrentSuitAddr != nullptr) ||
+                  (g_HookedSetupEquipPanelParamAddr != nullptr);
     Log("[Hook] SuitVariant: %s\n", g_Installed ? "OK" : "no hooks installed");
     return true;
 }
@@ -318,7 +445,21 @@ bool Uninstall_SuitVariant_Hooks()
         g_HookedAddListSuitAddr = nullptr;
     }
 
+    if (g_HookedIsEnableCurrentSuitAddr)
+    {
+        DisableAndRemoveHook(g_HookedIsEnableCurrentSuitAddr);
+        g_HookedIsEnableCurrentSuitAddr = nullptr;
+    }
+
+    if (g_HookedSetupEquipPanelParamAddr)
+    {
+        DisableAndRemoveHook(g_HookedSetupEquipPanelParamAddr);
+        g_HookedSetupEquipPanelParamAddr = nullptr;
+    }
+
     g_OrigAddListSuit = nullptr;
+    g_OrigIsEnableCurrentSuit = nullptr;
+    g_OrigSetupEquipPanelParam = nullptr;
     g_Installed = false;
 
     Log("[Hook] SuitVariant: removed\n");

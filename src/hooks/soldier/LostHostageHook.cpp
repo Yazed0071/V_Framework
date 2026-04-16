@@ -17,7 +17,7 @@
 
 
 // ============================================================
-// Function pointer types for the game functions we hook
+// Function pointer types for hooked game functions
 // ============================================================
 
 using ExecCallback_t = void(__fastcall*)(void* self, void* trapInfo);

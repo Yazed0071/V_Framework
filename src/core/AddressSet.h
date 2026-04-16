@@ -134,6 +134,8 @@ namespace AddressSetRuntime
         uintptr_t MissionPrep_GetCurrentEquippedSuitFlowIndex = 0;
         uintptr_t SetupCharacterSlotSelectPrefabListElement = 0;
         uintptr_t AddListSuit = 0;
+        uintptr_t IsEnableCurrentSuit = 0;
+        uintptr_t SetupEquipPanelParam = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -265,6 +267,8 @@ namespace AddressSetRuntime
             0x0ull, // MissionPrep_GetCurrentEquippedSuitFlowIndex (not found)
             0x1416bf490ull, // SetupCharacterSlotSelectPrefabListElement
             0x1416a1aa0ull, // AddListSuit
+            0x14a56bfa0ull, // IsEnableCurrentSuit
+            0x1416c0690ull, // SetupEquipPanelParam
         };
 
         return value;
@@ -388,6 +392,8 @@ namespace AddressSetRuntime
             0x0ull, // MissionPrep_GetCurrentEquippedSuitFlowIndex
             0x0ull, // SetupCharacterSlotSelectPrefabListElement
             0x0ull, // AddListSuit
+            0x0ull, // IsEnableCurrentSuit
+            0x0ull, // SetupEquipPanelParam
         };
 
         return value;

@@ -108,7 +108,7 @@ struct CustomSuitEntry
 };
 
 // Sub-asset mode for registration: path string, true (vanilla), or false (disabled).
-// In C++ we represent this as a uint64 hash after resolution.
+// Represented as a uint64 hash after resolution.
 
 struct CustomSuitRegistration
 {

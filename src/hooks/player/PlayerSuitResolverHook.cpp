@@ -95,7 +95,7 @@ static std::uint8_t __fastcall hkResolveSuitToPartsType(
                 &pendingEntry) &&
                 pendingEntry)
             {
-                // Track how many times we've resolved this pending ID.
+                // Track how many times this pending ID has been resolved.
                 // After enough calls (game resolves for multiple slots), clear it.
                 static std::uint16_t s_lastPendingId = 0;
                 static int s_resolveCount = 0;

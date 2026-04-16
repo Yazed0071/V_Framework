@@ -192,7 +192,7 @@ static void __fastcall hkState_EnterDownHoldup(
             if (SafeReadByte(entry + 0x3Full, flags3F))
             {
                 // Original code only dispatches the 0x16CD9714 / 0x16CD9715 reaction when bit 0x2 is NOT set.
-                // We do the opposite: if bit 0x2 IS set, force a random one ourselves so the skipped lines can play.
+                // If bit 0x2 IS set, force a random voice so the skipped lines can play.
                 if ((flags3F & 0x2u) != 0)
                 {
                     const std::uint32_t reactionHash = ChooseRandomHoldupDownHash();
