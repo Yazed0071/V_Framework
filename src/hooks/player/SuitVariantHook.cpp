@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include <cstdint>
+#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -23,15 +24,44 @@ namespace
         void* self, std::int16_t* outIndex, std::uint64_t equipKey);
     using SetupCharacterSlotSelect_t = void(__fastcall*)(void* self);
 
+    // ---- SetItemDetail typedef ----
+    // Decompiled signature (from mgsvtpp.exe.c line 2967711):
+    //   void MissionPreparationCallbackImpl::SetItemDetail(this, uint16 flowIndex)
+    // Internally makes 3 SendTrigger calls via vtable+0x1e0 on this+0x38:
+    //   1. (this+0x38, this+0x130, 0x8fda3dfc95ed, 0)     — mode=0
+    //   2. (this+0x38, this+0x130, 0x30a0d543e155, flowIndex) — data
+    //   3. (this+0x38, this+0x128, SET_KIND_HASH, 7)       — trigger
+    using SetItemDetail_t = void(__fastcall*)(void* self, std::uint16_t flowIndex);
+
     // ---- Active state ----
     static GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
     static AddListSuit_t g_OrigAddListSuit = nullptr;
     static IsEnableCurrentSuit_t g_OrigIsEnableCurrentSuit = nullptr;
     static SetupEquipPanelParam_t g_OrigSetupEquipPanelParam = nullptr;
+    static SetItemDetail_t g_OrigSetItemDetail = nullptr;
     static void* g_HookedAddListSuitAddr = nullptr;
     static void* g_HookedIsEnableCurrentSuitAddr = nullptr;
     static void* g_HookedSetupEquipPanelParamAddr = nullptr;
+    static void* g_HookedSetItemDetailAddr = nullptr;
     static bool g_Installed = false;
+
+    // Last vanilla flowIndex per playerType (0=Snake, 1=DD?, 2=Female, 3=?).
+    static std::uint16_t s_vanillaFlowIndexByPt[4] = {};
+
+    // Cached self and panel pointers.
+    static void* s_cachedSelf = nullptr;
+    static void* s_suitPanels[3] = {};
+
+    // Set true when SetupEquipPanelParam fires (sortie context only).
+    // Used by hkAddListSuit to prevent adding custom suits in the supply
+    // drop selector, where FUN_1416a7610's table[flowIndex*0x68] access
+    // goes out of bounds for custom flowIndices → infinite loading.
+    static bool s_sortieContextActive = false;
+
+    // ---- isDeveloped check hook (vtable+0x188 on loadout controller) ----
+    using IsDeveloped_t = bool(__fastcall*)(void* self, std::uint8_t slotIndex);
+    static IsDeveloped_t g_OrigIsDeveloped = nullptr;
+    static void* g_HookedIsDevelopedAddr = nullptr;
 
     // ---- Parked state (HEAD OPTION cycling) ----
     static GetSuitVariation_t g_OrigGetSuitVariation = nullptr;
@@ -57,9 +87,54 @@ namespace
     static GetCurrentSuitFlowIndex_t g_OrigGetCurrentSuitFlowIndex = nullptr;
     static void* g_HookedGetCurrentSuitFlowIndexAddr = nullptr;
 
+    // Helper: read current playerType from Quark state[0xFB].
+    static std::uint8_t ReadCurrentPlayerType()
+    {
+        if (!ResolveApis()) return 0xFF;
+        auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+        if (!qt) return 0xFF;
+        auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+        if (!q98) return 0xFF;
+        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+        if (!state) return 0xFF;
+        return state[0xFB];
+    }
+
+    // Hook for vtable+0x188 (isDeveloped check on loadout controller).
+    // Returns true for suit slots (0-2) when a custom suit is active,
+    // so SetupEquipPanelParam runs ALL its display setup (icon, text, visibility).
+    // Guard flag: only override isDeveloped when called from SetupEquipPanelParam.
+    // vtable+0x188 is called from many game contexts — forcing true everywhere crashes.
+    static bool s_inSetupEquipPanel = false;
+
+    static bool __fastcall hkIsDeveloped(void* self, std::uint8_t slotIndex)
+    {
+        const bool result = g_OrigIsDeveloped(self, slotIndex);
+        if (!result && slotIndex <= 2 && s_inSetupEquipPanel)
+        {
+            Log("[IsDeveloped] slot=%u forced true\n",
+                static_cast<unsigned>(slotIndex));
+            return true;
+        }
+        return result;
+    }
+
     static std::uint16_t __fastcall hkGetCurrentSuitFlowIndex(void* self)
     {
         const std::uint16_t result = g_OrigGetCurrentSuitFlowIndex(self);
+
+        // Save vanilla flowIndex per playerType for use by hkSetItemDetail.
+        if (result != 0x400 && result != 0)
+        {
+            const std::uint8_t pt = ReadCurrentPlayerType();
+            if (pt < 4)
+            {
+                if (s_vanillaFlowIndexByPt[pt] != result)
+                    Log("[GetCurrentSuitFlowIndex] saved vanilla %u for pt=%u\n",
+                        static_cast<unsigned>(result), static_cast<unsigned>(pt));
+                s_vanillaFlowIndexByPt[pt] = result;
+            }
+        }
 
         if (result == 0x400 && ResolveApis())
         {
@@ -129,7 +204,10 @@ namespace
     static void __fastcall hkSetupEquipPanelParam(
         void* self, void* panelData, std::uint32_t slotIndex)
     {
+        s_sortieContextActive = true;  // we're in sortie prep
+        s_inSetupEquipPanel = true;
         g_OrigSetupEquipPanelParam(self, panelData, slotIndex);
+        s_inSetupEquipPanel = false;
 
         if (!panelData)
             return;
@@ -147,41 +225,114 @@ namespace
         if (slotIndex > 2)
             return;
 
-        // If already showing as developed, nothing to fix
-        if (isDeveloped != 0)
-            return;
+        // Cache self and panel for re-triggering from hkSetItemDetail
+        s_cachedSelf = self;
+        s_suitPanels[slotIndex] = panelData;
 
-        // Check if live Quark state has a custom suit
-        if (!ResolveApis())
-            return;
-
-        auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
-        if (!qt) return;
-        auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
-        if (!q98) return;
-        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
-        if (!state) return;
-
-        const std::uint8_t livePartsType = state[0xF8];
-        const CustomSuitEntry* entry = nullptr;
-        if (!TryGetCustomSuitByPartsType(livePartsType, &entry) || !entry)
-            return;
-
-        // Force the panel to show as developed and set the equipId/displayId.
-        // GetEquipIdFromLoadoutInfo may return 0 for custom suits, causing
-        // the original to skip all display logic. Fix by writing the flowIndex.
-        panel[0x17c] = 1;
-
-        // Set equipId at +0x178 (uint16) to the custom suit's flowIndex
-        const std::uint16_t flowIndex = entry->linkedFlowIndex;
-        if (flowIndex != 0)
+        // One-time: capture and hook vtable+0x188 (isDeveloped check) on the
+        // loadout controller at self+0xa0.  hkIsDeveloped returns true for suit
+        // slots when a custom suit is active, so the ORIGINAL SetupEquipPanelParam
+        // runs all its display setup (icon, text, visibility) correctly.
+        if (!g_HookedIsDevelopedAddr)
         {
-            *reinterpret_cast<std::uint16_t*>(panel + 0x178) = flowIndex;
+            auto* selfBytes = reinterpret_cast<std::uint8_t*>(self);
+            auto* loadout = *reinterpret_cast<void**>(selfBytes + 0xa0);
+            if (loadout)
+            {
+                auto** vtable = *reinterpret_cast<void***>(loadout);
+                void* fnAddr = vtable[0x188 / 8];
+                if (fnAddr)
+                {
+                    const bool ok = CreateAndEnableHook(
+                        fnAddr,
+                        reinterpret_cast<void*>(&hkIsDeveloped),
+                        reinterpret_cast<void**>(&g_OrigIsDeveloped));
+                    if (ok)
+                    {
+                        g_HookedIsDevelopedAddr = fnAddr;
+                        Log("[Hook] SuitVariant: Hooked IsDeveloped at %p "
+                            "(vtable+0x188 on loadout %p)\n", fnAddr, loadout);
+                    }
+                }
+            }
         }
 
-        Log("[SetupEquipPanel] forced isDeveloped=1 flowIndex=%u for partsType=0x%02X slot=%u\n",
-            static_cast<unsigned>(flowIndex),
-            static_cast<unsigned>(livePartsType), slotIndex);
+        // Fix grade/category check: the original function's final check calls
+        // vtable+0x500(this+0x68) which reads the CURRENT equipment grade.
+        // For custom suits it returns 0 (no grade entry), which falls through
+        // to the default → vtable+0x2a8(uixUtil, panel+0x100, 0) → HIDE.
+        // This hides the element AFTER the icon/text were already set up.
+        // Re-show it here by calling vtable+0x2a8 with 1.
+        if (isDeveloped != 0)
+        {
+            bool customActive = false;
+            if (ResolveApis())
+            {
+                auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+                if (qt)
+                {
+                    auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                    if (q98)
+                    {
+                        auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                        if (state)
+                        {
+                            const CustomSuitEntry* e = nullptr;
+                            if (TryGetCustomSuitByPartsType(state[0xF8], &e) && e)
+                                customActive = true;
+                        }
+                    }
+                }
+            }
+
+            if (customActive)
+            {
+                auto* selfBytes = reinterpret_cast<std::uint8_t*>(self);
+                auto* uixUtil = *reinterpret_cast<void**>(selfBytes + 0x38);
+                auto* gradeElem = *reinterpret_cast<void**>(panel + 0x100);
+
+                if (uixUtil && gradeElem)
+                {
+                    auto** uixVt = *reinterpret_cast<void***>(uixUtil);
+                    using ShowHide_t = void(__fastcall*)(void*, void*, int);
+                    auto showHide = reinterpret_cast<ShowHide_t>(uixVt[0x2a8 / 8]);
+                    showHide(uixUtil, gradeElem, 1);
+                    Log("[SetupEquipPanel] forced grade show for slot=%u\n",
+                        slotIndex);
+                }
+                else
+                {
+                    Log("[SetupEquipPanel] grade fix: uix=%p elem=%p for slot=%u\n",
+                        uixUtil, gradeElem, slotIndex);
+                }
+            }
+        }
+    }
+
+    // Hook for SetItemDetail — diagnostic passthrough.
+    // The UNIFORMS display fix is now in hkSetupEquipPanelParam (visibility fix).
+    // SetItemDetail still fires for dynamic updates when the user changes suits.
+    // For custom suits, remap to the last vanilla flowIndex so mode 0 can resolve.
+    static void __fastcall hkSetItemDetail(void* self, std::uint16_t flowIndex)
+    {
+        const CustomSuitEntry* entry = nullptr;
+        if (TryGetCustomSuitByFlowIndex(flowIndex, &entry) && entry)
+        {
+            const std::uint8_t pt = ReadCurrentPlayerType();
+            const std::uint16_t vanillaId = (pt < 4) ? s_vanillaFlowIndexByPt[pt] : 0;
+
+            if (vanillaId != 0)
+            {
+                Log("[SetItemDetail] remap custom %u -> vanilla %u (pt=%u)\n",
+                    static_cast<unsigned>(flowIndex),
+                    static_cast<unsigned>(vanillaId),
+                    static_cast<unsigned>(pt));
+                g_OrigSetItemDetail(self, vanillaId);
+                return;
+            }
+        }
+
+        g_OrigSetItemDetail(self, flowIndex);
     }
 
     // Our replacement for GetSuitVariation (vtable+0x460).
@@ -489,6 +640,29 @@ bool Install_SuitVariant_Hooks()
         }
     }
 
+    // Hook SetItemDetail — remap custom flowIndex to vanilla for sortie display
+    if (gAddr.SetItemDetail != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.SetItemDetail);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkSetItemDetail),
+                reinterpret_cast<void**>(&g_OrigSetItemDetail)
+            );
+            if (ok)
+            {
+                g_HookedSetItemDetailAddr = addr;
+                Log("[Hook] SuitVariant: Hooked SetItemDetail at %p\n", addr);
+            }
+            else
+            {
+                Log("[Hook] SuitVariant: MinHook failed for SetItemDetail at %p\n", addr);
+            }
+        }
+    }
+
     // Hook SetupEquipPanelParam — fix blank UNIFORMS panel for custom suits
     if (gAddr.SetupEquipPanelParam != 0)
     {
@@ -511,7 +685,8 @@ bool Install_SuitVariant_Hooks()
 
     g_Installed = (g_HookedAddListSuitAddr != nullptr) ||
                   (g_HookedIsEnableCurrentSuitAddr != nullptr) ||
-                  (g_HookedSetupEquipPanelParamAddr != nullptr);
+                  (g_HookedSetupEquipPanelParamAddr != nullptr) ||
+                  (g_HookedSetItemDetailAddr != nullptr);
     Log("[Hook] SuitVariant: %s\n", g_Installed ? "OK" : "no hooks installed");
     return true;
 }
@@ -539,6 +714,12 @@ bool Uninstall_SuitVariant_Hooks()
         g_HookedSetupEquipPanelParamAddr = nullptr;
     }
 
+    if (g_HookedSetItemDetailAddr)
+    {
+        DisableAndRemoveHook(g_HookedSetItemDetailAddr);
+        g_HookedSetItemDetailAddr = nullptr;
+    }
+
     if (g_HookedGetCurrentSuitFlowIndexAddr)
     {
         DisableAndRemoveHook(g_HookedGetCurrentSuitFlowIndexAddr);
@@ -548,7 +729,18 @@ bool Uninstall_SuitVariant_Hooks()
     g_OrigAddListSuit = nullptr;
     g_OrigIsEnableCurrentSuit = nullptr;
     g_OrigSetupEquipPanelParam = nullptr;
+    g_OrigSetItemDetail = nullptr;
     g_OrigGetCurrentSuitFlowIndex = nullptr;
+    if (g_HookedIsDevelopedAddr)
+    {
+        DisableAndRemoveHook(g_HookedIsDevelopedAddr);
+        g_HookedIsDevelopedAddr = nullptr;
+    }
+    g_OrigIsDeveloped = nullptr;
+    s_vanillaFlowIndexByPt[0] = s_vanillaFlowIndexByPt[1] = 0;
+    s_vanillaFlowIndexByPt[2] = s_vanillaFlowIndexByPt[3] = 0;
+    s_cachedSelf = nullptr;
+    s_suitPanels[0] = s_suitPanels[1] = s_suitPanels[2] = nullptr;
     g_Installed = false;
 
     Log("[Hook] SuitVariant: removed\n");

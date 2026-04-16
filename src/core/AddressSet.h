@@ -137,6 +137,9 @@ namespace AddressSetRuntime
         uintptr_t IsEnableCurrentSuit = 0;
         uintptr_t SetupEquipPanelParam = 0;
         uintptr_t GetCurrentSuitFlowIndex = 0;
+        uintptr_t SetItemDetail = 0;
+        uintptr_t SendTrigger = 0;
+        uintptr_t SupplyDropSuitSetup = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -271,6 +274,9 @@ namespace AddressSetRuntime
             0x14a56bfa0ull, // IsEnableCurrentSuit
             0x1416c0690ull, // SetupEquipPanelParam
             0x140955c70ull, // GetCurrentSuitFlowIndex (vtable+0x1F8 on sysObj+0x48)
+            0x14a56e7f0ull, // SetItemDetail (sortie overview item display, uses mode 0 SendTrigger)
+            0x144b05380ull, // SendTrigger (fox::uix::impl::UixUtilityImpl::SendTrigger)
+            0x1416a7610ull, // SupplyDropSuitSetup (FUN_1416a7610 — suit equip handler for supply drops)
         };
 
         return value;
@@ -397,6 +403,9 @@ namespace AddressSetRuntime
             0x0ull, // IsEnableCurrentSuit
             0x0ull, // SetupEquipPanelParam
             0x0ull, // GetCurrentSuitFlowIndex
+            0x0ull, // SetItemDetail
+            0x0ull, // SendTrigger
+            0x0ull, // SupplyDropSuitSetup
         };
 
         return value;
