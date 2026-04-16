@@ -48,6 +48,45 @@ namespace
         return g_GetQuarkSystemTable != nullptr;
     }
 
+    // Hook for GetCurrentSuitFlowIndex (FUN_140955c70, vtable+0x1F8 on sysObj+0x48).
+    // This function returns the equipped suit's flowIndex. For custom suits it
+    // returns 0x400 (blank sentinel), causing blank UNIFORMS panel and no EQP badge.
+    // The fix: after the original returns, if the result is 0x400 and a custom suit
+    // is active in Quark state, return the custom suit's linkedFlowIndex instead.
+    using GetCurrentSuitFlowIndex_t = std::uint16_t(__fastcall*)(void* self);
+    static GetCurrentSuitFlowIndex_t g_OrigGetCurrentSuitFlowIndex = nullptr;
+    static void* g_HookedGetCurrentSuitFlowIndexAddr = nullptr;
+
+    static std::uint16_t __fastcall hkGetCurrentSuitFlowIndex(void* self)
+    {
+        const std::uint16_t result = g_OrigGetCurrentSuitFlowIndex(self);
+
+        if (result == 0x400 && ResolveApis())
+        {
+            auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
+            if (qt)
+            {
+                auto* q98 = *reinterpret_cast<std::uint8_t**>(qt + 0x98);
+                if (q98)
+                {
+                    auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
+                    if (state)
+                    {
+                        const std::uint8_t livePartsType = state[0xF8];
+                        const CustomSuitEntry* entry = nullptr;
+                        if (TryGetCustomSuitByPartsType(livePartsType, &entry) &&
+                            entry && entry->linkedFlowIndex != 0xFFFF)
+                        {
+                            return entry->linkedFlowIndex;
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
     // Hook for IsEnableCurrentSuit — returns true when a custom suit is
     // equipped so the EQP badge and suit panel info display correctly.
     // The original checks vtable+0x478(flowIndex) which fails for custom suits.
@@ -92,12 +131,21 @@ namespace
     {
         g_OrigSetupEquipPanelParam(self, panelData, slotIndex);
 
-        // Only fix suit slots (0, 1, 2)
-        if (slotIndex > 2 || !panelData)
+        if (!panelData)
             return;
 
         auto* panel = reinterpret_cast<std::uint8_t*>(panelData);
+        const std::uint16_t equipId = *reinterpret_cast<std::uint16_t*>(panel + 0x178);
+        const std::uint16_t displayId = *reinterpret_cast<std::uint16_t*>(panel + 0x17a);
         const std::uint8_t isDeveloped = panel[0x17c];
+
+        Log("[SetupEquipPanel] slot=%u equipId=%u displayId=0x%04X isDev=%u\n",
+            slotIndex, static_cast<unsigned>(equipId),
+            static_cast<unsigned>(displayId), static_cast<unsigned>(isDeveloped));
+
+        // Only fix suit slots (0, 1, 2)
+        if (slotIndex > 2)
+            return;
 
         // If already showing as developed, nothing to fix
         if (isDeveloped != 0)
@@ -119,10 +167,20 @@ namespace
         if (!TryGetCustomSuitByPartsType(livePartsType, &entry) || !entry)
             return;
 
-        // Force the panel to show as developed
+        // Force the panel to show as developed and set the equipId/displayId.
+        // GetEquipIdFromLoadoutInfo may return 0 for custom suits, causing
+        // the original to skip all display logic. Fix by writing the flowIndex.
         panel[0x17c] = 1;
 
-        Log("[SetupEquipPanel] forced isDeveloped=1 for custom suit partsType=0x%02X slot=%u\n",
+        // Set equipId at +0x178 (uint16) to the custom suit's flowIndex
+        const std::uint16_t flowIndex = entry->linkedFlowIndex;
+        if (flowIndex != 0)
+        {
+            *reinterpret_cast<std::uint16_t*>(panel + 0x178) = flowIndex;
+        }
+
+        Log("[SetupEquipPanel] forced isDeveloped=1 flowIndex=%u for partsType=0x%02X slot=%u\n",
+            static_cast<unsigned>(flowIndex),
             static_cast<unsigned>(livePartsType), slotIndex);
     }
 
@@ -312,6 +370,11 @@ namespace
 
         // Call original
         g_OrigAddListSuit(self, rowCounter, suitId, param4);
+
+        // TODO: EQP badge for custom suits. The badge is determined at render
+        // time by comparing vtable+0x1f8() (returns 0x400 for custom suits)
+        // with each entry's flowIndex. Fixing this requires hooking
+        // vtable+0x1f8 to return the custom suit's flowIndex.
     }
 
     // Hook for SetupCharacterSlotSelectPrefabListElement (0x1416bf490).
@@ -387,6 +450,25 @@ bool Install_SuitVariant_Hooks()
         }
     }
 
+    // Hook GetCurrentSuitFlowIndex — fixes EQP badge + UNIFORMS panel
+    if (gAddr.GetCurrentSuitFlowIndex != 0)
+    {
+        void* addr = ResolveGameAddress(gAddr.GetCurrentSuitFlowIndex);
+        if (addr)
+        {
+            const bool ok = CreateAndEnableHook(
+                addr,
+                reinterpret_cast<void*>(&hkGetCurrentSuitFlowIndex),
+                reinterpret_cast<void**>(&g_OrigGetCurrentSuitFlowIndex)
+            );
+            if (ok)
+            {
+                g_HookedGetCurrentSuitFlowIndexAddr = addr;
+                Log("[Hook] SuitVariant: Hooked GetCurrentSuitFlowIndex at %p\n", addr);
+            }
+        }
+    }
+
     // Hook IsEnableCurrentSuit — EQP badge + suit panel for custom suits
     if (gAddr.IsEnableCurrentSuit != 0)
     {
@@ -457,9 +539,16 @@ bool Uninstall_SuitVariant_Hooks()
         g_HookedSetupEquipPanelParamAddr = nullptr;
     }
 
+    if (g_HookedGetCurrentSuitFlowIndexAddr)
+    {
+        DisableAndRemoveHook(g_HookedGetCurrentSuitFlowIndexAddr);
+        g_HookedGetCurrentSuitFlowIndexAddr = nullptr;
+    }
+
     g_OrigAddListSuit = nullptr;
     g_OrigIsEnableCurrentSuit = nullptr;
     g_OrigSetupEquipPanelParam = nullptr;
+    g_OrigGetCurrentSuitFlowIndex = nullptr;
     g_Installed = false;
 
     Log("[Hook] SuitVariant: removed\n");

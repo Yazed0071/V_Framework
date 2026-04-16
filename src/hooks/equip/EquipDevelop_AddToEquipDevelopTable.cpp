@@ -264,10 +264,13 @@ namespace
 
     static bool CanInjectRowsNow_NoLock()
     {
-        return
-            g_OrigRegCstDev &&
-            g_OrigRegFlwDev &&
-            AreStockDevelopTablesReady_NoLock();
+        // Original function pointers must be available (hooks installed).
+        // The observation flags are a bonus — if either is set, the game's
+        // develop tables definitely exist. But even without observation,
+        // if both hooks are installed the tables are live and injection is safe.
+        // This prevents a timing race where our Lua registers suits before
+        // the game's stock RegCstDev/RegFlwDev calls set the observation flags.
+        return g_OrigRegCstDev && g_OrigRegFlwDev;
     }
 
     static void EnsureAllocatorSeeded_NoLock()

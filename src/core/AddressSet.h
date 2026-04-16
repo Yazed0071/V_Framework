@@ -136,6 +136,7 @@ namespace AddressSetRuntime
         uintptr_t AddListSuit = 0;
         uintptr_t IsEnableCurrentSuit = 0;
         uintptr_t SetupEquipPanelParam = 0;
+        uintptr_t GetCurrentSuitFlowIndex = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -269,6 +270,7 @@ namespace AddressSetRuntime
             0x1416a1aa0ull, // AddListSuit
             0x14a56bfa0ull, // IsEnableCurrentSuit
             0x1416c0690ull, // SetupEquipPanelParam
+            0x140955c70ull, // GetCurrentSuitFlowIndex (vtable+0x1F8 on sysObj+0x48)
         };
 
         return value;
@@ -394,6 +396,7 @@ namespace AddressSetRuntime
             0x0ull, // AddListSuit
             0x0ull, // IsEnableCurrentSuit
             0x0ull, // SetupEquipPanelParam
+            0x0ull, // GetCurrentSuitFlowIndex
         };
 
         return value;
