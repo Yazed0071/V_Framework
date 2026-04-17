@@ -85,7 +85,6 @@
     <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\SuitVariantHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <!-- Sound headers -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h"><Filter>Hooks\Sound</Filter></ClInclude>
@@ -154,7 +153,6 @@
     <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\SuitVariantHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <!-- Sound sources -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp"><Filter>Hooks\Sound</Filter></ClCompile>

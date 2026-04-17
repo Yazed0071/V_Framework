@@ -199,7 +199,6 @@
     <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h" />
     <ClInclude Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.h" />
     <ClInclude Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.h" />
-    <ClInclude Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.h" />
     <ClInclude Include="src\hooks\player\SuitVariantHook.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
@@ -273,7 +272,6 @@
     <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp" />
     <ClCompile Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.cpp" />
     <ClCompile Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.cpp" />
-    <ClCompile Include="src\hooks\player\MissionPreparationCurrentSuitFlowIndexHook.cpp" />
     <ClCompile Include="src\hooks\player\SuitVariantHook.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />

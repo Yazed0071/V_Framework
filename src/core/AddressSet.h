@@ -131,7 +131,6 @@ namespace AddressSetRuntime
         uintptr_t MissionPrep_GetSelectionNum = 0;
         uintptr_t MissionPrep_IsEnableCurrentHeadOption = 0;
         uintptr_t MissionPrep_UpdateLoadMark = 0;
-        uintptr_t MissionPrep_GetCurrentEquippedSuitFlowIndex = 0;
         uintptr_t SetupCharacterSlotSelectPrefabListElement = 0;
         uintptr_t AddListSuit = 0;
         uintptr_t IsEnableCurrentSuit = 0;
@@ -140,6 +139,7 @@ namespace AddressSetRuntime
         uintptr_t SetItemDetail = 0;
         uintptr_t SendTrigger = 0;
         uintptr_t SupplyDropSuitSetup = 0;
+        uintptr_t LoadingTipsEv_UpdateActPhase = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -268,7 +268,6 @@ namespace AddressSetRuntime
             0x1416bc2c0ull, // MissionPrep_GetSelectionNum
             0x14a56ba20ull, // MissionPrep_IsEnableCurrentHeadOption
             0x14a5795c0ull, // MissionPrep_UpdateLoadMark
-            0x0ull, // MissionPrep_GetCurrentEquippedSuitFlowIndex (not found)
             0x1416bf490ull, // SetupCharacterSlotSelectPrefabListElement
             0x1416a1aa0ull, // AddListSuit
             0x14a56bfa0ull, // IsEnableCurrentSuit
@@ -277,6 +276,7 @@ namespace AddressSetRuntime
             0x14a56e7f0ull, // SetItemDetail (sortie overview item display, uses mode 0 SendTrigger)
             0x144b05380ull, // SendTrigger (fox::uix::impl::UixUtilityImpl::SendTrigger)
             0x1416a7610ull, // SupplyDropSuitSetup (FUN_1416a7610 — suit equip handler for supply drops)
+            0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
         };
 
         return value;
@@ -397,7 +397,6 @@ namespace AddressSetRuntime
             0x0ull, // MissionPrep_GetSelectionNum
             0x0ull, // MissionPrep_IsEnableCurrentHeadOption
             0x0ull, // MissionPrep_UpdateLoadMark
-            0x0ull, // MissionPrep_GetCurrentEquippedSuitFlowIndex
             0x0ull, // SetupCharacterSlotSelectPrefabListElement
             0x0ull, // AddListSuit
             0x0ull, // IsEnableCurrentSuit
@@ -406,6 +405,7 @@ namespace AddressSetRuntime
             0x0ull, // SetItemDetail
             0x0ull, // SendTrigger
             0x0ull, // SupplyDropSuitSetup
+            0x0ull, // LoadingTipsEv_UpdateActPhase
         };
 
         return value;

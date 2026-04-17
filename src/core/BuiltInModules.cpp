@@ -135,9 +135,6 @@ bool Uninstall_PlayerHeadOptionSelectionCount_Hook();
 bool Install_MissionPrepUpdateLoadMark_Hook();
 bool Uninstall_MissionPrepUpdateLoadMark_Hook();
 
-bool Install_MissionPreparationCurrentSuitFlowIndex_Hook();
-bool Uninstall_MissionPreparationCurrentSuitFlowIndex_Hook();
-
 namespace
 {
     class LuaBridgeModule final : public IFeatureModule
@@ -701,7 +698,6 @@ namespace
             // Install_PlayerHeadOptionUi_Hook();
             // Install_PlayerHeadOptionSelectionCount_Hook();
             Install_MissionPrepUpdateLoadMark_Hook();
-            Install_MissionPreparationCurrentSuitFlowIndex_Hook();
             return allOk;
         }
 
@@ -715,7 +711,6 @@ namespace
             // Uninstall_PlayerHeadOptionUi_Hook();
             // Uninstall_PlayerHeadOptionSelectionCount_Hook();
             Uninstall_MissionPrepUpdateLoadMark_Hook();
-            Uninstall_MissionPreparationCurrentSuitFlowIndex_Hook();
         }
     };
     class SuitVariantModule final : public IFeatureModule

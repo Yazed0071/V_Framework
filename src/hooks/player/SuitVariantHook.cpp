@@ -445,26 +445,14 @@ namespace
     {
         const std::uint64_t result = g_OrigHeadOptionTableLookup(self, outIndex, equipKey);
 
-        // Log every call to understand what equipKey values the game uses
-        static std::uint64_t s_lastLoggedKey = ~0ULL;
-        if (equipKey != s_lastLoggedKey)
-        {
-            Log("[HeadOptionTableLookup] equipKey=0x%llX (%llu) result=%llu outIndex=%d\n",
-                static_cast<unsigned long long>(equipKey),
-                static_cast<unsigned long long>(equipKey),
-                static_cast<unsigned long long>(result),
-                outIndex ? static_cast<int>(*outIndex) : -1);
-            s_lastLoggedKey = equipKey;
-        }
-
         // If original found it, use vanilla result
         if (result & 0xFF)
             return result;
 
-        // Try to match equipKey against custom suit registrations.
-        // The game passes equipKey as the suit's equipId (p00 developId).
-        // Also try matching as partsType or selectorCode in case it's a
-        // smaller value.
+        // Match equipKey against a registered custom suit. Only force return 1
+        // when the key itself corresponds to a custom suit with face enabled —
+        // we must NOT force it for unrelated keys, otherwise the game treats
+        // every vanilla suit as having a head option entry.
         const CustomSuitEntry* entry = nullptr;
 
         // Try as developId first (equipKey could be 51006, 51007, etc.)
@@ -482,38 +470,9 @@ namespace
 
         if (entry && entry->IsFaceEnabled())
         {
-            Log("[HeadOptionTableLookup] custom equipKey=0x%llX -> forced=1\n",
-                static_cast<unsigned long long>(equipKey));
             if (outIndex)
                 *outIndex = 0;
             return 1;
-        }
-
-        // Fallback: also check live Quark state in case this is the
-        // confirm/apply path where the suit is already set
-        if (ResolveApis())
-        {
-            auto* quarkTable = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
-            if (quarkTable)
-            {
-                auto* q98 = *reinterpret_cast<std::uint8_t**>(quarkTable + 0x98);
-                if (q98)
-                {
-                    auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
-                    if (state)
-                    {
-                        const std::uint8_t livePartsType = state[0xF8];
-                        const CustomSuitEntry* liveEntry = nullptr;
-                        if (TryGetCustomSuitByPartsType(livePartsType, &liveEntry) &&
-                            liveEntry && liveEntry->IsFaceEnabled())
-                        {
-                            if (outIndex)
-                                *outIndex = 0;
-                            return 1;
-                        }
-                    }
-                }
-            }
         }
 
         return result;

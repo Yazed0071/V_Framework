@@ -16,7 +16,7 @@ TABLE OF CONTENTS
   MODULE: V_TppPlayer .................... Outfits, voice, camo gameplay
   MODULE: V_TppEquip ..................... Weapons, equipment, develop entries
   MODULE: V_TppCassette .................. Cassette tape playback & registration
-  MODULE: V_TppUI ........................ Loading screen, game over, equip BGs
+  MODULE: V_TppUI ........................ Loading screen, game over, equip BGs, telop
   MODULE: V_TppCommandPost ............... Caution phase duration
   MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
   MODULE: V_TppHostage ................... Lost hostage tracking
@@ -548,9 +548,17 @@ MODULE: V_TppUI
   SetGameOverScreenBlurBackgroundTexture(path) Blur layer texture
   UnsetGameOverScreenBackgroundTexture()       Clear both
 
+  MISSION TELOP (START TITLE)
+  ---------------------------
+  SetMissionTelopBgTexturePath(path)           Mission start title BG texture
+  ClearMissionTelopBgTexture()                 Restore vanilla
+
   EXAMPLE:
     V_TppUI.SetLoadingScreenBackgroundTexture(
         "/Assets/tpp/ui/texture/my_loading_screen.ftex")
+
+    V_TppUI.SetMissionTelopBgTexturePath(
+        "/Assets/tpp/ui/texture/my_telop_bg.ftex")
 
 
 ================================================================================
@@ -672,6 +680,8 @@ RAW API: V_FrameWork.*
     SetGameOverSplashMainTexturePath(path)
     SetGameOverSplashBlurTexturePath(path)
     ClearGameOverSplashTextures()
+    SetMissionTelopBgTexturePath(path)
+    ClearMissionTelopBgTexture()
 
   CAUTION PHASE
     SetCautionStepNormalDurationSeconds(seconds)  -> nothing

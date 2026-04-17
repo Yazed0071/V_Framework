@@ -17,15 +17,8 @@ namespace
     using SetTextureName_t = void(__fastcall*)(void* modelNodeMesh, uint64_t textureHash, uint64_t slotHash, int unk);
     using LoadingScreenOrGameOverSplash2_t = void(__fastcall*)(void* self);
     using GameOverSetVisible_t = void(__fastcall*)(uint64_t* layout, char visible);
+    using LoadingTipsEvUpdateActPhase_t = void(__fastcall*)(void* self);
 
-    // Absolute address of ui::equip::SetEquipBackgroundTexture.
-    // Params: equipId (int), sortieWeaponNode (void*)
-    // Absolute address of fox::ui::ModelNodeMesh::SetTextureName.
-    // Params: modelNodeMesh (void*), textureHash (uint64_t), slotHash (uint64_t), unk (int)
-    // Absolute address of ui::loading::LoadingScreenOrGameOverSplash2.
-    // Params: self (void*)
-    // Absolute address of tpp::ui::menu::GameOverEvCall::MainLayout::SetVisible.
-    // Params: layout (uint64_t*), visible (char)
     // Slot hash used by the equip background function for Mask_Texture.
     static uint64_t g_MaskTextureSlotHash = 0;
 
@@ -39,6 +32,7 @@ namespace
     static SetTextureName_t                 g_SetTextureName = nullptr;
     static LoadingScreenOrGameOverSplash2_t g_OrigLoadingScreenOrGameOverSplash2 = nullptr;
     static GameOverSetVisible_t             g_OrigGameOverSetVisible = nullptr;
+    static LoadingTipsEvUpdateActPhase_t    g_OrigLoadingTipsEvUpdateActPhase = nullptr;
 
     static uint64_t g_DefaultTexture = 0;
     static uint64_t g_EnemyWeaponTexture = 0;
@@ -372,6 +366,62 @@ static void __fastcall hkLoadingScreenOrGameOverSplash2(void* self)
 }
 
 
+// Hook for tpp::ui::menu::LoadingTipsEv::UpdateActPhase (0x145ccfcc0).
+// This function is called from the LoadingTipsEv update state machine and,
+// like LoadingScreenOrGameOverSplash2, writes the DD-logo texture to the two
+// mesh nodes at self+0x9d8 (main) and self+0x9e0 (blur). The loading-tips
+// variant is a separate UI path, so without a hook here it continues to
+// render the vanilla DD logo even after the standard loading splash is
+// overridden. Reuses g_LoadingConfig so SetLoadingSplashMainTexturePath /
+// SetLoadingSplashBlurTexturePath cover both variants.
+static void __fastcall hkLoadingTipsEvUpdateActPhase(void* self)
+{
+    g_OrigLoadingTipsEvUpdateActPhase(self);
+
+    if (!self || !ResolveUiHelpers())
+        return;
+
+    const uintptr_t base = reinterpret_cast<uintptr_t>(self);
+    void* const mainNode = *reinterpret_cast<void**>(base + 0x9d8);
+    void* const blurNode = *reinterpret_cast<void**>(base + 0x9e0);
+
+    // UpdateActPhase runs every frame while the loading-tips screen is up,
+    // so we still call SetTextureName each frame (cheap, needed for the
+    // write to stick against vanilla) but log only when the (node, hash)
+    // pair changes to avoid flooding the console with duplicates.
+    static void* s_lastMainNode = nullptr;
+    static std::uint64_t s_lastMainHash = 0;
+    static void* s_lastBlurNode = nullptr;
+    static std::uint64_t s_lastBlurHash = 0;
+
+    if (g_LoadingConfig.mainTexture != 0 && mainNode)
+    {
+        g_SetTextureName(mainNode, g_LoadingConfig.mainTexture, SLOT_MAIN_TEXTURE, 2);
+        if (mainNode != s_lastMainNode || g_LoadingConfig.mainTexture != s_lastMainHash)
+        {
+            Log("[LoadingTips][OverrideMain] node=%p -> 0x%llX\n",
+                mainNode,
+                static_cast<unsigned long long>(g_LoadingConfig.mainTexture));
+            s_lastMainNode = mainNode;
+            s_lastMainHash = g_LoadingConfig.mainTexture;
+        }
+    }
+
+    if (g_LoadingConfig.blurTexture != 0 && blurNode)
+    {
+        g_SetTextureName(blurNode, g_LoadingConfig.blurTexture, SLOT_MAIN_TEXTURE, 2);
+        if (blurNode != s_lastBlurNode || g_LoadingConfig.blurTexture != s_lastBlurHash)
+        {
+            Log("[LoadingTips][OverrideBlur] node=%p -> 0x%llX\n",
+                blurNode,
+                static_cast<unsigned long long>(g_LoadingConfig.blurTexture));
+            s_lastBlurNode = blurNode;
+            s_lastBlurHash = g_LoadingConfig.blurTexture;
+        }
+    }
+}
+
+
 static void __fastcall hkGameOverSetVisible(uint64_t* layout, char visible)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -445,8 +495,23 @@ bool Install_UiTextureOverrides_Hook()
         reinterpret_cast<void*>(&hkGameOverSetVisible),
         reinterpret_cast<void**>(&g_OrigGameOverSetVisible));
 
+    bool okE = true;
+    if (gAddr.LoadingTipsEv_UpdateActPhase != 0)
+    {
+        void* targetTips = ResolveGameAddress(gAddr.LoadingTipsEv_UpdateActPhase);
+        if (targetTips)
+        {
+            okE = CreateAndEnableHook(
+                targetTips,
+                reinterpret_cast<void*>(&hkLoadingTipsEvUpdateActPhase),
+                reinterpret_cast<void**>(&g_OrigLoadingTipsEvUpdateActPhase));
+        }
+    }
+
     const bool ok = okA && okB && okC;
     Log("[Hook] UiTextureOverrides: %s\n", ok ? "OK" : "FAIL");
+    if (okE && g_OrigLoadingTipsEvUpdateActPhase)
+        Log("[Hook] LoadingTipsEvUpdateActPhase: OK\n");
     return ok;
 }
 
@@ -456,9 +521,13 @@ bool Uninstall_UiTextureOverrides_Hook()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadingScreenOrGameOverSplash2));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.GameOverSetVisible));
 
+    if (gAddr.LoadingTipsEv_UpdateActPhase != 0)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadingTipsEv_UpdateActPhase));
+
     g_OrigSetEquipBackgroundTexture = nullptr;
     g_OrigLoadingScreenOrGameOverSplash2 = nullptr;
     g_OrigGameOverSetVisible = nullptr;
+    g_OrigLoadingTipsEvUpdateActPhase = nullptr;
 
     return true;
 }
