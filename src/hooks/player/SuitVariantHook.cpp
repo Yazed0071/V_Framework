@@ -60,6 +60,31 @@ namespace
     static bool s_sortieContextActive = false;
 
     // ---- isDeveloped check hook (vtable+0x188 on loadout controller) ----
+    //
+    // PARKED: hook is still installed for logging but no longer forces true.
+    //
+    // Previously hkIsDeveloped returned true for suit slots (0-2) when called
+    // from inside hkSetupEquipPanelParam, so custom suits would display their
+    // icon/name in the UNIFORMS list. But forcing true pushed the game's
+    // original SetupEquipPanelParam down the "fully populate detail" code path,
+    // which eventually calls GetGunInfoOutOfMission → SetUpGunInfoFromGunPartsDesc
+    // for custom-suit equipIds that have no GunPartsDesc entry → null deref
+    // at 0x140dc36b5 (crash during sortie prep pass 3 once the UI is fully init).
+    //
+    // Attempts to guard SetUpGunInfoFromGunPartsDesc via a bypass hook caused
+    // secondary crashes in WeaponSys::MaybeInitWeapon (which passes out-pointers
+    // that the original is required to populate). A return-address-scoped bypass
+    // still wasn't safe enough — path B (*partsDesc != 0 but RDI+0x10 table is
+    // invalid for custom equipIds) can hit the same crash address.
+    //
+    // The safe resolution is to NOT force the flag. Custom suits show as blank
+    // "undeveloped" panels during sortie prep, matching the memory-note status
+    // "Sortie UNIFORMS display — on hold, needs grade element visibility fix".
+    //
+    // To re-enable the feature later, the fix must happen at the DATA layer:
+    // register a valid-enough GunPartsDesc row (first byte != 0 and a populated
+    // RDI+0x10 table entry) for each custom-suit equipId. That unblocks the
+    // full populate path without runtime bypasses.
     using IsDeveloped_t = bool(__fastcall*)(void* self, std::uint8_t slotIndex);
     static IsDeveloped_t g_OrigIsDeveloped = nullptr;
     static void* g_HookedIsDevelopedAddr = nullptr;
@@ -109,16 +134,13 @@ namespace
     // vtable+0x188 is called from many game contexts — forcing true everywhere crashes.
     static bool s_inSetupEquipPanel = false;
 
+    // PARKED force — see the IsDeveloped_t comment block above for the full
+    // rationale. Currently a passthrough so custom suits show as undeveloped
+    // during sortie prep (blank panels, no crash). Leave the hook installed
+    // in case we want to re-enable later with data-layer fixes.
     static bool __fastcall hkIsDeveloped(void* self, std::uint8_t slotIndex)
     {
-        const bool result = g_OrigIsDeveloped(self, slotIndex);
-        if (!result && slotIndex <= 2 && s_inSetupEquipPanel)
-        {
-            Log("[IsDeveloped] slot=%u forced true\n",
-                static_cast<unsigned>(slotIndex));
-            return true;
-        }
-        return result;
+        return g_OrigIsDeveloped(self, slotIndex);
     }
 
     static std::uint16_t __fastcall hkGetCurrentSuitFlowIndex(void* self)
@@ -193,11 +215,20 @@ namespace
         return g_OrigIsEnableCurrentSuit(self);
     }
 
-    // Hook for SetupEquipPanelParam — fixes blank UNIFORMS panel for custom suits.
-    // The original checks vtable+0x188(slotIndex) on the loadout controller,
-    // which returns false for custom suits → skips icon/name display.
-    // After the original runs, if a custom suit is live and the panel is blank,
-    // force the "isDeveloped" flag so the game populates the display.
+    // Hook for SetupEquipPanelParam — diagnostic/logging only.
+    //
+    // PARKED: this hook previously (a) lazily installed a vtable+0x188
+    // IsDeveloped hook that forced true for custom-suit slots, and (b) called
+    // vtable+0x2a8(uixUtil, panel+0x100, 1) to force-show the grade element.
+    // Both caused crashes during sortie prep pass 3 for custom-suit equipIds:
+    //   - IsDeveloped=true pushed the game down the "fully populate detail"
+    //     path → GetGunInfoOutOfMission → SetUpGunInfoFromGunPartsDesc
+    //     → null-deref at 0x140dc36b5 (custom suits have no GunPartsDesc).
+    //   - force-show triggered a similar detail-refresh cascade.
+    //
+    // Both are disabled. The hook stays installed for logging, and also to
+    // keep s_sortieContextActive and s_cachedSelf / s_suitPanels tracking
+    // which other sortie-adjacent code relies on.
     //
     // Panel layout (EquipPanelInfo at panelData):
     //   +0x178 = equipId (uint16) — the suit's flowIndex
@@ -223,7 +254,7 @@ namespace
             slotIndex, static_cast<unsigned>(equipId),
             static_cast<unsigned>(displayId), static_cast<unsigned>(isDeveloped));
 
-        // Only fix suit slots (0, 1, 2)
+        // Only track suit slots (0, 1, 2)
         if (slotIndex > 2)
             return;
 
@@ -231,40 +262,10 @@ namespace
         s_cachedSelf = self;
         s_suitPanels[slotIndex] = panelData;
 
-        // One-time: capture and hook vtable+0x188 (isDeveloped check) on the
-        // loadout controller at self+0xa0.  hkIsDeveloped returns true for suit
-        // slots when a custom suit is active, so the ORIGINAL SetupEquipPanelParam
-        // runs all its display setup (icon, text, visibility) correctly.
-        if (!g_HookedIsDevelopedAddr)
-        {
-            auto* selfBytes = reinterpret_cast<std::uint8_t*>(self);
-            auto* loadout = *reinterpret_cast<void**>(selfBytes + 0xa0);
-            if (loadout)
-            {
-                auto** vtable = *reinterpret_cast<void***>(loadout);
-                void* fnAddr = vtable[0x188 / 8];
-                if (fnAddr)
-                {
-                    const bool ok = CreateAndEnableHook(
-                        fnAddr,
-                        reinterpret_cast<void*>(&hkIsDeveloped),
-                        reinterpret_cast<void**>(&g_OrigIsDeveloped));
-                    if (ok)
-                    {
-                        g_HookedIsDevelopedAddr = fnAddr;
-                        Log("[Hook] SuitVariant: Hooked IsDeveloped at %p "
-                            "(vtable+0x188 on loadout %p)\n", fnAddr, loadout);
-                    }
-                }
-            }
-        }
-
-        // Fix grade/category check: the original function's final check calls
-        // vtable+0x500(this+0x68) which reads the CURRENT equipment grade.
-        // For custom suits it returns 0 (no grade entry), which falls through
-        // to the default → vtable+0x2a8(uixUtil, panel+0x100, 0) → HIDE.
-        // This hides the element AFTER the icon/text were already set up.
-        // Re-show it here by calling vtable+0x2a8 with 1.
+        // IsDeveloped hook and grade-show force BOTH removed (see PARKED note
+        // above). Re-enablement requires registering valid GunPartsDesc rows
+        // for each custom-suit equipId before the detail path is allowed to
+        // run. Until then, custom suits show as "undeveloped" (blank panels).
         if (isDeveloped != 0)
         {
             bool customActive = false;
@@ -289,24 +290,9 @@ namespace
 
             if (customActive)
             {
-                auto* selfBytes = reinterpret_cast<std::uint8_t*>(self);
-                auto* uixUtil = *reinterpret_cast<void**>(selfBytes + 0x38);
-                auto* gradeElem = *reinterpret_cast<void**>(panel + 0x100);
-
-                if (uixUtil && gradeElem)
-                {
-                    auto** uixVt = *reinterpret_cast<void***>(uixUtil);
-                    using ShowHide_t = void(__fastcall*)(void*, void*, int);
-                    auto showHide = reinterpret_cast<ShowHide_t>(uixVt[0x2a8 / 8]);
-                    showHide(uixUtil, gradeElem, 1);
-                    Log("[SetupEquipPanel] forced grade show for slot=%u\n",
-                        slotIndex);
-                }
-                else
-                {
-                    Log("[SetupEquipPanel] grade fix: uix=%p elem=%p for slot=%u\n",
-                        uixUtil, gradeElem, slotIndex);
-                }
+                // Diagnostic only — all display-forcing is parked.
+                Log("[SetupEquipPanel] custom suit visible at slot=%u "
+                    "(display-forcing parked)\n", slotIndex);
             }
         }
     }
@@ -794,6 +780,8 @@ bool Uninstall_SuitVariant_Hooks()
     g_OrigSetupEquipPanelParam = nullptr;
     g_OrigSetItemDetail = nullptr;
     g_OrigGetCurrentSuitFlowIndex = nullptr;
+    // IsDeveloped hook is no longer lazily installed (force was parked), but
+    // keep the uninstall path in case a stale install lingers after a reload.
     if (g_HookedIsDevelopedAddr)
     {
         DisableAndRemoveHook(g_HookedIsDevelopedAddr);
