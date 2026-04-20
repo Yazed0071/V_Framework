@@ -34,6 +34,11 @@ static bool __fastcall hkDoesNeedFaceFova(std::uint32_t playerPartsType)
     const CustomSuitEntry* entry = GetCustomEntry(playerPartsType);
     if (entry && entry->IsFaceEnabled())
     {
+        // TESTED 2026-04-20: returning FALSE here correctly unloaded the
+        // face FOVA but the HEAD OPTION menu stayed empty — so face-FOVA
+        // state is NOT the gate for HEAD OPTION entries. Reverted to the
+        // original force-TRUE behavior. See memory note for hypotheses
+        // still untested.
         return true;
     }
 

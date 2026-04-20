@@ -111,13 +111,25 @@ static char __fastcall hkLoadMarkCheck2b8(void* self)
 
         if (haveActive)
         {
-            Log(
-                "[LoadMarkCheck2b8] override original=%d -> forced=1 developId=%u parts=0x%02X selector=0x%02X\n",
-                static_cast<int>(original),
-                static_cast<unsigned>(active.developId),
-                static_cast<unsigned>(active.partsType),
-                static_cast<unsigned>(active.selectorCode)
-            );
+            // Throttled: UpdateLoadMark fires every frame while a custom suit
+            // is active, so this runs ~60x/sec. Only log on (developId,
+            // original) change so the commit transition is visible without
+            // per-frame flooding.
+            static std::uint32_t s_lastKey = 0xFFFFFFFFu;
+            const std::uint32_t key =
+                (static_cast<std::uint32_t>(active.developId) << 8) |
+                static_cast<std::uint32_t>(static_cast<std::uint8_t>(original));
+            if (key != s_lastKey)
+            {
+                s_lastKey = key;
+                Log(
+                    "[LoadMarkCheck2b8] override original=%d -> forced=1 developId=%u parts=0x%02X selector=0x%02X\n",
+                    static_cast<int>(original),
+                    static_cast<unsigned>(active.developId),
+                    static_cast<unsigned>(active.partsType),
+                    static_cast<unsigned>(active.selectorCode)
+                );
+            }
             return 1;
         }
     }
@@ -136,13 +148,22 @@ static unsigned char __fastcall hkLoadMarkValue2e8(void* self)
 
         if (haveActive && original == 0xFF)
         {
-            Log(
-                "[LoadMarkValue2e8] override original=0x%02X -> forced=0x00 developId=%u parts=0x%02X selector=0x%02X\n",
-                static_cast<unsigned>(original),
-                static_cast<unsigned>(active.developId),
-                static_cast<unsigned>(active.partsType),
-                static_cast<unsigned>(active.selectorCode)
-            );
+            // Throttled: same per-frame concern as Check2b8 above.
+            static std::uint32_t s_lastKey = 0xFFFFFFFFu;
+            const std::uint32_t key =
+                (static_cast<std::uint32_t>(active.developId) << 8) |
+                static_cast<std::uint32_t>(original);
+            if (key != s_lastKey)
+            {
+                s_lastKey = key;
+                Log(
+                    "[LoadMarkValue2e8] override original=0x%02X -> forced=0x00 developId=%u parts=0x%02X selector=0x%02X\n",
+                    static_cast<unsigned>(original),
+                    static_cast<unsigned>(active.developId),
+                    static_cast<unsigned>(active.partsType),
+                    static_cast<unsigned>(active.selectorCode)
+                );
+            }
             return 0x00;
         }
     }
@@ -180,18 +201,31 @@ static void __fastcall hkUpdateLoadMark(void* self)
     const bool haveActive = TryGetActiveCustomSuit(active) && active.valid;
 
     // Only log when a custom suit is active (avoid per-frame spam for vanilla suits)
+    // AND only when the observed state tuple changes. UpdateLoadMark ticks
+    // ~60x/sec; without this throttle the log is unreadable.
     if (haveActive)
     {
-        Log(
-            "[UpdateLoadMarkFix] custom=1 developId=%u parts=0x%02X selector=0x%02X branch548=%u check2b8=%u check2c0=%u value2e8=0x%02X\n",
-            static_cast<unsigned>(active.developId),
-            static_cast<unsigned>(active.partsType),
-            static_cast<unsigned>(active.selectorCode),
-            static_cast<unsigned>(branch548),
-            static_cast<unsigned>(check2b8),
-            static_cast<unsigned>(check2c0),
-            static_cast<unsigned>(value2e8)
-        );
+        static std::uint64_t s_lastKey = 0xFFFFFFFFFFFFFFFFull;
+        const std::uint64_t key =
+            (static_cast<std::uint64_t>(active.developId) << 32) |
+            (static_cast<std::uint64_t>(branch548)         << 24) |
+            (static_cast<std::uint64_t>(check2b8)          << 16) |
+            (static_cast<std::uint64_t>(check2c0)          << 8)  |
+            (static_cast<std::uint64_t>(value2e8));
+        if (key != s_lastKey)
+        {
+            s_lastKey = key;
+            Log(
+                "[UpdateLoadMarkFix] custom=1 developId=%u parts=0x%02X selector=0x%02X branch548=%u check2b8=%u check2c0=%u value2e8=0x%02X\n",
+                static_cast<unsigned>(active.developId),
+                static_cast<unsigned>(active.partsType),
+                static_cast<unsigned>(active.selectorCode),
+                static_cast<unsigned>(branch548),
+                static_cast<unsigned>(check2b8),
+                static_cast<unsigned>(check2c0),
+                static_cast<unsigned>(value2e8)
+            );
+        }
     }
 
     g_CurrentLoadMarkBranch548 = branch548;

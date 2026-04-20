@@ -93,8 +93,11 @@ namespace
         std::uint32_t& outEquipKind,
         std::uint32_t& outRow,
         std::uint8_t& outVariant,
-        std::uint16_t& outSelectedId)
+        std::uint16_t& outSelectedId,
+        std::uint8_t& outSelectorCode)
     {
+        outSelectorCode = 0;
+
         if (!self)
             return false;
 
@@ -118,6 +121,14 @@ namespace
         outSelectedId =
             *reinterpret_cast<std::uint16_t*>(p + 0x4440 + slot * sizeof(std::uint16_t));
 
+        // Sub-slot selectorCode lives at +0xcc40 as a u32 where the low byte
+        // is the actual selectorCode that ResolveSuitToPartsType reads. For
+        // in-row variant cycling (vanilla Sneaking Suit Standard/Naked style
+        // and our custom variants) all sub-slots share the same flowIndex,
+        // so the selectorCode is what distinguishes the picked variant.
+        outSelectorCode = static_cast<std::uint8_t>(
+            *reinterpret_cast<std::uint32_t*>(p + 0xcc40 + slot * 0x0C) & 0xFF);
+
         return true;
     }
 
@@ -129,20 +140,22 @@ namespace
         std::uint32_t row = 0;
         std::uint8_t variant = 0;
         std::uint16_t selectedId = 0;
+        std::uint8_t selectorCode = 0;
 
-        if (!TryGetSelectedId(self, equipKind, row, variant, selectedId))
+        if (!TryGetSelectedId(self, equipKind, row, variant, selectedId, selectorCode))
         {
             Log("[%s] NoSelection self=%p\n", tag, self);
             return;
         }
 
         Log(
-            "[%s] Seen equipKind=0x%X row=%u variant=%u selectedId=%u\n",
+            "[%s] Seen equipKind=0x%X row=%u variant=%u selectedId=%u selector=0x%02X\n",
             tag,
             static_cast<unsigned>(equipKind),
             static_cast<unsigned>(row),
             static_cast<unsigned>(variant),
-            static_cast<unsigned>(selectedId)
+            static_cast<unsigned>(selectedId),
+            static_cast<unsigned>(selectorCode)
         );
 
         LivePlayerAppearance live{};
@@ -152,7 +165,28 @@ namespace
 
         const CustomSuitEntry* entry = nullptr;
 
-        if (TryGetCustomSuitByDevelopIdForPlayerType(selectedId, currentPlayerType, &entry) && entry)
+        // Primary: if the sub-slot's selectorCode is in our custom range
+        // [0x80, 0xFE], match on that first. For in-row variant cycling,
+        // all sub-slots share the base's flowIndex — only selectorCode
+        // uniquely identifies the picked variant.
+        if (selectorCode >= 0x80 && selectorCode <= 0xFE &&
+            TryGetCustomSuitBySelectorCode(selectorCode, &entry) && entry &&
+            (currentPlayerType == 0xFF || entry->playerType == currentPlayerType))
+        {
+            SetPendingCustomSuitDevelopId(entry->linkedDevelopId);
+
+            Log(
+                "[%s] Track by selectorCode=0x%02X playerType=%u -> developId=%u partsType=0x%02X flowIndex=%u variantIdx=%u\n",
+                tag,
+                static_cast<unsigned>(selectorCode),
+                static_cast<unsigned>(currentPlayerType),
+                static_cast<unsigned>(entry->linkedDevelopId),
+                static_cast<unsigned>(entry->customPartsType),
+                static_cast<unsigned>(entry->linkedFlowIndex),
+                static_cast<unsigned>(entry->variantIndex)
+            );
+        }
+        else if (TryGetCustomSuitByDevelopIdForPlayerType(selectedId, currentPlayerType, &entry) && entry)
         {
             SetPendingCustomSuitDevelopId(entry->linkedDevelopId);
 
@@ -185,9 +219,10 @@ namespace
             ClearPendingCustomSuitDevelopId();
 
             Log(
-                "[%s] Miss selectedId=%u playerType=%u equipKind=0x%X\n",
+                "[%s] Miss selectedId=%u selector=0x%02X playerType=%u equipKind=0x%X\n",
                 tag,
                 static_cast<unsigned>(selectedId),
+                static_cast<unsigned>(selectorCode),
                 static_cast<unsigned>(currentPlayerType),
                 static_cast<unsigned>(equipKind)
             );
@@ -196,9 +231,14 @@ namespace
 }
 
 // Hook for FUN_1416a7610 — sets up the supply drop request for suit equips.
-// The original does table[flowIndex*0x68+0x36] which goes out of bounds for
-// custom flowIndices.  For custom suits, we skip the table lookup entirely
-// and populate the request fields directly from the selector's internal arrays.
+// The original does `table[equipId*0x68+0x36]` where `table` is the internal
+// EquipIdTable parameter/kind table (0x68 stride, +0x36 = kind byte; 0x12/0x16
+// = suit, 0x13 = develop, 0x14 = camo). For custom-suit equipIds the read is
+// out-of-bounds → infinite loading. We skip the table lookup entirely and
+// populate the request fields directly from our CustomSuitRegistry.
+// (Custom suit equipIds and flowIndices are the same integer in this mod's
+// registry, which is why older comments referenced flowIndex — index is
+// literally the equipId value.)
 static void __fastcall hkSupplyDropSuitSetup(void* self_raw, std::uint64_t param2)
 {
     auto* p = reinterpret_cast<std::uint8_t*>(self_raw);
@@ -208,15 +248,46 @@ static void __fastcall hkSupplyDropSuitSetup(void* self_raw, std::uint64_t param
     auto* pIVar16 = p + row + 0xc040;
     const std::uint64_t lVar15 = static_cast<std::uint64_t>(row) * 0x0F;
     const std::uint8_t variantByte = *pIVar16;
+    const std::size_t slot = static_cast<std::size_t>(variantByte) + lVar15;
     const std::uint16_t selFlowIndex = *reinterpret_cast<std::uint16_t*>(
-        p + (static_cast<std::uint64_t>(variantByte) + lVar15) * 2 + 0x4440);
+        p + slot * 2 + 0x4440);
+
+    // Sub-slot selectorCode at +0xcc40 (low byte of u32). For variants cycled
+    // within a row, all sub-slots share the base's flowIndex — selectorCode
+    // is the unique variant identifier.
+    const std::uint8_t selSelectorCode = static_cast<std::uint8_t>(
+        *reinterpret_cast<std::uint32_t*>(p + 0xcc40 + slot * 0x0C) & 0xFF);
 
     if (selFlowIndex == 0x400)
         return; // blank sentinel — nothing to do
 
-    // Check if the selected suit is a custom suit
+    // Defensive: 0xFFFF is "not set" for CustomSuitEntry.linkedFlowIndex.
+    // If a variant was registered via SetPlayerPartsPath + SetVariantGroup
+    // but never had a develop entry linked, it'll carry 0xFFFF, and a
+    // UI-layer bug could surface that here. Refuse to run the registry
+    // lookup against that sentinel (it would spuriously match any other
+    // unlinked variant) — let the vanilla path handle it, which at worst
+    // results in the suit not loading rather than a crash.
+    if (selFlowIndex == 0xFFFF)
+    {
+        Log("[SupplyDropSuitSetup] selFlowIndex=0xFFFF (sentinel) — skipping custom-suit bypass, falling through to vanilla\n");
+        g_OrigSupplyDropSuitSetup(self_raw, param2);
+        return;
+    }
+
+    // Primary: selectorCode uniquely identifies the picked variant (base or
+    // any variant in the group) even when sub-slots share a flowIndex.
+    // Fall back to flowIndex lookup for safety / older data shapes.
     const CustomSuitEntry* entry = nullptr;
-    if (TryGetCustomSuitByFlowIndex(selFlowIndex, &entry) && entry)
+    if (selSelectorCode >= 0x80 && selSelectorCode <= 0xFE)
+    {
+        TryGetCustomSuitBySelectorCode(selSelectorCode, &entry);
+    }
+    if (!entry)
+    {
+        TryGetCustomSuitByFlowIndex(selFlowIndex, &entry);
+    }
+    if (entry)
     {
         // Populate supply drop request directly from CustomSuitEntry.
         // The selector's internal arrays (0xcc40+) aren't reliably populated
@@ -251,8 +322,9 @@ static ErrorCode* __fastcall hkDecideActMissionPreparationSetEquipMode(
     std::uint32_t row = 0;
     std::uint8_t variant = 0;
     std::uint16_t selectedId = 0;
+    std::uint8_t selectorCode = 0;
 
-    if (!TryGetSelectedId(self, equipKind, row, variant, selectedId))
+    if (!TryGetSelectedId(self, equipKind, row, variant, selectedId, selectorCode))
     {
         Log("[SuitCommit] NoSelection self=%p\n", self);
         return g_OrigDecideActMissionPreparationSetEquipMode(self, retStorage);
@@ -279,8 +351,9 @@ static void __fastcall hkDecideActMotherBaseDeviceSupportDropMode(
     std::uint32_t row = 0;
     std::uint8_t variant = 0;
     std::uint16_t selectedId = 0;
+    std::uint8_t selectorCode = 0;
 
-    if (TryGetSelectedId(self, equipKind, row, variant, selectedId) &&
+    if (TryGetSelectedId(self, equipKind, row, variant, selectedId, selectorCode) &&
         equipKind == kEquipKind_MissionPrepSuit)
     {
         // For custom suits in supply drop, populate the request manually

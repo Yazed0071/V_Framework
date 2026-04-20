@@ -5,7 +5,7 @@
 
 namespace V_FrameWorkState
 {
-    // Loads the unified state file (mod/saves/V_FrameWork_State.lua).
+    // Loads the unified state file (mod/V_FrameWork/V_FrameWork_State.lua).
     // Safe to call multiple times — only loads once.
     void Load();
 

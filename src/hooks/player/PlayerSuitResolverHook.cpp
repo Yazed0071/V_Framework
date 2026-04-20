@@ -134,11 +134,21 @@ static std::uint8_t __fastcall hkResolveSuitToPartsType(
         mapped &&
         (currentPlayerType == 0xFF || mapped->playerType == currentPlayerType))
     {
-        Log(
-            "[SuitResolver] custom selector=0x%02X -> partsType=0x%02X\n",
-            static_cast<unsigned>(code),
-            static_cast<unsigned>(mapped->customPartsType)
-        );
+        // Throttled: resolver is called per-frame from several call sites.
+        // Only log on selector/partsType change.
+        static std::uint16_t s_lastKey = 0xFFFF;
+        const std::uint16_t key =
+            (static_cast<std::uint16_t>(code) << 8) |
+            static_cast<std::uint16_t>(mapped->customPartsType);
+        if (key != s_lastKey)
+        {
+            s_lastKey = key;
+            Log(
+                "[SuitResolver] custom selector=0x%02X -> partsType=0x%02X\n",
+                static_cast<unsigned>(code),
+                static_cast<unsigned>(mapped->customPartsType)
+            );
+        }
 
         return mapped->customPartsType;
     }

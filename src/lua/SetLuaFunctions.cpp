@@ -45,6 +45,7 @@ extern "C" {
 #include "SetEquipParameters.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
+#include "SoldierRtpcHook.h"
 #include "InitCamoufTable.h"
 #include "CustomSuitRegistry.h"
 #include "PlayerSuitResolverHook.h"
@@ -871,6 +872,64 @@ static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
     return 0;
 }
 
+// Sets a Wwise RTPC for a single soldier identified by FOX gameObjectId.
+// Lua params: gameObjectId (integer), rtpcName (string), value (number), [timeMs (integer, default 0)]
+// Returns: AKRESULT integer (1 = AK_Success, negative = resolve failure or empty name)
+static int __cdecl l_SetSoldierRtpc(lua_State* L)
+{
+    const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const char* rtpcName = GetLuaString(L, 2);
+    const float value = GetLuaNumber(L, 3);
+    const long timeMs = static_cast<long>(GetLuaInt(L, 4));  // optional; 0 if absent
+
+    const int result = SoldierRtpc::SetSoldierRtpc(goId, rtpcName, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+// Sets a Wwise RTPC globally (AK_INVALID_GAME_OBJECT scope — affects all listeners).
+// Lua params: rtpcName (string), value (number), [timeMs (integer, default 0)]
+// Returns: AKRESULT integer (1 = AK_Success, negative = resolve failure or empty name)
+static int __cdecl l_SetGlobalRtpc(lua_State* L)
+{
+    const char* rtpcName = GetLuaString(L, 1);
+    const float value = GetLuaNumber(L, 2);
+    const long timeMs = static_cast<long>(GetLuaInt(L, 3));
+
+    const int result = SoldierRtpc::SetGlobalRtpc(rtpcName, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+// Sets a Wwise RTPC on one soldier by pre-hashed numeric id (skips name hashing).
+// Lua params: gameObjectId (integer), rtpcId (integer uint32), value (number), [timeMs (integer, default 0)]
+// Returns: AKRESULT integer
+static int __cdecl l_SetSoldierRtpcById(lua_State* L)
+{
+    const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
+    const float         value  = GetLuaNumber(L, 3);
+    const long          timeMs = static_cast<long>(GetLuaInt(L, 4));
+
+    const int result = SoldierRtpc::SetSoldierRtpcById(goId, rtpcId, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+// Sets a Wwise RTPC globally by pre-hashed numeric id (skips name hashing).
+// Lua params: rtpcId (integer uint32), value (number), [timeMs (integer, default 0)]
+// Returns: AKRESULT integer
+static int __cdecl l_SetGlobalRtpcById(lua_State* L)
+{
+    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const float         value  = GetLuaNumber(L, 2);
+    const long          timeMs = static_cast<long>(GetLuaInt(L, 3));
+
+    const int result = SoldierRtpc::SetGlobalRtpcById(rtpcId, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
 // Marks one VIP-important soldier.
 // Params: gameObjectId, isOfficer
 static int __cdecl l_SetVIPImportant(lua_State* L)
@@ -1644,6 +1703,22 @@ static int __cdecl l_AllocateVariantGroupId(lua_State* L)
     return 1;
 }
 
+// Writes a message to mod\V_FrameWork\V_FrameWork_log.txt through the same
+// Log() routine the C++ hooks use, so Lua-originated messages interleave
+// with hook events chronologically. Returns nothing.
+// Lua params: msg (string)
+static int __cdecl l_Log(lua_State* L)
+{
+    const char* msg = GetLuaString(L, 1);
+    if (msg && *msg)
+    {
+        // Log() appends its own newline? Check log.cpp — it does NOT auto-newline,
+        // so we add one here so each Lua Log call is a new line in the file.
+        Log("%s\n", msg);
+    }
+    return 0;
+}
+
 static int __cdecl l_SetVariantGroup(lua_State* L)
 {
     const int partsType = GetLuaInt(L, 1);
@@ -1684,6 +1759,10 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetPlayerVoiceFpkPathForType",           l_SetPlayerVoiceFpkPathForType },
     { "ClearPlayerVoiceFpkPathForType",         l_ClearPlayerVoiceFpkPathForType },
     { "ClearAllPlayerVoiceFpkOverrides",        l_ClearAllPlayerVoiceFpkOverrides },
+    { "SetSoldierRtpc",                         l_SetSoldierRtpc },
+    { "SetGlobalRtpc",                          l_SetGlobalRtpc },
+    { "SetSoldierRtpcById",                     l_SetSoldierRtpcById },
+    { "SetGlobalRtpcById",                      l_SetGlobalRtpcById },
     { "SetVIPImportant",                        l_SetVIPImportant },
     { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
     { "RemoveVIPImportant",                     l_RemoveVIPImportant },
@@ -1733,6 +1812,7 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "LinkDevelopIdToPlayerSuit",              l_LinkDevelopIdToPlayerSuit },
     { "AllocateVariantGroupId",                 l_AllocateVariantGroupId },
     { "SetVariantGroup",                        l_SetVariantGroup },
+    { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
     { nullptr, nullptr }
 };

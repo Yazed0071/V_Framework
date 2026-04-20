@@ -15,7 +15,8 @@ namespace V_FrameWorkState
 {
     namespace
     {
-        static constexpr const char* kSavePath = "mod\\saves\\V_FrameWork_State.lua";
+        static constexpr const char* kSavePath    = "mod\\V_FrameWork\\V_FrameWork_State.lua";
+        static constexpr const char* kLegacyPath  = "mod\\saves\\V_FrameWork_State.lua";
 
         static constexpr std::int32_t kFirstCustomEquipId = 0x609;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
@@ -58,7 +59,31 @@ namespace V_FrameWorkState
         static void EnsureSaveDirectory()
         {
             CreateDirectoryA("mod", nullptr);
-            CreateDirectoryA("mod\\saves", nullptr);
+            CreateDirectoryA("mod\\V_FrameWork", nullptr);
+        }
+
+        // One-shot migration: if an older state file still lives under
+        // mod\saves but the new mod\V_FrameWork path is missing, move it so
+        // previously-assigned equip/develop/tape ids survive the relocation.
+        static void MigrateLegacyStateFile_NoLock()
+        {
+            const DWORD newAttr = GetFileAttributesA(kSavePath);
+            if (newAttr != INVALID_FILE_ATTRIBUTES)
+                return;
+
+            const DWORD oldAttr = GetFileAttributesA(kLegacyPath);
+            if (oldAttr == INVALID_FILE_ATTRIBUTES)
+                return;
+
+            CreateDirectoryA("mod", nullptr);
+            CreateDirectoryA("mod\\V_FrameWork", nullptr);
+
+            if (MoveFileA(kLegacyPath, kSavePath))
+                Log("[V_FrameWorkState] Migrated legacy state '%s' -> '%s'\n",
+                    kLegacyPath, kSavePath);
+            else
+                Log("[V_FrameWorkState] Migration failed (err=%lu): '%s' -> '%s'\n",
+                    GetLastError(), kLegacyPath, kSavePath);
         }
 
         // Parses a line like: ["key"] = { equipId = 123, developId = 456 },
@@ -134,6 +159,8 @@ namespace V_FrameWorkState
             g_State.loaded = true;
             g_State.equips.clear();
             g_State.tapes.clear();
+
+            MigrateLegacyStateFile_NoLock();
 
             std::ifstream in(kSavePath);
             if (!in)

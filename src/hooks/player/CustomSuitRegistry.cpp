@@ -327,8 +327,42 @@ bool RegisterCustomSuit(const CustomSuitRegistration& reg, std::uint8_t& outPart
 
     const std::uint64_t partsHash = FoxHashes::PathCode64Ext(reg.partsPath);
     const std::uint64_t fpkHash = FoxHashes::PathCode64Ext(reg.fpkPath);
+    const std::uint64_t camoHash = ResolveSubAssetPath(reg.camoFpk, false);
+    const std::uint64_t skinToneHash =
+        ResolveSubAssetPath(reg.skinToneFv2, reg.skinToneVanilla);
 
     std::lock_guard<std::mutex> lock(g_CustomSuitMutex);
+
+    // Dedup: Lua script reloads (soft-reload / mission init fires twice) would
+    // otherwise allocate a fresh partsType each call, accumulating stale
+    // entries in the 128-slot registry. Match on (playerType, partsHash,
+    // fpkHash, camoHash, skinToneHash) — the tuple that uniquely identifies
+    // the outfit contents. Re-use the existing entry and just refresh the
+    // sub-asset slots in case the caller changed face/arm/diamond flags
+    // between reloads.
+    if (CustomSuitEntry* existing = FindByPathsAndPlayerType_NoLock(
+            partsHash, fpkHash, camoHash, skinToneHash, reg.playerType))
+    {
+        existing->faceFpk     = ResolveSubAssetPath(reg.faceFpk,     reg.faceVanilla);
+        existing->armFpk      = ResolveSubAssetPath(reg.armFpk,      reg.armVanilla);
+        existing->diamondFpk  = ResolveSubAssetPath(reg.diamondFpk,  false);
+        existing->skinToneFv2 = skinToneHash;
+        existing->camoFpk     = camoHash;
+
+        // Do NOT reset linkedDevelopId / linkedFlowIndex / variantGroupId —
+        // those are set by subsequent Link / SetVariantGroup calls and we want
+        // to preserve them across reloads.
+
+        outPartsType = existing->customPartsType;
+
+        Log(
+            "[CustomSuit] Re-used existing entry partsType=%u selector=0x%02X playerType=%u (dedup on paths)\n",
+            static_cast<unsigned>(existing->customPartsType),
+            static_cast<unsigned>(existing->customSelectorCode),
+            static_cast<unsigned>(existing->playerType)
+        );
+        return true;
+    }
 
     CustomSuitEntry* entry = FindFreeEntry_NoLock();
     if (!entry)
@@ -361,10 +395,10 @@ bool RegisterCustomSuit(const CustomSuitRegistration& reg, std::uint8_t& outPart
     entry->partsPathCode64Ext = partsHash;
     entry->fpkPathCode64Ext = fpkHash;
 
-    entry->camoFpk     = ResolveSubAssetPath(reg.camoFpk,     false);
+    entry->camoFpk     = camoHash;
     entry->faceFpk     = ResolveSubAssetPath(reg.faceFpk,     reg.faceVanilla);
     entry->armFpk      = ResolveSubAssetPath(reg.armFpk,      reg.armVanilla);
-    entry->skinToneFv2 = ResolveSubAssetPath(reg.skinToneFv2,  reg.skinToneVanilla);
+    entry->skinToneFv2 = skinToneHash;
     entry->diamondFpk  = ResolveSubAssetPath(reg.diamondFpk,  false);
 
     outPartsType = entry->customPartsType;

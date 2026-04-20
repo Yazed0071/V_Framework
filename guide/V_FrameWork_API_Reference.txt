@@ -18,7 +18,7 @@ TABLE OF CONTENTS
   MODULE: V_TppCassette .................. Cassette tape playback & registration
   MODULE: V_TppUI ........................ Loading screen, game over, equip BGs, telop
   MODULE: V_TppCommandPost ............... Caution phase duration
-  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
+  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs, RTPC
   MODULE: V_TppHostage ................... Lost hostage tracking
   MODULE: V_TppPickable .................. Pickable item count overrides
   RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
@@ -62,7 +62,7 @@ GETTING STARTED
 
   SAVE FILE
   ---------
-  V_FrameWork persists mod data in mod/saves/V_FrameWork_State.lua.
+  V_FrameWork persists mod data in mod/V_FrameWork/V_FrameWork_State.lua.
   Keys are "modName:itemName" strings. Multiple mods never conflict.
   See APPENDIX E for the file format.
 
@@ -82,6 +82,12 @@ MODULE: V_TppPlayer
     and camo gameplay values — all in one call.
 
     PARAMETERS (table):
+      name          string    optional  Stable key for persisted develop id.
+                                        Defaults to an auto-generated key of
+                                        the form "suit:<playerType>:<partsPath>:<fpkPath>"
+                                        which uniquely identifies the outfit.
+                                        Set this only if you want a short,
+                                        readable key in V_FrameWork_State.lua.
       playerType    number    REQUIRED  See APPENDIX A.
       partsPath     string    REQUIRED  .parts asset path
       fpkPath       string    REQUIRED  .fpk asset path
@@ -89,10 +95,18 @@ MODULE: V_TppPlayer
       enableHand    bool      optional  Show bionic arm. Default: true
       fv2Path       string    optional  Custom FV2 visual variation file
       fv2FpkPath    string    optional  FPK containing the FV2 file
-      camoCloneFrom string/num optional Clone camo bonuses from this pattern
-      camoValues    table     optional  Array of 82 numbers (camo bonus values)
+      faceFpk       string    optional  Custom face FOVA FPK
+      armFpk        string    optional  Custom arm FOVA FPK
+      diamondFpk    string    optional  Custom Diamond Dogs logo FPK
+      camoFpk       string    optional  Custom camo pattern FPK
       variants      table     optional  Array of body variant entries (see below)
       develop       table     REQUIRED  { const = {...}, flow = {...} }
+
+    NOT supported (will warn if passed):
+      camoCloneFrom — use V_TppPlayer.CloneCamoRow(dst, src) separately for
+                      material-table edits, OR pass camoFpk = '<path>' for a
+                      custom camo pattern on this suit.
+      camoValues    — use V_TppPlayer.ImportCamoRow(camoType, values) separately.
 
     DEVELOP CONST FIELDS:
       equipID, equipDevelopTypeID, baseEquipDevelopId, skill, bluePrintId,
@@ -107,11 +121,34 @@ MODULE: V_TppPlayer
     VARIANT ENTRIES (each is a table):
       partsPath     string    REQUIRED
       fpkPath       string    REQUIRED
-      langId        string    optional  Language ID for UI display
+      langId        string    optional  Per-variant langEquipName. Each variant
+                                        always registers its own develop entry
+                                        (required for sub-slot flowIndex), but
+                                        variant develops default to ZERO GMP /
+                                        resources / time and initialAvailable=1
+                                        — "free sub-items" of the outfit family.
+                                        The player pays once by developing the
+                                        base; all variants cycle for free. Set
+                                        variant.develop.flow = { developGmpCost =
+                                        10000, initialAvailable = 0, ... } to
+                                        force a paid variant.
+      langInfo      string    optional  Per-variant langEquipInfo override.
+      langRealName  string    optional  Per-variant langEquipRealName override.
+      iconFtexPath  string    optional  Per-variant R&D icon.
+      name          string    optional  Stable key for the variant's persisted
+                                        developId. Defaults to "<base>:vN".
       enableHead    bool      optional  Inherits from base if omitted
       enableHand    bool      optional  Inherits from base if omitted
       fv2Path       string    optional
       fv2FpkPath    string    optional
+      faceFpk       string    optional
+      armFpk        string    optional
+      diamondFpk    string    optional
+      camoFpk       string    optional
+      develop       table     optional  Full per-variant develop override.
+                                        { const = {...}, flow = {...} } — fields
+                                        are merged onto the base develop, so you
+                                        can override any subset.
 
     RETURNS: partsType (number), developId (number)
 
@@ -135,7 +172,7 @@ MODULE: V_TppPlayer
           }
       })
 
-    EXAMPLE — Outfit with FV2 visual + camo gameplay:
+    EXAMPLE — Outfit with FV2 visual + custom camo FPK:
 
       V_TppPlayer.AddOutfit({
           playerType = 2,
@@ -143,9 +180,13 @@ MODULE: V_TppPlayer
           fpkPath    = "/Assets/tpp/pack/chara/my_mod/desert_suit.fpk",
           fv2Path    = "/Assets/tpp/fova/chara/my_mod/desert_skin.fv2",
           fv2FpkPath = "/Assets/tpp/pack/chara/my_mod/desert_fova.fpk",
-          camoCloneFrom = "SANDSTORM",  -- same stealth bonuses as Sandstorm
+          camoFpk    = "/Assets/tpp/pack/chara/my_mod/desert_camo.fpk",
           develop = { const = { ... }, flow = { ... } }
       })
+
+      -- For camo table (material stealth values), use the dedicated APIs:
+      -- V_TppPlayer.CloneCamoRow(dstCamo, "SANDSTORM")
+      -- V_TppPlayer.SetCamoValue("MY_CAMO", "MTR_SAND_A", 50)
 
     EXAMPLE — Outfit with body variants (zipped/unzipped):
 
@@ -165,19 +206,23 @@ MODULE: V_TppPlayer
           develop = { const = { ... }, flow = { ... } }
       })
 
-    EXAMPLE — Outfit with custom camo values (full control):
+    EXAMPLE — Outfit with a custom camo material table (full control):
 
+      -- Register the outfit first:
       V_TppPlayer.AddOutfit({
           playerType = 0,
           partsPath  = "/Assets/.../forest_suit.parts",
           fpkPath    = "/Assets/.../forest_suit.fpk",
-          camoValues = {
-              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
-              50,0,0,50,50,50,50,50,50,50, 0,50,0,0,0,50,50,0,0,0,0,0
-          },
           develop = { const = { ... }, flow = { ... } }
+      })
+
+      -- Then set per-material stealth values via ImportCamoRow. Array is 82
+      -- numbers (one per material type, see APPENDIX C):
+      V_TppPlayer.ImportCamoRow("OLIVEDRAB", {
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+          50,0,0,50,50,50,50,50,50,50, 0,50,0,0,0,50,50,0,0,0,0,0
       })
 
   --------------------------------------------------------------------------
@@ -625,6 +670,63 @@ MODULE: V_TppEnemy
         InfCore.Log(s.soldierName .. " dist=" .. s.distance)
     end
 
+  RTPC (Wwise audio parameters)
+  -----------------------------
+  RTPCs (Real-Time Parameter Controls) are named floats wired up in the
+  audio banks to modulate pitch, volume, spatialization, filter cutoffs,
+  etc. All Wwise parameter names flow through fox::sd::ConvertParameterID
+  first, so discovering valid names is a matter of reading the log.
+
+  SetRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
+      Applies an RTPC only to the soldier with that FOX gameObjectId.
+      - soldierNameOrId: string soldier name OR numeric gameObjectId.
+      - rtpcNameOrId:    string Wwise name OR numeric (pre-hashed) id.
+      - timeMs: transition duration in milliseconds. 0 = instant.
+      Returns: AKRESULT (1 = AK_Success, other = Wwise error).
+
+  SetGlobalRtpc(rtpcNameOrId, value, timeMs)
+      Applies an RTPC globally (AK_INVALID_GAME_OBJECT scope). Affects
+      every listener — use for world-state changes like mission tension.
+      - rtpcNameOrId: string Wwise name OR numeric (pre-hashed) id.
+      Returns: AKRESULT.
+
+  DISCOVERING RTPC NAMES
+  ----------------------
+  V_FrameWork installs a diagnostic hook (ConvertParameterIdLogger) at
+  startup. As you play, every unique Wwise parameter name the game
+  resolves is written to the log exactly once, in the format:
+
+      [ParamID] "<name>" -> 0x<hash>
+
+  Each line is a real name the game's audio code asked Wwise to resolve.
+  Copy the quoted name verbatim (case-sensitive) into your script.
+  Names that return AKRESULT=1 from SetRtpc are RTPCs; names that return
+  an error are usually Switches or States (the same ConvertParameterID
+  function resolves all three kinds).
+
+  No RTPC names are published here because we have not independently
+  verified any against the shipped banks. Get them from the log.
+
+  EXAMPLE (substitute a real name from your [ParamID] log, or use the id):
+    -- By name (recommended — readable, hashed by the game's own function)
+    V_TppEnemy.SetRtpc("officer_1", "<rtpc_name_from_log>", 1.0, 300)
+
+    -- By pre-hashed id (when you already have the numeric RTPC id, e.g. from
+    -- a Wwise authoring export or captured from the [ParamID] log):
+    V_TppEnemy.SetRtpc("officer_1", 2019519634, 1.0, 300)
+
+    -- Global, either form:
+    V_TppEnemy.SetGlobalRtpc("<rtpc_name_from_log>", 1.0, 800)
+    V_TppEnemy.SetGlobalRtpc(2019519634, 1.0, 800)
+
+  CAVEATS
+  -------
+  - Wwise clamps values to the RTPC's authored min/max range.
+  - "Per-object" only applies if the sound designer authored the RTPC at
+    GameObject scope. Globally-scoped RTPCs silently accept per-soldier
+    calls but affect every listener.
+  - SetRtpc with a Switch/State name returns AK_IDNotFound (non-1 result).
+
 
 ================================================================================
 MODULE: V_TppHostage
@@ -705,6 +807,10 @@ RAW API: V_FrameWork.*
     ClearCallSignPatrolSoldiers()                   -> nothing
     EnableSoldierStealthCamo(actorIndex, enable)     -> nothing
     ClearSoldierStealthCamoOverrides()              -> nothing
+    SetSoldierRtpc(gameObjectId, rtpcName, value, timeMs)     -> number (AKRESULT)
+    SetGlobalRtpc(rtpcName, value, timeMs)                    -> number (AKRESULT)
+    SetSoldierRtpcById(gameObjectId, rtpcId, value, timeMs)   -> number (AKRESULT)
+    SetGlobalRtpcById(rtpcId, value, timeMs)                  -> number (AKRESULT)
 
   HOSTAGE
     SetLostHostage(gameObjectId, gender)            -> nothing
@@ -758,6 +864,10 @@ RAW API: V_FrameWork.*
 
   MOD SYSTEM
     GetModFiles()                                   -> table
+    Log(msg)                                        -> nothing
+        Writes `msg` to mod\V_FrameWork\V_FrameWork_log.txt with a
+        timestamp prefix, interleaved chronologically with C++ hook logs.
+        Useful for tracing Lua mod initialization / feature registration.
 
 
 ================================================================================
@@ -879,7 +989,7 @@ APPENDIX D: Develop Flow Field Names
 APPENDIX E: Save File Format
 ================================================================================
 
-  File: mod/saves/V_FrameWork_State.lua
+  File: mod/V_FrameWork/V_FrameWork_State.lua
 
   return {
       equips = {

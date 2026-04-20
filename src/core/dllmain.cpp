@@ -45,6 +45,8 @@ static DWORD WINAPI InitThread(LPVOID)
     SetupConsole();
     #endif
 
+    InitLog();
+
     Log("[DLL] InitThread started.\n");
 
     HMODULE hGame = GetModuleHandleW(nullptr);
@@ -87,6 +89,8 @@ static void UninstallAll(bool processTerminating)
 
     fflush(stdout);
     fflush(stderr);
+
+    CloseLog();
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)

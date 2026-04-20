@@ -5,59 +5,108 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cstring>
+#include <mutex>
+#include <share.h>
 
 static FILE* g_LogFile = nullptr;
+static std::mutex g_LogMutex;
+static bool g_AtLineStart = true;
 
 void InitLog()
 {
-    #if _DEBUG
-
-    #endif // _DEBUG
-
-    AllocConsole();
-    FILE* dummy;
-    freopen_s(&dummy, "CONOUT$", "w", stdout);
-    freopen_s(&dummy, "CONOUT$", "w", stderr);
-
-    SetConsoleTitleA("MGSV Arabic Hook Console");
-
-    char path[MAX_PATH];
-    GetModuleFileNameA(nullptr, path, MAX_PATH);
-    char* lastSlash = strrchr(path, '\\');
+    char gameDir[MAX_PATH]{};
+    GetModuleFileNameA(nullptr, gameDir, MAX_PATH);
+    char* lastSlash = strrchr(gameDir, '\\');
     if (lastSlash) *(lastSlash + 1) = '\0';
-    strcat_s(path, "MGSV_ArabicHook.log");
 
-    fopen_s(&g_LogFile, path, "w");
+    char modDir[MAX_PATH]{};
+    strcpy_s(modDir, gameDir);
+    strcat_s(modDir, "mod");
+    CreateDirectoryA(modDir, nullptr);
+
+    char vfDir[MAX_PATH]{};
+    strcpy_s(vfDir, gameDir);
+    strcat_s(vfDir, "mod\\V_FrameWork");
+    CreateDirectoryA(vfDir, nullptr);
+
+    char logPath[MAX_PATH]{};
+    strcpy_s(logPath, gameDir);
+    strcat_s(logPath, "mod\\V_FrameWork\\V_FrameWork_log.txt");
+
+    // _fsopen with _SH_DENYWR lets external viewers/tail tools read the log
+    // while the game is running (fopen_s's default share mode blocks them).
+    g_LogFile = _fsopen(logPath, "w", _SH_DENYWR);
     if (g_LogFile)
-        fprintf(g_LogFile, "[LOG] Log file created successfully.\n");
+        fprintf(g_LogFile, "[LOG] V_FrameWork log initialized at %s\n", logPath);
 }
 
 void Log(const char* fmt, ...)
 {
+    char buf[4096];
     va_list args;
     va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (len < 0)
+        return;
+    if (len >= static_cast<int>(sizeof(buf)))
+        len = static_cast<int>(sizeof(buf)) - 1;
 
-    vprintf(fmt, args);
+    std::lock_guard<std::mutex> lock(g_LogMutex);
 
-    if (g_LogFile)
+    char ts[32];
+    SYSTEMTIME st;
+
+    int i = 0;
+    while (i < len)
     {
-        va_list args2;
-        va_start(args2, fmt);
-        vfprintf(g_LogFile, fmt, args2);
-        va_end(args2);
-        fflush(g_LogFile);
+        if (g_AtLineStart && buf[i] != '\n')
+        {
+            GetLocalTime(&st);
+            const int tslen = sprintf_s(
+                ts, sizeof(ts),
+                "[%02u:%02u:%02u.%03u] ",
+                st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+            fwrite(ts, 1, tslen, stdout);
+            if (g_LogFile)
+                fwrite(ts, 1, tslen, g_LogFile);
+            g_AtLineStart = false;
+        }
+
+        int j = i;
+        while (j < len && buf[j] != '\n')
+            ++j;
+
+        if (j > i)
+        {
+            fwrite(buf + i, 1, j - i, stdout);
+            if (g_LogFile)
+                fwrite(buf + i, 1, j - i, g_LogFile);
+        }
+
+        if (j < len)
+        {
+            fputc('\n', stdout);
+            if (g_LogFile)
+                fputc('\n', g_LogFile);
+            g_AtLineStart = true;
+            ++j;
+        }
+
+        i = j;
     }
 
-    va_end(args);
+    if (g_LogFile)
+        fflush(g_LogFile);
 }
 
 void CloseLog()
 {
+    std::lock_guard<std::mutex> lock(g_LogMutex);
     if (g_LogFile)
     {
         fprintf(g_LogFile, "[LOG] Closing log.\n");
         fclose(g_LogFile);
         g_LogFile = nullptr;
     }
-    FreeConsole();
 }

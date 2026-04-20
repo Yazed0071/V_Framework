@@ -57,7 +57,10 @@ namespace
     static bool g_Installed = false;
 
     static constexpr std::uint8_t kCustomPartsTypeMin = 0x40;
-    static constexpr std::uint32_t kMaxVanillaPartsType = 0x1B;
+    // 0x00..0x19 = NORMAL..SWIMWEAR_H (see mgsvtpp.exe.c:1430322).
+    // 0x1A/0x1B exist as avatar-female specials but are never handed to
+    // LoadPartsNew through the normal suit flow.
+    static constexpr std::uint32_t kMaxVanillaPartsType = 0x19;
 
     namespace
     {

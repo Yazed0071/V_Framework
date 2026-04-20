@@ -58,6 +58,8 @@
     <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
     <ClInclude Include="src\hooks\soldier\VIPRadioHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
     <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h"><Filter>Hooks\Soldier</Filter></ClInclude>
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h"><Filter>Hooks\Soldier</Filter></ClInclude>
     <!-- Equip headers -->
     <ClInclude Include="src\hooks\equip\CustomEquipIdState.h"><Filter>Hooks\Equip</Filter></ClInclude>
@@ -78,14 +80,13 @@
     <ClInclude Include="src\hooks\player\PlayerSuitResolverHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\PlayerFaceFovaGateHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\PlayerFaceEquipRepairHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerHeadOptionSelectionCountHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerHeadOptionUiHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\CharacterSelectorPreserveHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\SuitVariantHook.h"><Filter>Hooks\Player</Filter></ClInclude>
+    <ClInclude Include="src\hooks\player\CurrentSuitQueryHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <!-- Sound headers -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h"><Filter>Hooks\Sound</Filter></ClInclude>
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h"><Filter>Hooks\Sound</Filter></ClInclude>
@@ -125,6 +126,8 @@
     <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
     <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
     <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
     <!-- Equip sources -->
     <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
@@ -145,15 +148,13 @@
     <ClCompile Include="src\hooks\player\PlayerSuitResolverHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\PlayerFaceFovaGateHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\PlayerFaceEquipRepairHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerHeadOptionSelectionCountHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerHeadOptionUiHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\UpdatePartsStatusProbe.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\CharacterSelectorPreserveHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\SuitVariantHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
+    <ClCompile Include="src\hooks\player\CurrentSuitQueryHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <!-- Sound sources -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp"><Filter>Hooks\Sound</Filter></ClCompile>

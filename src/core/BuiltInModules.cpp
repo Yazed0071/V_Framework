@@ -38,6 +38,9 @@ bool Uninstall_VIPHoldup_Hook();
 bool Install_VIPRadio_Hook();
 bool Uninstall_VIPRadio_Hook();
 
+bool Install_ConvertParameterIdLogger_Hook();
+bool Uninstall_ConvertParameterIdLogger_Hook();
+
 bool Install_HoldUpReactionCowardlyReactions_Hook();
 bool Uninstall_HoldUpReactionCowardlyReactions_Hook();
 
@@ -126,14 +129,11 @@ bool Uninstall_PlayerFaceFovaGate_Hook();
 bool Install_PlayerHeadOptionRepair_Hook();
 bool Uninstall_PlayerHeadOptionRepair_Hook();
 
-bool Install_PlayerHeadOptionUi_Hook();
-bool Uninstall_PlayerHeadOptionUi_Hook();   
-
-bool Install_PlayerHeadOptionSelectionCount_Hook();
-bool Uninstall_PlayerHeadOptionSelectionCount_Hook();
-
 bool Install_MissionPrepUpdateLoadMark_Hook();
 bool Uninstall_MissionPrepUpdateLoadMark_Hook();
+
+bool Install_CurrentSuitQuery_Hook();
+bool Uninstall_CurrentSuitQuery_Hook();
 
 namespace
 {
@@ -313,6 +313,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_VIPRadio_Hook();
+        }
+    };
+
+    class ConvertParameterIdLoggerModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ConvertParameterIdLogger";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_ConvertParameterIdLogger_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_ConvertParameterIdLogger_Hook();
         }
     };
 
@@ -693,10 +713,15 @@ namespace
             allOk &= Install_CharacterSelectorPreserve_Hook();
             allOk &= Install_PlayerFaceFovaGate_Hook();
             allOk &= Install_PlayerHeadOptionRepair_Hook();
-            // HEAD OPTION cycling (BALACLAVA/HEADGEAR) parked for now.
-            // enableHead=true still works for face/hair loading via DoesNeedFaceFova.
-            // Install_PlayerHeadOptionUi_Hook();
-            // Install_PlayerHeadOptionSelectionCount_Hook();
+            // CurrentSuitQuery replaces the former hkGetCurrentSuitFlowIndex
+            // (void-setter RAX-garbage coincidence) + hkIsEnableCurrentSuit +
+            // hkIsDeveloped forcing chain with two clean hooks at the real
+            // source-of-truth layer: GetEquipIdFromLoadoutInfo (slot 1 UNIFORMS
+            // query) and IsEquipDeveloped (R&D gate).
+            allOk &= Install_CurrentSuitQuery_Hook();
+            // HEAD OPTION cycling (BALACLAVA/HEADGEAR) is driven by
+            // SuitVariantHook's GetSelectionNum + GetSuitVariation hooks now,
+            // not by the older PlayerHeadOptionUi/SelectionCount hooks (deleted).
             Install_MissionPrepUpdateLoadMark_Hook();
             return allOk;
         }
@@ -708,8 +733,7 @@ namespace
             Uninstall_ItemSelectorSuitCommit_Hook();
             Uninstall_CharacterSelectorPreserve_Hook();
             Uninstall_PlayerFaceFovaGate_Hook();
-            // Uninstall_PlayerHeadOptionUi_Hook();
-            // Uninstall_PlayerHeadOptionSelectionCount_Hook();
+            Uninstall_CurrentSuitQuery_Hook();
             Uninstall_MissionPrepUpdateLoadMark_Hook();
         }
     };
@@ -749,6 +773,7 @@ void RegisterBuiltInFeatureModules()
     static VIPSleepFaintModule s_VIPSleepFaintModule;
     static VIPHoldupModule s_VIPHoldupModule;
     static VIPRadioModule s_VIPRadioModule;
+    static ConvertParameterIdLoggerModule s_ConvertParameterIdLoggerModule;
     static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
     static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
     static LostHostageModule s_LostHostageModule;
@@ -784,6 +809,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
+            FeatureModuleRegistry::Instance().Register(&s_ConvertParameterIdLoggerModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
             FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
