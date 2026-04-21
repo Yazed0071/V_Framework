@@ -42,7 +42,7 @@ namespace
             }
             if (firstSeen)
             {
-                Log("[ParamID] \"%s\" -> 0x%08X\n", name, id);
+                //Log("[ParamID] \"%s\" -> 0x%08X\n", name, id);
             }
         }
         return id;
