@@ -188,19 +188,7 @@
     <ClInclude Include="src\hooks\equip\SetEquipParameters.h" />
     <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h" />
     <!-- Hooks: Player -->
-    <ClInclude Include="src\hooks\player\CustomSuitRegistry.h" />
-    <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
-    <ClInclude Include="src\hooks\player\PlayerPartsPathHook.h" />
-    <ClInclude Include="src\hooks\player\PlayerSuitResolverHook.h" />
-    <ClInclude Include="src\hooks\player\PlayerFaceFovaGateHook.h" />
-    <ClInclude Include="src\hooks\player\PlayerFaceEquipRepairHook.h" />
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
-    <ClInclude Include="src\hooks\player\CharacterSelectorPreserveHook.h" />
-    <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h" />
-    <ClInclude Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.h" />
-    <ClInclude Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.h" />
-    <ClInclude Include="src\hooks\player\SuitVariantHook.h" />
-    <ClInclude Include="src\hooks\player\CurrentSuitQueryHook.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
@@ -261,19 +249,7 @@
     <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp" />
     <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp" />
     <!-- Hooks: Player -->
-    <ClCompile Include="src\hooks\player\CustomSuitRegistry.cpp" />
-    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
-    <ClCompile Include="src\hooks\player\PlayerPartsPathHook.cpp" />
-    <ClCompile Include="src\hooks\player\PlayerSuitResolverHook.cpp" />
-    <ClCompile Include="src\hooks\player\PlayerFaceFovaGateHook.cpp" />
-    <ClCompile Include="src\hooks\player\PlayerFaceEquipRepairHook.cpp" />
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
-    <ClCompile Include="src\hooks\player\CharacterSelectorPreserveHook.cpp" />
-    <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp" />
-    <ClCompile Include="src\hooks\player\MissionPrepPlayerPartsRequestHook.cpp" />
-    <ClCompile Include="src\hooks\player\MissionPreparationCallbackImpl_UpdateLoadMark.cpp" />
-    <ClCompile Include="src\hooks\player\SuitVariantHook.cpp" />
-    <ClCompile Include="src\hooks\player\CurrentSuitQueryHook.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />

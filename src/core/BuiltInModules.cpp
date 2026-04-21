@@ -6,7 +6,6 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "EquipIdTable_AddToEquipIdTable.h"
-#include "SuitVariantHook.h"
 
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
@@ -107,33 +106,6 @@ namespace EquipParams
 
 bool Install_EquipIconFtexPath_Hook();
 bool Uninstall_EquipIconFtexPath_Hook();
-
-bool Install_PlayerSuitResolver_Hook();
-bool Uninstall_PlayerSuitResolver_Hook();
-
-bool Install_PlayerPartsPath_Hook();
-bool Uninstall_PlayerPartsPath_Hook();
-
-bool Install_MissionPrepPlayerPartsRequest_Hook();
-bool Uninstall_MissionPrepPlayerPartsRequest_Hook();
-
-bool Install_ItemSelectorSuitCommit_Hook();
-bool Uninstall_ItemSelectorSuitCommit_Hook();
-
-bool Install_CharacterSelectorPreserve_Hook();
-bool Uninstall_CharacterSelectorPreserve_Hook();
-
-bool Install_PlayerFaceFovaGate_Hook();
-bool Uninstall_PlayerFaceFovaGate_Hook();
-
-bool Install_PlayerHeadOptionRepair_Hook();
-bool Uninstall_PlayerHeadOptionRepair_Hook();
-
-bool Install_MissionPrepUpdateLoadMark_Hook();
-bool Uninstall_MissionPrepUpdateLoadMark_Hook();
-
-bool Install_CurrentSuitQuery_Hook();
-bool Uninstall_CurrentSuitQuery_Hook();
 
 namespace
 {
@@ -661,99 +633,6 @@ namespace
             Uninstall_EquipIconFtexPath_Hook();
         }
     };
-    class PlayerPartsPathModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "PlayerPartsPath";
-        }
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_PlayerPartsPath_Hook();
-        }
-        void Uninstall() override
-        {
-            Uninstall_PlayerPartsPath_Hook();
-        }
-    };
-    class PlayerSuitResolverModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "PlayerSuitResolver";
-        }
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_PlayerSuitResolver_Hook();
-        }
-        void Uninstall() override
-        {
-            Uninstall_PlayerSuitResolver_Hook();
-        }
-
-    };
-    class PlayerAppearanceCustomSuitModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "PlayerAppearanceCustomSuit";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            bool allOk = true;
-            allOk &= Install_MissionPrepPlayerPartsRequest_Hook();
-            allOk &= Install_ItemSelectorSuitCommit_Hook();
-            allOk &= Install_CharacterSelectorPreserve_Hook();
-            allOk &= Install_PlayerFaceFovaGate_Hook();
-            allOk &= Install_PlayerHeadOptionRepair_Hook();
-            // CurrentSuitQuery replaces the former hkGetCurrentSuitFlowIndex
-            // (void-setter RAX-garbage coincidence) + hkIsEnableCurrentSuit +
-            // hkIsDeveloped forcing chain with two clean hooks at the real
-            // source-of-truth layer: GetEquipIdFromLoadoutInfo (slot 1 UNIFORMS
-            // query) and IsEquipDeveloped (R&D gate).
-            allOk &= Install_CurrentSuitQuery_Hook();
-            // HEAD OPTION cycling (BALACLAVA/HEADGEAR) is driven by
-            // SuitVariantHook's GetSelectionNum + GetSuitVariation hooks now,
-            // not by the older PlayerHeadOptionUi/SelectionCount hooks (deleted).
-            Install_MissionPrepUpdateLoadMark_Hook();
-            return allOk;
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_PlayerHeadOptionRepair_Hook();
-            Uninstall_MissionPrepPlayerPartsRequest_Hook();
-            Uninstall_ItemSelectorSuitCommit_Hook();
-            Uninstall_CharacterSelectorPreserve_Hook();
-            Uninstall_PlayerFaceFovaGate_Hook();
-            Uninstall_CurrentSuitQuery_Hook();
-            Uninstall_MissionPrepUpdateLoadMark_Hook();
-        }
-    };
-    class SuitVariantModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "SuitVariant";
-        }
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_SuitVariant_Hooks();
-        }
-        void Uninstall() override
-        {
-            Uninstall_SuitVariant_Hooks();
-        }
-    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -785,10 +664,6 @@ void RegisterBuiltInFeatureModules()
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
-    static PlayerPartsPathModule s_PlayerPartsPathModule;
-    static PlayerSuitResolverModule s_PlayerSuitResolverModule;
-    static PlayerAppearanceCustomSuitModule s_PlayerAppearanceCustomSuitModule;
-    static SuitVariantModule s_SuitVariantModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -820,9 +695,5 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
-            FeatureModuleRegistry::Instance().Register(&s_PlayerPartsPathModule);
-            FeatureModuleRegistry::Instance().Register(&s_PlayerSuitResolverModule);
-            FeatureModuleRegistry::Instance().Register(&s_PlayerAppearanceCustomSuitModule);
-            FeatureModuleRegistry::Instance().Register(&s_SuitVariantModule);
         });
 }

@@ -46,10 +46,6 @@ extern "C" {
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
 #include "SoldierRtpcHook.h"
-#include "InitCamoufTable.h"
-#include "CustomSuitRegistry.h"
-#include "PlayerSuitResolverHook.h"
-#include "PlayerPartsPathHook.h"
 #include "V_FrameWorkModLoader.h"
 #include "V_FrameWorkState.h"
 
@@ -1403,255 +1399,6 @@ static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
     return 0;
 }
 
-// Camo type name -> index lookup (117 entries, matching PlayerCamoType enum)
-static int ResolveCamoTypeArg(lua_State* L, int idx)
-{
-    if (LuaIsNumber(L, idx))
-        return GetLuaInt(L, idx);
-
-    if (!LuaIsString(L, idx))
-        return -1;
-
-    const char* name = GetLuaString(L, idx);
-    if (!name) return -1;
-
-    static const struct { const char* name; int index; } kCamoNames[] = {
-        {"OLIVEDRAB",0}, {"SPLITTER",1}, {"SQUARE",2}, {"TIGERSTRIPE",3},
-        {"GOLDTIGER",4}, {"FOXTROT",5}, {"WOODLAND",6}, {"WETWORK",7},
-        {"ARBANGRAY",8}, {"ARBANBLUE",9}, {"SANDSTORM",10}, {"REALTREE",11},
-        {"INVISIBLE",12}, {"BLACK",13}, {"SNEAKING_SUIT_GZ",14}, {"SNEAKING_SUIT_TPP",15},
-        {"BATTLEDRESS",16}, {"PARASITE",17}, {"NAKED",18}, {"LEATHER",19},
-        {"SOLIDSNAKE",20}, {"NINJA",21}, {"RAIDEN",22}, {"HOSPITAL",23},
-        {"GOLD",24}, {"SILVER",25}, {"PANTHER",26}, {"AVATAR_EDIT_MAN",27},
-        {"MGS3",28}, {"MGS3_NAKED",29}, {"MGS3_SNEAKING",30}, {"MGS3_TUXEDO",31},
-        {"EVA_CLOSE",32}, {"EVA_OPEN",33}, {"BOSS_CLOSE",34}, {"BOSS_OPEN",35},
-        {"C23",36}, {"C24",37}, {"C27",38}, {"C29",39}, {"C30",40}, {"C35",41},
-        {"C38",42}, {"C39",43}, {"C42",44}, {"C46",45}, {"C49",46}, {"C52",47},
-        {"C16",48}, {"C17",49}, {"C18",50}, {"C19",51}, {"C20",52}, {"C22",53},
-        {"C25",54}, {"C26",55}, {"C28",56}, {"C31",57}, {"C32",58}, {"C33",59},
-        {"C36",60}, {"C37",61}, {"C40",62}, {"C41",63}, {"C43",64}, {"C44",65},
-        {"C45",66}, {"C47",67}, {"C48",68}, {"C50",69}, {"C51",70}, {"C53",71},
-        {"C54",72}, {"C55",73}, {"C56",74}, {"C57",75}, {"C58",76}, {"C59",77},
-        {"C60",78},
-        {"SWIMWEAR_C00",79}, {"SWIMWEAR_C01",80}, {"SWIMWEAR_C02",81},
-        {"SWIMWEAR_C03",82}, {"SWIMWEAR_C05",83}, {"SWIMWEAR_C06",84},
-        {"SWIMWEAR_C38",85}, {"SWIMWEAR_C39",86}, {"SWIMWEAR_C44",87},
-        {"SWIMWEAR_C46",88}, {"SWIMWEAR_C48",89}, {"SWIMWEAR_C53",90},
-        {"SWIMWEAR_G_C00",91}, {"SWIMWEAR_G_C01",92}, {"SWIMWEAR_G_C02",93},
-        {"SWIMWEAR_G_C03",94}, {"SWIMWEAR_G_C05",95}, {"SWIMWEAR_G_C06",96},
-        {"SWIMWEAR_G_C38",97}, {"SWIMWEAR_G_C39",98}, {"SWIMWEAR_G_C44",99},
-        {"SWIMWEAR_G_C46",100}, {"SWIMWEAR_G_C48",101}, {"SWIMWEAR_G_C53",102},
-        {"SWIMWEAR_H_C00",103}, {"SWIMWEAR_H_C01",104}, {"SWIMWEAR_H_C02",105},
-        {"SWIMWEAR_H_C03",106}, {"SWIMWEAR_H_C05",107}, {"SWIMWEAR_H_C06",108},
-        {"SWIMWEAR_H_C38",109}, {"SWIMWEAR_H_C39",110}, {"SWIMWEAR_H_C44",111},
-        {"SWIMWEAR_H_C46",112}, {"SWIMWEAR_H_C48",113}, {"SWIMWEAR_H_C53",114},
-        {"OCELOT",115}, {"QUIET",116},
-    };
-
-    for (const auto& entry : kCamoNames)
-    {
-        if (strcmp(name, entry.name) == 0)
-            return entry.index;
-    }
-
-    Log("[CamoTable] Unknown camo type name: %s\n", name);
-    return -1;
-}
-
-// Material type name -> index lookup (82 entries)
-static int ResolveMaterialTypeArg(lua_State* L, int idx)
-{
-    if (LuaIsNumber(L, idx))
-        return GetLuaInt(L, idx);
-
-    if (!LuaIsString(L, idx))
-        return -1;
-
-    const char* name = GetLuaString(L, idx);
-    if (!name) return -1;
-
-    static const struct { const char* name; int index; } kMaterialNames[] = {
-        {"MTR_IRON_A",0}, {"MTR_IRON_B",1}, {"MTR_IRON_C",2}, {"MTR_IRON_D",3},
-        {"MTR_IRON_E",4}, {"MTR_IRON_F",5}, {"MTR_IRON_G",6}, {"MTR_IRON_M",7},
-        {"MTR_IRON_N",8}, {"MTR_IRON_W",9}, {"MTR_PIPE_A",10}, {"MTR_PIPE_B",11},
-        {"MTR_PIPE_S",12}, {"MTR_TIN_A",13}, {"MTR_FENC_A",14}, {"MTR_FENC_B",15},
-        {"MTR_FENC_F",16}, {"MTR_CONC_A",17}, {"MTR_CONC_B",18}, {"MTR_BRIC_A",19},
-        {"MTR_PLAS_A",20}, {"MTR_PLAS_B",21}, {"MTR_PLAS_W",22}, {"MTR_PAPE_A",23},
-        {"MTR_PAPE_B",24}, {"MTR_PAPE_C",25}, {"MTR_PAPE_D",26}, {"MTR_RUBB_A",27},
-        {"MTR_RUBB_B",28}, {"MTR_CLOT_A",29}, {"MTR_CLOT_B",30}, {"MTR_CLOT_C",31},
-        {"MTR_CLOT_D",32}, {"MTR_CLOT_E",33}, {"MTR_GLAS_A",34}, {"MTR_GLAS_B",35},
-        {"MTR_GLAS_C",36}, {"MTR_VINL_A",37}, {"MTR_VINL_W",38}, {"MTR_TILE_A",39},
-        {"MTR_TLRF_A",40}, {"MTR_ALRM_A",41}, {"MTR_COPS_A",42}, {"MTR_COPS_B",43},
-        {"MTR_BRIR_A",44}, {"MTR_BLOD_A",45}, {"MTR_SOIL_A",46}, {"MTR_SOIL_B",47},
-        {"MTR_SOIL_C",48}, {"MTR_SOIL_D",49}, {"MTR_SOIL_E",50}, {"MTR_SOIL_F",51},
-        {"MTR_SOIL_G",52}, {"MTR_SOIL_H",53}, {"MTR_SOIL_R",54}, {"MTR_SOIL_W",55},
-        {"MTR_GRAV_A",56}, {"MTR_SAND_A",57}, {"MTR_SAND_B",58}, {"MTR_SAND_C",59},
-        {"MTR_LEAF",60}, {"MTR_RLEF",61}, {"MTR_RLEF_B",62}, {"MTR_WOOD_A",63},
-        {"MTR_WOOD_B",64}, {"MTR_WOOD_C",65}, {"MTR_WOOD_D",66}, {"MTR_WOOD_G",67},
-        {"MTR_WOOD_M",68}, {"MTR_WOOD_W",69}, {"MTR_FWOD_A",70}, {"MTR_PLNT_A",71},
-        {"MTR_ROCK_A",72}, {"MTR_ROCK_B",73}, {"MTR_ROCK_P",74}, {"MTR_MOSS_A",75},
-        {"MTR_TURF_A",76}, {"MTR_WATE_A",77}, {"MTR_WATE_B",78}, {"MTR_WATE_C",79},
-        {"MTR_AIR_A",80}, {"MTR_NONE_A",81},
-    };
-
-    for (const auto& entry : kMaterialNames)
-    {
-        if (strcmp(name, entry.name) == 0)
-            return entry.index;
-    }
-
-    Log("[CamoTable] Unknown material type name: %s\n", name);
-    return -1;
-}
-
-static int __cdecl l_SetCamoValue(lua_State* L)
-{
-    const int camoType = ResolveCamoTypeArg(L, 1);
-    const int materialType = ResolveMaterialTypeArg(L, 2);
-    const int value = GetLuaInt(L, 3);
-
-    if (camoType < 0 || materialType < 0)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const bool ok = Set_CamoValue(
-        static_cast<std::uint32_t>(camoType),
-        static_cast<std::uint32_t>(materialType),
-        value
-    );
-
-    if (ok) PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-static int __cdecl l_CloneCamoRow(lua_State* L)
-{
-    const int dstCamoType = ResolveCamoTypeArg(L, 1);
-    const int srcCamoType = ResolveCamoTypeArg(L, 2);
-
-    if (dstCamoType < 0 || srcCamoType < 0)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const bool ok = Clone_CamoRow(
-        static_cast<std::uint32_t>(dstCamoType),
-        static_cast<std::uint32_t>(srcCamoType)
-    );
-
-    if (ok) PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-// Imports a Lua array {v1, v2, ..., v82} into one camo row.
-// Args: camoType (int), valuesTable (table)
-static int __cdecl l_ImportCamoRow(lua_State* L)
-{
-    const int camoType = GetLuaInt(L, 1);
-
-    if (LuaType(L, 2) != 5) // not a table
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const std::size_t len = LuaObjLen(L, 2);
-    const std::size_t maxMaterials = GetMaterialTypeCount();
-    const std::size_t count = (len < maxMaterials) ? len : maxMaterials;
-
-    std::int32_t values[82]{};
-    for (std::size_t i = 0; i < count; ++i)
-    {
-        LuaRawGetI(L, 2, static_cast<int>(i + 1));
-        values[i] = static_cast<std::int32_t>(GetLuaNumber(L, -1));
-        LuaPop(L, 1);
-    }
-
-    const bool ok = ImportCamoRow(
-        static_cast<std::uint32_t>(camoType),
-        values,
-        count
-    );
-
-    if (ok) PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-static int __cdecl l_SetPlayerPartsPath(lua_State* L)
-{
-    if (LuaType(L, 1) != 5)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    int playerTypeInt = 0;
-    const char* partsPath = nullptr;
-    const char* fpkPath = nullptr;
-
-    const bool havePlayerType = TryReadTableIntField(L, 1, "playerType", playerTypeInt);
-    const bool havePartsPath = TryReadTableStringField(L, 1, "partsPath", partsPath);
-    const bool haveFpkPath = TryReadTableStringField(L, 1, "fpkPath", fpkPath);
-
-    if (!havePlayerType || !havePartsPath || !haveFpkPath || !partsPath || !fpkPath)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    // Simple boolean controls
-    const bool enableHead = TryReadTableBoolField(L, 1, "enableHead", true);
-    const bool enableHand = TryReadTableBoolField(L, 1, "enableHand", true);
-    const bool enableCamo = TryReadTableBoolField(L, 1, "enableCamo", false);
-
-    // Optional custom sub-asset paths
-    const char* fv2Path = nullptr;
-    const char* fv2FpkPath = nullptr;
-    const char* faceFpkPath = nullptr;
-    const char* armFpkPath = nullptr;
-    const char* diamondPath = nullptr;
-
-    TryReadTableStringField(L, 1, "fv2Path",     fv2Path);
-    TryReadTableStringField(L, 1, "fv2FpkPath",  fv2FpkPath);
-    TryReadTableStringField(L, 1, "faceFpk",     faceFpkPath);
-    TryReadTableStringField(L, 1, "armFpk",      armFpkPath);
-    TryReadTableStringField(L, 1, "diamondFpk",  diamondPath);
-
-    // Camo enabled if: fv2FpkPath provided OR enableCamo explicitly set by wrapper
-    const bool hasCamo = enableCamo || (fv2FpkPath != nullptr && fv2FpkPath[0] != '\0');
-
-    CustomSuitRegistration reg{};
-    reg.playerType      = static_cast<std::uint8_t>(playerTypeInt & 0xFF);
-    reg.partsPath       = partsPath;
-    reg.fpkPath         = fpkPath;
-    reg.camoFpk         = fv2FpkPath;
-    reg.faceFpk         = faceFpkPath;
-    reg.armFpk          = armFpkPath;
-    reg.skinToneFv2     = fv2Path;
-    reg.diamondFpk      = diamondPath;
-    reg.faceVanilla     = enableHead;
-    reg.armVanilla      = enableHand;
-    reg.skinToneVanilla = hasCamo;
-
-    std::uint8_t playerPartsType = 0xFF;
-    const bool ok = RegisterCustomSuit(reg, playerPartsType);
-
-    if (!ok)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    PushLuaNumber(L, static_cast<float>(playerPartsType));
-    return 1;
-}
-
 static int __cdecl l_GetModFiles(lua_State* L)
 {
     const auto files = V_FrameWorkModLoader::FindModFiles();
@@ -1675,34 +1422,6 @@ static int __cdecl l_GetModFiles(lua_State* L)
     return 1;
 }
 
-static int __cdecl l_LinkDevelopIdToPlayerSuit(lua_State* L)
-{
-    const int developId = GetLuaInt(L, 1);
-    const int partsType = GetLuaInt(L, 2);
-
-    std::uint16_t flowIndex = 0xFFFF;
-    EquipDevelopAdd::TryGetFlowIndexForDevelopId(
-        static_cast<std::uint16_t>(developId & 0xFFFF),
-        flowIndex
-    );
-
-    const bool ok = LinkDevelopIdToPlayerSuitEx(
-        static_cast<std::uint16_t>(developId & 0xFFFF),
-        flowIndex,
-        static_cast<std::uint8_t>(partsType & 0xFF)
-    );
-
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-static int __cdecl l_AllocateVariantGroupId(lua_State* L)
-{
-    const std::uint16_t groupId = AllocateVariantGroupId();
-    PushLuaNumber(L, static_cast<float>(groupId));
-    return 1;
-}
-
 // Writes a message to mod\V_FrameWork\V_FrameWork_log.txt through the same
 // Log() routine the C++ hooks use, so Lua-originated messages interleave
 // with hook events chronologically. Returns nothing.
@@ -1717,22 +1436,6 @@ static int __cdecl l_Log(lua_State* L)
         Log("%s\n", msg);
     }
     return 0;
-}
-
-static int __cdecl l_SetVariantGroup(lua_State* L)
-{
-    const int partsType = GetLuaInt(L, 1);
-    const int groupId = GetLuaInt(L, 2);
-    const int variantIndex = GetLuaInt(L, 3);
-
-    const bool ok = SetVariantGroup(
-        static_cast<std::uint8_t>(partsType & 0xFF),
-        static_cast<std::uint16_t>(groupId & 0xFFFF),
-        static_cast<std::uint8_t>(variantIndex & 0xFF)
-    );
-
-    PushLuaBool(L, ok);
-    return 1;
 }
 
 static luaL_Reg g_VFrameWorkLib[] =
@@ -1805,13 +1508,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
-    { "SetCamoValue",                           l_SetCamoValue },
-    { "CloneCamoRow",                           l_CloneCamoRow },
-    { "ImportCamoRow",                          l_ImportCamoRow },
-    { "SetPlayerPartsPath",                     l_SetPlayerPartsPath },
-    { "LinkDevelopIdToPlayerSuit",              l_LinkDevelopIdToPlayerSuit },
-    { "AllocateVariantGroupId",                 l_AllocateVariantGroupId },
-    { "SetVariantGroup",                        l_SetVariantGroup },
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
     { nullptr, nullptr }

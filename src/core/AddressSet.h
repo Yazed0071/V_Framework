@@ -72,6 +72,7 @@ namespace AddressSetRuntime
         uintptr_t State_EnterDownHoldup = 0;
         uintptr_t State_EnterStandHoldup1 = 0;
         uintptr_t State_EnterStandHoldupUnarmed = 0;
+        uintptr_t State_RecoveryKick = 0;
         uintptr_t State_RecoveryTouch = 0;
         uintptr_t State_StandHoldupCancelLookToPlayer = 0;
         uintptr_t State_StandRecoveryHoldup = 0;
@@ -111,136 +112,6 @@ namespace AddressSetRuntime
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
         uintptr_t DeclareAMs = 0;
         uintptr_t GetIconFtexPath = 0;
-        uintptr_t LoadPlayerPartsParts = 0;
-        uintptr_t LoadPlayerPartsFpk = 0;
-        uintptr_t ResolveSuitToPartsType = 0;
-        uintptr_t Player2BlockController_LoadPartsNew = 0;
-        uintptr_t UpdatePartsStatus = 0;
-        uintptr_t MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode = 0;
-        // Player2UtilityImpl::RequestToChangePlayerPartsInMissionPreparationMode
-        // at 0x1462b6590. 3-arg wrapper `(this, blob, apply)`. Unlike the
-        // AttackActionImpl function at 0x14973DA60 (4-arg, requires proper
-        // AttackActionImpl `this` = (Player2UtilityImpl+0x8).+0x138.+0x48 which
-        // we can't trivially get from outside), this wrapper ignores `this`
-        // and calls GetPlayer2System internally to resolve the right receiver.
-        //
-        // Flow: GetPlayer2System() → Player.field_0x8 (innerPlayer) → vtable+0x140
-        // → chains to AttackActionImpl::RequestToChangePlayerPartsInMissionPreparationMode
-        // → our 4-arg hook fires normally with the proper `this`.
-        //
-        // Used by TriggerSilentSuitCommit for the initial-equip HEAD OPTION
-        // entries prime — no `this` needed from the caller, safe to invoke
-        // from any context (SetupEquipPanelParam, GetSelectionNum) where the
-        // 4-arg function would crash due to wrong `this`.
-        uintptr_t Player2UtilityImpl_CommitWrapper = 0;
-        uintptr_t ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode = 0;
-        uintptr_t ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode = 0;
-        uintptr_t CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo = 0;
-        uintptr_t ResourceTable_DoesNeedFaceFova = 0;
-        uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar = 0;
-        uintptr_t LoadPlayerCamoFpk = 0;
-        uintptr_t LoadPlayerSnakeBlackDiamondFpk = 0;
-        uintptr_t CamoSystemObject = 0;
-        uintptr_t GetSuitVariation = 0;
-        uintptr_t HeadOptionTableLookup = 0;
-        // `FUN_1460b9fa0` at 0x1460b9fa0 — the HasHeadOptions check called
-        // from `MissionPreparationCallbackImpl::GetSelectionNum` via the
-        // sub-controller's vtable+0x460 slot. Returns 1 if the flowIndex has
-        // any HEAD OPTION via a 7-way OR of EquipDevelopController lookups
-        // (flow → uVar3/sVar2 → category comparisons), 0 otherwise.
-        //
-        // We hook this to force return 1 for custom enableHead=true suits in
-        // GetSelectionNum scope — without this, the "vanilla remap flowIndex"
-        // we substitute via hkGetCurrentSuitFlowIndex has to happen to match
-        // a specific head-option-bearing vanilla flow (empirically 698 for
-        // some playerTypes, 521 was wrong), which is brittle across game
-        // sessions with different cached vanilla flows.
-        //
-        // Prologue: `48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20` (15 bytes,
-        // MinHook-safe). Only caller is the vtable+0x460 thunk at
-        // `0x1409575d0` (verified by XREFs 1409575d0(c),142dae274(*)).
-        uintptr_t HasHeadOptions = 0;
-        // `FUN_1460b4300` at 0x1460b4300 — the HEAD OPTION entries getter.
-        // Called 8 times by `MissionPreparationCallbackImpl::GetCurrentItems`
-        // (decomp line 2965913) via `(this+0xa0).vtable+0x1d8(index)` to
-        // populate the 8 HEAD OPTION u16 entries in the CharaSlotSelect
-        // dialog's item buffer.
-        //
-        // Current behavior: IGNORES the index argument, returns
-        // `state[0x138]` (a u32 truncated to u16). So all 8 slots get the
-        // same value. For custom suits this is typically 0xD000 (truncated
-        // from state[0x138]=0x6602D000) which isn't a valid head-option
-        // equipId → UI shows empty slots.
-        //
-        // We hook this to return distinct head-option equipIds per index
-        // for custom enableHead=true suits: 0x17CA..0x17CE for indices 0..4
-        // (BALACLAVA, BANDANA, HEADGEAR A/B/C), 0 for indices 5-7.
-        //
-        // Prologue: `48 83 ec 28` (SUB RSP,0x28, 4 bytes) + `e8 ...` (CALL
-        // rel32, 5 bytes) + `48 8b 88 98 00 00 00` (MOV RCX,[RAX+0x98], 7
-        // bytes) = 16 bytes. MinHook's 14-byte relocation window splices
-        // into the MOV — MinHook supports instruction boundary extension
-        // for this case (the straddling instruction is fully copied to
-        // the trampoline).
-        uintptr_t HeadOptionIndexGetter = 0;
-        uintptr_t MissionPrep_GetSelectionNum = 0;
-        uintptr_t MissionPrep_IsEnableCurrentHeadOption = 0;
-        uintptr_t MissionPrep_UpdateLoadMark = 0;
-        // FUN_1416041e0 — dead-end, doesn't fire in sortie-prep HEAD
-        // OPTION path. Kept in AddressSet for reference but set to 0 so
-        // it isn't installed. Left here so we don't re-attempt hooking it.
-        uintptr_t FetchCurrentHeadOptionKey = 0;
-
-        // FUN_140f665a0 = SuitCatalog::FindHeadOptionRow(group, subkey1, subkey2).
-        // Single-shot lookup against the 25-entry table at DAT_14239a5f0
-        // (first row = 0x17CA BALACLAVA, layout `{u16 equipId, u8 group,
-        // u8 subkey1, u8 subkey2, u8 pad}`). Returns equipId on match
-        // (via vtable+0xe0 tail call), 0x400 on miss.
-        //
-        // For custom suits the vanilla table has no matching row, so the
-        // miss-path returns 0x400 and the UI's HEAD OPTION menu enumerator
-        // treats it as "no entry". We hook this to override the 0x400
-        // miss-return with vanilla equipIds `0x17CA + subkey1` so the
-        // UI's enumerator sees valid entries (BALACLAVA..HEADGEAR) for
-        // each subkey1 it queries.
-        //
-        // Prologue: `48895c2408 57 4883ec20 0fb6da 32c0 488d3d...` (24 clean
-        // bytes) — MinHook-safe.
-        uintptr_t SuitCatalog_FindHeadOptionRow = 0;
-        uintptr_t SetupCharacterSlotSelectPrefabListElement = 0;
-        uintptr_t AddListSuit = 0;
-        uintptr_t IsEnableCurrentSuit = 0;
-        uintptr_t SetupEquipPanelParam = 0;
-        uintptr_t GetCurrentSuitFlowIndex = 0;
-        // `tpp::ui::menu::impl::MissionPreparationCallbackImpl::GetEquipIdFromLoadoutInfo`
-        // at 0x1416bb9c0 (mgsvtpp.exe.c:2965982). The canonical UI-side getter
-        // that asks "what equipId is in slot N right now?" — dispatched from
-        // `SetupEquipPanelParam` (:2968977) into `panel+0x178`, which every
-        // downstream UNIFORMS query reads (EQP badge comparison, icon/name
-        // lookup, detail populate). For slot 1 (UNIFORMS) it calls
-        // `(self+0xa0)->vtable[0x180]()` — a read-only LoadoutInfo query that
-        // returns 0 for custom suits because the vanilla game never populates
-        // the array with a custom flowIndex. Hook here to return the custom
-        // `linkedFlowIndex`, and every UNIFORMS-panel downstream check reads
-        // the correct value naturally (no more RAX-garbage forcing via the
-        // misidentified FUN_140955c70).
-        uintptr_t GetEquipIdFromLoadoutInfo = 0;
-        // `tpp::mbm::impl::EquipDevelopControllerImpl::IsEquipDeveloped` at
-        // 0x14951f860 (mgsvtpp.exe.c:6819436). Body:
-        //   return *(byte *)(*(longlong*)(this + 0x1E008) + flowIndex) & 1;
-        // A flat byte-array indexed by flowIndex, bit 0 = "developed". This is
-        // the single gate for every "is this equipId in R&D" query in the UI:
-        //   - `IsEnableCurrentSuit` (vtable+0x478 on EDC)
-        //   - `SetupEquipPanelParam` panel-populate branch (through IsDeveloped)
-        //   - EQP badge gating on list rows
-        // For custom flowIndex 922+, the vanilla bit-array returns 0. Hook here
-        // to return 1 for any registered custom suit's linkedFlowIndex — this
-        // single hook supersedes IsEnableCurrentSuit-force and IsDeveloped-force
-        // hooks.
-        uintptr_t IsEquipDeveloped = 0;
-        uintptr_t SetItemDetail = 0;
-        uintptr_t SendTrigger = 0;
-        uintptr_t SupplyDropSuitSetup = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
         // Wwise/fox audio — used by SoldierRtpcHook for per-soldier RTPC control.
         uintptr_t AK_SoundEngine_SetRTPCValue = 0;   // AK::SoundEngine::SetRTPCValue (trampoline at 0x14033d520)
@@ -314,6 +185,7 @@ namespace AddressSetRuntime
             0x14A140940ull, // State_EnterDownHoldup
             0x14A140C00ull, // State_EnterStandHoldup1
             0x14A141500ull, // State_EnterStandHoldupUnarmed
+            0x1414BC600ull, // State_RecoveryKick
             0x1414BCEF0ull, // State_RecoveryTouch
             0x14A141910ull, // State_StandHoldupCancelLookToPlayer
             0x1414BCA10ull, // State_StandRecoveryHoldup
@@ -353,45 +225,6 @@ namespace AddressSetRuntime
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x1464AE4F0ull, // DeclareAMs
             0x145E62540ull, // GetIconFtexPath
-            0x146865F80ull, // LoadPlayerPartsParts
-			0x146866C80ull, // LoadPlayerPartsFpk
-			0x141E02930ull, // ResolveSuitToPartsType
-			0x1409B3B60ull, // Player2BlockController_LoadPartsNew
-			0x1409CC380ull, // UpdatePartsStatus
-            0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
-            0x1462B6590ull, // Player2UtilityImpl_CommitWrapper (3-arg, ignores this)
-            0x1416A3670ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
-            0x1416A4280ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
-            0x14A49DA70ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
-            0x140AE84B0ull, // ResourceTable_DoesNeedFaceFova
-            0x140AE8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
-            0x146864180ull, // LoadPlayerCamoFpk
-            0x146864e30ull, // LoadPlayerSnakeBlackDiamondFpk
-            0x142c1be48ull, // CamoSystemObject (global pointer, not a function)
-            0x149519e60ull, // GetSuitVariation
-            0x1460af810ull, // HeadOptionTableLookup
-            0x1460B9FA0ull, // HasHeadOptions (FUN_1460b9fa0, thunk LAB_1409575d0 = vtable+0x460)
-            0x1460B4300ull, // HeadOptionIndexGetter (FUN_1460b4300, vtable+0x1d8 on sub-controller)
-            0x1416bc2c0ull, // MissionPrep_GetSelectionNum
-            0x14a56ba20ull, // MissionPrep_IsEnableCurrentHeadOption
-            0x14a5795c0ull, // MissionPrep_UpdateLoadMark
-            // FetchCurrentHeadOptionKey — disabled 2026-04-20 after
-            // empirical test: FUN_1416041e0 installs cleanly but PROBE
-            // log never fires, meaning this function is not in the
-            // sortie-prep HEAD OPTION code path. Set to 0 so install
-            // skips. Do NOT retry — waste of iteration.
-            0x0ull, // FetchCurrentHeadOptionKey (disabled, not in path)
-            0x140f665a0ull, // SuitCatalog_FindHeadOptionRow (FUN_140f665a0)
-            0x1416bf490ull, // SetupCharacterSlotSelectPrefabListElement
-            0x1416a1aa0ull, // AddListSuit
-            0x14a56bfa0ull, // IsEnableCurrentSuit
-            0x1416c0690ull, // SetupEquipPanelParam
-            0x140955c70ull, // GetCurrentSuitFlowIndex (vtable+0x1F8 on sysObj+0x48)
-            0x1416bb9c0ull, // GetEquipIdFromLoadoutInfo (UI-side canonical "what is in slot N" dispatcher)
-            0x14951f860ull, // IsEquipDeveloped (flat bit-array; single gate for "is this equipId developed")
-            0x14a56e7f0ull, // SetItemDetail (sortie overview item display, uses mode 0 SendTrigger)
-            0x144b05380ull, // SendTrigger (fox::uix::impl::UixUtilityImpl::SendTrigger)
-            0x1416a7610ull, // SupplyDropSuitSetup (FUN_1416a7610 — suit equip handler for supply drops)
             0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
             0x14032adf0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
@@ -455,6 +288,7 @@ namespace AddressSetRuntime
             0x0ull, // State_EnterDownHoldup
             0x0ull, // State_EnterStandHoldup1
             0x0ull, // State_EnterStandHoldupUnarmed
+            0x0ull, // State_RecoveryKick
             0x0ull, // State_RecoveryTouch
             0x0ull, // State_StandHoldupCancelLookToPlayer
             0x0ull, // State_StandRecoveryHoldup
@@ -495,40 +329,6 @@ namespace AddressSetRuntime
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x0ull, // DeclareAMs
 			0x0ull, // GetIconFtexPath
-            0x0ull, // LoadPlayerPartsParts
-			0x0ull, // LoadPlayerPartsFpk
-			0x0ull, // ResolveSuitToPartsType
-			0x0ull, // Player2BlockController_LoadPartsNew
-			0x0ull, // UpdatePartsStatus
-            0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
-			0x0ull, // Player2UtilityImpl_CommitWrapper
-			0x0ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
-			0x0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
-			0x0ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
-			0x0ull, // ResourceTable_DoesNeedFaceFova
-			0x0ull, // ResourceTable_DoesNeedFaceFovaForAvatar
-            0x0ull, // LoadPlayerCamoFpk
-            0x0ull, // LoadPlayerSnakeBlackDiamondFpk
-            0x0ull, // CamoSystemObject
-            0x0ull, // GetSuitVariation
-            0x0ull, // HeadOptionTableLookup
-            0x0ull, // HasHeadOptions
-            0x0ull, // HeadOptionIndexGetter
-            0x0ull, // MissionPrep_GetSelectionNum
-            0x0ull, // MissionPrep_IsEnableCurrentHeadOption
-            0x0ull, // MissionPrep_UpdateLoadMark
-            0x0ull, // FetchCurrentHeadOptionKey
-            0x0ull, // SuitCatalog_FindHeadOptionRow
-            0x0ull, // SetupCharacterSlotSelectPrefabListElement
-            0x0ull, // AddListSuit
-            0x0ull, // IsEnableCurrentSuit
-            0x0ull, // SetupEquipPanelParam
-            0x0ull, // GetCurrentSuitFlowIndex
-            0x0ull, // GetEquipIdFromLoadoutInfo
-            0x0ull, // IsEquipDeveloped
-            0x0ull, // SetItemDetail
-            0x0ull, // SendTrigger
-            0x0ull, // SupplyDropSuitSetup
             0x0ull, // LoadingTipsEv_UpdateActPhase
             0x0ull, // AK_SoundEngine_SetRTPCValue
             0x0ull, // Fox_Sd_ConvertParameterID
