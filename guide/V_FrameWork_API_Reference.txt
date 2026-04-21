@@ -236,10 +236,27 @@ MODULE: V_TppEquip
   AddEquipMotionDataTable(motionDataTable)
   --------------------------------------------------------------------------
 
-    Adds motion data entries for weapon animations.
+    Appends rows to the game's MotionDataTable so a custom weapon equipId
+    binds to an assemble/reload .mtar animation file. Rows whose equipId is
+    already present in the live table are skipped, so calling this multiple
+    times is idempotent.
 
     PARAMETERS:
-      motionDataTable  table
+      motionDataTable  table  Flat array. Each row: { equipId, mtarPath }
+                              - equipId   number  Custom EQP_* id
+                              - mtarPath  string  Full /Assets/.../*.mtar path
+
+    RETURNS: nothing
+
+    EXAMPLE:
+      V_TppEquip.AddEquipMotionDataTable({
+          { equipId, "/Assets/tpp/motion/mtar/equip/chimera/assemble/ar00_asm.mtar" },
+          { otherEquipId, "/Assets/tpp/motion/mtar/equip/chimera/assemble/sm01_asm.mtar" },
+      })
+
+    NOTE: The stock game calls TppEquip.ReloadEquipMotionData() once at boot
+          with a hardcoded MotionDataTable. This hook intercepts that call
+          and appends your queued rows before the engine processes them.
 
   --------------------------------------------------------------------------
   SetEquipIdIconFtexPath(equipId, path) / ClearIconFtexPath(equipId)
@@ -635,6 +652,7 @@ RAW API: V_FrameWork.*
     DeclareAMs(ammoName)                            -> number
     SetGunBasic(gunBasicTable)                      -> nothing
     AddToEquipIdTable(equipTable)                   -> nothing
+    AddEquipMotionDataTable(motionDataTable)         -> nothing
     AddToEquipDevelopTable(key, developData)         -> number
     SetSupportWeaponType(id, type)                  -> nothing
     RemoveSupportWeaponType(id)                     -> nothing

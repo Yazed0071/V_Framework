@@ -108,6 +108,7 @@ namespace AddressSetRuntime
         uintptr_t RegisterConstantEquipIdHashTable = 0;
         uintptr_t EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2 = 0;
         uintptr_t EquipIdTableImpl_ReloadEquipIdTable = 0;
+        uintptr_t EquipMotionDataTableImpl_ReloadEquipMotionData = 0;
         uintptr_t TppMotherBaseManagement_RegCstDev = 0;
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
@@ -222,6 +223,7 @@ namespace AddressSetRuntime
             0x142C24C90ull, // RegisterConstantEquipIdHashTable
             0x140A41410ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
             0x1464B6740ull, // EquipIdTableImpl_ReloadEquipIdTable
+            0x140A00560ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
             0x1466F3B10ull, // TppMotherBaseManagement_RegCstDev
             0x1466F4600ull, // TppMotherBaseManagement_RegFlwDev
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
@@ -327,6 +329,7 @@ namespace AddressSetRuntime
 			0x0ull, // RegisterConstantEquipIdHashTable
             0x0ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
 			0x0ull, // EquipIdTableImpl_ReloadEquipIdTable
+            0x0ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
 			0x0ull, // TppMotherBaseManagement_RegCstDev
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId

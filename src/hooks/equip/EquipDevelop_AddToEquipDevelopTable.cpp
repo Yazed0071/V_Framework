@@ -563,6 +563,29 @@ namespace
             outFlowFields);
 
         g_Deps.LuaSetTop(L, -2);
+
+        // Safety clamp: flow grade (p52 / "grade") must be within [0, 15].
+        // Out-of-range values silently break R&D UI and unlock gating.
+        for (FieldValue& fv : outFlowFields)
+        {
+            if (fv.type != FieldValue::Type::Number || fv.name != "p52")
+                continue;
+
+            if (fv.numberValue < 0)
+            {
+                Log("[EquipDevelop] Clamped flow grade %d -> 0 for key='%s'\n",
+                    fv.numberValue, outKey.c_str());
+                fv.numberValue = 0;
+            }
+            else if (fv.numberValue > 15)
+            {
+                Log("[EquipDevelop] Clamped flow grade %d -> 15 for key='%s'\n",
+                    fv.numberValue, outKey.c_str());
+                fv.numberValue = 15;
+            }
+            break;
+        }
+
         return true;
     }
 

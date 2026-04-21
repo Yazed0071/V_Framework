@@ -31,6 +31,10 @@ function this.AddToEquipIdTable(equipTable)
     return V_FrameWork.AddToEquipIdTable(equipTable)
 end
 
+function this.AddEquipMotionDataTable(motionDataTable)
+    return V_FrameWork.AddEquipMotionDataTable(motionDataTable)
+end
+
 function this.SetGunBasic(gunBasic)
     V_FrameWork.SetGunBasic(gunBasic)
 end
