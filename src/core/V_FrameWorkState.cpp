@@ -20,8 +20,8 @@ namespace V_FrameWorkState
 
         static constexpr std::int32_t kFirstCustomEquipId = 0x609;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
-        static constexpr std::int16_t kFirstCustomTapeSaveIndex = 200;
-        static constexpr std::int16_t kMaxCustomTapeSaveIndex = 500;
+        static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
+        static constexpr std::int16_t kMaxCustomTapeSaveIndex = 2000;
 
         struct EquipEntry
         {
