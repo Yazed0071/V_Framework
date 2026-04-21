@@ -586,6 +586,42 @@ namespace
             break;
         }
 
+        // Force flow isFobAvailable (p74 / "isFobAvailable") to 0 so custom
+        // entries can never be equipped on FOB sorties. If the user omits it,
+        // inject it explicitly since the native default isn't reliably 0.
+        {
+            bool found = false;
+            for (FieldValue& fv : outFlowFields)
+            {
+                if (fv.name != "p74")
+                    continue;
+
+                const bool wasNonZero =
+                    fv.type != FieldValue::Type::Number || fv.numberValue != 0;
+
+                if (wasNonZero)
+                {
+                    Log("[EquipDevelop] Forced flow isFobAvailable -> 0 for key='%s'\n",
+                        outKey.c_str());
+                }
+
+                fv.type = FieldValue::Type::Number;
+                fv.numberValue = 0;
+                fv.stringValue.clear();
+                found = true;
+                break;
+            }
+
+            if (!found)
+            {
+                FieldValue fv;
+                fv.name = "p74";
+                fv.type = FieldValue::Type::Number;
+                fv.numberValue = 0;
+                outFlowFields.push_back(fv);
+            }
+        }
+
         return true;
     }
 
