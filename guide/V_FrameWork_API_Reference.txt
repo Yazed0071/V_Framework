@@ -423,6 +423,12 @@ MODULE: V_TppEnemy
   RemoveVIPImportant(soldier)           Remove VIP status
   ClearVIPImportant()                   Clear all VIPs
 
+  Marking a soldier as VIP swaps the game's generic comrade-recovery voice
+  reactions for custom reaction hashes on every wake path: touch, kick, and
+  sound for sleep/faint recovery, plus stand-recovery for holdup release.
+  Lua handlers register once per reaction hash and fire regardless of which
+  wake method was used.
+
   EXAMPLE:
     V_TppEnemy.SetVIPImportant("sol_vip_0000", false)
     V_TppEnemy.SetVIPImportant("sol_interrogator", true)  -- officer

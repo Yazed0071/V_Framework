@@ -34,6 +34,9 @@ bool Uninstall_VIPSleepFaint_Hook();
 bool Install_VIPHoldup_Hook();
 bool Uninstall_VIPHoldup_Hook();
 
+bool Install_VIPSoundRecovery_Hook();
+bool Uninstall_VIPSoundRecovery_Hook();
+
 bool Install_VIPRadio_Hook();
 bool Uninstall_VIPRadio_Hook();
 
@@ -265,6 +268,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_VIPHoldup_Hook();
+        }
+    };
+
+    class VIPSoundRecoveryModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VIPSoundRecovery";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VIPSoundRecovery_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VIPSoundRecovery_Hook();
         }
     };
 
@@ -651,6 +674,7 @@ void RegisterBuiltInFeatureModules()
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
     static VIPSleepFaintModule s_VIPSleepFaintModule;
     static VIPHoldupModule s_VIPHoldupModule;
+    static VIPSoundRecoveryModule s_VIPSoundRecoveryModule;
     static VIPRadioModule s_VIPRadioModule;
     static ConvertParameterIdLoggerModule s_ConvertParameterIdLoggerModule;
     static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
@@ -683,6 +707,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
+            FeatureModuleRegistry::Instance().Register(&s_VIPSoundRecoveryModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
             FeatureModuleRegistry::Instance().Register(&s_ConvertParameterIdLoggerModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);

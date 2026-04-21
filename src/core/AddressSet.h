@@ -74,6 +74,7 @@ namespace AddressSetRuntime
         uintptr_t State_EnterStandHoldupUnarmed = 0;
         uintptr_t State_RecoveryKick = 0;
         uintptr_t State_RecoveryTouch = 0;
+        uintptr_t State_StandEnterRecoverySleepFaintHoldupComradeBySound = 0;
         uintptr_t State_StandHoldupCancelLookToPlayer = 0;
         uintptr_t State_StandRecoveryHoldup = 0;
         uintptr_t StepRadioDiscovery = 0;
@@ -187,6 +188,7 @@ namespace AddressSetRuntime
             0x14A141500ull, // State_EnterStandHoldupUnarmed
             0x1414BC600ull, // State_RecoveryKick
             0x1414BCEF0ull, // State_RecoveryTouch
+            0x1414BC7B0ull, // State_StandEnterRecoverySleepFaintHoldupComradeBySound
             0x14A141910ull, // State_StandHoldupCancelLookToPlayer
             0x1414BCA10ull, // State_StandRecoveryHoldup
             0x14150F2C0ull, // StepRadioDiscovery
@@ -290,6 +292,7 @@ namespace AddressSetRuntime
             0x0ull, // State_EnterStandHoldupUnarmed
             0x0ull, // State_RecoveryKick
             0x0ull, // State_RecoveryTouch
+            0x0ull, // State_StandEnterRecoverySleepFaintHoldupComradeBySound
             0x0ull, // State_StandHoldupCancelLookToPlayer
             0x0ull, // State_StandRecoveryHoldup
             0x0ull, // StepRadioDiscovery

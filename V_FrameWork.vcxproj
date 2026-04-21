@@ -172,6 +172,7 @@
     <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h" />
     <ClInclude Include="src\hooks\soldier\VIPRadioHook.h" />
     <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h" />
+    <ClInclude Include="src\hooks\soldier\VIPSoundRecoveryHook.h" />
     <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h" />
     <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
@@ -233,6 +234,7 @@
     <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPSoundRecoveryHook.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp" />
     <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
