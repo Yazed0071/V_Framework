@@ -25,7 +25,9 @@ namespace V_FrameWorkState
 
         struct EquipEntry
         {
-            std::int32_t equipId = 0;
+            // Only developId is persisted to disk. Equip ids (EQP_* namespace)
+            // are session-scoped and live in g_SessionEquipIds below — they
+            // never land in the state file.
             std::int32_t developId = 0;
         };
 
@@ -46,6 +48,12 @@ namespace V_FrameWorkState
 
         static State g_State;
         static std::mutex g_Mutex;
+
+        // Session-only cache of equipIds allocated via ResolveOrCreateEquipId.
+        // Never persisted: equipIds are reallocated fresh each game session
+        // from the TppEquip table scan, then memoized here so repeated calls
+        // with the same key in one session return the same id.
+        static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
 
         static std::string Trim(const std::string& s)
         {
@@ -86,7 +94,9 @@ namespace V_FrameWorkState
                     GetLastError(), kLegacyPath, kSavePath);
         }
 
-        // Parses a line like: ["key"] = { equipId = 123, developId = 456 },
+        // Parses a line like: ["key"] = { developId = 456 },
+        // Legacy `equipId = N` fields are ignored — equipIds are now
+        // session-scoped and do not participate in the persisted state.
         static bool ParseEquipLine(const std::string& line, std::string& outKey, EquipEntry& out)
         {
             const auto lb = line.find("[\"");
@@ -114,9 +124,8 @@ namespace V_FrameWorkState
                 catch (...) { return 0; }
             };
 
-            out.equipId = findField("equipId");
             out.developId = findField("developId");
-            return !outKey.empty();
+            return !outKey.empty() && out.developId != 0;
         }
 
         // Parses a line like: ["key"] = { saveIndex = 200 },
@@ -242,19 +251,11 @@ namespace V_FrameWorkState
                 out << "    equips = {\n";
                 for (const auto& kv : sorted)
                 {
-                    out << "        [\"" << kv.first << "\"] = {";
-                    bool hasField = false;
-                    if (kv.second.equipId != 0)
-                    {
-                        out << " equipId = " << kv.second.equipId;
-                        hasField = true;
-                    }
-                    if (kv.second.developId != 0)
-                    {
-                        if (hasField) out << ",";
-                        out << " developId = " << kv.second.developId;
-                    }
-                    out << " },\n";
+                    if (kv.second.developId == 0)
+                        continue;
+                    out << "        [\"" << kv.first << "\"] = {"
+                        << " developId = " << kv.second.developId
+                        << " },\n";
                 }
                 out << "    },\n";
             }
@@ -289,8 +290,8 @@ namespace V_FrameWorkState
 
         static bool IsEquipIdInUse_NoLock(std::int32_t id)
         {
-            for (const auto& kv : g_State.equips)
-                if (kv.second.equipId == id) return true;
+            for (const auto& kv : g_SessionEquipIds)
+                if (kv.second == id) return true;
             return false;
         }
 
@@ -354,21 +355,20 @@ namespace V_FrameWorkState
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
-        auto it = g_State.equips.find(key);
-        if (it != g_State.equips.end() && it->second.equipId != 0)
+        // Session-only: repeated calls with the same key hand back the
+        // same id within one game session. Does NOT touch the state file.
+        auto it = g_SessionEquipIds.find(key);
+        if (it != g_SessionEquipIds.end() && it->second != 0)
         {
-            outEquipId = it->second.equipId;
+            outEquipId = it->second;
             return true;
         }
 
         const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId);
-        g_State.equips[key].equipId = newId;
-        g_State.dirty = true;
+        g_SessionEquipIds[key] = newId;
         outEquipId = newId;
 
-        SaveToDisk_NoLock();
-
-        Log("[V_FrameWorkState] Assigned equipId=%d for '%s'\n", newId, key);
+        Log("[V_FrameWorkState] Assigned equipId=%d for '%s' (session-only)\n", newId, key);
         return true;
     }
 
@@ -512,5 +512,6 @@ namespace V_FrameWorkState
         g_State.dirty = false;
         g_State.equips.clear();
         g_State.tapes.clear();
+        g_SessionEquipIds.clear();
     }
 }

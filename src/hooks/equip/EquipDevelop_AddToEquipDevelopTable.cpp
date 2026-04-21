@@ -547,6 +547,83 @@ namespace
 
         g_Deps.LuaSetTop(L, -2);
 
+        // Shorthand: const.equipID can be a string or omitted. The DLL then
+        // auto-resolves a persistent numeric equipId via V_FrameWorkState so
+        // the user can skip the separate RegisterConstantEquipId call when
+        // all they want is a develop entry referencing a custom weapon id.
+        //   equipID = 1545                -> used as-is
+        //   equipID = "EQP_WP_MyMod_AK12" -> resolve/persist under same key
+        //   equipID = "AK_12_00"          -> normalized to "EQP_AK_12_00"
+        //   (omitted)                     -> normalized to "EQP_" + outKey
+        // The "EQP_" prefix matches RegisterConstantEquipId's namespace so
+        // the equipId entry doesn't collide with the develop-id entry that
+        // this same call also persists under outKey.
+        {
+            constexpr std::int32_t kFirstCustomEquipId = 0x609;
+
+            FieldValue* equipIDField = nullptr;
+            for (FieldValue& fv : outConstFields)
+            {
+                if (fv.name == "p01")
+                {
+                    equipIDField = &fv;
+                    break;
+                }
+            }
+
+            std::string rawKey;
+            bool needsResolve = false;
+
+            if (!equipIDField)
+            {
+                rawKey = outKey;
+                needsResolve = !rawKey.empty();
+            }
+            else if (equipIDField->type == FieldValue::Type::String)
+            {
+                rawKey = equipIDField->stringValue;
+                needsResolve = !rawKey.empty();
+            }
+
+            if (needsResolve)
+            {
+                std::string resolveKey = rawKey.rfind("EQP_", 0) == 0
+                    ? rawKey
+                    : std::string("EQP_") + rawKey;
+
+                std::int32_t resolvedId = 0;
+                if (V_FrameWorkState::ResolveOrCreateEquipId(
+                        resolveKey.c_str(),
+                        kFirstCustomEquipId,
+                        resolvedId) &&
+                    resolvedId != 0)
+                {
+                    if (equipIDField)
+                    {
+                        equipIDField->type = FieldValue::Type::Number;
+                        equipIDField->numberValue = resolvedId;
+                        equipIDField->stringValue.clear();
+                    }
+                    else
+                    {
+                        FieldValue fv;
+                        fv.name = "p01";
+                        fv.type = FieldValue::Type::Number;
+                        fv.numberValue = resolvedId;
+                        outConstFields.push_back(fv);
+                    }
+
+                    Log("[EquipDevelop] Resolved equipID key='%s' -> %d for develop key='%s'\n",
+                        resolveKey.c_str(), resolvedId, outKey.c_str());
+                }
+                else
+                {
+                    Log("[EquipDevelop] equipID resolve failed for key='%s'\n",
+                        resolveKey.c_str());
+                }
+            }
+        }
+
         PushFieldKey(L, "flow");
         g_Deps.LuaGetTable(L, payloadIndex);
         if (!IsLuaTable(L, -1))

@@ -199,14 +199,34 @@ MODULE: V_TppEquip
   AddToEquipDevelopTable(key, developData)
   --------------------------------------------------------------------------
 
-    Adds a develop entry (shows in Mother Base R&D). The key should be
-    "ModName:ItemName" format for stable persistence.
+    Adds a develop entry (shows in Mother Base R&D). The key is the stable
+    identifier used to persist the allocated developId across sessions.
 
     PARAMETERS:
-      key          string  Unique key (e.g. "MyMod:AK12")
+      key          string  Unique key. "ModName:ItemName" is recommended;
+                           the prefix prevents two mods that happen to use
+                           the same short name ("AK_12_00") from colliding
+                           on the same state-file slot. Short keys work but
+                           give up that protection.
       developData  table   { const = {...}, flow = {...} }
 
     RETURNS: number (developId)
+
+    AUTO-RESOLVED const.equipID:
+      const.equipID can be a number, a string, or omitted entirely.
+        - number                      used as-is
+        - string "EQP_WP_MyMod_AK12"  resolved + persisted under that key
+        - string "AK_12_00"           normalized to "EQP_AK_12_00"
+        - omitted                     normalized to "EQP_" + develop key
+      Strings get persisted as stable equipIds via V_FrameWorkState so the
+      separate RegisterConstantEquipId call is optional when all you need
+      is a develop entry that references a custom weapon id. The "EQP_"
+      prefix matches RegisterConstantEquipId's namespace, so the allocated
+      equipId never collides with the develop-id this same call persists.
+      Note: auto-resolve only writes the state file — it does NOT touch the
+      native EQP_* hash table or the Lua TppEquip constant table. Call
+      RegisterConstantEquipId explicitly if you also need those side effects
+      (e.g. for TppEquip.EQP_WP_MyMod_AK12 to be defined in Lua).
 
     CONST FIELDS (raw p01-p36 OR readable aliases):
       equipID, equipDevelopTypeID, baseEquipDevelopId, skill, bluePrintId,
@@ -911,18 +931,29 @@ APPENDIX C: Save File Format
 
   return {
       equips = {
-          ["ModName:ItemName"] = { equipId = 1545, developId = 800 },
+          ["Retail8:AK_12_00"] = { developId = 51006 },
+          ["SSD:FemaleSna4"]   = { developId = 51007 },
       },
       tapes = {
           ["AlbumId:FileName"] = { saveIndex = 200, owned = true, new = false },
       },
   }
 
-  - Keys are strings in "namespace:name" format
-  - equipId / developId / saveIndex are stable across sessions
-  - owned = player has collected this tape
-  - new = tape hasn't been listened to yet (shows "NEW" in UI)
-  - Orphaned entries (mod uninstalled) are harmless — just ignored
+  - Each equips entry stores a single field: developId. It is the stable
+    R&D row index allocated by AddToEquipDevelopTable for that mod key.
+  - Keys are free-form strings, typically "ModName:ItemName" to avoid
+    collisions across mods.
+  - Equip ids (EQP_* namespace, ≥ 0x609) are session-scoped. The DLL
+    reassigns them each game session by scanning the TppEquip table, so
+    they never appear in the state file. Assignment order within a
+    session is deterministic — if the mod always registers its weapons
+    in the same order, the ids stay stable in practice.
+  - Legacy files with `equipId = N` fields are still parsed, but those
+    values are ignored on load and dropped on the next save.
+  - saveIndex is the stable tape slot id.
+  - owned = player has collected this tape.
+  - new = tape hasn't been listened to yet (shows "NEW" in UI).
+  - Orphaned entries (mod uninstalled) are harmless — just ignored.
 
 
 ################################################################################
