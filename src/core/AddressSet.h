@@ -108,7 +108,6 @@ namespace AddressSetRuntime
         uintptr_t RegisterConstantEquipIdHashTable = 0;
         uintptr_t EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2 = 0;
         uintptr_t EquipIdTableImpl_ReloadEquipIdTable = 0;
-        uintptr_t EquipMotionDataTableImpl_ReloadEquipMotionData = 0;
         uintptr_t TppMotherBaseManagement_RegCstDev = 0;
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
@@ -118,6 +117,23 @@ namespace AddressSetRuntime
         // Wwise/fox audio — used by SoldierRtpcHook for per-soldier RTPC control.
         uintptr_t AK_SoundEngine_SetRTPCValue = 0;   // AK::SoundEngine::SetRTPCValue (trampoline at 0x14033d520)
         uintptr_t Fox_Sd_ConvertParameterID = 0;     // fox::sd::ConvertParameterID (FNV-1 name hasher wrapper at 0x14032adf0)
+
+        // Static EquipParameterTablesImpl instance (&PTR_PTR_142a711f0 in decomp).
+        // First field is the vtable ptr. Subsystem pointers follow:
+        //   impl+0x08 → gunBasic (0x202 rows × 12 B = 0x1818 bytes)
+        //   impl+0x10 → receiver, +0x18 barrel, +0x20 magazine, etc.
+        // SetGunBasic / SetEquipParameters do direct native-shadow writes via
+        // this instance — they can't wait for ReloadEquipParameterTablesImpl2
+        // to fire, because the boot reload happens before our DLL installs.
+        uintptr_t EquipParameterTablesImpl_Instance = 0;
+
+        // Stock EquipIdTableImpl::AddToEquipIdTable(lua_State*) — writes
+        // partsPath/packPath/baseWeapon/type/block into the game's native
+        // s_internalInfoList + DAT_142c20fb8/fc0 + DAT_142a70928 arrays.
+        // Calling this directly with our queue's Lua table populates
+        // native storage without waiting for ReloadEquipIdTable to fire
+        // (which only happens at boot, before our DLL installs).
+        uintptr_t EquipIdTableImpl_AddToEquipIdTable = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -223,7 +239,6 @@ namespace AddressSetRuntime
             0x142C24C90ull, // RegisterConstantEquipIdHashTable
             0x140A41410ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
             0x1464B6740ull, // EquipIdTableImpl_ReloadEquipIdTable
-            0x140A00560ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
             0x1466F3B10ull, // TppMotherBaseManagement_RegCstDev
             0x1466F4600ull, // TppMotherBaseManagement_RegFlwDev
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
@@ -232,6 +247,8 @@ namespace AddressSetRuntime
             0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
             0x14032adf0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance
+            0x140A29730ull, // EquipIdTableImpl_AddToEquipIdTable
         };
 
         return value;
@@ -329,7 +346,6 @@ namespace AddressSetRuntime
 			0x0ull, // RegisterConstantEquipIdHashTable
             0x0ull, // EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2
 			0x0ull, // EquipIdTableImpl_ReloadEquipIdTable
-            0x0ull, // EquipMotionDataTableImpl_ReloadEquipMotionData
 			0x0ull, // TppMotherBaseManagement_RegCstDev
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
@@ -338,6 +354,8 @@ namespace AddressSetRuntime
             0x0ull, // LoadingTipsEv_UpdateActPhase
             0x0ull, // AK_SoundEngine_SetRTPCValue
             0x0ull, // Fox_Sd_ConvertParameterID
+            0x0ull, // EquipParameterTablesImpl_Instance
+            0x0ull, // EquipIdTableImpl_AddToEquipIdTable
         };
 
         return value;

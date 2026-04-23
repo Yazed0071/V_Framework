@@ -184,7 +184,6 @@
     <ClInclude Include="src\hooks\equip\DeclareWPs.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
     <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h" />
-    <ClInclude Include="src\hooks\equip\EquipMotionDataTable.h" />
     <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h" />
     <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h" />
     <ClInclude Include="src\hooks\equip\SetEquipParameters.h" />
@@ -247,7 +246,6 @@
     <ClCompile Include="src\hooks\equip\DeclareWPs.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipMotionDataTable.cpp" />
     <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp" />
     <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp" />
     <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp" />

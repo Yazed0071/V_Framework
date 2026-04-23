@@ -42,6 +42,7 @@ namespace
     constexpr std::uint32_t kStockGunBasicMaxWeaponId = 0x202;
     constexpr std::size_t kGunBasicEntrySize = 0x0C;
     constexpr std::ptrdiff_t kEquipParameterTablesImpl_GunBasicPtr_Offset = 0x08;
+    constexpr std::size_t kStockGunBasicByteSize = 0x1818;  // 0x202 rows × 12 bytes
 
     std::vector<GunBasicEntry> g_CustomGunBasicEntries;
     std::mutex g_CustomGunBasicMutex;
@@ -50,6 +51,7 @@ namespace
     std::uint32_t g_GunBasicShadowCapacity = 0;
     void* g_StockGunBasicPtr = nullptr;
     void* g_LastEquipParameterTablesImpl = nullptr;
+    bool g_NativeShadowInitialized = false;
 
     using ReloadEquipParameterTablesImpl2_t = int(__fastcall*)(void* _this, lua_State* L);
     static ReloadEquipParameterTablesImpl2_t g_OrigReloadEquipParameterTablesImpl2 = nullptr;
@@ -401,6 +403,195 @@ static void QueueGunBasicEntry(const GunBasicEntry& entry)
     Log("[GunBasic] Queued new entry weaponId=0x%X\n", entry.weaponId);
 }
 
+// Direct native-shadow write path.
+//
+// The reload-hook approach (modify the Lua gunBasic table inside
+// hkReloadEquipParameterTablesImpl2, let stock walk it and write the native
+// buffer) is unreliable: vanilla's boot-time TppEquip.ReloadEquipParameterTables
+// call fires BEFORE our DLL is injected, and nothing else triggers another
+// reload during normal play. The queue sits forever without reaching native.
+//
+// Fix: on every l_SetGunBasic call, resolve the static
+// EquipParameterTablesImpl instance, (one-time) allocate a shadow buffer
+// pre-filled with stock rows and redirect impl->gunBasic at it, then write
+// the row bytes DIRECTLY to that buffer. From then on the game reads our
+// shadow for all gunBasic lookups.
+//
+// Row layout (12 bytes, all single-byte fields; confirmed from
+// ReadGunBasicParameter2 decomp at mgsvtpp.exe.c:1370801):
+//   [0] receiver   [1] barrel      [2] ammo      [3] stock
+//   [4] muzzle     [5] muzzleOpt   [6] scope1    [7] scope2
+//   [8] laserFlash1 [9] laserFlash2 [10] underBarrel [11] grade
+//
+// Fields < 0 on the entry are skipped so partial overrides (e.g. grade only)
+// preserve the vanilla byte at that position.
+
+static bool InitGunBasicNativeShadow_NoLock()
+{
+    if (g_NativeShadowInitialized)
+        return true;
+
+    void* impl = ResolveGameAddress(gAddr.EquipParameterTablesImpl_Instance);
+    if (!impl)
+    {
+        Log("[GunBasic] EquipParameterTablesImpl_Instance not resolved\n");
+        return false;
+    }
+
+    void** ppGunBasic = reinterpret_cast<void**>(
+        reinterpret_cast<std::uint8_t*>(impl) + kEquipParameterTablesImpl_GunBasicPtr_Offset);
+
+    void* stockPtr = *ppGunBasic;
+    if (!stockPtr)
+    {
+        Log("[GunBasic] Stock gunBasic pointer is null (game not fully booted yet?)\n");
+        return false;
+    }
+
+    // Size shadow for max(0x202 stock rows, current max custom weaponId)
+    std::uint32_t customMax = 0;
+    for (const auto& e : g_CustomGunBasicEntries)
+        if (e.weaponId > 0 && static_cast<std::uint32_t>(e.weaponId) > customMax)
+            customMax = static_cast<std::uint32_t>(e.weaponId);
+
+    const std::uint32_t capacity =
+        (customMax > kStockGunBasicMaxWeaponId) ? customMax : kStockGunBasicMaxWeaponId;
+    const std::size_t bufSize = static_cast<std::size_t>(capacity) * kGunBasicEntrySize;
+
+    try
+    {
+        g_GunBasicShadowBuffer.assign(bufSize, 0);
+    }
+    catch (...)
+    {
+        Log("[GunBasic] Shadow alloc failed (%zu bytes)\n", bufSize);
+        return false;
+    }
+
+    // Copy stock rows verbatim so vanilla weapons keep working.
+    std::memcpy(g_GunBasicShadowBuffer.data(), stockPtr, kStockGunBasicByteSize);
+
+    g_StockGunBasicPtr = stockPtr;
+    g_GunBasicShadowCapacity = capacity;
+
+    // Redirect impl->gunBasic at our shadow. Every subsequent game read
+    // lands here and sees both vanilla rows AND our custom ones.
+    *ppGunBasic = g_GunBasicShadowBuffer.data();
+    g_LastEquipParameterTablesImpl = impl;
+    g_NativeShadowInitialized = true;
+
+    Log("[GunBasic] Native shadow initialized: impl=%p stock=%p shadow=%p "
+        "readBack=%p capacity=0x%X stockCopied=%zu\n",
+        impl, g_StockGunBasicPtr, g_GunBasicShadowBuffer.data(),
+        *ppGunBasic, g_GunBasicShadowCapacity,
+        kStockGunBasicByteSize);
+
+    // Show vanilla row[0] as a sanity check — if this is all zero, the
+    // stock gunBasic pointer was already pointing at empty storage.
+    const std::uint8_t* row0 = g_GunBasicShadowBuffer.data();
+    Log("[GunBasic] Vanilla row[0] (12B): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+        row0[0], row0[1], row0[2], row0[3], row0[4], row0[5],
+        row0[6], row0[7], row0[8], row0[9], row0[10], row0[11]);
+
+    return true;
+}
+
+static bool GrowGunBasicShadowIfNeeded_NoLock(std::uint32_t weaponId)
+{
+    if (weaponId == 0 || weaponId <= g_GunBasicShadowCapacity)
+        return true;
+
+    const std::size_t newBufSize = static_cast<std::size_t>(weaponId) * kGunBasicEntrySize;
+
+    std::vector<std::uint8_t> newBuf;
+    try
+    {
+        newBuf.assign(newBufSize, 0);
+    }
+    catch (...)
+    {
+        Log("[GunBasic] Shadow grow failed (%zu bytes)\n", newBufSize);
+        return false;
+    }
+
+    // Preserve existing content (vanilla rows + any customs we've written).
+    std::memcpy(newBuf.data(), g_GunBasicShadowBuffer.data(), g_GunBasicShadowBuffer.size());
+    g_GunBasicShadowBuffer = std::move(newBuf);
+    g_GunBasicShadowCapacity = weaponId;
+
+    // Re-point impl in case the vector reallocated to a new address.
+    if (g_LastEquipParameterTablesImpl)
+    {
+        void** ppGunBasic = reinterpret_cast<void**>(
+            reinterpret_cast<std::uint8_t*>(g_LastEquipParameterTablesImpl)
+            + kEquipParameterTablesImpl_GunBasicPtr_Offset);
+        *ppGunBasic = g_GunBasicShadowBuffer.data();
+    }
+
+    Log("[GunBasic] Shadow grown to capacity=0x%X bytes=%zu\n",
+        g_GunBasicShadowCapacity, newBufSize);
+    return true;
+}
+
+static void WriteGunBasicEntryToShadow_NoLock(const GunBasicEntry& entry)
+{
+    if (entry.weaponId <= 0)
+        return;
+
+    if (!InitGunBasicNativeShadow_NoLock())
+        return;
+
+    if (!GrowGunBasicShadowIfNeeded_NoLock(static_cast<std::uint32_t>(entry.weaponId)))
+        return;
+
+    const std::size_t rowOffset =
+        (static_cast<std::size_t>(entry.weaponId) - 1) * kGunBasicEntrySize;
+
+    if (rowOffset + kGunBasicEntrySize > g_GunBasicShadowBuffer.size())
+    {
+        Log("[GunBasic] Row offset 0x%zX out of shadow range (size=%zu)\n",
+            rowOffset, g_GunBasicShadowBuffer.size());
+        return;
+    }
+
+    std::uint8_t* row = g_GunBasicShadowBuffer.data() + rowOffset;
+
+    auto writeByte = [&](std::size_t off, std::int32_t value)
+    {
+        if (value >= 0)
+            row[off] = static_cast<std::uint8_t>(value & 0xFF);
+    };
+
+    // Native row layout — confirmed from ReadGunBasicParameter2 decomp.
+    writeByte(0,  entry.receiverId);
+    writeByte(1,  entry.barrelId);
+    writeByte(2,  entry.ammoId);
+    writeByte(3,  entry.stockId);
+    writeByte(4,  entry.muzzleId);
+    writeByte(5,  entry.muzzleOptionId);
+    writeByte(6,  entry.scope1Id);
+    writeByte(7,  entry.scope2Id);
+    writeByte(8,  entry.laserFlash1Id);
+    writeByte(9,  entry.laserFlash2Id);
+    writeByte(10, entry.underBarrelId);
+    writeByte(11, entry.weaponGrade);
+
+    Log("[GunBasic] Wrote native row weaponId=0x%X offset=0x%zX "
+        "recv=%d barrel=%d ammo=%d stock=%d muz=%d muzOpt=%d "
+        "s1=%d s2=%d lf1=%d lf2=%d ub=%d grade=%d\n",
+        entry.weaponId, rowOffset,
+        entry.receiverId, entry.barrelId, entry.ammoId, entry.stockId,
+        entry.muzzleId, entry.muzzleOptionId,
+        entry.scope1Id, entry.scope2Id,
+        entry.laserFlash1Id, entry.laserFlash2Id,
+        entry.underBarrelId, entry.weaponGrade);
+
+    Log("[GunBasic] Row bytes @%p: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+        row,
+        row[0], row[1], row[2], row[3], row[4], row[5],
+        row[6], row[7], row[8], row[9], row[10], row[11]);
+}
+
 static void ApplyAllQueuedGunBasic(lua_State* L)
 {
     if (!L)
@@ -562,6 +753,15 @@ int __cdecl l_SetGunBasic(lua_State* L)
     LuaSetTop(L, -2);
 
     QueueGunBasicEntry(entry);
+
+    // Direct-write the row into native storage immediately. Don't wait for
+    // the reload hook to fire — vanilla's boot reload already happened
+    // before our DLL installed, and nothing else reliably triggers another
+    // reload during gameplay.
+    {
+        std::lock_guard<std::mutex> lock(g_CustomGunBasicMutex);
+        WriteGunBasicEntryToShadow_NoLock(entry);
+    }
     return 0;
 }
 
@@ -619,6 +819,10 @@ bool Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook()
     g_OrigReloadEquipParameterTablesImpl2 = nullptr;
     g_ReloadEquipParameterTablesImpl2HookInstalled = false;
     g_LastEquipParameterTablesImpl = nullptr;
+    g_StockGunBasicPtr = nullptr;
+    g_NativeShadowInitialized = false;
+    g_GunBasicShadowBuffer.clear();
+    g_GunBasicShadowCapacity = 0;
 
     Log("[GunBasic] ReloadEquipParameterTablesImpl2 hook removed\n");
     return true;

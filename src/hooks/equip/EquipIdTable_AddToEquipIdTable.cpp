@@ -22,6 +22,7 @@ extern "C"
 namespace
 {
     using ReloadEquipIdTable_t = int(__fastcall*)(lua_State* L);
+    using StockAddToEquipIdTable_t = void(__cdecl*)(lua_State* L);
 
     struct EquipIdRow
     {
@@ -35,7 +36,9 @@ namespace
 
     EquipIdTableAdd::Deps g_Deps{};
     ReloadEquipIdTable_t g_OrigReloadEquipIdTable = nullptr;
+    StockAddToEquipIdTable_t g_StockAddToEquipIdTable = nullptr;
     bool g_ReloadEquipIdTableHookInstalled = false;
+    bool g_StockAddCallInProgress = false;
 
     std::vector<EquipIdRow> g_QueuedEquipIdRows;
     std::mutex g_QueuedEquipIdRowsMutex;
@@ -292,6 +295,39 @@ namespace EquipIdTableAdd
             }
 
             g_Deps.LuaPop(L, 1);
+        }
+
+        // Call the stock EquipIdTableImpl::AddToEquipIdTable directly with the
+        // same Lua state. It iterates arg #1 and writes each row's
+        // partsPath / packPath / baseWeapon / type / block into the game's
+        // static s_internalInfoList + DAT_142c20fb8 / fc0 + DAT_142a70928
+        // arrays — same native effect the vanilla reload would produce,
+        // without waiting for the hook to fire (which only happens at boot
+        // before our DLL is installed).
+        //
+        // UI stats path: equipId → s_internalInfoList[compressed].baseWeapon
+        // → gunBasic[baseWeapon - 1] → receiver / barrel / ammo stats.
+        // Without this direct call, s_internalInfoList[compressed] stays
+        // zero, baseWeapon resolves to 0, and the stats panel reads
+        // gunBasic[-1] → empty damage / shock / penetration / etc. bars.
+        if (!g_StockAddCallInProgress)
+        {
+            if (!g_StockAddToEquipIdTable)
+                g_StockAddToEquipIdTable = reinterpret_cast<StockAddToEquipIdTable_t>(
+                    ResolveGameAddress(gAddr.EquipIdTableImpl_AddToEquipIdTable));
+
+            if (g_StockAddToEquipIdTable)
+            {
+                g_StockAddCallInProgress = true;
+                g_StockAddToEquipIdTable(L);
+                g_StockAddCallInProgress = false;
+                Log("[EquipIdTable] Stock AddToEquipIdTable called directly (rows=%d)\n",
+                    rowCount);
+            }
+            else
+            {
+                Log("[EquipIdTable] Stock AddToEquipIdTable address not resolved\n");
+            }
         }
 
         return 0;

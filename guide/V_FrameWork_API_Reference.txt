@@ -23,7 +23,7 @@ TABLE OF CONTENTS
   MODULE: V_TppPickable .................. Pickable item count overrides
   RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
   APPENDIX A: PlayerType values .......... 0=Snake, 1=DD_Male, etc.
-  APPENDIX B: Develop field names ......... Const p01-p36 + flow p51-p74 aliases
+  APPENDIX B: Develop flow field names ... Readable aliases for p51-p74
   APPENDIX C: Save file format ........... V_FrameWork_State.lua structure
 
 
@@ -199,63 +199,17 @@ MODULE: V_TppEquip
   AddToEquipDevelopTable(key, developData)
   --------------------------------------------------------------------------
 
-    Adds a develop entry (shows in Mother Base R&D). The key is the stable
-    identifier used to persist the allocated developId across sessions.
+    Adds a develop entry (shows in Mother Base R&D). The key should be
+    "ModName:ItemName" format for stable persistence.
 
     PARAMETERS:
-      key          string  Unique key. "ModName:ItemName" is recommended;
-                           the prefix prevents two mods that happen to use
-                           the same short name ("AK_12_00") from colliding
-                           on the same state-file slot. Short keys work but
-                           give up that protection.
+      key          string  Unique key (e.g. "MyMod:AK12")
       developData  table   { const = {...}, flow = {...} }
 
     RETURNS: number (developId)
 
-    AUTO-RESOLVED const.equipID:
-      const.equipID can be a number, a string, or omitted entirely.
-        - number                      used as-is
-        - string "EQP_WP_MyMod_AK12"  resolved + persisted under that key
-        - string "AK_12_00"           normalized to "EQP_AK_12_00"
-        - omitted                     normalized to "EQP_" + develop key
-      Strings get persisted as stable equipIds via V_FrameWorkState so the
-      separate RegisterConstantEquipId call is optional when all you need
-      is a develop entry that references a custom weapon id. The "EQP_"
-      prefix matches RegisterConstantEquipId's namespace, so the allocated
-      equipId never collides with the develop-id this same call persists.
-      Note: auto-resolve only writes the state file — it does NOT touch the
-      native EQP_* hash table or the Lua TppEquip constant table. Call
-      RegisterConstantEquipId explicitly if you also need those side effects
-      (e.g. for TppEquip.EQP_WP_MyMod_AK12 to be defined in Lua).
-
-    CONST FIELDS (raw p01-p36 OR readable aliases):
-      equipID, equipDevelopTypeID, baseEquipDevelopId, skill, bluePrintId,
-      langEquipName, langEquipInfo, iconFtexPath, equipDevelopGroupID,
-      langPowerUpInfo0 .. langPowerUpInfo11 (per-star upgrade text ids),
-      langEquipRealName, isResultRankLimited, isCustomEnable,
-      isColorChangeEnable, unk34, isSecurityStaffEquip, unk36
-
-    FLOW FIELDS (raw p51-p74 OR readable aliases):
-      sideGrade, grade, developGmpCost, usageGmpCost,
-      sectionLvForDevelop, sectionID2ForDevelop, sectionLv2ForDevelop,
-      resourceType1, resourceType1Count, resourceType2, resourceType2Count,
-      initialAvailable, sectionIDForDevelop, developSectionLv,
-      resourceUsageType1, resourceUsageType1Count,
-      resourceUsageType2, resourceUsageType2Count,
-      displayInfo, unk70, developTimeMinute, isValidMbCoin,
-      intimacyPoint, isFobAvailable
-
-    SAFETY CLAMP:
-      flow.grade is clamped to [0, 15] by the DLL. Values outside the
-      range silently break R&D UI and unlock gating, so the DLL corrects
-      them and logs the adjustment.
-
-      flow.isFobAvailable is force-set to 0 by the DLL. Custom entries are
-      always blocked from FOB sorties. If you omit the field, the DLL still
-      injects it explicitly so the native default does not leak through.
-
-    NOTE: Both tables accept raw names (p01-p36, p51-p74) and readable
-          aliases in the same table. See APPENDIX B for the full mapping.
+    NOTE: Flow fields accept both raw names (p51-p74) and readable names.
+          See APPENDIX B for the full list.
 
     EXAMPLE:
       local devId = V_TppEquip.AddToEquipDevelopTable("MyMod:AK12", {
@@ -282,27 +236,10 @@ MODULE: V_TppEquip
   AddEquipMotionDataTable(motionDataTable)
   --------------------------------------------------------------------------
 
-    Appends rows to the game's MotionDataTable so a custom weapon equipId
-    binds to an assemble/reload .mtar animation file. Rows whose equipId is
-    already present in the live table are skipped, so calling this multiple
-    times is idempotent.
+    Adds motion data entries for weapon animations.
 
     PARAMETERS:
-      motionDataTable  table  Flat array. Each row: { equipId, mtarPath }
-                              - equipId   number  Custom EQP_* id
-                              - mtarPath  string  Full /Assets/.../*.mtar path
-
-    RETURNS: nothing
-
-    EXAMPLE:
-      V_TppEquip.AddEquipMotionDataTable({
-          { equipId, "/Assets/tpp/motion/mtar/equip/chimera/assemble/ar00_asm.mtar" },
-          { otherEquipId, "/Assets/tpp/motion/mtar/equip/chimera/assemble/sm01_asm.mtar" },
-      })
-
-    NOTE: The stock game calls TppEquip.ReloadEquipMotionData() once at boot
-          with a hardcoded MotionDataTable. This hook intercepts that call
-          and appends your queued rows before the engine processes them.
+      motionDataTable  table
 
   --------------------------------------------------------------------------
   SetEquipIdIconFtexPath(equipId, path) / ClearIconFtexPath(equipId)
@@ -698,7 +635,6 @@ RAW API: V_FrameWork.*
     DeclareAMs(ammoName)                            -> number
     SetGunBasic(gunBasicTable)                      -> nothing
     AddToEquipIdTable(equipTable)                   -> nothing
-    AddEquipMotionDataTable(motionDataTable)         -> nothing
     AddToEquipDevelopTable(key, developData)         -> number
     SetSupportWeaponType(id, type)                  -> nothing
     RemoveSupportWeaponType(id)                     -> nothing
@@ -730,197 +666,37 @@ APPENDIX A: PlayerType Values
 
 
 ================================================================================
-APPENDIX B: Develop Field Names (Const + Flow)
+APPENDIX B: Develop Flow Field Names
 ================================================================================
 
-  developData.const and developData.flow accept either raw field names (p01,
-  p02, ...) or the readable aliases listed below. The DLL normalizes each
-  entry before writing it to the game's native tables, so the two spellings
-  are interchangeable inside the same table.
+  Use either the raw name (p51) or the readable alias in flow tables.
 
-  CONST FIELDS (developData.const)
-  --------------------------------
-
-  Raw  | Readable Name             | Description / example value
+  Raw  | Readable Name             | Description
   -----|---------------------------|----------------------------------
-  p01  | equipID                   | REQUIRED. e.g. TppEquip.EQP_WP_Com_sg_020_FL
-  p02  | equipDevelopTypeID        | e.g. TppMbDev.EQP_DEV_TYPE_Shotgun
-  p03  | baseEquipDevelopId        | Parent row's p00. 0 = root. e.g. 1010
-  p04  | skill                     | 0 = no gate. e.g. "SuppressorEngineer"
-  p05  | bluePrintId               | 65535 = none. e.g. TppMotherBaseManagementConst.DESIGN_2000
-  p06  | langEquipName             | e.g. "name_wp_4040"  (iDroid display name)
-  p07  | langEquipInfo             | e.g. "info_wp_4040"  (iDroid description)
-  p08  | iconFtexPath              | e.g. "/Assets/tpp/ui/texture/EquipIcon/npc/ui_wp_com_sg_020_alp"
-  p09  | equipDevelopGroupID       | e.g. TppMbDev.EQP_DEV_GROUP_WEAPON_180
-  p10  | langPowerUpInfo0          | e.g. "ability_0105"
-  p11  | langPowerUpInfo1          | e.g. "ability_0010"
-  p12  | langPowerUpInfo2          | e.g. "ability_0700"
-  p13  | langPowerUpInfo3          | e.g. "ability_0801"
-  p14  | langPowerUpInfo4          | e.g. "ability_0032"
-  p15  | langPowerUpInfo5          | e.g. ""
-  p16  | langPowerUpInfo6          | e.g. ""
-  p17  | langPowerUpInfo7          | e.g. ""
-  p18  | langPowerUpInfo8          | unused by const, present for MGO compatibility
-  p19  | langPowerUpInfo9          | unused by const, present for MGO compatibility
-  p20  | langPowerUpInfo10         | unused by const, present for MGO compatibility
-  p21  | langPowerUpInfo11         | unused by const, present for MGO compatibility
-  p30  | langEquipRealName         | e.g. "real_wp_4040"  (distinct from display)
-  p31  | isResultRankLimited       | 0 or 1. Gates by mission result rank
-  p32  | isCustomEnable            | 0 or 1. 1 on 0 often crashes customize menu
-  p33  | isColorChangeEnable       | 0 or 1. Same crash caveat as p32
-  p34  | unk34                     | 0 or 1. High-tier / unused-in-final items
-  p35  | isSecurityStaffEquip      | 0 or 1. Never 1 at the same time as p36
-  p36  | unk36                     | 0 or 1. Often 1 for SP / exclusive items
-
-  CONST ENUM REFERENCE
-  --------------------
-
-  equipDevelopTypeID values:
-    TppMbDev.EQP_DEV_TYPE_Handgun            EQP_DEV_TYPE_Submachinegun
-    TppMbDev.EQP_DEV_TYPE_Assault            EQP_DEV_TYPE_Shotgun
-    TppMbDev.EQP_DEV_TYPE_GrenadeLauncher    EQP_DEV_TYPE_Sniper
-    TppMbDev.EQP_DEV_TYPE_Machinegun         EQP_DEV_TYPE_Missile
-    TppMbDev.EQP_DEV_TYPE_Shield             EQP_DEV_TYPE_Throwing
-    TppMbDev.EQP_DEV_TYPE_Placed             EQP_DEV_TYPE_Equip
-    TppMbDev.EQP_DEV_TYPE_Tool               EQP_DEV_TYPE_ArtificialArm
-    TppMbDev.EQP_DEV_TYPE_Suit               EQP_DEV_TYPE_Quiet
-    TppMbDev.EQP_DEV_TYPE_DDog               EQP_DEV_TYPE_Horse
-    TppMbDev.EQP_DEV_TYPE_WalkerGear         EQP_DEV_TYPE_Heli
-    TppMbDev.EQP_DEV_TYPE_SecurityGadgets    EQP_DEV_TYPE_BattleGear
-
-  equipDevelopGroupID values (one per row in the R&D grid):
-    TppMbDev.EQP_DEV_GROUP_WEAPON_010 .. _360   weapons (handgun → shield)
-    TppMbDev.EQP_DEV_GROUP_SUPPORT_010 .. _180  support weapons (grenades, mines, C4)
-    TppMbDev.EQP_DEV_GROUP_TOOL_010 .. _440     tools, cardboard boxes, cigars, suits
-    TppMbDev.EQP_DEV_GROUP_BUDDY_010 .. _320    Quiet / DD / D-Horse / D-Walker
-    TppMbDev.EQP_DEV_GROUP_OTHER_010 .. _200    heli, MB defense, battle gear
-    TppMbDev.EQP_DEV_GROUP_None                 no group (invisible / sub-row)
-
-  skill gate values (string or 0):
-    "GunsmithHandGun"        "GunsmithAssultRifle"    "GunsmithSniperRifle"
-    "GunsmithSubmachineGun"  "GunsmithShotGun"        "GunsmithGrenadeLauncher"
-    "GunsmithMachineGun"     "GunsmithMissile"
-    "SuppressorEngineer"     "TranqEngineer"          "SleepingGasEngineer"
-    "MechatronicsEngineer"   "CyberneticsEngineer"    "MetamaterialEngineer"
-    "RadarEngineer"          "MonitorEngineer"        "MaterialEngineer"
-    "HaulageEngineer"        "ElectricSpinningEngineer"
-    "RocketControlEngineer"  "ElectromagneticNetEngineer"
-    "ElectricEngineer"       "MissileHomingEngineer"
-    "DrugEngineer"           "ParasiteReseacher"      "Zoologist"
-
-  bluePrintId values (or 65535 for none):
-    TppMotherBaseManagementConst.DESIGN_2000 .. DESIGN_3019  (blueprint designs)
-    TppMotherBaseManagementConst.EXTRA_4000  .. EXTRA_6000   (DLC / extra)
-    TppMotherBaseManagementConst.ANIMAL_130,  ANIMAL_2250    (wormhole / Jehuty)
-
-  FLOW FIELDS (developData.flow)
-  ------------------------------
-
-  Raw  | Readable Name             | Description / example value
-  -----|---------------------------|----------------------------------
-  p51  | sideGrade                 | Side-grade index (0..). e.g. 0 root, 1+ side
-  p52  | grade                     | Tier (DLL-clamped to 0..15). e.g. 8
-  p53  | developGmpCost            | e.g. 50000, 2921100, 11398600
-  p54  | usageGmpCost              | Per-use/deploy cost. e.g. 100, 700, 64250
-  p55  | sectionLvForDevelop       | Primary cluster level. e.g. 0, 22, 85
-  p56  | sectionID2ForDevelop      | Cluster id 0..7 (see below)
-  p57  | sectionLv2ForDevelop      | Secondary cluster level. e.g. 95
-  p58  | resourceType1             | e.g. "CommonMetal", "Plant2000". "" = none
-  p59  | resourceType1Count        | e.g. 260, 31300
-  p60  | resourceType2             | e.g. "PreciousMetal". "" = none
-  p61  | resourceType2Count        | e.g. 50, 57800
-  p62  | initialAvailable          | 0 or 1. 1 = unlocked at start
-  p63  | sectionIDForDevelop       | Cluster id 0..7 (overrides p55 when set)
-  p64  | developSectionLv          | Cluster level when p63 is used
-  p65  | resourceUsageType1        | e.g. "CommonMetal". Deployment resource
-  p66  | resourceUsageType1Count   | e.g. 307
-  p67  | resourceUsageType2        | e.g. "MinorMetal"
-  p68  | resourceUsageType2Count   | e.g. 293
-  p69  | displayInfo               | 0 show, 1 DLC, 2 enemy/un-dev, 3 wormhole, 5 hidden
-  p70  | unk70                     | 0 for every vanilla row
-  p71  | developTimeMinute         | e.g. 18 (≈18m), 7200, 17280
-  p72  | isValidMbCoin             | 0 or 1. MB-coin purchase allowed
-  p73  | intimacyPoint             | 0..100. Buddy bond requirement
-  p74  | isFobAvailable            | DLL forces 0 for every custom entry. Blocks FOB sortie.
-
-  FLOW ENUM REFERENCE
-  -------------------
-
-  resourceType / resourceUsageType values (or ""):
-    "CommonMetal"     "MinorMetal"     "PreciousMetal"   "FuelResource"
-    "BioticResource"
-    "Plant2000"  "Plant2001"  "Plant2002"  "Plant2003"
-    "Plant2004"  "Plant2005"  "Plant2006"  "Plant2007"
-    "ParasiteFog"  "ParasiteCamofla"  "ParasiteCuring"
-
-  section id values (p56 / p63, cluster the development is gated behind):
-    0 = none       1 = Command    2 = Combat     3 = Develop
-    4 = BaseDev    5 = Support    6 = Spy        7 = Medical
-
-  displayInfo values:
-    0  normal — shows in R&D grid and equip menus
-    1  DLC-tagged
-    2  hidden from R&D (enemy weapons, Honeybee, Balaclava, Battle Gear, etc.)
-    3  wormhole-fulton special case (all four grades)
-    5  fully unused (hides from equip menu too)
-
-  STOCK EXAMPLES
-  --------------
-
-  A vanilla "M2000-D" (Com_sg_020_FL), one of the paired const + flow entries
-  at p00 = 4041, showing a grade-4 shotgun:
-
-    -- const
-    { equipID             = TppEquip.EQP_WP_Com_sg_020_FL,
-      equipDevelopTypeID  = TppMbDev.EQP_DEV_TYPE_Shotgun,
-      baseEquipDevelopId  = 4040,
-      skill               = 0,
-      bluePrintId         = TppMotherBaseManagementConst.DESIGN_2009,
-      langEquipName       = "name_wp_4040",
-      langEquipInfo       = "info_wp_4040",
-      iconFtexPath        = "/Assets/tpp/ui/texture/EquipIcon/weapon/ui_wp_sg04_00_20_alp",
-      equipDevelopGroupID = TppMbDev.EQP_DEV_GROUP_WEAPON_180,
-      langPowerUpInfo0    = "ability_0703",
-      langPowerUpInfo1    = "ability_0250",
-      langPowerUpInfo2    = "ability_0106",
-      langEquipRealName   = "real_wp_4040",
-      isCustomEnable      = 1, isColorChangeEnable = 1,
-      unk34               = 1,
-      isSecurityStaffEquip= 1 }
-
-    -- flow
-    { grade              = 4,
-      developGmpCost     = 41e4,
-      usageGmpCost       = 3900,
-      sectionLvForDevelop= 33,
-      resourceType1      = "Plant2000",
-      resourceType1Count = 120,
-      resourceUsageType1 = "Plant2000",
-      resourceUsageType1Count = 32,
-      resourceUsageType2      = "Plant2002",
-      resourceUsageType2Count = 2,
-      developTimeMinute  = 36 }
-      -- isFobAvailable is force-set to 0 by the DLL.
-
-  A starter / initially-available hand-gun root row (p00 = 1000, WP_10101):
-
-    -- const
-    { equipID             = TppEquip.EQP_WP_10101,
-      equipDevelopTypeID  = TppMbDev.EQP_DEV_TYPE_Handgun,
-      baseEquipDevelopId  = 0,
-      bluePrintId         = 65535,
-      langEquipName       = "name_wp_1000",
-      langEquipInfo       = "info_wp_1000",
-      iconFtexPath        = "/Assets/tpp/ui/texture/EquipIcon/weapon/ui_wp_hg01_00_10_alp",
-      equipDevelopGroupID = TppMbDev.EQP_DEV_GROUP_WEAPON_010,
-      langPowerUpInfo0    = "ability_0300",
-      langEquipRealName   = "real_wp_1000",
-      isCustomEnable      = 1, isColorChangeEnable = 1, unk34 = 1 }
-
-    -- flow
-    { grade = 1, developGmpCost = 0, usageGmpCost = 100,
-      initialAvailable = 1 }
-    -- isFobAvailable is force-set to 0 by the DLL.
+  p51  | sideGrade                 | Side-grade level
+  p52  | grade                     | Equipment grade/tier
+  p53  | developGmpCost            | GMP cost to develop
+  p54  | usageGmpCost              | GMP cost per use/deployment
+  p55  | sectionLvForDevelop       | Required section level
+  p56  | sectionID2ForDevelop      | Secondary section ID
+  p57  | sectionLv2ForDevelop      | Secondary section level
+  p58  | resourceType1             | Resource type 1 name (string)
+  p59  | resourceType1Count        | Resource type 1 amount
+  p60  | resourceType2             | Resource type 2 name (string)
+  p61  | resourceType2Count        | Resource type 2 amount
+  p62  | initialAvailable          | Available from start (0/1)
+  p63  | sectionIDForDevelop       | Primary section ID
+  p64  | developSectionLv          | Develop section level
+  p65  | resourceUsageType1        | Usage resource type 1 (string)
+  p66  | resourceUsageType1Count   | Usage resource type 1 amount
+  p67  | resourceUsageType2        | Usage resource type 2 (string)
+  p68  | resourceUsageType2Count   | Usage resource type 2 amount
+  p69  | displayInfo               | Display info flags
+  p70  | unk70                     | Unknown
+  p71  | developTimeMinute         | Development time in minutes
+  p72  | isValidMbCoin             | Can use MB coins (0/1)
+  p73  | intimacyPoint             | Buddy intimacy requirement (if the equipment is for buddies)
+  p74  | isFobAvailable            | Available in FOB (0/1)
 
 
 ================================================================================
@@ -931,29 +707,18 @@ APPENDIX C: Save File Format
 
   return {
       equips = {
-          ["Retail8:AK_12_00"] = { developId = 51006 },
-          ["SSD:FemaleSna4"]   = { developId = 51007 },
+          ["ModName:ItemName"] = { equipId = 1545, developId = 800 },
       },
       tapes = {
           ["AlbumId:FileName"] = { saveIndex = 200, owned = true, new = false },
       },
   }
 
-  - Each equips entry stores a single field: developId. It is the stable
-    R&D row index allocated by AddToEquipDevelopTable for that mod key.
-  - Keys are free-form strings, typically "ModName:ItemName" to avoid
-    collisions across mods.
-  - Equip ids (EQP_* namespace, ≥ 0x609) are session-scoped. The DLL
-    reassigns them each game session by scanning the TppEquip table, so
-    they never appear in the state file. Assignment order within a
-    session is deterministic — if the mod always registers its weapons
-    in the same order, the ids stay stable in practice.
-  - Legacy files with `equipId = N` fields are still parsed, but those
-    values are ignored on load and dropped on the next save.
-  - saveIndex is the stable tape slot id.
-  - owned = player has collected this tape.
-  - new = tape hasn't been listened to yet (shows "NEW" in UI).
-  - Orphaned entries (mod uninstalled) are harmless — just ignored.
+  - Keys are strings in "namespace:name" format
+  - equipId / developId / saveIndex are stable across sessions
+  - owned = player has collected this tape
+  - new = tape hasn't been listened to yet (shows "NEW" in UI)
+  - Orphaned entries (mod uninstalled) are harmless — just ignored
 
 
 ################################################################################

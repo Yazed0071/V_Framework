@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "AddressSet.h"
+#include "HookUtils.h"
 #include "log.h"
 
 namespace
@@ -271,6 +272,25 @@ namespace
     std::vector<StockDef>        g_CustomStocks;
     std::vector<UnderBarrelDef>  g_CustomUnderBarrels;
     std::vector<BulletDef>       g_CustomBullets;
+
+    // Magazine direct-native-shadow state.
+    //
+    // Lives at `impl + 0x20` → pointer to `g_magazineParameters2`
+    // (0x5F8 bytes = 191 rows × 8 bytes). We allocate a shadow buffer,
+    // memcpy the stock rows once, redirect the impl pointer at the shadow,
+    // and thereafter write each custom magazine row directly into our
+    // shadow. The reload-hook path is unreliable because vanilla's boot
+    // reload fires BEFORE our DLL installs, and nothing re-reloads later.
+    constexpr std::size_t kMagazineEntrySize = 8;
+    constexpr std::ptrdiff_t kEquipParameterTablesImpl_MagazinePtr_Offset = 0x20;
+    constexpr std::size_t kStockMagazineByteSize = 0x5F8;
+    constexpr std::uint32_t kStockMagazineMaxAmmoId = 191;
+
+    std::vector<std::uint8_t> g_MagazineShadowBuffer;
+    std::uint32_t g_MagazineShadowCapacity = 0;
+    void* g_StockMagazinePtr = nullptr;
+    void* g_MagazineShadowImpl = nullptr;
+    bool g_MagazineShadowInitialized = false;
 }
 
 namespace
@@ -1071,6 +1091,167 @@ namespace
             def.barrelId, def.ownerKey.c_str());
     }
 
+    // Direct native-shadow write for the magazine table.
+    // Mirrors what SetGunBasic does at impl+0x08 — same pattern, different
+    // subsystem offset (impl+0x20) and row size (8 bytes instead of 12).
+    //
+    // Native row layout (8 bytes per row, row idx = ammoId - 1):
+    //   [0-1] eqpAmmoId    (u16)
+    //   [2-3] magCapacity  (u16, capped to 0x3FF)
+    //   [4-5] totalCarry   (u16, capped to 0x3FFF; native treats 0 as max)
+    //   [6-7] bulletId     (u16, but vanilla values fit in a byte)
+    //
+    // Note: our MagazineDef names are legacy — `rank` holds magCapacity,
+    // `magSize` holds totalCarryCapacity. ParseMagazine maps them from Lua.
+    static bool InitMagazineNativeShadow_NoLock()
+    {
+        if (g_MagazineShadowInitialized)
+            return true;
+
+        void* impl = ResolveGameAddress(gAddr.EquipParameterTablesImpl_Instance);
+        if (!impl)
+        {
+            Log("[EquipParams] Magazine: impl instance not resolved\n");
+            return false;
+        }
+
+        void** ppMagazine = reinterpret_cast<void**>(
+            reinterpret_cast<std::uint8_t*>(impl) + kEquipParameterTablesImpl_MagazinePtr_Offset);
+
+        void* stockPtr = *ppMagazine;
+        if (!stockPtr)
+        {
+            Log("[EquipParams] Magazine: stock pointer is null (game not fully booted?)\n");
+            return false;
+        }
+
+        // Size shadow for max(191 stock rows, current max custom ammoId).
+        std::uint32_t customMax = 0;
+        for (const auto& m : g_CustomMagazines)
+        {
+            if (m.ammoId > 0 && static_cast<std::uint32_t>(m.ammoId) > customMax)
+                customMax = static_cast<std::uint32_t>(m.ammoId);
+        }
+
+        const std::uint32_t capacity =
+            (customMax > kStockMagazineMaxAmmoId) ? customMax : kStockMagazineMaxAmmoId;
+        const std::size_t bufSize = static_cast<std::size_t>(capacity) * kMagazineEntrySize;
+
+        try
+        {
+            g_MagazineShadowBuffer.assign(bufSize, 0);
+        }
+        catch (...)
+        {
+            Log("[EquipParams] Magazine shadow alloc failed (%zu bytes)\n", bufSize);
+            return false;
+        }
+
+        // Copy stock rows verbatim so vanilla magazines keep working.
+        std::memcpy(g_MagazineShadowBuffer.data(), stockPtr, kStockMagazineByteSize);
+
+        g_StockMagazinePtr = stockPtr;
+        g_MagazineShadowCapacity = capacity;
+
+        // Redirect impl->magazine at our shadow.
+        *ppMagazine = g_MagazineShadowBuffer.data();
+        g_MagazineShadowImpl = impl;
+        g_MagazineShadowInitialized = true;
+
+        Log("[EquipParams] Magazine native shadow initialized: impl=%p stock=%p "
+            "shadow=%p capacity=0x%X stockCopied=%zu\n",
+            impl, g_StockMagazinePtr, g_MagazineShadowBuffer.data(),
+            g_MagazineShadowCapacity, kStockMagazineByteSize);
+
+        return true;
+    }
+
+    static bool GrowMagazineShadowIfNeeded_NoLock(std::uint32_t ammoId)
+    {
+        if (ammoId == 0 || ammoId <= g_MagazineShadowCapacity)
+            return true;
+
+        const std::size_t newBufSize = static_cast<std::size_t>(ammoId) * kMagazineEntrySize;
+
+        std::vector<std::uint8_t> newBuf;
+        try
+        {
+            newBuf.assign(newBufSize, 0);
+        }
+        catch (...)
+        {
+            Log("[EquipParams] Magazine shadow grow failed (%zu bytes)\n", newBufSize);
+            return false;
+        }
+
+        std::memcpy(newBuf.data(), g_MagazineShadowBuffer.data(), g_MagazineShadowBuffer.size());
+        g_MagazineShadowBuffer = std::move(newBuf);
+        g_MagazineShadowCapacity = ammoId;
+
+        // Re-point impl in case the vector reallocated.
+        if (g_MagazineShadowImpl)
+        {
+            void** ppMagazine = reinterpret_cast<void**>(
+                reinterpret_cast<std::uint8_t*>(g_MagazineShadowImpl)
+                + kEquipParameterTablesImpl_MagazinePtr_Offset);
+            *ppMagazine = g_MagazineShadowBuffer.data();
+        }
+
+        Log("[EquipParams] Magazine shadow grown to capacity=0x%X bytes=%zu\n",
+            g_MagazineShadowCapacity, newBufSize);
+        return true;
+    }
+
+    static void WriteMagazineEntryToShadow_NoLock(const MagazineDef& def)
+    {
+        if (def.ammoId <= 0)
+            return;
+
+        if (!InitMagazineNativeShadow_NoLock())
+            return;
+
+        if (!GrowMagazineShadowIfNeeded_NoLock(static_cast<std::uint32_t>(def.ammoId)))
+            return;
+
+        const std::size_t offset =
+            (static_cast<std::size_t>(def.ammoId) - 1) * kMagazineEntrySize;
+        if (offset + kMagazineEntrySize > g_MagazineShadowBuffer.size())
+        {
+            Log("[EquipParams] Magazine row offset 0x%zX out of shadow range (size=%zu)\n",
+                offset, g_MagazineShadowBuffer.size());
+            return;
+        }
+
+        std::uint8_t* row = g_MagazineShadowBuffer.data() + offset;
+
+        const std::uint16_t eqpAmmo =
+            static_cast<std::uint16_t>(def.eqpAmmoId & 0xFFFF);
+
+        const std::int32_t magCapClamped =
+            (def.rank < 0) ? 0 : (def.rank > 0x3FF ? 0x3FF : def.rank);
+        const std::uint16_t magCap = static_cast<std::uint16_t>(magCapClamped);
+
+        const std::int32_t totalClamped =
+            (def.magSize < 0) ? 0 : (def.magSize > 0x3FFF ? 0x3FFF : def.magSize);
+        const std::uint16_t totalCarry = static_cast<std::uint16_t>(totalClamped);
+
+        const std::uint16_t bulletId =
+            static_cast<std::uint16_t>(def.bulletId & 0xFF);
+
+        *reinterpret_cast<std::uint16_t*>(row + 0) = eqpAmmo;
+        *reinterpret_cast<std::uint16_t*>(row + 2) = magCap;
+        *reinterpret_cast<std::uint16_t*>(row + 4) = totalCarry;
+        *reinterpret_cast<std::uint16_t*>(row + 6) = bulletId;
+
+        Log("[EquipParams] Wrote native magazine row ammoId=0x%X offset=0x%zX "
+            "eqpAmmo=0x%X magCap=%d totalCarry=%d bulletId=0x%X "
+            "bytes: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+            def.ammoId, offset,
+            (unsigned)eqpAmmo, (int)magCap, (int)totalCarry, (unsigned)bulletId,
+            row[0], row[1], row[2], row[3],
+            row[4], row[5], row[6], row[7]);
+    }
+
     static void QueueMagazine(const MagazineDef& def)
     {
         UpsertBy(g_CustomMagazines, def, [&](const MagazineDef& x) {
@@ -1079,6 +1260,11 @@ namespace
 
         Log("[EquipParams] queued magazine ammoId=0x%X owner='%s'\n",
             def.ammoId, def.ownerKey.c_str());
+
+        // Direct native-shadow write. Don't wait for any reload — vanilla's
+        // boot call to ReloadEquipParameterTables already fired before our
+        // DLL installed, and nothing else reliably triggers another reload.
+        WriteMagazineEntryToShadow_NoLock(def);
     }
 
     static void QueueMuzzleOption(const MuzzleOptionDef& def)

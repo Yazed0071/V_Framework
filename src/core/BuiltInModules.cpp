@@ -6,7 +6,6 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "EquipIdTable_AddToEquipIdTable.h"
-#include "EquipMotionDataTable.h"
 
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
@@ -568,25 +567,6 @@ namespace
             EquipIdTableAdd::Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
         }
     };
-    class EquipMotionDataTableReloadModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "EquipMotionDataTableReload";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return EquipMotionData::Install_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
-        }
-
-        void Uninstall() override
-        {
-            EquipMotionData::Uninstall_EquipMotionDataTableImpl_ReloadEquipMotionData_Hook();
-        }
-    };
     class EquipDevelopReloadModule final : public IFeatureModule
     {
     public:
@@ -684,7 +664,6 @@ void RegisterBuiltInFeatureModules()
     static EquipParamsModule s_EquipParamsModule;
     static EquipParameterTablesReloadModule s_EquipParameterTablesReloadModule;
     static EquipIdTableReloadModule s_EquipIdTableReloadModule;
-    static EquipMotionDataTableReloadModule s_EquipMotionDataTableReloadModule;
     static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
     static EquipDevelopReloadModule s_EquipDevelopReloadModule;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
@@ -719,7 +698,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipParameterTablesReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIdTableReloadModule);
-            FeatureModuleRegistry::Instance().Register(&s_EquipMotionDataTableReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_DeclareAMsModule);
             FeatureModuleRegistry::Instance().Register(&s_SetSupportWeaponTypeModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);

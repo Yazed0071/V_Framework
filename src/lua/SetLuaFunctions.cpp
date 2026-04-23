@@ -37,7 +37,6 @@ extern "C" {
 #include "DeclareWPs.h"
 #include "EquipParameters_GunBasic.h"
 #include "EquipIdTable_AddToEquipIdTable.h"
-#include "EquipMotionDataTable.h"
 #include "EquipDevelop_AddToEquipDevelopTable.h"
 #include "DeclareSWPs.h"
 #include "SetSupportWeaponTypeId.h"
@@ -1498,7 +1497,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "DeclareWPs",                             DeclareWPs::Lua_DeclareWPs },
     { "SetGunBasic",                            l_SetGunBasic },
     { "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
-    { "AddEquipMotionDataTable",                EquipMotionData::Lua_AddEquipMotionDataTable },
     { "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
     { "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
     { "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },

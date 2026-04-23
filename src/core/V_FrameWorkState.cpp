@@ -50,9 +50,9 @@ namespace V_FrameWorkState
         static std::mutex g_Mutex;
 
         // Session-only cache of equipIds allocated via ResolveOrCreateEquipId.
-        // Never persisted: equipIds are reallocated fresh each game session
-        // from the TppEquip table scan, then memoized here so repeated calls
-        // with the same key in one session return the same id.
+        // Never persisted: equipIds are reallocated fresh each game session,
+        // then memoized here so repeated calls with the same key in one
+        // session return the same id.
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
 
         static std::string Trim(const std::string& s)
@@ -125,10 +125,10 @@ namespace V_FrameWorkState
             };
 
             out.developId = findField("developId");
-            return !outKey.empty() && out.developId != 0;
+            return !outKey.empty();
         }
 
-        // Parses a line like: ["key"] = { saveIndex = 200 },
+        // Parses a line like: ["key"] = { saveIndex = 300 },
         static bool ParseTapeLine(const std::string& line, std::string& outKey, TapeEntry& out)
         {
             const auto lb = line.find("[\"");
@@ -251,8 +251,9 @@ namespace V_FrameWorkState
                 out << "    equips = {\n";
                 for (const auto& kv : sorted)
                 {
-                    if (kv.second.developId == 0)
-                        continue;
+                    // Only developId is persisted. equipIds are session-scoped
+                    // and re-allocated on next run.
+                    if (kv.second.developId == 0) continue;
                     out << "        [\"" << kv.first << "\"] = {"
                         << " developId = " << kv.second.developId
                         << " },\n";
@@ -512,6 +513,5 @@ namespace V_FrameWorkState
         g_State.dirty = false;
         g_State.equips.clear();
         g_State.tapes.clear();
-        g_SessionEquipIds.clear();
     }
 }
