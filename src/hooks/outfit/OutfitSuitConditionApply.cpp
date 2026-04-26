@@ -171,40 +171,98 @@ namespace
 
         __try
         {
+            // Determine the EFFECTIVE playerType after orig SetSuit
+            // returns:
+            //   - If flags has 0x100, info[0xC0] is the TARGET PT.
+            //     Orig will commit a body change (character switch,
+            //     loadout slot restore, etc.). We must compare against
+            //     this target — comparing against livePT misses
+            //     because livePT is still the OLD body until orig
+            //     finishes applying.
+            //   - If flags lacks 0x100, info[0xC0] is junk and the
+            //     orig keeps the body at livePT (broken-custom
+            //     transient signal during active equip — flags=0x81).
+            //     livePT IS the effective PT in that case.
+            const bool playerTypeValid = (flags & 0x100u) != 0;
+            const std::uint8_t livePT = outfit::ReadLivePlayerType();
+            const std::uint8_t effectivePT =
+                playerTypeValid ? playerType : livePT;
+            const bool canCheckPT = playerTypeValid || (livePT != 0xFF);
+            const bool clearMismatch = canCheckPT
+                                    && (effectivePT != chosen->playerType);
+
+            // We do NOT mask the 0x100 bit. Earlier (2026-04-27) we
+            // masked it as a defense against saved-state corruption
+            // sync events writing stale playerType to the player
+            // slot, but that mask blocked legitimate character
+            // switches: when the user picks a different character
+            // in the menu, orig fires this hook with 0x100 set and
+            // info[0xC0] = the new character's playerType, expecting
+            // to commit the body swap. Masking 0x100 made the swap
+            // a no-op — symptom user reported 2026-04-27: "when I
+            // have Jill equipped, I can't change to any other
+            // character, even if it's a female."
+            //
+            // Trade-off: the saved-state-corruption case (if it ever
+            // re-emerges) will let the body change to whatever the
+            // saved playerType says. That's vanilla orig behavior
+            // and acceptable — the user's clear preference is that
+            // character switches must work.
+
+            if (clearMismatch)
+            {
+                // Effective body after this commit can't wear the
+                // matched outfit (either user is on the wrong body,
+                // or they're switching to a body that can't wear
+                // it). Write vanilla NORMAL bytes — orig commits
+                // the body change AND lands on a clean vanilla
+                // outfit. No stray-custom transient, no infinite
+                // loading from custom partsType on a body that
+                // doesn't have the assets.
+                base[kInfoOff_PartsType] = 0x00;
+                base[kInfoOff_CamoType]  = 0x00;
+
+                Log("[OutfitSuitConditionApply:%s] playerType mismatch "
+                    "(effective=%u via=%s outfit-playerType=%u "
+                    "developId=%u; livePT=%u info[0xC0]=%u "
+                    "flags=0x%X 0x100=%s) — applied vanilla NORMAL "
+                    "upfront\n",
+                    tag,
+                    static_cast<unsigned>(effectivePT),
+                    via,
+                    static_cast<unsigned>(chosen->playerType),
+                    static_cast<unsigned>(chosen->developId),
+                    static_cast<unsigned>(livePT),
+                    static_cast<unsigned>(playerType),
+                    flags,
+                    playerTypeValid ? "set" : "unset");
+                return true;
+            }
+
+            // Match path (effectivePT == chosen->playerType, OR PT
+            // unavailable so we apply-and-pray): write the outfit's
+            // bytes. If effectivePT truly matches, LoadPartsNew's
+            // ResolveCustomEntry hits and the outfit applies cleanly.
+            // If PT was unavailable and the body turns out to
+            // mismatch, LoadPartsNew's stray-custom path catches it
+            // as a safety net (force-vanilla).
             base[kInfoOff_PartsType] = chosen->partsType;
             base[kInfoOff_CamoType]  = chosen->selectorCode;
-            // DO NOT write playerType or set the 0x100 "playerType valid"
-            // flag bit. (Removed 2026-04-27 after confirming via
-            // LoadPartsNew traces that orig SetSuit, when given
-            // info[0xC0]=2 + flags 0x100, mutates the player slot's
-            // body to playerType=1 — i.e. selecting a DDFemale-tagged
-            // custom outfit while playing as DDFemale ends up swapping
-            // the avatar to DDMale. Symptom user reported: "Player type
-            // changes upon selecting the custom suit."
-            //
-            // Leaving the player's current body type alone is both
-            // safer and more vanilla:
-            //   - User at the matching body type (playerType matches
-            //     outfit) → outfit's parts/camo apply, body stays put.
-            //   - User on a mismatched body type → LoadPartsNew sees
-            //     (theirPT, ourPartsType) miss in ResolveCustomEntry,
-            //     forces vanilla 0x00. Outfit silently doesn't apply,
-            //     but the avatar isn't swapped out from under the user.
-            //
-            // The outfit's `playerType` field functions as a MATCH
-            // criterion for ResolveCustomEntry (LoadPartsNew time), not
-            // as a SETTER for the player slot's body type. The legacy
-            // framework's writing-it-here behavior conflated the two.
+
             Log("[OutfitSuitConditionApply:%s] rewrote loadout (via %s) "
                 "-> developId=%u partsType=0x%02X selector=0x%02X "
-                "(playerType left at %u — outfit registers playerType=%u "
-                "but we don't force the body swap)\n",
+                "(effective=%u outfit-playerType=%u; livePT=%u "
+                "info[0xC0]=%u flags=0x%X 0x100=%s)\n",
                 tag, via,
                 static_cast<unsigned>(chosen->developId),
                 static_cast<unsigned>(chosen->partsType),
                 static_cast<unsigned>(chosen->selectorCode),
+                static_cast<unsigned>(effectivePT),
+                static_cast<unsigned>(chosen->playerType),
+                static_cast<unsigned>(livePT),
                 static_cast<unsigned>(playerType),
-                static_cast<unsigned>(chosen->playerType));
+                flags,
+                playerTypeValid ? "set" : "unset");
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
