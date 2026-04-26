@@ -20,15 +20,17 @@ namespace V_FrameWorkState
 
         static constexpr std::int32_t kFirstCustomEquipId = 0x609;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
+        static constexpr std::int32_t kFirstCustomFlowIndex = 922;
         static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
         static constexpr std::int16_t kMaxCustomTapeSaveIndex = 1999;
 
         struct EquipEntry
         {
-            // Only developId is persisted to disk. Equip ids (EQP_* namespace)
-            // are session-scoped and live in g_SessionEquipIds below — they
-            // never land in the state file.
+            // developId and flowIndex are persisted together per key.
+            // Equip ids (EQP_* namespace) are session-scoped and live in
+            // g_SessionEquipIds below — they never land in the state file.
             std::int32_t developId = 0;
+            std::int32_t flowIndex = 0;
         };
 
         struct TapeEntry
@@ -125,6 +127,7 @@ namespace V_FrameWorkState
             };
 
             out.developId = findField("developId");
+            out.flowIndex = findField("flowIndex");
             return !outKey.empty();
         }
 
@@ -251,12 +254,16 @@ namespace V_FrameWorkState
                 out << "    equips = {\n";
                 for (const auto& kv : sorted)
                 {
-                    // Only developId is persisted. equipIds are session-scoped
-                    // and re-allocated on next run.
-                    if (kv.second.developId == 0) continue;
-                    out << "        [\"" << kv.first << "\"] = {"
-                        << " developId = " << kv.second.developId
-                        << " },\n";
+                    // Persist any entry that has a developId OR a flowIndex.
+                    // equipIds are session-scoped and re-allocated each run.
+                    if (kv.second.developId == 0 && kv.second.flowIndex == 0)
+                        continue;
+                    out << "        [\"" << kv.first << "\"] = {";
+                    if (kv.second.developId != 0)
+                        out << " developId = " << kv.second.developId << ",";
+                    if (kv.second.flowIndex != 0)
+                        out << " flowIndex = " << kv.second.flowIndex << ",";
+                    out << " },\n";
                 }
                 out << "    },\n";
             }
@@ -322,6 +329,20 @@ namespace V_FrameWorkState
             std::int32_t id = (minimum > kFirstCustomDevelopId) ? minimum : kFirstCustomDevelopId;
             while (IsDevelopIdInUse_NoLock(id)) ++id;
             return id;
+        }
+
+        static bool IsFlowIndexInUse_NoLock(std::int32_t idx)
+        {
+            for (const auto& kv : g_State.equips)
+                if (kv.second.flowIndex == idx) return true;
+            return false;
+        }
+
+        static std::int32_t AllocateNextFreeFlowIndex_NoLock(std::int32_t minimum)
+        {
+            std::int32_t idx = (minimum > kFirstCustomFlowIndex) ? minimum : kFirstCustomFlowIndex;
+            while (IsFlowIndexInUse_NoLock(idx)) ++idx;
+            return idx;
         }
 
         static std::int16_t AllocateNextFreeTapeSaveIndex_NoLock(std::int16_t minimum)
@@ -399,6 +420,35 @@ namespace V_FrameWorkState
         SaveToDisk_NoLock();
 
         Log("[V_FrameWorkState] Assigned developId=%d for '%s'\n", newId, key);
+        return true;
+    }
+
+    bool ResolveOrCreateFlowIndex(
+        const char* key,
+        std::int32_t minimumIndex,
+        std::int32_t& outFlowIndex)
+    {
+        outFlowIndex = 0;
+        if (!key || !key[0]) return false;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        auto it = g_State.equips.find(key);
+        if (it != g_State.equips.end() && it->second.flowIndex != 0)
+        {
+            outFlowIndex = it->second.flowIndex;
+            return true;
+        }
+
+        const std::int32_t newIdx = AllocateNextFreeFlowIndex_NoLock(minimumIndex);
+        g_State.equips[key].flowIndex = newIdx;
+        g_State.dirty = true;
+        outFlowIndex = newIdx;
+
+        SaveToDisk_NoLock();
+
+        Log("[V_FrameWorkState] Assigned flowIndex=%d for '%s'\n", newIdx, key);
         return true;
     }
 

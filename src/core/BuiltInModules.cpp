@@ -6,6 +6,16 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "EquipIdTable_AddToEquipIdTable.h"
+#include "../hooks/outfit/OutfitEquippedState.h"
+#include "../hooks/outfit/OutfitCommit.h"
+#include "../hooks/outfit/OutfitRuntimeParts.h"
+#include "../hooks/outfit/OutfitListInject.h"
+#include "../hooks/outfit/OutfitFv2Paths.h"
+#include "../hooks/outfit/OutfitHeadOption.h"
+#include "../hooks/outfit/OutfitItemSelector.h"
+#include "../hooks/outfit/OutfitSupplyDropSetup.h"
+#include "../hooks/outfit/OutfitSuitConditionApply.h"
+#include "../hooks/outfit/OutfitSupplyDropPickup.h"
 
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
@@ -109,6 +119,14 @@ namespace EquipParams
 
 bool Install_EquipIconFtexPath_Hook();
 bool Uninstall_EquipIconFtexPath_Hook();
+
+// Player custom-outfit subsystem — Phase-2/3/4 hooks live in
+// src/hooks/outfit/. The Phase-5 cleanup removed the legacy
+// player-folder hook decls (PlayerPartsPath, PlayerSuitResolver,
+// ItemSelectorSuitCommit, MissionPrepCommit, PlayerFaceFovaGate,
+// PlayerFaceEquipRepair, CharacterSelectorPreserve, CurrentSuitQuery,
+// SuitVariant, MissionPrepUpdateLoadMark) along with their .cpp/.h
+// files. Outfit functionality flows entirely through the new modules.
 
 namespace
 {
@@ -656,6 +674,81 @@ namespace
             Uninstall_EquipIconFtexPath_Hook();
         }
     };
+
+    // ================================================================
+    // Player custom-outfit subsystem (Phase 2/3/4)
+    // ================================================================
+
+    // Phase-2 outfit core. Owns:
+    //   - OutfitEquippedState (IsEquipDeveloped + GetEquipIdFromLoadoutInfo)
+    //   - OutfitCommit (Player2UtilityImpl::RequestToChange...)
+    //   - OutfitRuntimeParts (5 path loaders)
+    class PlayerOutfitCoreModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "PlayerOutfitCore"; }
+
+        bool Install(HMODULE) override
+        {
+            const bool eq      = outfit::Install_OutfitEquippedState_Hooks();
+            const bool commit  = outfit::Install_OutfitCommit_Hook();
+            const bool runtime = outfit::Install_OutfitRuntimeParts_Hooks();
+
+            return eq && commit && runtime;
+        }
+
+        void Uninstall() override
+        {
+            outfit::Uninstall_OutfitRuntimeParts_Hooks();
+            outfit::Uninstall_OutfitCommit_Hook();
+            outfit::Uninstall_OutfitEquippedState_Hooks();
+        }
+    };
+
+    // Phase-3 outfit UI module. Owns:
+    //   - OutfitListInject  (UNIFORMS list-builder wrap, custom row append)
+    //   - OutfitFv2Paths    (LoadPlayerCamoFv2 + LoadPlayerSnakeBlackDiamondFv2)
+    //   - OutfitHeadOption  (IsEnableCurrentHeadOption gate — submenu list
+    //                        build deferred per documented limitation)
+    //
+    // Independent from PlayerOutfitCore so a partial Phase-3 install
+    // failure (e.g. one of the FV2 addresses not resolved on a
+    // future build) doesn't take down the core.
+    class PlayerOutfitUIModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "PlayerOutfitUI"; }
+
+        bool Install(HMODULE) override
+        {
+            const bool list       = outfit::Install_OutfitListInject_Hook();
+            const bool fv2        = outfit::Install_OutfitFv2Paths_Hooks();
+            const bool head       = outfit::Install_OutfitHeadOption_Hook();
+            const bool sel        = outfit::Install_OutfitItemSelector_Hook();
+            const bool supply     = outfit::Install_OutfitSupplyDropSetup_Hook();
+            const bool suitCond   = outfit::Install_OutfitSuitConditionApply_Hook();
+            const bool sdPickup   = outfit::Install_OutfitSupplyDropPickup_Hook();
+
+            // List-inject + ItemSelector together make custom outfits
+            // selectable end-to-end (the click → pending-developId →
+            // commit-rewrite chain). FV2, head-option gate, supply-
+            // drop short-circuit, suit-condition apply, and supply-
+            // drop pickup force-reload are nice-to-have.
+            (void)fv2; (void)head; (void)supply; (void)suitCond; (void)sdPickup;
+            return list && sel;
+        }
+
+        void Uninstall() override
+        {
+            outfit::Uninstall_OutfitSupplyDropPickup_Hook();
+            outfit::Uninstall_OutfitSuitConditionApply_Hook();
+            outfit::Uninstall_OutfitSupplyDropSetup_Hook();
+            outfit::Uninstall_OutfitItemSelector_Hook();
+            outfit::Uninstall_OutfitHeadOption_Hook();
+            outfit::Uninstall_OutfitFv2Paths_Hooks();
+            outfit::Uninstall_OutfitListInject_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -689,6 +782,11 @@ void RegisterBuiltInFeatureModules()
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
 
+    // Outfit subsystem (Phase 2/3/4 — replaces the legacy 4-module
+    // bundle that lived here through Phase 4).
+    static PlayerOutfitCoreModule             s_PlayerOutfitCoreModule;
+    static PlayerOutfitUIModule               s_PlayerOutfitUIModule;
+
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
         {
@@ -720,5 +818,20 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
+
+            // Phase-2 outfit core. Installs the new clean hooks:
+            //   - OutfitEquippedState  (IsEquipDeveloped + GetEquipIdFromLoadoutInfo)
+            //   - OutfitCommit         (Player2UtilityImpl::RequestToChange...)
+            //   - OutfitRuntimeParts   (5 path loaders)
+            FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitCoreModule);
+
+            // Phase-3 outfit UI. Must register AFTER PlayerOutfitCore
+            // because the list-inject hook calls AddListSuit which
+            // expects the equipped-state hooks to be live for proper
+            // row state.
+            //   - OutfitListInject     (SetupPrefabListElement append)
+            //   - OutfitFv2Paths       (LoadPlayerCamoFv2 + LoadPlayerSnakeBlackDiamondFv2)
+            //   - OutfitHeadOption     (IsEnableCurrentHeadOption gate)
+            FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitUIModule);
         });
 }

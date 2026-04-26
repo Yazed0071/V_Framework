@@ -134,6 +134,146 @@ namespace AddressSetRuntime
         // native storage without waiting for ReloadEquipIdTable to fire
         // (which only happens at boot, before our DLL installs).
         uintptr_t EquipIdTableImpl_AddToEquipIdTable = 0;
+
+        // ============================================================
+        // Player custom-suit subsystem
+        // ============================================================
+
+        // Parts / FPK / sub-asset path loaders. Every custom suit-loading hook
+        // intercepts these and returns a custom FoxPath when the requested
+        // partsType falls in the custom range (0x40..0x7F).
+        uintptr_t LoadPlayerPartsParts              = 0;  // body .parts
+        uintptr_t LoadPlayerPartsFpk                = 0;  // body .fpk
+        uintptr_t LoadPlayerCamoFpk                 = 0;  // camo pattern .fpk
+        uintptr_t LoadPlayerSnakeBlackDiamondFpk    = 0;  // diamond-mark .fpk
+        uintptr_t Player2BlockController_LoadPartsNew = 0; // LoadPartsPlayerInfo funnel
+        uintptr_t UpdatePartsStatus                 = 0;  // head-option waterfall repair
+
+        // DEPRECATED (Phase 1 false lead F1, Phase 5 confirmed unused).
+        // No real retail function — left as 0 in EN. Do not hook.
+        uintptr_t ResolveSuitToPartsType            = 0;
+
+        // Mission-prep commit. Four-arg function at 0x14973DA60 is the hook
+        // target; three-arg wrapper at 0x1462B6590 is invoked from our own
+        // TriggerSilentSuitCommit.
+        uintptr_t MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode = 0;
+        uintptr_t Player2UtilityImpl_CommitWrapper  = 0;
+
+        // DEPRECATED (Phase 5). UI selection commit + supply drop +
+        // character-selector preservation + FOVA gates were the legacy
+        // outfit subsystem's hooks; the new outfit core relies on
+        // Player2UtilityImpl::RequestToChange directly. Kept here only
+        // to preserve aggregate-init alignment of EN/JP address arrays.
+        uintptr_t ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode = 0;
+        uintptr_t ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode = 0;
+        uintptr_t SupplyDropSuitSetup               = 0;
+        // SupplyCboxGameObjectImpl::RestoreRequestFromSVars —
+        // called by ProcessLuaCommand on Lua hash 0xc1324e75 when the
+        // player interacts with a delivered supply-drop crate. Reads
+        // the saved loadout request (SupplyCboxRequest, lookup hash
+        // 0xee90448b1d7e on the sub-object's vtable[0x18]) and tail-
+        // calls vtable[0x18] on it to actually apply. Hooking here
+        // catches the box-open moment so we can ForcePartsReload our
+        // outfit when the vanilla apply silently no-ops on a custom
+        // flowIndex.
+        uintptr_t SupplyCboxGameObjectImpl_RestoreRequestFromSVars = 0;
+        // Player2UtilityImpl::SetSuitAndHandConditionWithLoadoutInfo —
+        // called by the supply-drop pickup pipeline to actually apply
+        // the dropped suit to the player. Reads bytes from the
+        // SupplyCboxLoadoutInfo struct (info[0]=partsType, info[1]=camo,
+        // info[0xBC]=flags, info[0xC0]=playerType) and writes them
+        // into Quark live player state. Hooking here lets us catch
+        // the exact moment the supply-drop crate "consumes" and inject
+        // our custom outfit's bytes for our flowIndex.
+        uintptr_t Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo = 0;
+        // SupplyCboxSystemImpl::Reset — VERIFIED 2026-04-26 as THE
+        // pickup-time trigger. Fires when the box is consumed/cleared
+        // post-pickup. Our hook in OutfitSupplyDropPickup consumes the
+        // stash from OutfitSupplyDropSetup's confirm latch and drives
+        // ForcePartsReload to equip the custom outfit. Also fires on
+        // mission init / despawn — harmless because the stash is empty
+        // outside an active confirm→pickup window.
+        uintptr_t SupplyCboxSystemImpl_Reset = 0;
+        // SupplyCboxActionPluginImpl phase-2 handler at retail
+        // 0x1412A2F80 (FUN_1412a2f80 in mgsvtpp.exe.c:2402357).
+        //
+        // The action plugin's parent state machine has three phases
+        // dispatched via ExecStateChangeImpl: phase 1 (chopper inbound /
+        // monitoring) → FUN_1412a3ad0; phase 2 (pickup interaction
+        // active) → FUN_1412a2f80; phase 3 → FUN_1412a3de0.
+        //
+        // Inside FUN_1412a2f80, switch is on (param_3 - 1) — decomp
+        // case 9 = param_3 == 10 = the pickup-motion-progress check
+        // that fires Lua hash 0x6c72b84d at 50% progress (line 2402782).
+        // Phase 2 is ONLY entered when the player physically initiates
+        // the pickup, so hooking this avoids the 7-second-premature
+        // false-fire we got with the phase-1 handler.
+        //
+        // We trigger ForcePartsReload on the FIRST param_3==10 entry
+        // (start of pickup motion). The ~500ms FoxPath load completes
+        // mid-animation, masking the visual transition under the
+        // player's bend-over-box pose — matches vanilla feel.
+        uintptr_t SupplyCboxActionPluginImpl_StateHandler1 = 0;
+        uintptr_t CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo = 0;
+        uintptr_t ResourceTable_DoesNeedFaceFova           = 0;
+        uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar  = 0;
+
+        // Camo system global pointer (not a function) — points to the
+        // engine-side object whose vtable[1] accepts a Lua 117x82 table and
+        // applies it to the runtime camo parameter system.
+        uintptr_t CamoSystemObject                  = 0;
+
+        // DEPRECATED (Phase 5). Legacy variant/head-option hooks —
+        // Phase 1 false leads F4/F6. Replaced by the Phase-3
+        // OutfitHeadOption gate + per-outfit headOptionEquipIds[]
+        // and the OutfitListInject flow. Kept here only for align.
+        uintptr_t GetSuitVariation                  = 0;
+        uintptr_t HeadOptionTableLookup             = 0;
+        uintptr_t HasHeadOptions                    = 0;
+        uintptr_t HeadOptionIndexGetter             = 0;
+        uintptr_t SuitCatalog_FindHeadOptionRow     = 0;
+        uintptr_t FetchCurrentHeadOptionKey         = 0;
+
+        // Mission-prep UI. UpdateLoadMark deprecated (Phase 1 F5).
+        // GetSelectionNum unused since Phase 4. IsEnableCurrentHeadOption
+        // is the active Phase-3 head-option gate target.
+        uintptr_t MissionPrep_GetSelectionNum       = 0;
+        uintptr_t MissionPrep_IsEnableCurrentHeadOption = 0;
+        uintptr_t MissionPrep_UpdateLoadMark        = 0;
+
+        // UI list / panel setup. SetupCharacterSlotSelectPrefabListElement
+        // is unused. AddListSuit is the call target invoked from
+        // Phase-3 OutfitListInject. IsEnableCurrentSuit + SetupEquipPanelParam
+        // were legacy hook targets, now unused.
+        uintptr_t SetupCharacterSlotSelectPrefabListElement = 0;
+        uintptr_t AddListSuit                       = 0;
+        uintptr_t IsEnableCurrentSuit               = 0;
+        uintptr_t SetupEquipPanelParam              = 0;
+
+        // Phase-2 incorrect attribution — kept here as a deprecated
+        // pointer. SetInDecideOpen is NOT the UNIFORMS list builder.
+        uintptr_t ItemSelectorCallbackImpl_SetInDecideOpen = 0;
+
+        // Phase-3 verified UNIFORMS list builder. Contains the two
+        // AddListSuit call sites (0x1416AA904, 0x1416AAEA4) that
+        // append vanilla suit rows. Hooked to append our custom
+        // outfits after the vanilla pass completes.
+        // (verified mgsvtpp.exe_Addresses.txt:15790389).
+        uintptr_t ItemSelectorCallbackImpl_SetupPrefabListElement = 0;
+
+        // Phase-3 FV2 (face variant 2) loaders.
+        uintptr_t LoadPlayerCamoFv2                = 0;  // 0x146863F80
+        uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;  // 0x146864C80
+
+        // UI read-back. GetEquipIdFromLoadoutInfo + IsEquipDeveloped
+        // are the Phase-2 OutfitEquippedState hook targets.
+        // GetCurrentSuitFlowIndex + SetItemDetail are deprecated.
+        // SendTrigger is used by other (non-outfit) subsystems.
+        uintptr_t GetCurrentSuitFlowIndex           = 0;
+        uintptr_t GetEquipIdFromLoadoutInfo         = 0;
+        uintptr_t IsEquipDeveloped                  = 0;
+        uintptr_t SetItemDetail                     = 0;
+        uintptr_t SendTrigger                       = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -249,6 +389,60 @@ namespace AddressSetRuntime
             0x14032adf0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
             0x142A711F0ull, // EquipParameterTablesImpl_Instance
             0x140A29730ull, // EquipIdTableImpl_AddToEquipIdTable
+
+            // ========= Player custom-suit subsystem =========
+            0x146865F80ull, // LoadPlayerPartsParts
+            0x146866C80ull, // LoadPlayerPartsFpk
+            0x146864180ull, // LoadPlayerCamoFpk
+            0x146864E30ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x1409B3B60ull, // Player2BlockController_LoadPartsNew
+            0x1409CC380ull, // UpdatePartsStatus
+            0x141E02930ull, // ResolveSuitToPartsType
+            0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
+            0x1462B6590ull, // Player2UtilityImpl_CommitWrapper (3-arg)
+            0x1416A3670ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+            0x1416A4280ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+            0x1416A7610ull, // SupplyDropSuitSetup
+            0x140ACA230ull, // SupplyCboxGameObjectImpl_RestoreRequestFromSVars
+            0x1409DEFE0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x1415C5270ull, // SupplyCboxSystemImpl_Reset
+            0x1412A2F80ull, // SupplyCboxActionPluginImpl_StateHandler1 (phase-2 handler)
+            0x14A49DA70ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
+            0x140AE84B0ull, // ResourceTable_DoesNeedFaceFova
+            0x140AE8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
+            0x142C1BE48ull, // CamoSystemObject (global pointer)
+            0x149519E60ull, // GetSuitVariation
+            0x1460AF810ull, // HeadOptionTableLookup
+            0x1460B9FA0ull, // HasHeadOptions
+            0x1460B4300ull, // HeadOptionIndexGetter
+            0x140F665A0ull, // SuitCatalog_FindHeadOptionRow
+            0x0ull,         // FetchCurrentHeadOptionKey (disabled; dead-end hook)
+            0x1416BC2C0ull, // MissionPrep_GetSelectionNum
+            0x14A56BA20ull, // MissionPrep_IsEnableCurrentHeadOption
+            0x14A5795C0ull, // MissionPrep_UpdateLoadMark
+            0x1416BF490ull, // SetupCharacterSlotSelectPrefabListElement
+            0x1416A1AA0ull, // AddListSuit
+            0x14A56BFA0ull, // IsEnableCurrentSuit
+            0x1416C0690ull, // SetupEquipPanelParam
+            // ALIGNMENT FIX 2026-04-26: positions 130..138 below
+            // re-ordered to match the struct field declaration order.
+            // Previously the EN array had SetInDecideOpen / Setup-
+            // PrefabListElement / LoadPlayerCamoFv2 / LoadPlayerSnake-
+            // BlackDiamondFv2 listed AFTER the GetCurrentSuitFlowIndex
+            // ..SendTrigger group, while the struct declared them
+            // before. Aggregate-init binds by position, so e.g.
+            // gAddr.ItemSelectorCallbackImpl_SetupPrefabListElement
+            // was silently resolving to 0x1416BB9C0 (GetEquipIdFromLoadoutInfo)
+            // — every dependent hook landed on the wrong function.
+            0x1416A7A30ull, // ItemSelectorCallbackImpl_SetInDecideOpen
+            0x1416A9B80ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x146863F80ull, // LoadPlayerCamoFv2
+            0x146864C80ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x140955C70ull, // GetCurrentSuitFlowIndex
+            0x1416BB9C0ull, // GetEquipIdFromLoadoutInfo
+            0x14951F860ull, // IsEquipDeveloped
+            0x14A56E7F0ull, // SetItemDetail
+            0x144B05380ull, // SendTrigger
         };
 
         return value;
@@ -356,6 +550,53 @@ namespace AddressSetRuntime
             0x0ull, // Fox_Sd_ConvertParameterID
             0x0ull, // EquipParameterTablesImpl_Instance
             0x0ull, // EquipIdTableImpl_AddToEquipIdTable
+
+            // ========= Player custom-suit subsystem (JPN — unfilled) =========
+            0x0ull, // LoadPlayerPartsParts
+            0x0ull, // LoadPlayerPartsFpk
+            0x0ull, // LoadPlayerCamoFpk
+            0x0ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x0ull, // Player2BlockController_LoadPartsNew
+            0x0ull, // UpdatePartsStatus
+            0x0ull, // ResolveSuitToPartsType
+            0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
+            0x0ull, // Player2UtilityImpl_CommitWrapper
+            0x0ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+            0x0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+            0x0ull, // SupplyDropSuitSetup
+            0x0ull, // SupplyCboxGameObjectImpl_RestoreRequestFromSVars
+            0x0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x0ull, // SupplyCboxSystemImpl_Reset
+            0x0ull, // SupplyCboxActionPluginImpl_StateHandler1
+            0x0ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
+            0x0ull, // ResourceTable_DoesNeedFaceFova
+            0x0ull, // ResourceTable_DoesNeedFaceFovaForAvatar
+            0x0ull, // CamoSystemObject
+            0x0ull, // GetSuitVariation
+            0x0ull, // HeadOptionTableLookup
+            0x0ull, // HasHeadOptions
+            0x0ull, // HeadOptionIndexGetter
+            0x0ull, // SuitCatalog_FindHeadOptionRow
+            0x0ull, // FetchCurrentHeadOptionKey
+            0x0ull, // MissionPrep_GetSelectionNum
+            0x0ull, // MissionPrep_IsEnableCurrentHeadOption
+            0x0ull, // MissionPrep_UpdateLoadMark
+            0x0ull, // SetupCharacterSlotSelectPrefabListElement
+            0x0ull, // AddListSuit
+            0x0ull, // IsEnableCurrentSuit
+            0x0ull, // SetupEquipPanelParam
+            // ALIGNMENT FIX 2026-04-26: positions 130..138 below
+            // re-ordered to match the struct field declaration order
+            // (mirror of EN array fix).
+            0x0ull, // ItemSelectorCallbackImpl_SetInDecideOpen
+            0x0ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x0ull, // LoadPlayerCamoFv2
+            0x0ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x0ull, // GetCurrentSuitFlowIndex
+            0x0ull, // GetEquipIdFromLoadoutInfo
+            0x0ull, // IsEquipDeveloped
+            0x0ull, // SetItemDetail
+            0x0ull, // SendTrigger
         };
 
         return value;

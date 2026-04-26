@@ -13,7 +13,7 @@ TABLE OF CONTENTS
 ================================================================================
 
   GETTING STARTED .......................... How mods work with V_FrameWork
-  MODULE: V_TppPlayer .................... Voice overrides
+  MODULE: V_TppPlayer .................... Custom outfits, camo, voice overrides
   MODULE: V_TppEquip ..................... Weapons, equipment, develop entries
   MODULE: V_TppCassette .................. Cassette tape playback & registration
   MODULE: V_TppUI ........................ Loading screen, game over, equip BGs, telop
@@ -22,9 +22,11 @@ TABLE OF CONTENTS
   MODULE: V_TppHostage ................... Lost hostage tracking
   MODULE: V_TppPickable .................. Pickable item count overrides
   RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
-  APPENDIX A: PlayerType values .......... 0=Snake, 1=DD_Male, etc.
+  APPENDIX A: PlayerType values .......... 0=Snake, 1=DDMale, etc. + reserved id ranges
   APPENDIX B: Develop flow field names ... Readable aliases for p51-p74
   APPENDIX C: Save file format ........... V_FrameWork_State.lua structure
+  APPENDIX D: Camo type constants ........ 0..116 (OLIVEDRAB..QUIET)
+  APPENDIX E: Material type constants .... 0..81  (MTR_IRON_A..MTR_NONE_A)
 
 
 ================================================================================
@@ -69,7 +71,165 @@ GETTING STARTED
 MODULE: V_TppPlayer
 ================================================================================
 
-  Voice overrides.
+  Custom player outfits, camo table editing, and voice overrides.
+
+  Outfit registration goes through V_TppPlayer.AddOutfit (a high-level
+  wrapper) or V_FrameWork.RegisterOutfit (the low-level native bridge).
+  The wrapper handles R&D table integration; the bridge expects you to
+  supply developId and flowIndex directly.
+
+  --------------------------------------------------------------------------
+  AddOutfit(opts)
+  --------------------------------------------------------------------------
+
+    High-level outfit registration. Allocates four ids:
+
+      partsType    — 0x40..0x7F   from a session pool (always auto)
+      selectorCode — 0x80..0xFE   from a session pool (always auto)
+      developId    — auto-allocated AND PERSISTED in V_FrameWork_State.lua
+                     under your `name` key. Same key → same id across runs.
+                     Same mechanism weapons use, so mods never collide.
+      flowIndex    — auto-allocated AND PERSISTED in V_FrameWork_State.lua
+                     under your `name` key.
+
+    The auto-allocation pools are global to the framework — weapons,
+    outfits, and any other custom equip share the developId namespace
+    so two mods can never end up with the same id.
+
+    PARAMETERS (table `opts`):
+      name                 string   REQUIRED for auto-allocation
+                                    Stable mod-side identifier — used as
+                                    the persistence key in V_FrameWork_State.lua.
+                                    Convention: "ModName:OutfitName".
+
+      playerType           number|string  REQUIRED
+                                    Numeric: 0=Snake, 1=DDMale, 2=DDFemale, 3=Avatar
+                                    String:  "Snake" / "DDMale" / "DDFemale" / "Avatar"
+
+      partsPath            string   REQUIRED  — body .parts asset path
+      fpkPath              string   REQUIRED  — body .fpk   asset path
+
+      camoFpk              string|true|false  default false (disabled)
+      faceFpk              string|true|false  default true  (vanilla)
+      armFpk               string|true|false  default true  (vanilla)
+      skinFv2              string|true|false  default true  (vanilla)
+      diamondFpk           string|true|false  default false (disabled)
+      camoFv2              string|true|false  default true  (vanilla)
+      diamondFv2           string|true|false  default true  (vanilla)
+
+      supportsHeadOptions  boolean  default false — enable HEAD OPTION submenu
+      headOptions          array    optional — list of head-option equipIds
+                                    (vanilla 0x17CA..0x17CE; up to 8 entries)
+
+      variants             array    optional — multi-variant outfit
+                                    Each entry is a sub-table with
+                                    partsPath / fpkPath / camoFpk / camoFv2 /
+                                    diamondFpk / displayNameId fields.
+                                    Any field omitted inherits the base.
+
+      develop              table    optional R&D table entry (cost, time, lang
+                                    strings, icon, etc.). The wrapper auto-
+                                    fills `develop.const.p00` and `.p50` with
+                                    the auto-allocated developId/flowIndex
+                                    before forwarding to AddToEquipDevelopTable.
+                                    Field reference: APPENDIX B.
+
+      developId            number   optional — bypass auto-allocation
+                                    (use the explicit value verbatim)
+      flowIndex            number   optional — bypass auto-allocation
+
+      partsTypeHint        number   optional — request specific 0x40..0x7F slot
+      selectorCodeHint     number   optional — request specific 0x80..0xFE slot
+
+    RETURNS: partsType, developId, flowIndex on success, or false on failure
+             (always logged).
+
+    EXAMPLE:
+      local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
+          name       = "MyMod:Snake_NeonSuit",
+          playerType = "Snake",
+          partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
+          fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
+          develop    = {
+              const = { langEquipName = "NeonSuit", iconFtexPath = "..." },
+              flow  = { developGmpCost = 50000, initialAvailable = 0 },
+          },
+      }
+      -- developId and flowIndex come back auto-allocated; persisted in
+      -- V_FrameWork_State.lua so the next session reuses the same ids.
+
+  --------------------------------------------------------------------------
+  SetOutfitVariant(developId, variantIndex)
+  --------------------------------------------------------------------------
+
+    Switches the active variant for a registered multi-variant outfit.
+    The next runtime parts load uses the named variant's paths.
+
+    `variantIndex` is clamped internally to the outfit's variantCount.
+    Variant 0 always returns the base appearance.
+
+    RETURNS: true on success, false if developId is unknown.
+
+    EXAMPLE:
+      V_TppPlayer.SetOutfitVariant(51012, 2)
+
+  --------------------------------------------------------------------------
+  GetOutfitInfo(developId)
+  --------------------------------------------------------------------------
+
+    Returns a table describing a registered outfit's allocated values:
+
+      { partsType            = number,    -- 0x40..0x7F
+        selectorCode         = number,    -- 0x80..0xFE
+        flowIndex            = number,
+        playerType           = number,    -- 0..3
+        variantCount         = number,
+        activeVariant        = number,
+        supportsHeadOptions  = boolean }
+
+    Returns nil if no outfit is registered for `developId`.
+
+    EXAMPLE:
+      local info = V_TppPlayer.GetOutfitInfo(51009)
+      if info then
+          print(string.format("partsType=0x%02X variants=%d",
+                              info.partsType, info.variantCount))
+      end
+
+  --------------------------------------------------------------------------
+  SetCamoValue(camoType, materialType, value)
+  --------------------------------------------------------------------------
+
+    Modifies one cell of the 117×82 camo parameter table and pushes the
+    updated table to the engine.
+
+    PARAMETERS:
+      camoType      number|string  0..116  (see APPENDIX D — name or index)
+      materialType  number|string  0..81   (see APPENDIX E — name or index)
+      value         number         int32   (typical range -100..100)
+
+    EXAMPLE:
+      V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_LEAF", 50)
+      V_TppPlayer.SetCamoValue(0,            60,         50)  -- equivalent
+
+  --------------------------------------------------------------------------
+  CloneCamoRow(dstCamoType, srcCamoType)
+  --------------------------------------------------------------------------
+
+    Copies one camo type's entire 82-cell row onto another.
+
+    EXAMPLE:
+      V_TppPlayer.CloneCamoRow("MYCUSTOM", "WOODLAND")
+
+  --------------------------------------------------------------------------
+  ImportCamoRow(camoType, values)
+  --------------------------------------------------------------------------
+
+    Replaces the 82 cells of a camo row from a Lua array (up to 82 numbers).
+    Missing trailing cells are set to 0.
+
+    EXAMPLE:
+      V_TppPlayer.ImportCamoRow(0, { 10, 20, 30, -5, --[[ up to 82 ]] })
 
   --------------------------------------------------------------------------
   SetPlayerVoiceFpkPathForType(playerType, path)
@@ -98,6 +258,148 @@ MODULE: V_TppPlayer
   --------------------------------------------------------------------------
 
     Removes all voice overrides for all player types.
+
+  --------------------------------------------------------------------------
+  WORKED EXAMPLES
+  --------------------------------------------------------------------------
+
+  EXAMPLE 1 — minimal outfit (developId/flowIndex auto-allocated).
+
+    -- The framework allocates developId and flowIndex from the shared
+    -- mod pool and persists them in V_FrameWork_State.lua under the
+    -- `name` key. Subsequent runs reuse the same ids. No vanilla
+    -- collisions, no inter-mod collisions.
+    local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_NeonSuit",
+        playerType = "Snake",
+        partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
+        fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
+    }
+
+    -- Outfit appears in the Snake UNIFORMS panel; the Equipped badge
+    -- tracks correctly when selected.
+
+
+  EXAMPLE 2 — outfit with R&D table entry (cost, time, lang strings).
+
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_NeonSuit_RD",
+        playerType = "Snake",
+        partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
+        fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
+        camoFpk    = "/Assets/mod/chara/snake/sna_neon_camo.fpk",
+        develop = {
+            const = {
+                langEquipName     = "NeonSuit_Name",
+                langEquipInfo     = "NeonSuit_Info",
+                langEquipRealName = "NeonSuit",
+                iconFtexPath      = "/Assets/mod/ui/icon/neon.ftex",
+            },
+            flow = {
+                developGmpCost     = 50000,
+                developTimeMinute  = 20,
+                resourceType1      = "COMMON",
+                resourceType1Count = 10,
+                initialAvailable   = 0,  -- 0 = locked until researched
+            },
+        },
+    }
+    -- The wrapper auto-fills `develop.const.p00` and `.p50` with the
+    -- allocated developId/flowIndex before forwarding to the R&D table.
+
+
+  EXAMPLE 3 — multi-variant outfit (cycle through 3 looks in mission prep).
+
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_Tactical",
+        playerType = "Snake",
+
+        -- Base (variant 0)
+        partsPath  = "/Assets/mod/.../tactical_base.parts",
+        fpkPath    = "/Assets/mod/.../tactical_base.fpk",
+        camoFpk    = "/Assets/mod/.../tactical_base_camo.fpk",
+
+        -- Variants 1..3 (any field omitted inherits the base)
+        variants = {
+            { fpkPath = "/Assets/mod/.../tactical_urban.fpk",
+              camoFpk = "/Assets/mod/.../tactical_urban_camo.fpk" },
+
+            { fpkPath = "/Assets/mod/.../tactical_woodland.fpk",
+              camoFpk = "/Assets/mod/.../tactical_woodland_camo.fpk" },
+
+            { partsPath = "/Assets/mod/.../tactical_v2.parts",
+              fpkPath   = "/Assets/mod/.../tactical_v2.fpk" },
+        },
+    }
+
+
+  EXAMPLE 4 — outfit with HEAD OPTION submenu (vanilla balaclava range).
+
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:DDF_NeonHeads",
+        playerType = "DDFemale",
+
+        partsPath  = "/Assets/mod/chara/ddf/ddf_neon.parts",
+        fpkPath    = "/Assets/mod/pack/chara/ddf/ddf_neon.fpk",
+
+        supportsHeadOptions = true,
+        headOptions = {
+            0x17CA,   -- BALACLAVA
+            0x17CB,   -- HEADGEAR_A
+            0x17CC,   -- HEADGEAR_B
+            0x17CD,   -- HEADGEAR_C
+        },
+
+        faceFpk = true,   -- vanilla face — head options swap it at runtime
+        armFpk  = true,
+    }
+
+
+  EXAMPLE 5 — programmatic variant switch.
+
+    local _, developId = V_TppPlayer.AddOutfit{ ... }   -- from EXAMPLE 3
+
+    -- Later, switch to variant 2 (woodland):
+    V_TppPlayer.SetOutfitVariant(developId, 2)
+
+
+  EXAMPLE 6 — pin developId/flowIndex explicitly (migration / fixed-id mods).
+
+    -- For mods that need a specific developId (e.g. interop with another
+    -- mod that hard-codes the value). Auto-allocation is bypassed; the
+    -- supplied ids are used verbatim. Make sure they don't collide with
+    -- vanilla (51000+ for developId, 922+ for flowIndex) or other mods.
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_FixedSlot",
+        developId  = 51077,
+        flowIndex  = 977,
+        playerType = "Snake",
+        partsPath  = "/Assets/mod/.../slot.parts",
+        fpkPath    = "/Assets/mod/.../slot.fpk",
+    }
+
+
+  EXAMPLE 7 — camo parameter tweaks.
+
+    -- Boost OLIVEDRAB's visibility against leaves
+    V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_LEAF", 50)
+
+    -- Clone the whole WOODLAND row into a mod slot
+    V_TppPlayer.CloneCamoRow("SOLIDSNAKE", "WOODLAND")
+
+    -- Bulk-import a full row (up to 82 int32 values)
+    local row = {}
+    for i = 1, 82 do row[i] = 0 end
+    row[61] = 100   -- max visibility on MTR_LEAF (index 60, Lua 1-based)
+    V_TppPlayer.ImportCamoRow("TIGERSTRIPE", row)
+
+
+  EXAMPLE 8 — programmatic voice FPK override per playerType.
+
+    V_TppPlayer.SetPlayerVoiceFpkPathForType(0,
+        "/Assets/mod/voice/snake_custom.fpk")
+    V_TppPlayer.SetPlayerVoiceFpkPathForType(1,
+        "/Assets/mod/voice/ddm_custom.fpk")
 
 
 ================================================================================
@@ -589,6 +891,21 @@ RAW API: V_FrameWork.*
     ClearPlayerVoiceFpkPathForType(playerType)     -> nothing
     ClearAllPlayerVoiceFpkOverrides()              -> nothing
 
+  PLAYER CUSTOM OUTFITS  (high-level wrappers in V_TppPlayer)
+    AddOutfit(opts)                                -> partsType, developId | false
+    SetOutfitVariant(developId, variantIndex)      -> boolean
+    GetOutfitInfo(developId)                       -> table | nil
+
+  PLAYER CUSTOM OUTFITS  (low-level native bridge in V_FrameWork)
+    RegisterOutfit(def)                            -> number (partsType) | false
+    SetOutfitVariant(developId, variantIndex)      -> boolean
+    GetOutfitInfo(developId)                       -> table | nil
+
+  PLAYER CAMO TABLE
+    SetCamoValue(camoType, materialType, value)    -> boolean
+    CloneCamoRow(dstCamoType, srcCamoType)         -> boolean
+    ImportCamoRow(camoType, {v0, v1, ..., v81})    -> boolean
+
   ENEMY / SOLDIER
     SetVIPImportant(gameObjectId, isOfficer)       -> nothing
     RemoveVIPImportant(gameObjectId)               -> nothing
@@ -656,13 +973,36 @@ RAW API: V_FrameWork.*
 APPENDIX A: PlayerType Values
 ================================================================================
 
-  0 = Snake (Venom Snake)
-  1 = DD_Male (Diamond Dogs male soldier)
-  2 = DD_Female (Diamond Dogs female soldier)
-  3 = Avatar (custom avatar)
-  4 = Liquid
-  5 = Ocelot
-  6 = Quiet
+  Numeric value | String name (case-insensitive, accepted by V_TppPlayer.AddOutfit
+                |              and V_FrameWork.RegisterOutfit's `playerType` field)
+  --------------+------------------------------------------------------------------
+  0             | "Snake"     — Venom Snake
+  1             | "DDMale"    — Diamond Dogs male soldier
+  2             | "DDFemale"  — Diamond Dogs female soldier
+  3             | "Avatar"    — custom avatar
+  4             |             — Liquid (no string alias; numeric only)
+  5             |             — Ocelot (no string alias; numeric only)
+  6             |             — Quiet  (no string alias; numeric only)
+
+  The outfit registration API accepts only 0..3 as registered playerTypes.
+  Values 4..6 are listed for reference (other framework APIs use them).
+
+  RESERVED ID RANGES — auto-allocated by the framework, persisted in
+  V_FrameWork_State.lua. Two mods registering different `name` keys
+  always receive different ids; same `name` across runs returns the
+  same id.
+
+    Field          | Vanilla range  | Mod range (auto-pool starts at)
+    ---------------+----------------+----------------------------------
+    developId      | 1   .. 50000   | 0x1000 = 4096+   (persisted)
+    flowIndex      | 1   .. 921     | 922+             (persisted)
+    partsType      | 0x00 .. 0x3F   | 0x40 .. 0x7F     (session-only)
+    selectorCode   | 0x00 .. 0x7F   | 0x80 .. 0xFE     (session-only)
+
+  All four ids are auto-allocated by V_TppPlayer.AddOutfit. Modders
+  only supply `name` (the persistence key). Pin specific ids only when
+  required (mod interop, save-game compatibility) by passing developId
+  or flowIndex explicitly to AddOutfit.
 
 
 ================================================================================
@@ -707,18 +1047,126 @@ APPENDIX C: Save File Format
 
   return {
       equips = {
-          ["ModName:ItemName"] = { equipId = 1545, developId = 800 },
+          ["MyMod:AK_12"]          = { developId = 4096, },
+          ["MyMod:Snake_NeonSuit"] = { developId = 4097, flowIndex = 922, },
+          ["MyMod:DDF_Jill"]       = { developId = 4098, flowIndex = 923, },
       },
       tapes = {
-          ["AlbumId:FileName"] = { saveIndex = 200, owned = true, new = false },
+          ["AlbumId:FileName"] = { saveIndex = 300, owned = true, new = false },
       },
   }
 
-  - Keys are strings in "namespace:name" format
-  - equipId / developId / saveIndex are stable across sessions
-  - owned = player has collected this tape
-  - new = tape hasn't been listened to yet (shows "NEW" in UI)
-  - Orphaned entries (mod uninstalled) are harmless — just ignored
+  - Keys are strings in "namespace:name" format. Convention: "ModName:Name".
+  - `developId` is the persistent R&D entry id (auto-allocated from
+    0x1000+ on first registration; reused on every subsequent session).
+  - `flowIndex` is the persistent UNIFORMS / R&D row id (auto-allocated
+    from 922+ for outfits). Weapons typically don't set flowIndex.
+  - `equipId` (EQP_* namespace) is NOT persisted — it's session-scoped
+    and re-allocated on every run.
+  - `owned` = player has collected this tape.
+  - `new`   = tape hasn't been listened to yet (shows "NEW" in UI).
+  - Orphaned entries (mod uninstalled) are harmless — just ignored.
+
+  All three numeric fields are allocated through global pools, so two
+  mods registering different keys never end up with the same id even
+  if they're loaded in different orders or only on alternate runs.
+
+
+================================================================================
+APPENDIX D: Camo Type Constants (0..116)
+================================================================================
+
+  The camo parameter table is 117 rows (one per camo type) × 82 columns (one
+  per material type). V_TppPlayer.SetCamoValue / CloneCamoRow / ImportCamoRow
+  accept either the numeric index or the string name shown below. All names
+  are taken verbatim from the retail binary's PlayerCamoType enum.
+
+    0  OLIVEDRAB             1  SPLITTER              2  SQUARE
+    3  TIGERSTRIPE           4  GOLDTIGER             5  FOXTROT
+    6  WOODLAND              7  WETWORK               8  ARBANGRAY
+    9  ARBANBLUE            10  SANDSTORM            11  REALTREE
+   12  INVISIBLE            13  BLACK                14  SNEAKING_SUIT_GZ
+   15  SNEAKING_SUIT_TPP    16  BATTLEDRESS          17  PARASITE
+   18  NAKED                19  LEATHER              20  SOLIDSNAKE
+   21  NINJA                22  RAIDEN               23  HOSPITAL
+   24  GOLD                 25  SILVER               26  PANTHER
+   27  AVATAR_EDIT_MAN      28  MGS3                 29  MGS3_NAKED
+   30  MGS3_SNEAKING        31  MGS3_TUXEDO          32  EVA_CLOSE
+   33  EVA_OPEN             34  BOSS_CLOSE           35  BOSS_OPEN
+   36  C23                  37  C24                  38  C27
+   39  C29                  40  C30                  41  C35
+   42  C38                  43  C39                  44  C42
+   45  C46                  46  C49                  47  C52
+   48  C16                  49  C17                  50  C18
+   51  C19                  52  C20                  53  C22
+   54  C25                  55  C26                  56  C28
+   57  C31                  58  C32                  59  C33
+   60  C36                  61  C37                  62  C40
+   63  C41                  64  C43                  65  C44
+   66  C45                  67  C47                  68  C48
+   69  C50                  70  C51                  71  C53
+   72  C54                  73  C55                  74  C56
+   75  C57                  76  C58                  77  C59
+   78  C60
+   79  SWIMWEAR_C00         80  SWIMWEAR_C01         81  SWIMWEAR_C02
+   82  SWIMWEAR_C03         83  SWIMWEAR_C05         84  SWIMWEAR_C06
+   85  SWIMWEAR_C38         86  SWIMWEAR_C39         87  SWIMWEAR_C44
+   88  SWIMWEAR_C46         89  SWIMWEAR_C48         90  SWIMWEAR_C53
+   91  SWIMWEAR_G_C00       92  SWIMWEAR_G_C01       93  SWIMWEAR_G_C02
+   94  SWIMWEAR_G_C03       95  SWIMWEAR_G_C05       96  SWIMWEAR_G_C06
+   97  SWIMWEAR_G_C38       98  SWIMWEAR_G_C39       99  SWIMWEAR_G_C44
+  100  SWIMWEAR_G_C46      101  SWIMWEAR_G_C48      102  SWIMWEAR_G_C53
+  103  SWIMWEAR_H_C00      104  SWIMWEAR_H_C01      105  SWIMWEAR_H_C02
+  106  SWIMWEAR_H_C03      107  SWIMWEAR_H_C05      108  SWIMWEAR_H_C06
+  109  SWIMWEAR_H_C38      110  SWIMWEAR_H_C39      111  SWIMWEAR_H_C44
+  112  SWIMWEAR_H_C46      113  SWIMWEAR_H_C48      114  SWIMWEAR_H_C53
+  115  OCELOT              116  QUIET
+
+
+================================================================================
+APPENDIX E: Material Type Constants (0..81)
+================================================================================
+
+  Each camo row is 82 cells, one per material class the camo system recognises.
+  All names are taken verbatim from the engine's MaterialType string table.
+
+    0  MTR_IRON_A     1  MTR_IRON_B     2  MTR_IRON_C     3  MTR_IRON_D
+    4  MTR_IRON_E     5  MTR_IRON_F     6  MTR_IRON_G     7  MTR_IRON_M
+    8  MTR_IRON_N     9  MTR_IRON_W
+   10  MTR_PIPE_A    11  MTR_PIPE_B    12  MTR_PIPE_S
+   13  MTR_TIN_A
+   14  MTR_FENC_A    15  MTR_FENC_B    16  MTR_FENC_F
+   17  MTR_CONC_A    18  MTR_CONC_B
+   19  MTR_BRIC_A
+   20  MTR_PLAS_A    21  MTR_PLAS_B    22  MTR_PLAS_W
+   23  MTR_PAPE_A    24  MTR_PAPE_B    25  MTR_PAPE_C    26  MTR_PAPE_D
+   27  MTR_RUBB_A    28  MTR_RUBB_B
+   29  MTR_CLOT_A    30  MTR_CLOT_B    31  MTR_CLOT_C    32  MTR_CLOT_D
+   33  MTR_CLOT_E
+   34  MTR_GLAS_A    35  MTR_GLAS_B    36  MTR_GLAS_C
+   37  MTR_VINL_A    38  MTR_VINL_W
+   39  MTR_TILE_A
+   40  MTR_TLRF_A
+   41  MTR_ALRM_A
+   42  MTR_COPS_A    43  MTR_COPS_B
+   44  MTR_BRIR_A
+   45  MTR_BLOD_A
+   46  MTR_SOIL_A    47  MTR_SOIL_B    48  MTR_SOIL_C    49  MTR_SOIL_D
+   50  MTR_SOIL_E    51  MTR_SOIL_F    52  MTR_SOIL_G    53  MTR_SOIL_H
+   54  MTR_SOIL_R    55  MTR_SOIL_W
+   56  MTR_GRAV_A
+   57  MTR_SAND_A    58  MTR_SAND_B    59  MTR_SAND_C
+   60  MTR_LEAF      61  MTR_RLEF      62  MTR_RLEF_B
+   63  MTR_WOOD_A    64  MTR_WOOD_B    65  MTR_WOOD_C    66  MTR_WOOD_D
+   67  MTR_WOOD_G    68  MTR_WOOD_M    69  MTR_WOOD_W
+   70  MTR_FWOD_A
+   71  MTR_PLNT_A
+   72  MTR_ROCK_A    73  MTR_ROCK_B    74  MTR_ROCK_P
+   75  MTR_MOSS_A
+   76  MTR_TURF_A
+   77  MTR_WATE_A    78  MTR_WATE_B    79  MTR_WATE_C
+   80  MTR_AIR_A
+   81  MTR_NONE_A
 
 
 ################################################################################

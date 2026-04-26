@@ -28,6 +28,18 @@ namespace V_FrameWorkState
         std::int32_t minimumId,
         std::int32_t& outDevelopId);
 
+    // Resolves or creates a stable flowIndex (UNIFORMS / R&D row id) for
+    // a given key. Allocates from a separate pool than developId so the
+    // two namespaces don't collide. Returns true on success.
+    //
+    // The flowIndex IS persisted to the state file alongside developId
+    // (under the same equips entry), so a key that gets a flowIndex once
+    // keeps it across sessions — same contract as ResolveOrCreateDevelopId.
+    bool ResolveOrCreateFlowIndex(
+        const char* key,
+        std::int32_t minimumIndex,
+        std::int32_t& outFlowIndex);
+
     // === Tape persistence ===
 
     // Resolves or creates a stable saveIndex for a given key.

@@ -365,7 +365,25 @@ namespace
             ids.developId = static_cast<std::uint16_t>(g_NextDevelopId++);
         }
 
-        ids.flowIndex = static_cast<std::uint16_t>(g_NextFlowIndex++);
+        // Try to reuse a persistent flowIndex from the unified state.
+        // Same mechanism developId uses, so outfit registration (which
+        // also calls ResolveOrCreateFlowIndex on the same key) reads
+        // back the SAME value rather than allocating a different one.
+        std::int32_t persistedFlowIndex = 0;
+        if (V_FrameWorkState::ResolveOrCreateFlowIndex(
+                key.c_str(),
+                static_cast<std::int32_t>(g_NextFlowIndex),
+                persistedFlowIndex) &&
+            persistedFlowIndex > 0)
+        {
+            ids.flowIndex = static_cast<std::uint16_t>(persistedFlowIndex);
+            if (static_cast<std::uint32_t>(persistedFlowIndex) >= g_NextFlowIndex)
+                g_NextFlowIndex = static_cast<std::uint32_t>(persistedFlowIndex) + 1;
+        }
+        else
+        {
+            ids.flowIndex = static_cast<std::uint16_t>(g_NextFlowIndex++);
+        }
 
         g_KeyRegistry.emplace(key, ids);
 

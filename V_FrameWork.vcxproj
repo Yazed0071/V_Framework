@@ -190,6 +190,20 @@
     <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h" />
     <!-- Hooks: Player -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
+    <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
+    <!-- Hooks: Outfit (Phase 2 outfit core — new clean rebuild) -->
+    <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitEquippedState.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
+    <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
+    <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitFv2Paths.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitHeadOption.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitItemSelector.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropSetup.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSuitConditionApply.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropPickup.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
@@ -252,6 +266,20 @@
     <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp" />
     <!-- Hooks: Player -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
+    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
+    <!-- Hooks: Outfit (Phase 2 outfit core — new clean rebuild) -->
+    <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitEquippedState.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
+    <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
+    <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitFv2Paths.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitHeadOption.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitItemSelector.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropSetup.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSuitConditionApply.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropPickup.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
