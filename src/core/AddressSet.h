@@ -376,6 +376,27 @@ namespace AddressSetRuntime
         uintptr_t IsEquipDeveloped                  = 0;
         uintptr_t SetItemDetail                     = 0;
         uintptr_t SendTrigger                       = 0;
+
+        // tpp::mbm::impl::EquipDevelopControllerImpl::IsEquipSuit
+        // (retail 0x140F6D7A0, named-build line 3802855). Signature:
+        //   bool IsEquipSuit(this, PlayerType pt, ushort flowIndex)
+        // Internally translates flowIndex → camo via vtable[0x608],
+        // then tail-calls vtable[0x620] (`IsEquipSuitWithCamoType`)
+        // which iterates `g_suitInterdiction` checking PT bits per
+        // camo. For our custom flowIndices the camo translator returns
+        // 0/garbage and the camo iterator falls through to the default
+        // "any PT" return-true.
+        //
+        // This function gates the "Request Supply Drop" / develop-menu
+        // request action for suits — vanilla returns false for PT-
+        // mismatched vanilla outfits (e.g. Female-only suit while
+        // playing as Snake), and the UI grays out the request button.
+        // Hook this and return false for our custom outfits when the
+        // requesting PT doesn't match the registered outfit's PT, so
+        // custom outfits get the same "can't request wrong-PT outfit"
+        // restriction as vanilla. Visibility (IsEquipDeveloped) stays
+        // PT-independent so the outfit still shows in the dev list.
+        uintptr_t IsEquipSuit                       = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -553,6 +574,7 @@ namespace AddressSetRuntime
             0x14951F860ull, // IsEquipDeveloped
             0x14A56E7F0ull, // SetItemDetail
             0x144B05380ull, // SendTrigger
+            0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
         };
 
         return value;
@@ -679,8 +701,8 @@ namespace AddressSetRuntime
             0x0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
             0x0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
             0x0ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
-            0x0ull, // CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect
-            0x0ull, // CharacterSelectorCallbackImpl_OpenBuddySelect
+            0x14163E730ull, // CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect (JP retail; verified by matching 0x9C70/0xA0D0/0x9FE0 offsets + 0x8FDA3DFC95ED/0x30A0D543E155 property hashes)
+            0x14163EE20ull, // CharacterSelectorCallbackImpl_OpenBuddySelect (JP retail; same constants verified, plus the slot computation `(this+0xA0 + this+0x9C) % this+0x94`)
             0x0ull, // SuitList_GetDevelopedCount
             0x0ull, // SuitList_FillDevelopedFlowIxs
             0x0ull, // SuitList_GetSuitInfoTable
@@ -715,6 +737,7 @@ namespace AddressSetRuntime
             0x0ull, // IsEquipDeveloped
             0x0ull, // SetItemDetail
             0x0ull, // SendTrigger
+            0x0ull, // IsEquipSuit
         };
 
         return value;
