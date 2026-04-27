@@ -397,6 +397,59 @@ namespace AddressSetRuntime
         // restriction as vanilla. Visibility (IsEquipDeveloped) stays
         // PT-independent so the outfit still shows in the dev list.
         uintptr_t IsEquipSuit                       = 0;
+
+        // tpp::ui::menu::mbm::impl::EquipDevelopCallbackImpl::SetSupplyCBoxInfo
+        // (retail 0x141675600, named-build line 5012869). Signature:
+        //   void(this, ushort flowIndex)
+        // R&D MotherBase dev-menu "Request Supply Drop" handler — fires
+        // when the user clicks "Request" on a developed item in the R&D
+        // screen. Reads category byte from suit-info table at
+        // (flowIndex * 0x68 + 0x36 + table_base) and dispatches to the
+        // SUIT/WEAPON/etc. branch. For SUIT category (0x14), builds a
+        // SupplyCboxLoadoutInfo at (this + 0x2370 / 0x2380 area) and
+        // fires trigger event with hash 0x5DB695F97E34 to queue the
+        // supply drop.
+        //
+        // For our custom flowIndices (922..924), the suit-info table
+        // overlay marks them as cat 0x14 (suit) so they take the SUIT
+        // branch — but the orig's vtable lookups (for equipId / params /
+        // etc.) return zeros for our flowIndices, so the loadout info
+        // stored is all-zero. The supply drop crate arrives ~30s later
+        // with that zero loadout, the pickup pipeline emits the broken-
+        // custom transient (partsType=0, camo=0xFF) at LoadPartsNew,
+        // and without a pendingDevId stash the framework forces vanilla
+        // NORMAL.
+        //
+        // Hook this function to recognize the user's custom-outfit
+        // request: pre-orig, look up the registered outfit by
+        // `param_1` (flowIndex) and stash pendingDevId in BOTH framework
+        // stashes (`pendingOutfitDevelopId` for the SetSuit/LoadParts-
+        // New broken-custom resolver, and `pendingSupplyDropDevelopId`
+        // for the OutfitSupplyDropPickup hooks). When the crate arrives,
+        // either pickup hook consumes its stash and force-equips the
+        // correct outfit. The R&D dev-menu path doesn't go through
+        // `ItemSelectorCallbackImpl::DecideActMotherBaseDeviceSupport-
+        // DropMode`, so this is the only place we can reliably catch
+        // the click.
+        uintptr_t EquipDevelopCallbackImpl_SetSupplyCBoxInfo = 0;
+
+        // 2-byte JZ instruction (74 10) inside tpp::gm::player::impl::UnrealUpdaterImpl::PreUpdate
+        // (retail EN 0x149CFBA54). Original code:
+        //   MOV  EAX, [RCX + 0x204]
+        //   SHR  EAX, 0x12
+        //   TEST AL, 1
+        //   JZ   skip_block          <-- patch site (74 10)
+        //   MOV  RCX, [RCX + 0xC8]
+        //   MOV  RAX, [RCX]
+        //   CALL [RAX + 0x218]
+        // skip_block:
+        //
+        // Patching the JZ to NOP NOP (90 90) — equivalently REX.W NOP (48 90) —
+        // makes the call branch run unconditionally on every PreUpdate tick,
+        // which enables the "tornado dual" behavior. The Lua API
+        // V_FrameWork.EnableTornadoDual(enable) writes 90 90 when enable=true
+        // and restores the original 74 10 when enable=false.
+        uintptr_t TornadoDualPatch                  = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -575,6 +628,8 @@ namespace AddressSetRuntime
             0x14A56E7F0ull, // SetItemDetail
             0x144B05380ull, // SendTrigger
             0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
+            0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo (R&D MotherBase dev-menu "Request Supply Drop" handler — fires per click, takes flowIndex)
+            0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
         };
 
         return value;
@@ -738,6 +793,8 @@ namespace AddressSetRuntime
             0x0ull, // SetItemDetail
             0x0ull, // SendTrigger
             0x0ull, // IsEquipSuit
+            0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
+            0x0ull, // TornadoDualPatch (JP equivalent unidentified — JP 1.0.15.3 does not contain the same MOV [RCX+0x204] / SHR 0x12 / JZ +0x10 / MOV [RCX+0xC8] / CALL [RAX+0x218] sequence; the function may be inlined or restructured)
         };
 
         return value;

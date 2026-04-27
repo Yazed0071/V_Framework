@@ -7,6 +7,7 @@ extern "C" {
 
 #include <Windows.h>
 #include <cstdint>
+#include <cstring>
 #include <unordered_set>
 #include <mutex>
 #include <string>
@@ -2046,6 +2047,59 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
     return 1;
 }
 
+// V_FrameWork.EnableTornadoDual(enable) — toggles a 2-byte memory patch on
+// the JZ inside UnrealUpdaterImpl::PreUpdate that gates the bit-0x12 update
+// branch. enable=true writes 90 90 (NOP NOP) so the branch always runs;
+// enable=false restores the original 74 10 (JZ +0x10). Returns true on
+// success, false if the patch address isn't filled for the current build
+// (e.g. JP) or the page write fails.
+static int __cdecl l_EnableTornadoDual(lua_State* L)
+{
+    static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
+    static constexpr std::uint8_t kEnabledBytes[2]  = { 0x90, 0x90 };
+
+    const bool enable = GetLuaBool(L, 1);
+
+    if (!gAddr.TornadoDualPatch)
+    {
+        Log("[TornadoDual] EnableTornadoDual(%s): patch address not set for current build\n",
+            enable ? "true" : "false");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    void* target = ResolveGameAddress(gAddr.TornadoDualPatch);
+    if (!target)
+    {
+        Log("[TornadoDual] EnableTornadoDual(%s): ResolveGameAddress returned null\n",
+            enable ? "true" : "false");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(target, sizeof(kOriginalBytes), PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        Log("[TornadoDual] EnableTornadoDual(%s): VirtualProtect failed (err=%lu)\n",
+            enable ? "true" : "false", GetLastError());
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const std::uint8_t* src = enable ? kEnabledBytes : kOriginalBytes;
+    std::memcpy(target, src, sizeof(kOriginalBytes));
+
+    DWORD restored = 0;
+    VirtualProtect(target, sizeof(kOriginalBytes), oldProtect, &restored);
+    FlushInstructionCache(GetCurrentProcess(), target, sizeof(kOriginalBytes));
+
+    Log("[TornadoDual] EnableTornadoDual(%s): wrote %02X %02X at %p\n",
+        enable ? "true" : "false", src[0], src[1], target);
+
+    PushLuaBool(L, true);
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -2129,6 +2183,9 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetCamoValue",                           l_SetCamoValue },
     { "CloneCamoRow",                           l_CloneCamoRow },
     { "ImportCamoRow",                          l_ImportCamoRow },
+
+    // Direct memory patches.
+    { "EnableTornadoDual",                      l_EnableTornadoDual },
 
     { nullptr, nullptr }
 };
