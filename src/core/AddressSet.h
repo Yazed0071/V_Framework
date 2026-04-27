@@ -794,7 +794,7 @@ namespace AddressSetRuntime
             0x0ull, // SendTrigger
             0x0ull, // IsEquipSuit
             0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
-            0x0ull, // TornadoDualPatch (JP equivalent unidentified — JP 1.0.15.3 does not contain the same MOV [RCX+0x204] / SHR 0x12 / JZ +0x10 / MOV [RCX+0xC8] / CALL [RAX+0x218] sequence; the function may be inlined or restructured)
+            0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
         };
 
         return value;
