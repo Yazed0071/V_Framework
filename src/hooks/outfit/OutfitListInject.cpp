@@ -280,7 +280,15 @@ namespace
     }
 
     // ---- Hook bodies ----
-
+    //
+    // GATE RESTORED 2026-04-28 (after a brief experiment removing it
+    // crashed the game at retail 0x141B82653 — a different caller of
+    // these same vtable functions iterates flowIndices and dereferences
+    // a parallel table at [RBP+0x20] with 8-byte stride. Vanilla flow-
+    // Indices have valid pointers there; our custom flowIndices >768
+    // point to NULL → null-deref of [NULL+0xB8] on first frame post-
+    // SetSuit. The gate is required: the crashing caller doesn't see
+    // our custom flowIndices, vanilla list only). Re-enabling.
     static std::uint16_t __fastcall hkGetDevelopedCount(void* sub)
     {
         const std::uint16_t orig = g_OrigGetCount ? g_OrigGetCount(sub) : 0;
@@ -342,6 +350,51 @@ namespace
         std::uint16_t flowIndex,
         void* entryBuf)
     {
+        // Defense-in-depth PT filter for OUR custom outfits.
+        // `ShouldInjectOutfit` (called from hkFillDevelopedFlowIxs +
+        // CountInjectionsForLivePT) is supposed to keep PT-mismatched
+        // custom outfits out of local_838 in the first place. But the
+        // orig SetupPrefabListElement also reads Quark state[0xFB]
+        // and calls vtable[0x618](this+0x58, livePT, flowIndex) per
+        // suit-row — for our custom flowIndices the vtable handler
+        // doesn't have internal data and tends to return truthy by
+        // default, so the orig DOESN'T filter them out, and they
+        // reach AddListSuit anyway.
+        //
+        // We catch them here: if `flowIndex` matches one of our
+        // registered outfits AND that outfit's `playerType` doesn't
+        // match the live PT, suppress the orig call. This guarantees
+        // the row never appears in the panel regardless of which
+        // upstream path put it in local_838.
+        //
+        // For vanilla flowIndices (`TryGetOutfitByFlowIndex` returns
+        // false) we fall through unchanged — vanilla AddListSuit's
+        // own filtering handles them.
+        if (t_InsideSetupPrefab)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry)
+            {
+                const std::uint8_t livePT = outfit::ReadLivePlayerType();
+                if (livePT != 0xFF && entry->playerType != livePT)
+                {
+                    // Wrong PT for this character — drop the row.
+                    // Orig is NOT called, so the row counter doesn't
+                    // advance and no cell is written. Effectively the
+                    // outfit is invisible in the panel.
+                    Log("[OutfitListInject:AddListSuit] suppressed PT-mismatch "
+                        "flowIndex=%u outfit-PT=%u live-PT=%u "
+                        "(developId=%u partsType=0x%02X)\n",
+                        static_cast<unsigned>(flowIndex),
+                        static_cast<unsigned>(entry->playerType),
+                        static_cast<unsigned>(livePT),
+                        static_cast<unsigned>(entry->developId),
+                        static_cast<unsigned>(entry->partsType));
+                    return;
+                }
+            }
+        }
+
         if (t_InsideSetupPrefab && TestAndSetAddedBit(flowIndex))
         {
             // Already added this scope — skip orig entirely so the
@@ -566,6 +619,85 @@ namespace
 
 namespace outfit
 {
+    // Resolve and install the three list-helper deep hooks via static
+    // AddressSet entries. Returns true if all three install OK.
+    //
+    // The OLD path was to defer these until the first SetupPrefabListElement
+    // fire (which runs the first time the user opens the UNIFORMS panel),
+    // resolving the function addresses dynamically by walking the
+    // captured `this`'s vtables. That worked but had a real-world
+    // consequence: when a custom outfit's R&D research finished, its
+    // entry in the R&D screen wouldn't update to "developed" until the
+    // user visited the UNIFORMS menu (which finally let our deep hooks
+    // install and start filtering). Custom WEAPONS updated immediately
+    // because their hooks aren't deferred.
+    //
+    // The runtime-captured addresses turned out to be stable across
+    // runs (verified in two independent user logs, same retail build):
+    //   GetCount   = 0x140F660C0
+    //   Fill       = 0x140F65F70
+    //   GetTable   = 0x14024D330
+    // So we hardcode them in AddressSet and install at DLL init. R&D
+    // updates immediately without needing a UNIFORMS-menu visit.
+    static bool TryInstallDeepHooksFromStaticAddresses()
+    {
+        if (g_DeepHooksOK.load(std::memory_order_acquire))
+            return true;
+
+        void* getCount = ResolveGameAddress(gAddr.SuitList_GetDevelopedCount);
+        void* fill     = ResolveGameAddress(gAddr.SuitList_FillDevelopedFlowIxs);
+        void* getTable = ResolveGameAddress(gAddr.SuitList_GetSuitInfoTable);
+
+        if (!getCount || !fill || !getTable)
+        {
+            Log("[OutfitListInject:Deep] static-address install: one or "
+                "more targets unresolved (GetCount=%p Fill=%p GetTable=%p) "
+                "— falling back to deferred-on-first-fire path\n",
+                getCount, fill, getTable);
+            return false;
+        }
+
+        Log("[OutfitListInject:Deep] static-address install: GetCount=%p "
+            "Fill=%p GetTable=%p; installing\n",
+            getCount, fill, getTable);
+
+        const bool h1 = CreateAndEnableHook(
+            getCount,
+            reinterpret_cast<void*>(&hkGetDevelopedCount),
+            reinterpret_cast<void**>(&g_OrigGetCount));
+        const bool h2 = CreateAndEnableHook(
+            fill,
+            reinterpret_cast<void*>(&hkFillDevelopedFlowIxs),
+            reinterpret_cast<void**>(&g_OrigFill));
+        const bool h3 = CreateAndEnableHook(
+            getTable,
+            reinterpret_cast<void*>(&hkGetSuitInfoTable),
+            reinterpret_cast<void**>(&g_OrigGetTable));
+
+        Log("[OutfitListInject:Deep] static-address hooks: GetCount=%s "
+            "Fill=%s GetTable=%s\n",
+            h1 ? "OK" : "FAIL",
+            h2 ? "OK" : "FAIL",
+            h3 ? "OK" : "FAIL");
+
+        if (!(h1 && h2 && h3))
+        {
+            if (h1) DisableAndRemoveHook(getCount);
+            if (h2) DisableAndRemoveHook(fill);
+            if (h3) DisableAndRemoveHook(getTable);
+            g_OrigGetCount = nullptr;
+            g_OrigFill     = nullptr;
+            g_OrigGetTable = nullptr;
+            return false;
+        }
+
+        g_GetCountFunc = getCount;
+        g_FillFunc     = fill;
+        g_GetTableFunc = getTable;
+        g_DeepHooksOK.store(true, std::memory_order_release);
+        return true;
+    }
+
     bool Install_OutfitListInject_Hook()
     {
         if (g_Installed) return true;
@@ -597,11 +729,19 @@ namespace outfit
             reinterpret_cast<void**>(&g_OrigSetupPrefab));
         g_Installed = setupHooked;
 
+        // Try the fast path first: install the three deep hooks now
+        // using the static addresses. If they're not in this build's
+        // AddressSet (e.g. JP build with placeholders), fall back to
+        // the legacy deferred-on-first-fire path which captures the
+        // addresses dynamically from the live SetupPrefabListElement
+        // `this` pointer.
+        const bool deepStatic = TryInstallDeepHooksFromStaticAddresses();
+
         Log("[OutfitListInject] installed: setup=%s addListSuit=%s "
-            "(target=%p addListSuitAddr=%p) — deep hooks deferred to "
-            "first fire\n",
+            "deepHooks=%s (target=%p addListSuitAddr=%p)\n",
             setupHooked ? "OK" : "FAIL",
             addListSuitHooked ? "OK" : (g_AddListSuitAddr ? "FAIL" : "UNRESOLVED"),
+            deepStatic ? "static-OK" : "deferred-to-first-fire",
             target, g_AddListSuitAddr);
         return g_Installed;
     }

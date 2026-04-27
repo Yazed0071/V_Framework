@@ -1691,8 +1691,22 @@ namespace
 //   camoFv2              string|true|false|nil     — default vanilla (Phase 3)
 //   diamondFv2           string|true|false|nil     — default vanilla (Phase 3)
 //
-//   supportsHeadOptions  bool (default false)
+//   enableHead           bool (default false)        — load default DD head
+//                                                       FPK on top of the body
+//                                                       (for body parts that
+//                                                       don't ship an integrated
+//                                                       head, like FROG/SSD ports).
+//                                                       Independent of headgear:
+//                                                       false = body's integrated
+//                                                       head (or no head); true =
+//                                                       force a DD head FPK load.
+//   supportsHeadOptions  bool (default false; auto-true when headOptions set)
 //   headOptions          { equipId1, equipId2, ... }  — head-option equipIds
+//                                                       (when present and non-
+//                                                       empty, supportsHeadOptions
+//                                                       is automatically true; the
+//                                                       user need not write the
+//                                                       boolean explicitly).
 //   variants             { { partsPath=..., fpkPath=..., ... }, ... }
 //
 //   partsTypeHint        int (optional)            — request specific partsType
@@ -1805,10 +1819,66 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     def.camoFv2    = ReadSubAssetField(L, 1, "camoFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFv2 = ReadSubAssetField(L, 1, "diamondFv2", outfit::kSubAssetUseVanilla);
 
-    // Head options.
-    def.supportsHeadOptions = TryReadTableBoolField(L, 1, "supportsHeadOptions", false);
-    if (def.supportsHeadOptions)
-        ReadHeadOptionsArray(L, 1, def);
+    // Head loading: separate from headgear/dropdown options.
+    //   enableHead = true  → framework spoofs info->playerPartsType to
+    //                        a vanilla value during orig LoadPartsNew
+    //                        so the inlined DoesNeedFaceFova gate
+    //                        returns true, and orig dispatches the
+    //                        face/head FPK loader (Soldier2FaceSystem
+    //                        loads default DD head for the playerType).
+    //                        Per-asset hooks honor a thread-local spoof
+    //                        state so the outfit's parts/fpk/camo still
+    //                        load correctly despite the spoofed param.
+    //   enableHead = false → no spoof; orig sees real custom partsType,
+    //                        DoesNeedFaceFova returns false, no face
+    //                        FPK is queued and the head must come from
+    //                        the body parts file's integrated mesh
+    //                        (Quiet-style).
+    def.enableHead = TryReadTableBoolField(L, 1, "enableHead", false);
+
+    // Optional soldier face index override. The orig face-load reads
+    // FaceUnit[playerFaceId] from a 900-entry pool; until vanilla Lua
+    // boot scripts call SetFaceFovaDefinitionTable for a given index,
+    // FaceUnit[idx].flags is 0 and the orig outputs all-null PathIds
+    // (no head). If the default playerFaceId=0 has no populated entry
+    // for the targeted playerType, set this to a known-good face index
+    // (1..899). Only takes effect when enableHead=true and
+    // info->playerFaceId is currently 0 (preserves any face the user
+    // has manually chosen via the vanilla face dropdown).
+    int defaultSoldierFaceId = 0;
+    if (TryReadTableIntField(L, 1, "defaultSoldierFaceId", defaultSoldierFaceId)
+        && defaultSoldierFaceId > 0 && defaultSoldierFaceId < 900)
+    {
+        def.defaultSoldierFaceId =
+            static_cast<std::uint16_t>(defaultSoldierFaceId);
+    }
+
+    // langEquipName — passed by the V_TppPlayer.AddOutfit wrapper from
+    // `opts.develop.const.langEquipName` (or directly via `opts.langEquipName`).
+    // Hash it once at registration so the UNIFORMS-row UI hook can write
+    // the hash directly without computing per-frame. Empty / nil → 0
+    // (no override; UI shows blank for unknown partsType, matching old
+    // behavior).
+    {
+        const char* langEquipName = nullptr;
+        if (TryReadTableStringField(L, 1, "langEquipName", langEquipName)
+            && langEquipName && langEquipName[0] != '\0')
+        {
+            def.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
+        }
+    }
+
+    // Head options dropdown — read the array first, then auto-imply
+    // supportsHeadOptions=true if the array is non-empty (so users only
+    // need to write `headOptions = { ... }` and skip the boolean). The
+    // auto-imply is passed as the default to TryReadTableBoolField, so
+    // an explicit `supportsHeadOptions = true|false` in the user's lua
+    // still takes precedence — supports the rare "register the array
+    // but disable the dropdown" case.
+    ReadHeadOptionsArray(L, 1, def);
+    const bool autoImpliedSupports = (def.headOptionCount > 0);
+    def.supportsHeadOptions = TryReadTableBoolField(
+        L, 1, "supportsHeadOptions", autoImpliedSupports);
 
     // Variants.
     ReadVariantsArray(L, 1, def);

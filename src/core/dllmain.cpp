@@ -9,6 +9,7 @@
 #include "FeatureModule.h"
 #include "AddressSet.h"
 #include "V_FrameWorkState.h"
+#include "../hooks/equip/EquipIdTable_AddToEquipIdTable.h"
 
 bool Install_SetLuaFunctions_Hook();
 
@@ -65,6 +66,22 @@ static DWORD WINAPI InitThread(LPVOID)
         return 0;
     }
 
+    // Install the AddToEquipIdTable observer hook IMMEDIATELY after
+    // address resolution and BEFORE any other framework state. The
+    // observer records which compressed equip-id slots vanilla's boot
+    // scripts populate; the framework's custom-equipId allocator
+    // queries this to pick truly-free in-bounds slots and avoid the
+    // 0x289-bound OOB write that corrupts vanilla UI state.
+    //
+    // This is installed here (not via the FeatureModule pipeline)
+    // because vanilla's TppEquipParts.lua / similar boot scripts may
+    // call AddToEquipIdTable from the Lua state we just made writable
+    // via SetLuaFunctions — installing later would miss those calls.
+    const bool observerOk =
+        EquipIdTableAdd::Install_StockAddToEquipIdTable_Observer();
+    Log("[DLL] Early Install_StockAddToEquipIdTable_Observer -> %s\n",
+        observerOk ? "OK" : "FAIL");
+
     V_FrameWorkState::Load();
 
     RegisterBuiltInFeatureModules();
@@ -84,6 +101,7 @@ static void UninstallAll(bool processTerminating)
         return;
 
     FeatureModuleRegistry::Instance().UninstallAll();
+    EquipIdTableAdd::Uninstall_StockAddToEquipIdTable_Observer();
     MH_Uninitialize();
     Log("[DLL] UninstallAll done.\n");
 

@@ -86,13 +86,42 @@ function this.AddOutfit(opts)
         camoFv2             = opts.camoFv2,
         diamondFv2          = opts.diamondFv2,
 
-        supportsHeadOptions = opts.supportsHeadOptions or false,
+        -- enableHead forces the framework to load a default DD head FPK
+        -- on top of the body for outfits whose body parts file has no
+        -- integrated head mesh (FROG / SSD ports etc.). Default false
+        -- so Quiet-style integrated-head outfits (e.g. Jill BattleSuit)
+        -- aren't disturbed.
+        enableHead           = opts.enableHead,
+
+        -- Optional override for the soldier face index (info+0x04).
+        -- When enableHead=true AND the player slot has 0 (no manual
+        -- face chosen), the framework writes this value before orig
+        -- reads the face FPK. Use a populated FaceUnit index if 0
+        -- doesn't load (1..899). Leave nil to keep playerFaceId at 0.
+        defaultSoldierFaceId = opts.defaultSoldierFaceId,
+
+        -- supportsHeadOptions auto-implies true on the C++ side when
+        -- headOptions is non-empty, so we pass through nil-when-missing
+        -- (rather than `or false`) to let the C++ default kick in.
+        -- Explicit user value still wins.
+        supportsHeadOptions = opts.supportsHeadOptions,
         headOptions         = opts.headOptions,
 
         variants            = buildVariantArray(opts.variants),
 
         partsTypeHint       = opts.partsTypeHint,
         selectorCodeHint    = opts.selectorCodeHint,
+
+        -- langEquipName forwarded from develop.const (if present) so the
+        -- framework can hash it via FoxStrHash and use it to override the
+        -- vanilla suit-name UI lookup that returns blank for our custom
+        -- partsType range. Without this, SORTIE PREP > SELECT CHARACTER >
+        -- UNIFORMS row shows blank text when wearing our custom suits.
+        -- The user can still override by setting `langEquipName` directly
+        -- on the AddOutfit call (rare).
+        langEquipName       = opts.langEquipName
+                              or (opts.develop and opts.develop.const
+                                  and opts.develop.const.langEquipName),
     })
 
     if partsType == false or partsType == nil then

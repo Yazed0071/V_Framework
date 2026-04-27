@@ -245,10 +245,16 @@ namespace outfit
         for (std::size_t i = 0; i < slot->variantCount; ++i)
             slot->variants[i] = def.variants[i];
 
+        slot->enableHead           = def.enableHead;
+        slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
+        slot->langEquipNameHash    = def.langEquipNameHash;
+
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
 
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
             "playerType=%u partsType=0x%02X selector=0x%02X "
+            "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
+            "langEquipNameHash=0x%016llX "
             "parts=0x%016llX fpk=0x%016llX\n",
             def.key ? def.key : "(unkeyed)",
             static_cast<unsigned>(def.developId),
@@ -256,6 +262,11 @@ namespace outfit
             static_cast<unsigned>(def.playerType),
             static_cast<unsigned>(partsType),
             static_cast<unsigned>(selector),
+            def.enableHead ? 1 : 0,
+            static_cast<unsigned>(def.defaultSoldierFaceId),
+            static_cast<unsigned>(def.headOptionCount),
+            def.supportsHeadOptions ? 1 : 0,
+            static_cast<unsigned long long>(def.langEquipNameHash),
             static_cast<unsigned long long>(def.partsPathCode64),
             static_cast<unsigned long long>(def.fpkPathCode64));
 

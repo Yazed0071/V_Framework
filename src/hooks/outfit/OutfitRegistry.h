@@ -97,9 +97,88 @@ namespace outfit
         // sentinel; a 0 in our array is treated equivalently). Up to
         // kMaxHeadOptionsPerOutfit entries — leave trailing slots as 0.
         // headOptionCount must match the number of populated slots.
+        //
+        // The Lua bridge auto-sets supportsHeadOptions=true when
+        // headOptions is non-empty, so most users only ever need to
+        // populate headOptions and leave supportsHeadOptions implicit.
         std::uint16_t  headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t   headOptionCount                              = 0;
         bool           supportsHeadOptions                          = false;
+
+        // Phase 4 (added 2026-04-27) — enableHead controls whether the
+        // human head model (skin + hair, the part the head equipment
+        // sits on top of) is loaded for this outfit.
+        //
+        // Mechanism (CORRECTED 2026-04-27): orig BlockControllerImpl::LoadPartsNew
+        // gates face/head FPK loading on
+        //   isHeadNeeded = ResourceTable::DoesNeedFaceFova(playerPartsType);
+        // (named-build line 1310939). The function takes the PARTSTYPE
+        // byte (NOT camo as initially assumed) and returns true ONLY for
+        // vanilla "real" outfit partsTypes {0,1,2,7,8,9, 0xB..0x19}.
+        // For our custom range (0x40..0x7F) it returns false, so by
+        // default LoadPartsNew never queues a face/head FPK for our
+        // outfits — the head must come from the body parts file. Many
+        // ports (FROG soldier, etc.) don't ship integrated heads.
+        //
+        // The gate is INLINED by MSVC inside LoadPartsNew, so a hook on
+        // the function address doesn't catch it. The framework's
+        // hkLoadPartsNew instead spoofs info->playerPartsType to 0x00
+        // (vanilla NORMAL) for the duration of the orig call, while
+        // stashing the real custom partsType in a thread-local that
+        // the per-asset hooks consult to keep routing to this outfit's
+        // assets. Orig sees spoofed 0x00 → DoesNeedFaceFova returns
+        // true → orig calls Soldier2FaceSystem::vtable[0x20] with
+        // info->playerFaceId, which loads FaceUnit[playerFaceId] →
+        // default head for the outfit's playerType (DDFemale / DDMale).
+        //
+        // This is independent of headgear/balaclava — that goes via
+        // playerFaceEquipId (info+0x06) and headOption dropdown, not
+        // through the head-load gate.
+        //
+        // Default false: existing outfits whose body parts ship with
+        // an integrated head (Quiet-style, like Jill's BattleSuit
+        // .parts) keep their integrated head visible. Setting this to
+        // true on those outfits would overlay a vanilla DD face on top
+        // of the integrated head and look wrong.
+        bool           enableHead                      = false;
+
+        // Optional override for the soldier face index (info+0x04,
+        // 16-bit) read by Soldier2FaceSystem::GetFaceFovaPathIdArrayAtFaceId
+        // when the head FPK loads. The orig reads FaceUnit[playerFaceId]
+        // and outputs 4 PathIds for face/hair/hairDeco/faceDeco. Each
+        // is gated on a flag bit in FaceUnit[idx]+0x20 (0x20000 / 0x40000
+        // / 0x80000 / 0x100000). Until vanilla Lua boot scripts call
+        // SetFaceFovaDefinitionTable for a given face index, that
+        // FaceUnit's flags are 0 → the orig outputs all-null PathIds
+        // and the head doesn't load even though our gate said yes.
+        //
+        // 0 (default) — leave info->playerFaceId untouched (use
+        //               whatever the player slot has, typically 0).
+        // 1..899      — when enableHead is true AND info->playerFaceId
+        //               is currently 0 (no manual face chosen), force
+        //               playerFaceId to this value before orig reads
+        //               the face FPK. Pick a value that's known to be
+        //               registered for the playerType you're targeting.
+        //               Vanilla DDFemale soldier faces are scattered
+        //               across the 0..899 range; the modder may need
+        //               to experiment until the head appears.
+        std::uint16_t  defaultSoldierFaceId            = 0;
+
+        // 64-bit FoxStrHash of the lang-string id used to display the
+        // suit name in the SORTIE PREP > SELECT CHARACTER > UNIFORMS row.
+        // The Lua bridge auto-derives this from the user's
+        // `develop.const.langEquipName` field if it's set, so most users
+        // don't have to fill this directly. When non-zero, the framework's
+        // CharacterSelectorCallbackImpl::ChangeDetailsWindowBuddySelect
+        // hook (retail 0x14163E5F0) overrides the vanilla translator's
+        // partsType→hash output for our custom partsType range and uses
+        // this hash instead — making the UI show the user's chosen
+        // string instead of blank text.
+        //
+        // 0 (default) means "no override; UI will show blank" (vanilla
+        // behavior — orig translator returns 0 for unrecognized
+        // partsType).
+        std::uint64_t  langEquipNameHash               = 0;
 
         // Phase 3 — variants. variantCount==0 → outfit has no variants
         // (single appearance). When variantCount>0, the OutfitDefinition's
@@ -140,6 +219,22 @@ namespace outfit
         std::uint8_t   headOptionCount                              = 0;
         bool           supportsHeadOptions                          = false;
 
+        // See OutfitDefinition::enableHead — controls whether
+        // DoesNeedFaceFova is overridden to load a vanilla DD head FPK
+        // for this outfit's selectorCode.
+        bool           enableHead                                   = false;
+
+        // See OutfitDefinition::defaultSoldierFaceId — optional override
+        // for info->playerFaceId when the user's slot has 0 and our
+        // enableHead override is in play. Lets the modder pick a
+        // FaceUnit-populated face index instead of relying on faceId 0.
+        std::uint16_t  defaultSoldierFaceId                         = 0;
+
+        // See OutfitDefinition::langEquipNameHash — used by the UI hook
+        // on ChangeDetailsWindowBuddySelect to override the suit-name
+        // translator output for custom partsTypes. 0 = no override.
+        std::uint64_t  langEquipNameHash                            = 0;
+
         OutfitVariant  variants[kMaxVariantsPerOutfit] = {};
         std::uint8_t   variantCount                    = 0;
 
@@ -152,6 +247,7 @@ namespace outfit
         bool IsDiamondFv2Custom()const { return diamondFv2  > kSubAssetUseVanilla; }
         bool HasVariants()       const { return variantCount > 0; }
         bool HasHeadOptions()    const { return supportsHeadOptions && headOptionCount > 0; }
+        bool IsHeadEnabled()     const { return enableHead; }
 
         // Variant accessor: returns variant N's effective path (falls
         // back to base outfit fields when variant slot is unused or

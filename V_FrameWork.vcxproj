@@ -183,6 +183,7 @@
     <ClInclude Include="src\hooks\equip\DeclareSWPs.h" />
     <ClInclude Include="src\hooks\equip\DeclareWPs.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
+    <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
     <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h" />
     <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h" />
     <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h" />
@@ -204,6 +205,7 @@
     <ClInclude Include="src\hooks\outfit\OutfitSupplyDropSetup.h" />
     <ClInclude Include="src\hooks\outfit\OutfitSuitConditionApply.h" />
     <ClInclude Include="src\hooks\outfit\OutfitSupplyDropPickup.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitUniformsRow.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
@@ -259,6 +261,7 @@
     <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp" />
     <ClCompile Include="src\hooks\equip\DeclareWPs.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp" />
     <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp" />
     <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp" />
@@ -280,6 +283,7 @@
     <ClCompile Include="src\hooks\outfit\OutfitSupplyDropSetup.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitSuitConditionApply.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitSupplyDropPickup.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitUniformsRow.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />

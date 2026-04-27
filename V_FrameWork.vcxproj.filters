@@ -69,6 +69,7 @@
     <ClInclude Include="src\hooks\equip\DeclareSWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\DeclareWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\EquipIdCompression.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h"><Filter>Hooks\Equip</Filter></ClInclude>
@@ -138,6 +139,7 @@
     <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\DeclareWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>

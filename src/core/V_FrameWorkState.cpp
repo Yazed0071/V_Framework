@@ -2,6 +2,7 @@
 #include "V_FrameWorkState.h"
 #include "log.h"
 #include "AddressSet.h"
+#include "../hooks/equip/EquipIdCompression.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -18,7 +19,19 @@ namespace V_FrameWorkState
         static constexpr const char* kSavePath    = "mod\\V_FrameWork\\V_FrameWork_State.lua";
         static constexpr const char* kLegacyPath  = "mod\\saves\\V_FrameWork_State.lua";
 
-        static constexpr std::int32_t kFirstCustomEquipId = 0x609;
+        // Old default 0x609 was the FIRST OOB equipId for the native
+        // AddToEquipIdTable (compressed = 0x609 - 0x380 = 0x289 = bound).
+        // The new allocator uses EquipIdCompression::FindLowestFreeEquipId
+        // which scans compressed slots [floor, 0x289) and avoids slots
+        // vanilla MGSV has already populated (verified via SyncFromNativeTable
+        // reading the native _s_internalInfoList_ array directly).
+        //
+        // Floor is 1 (not 0) because EquipIdTable_AddToEquipIdTable.cpp's
+        // ReadEquipIdRow treats equipId=0 as "invalid row, drop it" — if
+        // we ever picked 0 the row would silently never reach the native
+        // table and the weapon would be unusable. Skipping 0 also matches
+        // vanilla convention (equipId 0 is reserved/sentinel in TppEquip).
+        static constexpr std::int32_t kFirstCustomEquipIdMinimum = 1;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
         static constexpr std::int32_t kFirstCustomFlowIndex = 922;
         static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
@@ -317,11 +330,59 @@ namespace V_FrameWorkState
             return false;
         }
 
+        // Set on first allocation request — triggers a one-time scan of
+        // the native EquipIdTable to populate the vanilla-occupancy
+        // bitset. Vanilla MGSV's TppEquipParts.lua runs BEFORE our DLL
+        // injects, so the live observer hook on AddToEquipIdTable misses
+        // vanilla's calls; reading the populated table directly is the
+        // only reliable way to know which slots are off-limits.
+        static bool g_NativeTableSynced = false;
+
         static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum)
         {
-            std::int32_t id = (minimum > kFirstCustomEquipId) ? minimum : kFirstCustomEquipId;
-            while (IsEquipIdInUse_NoLock(id)) ++id;
-            return id;
+            // First-call sync: scan the native _s_internalInfoList_ array
+            // for non-zero parts-path hashes and mark those compressed
+            // slots as vanilla-occupied. This MUST happen before the
+            // bitset scan below, otherwise we'd allocate slots vanilla
+            // already filled and overwrite vanilla equipment data on the
+            // next AddToEquipIdTable call.
+            if (!g_NativeTableSynced)
+            {
+                EquipIdCompression::SyncFromNativeTable();
+                g_NativeTableSynced = true;
+            }
+
+            // Scan compressed slots [floor, 0x289) for one that:
+            //   (a) isn't marked vanilla-occupied (from native table sync
+            //       AND any live AddToEquipIdTable hook fires), AND
+            //   (b) isn't already used by another session-allocated equip.
+            //
+            // Returns the slot index as the equipId — for slots < 0x400
+            // the compressed index IS the equipId (1:1 mapping). We don't
+            // try to address a free slot through the 0x400+/0x600+ ranges
+            // because those would only be reachable if the slot were
+            // *also* unused at compressed = equipId - 0x1D0 / 0x380, and
+            // direct addressing keeps the allocation behavior simple.
+            const std::int32_t floor =
+                (minimum > kFirstCustomEquipIdMinimum)
+                    ? minimum
+                    : kFirstCustomEquipIdMinimum;
+
+            const std::int32_t result =
+                EquipIdCompression::FindLowestFreeEquipId(
+                    [](std::int32_t equipId) {
+                        return IsEquipIdInUse_NoLock(equipId);
+                    },
+                    floor);
+
+            if (result < 0)
+            {
+                Log("[V_FrameWorkState] AllocateNextFreeEquipId: NO FREE "
+                    "in-bounds compressed slot remains (vanilla + session "
+                    "have filled all 0x289 slots above floor=0x%X). Returning "
+                    "-1 to fail the allocation cleanly.\n", floor);
+            }
+            return result;
         }
 
         static std::int32_t AllocateNextFreeDevelopId_NoLock(std::int32_t minimum)
@@ -387,10 +448,23 @@ namespace V_FrameWorkState
         }
 
         const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId);
+        if (newId < 0)
+        {
+            // Allocation failed (every in-bounds compressed slot is taken
+            // by vanilla + session). Don't cache the failure — the
+            // observer might still be receiving vanilla rows, or the
+            // session might free a slot. Caller falls back / errors out.
+            outEquipId = 0;
+            Log("[V_FrameWorkState] EquipId allocation FAILED for '%s' "
+                "(every in-bounds slot occupied)\n", key);
+            return false;
+        }
+
         g_SessionEquipIds[key] = newId;
         outEquipId = newId;
 
-        Log("[V_FrameWorkState] Assigned equipId=%d for '%s' (session-only)\n", newId, key);
+        Log("[V_FrameWorkState] Assigned equipId=%d (compressed=0x%X) for '%s' (session-only)\n",
+            newId, EquipIdCompression::ComputeCompressed(newId), key);
         return true;
     }
 

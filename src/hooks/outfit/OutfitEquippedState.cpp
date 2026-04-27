@@ -48,52 +48,36 @@ namespace
         if (flowIndex >= kEdcRowCapacity)
             return 0;
 
-        const outfit::OutfitEntry* entry = nullptr;
-        if (outfit::TryGetOutfitByFlowIndex(static_cast<std::uint16_t>(flowIndex), &entry)
-            && entry)
-        {
-            // Hide outfits whose playerType doesn't match the live
-            // character so e.g. a DD-Female-only outfit doesn't show
-            // up as developed when Snake is active.
-            const std::uint8_t live = outfit::ReadLivePlayerType();
-            if (live != 0xFF && entry->playerType != live) return 0;
-
-            // Respect the orig R&D bit-array (REVERTED 2026-04-27 from
-            // "always return 1"). Modder controls visibility via
-            // `develop.flow.initialAvailable` and player R&D research:
-            //   - initialAvailable=1: bit set at register-time, outfit
-            //     always available.
-            //   - initialAvailable=0: bit set only after the player
-            //     researches the outfit in MotherBase R&D, mirroring
-            //     vanilla equip flow.
-            // The previous "always 1" override hid this gate — it made
-            // every registered outfit appear in the UNIFORMS panel
-            // immediately, regardless of whether the player had
-            // developed it. User report 2026-04-27: registering a
-            // second outfit (FROGS) with initialAvailable=0 still
-            // showed it in the panel; selecting it loaded a different
-            // outfit because of cell/display mismatch fallout from
-            // the orig walker handling an undeveloped flowIndex it
-            // shouldn't have seen at all.
-            //
-            // Falling through to orig: if the user's R&D state has the
-            // bit set, returns 1 (panel shows). Otherwise returns 0
-            // (panel hides). The orig vtable[0x230]/[0x240] use the
-            // same bit-array, so panel construction naturally excludes
-            // undeveloped outfits — no synthetic injection needed for
-            // them, and none of the variant-fold or row-collision
-            // pathologies kick in.
-            //
-            // Supply-drop concern (post-pickup IsEquipDeveloped roll-
-            // back) — historically cited as the reason for the always-1
-            // override — only manifests if the player can drop an
-            // un-researched outfit. Vanilla R&D semantics require
-            // research first; with this revert the player must research
-            // the outfit before it appears in the supply-drop catalog,
-            // which means the post-pickup check naturally returns 1
-            // (researched → bit set). No rollback.
-        }
-
+        // PLAYERTYPE GATE REMOVED 2026-04-28 — previously this hook
+        // returned 0 for custom outfits whose playerType didn't match
+        // the live character (e.g. a Female-only outfit when playing
+        // as Snake). Intent was to keep PT-mismatched outfits out of
+        // the UNIFORMS panel, but the implementation lied about the
+        // actual develop bit. Side-effect: the R&D screen also calls
+        // IsEquipDeveloped while building its tile counts; the
+        // playerType lie made researched-but-PT-mismatched outfits
+        // appear as "still to develop" → R&D refresh asymmetry where
+        // a Female outfit looked undeveloped while playing as Male
+        // until UNIFORMS opened (which has its own injection logic
+        // that didn't go through this hook).
+        //
+        // The develop bit IS a fact: the player either researched the
+        // outfit or didn't. UNIFORMS panel visibility filtering by live
+        // playerType is a separate concern, correctly handled at the
+        // injection layer in `ShouldInjectOutfit` (which still gates on
+        // `e->playerType != livePT`). So removing the gate here:
+        //   - R&D reads truthful developed status (fixes the asymmetry)
+        //   - UNIFORMS panel still hides PT-mismatched outfits because
+        //     `ShouldInjectOutfit` returns false for them, so they're
+        //     never added to the panel's flowIndex array in the first
+        //     place — the per-row IsEquipDeveloped check inside the
+        //     panel walker isn't reached for them.
+        //   - Supply-drop catalog also reads truthful state, which is
+        //     fine: the player can only drop outfits they've already
+        //     researched (vanilla R&D semantics).
+        //
+        // We still bound-check flowIndex >= 0x400 above to keep the
+        // orig's unchecked bit-array read in-bounds.
         return g_OrigIsEquipDeveloped(self, flowIndex);
     }
 

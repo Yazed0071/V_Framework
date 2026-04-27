@@ -17,6 +17,7 @@ extern "C"
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "EquipIdCompression.h"
 
 
 namespace
@@ -37,7 +38,15 @@ namespace
     EquipIdTableAdd::Deps g_Deps{};
     ReloadEquipIdTable_t g_OrigReloadEquipIdTable = nullptr;
     StockAddToEquipIdTable_t g_StockAddToEquipIdTable = nullptr;
+
+    // Trampoline pointer — set once Install_StockAddToEquipIdTable_Observer
+    // is called. After the observer hook is installed, our framework's
+    // direct call path uses this trampoline (NOT g_StockAddToEquipIdTable)
+    // to bypass our own observer hook and avoid an infinite loop.
+    StockAddToEquipIdTable_t g_OrigStockAddToEquipIdTable = nullptr;
+
     bool g_ReloadEquipIdTableHookInstalled = false;
+    bool g_StockAddObserverHookInstalled   = false;
     bool g_StockAddCallInProgress = false;
 
     std::vector<EquipIdRow> g_QueuedEquipIdRows;
@@ -150,6 +159,30 @@ namespace
         if (row.equipId <= 0)
             return;
 
+        // Bounds check (defense in depth). Native AddToEquipIdTable
+        // OOB-writes for equipIds whose compressed index >= 0x289,
+        // corrupting whatever vanilla data lives immediately after the
+        // four parallel tables (_s_internalInfoList / DAT_142c20fb8 /
+        // DAT_142c20fc0 / DAT_142a70928). Symptoms include vanilla
+        // weapon icons disappearing from sortie-prep slots and custom-
+        // suit names rendering blank in SELECT CHARACTER.
+        //
+        // The framework's allocator (V_FrameWorkState::ResolveOrCreateEquipId
+        // -> AllocateNextFreeEquipId_NoLock + EquipIdCompression::FindLowestFreeEquipId)
+        // is supposed to pick in-bounds slots, but if a caller bypasses
+        // it and queues an OOB equipId directly, we refuse here.
+        const std::int32_t compressed =
+            EquipIdCompression::ComputeCompressed(row.equipId);
+        if (!EquipIdCompression::IsCompressedInBounds(compressed))
+        {
+            Log("[EquipIdTable] REFUSED queue: equipId=%d (0x%X) compresses "
+                "to 0x%X >= bound 0x%X — would OOB-write native tables and "
+                "corrupt adjacent vanilla data. Drop the row.\n",
+                row.equipId, row.equipId, compressed,
+                EquipIdCompression::kCompressedSlotBound);
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(g_QueuedEquipIdRowsMutex);
 
         auto it = std::find_if(
@@ -168,7 +201,46 @@ namespace
         }
 
         g_QueuedEquipIdRows.push_back(row);
-        Log("[EquipIdTable] Queued equipId=%d\n", row.equipId);
+        Log("[EquipIdTable] Queued equipId=%d (compressed=0x%X)\n",
+            row.equipId, compressed);
+    }
+
+    // Observer hook — fires for every native AddToEquipIdTable call
+    // (vanilla boot scripts, our own forwarded rows). Records each row's
+    // compressed slot so the custom-equipId allocator can find slots
+    // vanilla hasn't claimed.
+    static void __cdecl hkStockAddToEquipIdTable_Observer(lua_State* L)
+    {
+        if (L && g_Deps.LuaObjLen && g_Deps.LuaRawGetI &&
+            g_Deps.LuaType && g_Deps.LuaPop)
+        {
+            const int rowCount = static_cast<int>(g_Deps.LuaObjLen(L, 1));
+            for (int i = 1; i <= rowCount; ++i)
+            {
+                g_Deps.LuaRawGetI(L, 1, i);
+
+                if (IsLuaTable(L, -1))
+                {
+                    const int rowIndex = g_Deps.GetLuaTop(L);
+                    std::int32_t equipId = 0;
+                    if (ReadNumberArrayField(L, rowIndex, 1, equipId)
+                        && equipId > 0)
+                    {
+                        const std::int32_t compressed =
+                            EquipIdCompression::ComputeCompressed(equipId);
+                        if (EquipIdCompression::IsCompressedInBounds(compressed))
+                        {
+                            EquipIdCompression::MarkCompressedSlotUsed(compressed);
+                        }
+                    }
+                }
+
+                g_Deps.LuaPop(L, 1);
+            }
+        }
+
+        if (g_OrigStockAddToEquipIdTable)
+            g_OrigStockAddToEquipIdTable(L);
     }
 
     static bool LuaTableContainsEquipId(lua_State* L, int rootTableIndex, std::int32_t equipId)
@@ -316,13 +388,33 @@ namespace EquipIdTableAdd
                 g_StockAddToEquipIdTable = reinterpret_cast<StockAddToEquipIdTable_t>(
                     ResolveGameAddress(gAddr.EquipIdTableImpl_AddToEquipIdTable));
 
-            if (g_StockAddToEquipIdTable)
+            // Pick the call target. Once the observer hook is installed,
+            // calling the public g_StockAddToEquipIdTable address would
+            // re-enter our hook (infinite recursion); call the trampoline
+            // (g_OrigStockAddToEquipIdTable) instead so the observer sees
+            // the call exactly once via QueueEquipIdRow's earlier path
+            // (the observer also records, but rows we've already filtered
+            // out by OOB rejection above never reach this point).
+            //
+            // CallTarget invariants:
+            //  - Observer installed: trampoline is non-null, public is hooked.
+            //    Use trampoline.
+            //  - Observer not installed: trampoline is null, public is unhooked.
+            //    Use public.
+            StockAddToEquipIdTable_t callTarget =
+                g_OrigStockAddToEquipIdTable
+                    ? g_OrigStockAddToEquipIdTable
+                    : g_StockAddToEquipIdTable;
+
+            if (callTarget)
             {
                 g_StockAddCallInProgress = true;
-                g_StockAddToEquipIdTable(L);
+                callTarget(L);
                 g_StockAddCallInProgress = false;
-                Log("[EquipIdTable] Stock AddToEquipIdTable called directly (rows=%d)\n",
-                    rowCount);
+                Log("[EquipIdTable] Stock AddToEquipIdTable called directly "
+                    "(rows=%d, via=%s)\n",
+                    rowCount,
+                    g_OrigStockAddToEquipIdTable ? "trampoline" : "public");
             }
             else
             {
@@ -379,6 +471,57 @@ namespace EquipIdTableAdd
 
         g_OrigReloadEquipIdTable = nullptr;
         g_ReloadEquipIdTableHookInstalled = false;
+        return true;
+    }
+
+    // Installs hook on EquipIdTableImpl::AddToEquipIdTable for vanilla-
+    // slot-occupancy observation (see header comment). No-op if already
+    // installed.
+    bool Install_StockAddToEquipIdTable_Observer()
+    {
+        if (g_StockAddObserverHookInstalled)
+            return true;
+
+        void* target = ResolveGameAddress(gAddr.EquipIdTableImpl_AddToEquipIdTable);
+        if (!target)
+        {
+            Log("[EquipIdTable] AddToEquipIdTable observer: target resolve failed\n");
+            return false;
+        }
+
+        const bool ok = CreateAndEnableHook(
+            target,
+            reinterpret_cast<void*>(&hkStockAddToEquipIdTable_Observer),
+            reinterpret_cast<void**>(&g_OrigStockAddToEquipIdTable));
+
+        if (!ok)
+        {
+            Log("[EquipIdTable] AddToEquipIdTable observer install failed\n");
+            return false;
+        }
+
+        // After hook install, the public address points at our hook —
+        // make sure the cached g_StockAddToEquipIdTable still points
+        // at the same address (it'll route through the hook on call,
+        // but by convention we use the trampoline now anyway).
+        g_StockAddToEquipIdTable = reinterpret_cast<StockAddToEquipIdTable_t>(target);
+
+        g_StockAddObserverHookInstalled = true;
+        Log("[EquipIdTable] AddToEquipIdTable observer installed\n");
+        return true;
+    }
+
+    bool Uninstall_StockAddToEquipIdTable_Observer()
+    {
+        if (!g_StockAddObserverHookInstalled)
+            return true;
+
+        void* target = ResolveGameAddress(gAddr.EquipIdTableImpl_AddToEquipIdTable);
+        if (target)
+            DisableAndRemoveHook(target);
+
+        g_OrigStockAddToEquipIdTable = nullptr;
+        g_StockAddObserverHookInstalled = false;
         return true;
     }
 }

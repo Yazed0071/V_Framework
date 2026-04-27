@@ -11,15 +11,30 @@ extern "C" {
 #include <cstdint>
 #include <string>
 #include "RegisterConstantEquipId.h"
+#include "EquipIdCompression.h"
 #include "CustomEquipIdState.h"
 
 namespace
 {
     constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
-    // Native RegisterConstantEquipId uses IDs up through 0x608.
-    // Keep all custom IDs above that range.
-    constexpr std::int32_t kFirstCustomEquipId = 0x609;
+    // Native AddToEquipIdTable's compression formula maps:
+    //   equipId in [0x000, 0x400)  -> compressed = equipId
+    //   equipId in [0x400, 0x600)  -> compressed = equipId - 0x1D0
+    //   equipId in [0x600, ...)    -> compressed = equipId - 0x380
+    // The four parallel native arrays it indexes are sized 0x289, so
+    // any equipId whose compressed index >= 0x289 OOB-writes and
+    // corrupts adjacent vanilla data (causing vanilla weapon-slot
+    // icons to disappear and custom-suit names to render blank).
+    //
+    // 0x609 was the framework's old default — sits exactly 1 past
+    // the bound (0x609 - 0x380 = 0x289). The new allocator scans
+    // for compressed slots that vanilla's boot reload didn't claim
+    // (observed via EquipIdCompression::MarkCompressedSlotUsed), so
+    // we no longer need a hardcoded "first custom" constant. We
+    // keep this minimum=0 since the allocator will skip every slot
+    // vanilla actually populated.
+    constexpr std::int32_t kMinimumCustomEquipId = 0;
 
     RegisterConstantEquipId::Deps g_Deps{};
     bool g_IsBound = false;
@@ -99,24 +114,34 @@ namespace
         return highest;
     }
 
-    std::int32_t ComputeMinimumCustomEquipId(lua_State* L, const int tppEquipIndex)
+    std::int32_t ComputeMinimumCustomEquipId(lua_State* /*L*/, const int /*tppEquipIndex*/)
     {
-        std::int32_t minimumEquipId = kFirstCustomEquipId;
-
-        const int highestEqpValue = FindHighestDeclaredEqpValue(L, tppEquipIndex);
-        if (highestEqpValue >= 0)
-        {
-            const std::int32_t nextAfterHighest = static_cast<std::int32_t>(highestEqpValue + 1);
-            if (nextAfterHighest > minimumEquipId)
-                minimumEquipId = nextAfterHighest;
-        }
-
-        return minimumEquipId;
+        // Old behavior tried to find the highest declared TppEquip.EQP_*
+        // value and start above it. That made sense when the custom
+        // range lived above vanilla equipIds — but the actual constraint
+        // is the COMPRESSED slot bound (0x289), not "above all vanilla
+        // numbers." Vanilla's highest equipId (0x608) compresses to slot
+        // 0x288, the LAST in-bounds slot, so "above 0x608" is by
+        // definition out of bounds.
+        //
+        // Allocator strategy now: scan compressed slots [0, 0x289) for
+        // ones vanilla didn't claim (observed via the AddToEquipIdTable
+        // observer hook) and the session hasn't claimed. The first such
+        // slot's equipId form (== slot index, since compressed == equipId
+        // for equipId < 0x400) is what we return. Returning 0 here means
+        // "no minimum constraint" — the scan starts at 0 and walks up.
+        return kMinimumCustomEquipId;
     }
 
     bool IsCustomEquipIdInSafeRange(const std::int32_t equipId)
     {
-        return equipId >= kFirstCustomEquipId;
+        // "Safe" now means "won't OOB-write the native EquipIdTable
+        // compressed-slot arrays" (and won't be negative). This matches
+        // exactly what the native AddToEquipIdTable can store — vanilla
+        // equipIds in the same compressed range collide if used, but
+        // the allocator gives us slots vanilla is observed NOT to use.
+        return equipId >= 0
+            && EquipIdCompression::IsEquipIdSafeForNativeTable(equipId);
     }
 }
 
@@ -229,10 +254,16 @@ namespace RegisterConstantEquipId
         {
             g_Deps.LuaPop(L, 1);
 
-            Log("[RegisterConstantEquipId] Failed: resolved id 0x%X for '%s' is below custom range start 0x%X\n",
+            Log("[RegisterConstantEquipId] Failed: resolved id 0x%X for '%s' "
+                "is out of bounds for the native AddToEquipIdTable "
+                "(compressed=0x%X, max=0x%X). The framework's allocator "
+                "should have picked an in-bounds free slot — investigate "
+                "V_FrameWorkState's allocator and the AddToEquipIdTable "
+                "observer hook installation order.\n",
                 resolvedEquipId,
                 eqpName.c_str(),
-                kFirstCustomEquipId);
+                EquipIdCompression::ComputeCompressed(resolvedEquipId),
+                EquipIdCompression::kCompressedSlotBound);
 
             g_Deps.PushLuaNumber(L, -1.0f);
             return 1;

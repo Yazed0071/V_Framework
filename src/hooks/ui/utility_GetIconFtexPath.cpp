@@ -68,7 +68,45 @@ static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::
         }
     }
 
-    return g_OrigGetIconFtexPath(outPathId, equipId, mode);
+    // Diagnostic fall-through logging (added 2026-04-27 to debug the
+    // "vanilla weapon icon doesn't show when custom suit equipped"
+    // regression). UI polls this every frame; dedup by (equipId, mode,
+    // resultIsZero) tuple so we only log when the outcome changes.
+    //
+    // What we want to see in the log:
+    //   - When wearing a vanilla suit: equipId=N mode=M -> non-zero path
+    //   - When wearing a custom suit: equipId=N mode=M -> zero path  (THE BUG)
+    // OR
+    //   - When wearing a custom suit: equipId=0 mode=M  (the slot is asking
+    //                                                    for "no weapon")
+    //
+    // Either signal points us at the upstream cause — whether it's the
+    // orig returning null or the caller passing equipId=0 because the
+    // loadout reset.
+    std::int64_t saved = outPathId ? *outPathId : 0;
+    auto* result = g_OrigGetIconFtexPath(outPathId, equipId, mode);
+    const std::int64_t got = (outPathId && result) ? *outPathId : 0;
+
+    static std::uint32_t s_lastEquipId = 0xFFFFFFFFu;
+    static int           s_lastMode    = -1;
+    static bool          s_lastWasZero = false;
+    const bool isZero = (got == 0);
+    if (s_lastEquipId != equipId
+        || s_lastMode != mode
+        || s_lastWasZero != isZero)
+    {
+        Log("[EquipIcon] orig fall-through: equipId=%u mode=%d -> %s "
+            "(path=0x%llX)\n",
+            equipId,
+            mode,
+            isZero ? "ZERO (no icon)" : "OK",
+            static_cast<unsigned long long>(got));
+        s_lastEquipId = equipId;
+        s_lastMode    = mode;
+        s_lastWasZero = isZero;
+    }
+    (void)saved;
+    return result;
 }
 
 // Installs the Equip icon FTEX path hook.

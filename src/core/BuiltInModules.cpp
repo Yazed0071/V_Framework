@@ -16,6 +16,7 @@
 #include "../hooks/outfit/OutfitSupplyDropSetup.h"
 #include "../hooks/outfit/OutfitSuitConditionApply.h"
 #include "../hooks/outfit/OutfitSupplyDropPickup.h"
+#include "../hooks/outfit/OutfitUniformsRow.h"
 
 bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
@@ -728,18 +729,22 @@ namespace
             const bool supply     = outfit::Install_OutfitSupplyDropSetup_Hook();
             const bool suitCond   = outfit::Install_OutfitSuitConditionApply_Hook();
             const bool sdPickup   = outfit::Install_OutfitSupplyDropPickup_Hook();
+            const bool uniRow     = outfit::Install_OutfitUniformsRow_Hook();
 
             // List-inject + ItemSelector together make custom outfits
             // selectable end-to-end (the click → pending-developId →
             // commit-rewrite chain). FV2, head-option gate, supply-
-            // drop short-circuit, suit-condition apply, and supply-
-            // drop pickup force-reload are nice-to-have.
-            (void)fv2; (void)head; (void)supply; (void)suitCond; (void)sdPickup;
+            // drop short-circuit, suit-condition apply, supply-drop
+            // pickup force-reload, and the UNIFORMS-row name override
+            // are nice-to-have polish.
+            (void)fv2; (void)head; (void)supply; (void)suitCond;
+            (void)sdPickup; (void)uniRow;
             return list && sel;
         }
 
         void Uninstall() override
         {
+            outfit::Uninstall_OutfitUniformsRow_Hook();
             outfit::Uninstall_OutfitSupplyDropPickup_Hook();
             outfit::Uninstall_OutfitSuitConditionApply_Hook();
             outfit::Uninstall_OutfitSupplyDropSetup_Hook();

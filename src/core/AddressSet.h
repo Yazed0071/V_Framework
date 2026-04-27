@@ -135,6 +135,16 @@ namespace AddressSetRuntime
         // (which only happens at boot, before our DLL installs).
         uintptr_t EquipIdTableImpl_AddToEquipIdTable = 0;
 
+        // Address of the native EquipIdTableImpl::s_internalInfoList parts-
+        // path array (size 0x289 entries × 0x18 bytes). The hash field at
+        // offset 0 of each entry is non-zero when the slot is populated by
+        // vanilla. The framework's custom-equipId allocator reads this
+        // table directly to find vanilla-free slots — vanilla MGSV's
+        // TppEquipParts.lua runs BEFORE our DLL injects, so observing
+        // AddToEquipIdTable calls misses vanilla's data; reading the
+        // already-populated array is the only reliable way.
+        uintptr_t EquipIdTableImpl_s_internalInfoList = 0;
+
         // ============================================================
         // Player custom-suit subsystem
         // ============================================================
@@ -186,6 +196,98 @@ namespace AddressSetRuntime
         // the exact moment the supply-drop crate "consumes" and inject
         // our custom outfit's bytes for our flowIndex.
         uintptr_t Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo = 0;
+
+        // Wrapper that calls SetSuit then runs loadout-apply pass via
+        // Player2UtilityImpl::vtable[0x218]. For custom partsType (0x40..0x7F)
+        // with the "suit-equip pattern" flags (bit 0 + bit 7, no slot bits
+        // 2/3/4), the apply pass writes zeros to all weapon slots — which
+        // is what makes the SORTIE PREP weapon slots show NONE while
+        // wearing a custom suit. The framework hooks this function and
+        // suppresses the apply pass when it detects that pattern, while
+        // still calling SetSuit directly so the body change happens.
+        // Vanilla weapon clicks reach this function with different flags
+        // (slot bits set) and pass through to orig.
+        uintptr_t Player2UtilityImpl_LoadoutApplyAfterSetSuit = 0;
+
+        // tpp::gm::player::impl::Player2UtilityImpl::SetInitialConditionWithLoadoutInfo
+        // (retail 0x1462C7670). The OTHER SetSuit-caller wrapper besides
+        // FUN_1462C93F0. SetSuit's XREF list shows this function calls
+        // SetSuit at 0x1462C769E (verified mgsvtpp.exe.c:5962899). The
+        // supply-drop equip flow uses THIS function (not FUN_1462C93F0),
+        // which is why the LoadoutApplyAfterSetSuit hook never fires for
+        // supply-drop and the user reported "weapon icons disappear when
+        // wearing custom suit."
+        //
+        // Function signature: void(this, info, char preserve).
+        // Body does:
+        //   1. SetSuit(this, info)                        // body change
+        //   2. for each of 3 weapon slot entries:
+        //        if (slot_keep_bit & info[0xBC]) == 0:    // not in keep mask
+        //            if (preserve == 0):                  // not preserve mode
+        //                CLEAR slot at lVar4+0x520+slot*2 = 0
+        //                CLEAR slot at lVar4+0x548+slot*2 = 0
+        //                SET   flag at lVar4+0x57E+slot   = 1
+        //   3. additional camo/face/etc. writes
+        //   4. notify QuarkSystem[0x130] vtable[0x68](info[0xB9])
+        //
+        // For custom outfit equip:
+        //   info[0xBC] = 0x01 (suit-equip pattern, no slot keep bits)
+        //   preserve = 0 (orig's caller passes 0 for fresh equips)
+        //   → slots get cleared → weapon icons disappear in SORTIE PREP
+        //
+        // Fix: hook this function, detect custom partsType in info[0],
+        // spoof preserve = 1 before calling orig. This skips the slot-
+        // clearing branch (orig keeps existing slot data intact) while
+        // still doing the body change via SetSuit. Vanilla equips with
+        // valid slot data fall through with preserve unchanged.
+        uintptr_t Player2UtilityImpl_SetInitialConditionWithLoadoutInfo = 0;
+
+        // tpp::ui::menu::impl::CharacterSelectorCallbackImpl::ChangeDetailsWindowBuddySelect
+        // (retail 0x14163E5F0). Updates the SORTIE PREP > SELECT CHARACTER >
+        // UNIFORMS row when the user picks a buddy/character. Reads the
+        // current partsType byte from a per-soldier array at
+        // (param_1 + 0x9C70 + index*4), translates it via vtable[0x108]
+        // on a translator object to a 64-bit string hash, writes the
+        // hash to (param_1 + 0xA0D0), then calls Quark vtable[0x1E0]
+        // setter with property hash 0x30A0D543E155 to display the text.
+        //
+        // For custom partsType (0x40..0x7F) the translator returns 0
+        // → UI shows blank. The framework hooks this function and, after
+        // orig runs, overwrites (param_1 + 0xA0D0) with the registered
+        // outfit's `langEquipNameHash` and re-calls Quark's setter so
+        // the UNIFORMS row shows the user's chosen lang-string instead.
+        uintptr_t CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect = 0;
+
+        // tpp::ui::menu::impl::CharacterSelectorCallbackImpl::OpenBuddySelect
+        // (retail 0x14163ECD0). Companion to ChangeDetailsWindowBuddySelect
+        // — fires when the buddy-select panel is INITIALLY opened (vs. the
+        // Change function which fires only when the user moves the cursor
+        // to a different row). Same UNIFORMS-row write path: reads
+        // partsType from (this + 0x9C70 + slot*4) where `slot` is computed
+        // as (this+0xA0 + this+0x9C) % this+0x94, calls vtable[0x108]
+        // translator → buffer at (this + 0xA0D0), then setter
+        // 0x30A0D543E155. Hooked alongside the Change function so the
+        // initial UNIFORMS row text is correct when the panel first opens.
+        uintptr_t CharacterSelectorCallbackImpl_OpenBuddySelect = 0;
+
+        // Deep-hook targets used by OutfitListInject for the SORTIE PREP /
+        // R&D suit list. These functions belong to two list-helper objects
+        // reached via SetupPrefabListElement's `this`:
+        //   - GetDevelopedSuitCount  (vtable[0x230] on this+0x50+0xAC8)
+        //   - FillDevelopedFlowIxs   (vtable[0x240] on this+0x50+0xAC8)
+        //   - GetSuitInfoTable       (vtable[0x718] on this+0x58)
+        //
+        // Originally captured at runtime on the first SetupPrefabListElement
+        // fire (which only happens once the user opens the UNIFORMS menu).
+        // That made R&D listings stale for custom outfits between develop-
+        // completion and the user's first uniforms-menu visit. The function
+        // body addresses are stable across runs (verified in multiple user
+        // logs: 0x140F660C0 / 0x140F65F70 / 0x14024D330), so we hard-code
+        // them here and hook directly at DLL init — R&D updates immediately
+        // when a custom outfit develop finishes.
+        uintptr_t SuitList_GetDevelopedCount    = 0;
+        uintptr_t SuitList_FillDevelopedFlowIxs = 0;
+        uintptr_t SuitList_GetSuitInfoTable     = 0;
         // SupplyCboxSystemImpl::Reset — VERIFIED 2026-04-26 as THE
         // pickup-time trigger. Fires when the box is consumed/cleared
         // post-pickup. Our hook in OutfitSupplyDropPickup consumes the
@@ -233,7 +335,7 @@ namespace AddressSetRuntime
         uintptr_t HeadOptionIndexGetter             = 0;
         uintptr_t SuitCatalog_FindHeadOptionRow     = 0;
         uintptr_t FetchCurrentHeadOptionKey         = 0;
-
+         
         // Mission-prep UI. UpdateLoadMark deprecated (Phase 1 F5).
         // GetSelectionNum unused since Phase 4. IsEnableCurrentHeadOption
         // is the active Phase-3 head-option gate target.
@@ -389,6 +491,7 @@ namespace AddressSetRuntime
             0x14032adf0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
             0x142A711F0ull, // EquipParameterTablesImpl_Instance
             0x140A29730ull, // EquipIdTableImpl_AddToEquipIdTable
+            0x142C20FB0ull, // EquipIdTableImpl_s_internalInfoList (parts-path array, 0x289 entries × 0x18 bytes)
 
             // ========= Player custom-suit subsystem =========
             0x146865F80ull, // LoadPlayerPartsParts
@@ -405,6 +508,13 @@ namespace AddressSetRuntime
             0x1416A7610ull, // SupplyDropSuitSetup
             0x140ACA230ull, // SupplyCboxGameObjectImpl_RestoreRequestFromSVars
             0x1409DEFE0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x1462C93F0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit (FUN_1462c93f0; calls SetSuit + applies slot loadout via vtable[0x218])
+            0x1462C7670ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo (THE actual SetSuit-caller wrapper used by supply-drop; clears weapon slots when info[0xBC] keep-bits clear AND preserve=0)
+            0x14163E5F0ull, // CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect (UNIFORMS-row text+icon refresh on buddy select)
+            0x14163ECD0ull, // CharacterSelectorCallbackImpl_OpenBuddySelect (companion: initial-open path, same partsType→hash translation)
+            0x140F660C0ull, // SuitList_GetDevelopedCount (vtable[0x230] of OutfitListInject's sub50+0xAC8 — runtime-verified stable across runs)
+            0x140F65F70ull, // SuitList_FillDevelopedFlowIxs (vtable[0x240] of same object)
+            0x14024D330ull, // SuitList_GetSuitInfoTable (vtable[0x718] of OutfitListInject's sub58)
             0x1415C5270ull, // SupplyCboxSystemImpl_Reset
             0x1412A2F80ull, // SupplyCboxActionPluginImpl_StateHandler1 (phase-2 handler)
             0x14A49DA70ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
@@ -550,6 +660,7 @@ namespace AddressSetRuntime
             0x0ull, // Fox_Sd_ConvertParameterID
             0x0ull, // EquipParameterTablesImpl_Instance
             0x0ull, // EquipIdTableImpl_AddToEquipIdTable
+            0x0ull, // EquipIdTableImpl_s_internalInfoList
 
             // ========= Player custom-suit subsystem (JPN — unfilled) =========
             0x0ull, // LoadPlayerPartsParts
@@ -566,6 +677,13 @@ namespace AddressSetRuntime
             0x0ull, // SupplyDropSuitSetup
             0x0ull, // SupplyCboxGameObjectImpl_RestoreRequestFromSVars
             0x0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
+            0x0ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
+            0x0ull, // CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect
+            0x0ull, // CharacterSelectorCallbackImpl_OpenBuddySelect
+            0x0ull, // SuitList_GetDevelopedCount
+            0x0ull, // SuitList_FillDevelopedFlowIxs
+            0x0ull, // SuitList_GetSuitInfoTable
             0x0ull, // SupplyCboxSystemImpl_Reset
             0x0ull, // SupplyCboxActionPluginImpl_StateHandler1
             0x0ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo

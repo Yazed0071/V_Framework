@@ -33,6 +33,65 @@ namespace
     static RequestToChangeLoadout_t g_OrigReqLoadout    = nullptr;
     static bool                     g_InstalledReqLoadout = false;
 
+    // Wrapper around SetSuit that ALSO applies the per-slot loadout buffer
+    // to the player via Player2UtilityImpl::vtable[0x218]. Verified at
+    // named-build line 5963287 (FUN_1462c93f0):
+    //   void FUN_1462c93f0(Player2UtilityImpl*, SupplyCboxLoadoutInfo*) {
+    //       SetSuitAndHandConditionWithLoadoutInfo(p1, p2);  // body change
+    //       memset(&local_128, 0, 0xA0);
+    //       /* build 3-slot buffer based on info[0xBC] flag bits 2/3/4 */
+    //       /* zero slot if flag bit not set, else copy info[0x18+] */
+    //       /* ... face apply, 0x54-0xA1 fields apply ... */
+    //       (vtable[0x218])(p1, &local_128);  // APPLY to player
+    //       p1[0x190] |= 8;  // post-flag
+    //       Player2System+0x204 |= 0x80000;  // post-flag
+    //   }
+    //
+    // The slot-clear-when-no-flag is what makes weapon slots show NONE
+    // while wearing custom suits — broken-custom suit equip uses
+    // flags=0x81 (bits 0+7 only, no slot bits) so the apply zeroes
+    // slots. Vanilla weapon clicks use flags with slot bits set so
+    // their click data populates the new weapon.
+    using LoadoutApplyAfterSetSuit_t =
+        void (__fastcall*)(void* self, void* loadoutInfo);
+
+    static LoadoutApplyAfterSetSuit_t g_OrigLoadoutApply    = nullptr;
+    static bool                       g_InstalledLoadoutApply = false;
+
+    // tpp::gm::player::impl::Player2UtilityImpl::SetInitialConditionWithLoadoutInfo
+    // (retail 0x1462C7670). Verified at named-build line 5962858:
+    //   void(this, info, char preserve) {
+    //       SetSuitAndHandConditionWithLoadoutInfo(this, info);  // body change
+    //       // 3-iteration weapon-slot apply loop:
+    //       for each of 3 slots:
+    //           if ((slot_keep_bit & info[0xBC]) == 0) {
+    //               if (preserve == 0) {
+    //                   *(u16*)(quark_live + 0x520 + slot*2) = 0;  // CLEAR
+    //                   *(u16*)(quark_live + 0x548 + slot*2) = 0;
+    //                   *(u8 *)(quark_live + 0x57E + slot)   = 1;
+    //               }
+    //               // else: preserve mode — keep existing slot values
+    //           } else {
+    //               // copy slot data from info to player state
+    //           }
+    //       // additional camo/face/etc. blocks
+    //       if (preserve == 0) Quark[0x130]->vtable[0x68](info[0xB9]);
+    //   }
+    //
+    // For supply-drop custom outfit equip the orig caller passes
+    // preserve=0 with info[0xBC]=0x01 (suit only, no slot keep bits) →
+    // 3 slots cleared → weapon icons disappear in SORTIE PREP.
+    //
+    // Strategy: spoof preserve=1 when we detect a custom partsType in
+    // info[0]. Skipping the slot-clear branch preserves the player's
+    // existing weapon slots intact. Vanilla equips with valid slot data
+    // pass through with preserve unchanged.
+    using SetInitialConditionWithLoadoutInfo_t =
+        void (__fastcall*)(void* self, void* loadoutInfo, std::uint8_t preserve);
+
+    static SetInitialConditionWithLoadoutInfo_t g_OrigSetInitial    = nullptr;
+    static bool                                 g_InstalledSetInitial = false;
+
     // SupplyCboxLoadoutInfo field offsets (verified from
     // SetSuitAndHandConditionWithLoadoutInfo disasm, retail addresses).
     // These differ from the SupplyDropSuitSetup state buffer layout —
@@ -275,6 +334,26 @@ namespace
     static void __fastcall hkSetSuit(void* self, void* info)
     {
         InspectAndRewriteLoadout(info, "SetSuit");
+
+        // No partsType spoofing here. Earlier attempts to spoof partsType
+        // and/or camo to vanilla NORMAL inside this hook regressed body
+        // rendering (orig SetSuit wrote spoofed values to a player-slot
+        // state struct that LoadPartsNew later reads) or hung the load
+        // (orig SetSuit set up state for partsType=0x00 while LoadPartsNew
+        // tried to load custom assets for the rewritten partsType=0x40).
+        //
+        // The actual loadout-clearing happens NOT in SetSuit itself but
+        // in its caller wrapper FUN_1462c93f0 (retail 0x1462C93F0). That
+        // wrapper calls SetSuit and then runs a 3-slot apply pass that
+        // zeroes player weapon-slot data when info[0xBC] flag bits 2/3/4
+        // aren't set. Broken-custom suit equip arrives there with
+        // flags=0x81 (no slot bits) → slots zeroed.
+        //
+        // The fix is `hkLoadoutApplyAfterSetSuit` below: it detects the
+        // suppress-pattern (custom partsType + suit-equip-only flags) at
+        // the FUN_1462c93f0 layer, calls SetSuit directly via this
+        // hook's trampoline (so body change still happens), and skips
+        // the slot-apply pass — preserving the player's loadout.
         g_Orig(self, info);
     }
 
@@ -282,6 +361,192 @@ namespace
     {
         InspectAndRewriteLoadout(info, "ReqLoadout");
         g_OrigReqLoadout(self, info, apply);
+    }
+
+    // Hook for FUN_1462c93f0 — the function that runs SetSuit then applies
+    // a 3-slot loadout buffer to the player based on info[0xBC] flag bits.
+    // For broken-custom suit-equip (flags=0x81 = bit 0 + bit 7, no slot
+    // bits 2/3/4), the apply step zeroes the player's weapon slots →
+    // SORTIE PREP slots show NONE while wearing a custom suit.
+    //
+    // Strategy: detect this exact pattern (custom partsType in info[0],
+    // suit-equip flags lacking slot bits) and bypass orig — instead
+    // call SetSuit directly via its trampoline so the body change still
+    // happens, but skip the slot-apply. The player's existing weapon-
+    // slot loadout is NOT touched, so SORTIE PREP keeps showing the
+    // weapons.
+    //
+    // Other call patterns (vanilla weapon clicks with slot bits set,
+    // full vanilla suit equip with flags=0x1FF) fall through to orig
+    // — those need the apply to populate new weapon data.
+    static void __fastcall hkLoadoutApplyAfterSetSuit(void* self, void* info)
+    {
+        if (!info || !g_OrigLoadoutApply)
+        {
+            if (g_OrigLoadoutApply) g_OrigLoadoutApply(self, info);
+            return;
+        }
+
+        bool shouldSuppressSlotApply = false;
+        std::uint8_t  partsType = 0;
+        std::uint32_t flags     = 0;
+
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(info);
+            partsType = base[kInfoOff_PartsType];
+            flags     = *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags);
+
+            const bool isCustomPartsType =
+                partsType >= outfit::kCustomPartsTypeStart
+             && partsType <= outfit::kCustomPartsTypeEnd;
+
+            // The clearing pattern: custom partsType + flags without
+            // slot bits 2/3/4 (mask 0x1C). info[0x18+] in this pattern
+            // is uninitialized garbage — orig would zero slots in
+            // local_128 and apply that, clearing the player's loadout.
+            //
+            // Vanilla suit equip uses flags=0x1FF (slot bits set + good
+            // info[0x18+]) → orig applies populated slot data correctly,
+            // we let it through.
+            // Vanilla weapon clicks use varying flags but at least one
+            // slot bit set → orig applies the click's weapon, we let
+            // it through.
+            const bool noSlotBits = (flags & 0x1Cu) == 0;
+            const bool hasSuitBit = (flags & 0x01u) != 0;
+
+            if (isCustomPartsType && noSlotBits && hasSuitBit)
+                shouldSuppressSlotApply = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitLoadoutPreserve] SEH reading info — falling through to orig\n");
+            g_OrigLoadoutApply(self, info);
+            return;
+        }
+
+        if (shouldSuppressSlotApply)
+        {
+            Log("[OutfitLoadoutPreserve] SUPPRESSING slot-apply: custom partsType=0x%02X "
+                "flags=0x%X (suit-equip without slot data — orig would zero "
+                "player's weapon slots). Calling SetSuit directly so body "
+                "change happens; player loadout untouched.\n",
+                static_cast<unsigned>(partsType),
+                flags);
+
+            // Call SetSuit directly via the trampoline we already have.
+            // This handles the body change exactly the same way orig
+            // FUN_1462c93f0 would (it calls SetSuit as its first action).
+            // We then skip the slot-apply (vtable[0x218] call) — the
+            // player's loadout stays untouched.
+            if (g_Orig)
+                g_Orig(self, info);
+
+            // Replicate orig's post-flag-set on Player2UtilityImpl so
+            // downstream "loadout changed" listeners (notably the
+            // event handler that fires LoadPartsNew ~400ms later for
+            // body re-render) still see the signal. Without this bit,
+            // LoadPartsNew may not fire and the body wouldn't update
+            // visually after our suppressed-orig path.
+            //
+            // Verified at named-build line 5963470 inside FUN_1462c93f0:
+            //   *(uint *)(param_1 + 0x190) = *(uint *)(param_1 + 0x190) | 8;
+            // (decimal 400 = hex 0x190)
+            //
+            // We do NOT replicate the secondary set on
+            // Player2System+0x204 |= 0x80000 yet — that requires
+            // GetPlayer2System() which we don't currently expose. If
+            // LoadPartsNew doesn't fire visibly, we'll add it.
+            __try
+            {
+                auto* p1 = reinterpret_cast<std::uint8_t*>(self);
+                if (p1)
+                {
+                    *reinterpret_cast<std::uint32_t*>(p1 + 0x190) |= 8u;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitLoadoutPreserve] SEH writing post-bit at p1+0x190\n");
+            }
+
+            return;
+        }
+
+        g_OrigLoadoutApply(self, info);
+    }
+
+    // SetInitialConditionWithLoadoutInfo hook — see AddressSet comment
+    // for full background. The body change happens via the orig calling
+    // SetSuit internally; we only manipulate the `preserve` flag to
+    // suppress the post-SetSuit slot-clearing loop when a custom outfit
+    // is being equipped.
+    static void __fastcall hkSetInitialConditionWithLoadoutInfo(
+        void* self, void* info, std::uint8_t preserve)
+    {
+        if (!info || !g_OrigSetInitial)
+        {
+            if (g_OrigSetInitial) g_OrigSetInitial(self, info, preserve);
+            return;
+        }
+
+        std::uint8_t  partsType    = 0;
+        std::uint8_t  camoType     = 0;
+        std::uint32_t flags        = 0;
+        bool          isCustomOutfitEquip = false;
+
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(info);
+            partsType  = base[kInfoOff_PartsType];
+            camoType   = base[kInfoOff_CamoType];
+            flags      = *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags);
+
+            // Detect custom outfit equip: either the partsType is in the
+            // custom range, or (broken-custom transient) the camo is in
+            // the custom selector range. Either way, the orig's slot-
+            // clearing branch would zero out the player's loadout — we
+            // want to preserve it.
+            const bool customPT =
+                partsType >= outfit::kCustomPartsTypeStart
+             && partsType <= outfit::kCustomPartsTypeEnd;
+            const bool customSel =
+                camoType >= outfit::kCustomSelectorStart
+             && camoType <= outfit::kCustomSelectorEnd;
+
+            // Also catch the broken-custom signal (partsType=0, camo=0xFF).
+            // InspectAndRewriteLoadout typically rewrites this to a real
+            // partsType earlier in the pipeline, but if we reach here
+            // before that rewrite happens we want to be safe.
+            const bool brokenCustom = (partsType == 0x00 && camoType == 0xFF);
+
+            isCustomOutfitEquip = customPT || customSel || brokenCustom;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitSuitConditionApply:SetInitial] SEH reading info — "
+                "passing through to orig untouched\n");
+            g_OrigSetInitial(self, info, preserve);
+            return;
+        }
+
+        if (isCustomOutfitEquip && preserve == 0)
+        {
+            Log("[OutfitSuitConditionApply:SetInitial] custom-outfit equip "
+                "detected (partsType=0x%02X camo=0x%02X flags=0x%X) — "
+                "spoofing preserve=1 to suppress slot-clear and keep "
+                "the player's weapon-slot loadout intact\n",
+                static_cast<unsigned>(partsType),
+                static_cast<unsigned>(camoType),
+                flags);
+
+            g_OrigSetInitial(self, info, 1);
+            return;
+        }
+
+        // Vanilla equip OR caller already requested preserve mode — pass
+        // through with no modification.
+        g_OrigSetInitial(self, info, preserve);
     }
 }
 
@@ -327,7 +592,50 @@ namespace outfit
             }
         }
 
-        return g_Installed || g_InstalledReqLoadout;
+        if (!g_InstalledLoadoutApply)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.Player2UtilityImpl_LoadoutApplyAfterSetSuit);
+            if (target)
+            {
+                g_InstalledLoadoutApply = CreateAndEnableHook(
+                    target,
+                    reinterpret_cast<void*>(&hkLoadoutApplyAfterSetSuit),
+                    reinterpret_cast<void**>(&g_OrigLoadoutApply));
+                Log("[OutfitSuitConditionApply] LoadoutApplyAfterSetSuit "
+                    "installed: %s (target=%p)\n",
+                    g_InstalledLoadoutApply ? "OK" : "FAIL", target);
+            }
+            else
+            {
+                Log("[OutfitSuitConditionApply] LoadoutApplyAfterSetSuit "
+                    "target unresolved\n");
+            }
+        }
+
+        if (!g_InstalledSetInitial)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.Player2UtilityImpl_SetInitialConditionWithLoadoutInfo);
+            if (target)
+            {
+                g_InstalledSetInitial = CreateAndEnableHook(
+                    target,
+                    reinterpret_cast<void*>(&hkSetInitialConditionWithLoadoutInfo),
+                    reinterpret_cast<void**>(&g_OrigSetInitial));
+                Log("[OutfitSuitConditionApply] SetInitialConditionWithLoadoutInfo "
+                    "installed: %s (target=%p)\n",
+                    g_InstalledSetInitial ? "OK" : "FAIL", target);
+            }
+            else
+            {
+                Log("[OutfitSuitConditionApply] SetInitialConditionWithLoadoutInfo "
+                    "target unresolved\n");
+            }
+        }
+
+        return g_Installed || g_InstalledReqLoadout
+            || g_InstalledLoadoutApply || g_InstalledSetInitial;
     }
 
     void Uninstall_OutfitSuitConditionApply_Hook()
@@ -347,6 +655,22 @@ namespace outfit
                 DisableAndRemoveHook(t);
             g_OrigReqLoadout      = nullptr;
             g_InstalledReqLoadout = false;
+        }
+        if (g_InstalledLoadoutApply)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.Player2UtilityImpl_LoadoutApplyAfterSetSuit))
+                DisableAndRemoveHook(t);
+            g_OrigLoadoutApply      = nullptr;
+            g_InstalledLoadoutApply = false;
+        }
+        if (g_InstalledSetInitial)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.Player2UtilityImpl_SetInitialConditionWithLoadoutInfo))
+                DisableAndRemoveHook(t);
+            g_OrigSetInitial      = nullptr;
+            g_InstalledSetInitial = false;
         }
         Log("[OutfitSuitConditionApply] removed\n");
     }

@@ -32,7 +32,7 @@ namespace
     // Effective custom drain per update = deltaScale * g_NormalizedDrainRate
     static float g_NormalizedDrainRate = 0.0f;
 
-    static bool g_EnableOverride = true;
+    static bool g_EnableOverride = false;
     static bool g_LogEveryAppliedDrain = false;
 
     // Last observed snapshot from the hook.
@@ -73,8 +73,6 @@ namespace
         Log("%s", finalMessage);
     }
 
-    // Converts desired seconds into normalized drain.
-    // Params: seconds (float)
     static float DurationSecondsToNormalizedDrain(float seconds)
     {
         if (seconds <= 0.0f)
@@ -83,8 +81,6 @@ namespace
         return 1.0f / seconds;
     }
 
-    // Syncs the normalized drain rate from the configured duration in seconds.
-    // Params: none
     static void SyncCautionStepNormalDrainFromDuration()
     {
         if (g_DurationSeconds <= 0.0f)
@@ -93,8 +89,6 @@ namespace
         g_NormalizedDrainRate = DurationSecondsToNormalizedDrain(g_DurationSeconds);
     }
 
-    // Returns the caution manager pointer from CautionAiImpl.
-    // Params: self (void*)
     static std::uintptr_t* GetCautionManager(void* self)
     {
         if (!self)
@@ -105,8 +99,6 @@ namespace
             );
     }
 
-    // Returns the caution delta/time-scale value used by the game.
-    // Params: self (void*)
     static float GetCautionDeltaScale(void* self)
     {
         std::uintptr_t* manager = GetCautionManager(self);
@@ -118,8 +110,6 @@ namespace
             );
     }
 
-    // Returns the vanilla phase rate from the phase config table.
-    // Params: self (void*), phaseIndex (uint32_t)
     static float GetVanillaPhaseRate(void* self, std::uint32_t phaseIndex)
     {
         std::uintptr_t* manager = GetCautionManager(self);
