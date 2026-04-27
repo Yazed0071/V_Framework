@@ -17,11 +17,21 @@ namespace
     using GetEquipIdFromLoadoutInfo_t =
         std::uint64_t (__fastcall*)(void* self, std::uint32_t slot);
 
+    // tpp::mbm::impl::EquipDevelopControllerImpl::IsEquipSuit
+    // (retail 0x140F6D7A0). Vanilla signature:
+    //   bool IsEquipSuit(this, PlayerType pt, ushort flowIndex)
+    // RCX=this, EDX=PT (passed as int but MOVZX-truncated to byte by
+    // orig at 0x140F6D7A4-prologue), R8W=flowIndex.
+    using IsEquipSuit_t =
+        std::uint8_t (__fastcall*)(void* self, std::uint32_t pt, std::uint32_t flowIndex);
+
     static IsEquipDeveloped_t          g_OrigIsEquipDeveloped         = nullptr;
     static GetEquipIdFromLoadoutInfo_t g_OrigGetEquipIdFromLoadoutInfo = nullptr;
+    static IsEquipSuit_t               g_OrigIsEquipSuit              = nullptr;
 
     static bool g_InstalledIsDeveloped = false;
     static bool g_InstalledGetEquipId  = false;
+    static bool g_InstalledIsEquipSuit = false;
 
     static void* g_CachedEDC = nullptr;
 
@@ -105,6 +115,52 @@ namespace
 
         return static_cast<std::uint64_t>(entry->flowIndex);
     }
+
+    // hkIsEquipSuit — gates the dev-menu / supply-drop "Request" button
+    // for suits. The vanilla orig:
+    //   1. translates flowIndex → camo via vtable[0x608]
+    //   2. tail-calls vtable[0x620] (IsEquipSuitWithCamoType) which
+    //      walks `g_suitInterdiction` checking PT bits per camo
+    // For our custom flowIndices (922-924) the camo translator returns
+    // 0/garbage and the iterator falls through to the default
+    // return-true → custom outfits are requestable for ANY playerType,
+    // which doesn't match vanilla's "wrong-PT outfits can't be
+    // requested" behavior.
+    //
+    // Strategy: pre-orig, look up our outfit by flowIndex. If matched,
+    // return 1 ONLY when the requesting `pt` argument equals the
+    // outfit's registered playerType, else return 0. For non-custom
+    // flowIndices we fall through to orig so vanilla suits keep their
+    // vanilla PT/camo restrictions intact.
+    //
+    // Note: this is independent of `hkIsEquipDeveloped` (which is the
+    // visibility gate). The outfit still appears in the dev-menu list
+    // as developed; this hook only blocks the REQUEST action when the
+    // current/asked PT doesn't match. That mirrors vanilla: Female-
+    // only outfits show in the dev menu but can't be requested while
+    // playing as Snake.
+    static std::uint8_t __fastcall hkIsEquipSuit(
+        void* self, std::uint32_t pt, std::uint32_t flowIndex)
+    {
+        const outfit::OutfitEntry* entry = nullptr;
+        if (outfit::TryGetOutfitByFlowIndex(
+                static_cast<std::uint16_t>(flowIndex), &entry)
+            && entry)
+        {
+            // Custom outfit — apply our own PT match check. The pt
+            // argument is the requesting/asking playerType (the UI
+            // passes whichever character the user is currently
+            // selected as / playing as).
+            const std::uint8_t askPT = static_cast<std::uint8_t>(pt & 0xFFu);
+            const bool match = (askPT == entry->playerType);
+            return match ? std::uint8_t{1} : std::uint8_t{0};
+        }
+
+        // Vanilla flowIndex — let orig do its g_suitInterdiction
+        // lookup with vanilla's own PT/camo rules.
+        if (g_OrigIsEquipSuit) return g_OrigIsEquipSuit(self, pt, flowIndex);
+        return 1;  // defensive: if orig somehow null, allow (fail-open)
+    }
 }
 
 namespace outfit
@@ -113,6 +169,7 @@ namespace outfit
     {
         void* tDeveloped = ResolveGameAddress(gAddr.IsEquipDeveloped);
         void* tGetEquip  = ResolveGameAddress(gAddr.GetEquipIdFromLoadoutInfo);
+        void* tIsSuit    = ResolveGameAddress(gAddr.IsEquipSuit);
 
         if (tDeveloped)
         {
@@ -130,9 +187,19 @@ namespace outfit
                 reinterpret_cast<void**>(&g_OrigGetEquipIdFromLoadoutInfo));
         }
 
-        Log("[OutfitEquippedState] installed: isDeveloped=%s getEquipId=%s\n",
+        if (tIsSuit)
+        {
+            g_InstalledIsEquipSuit = CreateAndEnableHook(
+                tIsSuit,
+                reinterpret_cast<void*>(&hkIsEquipSuit),
+                reinterpret_cast<void**>(&g_OrigIsEquipSuit));
+        }
+
+        Log("[OutfitEquippedState] installed: isDeveloped=%s getEquipId=%s "
+            "isEquipSuit=%s\n",
             g_InstalledIsDeveloped ? "OK" : "skip",
-            g_InstalledGetEquipId  ? "OK" : "skip");
+            g_InstalledGetEquipId  ? "OK" : "skip",
+            g_InstalledIsEquipSuit ? "OK" : "skip");
 
         return g_InstalledIsDeveloped && g_InstalledGetEquipId;
     }
@@ -143,11 +210,14 @@ namespace outfit
             DisableAndRemoveHook(ResolveGameAddress(gAddr.IsEquipDeveloped));
         if (g_InstalledGetEquipId)
             DisableAndRemoveHook(ResolveGameAddress(gAddr.GetEquipIdFromLoadoutInfo));
+        if (g_InstalledIsEquipSuit)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.IsEquipSuit));
 
         g_OrigIsEquipDeveloped         = nullptr;
         g_OrigGetEquipIdFromLoadoutInfo = nullptr;
+        g_OrigIsEquipSuit              = nullptr;
         g_CachedEDC                    = nullptr;
-        g_InstalledIsDeveloped = g_InstalledGetEquipId = false;
+        g_InstalledIsDeveloped = g_InstalledGetEquipId = g_InstalledIsEquipSuit = false;
 
         Log("[OutfitEquippedState] removed\n");
     }
