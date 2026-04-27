@@ -22,4 +22,12 @@ namespace outfit
     // walk EDC's row table without a Quark chain walk. Returns null
     // until the game has fired at least one IsEquipDeveloped call.
     void* GetCachedEquipDevelopController();
+
+    // Calls the orig IsEquipDeveloped via the cached EDC pointer.
+    // Returns true if the bit is set for this flowIndex. Returns
+    // false if either the EDC isn't cached yet or the orig hook
+    // isn't installed. Used by panel-build injection to gate which
+    // registered outfits appear: undeveloped (bit=0) outfits are
+    // skipped so the player only sees what they've researched.
+    bool IsFlowIndexDevelopedByOrig(unsigned short flowIndex);
 }

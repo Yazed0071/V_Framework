@@ -58,18 +58,40 @@ namespace
             const std::uint8_t live = outfit::ReadLivePlayerType();
             if (live != 0xFF && entry->playerType != live) return 0;
 
-            // For matching playerType — ALWAYS report developed.
-            // Originally we fell through to the vanilla bit-array
-            // (respecting R&D state controlled by
-            // `develop.flow.initialAvailable`), but this broke supply-
-            // drop equip: post-pickup the game checks IsEquipDeveloped
-            // and rolls back to the previous vanilla suit if false.
-            // Reporting true unconditionally for registered outfits
-            // matches the modder intent — if the outfit is registered,
-            // it should be wearable. R&D gating for custom outfits
-            // can be reintroduced later via an explicit Lua flag if
-            // anyone needs it.
-            return 1;
+            // Respect the orig R&D bit-array (REVERTED 2026-04-27 from
+            // "always return 1"). Modder controls visibility via
+            // `develop.flow.initialAvailable` and player R&D research:
+            //   - initialAvailable=1: bit set at register-time, outfit
+            //     always available.
+            //   - initialAvailable=0: bit set only after the player
+            //     researches the outfit in MotherBase R&D, mirroring
+            //     vanilla equip flow.
+            // The previous "always 1" override hid this gate — it made
+            // every registered outfit appear in the UNIFORMS panel
+            // immediately, regardless of whether the player had
+            // developed it. User report 2026-04-27: registering a
+            // second outfit (FROGS) with initialAvailable=0 still
+            // showed it in the panel; selecting it loaded a different
+            // outfit because of cell/display mismatch fallout from
+            // the orig walker handling an undeveloped flowIndex it
+            // shouldn't have seen at all.
+            //
+            // Falling through to orig: if the user's R&D state has the
+            // bit set, returns 1 (panel shows). Otherwise returns 0
+            // (panel hides). The orig vtable[0x230]/[0x240] use the
+            // same bit-array, so panel construction naturally excludes
+            // undeveloped outfits — no synthetic injection needed for
+            // them, and none of the variant-fold or row-collision
+            // pathologies kick in.
+            //
+            // Supply-drop concern (post-pickup IsEquipDeveloped roll-
+            // back) — historically cited as the reason for the always-1
+            // override — only manifests if the player can drop an
+            // un-researched outfit. Vanilla R&D semantics require
+            // research first; with this revert the player must research
+            // the outfit before it appears in the supply-drop catalog,
+            // which means the post-pickup check naturally returns 1
+            // (researched → bit set). No rollback.
         }
 
         return g_OrigIsEquipDeveloped(self, flowIndex);
@@ -149,5 +171,14 @@ namespace outfit
     void* GetCachedEquipDevelopController()
     {
         return g_CachedEDC;
+    }
+
+    bool IsFlowIndexDevelopedByOrig(unsigned short flowIndex)
+    {
+        if (!g_CachedEDC || !g_OrigIsEquipDeveloped) return false;
+        // EDC bit-array is sized for flowIndex < 0x400. Anything
+        // above that would OOB the orig's own bit lookup.
+        if (flowIndex >= 0x400) return false;
+        return g_OrigIsEquipDeveloped(g_CachedEDC, flowIndex) != 0;
     }
 }

@@ -2,6 +2,7 @@
 
 #include "OutfitListInject.h"
 #include "OutfitRegistry.h"
+#include "OutfitEquippedState.h"
 
 #include <array>
 #include <atomic>
@@ -93,6 +94,26 @@ namespace
     // was already added in this scope. Second invocation for the same
     // flowIndex returns immediately without calling orig — counter
     // doesn't advance, no cell write, no duplicate.
+    //
+    // -------------------------------------------------------------------
+    //  REVERTED 2026-04-27 — vtable[0x1A0] hook removed
+    // -------------------------------------------------------------------
+    // I previously hooked vtable[0x1A0] to return 0x400 for our custom
+    // flowIndices, hoping to suppress AddListWeapon's fold path. It did
+    // NOT fix the FROGS-loads-Jill issue and INTRODUCED a regression:
+    // by giving our outfits clean cell rows, the hook created valid
+    // fold targets for OTHER custom-developId equips (like a custom AK-12
+    // assault rifle the user had registered via AddToEquipDevelopTable).
+    // AK-12's vtable[0x1A0] OOB-read garbage happened to point at our
+    // outfit's flowIndex; AddListWeaponRevised then folded AK-12 as a
+    // variant slot of the outfit's row, making AK-12 appear in the
+    // UNIFORMS panel under one of the suits with mismatched display data.
+    //
+    // The actual "FROGS UI loaded Jill" issue is a display/cell
+    // mismatch caused by the orig sorting entries ascending by flowIndex
+    // for the visible row layout while our walker writes cells in a
+    // different order. That needs a different fix (sort our injection
+    // ascending) rather than vtable[0x1A0] meddling.
     // ===================================================================
 
     using SetupPrefabListElement_t = void  (__fastcall*)(void* thisPtr);
@@ -160,9 +181,9 @@ namespace
     static constexpr int    kMaxInstallAttempts = 16;
 
     // Vtable indices (offsets in bytes / 8).
-    constexpr std::size_t kVtblIx_GetCount   = 0x230 / sizeof(void*);
-    constexpr std::size_t kVtblIx_Fill       = 0x240 / sizeof(void*);
-    constexpr std::size_t kVtblIx_GetTable   = 0x718 / sizeof(void*);
+    constexpr std::size_t kVtblIx_GetCount = 0x230 / sizeof(void*);
+    constexpr std::size_t kVtblIx_Fill     = 0x240 / sizeof(void*);
+    constexpr std::size_t kVtblIx_GetTable = 0x718 / sizeof(void*);
 
     // Per-flowIndex entry size in the suit-info table. Verified from
     // the orig walker: `table[flowIndex*0x68 + 0x36] == 0x14`.
@@ -181,6 +202,25 @@ namespace
     alignas(16) static std::uint8_t g_ExtendedTable[kProxyTableBytes] = {};
     static std::atomic_bool g_TableInitialized{false};
 
+    // Helper: should this outfit be injected into the panel right now?
+    // - playerType must match live character.
+    // - flowIndex must be in the proxy-table range.
+    // - **MUST be developed in the orig R&D bit-array.** Undeveloped
+    //   outfits are hidden from panels until the player researches
+    //   them in MotherBase R&D, mirroring vanilla equip flow. (Added
+    //   2026-04-27 — previously injected unconditionally, which made
+    //   undeveloped outfits appear and triggered downstream variant-
+    //   fold pathologies when their sparse table entries collided
+    //   with other custom developIds.)
+    static bool ShouldInjectOutfit(const outfit::OutfitEntry* e, std::uint8_t livePT)
+    {
+        if (!e) return false;
+        if (e->playerType != livePT) return false;
+        if (e->flowIndex == 0 || e->flowIndex >= kProxyTableEntries) return false;
+        if (!outfit::IsFlowIndexDevelopedByOrig(e->flowIndex)) return false;
+        return true;
+    }
+
     // Helper: count outfits we'll inject for the current live playerType.
     static std::uint16_t CountInjectionsForLivePT()
     {
@@ -191,11 +231,8 @@ namespace
         std::uint16_t count = 0;
         for (std::size_t i = 0; i < n; ++i)
         {
-            if (!entries[i]) continue;
-            if (entries[i]->playerType != pt) continue;
-            if (entries[i]->flowIndex == 0
-             || entries[i]->flowIndex >= kProxyTableEntries) continue;
-            ++count;
+            if (ShouldInjectOutfit(entries[i], pt))
+                ++count;
         }
         return count;
     }
@@ -276,10 +313,7 @@ namespace
         std::uint16_t writeIdx = origCount;
         for (std::size_t i = 0; i < n && writeIdx < count; ++i)
         {
-            if (!entries[i]) continue;
-            if (entries[i]->playerType != pt) continue;
-            if (entries[i]->flowIndex == 0
-             || entries[i]->flowIndex >= kProxyTableEntries) continue;
+            if (!ShouldInjectOutfit(entries[i], pt)) continue;
             outArr[writeIdx++] = entries[i]->flowIndex;
         }
     }
@@ -495,8 +529,8 @@ namespace
             return false;
         }
 
-        g_GetCountFunc = getCount;
-        g_FillFunc     = fill;
+        g_GetCountFunc        = getCount;
+        g_FillFunc            = fill;
         g_GetTableFunc = getTable;
         g_DeepHooksOK.store(true, std::memory_order_release);
         return true;
