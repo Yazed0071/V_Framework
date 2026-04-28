@@ -1689,9 +1689,35 @@ namespace
                     v.diamondFpk      = ReadSubAssetField(L, -1, "diamondFpk",
                                             outfit::kSubAssetDisabled);
 
-                    int displayId = 0;
-                    if (TryReadTableIntField(L, -1, "displayNameId", displayId))
-                        v.displayNameId = static_cast<std::uint16_t>(displayId & 0xFFFF);
+                    // Variant cycle-button label: support either
+                    // `displayName = "lang_id_string"` (we compute the
+                    // StrCode64 hash) OR `displayNameHash = 0x...`
+                    // (precomputed, e.g. for non-LangId-string sources).
+                    // String form takes precedence if both supplied.
+                    LuaGetField(L, -1, "displayName");
+                    if (LuaType(L, -1) == LUA_TSTRING)
+                    {
+                        if (const char* s = GetLuaString(L, -1); s && *s)
+                            v.displayNameHash = FoxHashes::StrCode64(s);
+                    }
+                    LuaPop(L, 1);
+
+                    if (v.displayNameHash == 0)
+                    {
+                        LuaGetField(L, -1, "displayNameHash");
+                        const int t = LuaType(L, -1);
+                        if (t == LUA_TNUMBER)
+                        {
+                            // Lua numbers are doubles — full 64-bit
+                            // hashes with the top bit set won't fit
+                            // exactly, but typical LangId hashes have
+                            // small upper words (fewer than 53 bits)
+                            // so a double round-trip is fine.
+                            v.displayNameHash =
+                                static_cast<std::uint64_t>(GetLuaInt(L, -1));
+                        }
+                        LuaPop(L, 1);
+                    }
 
                     // Lua entry i (1-based) → variants[i]; matches the
                     // runtime getter convention where idx 0 = base and
@@ -1907,6 +1933,31 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
             && langEquipName && langEquipName[0] != '\0')
         {
             def.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
+        }
+    }
+
+    // Top-level cycle-button label for variant 0 (the BASE appearance).
+    // Counterpart to per-variant `displayName` inside the `variants`
+    // array. Same string-or-precomputed-hash forms as variant entries.
+    // Without this, the cycle button for variant 0 falls back to
+    // whatever orig writes from the cell type field (typically blank
+    // or one of vanilla's STANDARD/SCARF/NAKED hardcoded labels).
+    {
+        const char* baseDisplayName = nullptr;
+        if (TryReadTableStringField(L, 1, "displayName", baseDisplayName)
+            && baseDisplayName && baseDisplayName[0] != '\0')
+        {
+            def.baseDisplayNameHash = FoxHashes::StrCode64(baseDisplayName);
+        }
+        else
+        {
+            int displayHashRaw = 0;
+            if (TryReadTableIntField(L, 1, "displayNameHash", displayHashRaw)
+                && displayHashRaw != 0)
+            {
+                def.baseDisplayNameHash =
+                    static_cast<std::uint64_t>(displayHashRaw);
+            }
         }
     }
 

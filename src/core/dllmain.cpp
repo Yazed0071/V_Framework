@@ -98,7 +98,34 @@ static DWORD WINAPI InitThread(LPVOID)
 static void UninstallAll(bool processTerminating)
 {
     if (processTerminating)
+    {
+        // Process is exiting (Windows DLL_PROCESS_DETACH with
+        // lpReserved != nullptr). Per MSDN guidance we MUST NOT call
+        // into other DLLs here — MinHook trampolines, FeatureModule
+        // uninstalls, and even file I/O may touch DLLs that have
+        // already been unloaded by the loader. Skipping the heavy
+        // uninstall is the safe path; the OS cleans up the address
+        // space anyway when the process terminates.
+        //
+        // What we DO want to do safely: log a marker so it's clear
+        // why the per-hook "uninstall" lines are absent, flush log
+        // buffers so the in-progress line lands on disk, and free
+        // our AllocConsole handle so conhost.exe (the console host
+        // process) terminates with us instead of lingering. Without
+        // FreeConsole, conhost can keep the console window alive
+        // for a beat after the game exits — user-visible as "the
+        // console never closes."
+        Log("[DLL] DLL_PROCESS_DETACH: process terminating, skipping "
+            "FeatureModule uninstall (per MSDN guidance — other DLLs "
+            "may already be unloaded). OS will reclaim address space.\n");
+        fflush(stdout);
+        fflush(stderr);
+        CloseLog();
+
+        if (gConsoleReady.load())
+            FreeConsole();
         return;
+    }
 
     FeatureModuleRegistry::Instance().UninstallAll();
     EquipIdTableAdd::Uninstall_StockAddToEquipIdTable_Observer();
@@ -109,6 +136,9 @@ static void UninstallAll(bool processTerminating)
     fflush(stderr);
 
     CloseLog();
+
+    if (gConsoleReady.load())
+        FreeConsole();
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)

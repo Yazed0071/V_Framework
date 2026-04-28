@@ -413,6 +413,18 @@ namespace AddressSetRuntime
         // (verified mgsvtpp.exe_Addresses.txt:15790389).
         uintptr_t ItemSelectorCallbackImpl_SetupPrefabListElement = 0;
 
+        // tpp::ui::menu::impl::ItemSelectorRecordCallFunc::UpdateRecords
+        // (retail 0x1416AF270, mgsvtpp.exe.c:2958850).
+        // Refreshes the visible UI elements of the currently-focused
+        // suit row in UNIFORMS — including the variant cycle-button
+        // label. Vanilla reads the cell type field (+0xCC44 of the
+        // 12-byte cell at +0xCC40+(row*15+var)*12) and maps three
+        // hardcoded values (0/1/7) to LangId hashes for STANDARD /
+        // SCARF / NAKED. Hooked to override the label with our outfit's
+        // per-variant displayName hash post-orig (custom variant text
+        // in the cycle button without breaking vanilla labels).
+        uintptr_t ItemSelectorRecordCallFunc_UpdateRecords = 0;
+
         // Phase-3 FV2 (face variant 2) loaders.
         uintptr_t LoadPlayerCamoFv2                = 0;  // 0x146863F80
         uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;  // 0x146864C80
@@ -673,6 +685,7 @@ namespace AddressSetRuntime
             // — every dependent hook landed on the wrong function.
             0x1416A7A30ull, // ItemSelectorCallbackImpl_SetInDecideOpen
             0x1416A9B80ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x1416AF270ull, // ItemSelectorRecordCallFunc_UpdateRecords (variant cycle-button label resolver)
             0x146863F80ull, // LoadPlayerCamoFv2
             0x146864C80ull, // LoadPlayerSnakeBlackDiamondFv2
             0x140955C70ull, // GetCurrentSuitFlowIndex
@@ -841,6 +854,7 @@ namespace AddressSetRuntime
             // (mirror of EN array fix).
             0x0ull, // ItemSelectorCallbackImpl_SetInDecideOpen
             0x0ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x0ull, // ItemSelectorRecordCallFunc_UpdateRecords (JP unknown; hook silently no-ops if unresolved)
             0x0ull, // LoadPlayerCamoFv2
             0x0ull, // LoadPlayerSnakeBlackDiamondFv2
             0x0ull, // GetCurrentSuitFlowIndex

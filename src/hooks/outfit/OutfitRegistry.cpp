@@ -3,6 +3,7 @@
 #include "OutfitRegistry.h"
 
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 
@@ -92,27 +93,46 @@ namespace
         return 0xFF;
     }
 
+    // Returns true if `code` is currently held by ANY registered outfit
+    // — either as the base selectorCode OR as one of the per-variant
+    // cycle-button selectors. Both must be checked when allocating new
+    // selectors; otherwise an outfit with N variants (which claims N+1
+    // contiguous-by-availability codes from the pool) would have its
+    // variant-slot codes silently stolen by a later outfit's base
+    // allocation, producing collision-driven mis-routing in the click
+    // handler (ItemSelectorCallbackImpl::TryReadSelection reads the cell
+    // selector and TryGetOutfitBySelectorCode resolves to whichever
+    // entry was registered first that owns the code — wrong outfit
+    // gets equipped).
+    static bool IsSelectorTaken_NoLock(std::uint8_t code)
+    {
+        for (const auto& e : g_Entries)
+        {
+            if (!e.used) continue;
+            if (e.selectorCode == code) return true;
+            // Slot 0 is always == selectorCode, already covered above.
+            // Check explicit variant slots 1..variantCount-1 too — those
+            // are the additional codes this outfit reserved for cycle.
+            for (std::uint8_t k = 1; k < e.variantCount; ++k)
+            {
+                if (e.variantSelectorCodes[k] == code) return true;
+            }
+        }
+        return false;
+    }
+
     static std::uint8_t AllocateSelector_NoLock(std::uint8_t hint)
     {
         if (IsCustomSelector(hint))
         {
-            for (const auto& e : g_Entries)
-            {
-                if (e.used && e.selectorCode == hint)
-                    return 0xFF;
-            }
+            if (IsSelectorTaken_NoLock(hint)) return 0xFF;
             return hint;
         }
 
         for (std::uint16_t v = kCustomSelectorStart; v <= kCustomSelectorEnd; ++v)
         {
             const auto candidate = static_cast<std::uint8_t>(v);
-            bool taken = false;
-            for (const auto& e : g_Entries)
-            {
-                if (e.used && e.selectorCode == candidate) { taken = true; break; }
-            }
-            if (!taken) return candidate;
+            if (!IsSelectorTaken_NoLock(candidate)) return candidate;
         }
         return 0xFF;
     }
@@ -279,32 +299,13 @@ namespace outfit
                  cand <= kCustomSelectorEnd; ++cand)
             {
                 const auto c = static_cast<std::uint8_t>(cand);
+                if (IsSelectorTaken_NoLock(c)) continue;
+                // Exclude codes we just allocated to earlier siblings
+                // of this same outfit's variants (variantSelectors[0..vi-1]).
                 bool taken = false;
-                for (const auto& e : g_Entries)
+                for (std::uint8_t k = 0; k < vi; ++k)
                 {
-                    if (e.used && e.selectorCode == c) { taken = true; break; }
-                    // Also check variant selectors of all entries.
-                    if (e.used)
-                    {
-                        for (std::uint8_t k = 0; k < e.variantCount; ++k)
-                        {
-                            if (e.variantSelectorCodes[k] == c)
-                            {
-                                taken = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (taken) break;
-                }
-                // Also exclude codes we just allocated to siblings of
-                // this same outfit's variants (variantSelectors[0..vi-1]).
-                if (!taken)
-                {
-                    for (std::uint8_t k = 0; k < vi; ++k)
-                    {
-                        if (variantSelectors[k] == c) { taken = true; break; }
-                    }
+                    if (variantSelectors[k] == c) { taken = true; break; }
                 }
                 if (!taken) { alloc = c; break; }
             }
@@ -372,17 +373,71 @@ namespace outfit
         for (std::size_t i = 0; i < outfit::kMaxVariantsPerOutfit; ++i)
             slot->variantSelectorCodes[i] = variantSelectors[i];
 
+        // Variant 0 = base outfit (uses OutfitDefinition::baseDisplayNameHash).
+        // Variants 1..variantCount-1 = OutfitVariant::displayNameHash.
+        // Slots beyond variantCount stay at 0 (no override).
+        slot->variantDisplayNameHashes[0] = def.baseDisplayNameHash;
+        for (std::uint8_t vi = 1; vi < slot->variantCount; ++vi)
+        {
+            slot->variantDisplayNameHashes[vi] = def.variants[vi].displayNameHash;
+        }
+
         slot->enableHead           = def.enableHead;
         slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
         slot->langEquipNameHash    = def.langEquipNameHash;
 
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
 
+        // Build the variant-selector list as a single string so the
+        // log is independent of kMaxVariantsPerOutfit's value.
+        char variantBuf[16 * 5 + 1] = {};
+        {
+            std::size_t pos = 0;
+            for (std::size_t i = 0;
+                 i < outfit::kMaxVariantsPerOutfit && pos + 5 < sizeof(variantBuf);
+                 ++i)
+            {
+                pos += static_cast<std::size_t>(std::snprintf(
+                    variantBuf + pos, sizeof(variantBuf) - pos,
+                    (i == 0) ? "0x%02X" : ",0x%02X",
+                    static_cast<unsigned>(slot->variantSelectorCodes[i])));
+            }
+        }
+
+        // Same idea for the per-variant displayName hashes — show
+        // 16-bit-hi-half + 16-bit-mid-half so we don't bloat the log
+        // with full 64-bit values for every slot. Empty slot is shown
+        // as ".." so the column count matches selector count.
+        char dispNameBuf[16 * 12 + 1] = {};
+        {
+            std::size_t pos = 0;
+            for (std::size_t i = 0;
+                 i < outfit::kMaxVariantsPerOutfit && pos + 12 < sizeof(dispNameBuf);
+                 ++i)
+            {
+                const std::uint64_t h = slot->variantDisplayNameHashes[i];
+                if (h == 0)
+                {
+                    pos += static_cast<std::size_t>(std::snprintf(
+                        dispNameBuf + pos, sizeof(dispNameBuf) - pos,
+                        (i == 0) ? "(none)" : ",(none)"));
+                }
+                else
+                {
+                    pos += static_cast<std::size_t>(std::snprintf(
+                        dispNameBuf + pos, sizeof(dispNameBuf) - pos,
+                        (i == 0) ? "0x%llX" : ",0x%llX",
+                        static_cast<unsigned long long>(h)));
+                }
+            }
+        }
+
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
             "playerType=%u partsType=0x%02X selector=0x%02X "
             "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
             "langEquipNameHash=0x%016llX "
-            "variantCount=%u variantSelectors=[0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X] "
+            "variantCount=%u variantSelectors=[%s] "
+            "variantDisplayNameHashes=[%s] "
             "parts=0x%016llX fpk=0x%016llX\n",
             def.key ? def.key : "(unkeyed)",
             static_cast<unsigned>(def.developId),
@@ -396,14 +451,8 @@ namespace outfit
             def.supportsHeadOptions ? 1 : 0,
             static_cast<unsigned long long>(def.langEquipNameHash),
             static_cast<unsigned>(slot->variantCount),
-            static_cast<unsigned>(slot->variantSelectorCodes[0]),
-            static_cast<unsigned>(slot->variantSelectorCodes[1]),
-            static_cast<unsigned>(slot->variantSelectorCodes[2]),
-            static_cast<unsigned>(slot->variantSelectorCodes[3]),
-            static_cast<unsigned>(slot->variantSelectorCodes[4]),
-            static_cast<unsigned>(slot->variantSelectorCodes[5]),
-            static_cast<unsigned>(slot->variantSelectorCodes[6]),
-            static_cast<unsigned>(slot->variantSelectorCodes[7]),
+            variantBuf,
+            dispNameBuf,
             static_cast<unsigned long long>(def.partsPathCode64),
             static_cast<unsigned long long>(def.fpkPathCode64));
 
@@ -499,6 +548,19 @@ namespace outfit
             }
         }
         return false;
+    }
+
+    std::uint64_t GetVariantDisplayNameHash(std::uint8_t partsType,
+                                            std::uint8_t variantIndex)
+    {
+        if (variantIndex >= outfit::kMaxVariantsPerOutfit) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const auto& e : g_Entries)
+        {
+            if (e.used && e.partsType == partsType)
+                return e.variantDisplayNameHashes[variantIndex];
+        }
+        return 0;
     }
 
     bool TryGetOutfitByDevelopId(std::uint16_t developId, const OutfitEntry** outEntry)

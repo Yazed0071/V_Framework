@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 
@@ -128,15 +129,24 @@ namespace
                                             std::uint16_t flowIndex,
                                             void* entryBuf);
 
-    static SetupPrefabListElement_t g_OrigSetupPrefab = nullptr;
-    static GetDevelopedCount_t      g_OrigGetCount    = nullptr;
-    static FillDevelopedFlowIxs_t   g_OrigFill        = nullptr;
-    static GetSuitInfoTable_t       g_OrigGetTable    = nullptr;
+    // ItemSelectorRecordCallFunc::UpdateRecords (retail 0x1416AF270).
+    // Refreshes the visible elements of the focused suit row including
+    // the variant cycle-button label. We hook it to overwrite the
+    // label with our outfit's per-variant displayName hash post-orig.
+    using UpdateRecords_t          = void  (__fastcall*)(void* thisPtr);
+
+    static SetupPrefabListElement_t g_OrigSetupPrefab    = nullptr;
+    static GetDevelopedCount_t      g_OrigGetCount       = nullptr;
+    static FillDevelopedFlowIxs_t   g_OrigFill           = nullptr;
+    static GetSuitInfoTable_t       g_OrigGetTable       = nullptr;
     // AddListSuit is hooked for per-scope dedup (see the duplicate-
     // walker comment above). g_OrigAddListSuit is the trampoline.
-    static AddListSuit_t            g_OrigAddListSuit = nullptr;
+    static AddListSuit_t            g_OrigAddListSuit    = nullptr;
     // Resolved address; cached for uninstall.
-    static void*                    g_AddListSuitAddr = nullptr;
+    static void*                    g_AddListSuitAddr    = nullptr;
+
+    static UpdateRecords_t          g_OrigUpdateRecords     = nullptr;
+    static bool                     g_InstalledUpdateRecords = false;
 
     static bool       g_Installed       = false;
 
@@ -512,21 +522,30 @@ namespace
                 activeVar = static_cast<std::uint8_t>(entry->variantCount - 1);
             *(base + 0xC040 + row) = activeVar;
 
+            // Build the variant-selector list as a single string so the
+            // log is independent of kMaxVariantsPerOutfit's value.
+            char variantBuf[16 * 4 + 1] = {};
+            {
+                std::size_t pos = 0;
+                for (std::size_t i = 0;
+                     i < outfit::kMaxVariantsPerOutfit && pos + 4 < sizeof(variantBuf);
+                     ++i)
+                {
+                    pos += static_cast<std::size_t>(std::snprintf(
+                        variantBuf + pos, sizeof(variantBuf) - pos,
+                        (i == 0) ? "%02X" : ",%02X",
+                        static_cast<unsigned>(entry->variantSelectorCodes[i])));
+                }
+            }
+
             Log("[OutfitListInject:AddListSuit] post-orig variant cell "
                 "injection: flowIndex=%u developId=%u row=%u "
-                "variantCount=%u selectors=[%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X]\n",
+                "variantCount=%u selectors=[%s]\n",
                 static_cast<unsigned>(flowIndex),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(row),
                 static_cast<unsigned>(entry->variantCount),
-                static_cast<unsigned>(entry->variantSelectorCodes[0]),
-                static_cast<unsigned>(entry->variantSelectorCodes[1]),
-                static_cast<unsigned>(entry->variantSelectorCodes[2]),
-                static_cast<unsigned>(entry->variantSelectorCodes[3]),
-                static_cast<unsigned>(entry->variantSelectorCodes[4]),
-                static_cast<unsigned>(entry->variantSelectorCodes[5]),
-                static_cast<unsigned>(entry->variantSelectorCodes[6]),
-                static_cast<unsigned>(entry->variantSelectorCodes[7]));
+                variantBuf);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -721,6 +740,188 @@ namespace
         return true;
     }
 
+    // ---- UpdateRecords hook (variant cycle-button label override) ----
+    //
+    // Vanilla `tpp::ui::menu::impl::ItemSelectorRecordCallFunc::UpdateRecords`
+    // (retail 0x1416AF270, mgsvtpp.exe.c:2958850) refreshes the focused
+    // row's visible elements. The cycle-button label specifically goes
+    // through this path (mgsvtpp.exe.c:2959408-2959431):
+    //
+    //   iVar17 = *(int *)(*(this + 0x208) + 4 + cellIndex*0xc);
+    //   switch (iVar17) {
+    //       case 0:  uVar8 = 0x83c1bd133b29;  // suit_type_normal "STANDARD"
+    //       case 1:  uVar8 = 0xfa0cacdc17d3;  // suit_type_scarf  "SCARF"
+    //       case 7:  uVar8 = 0xc26636a539c1;  // suit_type_naked  "NAKED"
+    //       default: (no label drawn)
+    //   }
+    //   lVar11 = *(*(this + 0x38));
+    //   text = vtable[0x750](*(this+0x38), uVar8);
+    //   vtable[0x708](*(this+0x38), *(this+0x180), *(this+0x80), text);
+    //
+    // Our hook runs orig first (lets it write its label or skip), then
+    // post-orig: read the focused row's selectedId from
+    // `*(this + 0x1e8) + cellIndex*2` (the u16 selectedId table the
+    // orig uses earlier in the same function). If selectedId matches
+    // a registered custom outfit AND we have a non-zero displayName
+    // hash for the current variant, manually call the same vtable
+    // chain with our hash to overwrite whatever orig wrote.
+    //
+    // Field offsets (verified from line 2959408+):
+    //   *(this + 0x008) = u32 row index (focused row)
+    //   *(this + 0x038) = manager pointer (for vtable[0x750]/[0x708])
+    //   *(this + 0x080) = text-write target #2
+    //   *(this + 0x180) = text-write target #1
+    //   *(this + 0x1e8) = u16 selectedId table base
+    //   *(this + 0x1f0) = u8  variant byte table base
+    //   *(this + 0x208) = u8  cell base (12-byte stride per cell)
+
+    using GetTextByHash_t  = void* (__fastcall*)(void* manager,
+                                                  std::uint64_t hash);
+    using WriteTextField_t = void  (__fastcall*)(void* manager,
+                                                  void* dst1,
+                                                  void* dst2,
+                                                  void* text);
+
+    static void __fastcall hkUpdateRecords(void* thisPtr)
+    {
+        if (g_OrigUpdateRecords) g_OrigUpdateRecords(thisPtr);
+
+        if (!thisPtr) return;
+
+        std::uint64_t variantHash = 0;
+        std::uint8_t  variantIdx  = 0;
+        std::uint16_t selectedId  = 0;
+
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+
+            const std::uint32_t row = *reinterpret_cast<std::uint32_t*>(base + 0x008);
+            if (row > 0x3F) return;  // sanity, panel max ~64 rows
+
+            const auto variantTable =
+                *reinterpret_cast<std::uint8_t* const*>(base + 0x1F0);
+            const auto selectedIdTable =
+                *reinterpret_cast<std::uint16_t* const*>(base + 0x1E8);
+            if (!variantTable || !selectedIdTable) return;
+
+            variantIdx = *(variantTable + row);
+            if (variantIdx > 14) return;
+
+            const std::size_t cellIndex =
+                static_cast<std::size_t>(row) * 15 + variantIdx;
+            selectedId = *(selectedIdTable + cellIndex);
+
+            // Look up our outfit by flowIndex (the cell's selectedId).
+            // If it's not ours OR we have no displayName override for
+            // this variant, leave the orig label alone.
+            const outfit::OutfitEntry* entry = nullptr;
+            if (!outfit::TryGetOutfitByFlowIndex(selectedId, &entry) || !entry)
+                return;
+
+            if (variantIdx >= outfit::kMaxVariantsPerOutfit)
+                return;
+
+            // Read out of variantDisplayNameHashes regardless of the
+            // current variantCount — modder may have set the base
+            // (idx 0) only and still want the cycle to use it for
+            // variant 0 reads.
+            variantHash = entry->variantDisplayNameHashes[variantIdx];
+
+            // Throttled "we matched our outfit" log so we can confirm
+            // the hook is firing for the right row even when the user
+            // hasn't set displayName fields yet (variantHash == 0).
+            // Logs once per (selectedId, variantIdx, hash) tuple change,
+            // so opening the panel produces a couple of lines and then
+            // goes quiet.
+            {
+                static std::uint16_t s_lastMatchSelId  = 0xFFFF;
+                static std::uint8_t  s_lastMatchVarIdx = 0xFF;
+                static std::uint64_t s_lastMatchHash   = 0xFFFFFFFFFFFFFFFFull;
+                if (s_lastMatchSelId  != selectedId
+                 || s_lastMatchVarIdx != variantIdx
+                 || s_lastMatchHash   != variantHash)
+                {
+                    Log("[OutfitListInject:UpdateRecords] matched custom "
+                        "outfit row: selectedId=%u developId=%u variantIdx=%u "
+                        "variantHash=0x%016llX %s\n",
+                        static_cast<unsigned>(selectedId),
+                        static_cast<unsigned>(entry->developId),
+                        static_cast<unsigned>(variantIdx),
+                        static_cast<unsigned long long>(variantHash),
+                        variantHash == 0
+                            ? "(no displayName set in Lua — orig label kept)"
+                            : "(will override)");
+                    s_lastMatchSelId  = selectedId;
+                    s_lastMatchVarIdx = variantIdx;
+                    s_lastMatchHash   = variantHash;
+                }
+            }
+
+            if (variantHash == 0) return;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return;
+        }
+
+        // Override the label by re-running the same vtable chain orig
+        // uses — vtable[0x750] resolves the hash to a text pointer,
+        // vtable[0x708] writes that text to the cycle-button UI element.
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+
+            void* manager     = *reinterpret_cast<void**>(base + 0x38);
+            void* writeTarget1 = *reinterpret_cast<void**>(base + 0x180);
+            void* writeTarget2 = *reinterpret_cast<void**>(base + 0x80);
+
+            if (!manager) return;
+
+            void** managerVtable = *reinterpret_cast<void***>(manager);
+            if (!managerVtable) return;
+
+            auto getText  = reinterpret_cast<GetTextByHash_t>(
+                managerVtable[0x750 / 8]);
+            auto writeFn  = reinterpret_cast<WriteTextField_t>(
+                managerVtable[0x708 / 8]);
+
+            if (!getText || !writeFn) return;
+
+            void* text = getText(manager, variantHash);
+            if (!text) return;
+
+            writeFn(manager, writeTarget1, writeTarget2, text);
+
+            // Throttle log: only emit when the resolved (selectedId,
+            // variantIdx, hash) tuple changes — UpdateRecords runs
+            // per-frame for the focused row, would flood otherwise.
+            static std::uint16_t s_lastSelectedId = 0xFFFF;
+            static std::uint8_t  s_lastVariantIdx = 0xFF;
+            static std::uint64_t s_lastHash       = 0;
+            if (s_lastSelectedId != selectedId
+             || s_lastVariantIdx != variantIdx
+             || s_lastHash       != variantHash)
+            {
+                Log("[OutfitListInject:UpdateRecords] cycle-button label "
+                    "override: selectedId=%u variantIdx=%u hash=0x%016llX\n",
+                    static_cast<unsigned>(selectedId),
+                    static_cast<unsigned>(variantIdx),
+                    static_cast<unsigned long long>(variantHash));
+                s_lastSelectedId = selectedId;
+                s_lastVariantIdx = variantIdx;
+                s_lastHash       = variantHash;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitListInject:UpdateRecords] SEH writing variant "
+                "label (selectedId=%u variantIdx=%u)\n",
+                static_cast<unsigned>(selectedId),
+                static_cast<unsigned>(variantIdx));
+        }
+    }
+
     // ---- Top-level SetupPrefabListElement hook ----
 
     static void __fastcall hkSetupPrefabListElement(void* thisPtr)
@@ -869,6 +1070,30 @@ namespace outfit
         // `this` pointer.
         const bool deepStatic = TryInstallDeepHooksFromStaticAddresses();
 
+        // UpdateRecords hook — variant cycle-button label override.
+        // Independent of the AddListSuit/deep-hook plumbing; install
+        // best-effort and continue regardless. JP build / unresolved
+        // address → silent no-op (variants will fall back to vanilla
+        // STANDARD/SCARF/NAKED labels for handled type values, blank
+        // otherwise).
+        if (void* urTarget = ResolveGameAddress(
+                gAddr.ItemSelectorRecordCallFunc_UpdateRecords))
+        {
+            g_InstalledUpdateRecords = CreateAndEnableHook(
+                urTarget,
+                reinterpret_cast<void*>(&hkUpdateRecords),
+                reinterpret_cast<void**>(&g_OrigUpdateRecords));
+            Log("[OutfitListInject] UpdateRecords installed: %s "
+                "(target=%p)\n",
+                g_InstalledUpdateRecords ? "OK" : "FAIL", urTarget);
+        }
+        else
+        {
+            Log("[OutfitListInject] UpdateRecords target unresolved "
+                "(JP build?) — variant cycle-button labels will fall "
+                "back to vanilla hardcoded mapping\n");
+        }
+
         Log("[OutfitListInject] installed: setup=%s addListSuit=%s "
             "deepHooks=%s (target=%p addListSuitAddr=%p)\n",
             setupHooked ? "OK" : "FAIL",
@@ -900,6 +1125,15 @@ namespace outfit
         if (g_AddListSuitAddr) DisableAndRemoveHook(g_AddListSuitAddr);
         g_AddListSuitAddr = nullptr;
         g_OrigAddListSuit = nullptr;
+
+        if (g_InstalledUpdateRecords)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.ItemSelectorRecordCallFunc_UpdateRecords))
+                DisableAndRemoveHook(t);
+            g_OrigUpdateRecords      = nullptr;
+            g_InstalledUpdateRecords = false;
+        }
 
         if (void* t = ResolveGameAddress(
                 gAddr.ItemSelectorCallbackImpl_SetupPrefabListElement))

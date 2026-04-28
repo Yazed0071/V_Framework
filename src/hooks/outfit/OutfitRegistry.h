@@ -39,7 +39,11 @@ namespace outfit
 
     // Phase 3 — head options, variants.
     constexpr std::size_t  kMaxHeadOptionsPerOutfit = 8;   // typical max in vanilla
-    constexpr std::size_t  kMaxVariantsPerOutfit    = 8;
+    // 15 = vanilla UNIFORMS panel cell capacity per row
+    // (cell offset stride is (row*15 + var) * sizeof(field), so 0..14
+    // is the addressable range). Slot 0 is reserved for the base
+    // outfit; slots 1..14 hold up to 14 explicit Lua override entries.
+    constexpr std::size_t  kMaxVariantsPerOutfit    = 15;
     constexpr std::uint16_t kHeadOption_None        = 0x400;  // game-native NONE sentinel
     constexpr std::uint16_t kHeadOption_VanillaSP   = 0x17CA; // BALACLAVA equipId (vanilla SP base)
 
@@ -57,7 +61,19 @@ namespace outfit
         std::uint64_t  camoFpk            = kSubAssetUseVanilla;
         std::uint64_t  camoFv2            = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk         = kSubAssetDisabled;
-        std::uint16_t  displayNameId      = 0;     // localized string id (0 = inherit)
+
+        // StrCode64 hash of the LangId string used for this variant's
+        // cycle-button label in the UNIFORMS panel (the spot where
+        // vanilla shows "STANDARD"/"NAKED"/"SCARF"). 0 = no override
+        // (panel will show whatever orig falls back to for this cell's
+        // type field — typically blank or one of the vanilla three).
+        //
+        // Lua API: pass `displayName = "your_lang_id"` (string) and
+        // the bridge computes StrCode64 automatically. Or pass
+        // `displayNameHash = 0x...` (number) if you have the precomputed
+        // hash. The vanilla LangId XML must have an <Entry LangId=...>
+        // matching whatever string you used.
+        std::uint64_t  displayNameHash    = 0;
     };
 
     // ---------------------------------------------------------------
@@ -180,6 +196,16 @@ namespace outfit
         // partsType).
         std::uint64_t  langEquipNameHash               = 0;
 
+        // StrCode64 hash of the LangId for the VARIANT 0 (base) cycle-
+        // button label — what shows up in the UNIFORMS panel before the
+        // user cycles. Counterpart to OutfitVariant::displayNameHash for
+        // each explicit variant slot. 0 = no override.
+        //
+        // Lua: pass `displayName = "your_lang_id"` at the top level OR
+        // `displayNameHash = 0x...`. (Per-variant displayName goes
+        // inside the `variants` array entry.)
+        std::uint64_t  baseDisplayNameHash             = 0;
+
         // Phase 3 — variants. variantCount==0 → outfit has no variants
         // (single appearance). When variantCount>0, the OutfitDefinition's
         // own partsPathCode64 / fpkPathCode64 / camoFpk fields define
@@ -253,6 +279,16 @@ namespace outfit
         // selectorCode. The rest are 0xFF (sentinel / unallocated).
         std::uint8_t   variantSelectorCodes[kMaxVariantsPerOutfit] = {};
 
+        // Phase 5 — per-variant cycle-button label hashes. Slot 0 holds
+        // the base (== OutfitDefinition::baseDisplayNameHash); slots 1..N
+        // hold the per-variant hashes from OutfitVariant::displayNameHash.
+        // 0 = no label override (orig falls back to its hardcoded
+        // STANDARD/SCARF/NAKED hashes per the cell type field, or shows
+        // nothing for unhandled type values). The UpdateRecords hook
+        // post-orig calls vtable[0x750]+[0x708] with this hash to
+        // overwrite whatever the orig wrote.
+        std::uint64_t  variantDisplayNameHashes[kMaxVariantsPerOutfit] = {};
+
         bool IsCamoCustom()      const { return camoFpk     > kSubAssetUseVanilla; }
         bool IsCamoFv2Custom()   const { return camoFv2     > kSubAssetUseVanilla; }
         bool IsFaceEnabled()     const { return faceFpk     != kSubAssetDisabled; }
@@ -301,6 +337,13 @@ namespace outfit
     bool TryGetOutfitByVariantSelector(std::uint8_t selectorCode,
                                        const OutfitEntry** outEntry,
                                        std::uint8_t* outVariantIndex);
+
+    // Convenience accessor for the cycle-button label hash. Returns the
+    // per-variant override (variantDisplayNameHashes[variantIndex]) or
+    // 0 if the index is out of range / no override defined. Caller can
+    // then decide whether to skip the orig label or substitute.
+    std::uint64_t GetVariantDisplayNameHash(std::uint8_t partsType,
+                                            std::uint8_t variantIndex);
 
     bool TryGetOutfitByFlowIndex(std::uint16_t flowIndex,
                                  const OutfitEntry** outEntry);
