@@ -235,19 +235,79 @@ namespace
         SelectionSample s{};
         if (TryReadSelection(self, s) && s.haveSample)
         {
+            // Recognize the click as ours if either:
+            //   - equipKind matches a known suit-click kind, OR
+            //   - the selectorCode is in our custom range (0x80..0xFE)
+            //
+            // Some supply-drop paths fire with `equipKind=0xFF` (an
+            // "uncategorized" or default code) instead of 0x100; gating
+            // strictly on equipKind made those misses fall through to
+            // OutfitSupplyDropSetup's flowIndex-based fallback, which
+            // ALWAYS resolves to the BASE selectorCode regardless of
+            // which variant cell the user actually picked. The custom-
+            // selector range is unique to our framework, so any click
+            // at 0x80..0xFE can be safely attributed to a registered
+            // outfit click without consulting equipKind.
             const bool isSuitClick = (s.equipKind == kEquipKindMissionPrepSuit
                                    || s.equipKind == kEquipKindSupplyDropSuit);
-            if (isSuitClick)
+            const bool isCustomSelector =
+                (s.selectorCode >= outfit::kCustomSelectorStart
+                 && s.selectorCode <= outfit::kCustomSelectorEnd);
+
+            if (isSuitClick || isCustomSelector)
             {
-                const std::uint16_t devId = MatchSelectionToOutfit(s);
-                if (devId != 0)
+                // Decode entry + variantIdx from the click WITHOUT
+                // calling SetActiveVariant — the user is still wearing
+                // the OLD outfit and the supply-drop crate won't
+                // arrive for ~10s. Updating the live tracker now would
+                // change the body's variant on the next reload (vehicle
+                // entry / cutscene / etc.) before the crate even lands.
+                // Instead, stash the variant in the supply-drop stash
+                // and have ConsumeStashAndEquip apply SetActiveVariant
+                // at pickup time, atomically with ForcePartsReload.
+                const outfit::OutfitEntry* entry = nullptr;
+                std::uint8_t variantIdx = 0;
+                bool matched = false;
+
+                if (isCustomSelector
+                    && outfit::TryGetOutfitByVariantSelector(
+                        s.selectorCode, &entry, &variantIdx)
+                    && entry)
                 {
-                    outfit::SetPendingSupplyDropDevelopId(devId);
+                    matched = true;
+                }
+                else if (outfit::TryGetOutfitByFlowIndex(
+                             s.selectedId, &entry) && entry)
+                {
+                    matched = true;
+                    variantIdx = 0;  // flowIndex match defaults to base
+                }
+                else if (outfit::TryGetOutfitByDevelopId(
+                             s.selectedId, &entry) && entry)
+                {
+                    matched = true;
+                    variantIdx = 0;
+                }
+
+                if (matched && entry)
+                {
+                    outfit::SetPendingSupplyDropDevelopId(entry->developId);
+                    outfit::SetPendingSupplyDropVariantIdx(variantIdx);
+                    // Mirror to the immediate-apply stash too, in case
+                    // a path consumes that one first (the broken-custom
+                    // SetSuit resolver in OutfitSuitConditionApply).
+                    outfit::SetPendingOutfitDevelopId(entry->developId);
+
                     Log("[OutfitItemSelector:supply] also stashed "
-                        "pendingSupplyDropDevelopId=%u for crate-pickup "
-                        "force-equip (covers paths that bypass "
-                        "SupplyDropSuitSetup, e.g. MotherBase R&D)\n",
-                        static_cast<unsigned>(devId));
+                        "pendingSupplyDropDevelopId=%u variantIdx=%u "
+                        "(equipKind=0x%X, isSuitClick=%d, "
+                        "isCustomSelector=%d) for crate-pickup "
+                        "force-equip\n",
+                        static_cast<unsigned>(entry->developId),
+                        static_cast<unsigned>(variantIdx),
+                        s.equipKind,
+                        isSuitClick ? 1 : 0,
+                        isCustomSelector ? 1 : 0);
                 }
             }
         }
@@ -289,10 +349,16 @@ namespace
         {
             outfit::SetPendingOutfitDevelopId(entry->developId);
             outfit::SetPendingSupplyDropDevelopId(entry->developId);
+            // R&D dev-menu requests the outfit by flowIndex, with no
+            // variant cycle in that UI — always reset the variant
+            // stash to 0 (base) so a prior iDroid Supply-Drop click
+            // that stashed variant=N can't leak into this request.
+            outfit::SetPendingSupplyDropVariantIdx(0);
             Log("[OutfitItemSelector:devmenu] R&D request for custom outfit "
                 "flowIndex=%u developId=%u partsType=0x%02X selector=0x%02X "
                 "playerType=%u — stashed both pendingOutfitDevelopId AND "
-                "pendingSupplyDropDevelopId for crate-pickup recovery\n",
+                "pendingSupplyDropDevelopId (variantIdx=0) for crate-pickup "
+                "recovery\n",
                 static_cast<unsigned>(flowIndex),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(entry->partsType),

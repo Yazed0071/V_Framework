@@ -808,4 +808,20 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         return g_PendingSupplyDropDevelopId;
     }
+
+    static std::uint8_t g_PendingSupplyDropVariantIdx = 0;
+
+    void SetPendingSupplyDropVariantIdx(std::uint8_t variantIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_PendingSupplyDropVariantIdx = variantIndex;
+    }
+
+    std::uint8_t ConsumePendingSupplyDropVariantIdx()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const std::uint8_t was = g_PendingSupplyDropVariantIdx;
+        g_PendingSupplyDropVariantIdx = 0;
+        return was;
+    }
 }

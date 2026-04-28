@@ -448,4 +448,23 @@ namespace outfit
     // hook's gate-skip path to log "stash is still set, waiting for
     // real pickup."
     std::uint16_t PeekPendingSupplyDropDevelopId();
+
+    // Companion stash for the variant index the user picked when
+    // confirming a supply-drop order. Set by the supply-drop click
+    // hook alongside the developId; consumed by the pickup hook
+    // before ForcePartsReload so the variant-specific selectorCode
+    // (and downstream LoadPlayerPartsParts variant lookup) lands
+    // correctly. Without this, a click on a non-base cell decoded
+    // its own selector but the pickup pipeline always fell back to
+    // entry->selectorCode (the BASE), and the resulting body
+    // depended on whatever GetActiveVariant happened to return —
+    // typically the previously-equipped variant, NOT the one the
+    // user just requested.
+    //
+    // Default value 0 = "base / no override" (also covers the case
+    // where the click came from a path that never set the stash —
+    // legacy supply-drop confirmations still equip the base, which
+    // matches the prior behavior).
+    void          SetPendingSupplyDropVariantIdx(std::uint8_t variantIndex);
+    std::uint8_t  ConsumePendingSupplyDropVariantIdx();
 }

@@ -261,6 +261,12 @@ namespace
     {
         const std::uint16_t pendingDevId =
             outfit::ConsumePendingSupplyDropDevelopId();
+        // Always consume the variant companion stash too, even if we
+        // bail out early below — it's a one-shot per request and a
+        // stale value would leak into the next supply-drop's pickup.
+        const std::uint8_t pendingVariantIdx =
+            outfit::ConsumePendingSupplyDropVariantIdx();
+
         if (pendingDevId == 0) return false;
 
         const outfit::OutfitEntry* entry = nullptr;
@@ -272,11 +278,46 @@ namespace
             return true;
         }
 
+        // Resolve the variant the user actually requested:
+        //   - If pendingVariantIdx was stashed and is in-range, use it.
+        //   - Otherwise (legacy paths, or stash never set), fall back
+        //     to variant 0 (the base appearance).
+        std::uint8_t variantIdx = pendingVariantIdx;
+        if (entry->variantCount == 0)
+            variantIdx = 0;
+        else if (variantIdx >= entry->variantCount)
+            variantIdx = 0;
+
+        // Resolve the variant-specific selectorCode. Slot 0 is the base
+        // (== entry->selectorCode); slots 1..N hold the per-variant
+        // codes. Without this resolution, ForcePartsReload would always
+        // use the base selectorCode and LoadPlayerPartsParts would pick
+        // its variant from GetActiveVariant — typically the previously-
+        // equipped variant, NOT the one the user just requested.
+        std::uint8_t variantSelector = entry->selectorCode;
+        if (variantIdx > 0 && variantIdx < outfit::kMaxVariantsPerOutfit)
+        {
+            const std::uint8_t code = entry->variantSelectorCodes[variantIdx];
+            if (code != 0xFF) variantSelector = code;
+        }
+
+        // Update the live active-variant tracker BEFORE ForcePartsReload
+        // so the downstream LoadPlayerPartsParts sees the correct
+        // variant when it consults GetActiveVariant during the asset
+        // load. This is the key fix for the supply-drop "wrong variant"
+        // bug — without it, a request for variant N while wearing
+        // variant M would equip M's assets even though ForcePartsReload
+        // ran with N's selector.
+        outfit::SetActiveVariant(entry->partsType, variantIdx);
+
         Log("[OutfitSupplyDropPickup:%s] forcing equip of stashed "
-            "developId=%u partsType=0x%02X selector=0x%02X playerType=%u\n",
+            "developId=%u partsType=0x%02X selector=0x%02X variantIdx=%u "
+            "(baseSelector=0x%02X) playerType=%u\n",
             tag,
             static_cast<unsigned>(entry->developId),
             static_cast<unsigned>(entry->partsType),
+            static_cast<unsigned>(variantSelector),
+            static_cast<unsigned>(variantIdx),
             static_cast<unsigned>(entry->selectorCode),
             static_cast<unsigned>(entry->playerType));
 
@@ -284,7 +325,7 @@ namespace
         {
             outfit::ForcePartsReload(entry->playerType,
                                       entry->partsType,
-                                      entry->selectorCode);
+                                      variantSelector);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
