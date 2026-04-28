@@ -108,30 +108,52 @@ namespace
 
     // Locate a registered outfit from the selection state. Returns
     // the matching developId (>0) or 0 if no custom outfit matches.
-    // Match is attempted in this order:
-    //   1. selectorCode in custom range → byPartsType lookup
-    //   2. selectedId == outfit.flowIndex
-    //   3. selectedId == outfit.developId
+    // ALSO publishes the selected variant index into the active-variant
+    // tracker so the runtime parts loaders pick the right variant.
+    //
+    // Match order:
+    //   1. selectorCode in custom range → variant-selector lookup
+    //      (decodes the variant index too, for in-row UNIFORMS cycle)
+    //   2. selectedId == outfit.flowIndex (variant 0 — the base cell
+    //      that the cycle would show before any cycling).
+    //   3. selectedId == outfit.developId (mod-author convenience).
     static std::uint16_t MatchSelectionToOutfit(const SelectionSample& s)
     {
-        // Path 1: selector byte already in custom range.
+        // Path 1: selector byte already in custom range. Use the
+        // variant-aware lookup so a click on a non-base cell (cycled-
+        // to variant N's selectorCode) sets ActiveVariant=N before
+        // the commit pipeline runs.
         if (s.selectorCode >= outfit::kCustomSelectorStart
             && s.selectorCode <= outfit::kCustomSelectorEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
-            if (outfit::TryGetOutfitBySelectorCode(s.selectorCode, &entry) && entry)
+            std::uint8_t variantIdx = 0;
+            if (outfit::TryGetOutfitByVariantSelector(
+                    s.selectorCode, &entry, &variantIdx) && entry)
+            {
+                // Publish active variant for runtime parts loaders.
+                outfit::SetActiveVariant(entry->partsType, variantIdx);
                 return entry->developId;
+            }
         }
 
-        // Path 2: selectedId equals our registered flowIndex.
+        // Path 2: selectedId equals our registered flowIndex (typically
+        // a hover/pre-cycle read where the selectorCode hasn't
+        // resolved yet). Default to variant 0.
         const outfit::OutfitEntry* byFlow = nullptr;
         if (outfit::TryGetOutfitByFlowIndex(s.selectedId, &byFlow) && byFlow)
+        {
+            outfit::SetActiveVariant(byFlow->partsType, 0);
             return byFlow->developId;
+        }
 
         // Path 3: selectedId equals our developId (mod-author convenience).
         const outfit::OutfitEntry* byDev = nullptr;
         if (outfit::TryGetOutfitByDevelopId(s.selectedId, &byDev) && byDev)
+        {
+            outfit::SetActiveVariant(byDev->partsType, 0);
             return byDev->developId;
+        }
 
         return 0;
     }

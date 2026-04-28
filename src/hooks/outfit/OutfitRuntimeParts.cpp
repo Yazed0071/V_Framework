@@ -412,42 +412,30 @@ namespace
 
             if (found)
             {
-                // 2026-04-28 — REVERSED the !enableHead → 0 override.
+                // RESTORED 2026-04-28: !enableHead → 0 (suppress face).
                 //
-                // Earlier intent was: for !enableHead outfits (Jill,
-                // partsType=0x41), return 0 here to make orig SKIP
-                // its face-load branch — the body has an integrated
-                // head, a separate face FPK would float on top.
+                // Per MEMORY note 5 (the working architecture):
+                //   "Counter-fix in hkDoesNeedFaceFova: read
+                //    EffectivePartsType (returns the real custom
+                //    partsType during spoof scope), look up the entry;
+                //    if IsHeadEnabled() return 1 (load face for FROG-
+                //    style), else return 0 (suppress face for Jill-
+                //    style integrated-head outfits)."
                 //
-                // Runtime testing 2026-04-28 (log 03:26:02.112)
-                // disproved that: with the spoof scope active, returning
-                // 0 from this function gates orig's BODY-PARTS dispatch
-                // too, not just the face dispatch. After the hook
-                // returned 0, orig bailed the entire reload — no
-                // LoadPlayerPartsParts, no LoadPlayerCamoFpk, body
-                // never loaded → infinite loading screen.
+                // For enableHead=true (FROG): return 1, orig loads
+                // user's face on top of the headless body parts.
                 //
-                // Theory: the function-call site we're hooking is not
-                // a passive "LOD/shadow" decoration as previously
-                // hypothesized. It's actually one of orig's main
-                // dispatch gates. Returning 0 → "no face load needed"
-                // is interpreted by orig as "no work for this slot"
-                // and the entire reload short-circuits.
+                // For enableHead=false (Jill): return 0, orig skips
+                // the face-load branch, body parts file's integrated
+                // head renders alone — no double-head artifact.
                 //
-                // Fix: return 1 unconditionally for any registered
-                // custom outfit in spoof scope. This lets orig think
-                // a face IS needed and proceed with the full reload
-                // (parts + camo + face). For !enableHead outfits, we
-                // suppress the face load itself via a different
-                // mechanism: hkLoadPartsNew zeroes info->playerFaceId
-                // in the spoof block for !enableHead outfits, so orig
-                // has no face record to actually load — the integrated
-                // head on the body parts file is rendered alone.
-                //
-                // For enableHead outfits (FROG, partsType=0x40), the
-                // user's face IS supposed to load (the body parts file
-                // is headless). No suppression needed.
-                return std::uint8_t{1};
+                // Earlier today (this session) this was incorrectly
+                // reversed to always return 1 based on a misdiagnosed
+                // body-load test. The body-load issue at that time was
+                // actually caused by SettledHandler-related state
+                // corruption, NOT by this hook returning 0. Reverting
+                // back to the documented working behavior.
+                return enabled ? std::uint8_t{1} : std::uint8_t{0};
             }
             // Custom range but no registered entry — stale partsType.
             // Defer to orig so the game's own behavior decides.
@@ -790,28 +778,21 @@ namespace
             std::uint8_t  prevShellPartsType = 0;
             bool          shellSentinelWritten = false;
 
-            // 2026-04-28 — DISABLED playerFaceId=0 face suppression
-            // for !enableHead outfits — AGAIN.
+            // 2026-04-28 — DISABLED (TEMPORARILY) playerFaceId=0 face
+            // suppression for !enableHead outfits.
             //
-            // Test result (Jill via dev-menu pickup, log 04:06:14):
-            // with ForcePartsReload now driving the load AND
-            // playerFaceId=0 suppressing the face, body still didn't
-            // load (no LoadPlayerPartsParts). Comparing against
-            // working iDroid FROGS pickup (03:53:18) where soldierFace
-            // was 378 (non-zero) and body loaded fine, the face
-            // suppression appears to gate the body dispatch too.
+            // Re-enabled in a previous iteration to fix Jill (enableHead
+            // =false) showing the user's face on top of her integrated
+            // head. Caused a game freeze during DLL init / first equip
+            // — symptoms exactly like the earlier disabled-attempt
+            // (log 04:06:14): something in the spoof+face-zero
+            // combination interferes with orig dispatch in a way that
+            // hangs the game.
             //
-            // For now: don't suppress here. Body load takes priority.
-            // The user's complaint "head always appears even when
-            // enableHead=false" is a real cosmetic issue but needs
-            // a different solution layer:
-            //   - Intercept the face-FPK loader (Soldier2FaceSystem
-            //     somewhere) and emit empty paths for !enableHead
-            //     outfits.
-            //   - Or hook the shell.face/hair/hairDeco/faceDeco
-            //     PathId writes (orig writes them at line 1310939-
-            //     1310972) and zero them post-load.
-            // Both are TBD — first verify body loads.
+            // Tracking comments retained; suppressFace is computed but
+            // never applied (constexpr false). When we have a safer
+            // suppression mechanism (face-FPK loader interception,
+            // shell.face PathId zero post-load, etc.) re-enable.
             constexpr bool     suppressFace = false;
             const std::int16_t origFaceId =
                 info ? info->playerFaceId : std::int16_t{0};

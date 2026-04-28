@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace outfit
 {
     // Hook on tpp::gm::player::impl::Player2UtilityImpl::
@@ -30,4 +32,27 @@ namespace outfit
     // MissionPrep.
     bool Install_OutfitSuitConditionApply_Hook();
     void Uninstall_OutfitSuitConditionApply_Hook();
+
+    // Drive a live mission-prep-style suit reload via the 3-arg
+    // RequestToChangePlayerPartsInMissionPreparationMode trampoline
+    // (retail 0x1462B6590). The orig wrapper uses GetPlayer2System()
+    // internally (no `this` dependency) and dispatches into vtable
+    // [0x140] which propagates through SetSuit → engine post-flag →
+    // natural LoadPartsNew (~400ms later) → per-asset hook dispatch.
+    //
+    // Used by Lua-driven variant cycling and any other path that
+    // needs an in-mission body re-render without going through the
+    // UNIFORMS panel or supply-drop pickup machinery. The trampoline
+    // bypasses our hkReqLoadout/hkSetSuit hooks (no rewrite, no
+    // recursion); the synthesized loadout info is built with apply
+    // flags 0x101 (suit + playerType valid) so existing weapon slots
+    // and face are preserved.
+    //
+    // variantIndex is written into info[0x02] so OutfitCommit's
+    // SetActiveVariant call uses it. Returns true if the trampoline
+    // was reachable, false if the hook hasn't been installed yet.
+    bool ForceLiveSuitReload(std::uint8_t playerType,
+                             std::uint8_t partsType,
+                             std::uint8_t selectorCode,
+                             std::uint8_t variantIndex);
 }

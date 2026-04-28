@@ -401,8 +401,140 @@ namespace
             // counter doesn't advance and no cell write happens.
             return;
         }
+
+        // Snapshot row index pre-orig so we know which row this call
+        // is going to populate. Orig increments *param_2 at end, so
+        // the just-added row is at *param_2 (pre-orig) == *rowCounter
+        // (now). We re-read post-orig to confirm the increment fired
+        // (orig may early-return for unknown flowIndices).
+        const std::uint32_t rowPre =
+            (rowCounter ? *rowCounter : 0xFFFFFFFFu);
+
         if (g_OrigAddListSuit)
             g_OrigAddListSuit(thisPtr, rowCounter, flowIndex, entryBuf);
+
+        // Post-orig: if this is one of our registered outfits AND it
+        // has more than one variant, inject additional cells into the
+        // panel row so the UNIFORMS variant cycle button can move
+        // between them like vanilla camo variants.
+        //
+        // Vanilla cell layout (verified from AddListSuit + AddListWeaponInner
+        // at named-build line 2950302):
+        //   self+0x4440+(row*15+var)*2  = u16 selectedId  (our flowIndex)
+        //   self+0xCC40+(row*15+var)*12 = u32 selector(low byte)+flags+u8
+        //   self+0xC040+row             = u8 current variant index (cycle)
+        //   self+0xBC40+row             = u8 variant count for this row
+        //   self+0xC440+row             = bool flag (param_6 from inner)
+        //   self+0xC840+row             = byte flag (param_7 from inner)
+        //   self+0x548+(row*15+var)     = byte (developed/owned)
+        //   self+0x425A4+(row*15+var)   = byte (some skill/equip-list flag)
+        //
+        // We only inject when variantCount >= 2 (the orig's single cell
+        // already covers the base for variant-less outfits).
+        if (!thisPtr || !rowCounter) return;
+        const std::uint32_t rowPost = *rowCounter;
+        if (rowPost == rowPre)
+        {
+            // Orig didn't advance — flowIndex was rejected or routed to
+            // weapon-list. Nothing to inject.
+            return;
+        }
+        const std::uint32_t row = rowPost - 1;
+        if (row > 0x3F) return;  // panel max ~64 rows
+
+        const outfit::OutfitEntry* entry = nullptr;
+        if (!outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) || !entry)
+            return;
+
+        if (entry->variantCount < 2) return;  // no extras to inject
+
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+
+            // Write cells (row, 0..variantCount-1). The orig already
+            // wrote cell (row, 0); we re-write it for consistency
+            // (same selectedId + base selector — should be a no-op
+            // unless orig used a different code) and add 1..N-1.
+            for (std::uint8_t var = 0; var < entry->variantCount; ++var)
+            {
+                const std::size_t cellIndex =
+                    static_cast<std::size_t>(row) * 15 + var;
+
+                // selectedId — same flowIndex for every variant cell
+                // so the ItemSelector treats them as variants of one
+                // suit row (vanilla pattern: TEU has multiple cells
+                // with selectedId=697, different selectorCodes).
+                *reinterpret_cast<std::uint16_t*>(
+                    base + 0x4440 + cellIndex * 2) = flowIndex;
+
+                // selectorCode cell (12 bytes): low byte of u32 +
+                // type flag u32 + status byte. We use:
+                //   [0] = our per-variant selectorCode
+                //   [4] = type flag — orig uses 7 for base, 0/1 for
+                //         additional variants. Mirror that pattern.
+                //   [8] = unused / 0
+                std::uint8_t* cell = base + 0xCC40 + cellIndex * 12;
+                *reinterpret_cast<std::uint32_t*>(cell + 0) =
+                    static_cast<std::uint32_t>(
+                        entry->variantSelectorCodes[var]);
+                *reinterpret_cast<std::uint32_t*>(cell + 4) =
+                    (var == 0) ? 7u : 0u;
+                *(cell + 8) = 0;
+
+                // Mark this cell as developed/owned so the panel
+                // doesn't gray it out. (+0x548 byte = 1 from vanilla
+                // SUIT-path AddListWeaponInner.)
+                *(base + 0x548 + cellIndex) = 1;
+            }
+
+            // Variant count for this row — drives the cycle button's
+            // wrap-around. variantCount cells starting at index 0.
+            *(base + 0xBC40 + row) =
+                static_cast<std::uint8_t>(entry->variantCount);
+
+            // Initial variant byte = the persisted active variant for
+            // this outfit (set by OutfitCommit when the user last
+            // committed a cycle, or by V_FrameWork.SetOutfitVariant
+            // from Lua). Reopening UNIFORMS shows the cell at the
+            // last-picked variant rather than always snapping back to
+            // base — vanilla TEU works the same way (the panel
+            // remembers which camo you had selected last time).
+            //
+            // Clamp defensively in case GetActiveVariant returned a
+            // stale value beyond this outfit's current variantCount
+            // (shouldn't happen — SetActiveVariant clamps internally
+            // — but a registry reset / re-registration could leave
+            // an inconsistency).
+            std::uint8_t activeVar =
+                outfit::GetActiveVariant(entry->partsType);
+            if (activeVar >= entry->variantCount)
+                activeVar = static_cast<std::uint8_t>(entry->variantCount - 1);
+            *(base + 0xC040 + row) = activeVar;
+
+            Log("[OutfitListInject:AddListSuit] post-orig variant cell "
+                "injection: flowIndex=%u developId=%u row=%u "
+                "variantCount=%u selectors=[%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X]\n",
+                static_cast<unsigned>(flowIndex),
+                static_cast<unsigned>(entry->developId),
+                static_cast<unsigned>(row),
+                static_cast<unsigned>(entry->variantCount),
+                static_cast<unsigned>(entry->variantSelectorCodes[0]),
+                static_cast<unsigned>(entry->variantSelectorCodes[1]),
+                static_cast<unsigned>(entry->variantSelectorCodes[2]),
+                static_cast<unsigned>(entry->variantSelectorCodes[3]),
+                static_cast<unsigned>(entry->variantSelectorCodes[4]),
+                static_cast<unsigned>(entry->variantSelectorCodes[5]),
+                static_cast<unsigned>(entry->variantSelectorCodes[6]),
+                static_cast<unsigned>(entry->variantSelectorCodes[7]));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitListInject:AddListSuit] SEH writing variant "
+                "cells (flowIndex=%u row=%u)\n",
+                static_cast<unsigned>(flowIndex),
+                static_cast<unsigned>(row));
+        }
     }
 
     // ---- One-shot deep-hook installer ----

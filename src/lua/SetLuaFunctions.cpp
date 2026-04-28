@@ -51,6 +51,8 @@ extern "C" {
 #include "V_FrameWorkState.h"
 #include "InitCamoufTable.h"
 #include "../hooks/outfit/OutfitRegistry.h"
+#include "../hooks/outfit/OutfitRuntimeParts.h"
+#include "../hooks/outfit/OutfitSuitConditionApply.h"
 
 
 namespace
@@ -1629,9 +1631,33 @@ namespace
     }
 
     // Read def.variants = { {partsPath=..., fpkPath=..., ...}, ... }
-    // into the OutfitDefinition. variant index 0 is implicit (the
-    // outfit's own paths); explicit entries fill variants[0..N-1] as
-    // overrides relative to the base.
+    // into the OutfitDefinition.
+    //
+    // Layout convention (matches OutfitEntry::GetVariantPartsPath and
+    // friends, which return the base for idx==0):
+    //   * variant index 0 is IMPLICIT — the outfit's top-level
+    //     partsPath / fpkPath / camoFpk / etc. fields define this
+    //     "base" appearance. variants[0] is left default-constructed
+    //     and never accessed by the runtime getters.
+    //   * variant index 1..N corresponds to entries in the Lua
+    //     `variants` array (1-based in Lua → variants[1..N] in C++).
+    //   * variantCount = N + 1 when at least one Lua entry is
+    //     populated (so HasVariants() returns true and the runtime
+    //     accessors can index up through the highest filled slot).
+    //   * variantCount = 0 when no Lua entries (HasVariants() is
+    //     false; runtime asks GetActiveVariant which returns 0 →
+    //     getters return base).
+    //
+    // BUG FIX 2026-04-28: previously this code wrote each Lua entry
+    // to variants[def.variantCount++], starting at variants[0]. That
+    // collided with the base-at-index-0 convention — variants[0] was
+    // silently shadowed by the base in every getter, and SetActive-
+    // Variant clamped to variantCount-1 so the user's first Lua
+    // entry was unreachable. With one Lua entry, variants didn't work
+    // at all; with two, only the second was accessible (as variant 1).
+    // Now we write variants[i] (1-based) and set variantCount=N+1, so
+    // variants[1..N] match Lua entries 1..N and variant index 0 stays
+    // the base.
     void ReadVariantsArray(
         lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
     {
@@ -1641,9 +1667,12 @@ namespace
         if (LuaType(L, -1) == LUA_TTABLE)
         {
             const std::size_t n = LuaObjLen(L, -1);
-            const std::size_t cap = outfit::kMaxVariantsPerOutfit;
+            // Reserve variants[0] for the base; usable override slots
+            // are variants[1..kMaxVariantsPerOutfit-1] → cap = max-1.
+            const std::size_t cap = outfit::kMaxVariantsPerOutfit - 1;
             const std::size_t lim = (n < cap) ? n : cap;
 
+            std::uint8_t maxFilledSlot = 0;
             for (std::size_t i = 1; i <= lim; ++i)
             {
                 LuaRawGetI(L, -1, static_cast<int>(i));
@@ -1664,9 +1693,21 @@ namespace
                     if (TryReadTableIntField(L, -1, "displayNameId", displayId))
                         v.displayNameId = static_cast<std::uint16_t>(displayId & 0xFFFF);
 
-                    def.variants[def.variantCount++] = v;
+                    // Lua entry i (1-based) → variants[i]; matches the
+                    // runtime getter convention where idx 0 = base and
+                    // idx 1..N = explicit overrides.
+                    def.variants[i] = v;
+                    maxFilledSlot   = static_cast<std::uint8_t>(i);
                 }
                 LuaPop(L, 1);
+            }
+
+            if (maxFilledSlot > 0)
+            {
+                // variantCount = highest-filled-slot + 1 so HasVariants()
+                // is true and the getters' `idx >= variantCount` bounds
+                // check accepts indices 0..maxFilledSlot.
+                def.variantCount = static_cast<std::uint8_t>(maxFilledSlot + 1);
             }
         }
         LuaPop(L, 1);
@@ -1958,9 +1999,11 @@ static int __cdecl l_SetCurrentOutfit(lua_State* L)
 }
 
 // V_FrameWork.SetOutfitVariant(developId, variantIndex) — programmatic
-// variant switch. Updates the active-variant tracker so the next
-// runtime parts load picks the named variant. variantIndex is clamped
-// to the outfit's variantCount internally.
+// variant switch. Updates the active-variant tracker; if the outfit
+// being changed is the one currently equipped on the live player,
+// also drives ForcePartsReload to render the new variant immediately
+// (otherwise the change only takes effect on the next equip).
+// variantIndex is clamped to the outfit's variantCount internally.
 // Returns true on success, false if developId not found.
 static int __cdecl l_SetOutfitVariant(lua_State* L)
 {
@@ -1987,8 +2030,45 @@ static int __cdecl l_SetOutfitVariant(lua_State* L)
 
     outfit::SetActiveVariant(entry->partsType, v);
 
-    Log("[OutfitLua] SetOutfitVariant: developId=%d variantIndex=%d\n",
-        developIdRaw, static_cast<int>(v));
+    // If this outfit is currently equipped on the live player, drive
+    // an immediate re-equip so the variant change is visible NOW.
+    // Otherwise the change only takes effect at the next equip
+    // (mission-prep commit / supply-drop pickup).
+    //
+    // Uses ForceLiveSuitReload (3-arg ReqLoadout trampoline) which
+    // triggers the FULL natural pipeline: the orig wrapper calls
+    // vtable[0x140] internally, eventually firing SetSuit and an
+    // engine-scheduled LoadPartsNew (~400ms later) which dispatches
+    // through our per-asset hooks (LoadPlayerPartsParts etc.) and
+    // picks up the new GetActiveVariant result. This is what the
+    // mission-prep UNIFORMS panel cycle uses for vanilla outfits.
+    //
+    // Compare with ForcePartsReload (the supply-drop pickup helper),
+    // which calls trampoline LoadPartsNew directly — that primes
+    // asset state but doesn't re-trigger dispatch on its own (the
+    // supply-drop pipeline supplies the natural follow-up call).
+    // For a Lua-driven cycle there's no supply-drop pipeline running,
+    // so ForcePartsReload alone wouldn't actually re-render.
+    const std::uint8_t livePartsType = outfit::ReadLivePartsType();
+    const bool         isLiveOutfit  = (livePartsType == entry->partsType);
+
+    bool reloaded = false;
+    if (isLiveOutfit)
+    {
+        reloaded = outfit::ForceLiveSuitReload(
+            entry->playerType,
+            entry->partsType,
+            entry->selectorCode,
+            v);
+    }
+
+    Log("[OutfitLua] SetOutfitVariant: developId=%d variantIndex=%d "
+        "(live partsType=0x%02X — %s; ForceLiveSuitReload=%s)\n",
+        developIdRaw, static_cast<int>(v),
+        static_cast<unsigned>(livePartsType),
+        isLiveOutfit ? "matches, triggering live re-equip via ReqLoadout"
+                     : "different outfit equipped, change takes effect on next equip",
+        isLiveOutfit ? (reloaded ? "OK" : "skip/fail") : "n/a");
 
     PushLuaBool(L, true);
     return 1;

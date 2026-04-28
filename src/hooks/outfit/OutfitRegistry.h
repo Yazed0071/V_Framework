@@ -238,6 +238,21 @@ namespace outfit
         OutfitVariant  variants[kMaxVariantsPerOutfit] = {};
         std::uint8_t   variantCount                    = 0;
 
+        // Phase 5 — per-variant selector codes (UNIFORMS panel cycle).
+        //
+        // When variantCount > 0, RegisterOutfit reserves a contiguous
+        // block of selector codes — one per variant slot. Slot 0 is
+        // always the base selector (== this->selectorCode); slots
+        // 1..variantCount-1 are the cycle-sub-selectors used to
+        // populate adjacent cells of the same UNIFORMS row so the
+        // panel's variant cycle button moves between them like
+        // vanilla camo variants.
+        //
+        // For outfits with no variants (variantCount == 0), only
+        // variantSelectorCodes[0] is meaningful and equals
+        // selectorCode. The rest are 0xFF (sentinel / unallocated).
+        std::uint8_t   variantSelectorCodes[kMaxVariantsPerOutfit] = {};
+
         bool IsCamoCustom()      const { return camoFpk     > kSubAssetUseVanilla; }
         bool IsCamoFv2Custom()   const { return camoFv2     > kSubAssetUseVanilla; }
         bool IsFaceEnabled()     const { return faceFpk     != kSubAssetDisabled; }
@@ -277,6 +292,15 @@ namespace outfit
 
     bool TryGetOutfitBySelectorCode(std::uint8_t selectorCode,
                                     const OutfitEntry** outEntry);
+
+    // Look up an outfit by ANY of its variant selector codes. On match,
+    // outEntry receives the OutfitEntry pointer and outVariantIndex
+    // receives the variant slot (0 = base, 1..N-1 = explicit overrides).
+    // For outfits with no variants, selectorCode matches the base only
+    // and outVariantIndex is set to 0.
+    bool TryGetOutfitByVariantSelector(std::uint8_t selectorCode,
+                                       const OutfitEntry** outEntry,
+                                       std::uint8_t* outVariantIndex);
 
     bool TryGetOutfitByFlowIndex(std::uint16_t flowIndex,
                                  const OutfitEntry** outEntry);

@@ -316,6 +316,56 @@ namespace AddressSetRuntime
         // mid-animation, masking the visual transition under the
         // player's bend-over-box pose — matches vanilla feel.
         uintptr_t SupplyCboxActionPluginImpl_StateHandler1 = 0;
+        // SupplyCboxSystemImpl::RequestToDropImpl at retail 0x14A3A9030
+        // (mgsvtpp.exe.c:2835510). Decides interactive-pickup vs
+        // auto-burst-on-landing based on:
+        //   bVar2 = vtable[0x18](this+0x20) != 0 && (this[0x124] & 0x20)
+        //   if (bVar2 && this[0xf0] == 10) → AUTO-BURST (this[0x124] |= 0x10)
+        //   else                            → INTERACTIVE (this[0x124] |= 0x08)
+        //
+        // Dev-menu R&D Request supply drops have bit 0x20 set at +0x124,
+        // making them auto-burst on landing. iDroid Supply-Drop UI drops
+        // don't, so they enter the interactive pickup path. To make
+        // dev-menu custom-outfit drops behave like iDroid (vanilla feel),
+        // we hook this function and clear bit 0x20 BEFORE orig runs —
+        // ONLY when our pendingSupplyDropDevelopId stash matches a
+        // registered custom outfit. Vanilla supply drops left alone.
+        uintptr_t SupplyCboxSystemImpl_RequestToDropImpl = 0;
+        // SupplyCboxSystemImpl drop-timer tick handler at retail
+        // 0x14A3A83F0 (FUN_14a3a83f0; mgsvtpp.exe.c:2835446-2835484).
+        // Disproven hypothesis 2026-04-28: thought this was the auto-
+        // burst trigger (counter-completion path setting bit 0x10).
+        // Empirically it's NEVER called for dev-menu R&D Request flows
+        // — its only call site is FUN_14a3b1ca0, a TargetCallbackExec-
+        // style collision/hit handler (XREF count = 1). Hook is kept
+        // as a low-cost no-op for telemetry; the real auto-burst path
+        // is SupplyCboxSystemImpl_SettledHandler below.
+        uintptr_t SupplyCboxSystemImpl_OnDropTimerTick = 0;
+        // SupplyCboxSystemImpl mode-7 ("settled after chopper drop")
+        // handler at retail 0x14A3A7B30 (FUN_14a3a7b30; named in the
+        // Update state machine at FUN_1415c2210 case 7, mgsvtpp.exe.c:
+        // 2834024-2834026). When the chopper-drop arc completes the
+        // state machine advances mode through 0→1→2→3→...→7. Mode 7
+        // dispatches to this handler which inspects flags124 bit 0x20:
+        //   * bit 0x20 SET (vanilla iDroid Supply-Drop UI flow):
+        //     skips raycast/Reset block, advances mode → 8 with bit
+        //     0x08 set (interactive pickup ready). Phase machine then
+        //     engages phase 2 → player walks up → E-press → pickup.
+        //   * bit 0x20 CLEAR (dev-menu R&D Request flow): runs raycast
+        //     (line 2835392); if iVar7 == 0, calls Reset → box bursts
+        //     visually + mode → 0 + dropFlags cleared. THIS IS THE
+        //     "SELF-DESTRUCT ON LANDING" THE USER REPORTED.
+        //
+        // Hook this function with a pre-orig override: when our
+        // pendingSupplyDropDevelopId stash matches a registered custom
+        // outfit, REPLACE orig entirely with manual state advancement
+        // (clear bit 0x80, set bits 0x40 / 0x20 / 0x08, mode = 8).
+        // This mimics orig's success-path end state without going
+        // through the raycast→Reset block. The state machine continues
+        // to mode 8 and beyond; phase 2 engages for the player to walk
+        // up and press E (vanilla pickup motion). Vanilla iDroid drops
+        // are not touched (they don't match our stash).
+        uintptr_t SupplyCboxSystemImpl_SettledHandler = 0;
         uintptr_t CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo = 0;
         uintptr_t ResourceTable_DoesNeedFaceFova           = 0;
         uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar  = 0;
@@ -591,6 +641,9 @@ namespace AddressSetRuntime
             0x14024D330ull, // SuitList_GetSuitInfoTable (vtable[0x718] of OutfitListInject's sub58)
             0x1415C5270ull, // SupplyCboxSystemImpl_Reset
             0x1412A2F80ull, // SupplyCboxActionPluginImpl_StateHandler1 (phase-2 handler)
+            0x14A3A9030ull, // SupplyCboxSystemImpl_RequestToDropImpl (mgsvtpp.exe.c:2835510 — auto-burst vs interactive-pickup decision; clear bit 0x20 at this+0x124 to force interactive)
+            0x14A3A83F0ull, // SupplyCboxSystemImpl_OnDropTimerTick (disproven hypothesis — this fn is only XREF'd from FUN_14a3b1ca0 collision callback; never fires for dev-menu)
+            0x14A3A7B30ull, // SupplyCboxSystemImpl_SettledHandler (FUN_14a3a7b30; mode-7 case in Update FUN_1415c2210 — raycast→Reset path is the actual auto-burst trigger)
             0x14A49DA70ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
             0x140AE84B0ull, // ResourceTable_DoesNeedFaceFova
             0x140AE8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
@@ -763,6 +816,9 @@ namespace AddressSetRuntime
             0x0ull, // SuitList_GetSuitInfoTable
             0x0ull, // SupplyCboxSystemImpl_Reset
             0x0ull, // SupplyCboxActionPluginImpl_StateHandler1
+            0x0ull, // SupplyCboxSystemImpl_RequestToDropImpl (JP unknown; hook silently no-ops if unresolved)
+            0x0ull, // SupplyCboxSystemImpl_OnDropTimerTick (JP unknown; hook silently no-ops if unresolved)
+            0x0ull, // SupplyCboxSystemImpl_SettledHandler (JP unknown; hook silently no-ops if unresolved)
             0x0ull, // CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo
             0x0ull, // ResourceTable_DoesNeedFaceFova
             0x0ull, // ResourceTable_DoesNeedFaceFovaForAvatar

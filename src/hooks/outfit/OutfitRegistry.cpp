@@ -250,6 +250,76 @@ namespace outfit
             return false;
         }
 
+        // Reserve additional selectors for explicit variants. Variant 0
+        // is the base outfit (uses `selector` already allocated above);
+        // variants[1..variantCount-1] each need their own selector for
+        // the UNIFORMS panel cycle to write distinct cell entries.
+        //
+        // Allocator picks free slots from the same 0x80..0xFE pool, so
+        // we may not get contiguous codes — that's fine, the panel
+        // cycle uses the per-cell stored selector, not arithmetic.
+        const std::uint8_t variantSlots =
+            (def.variantCount > outfit::kMaxVariantsPerOutfit)
+                ? static_cast<std::uint8_t>(outfit::kMaxVariantsPerOutfit)
+                : def.variantCount;
+
+        std::uint8_t variantSelectors[outfit::kMaxVariantsPerOutfit] = {};
+        for (auto& v : variantSelectors) v = 0xFF;
+        variantSelectors[0] = selector;  // variant 0 = base
+        for (std::uint8_t vi = 1; vi < variantSlots; ++vi)
+        {
+            // Pre-mark earlier ones as taken by inserting them into a
+            // scratch tracker. AllocateSelector_NoLock walks g_Entries
+            // for "taken" state, so we need a temp registration to
+            // prevent double-allocation. Cheapest: do iterative scans
+            // that include our just-allocated codes by checking
+            // variantSelectors[0..vi-1] manually.
+            std::uint8_t alloc = 0xFF;
+            for (std::uint16_t cand = kCustomSelectorStart;
+                 cand <= kCustomSelectorEnd; ++cand)
+            {
+                const auto c = static_cast<std::uint8_t>(cand);
+                bool taken = false;
+                for (const auto& e : g_Entries)
+                {
+                    if (e.used && e.selectorCode == c) { taken = true; break; }
+                    // Also check variant selectors of all entries.
+                    if (e.used)
+                    {
+                        for (std::uint8_t k = 0; k < e.variantCount; ++k)
+                        {
+                            if (e.variantSelectorCodes[k] == c)
+                            {
+                                taken = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (taken) break;
+                }
+                // Also exclude codes we just allocated to siblings of
+                // this same outfit's variants (variantSelectors[0..vi-1]).
+                if (!taken)
+                {
+                    for (std::uint8_t k = 0; k < vi; ++k)
+                    {
+                        if (variantSelectors[k] == c) { taken = true; break; }
+                    }
+                }
+                if (!taken) { alloc = c; break; }
+            }
+            if (alloc == 0xFF)
+            {
+                Log("[OutfitRegistry] reject: ran out of selector codes "
+                    "while reserving variant %u of %u (variantCount=%u)\n",
+                    static_cast<unsigned>(vi),
+                    static_cast<unsigned>(variantSlots),
+                    static_cast<unsigned>(def.variantCount));
+                return false;
+            }
+            variantSelectors[vi] = alloc;
+        }
+
         // Find a free entry slot.
         OutfitEntry* slot = nullptr;
         for (auto& e : g_Entries)
@@ -296,6 +366,12 @@ namespace outfit
         for (std::size_t i = 0; i < slot->variantCount; ++i)
             slot->variants[i] = def.variants[i];
 
+        // Copy the variant selectors we reserved above. Slot 0 always
+        // holds the base selector; slots 1..variantCount-1 hold the
+        // additional cycle selectors. Unused slots get 0xFF sentinel.
+        for (std::size_t i = 0; i < outfit::kMaxVariantsPerOutfit; ++i)
+            slot->variantSelectorCodes[i] = variantSelectors[i];
+
         slot->enableHead           = def.enableHead;
         slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
         slot->langEquipNameHash    = def.langEquipNameHash;
@@ -306,6 +382,7 @@ namespace outfit
             "playerType=%u partsType=0x%02X selector=0x%02X "
             "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
             "langEquipNameHash=0x%016llX "
+            "variantCount=%u variantSelectors=[0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X] "
             "parts=0x%016llX fpk=0x%016llX\n",
             def.key ? def.key : "(unkeyed)",
             static_cast<unsigned>(def.developId),
@@ -318,6 +395,15 @@ namespace outfit
             static_cast<unsigned>(def.headOptionCount),
             def.supportsHeadOptions ? 1 : 0,
             static_cast<unsigned long long>(def.langEquipNameHash),
+            static_cast<unsigned>(slot->variantCount),
+            static_cast<unsigned>(slot->variantSelectorCodes[0]),
+            static_cast<unsigned>(slot->variantSelectorCodes[1]),
+            static_cast<unsigned>(slot->variantSelectorCodes[2]),
+            static_cast<unsigned>(slot->variantSelectorCodes[3]),
+            static_cast<unsigned>(slot->variantSelectorCodes[4]),
+            static_cast<unsigned>(slot->variantSelectorCodes[5]),
+            static_cast<unsigned>(slot->variantSelectorCodes[6]),
+            static_cast<unsigned>(slot->variantSelectorCodes[7]),
             static_cast<unsigned long long>(def.partsPathCode64),
             static_cast<unsigned long long>(def.fpkPathCode64));
 
@@ -349,10 +435,23 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
-            if (e.used && e.selectorCode == selectorCode)
+            if (!e.used) continue;
+            // Match base or any variant selector — the caller usually
+            // just wants the entry regardless of which variant cell
+            // was clicked. Use TryGetOutfitByVariantSelector if you
+            // also need the variant index.
+            if (e.selectorCode == selectorCode)
             {
                 if (outEntry) *outEntry = &e;
                 return true;
+            }
+            for (std::uint8_t vi = 1; vi < e.variantCount; ++vi)
+            {
+                if (e.variantSelectorCodes[vi] == selectorCode)
+                {
+                    if (outEntry) *outEntry = &e;
+                    return true;
+                }
             }
         }
         return false;
@@ -367,6 +466,36 @@ namespace outfit
             {
                 if (outEntry) *outEntry = &e;
                 return true;
+            }
+        }
+        return false;
+    }
+
+    bool TryGetOutfitByVariantSelector(std::uint8_t selectorCode,
+                                       const OutfitEntry** outEntry,
+                                       std::uint8_t* outVariantIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const auto& e : g_Entries)
+        {
+            if (!e.used) continue;
+            // Variant 0 is always the base selector.
+            if (e.selectorCode == selectorCode)
+            {
+                if (outEntry) *outEntry = &e;
+                if (outVariantIndex) *outVariantIndex = 0;
+                return true;
+            }
+            // Variants 1..variantCount-1 use the reserved per-variant
+            // selectors. Skip slot 0 (already checked via base).
+            for (std::uint8_t vi = 1; vi < e.variantCount; ++vi)
+            {
+                if (e.variantSelectorCodes[vi] == selectorCode)
+                {
+                    if (outEntry) *outEntry = &e;
+                    if (outVariantIndex) *outVariantIndex = vi;
+                    return true;
+                }
             }
         }
         return false;

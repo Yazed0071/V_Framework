@@ -99,6 +99,7 @@ namespace
     // the actual equip pipeline.
     constexpr std::size_t kInfoOff_PartsType  = 0x00;  // u8
     constexpr std::size_t kInfoOff_CamoType   = 0x01;  // u8
+    constexpr std::size_t kInfoOff_Variant    = 0x02;  // u8 (matches OutfitCommit::kBlobOff_Variant)
     constexpr std::size_t kInfoOff_FaceId     = 0x03;  // u16
     constexpr std::size_t kInfoOff_Flags      = 0xBC;  // u32
     constexpr std::size_t kInfoOff_PlayerType = 0xC0;  // u8
@@ -160,13 +161,28 @@ namespace
             if (chosen) via = "by-partsType";
         }
 
-        // 2. camo in custom selector range.
+        // 2. camo in custom selector range. Use the variant-aware
+        // lookup so a non-base cycle cell (selectorCode=variant N's
+        // reserved code) decodes to the right (entry, variantIndex)
+        // pair. The variant index will be written into blob[0x02]
+        // below so OutfitCommit's downstream `SetActiveVariant` reads
+        // the right value (rather than the orig pipeline's default 0
+        // — which would silently clobber any prior SetActiveVariant
+        // call from the ItemSelector click handler).
+        std::uint8_t resolvedVariantIdx = 0;
+        bool         resolvedVariantValid = false;
         if (!chosen
          && camoType >= outfit::kCustomSelectorStart
          && camoType <= outfit::kCustomSelectorEnd)
         {
-            outfit::TryGetOutfitBySelectorCode(camoType, &chosen);
-            if (chosen) via = "by-selectorCode";
+            std::uint8_t vi = 0;
+            if (outfit::TryGetOutfitByVariantSelector(camoType, &chosen, &vi)
+                && chosen)
+            {
+                via = "by-selectorCode";
+                resolvedVariantIdx   = vi;
+                resolvedVariantValid = true;
+            }
         }
 
         // 3. Broken-custom signal (partsType=0, camo=0xFF) — resolve
@@ -355,14 +371,35 @@ namespace
             base[kInfoOff_PartsType] = chosen->partsType;
             base[kInfoOff_CamoType]  = chosen->selectorCode;
 
+            // Variant byte at blob[0x02] is read by OutfitCommit which
+            // calls `SetActiveVariant(partsType, blob[0x02])` post-orig.
+            // If a UNIFORMS-cycle cell click triggered this rewrite,
+            // we know the user-selected variant index (decoded from the
+            // per-variant selector code) — write it here so the
+            // downstream SetActiveVariant call sees the right value.
+            // Otherwise the orig pipeline's default of 0 silently
+            // clobbers any earlier variant the ItemSelector click
+            // handler set.
+            //
+            // For other resolution paths (by-partsType, broken-custom,
+            // etc.) we DON'T have a clean variant signal — leave
+            // blob[0x02] alone so OutfitCommit can either honor an
+            // already-set value (e.g. from an explicit Lua API call)
+            // or pick the default 0 (base outfit).
+            if (resolvedVariantValid)
+            {
+                base[kInfoOff_Variant] = resolvedVariantIdx;
+            }
+
             Log("[OutfitSuitConditionApply:%s] rewrote loadout (via %s) "
                 "-> developId=%u partsType=0x%02X selector=0x%02X "
-                "(effective=%u outfit-playerType=%u; livePT=%u "
+                "variant=%u (effective=%u outfit-playerType=%u; livePT=%u "
                 "info[0xC0]=%u flags=0x%X 0x100=%s)\n",
                 tag, via,
                 static_cast<unsigned>(chosen->developId),
                 static_cast<unsigned>(chosen->partsType),
                 static_cast<unsigned>(chosen->selectorCode),
+                static_cast<unsigned>(base[kInfoOff_Variant]),
                 static_cast<unsigned>(effectivePT),
                 static_cast<unsigned>(chosen->playerType),
                 static_cast<unsigned>(livePT),
@@ -599,6 +636,98 @@ namespace
 
 namespace outfit
 {
+    bool ForceLiveSuitReload(std::uint8_t playerType,
+                             std::uint8_t partsType,
+                             std::uint8_t selectorCode,
+                             std::uint8_t variantIndex)
+    {
+        if (!g_OrigReqLoadout)
+        {
+            Log("[OutfitSuitConditionApply] ForceLiveSuitReload: "
+                "ReqLoadout trampoline not yet captured (hook not "
+                "installed?) — skipping\n");
+            return false;
+        }
+
+        // Synthesize a SupplyCboxLoadoutInfo. Zero-init a buffer
+        // larger than the largest field we touch (info[0xC0]) plus
+        // headroom for any unmapped fields orig might dereference
+        // beyond what we've documented. 256 bytes is generous.
+        alignas(8) std::uint8_t info[256] = {};
+
+        info[kInfoOff_PartsType] = partsType;     // [0]
+        info[kInfoOff_CamoType]  = selectorCode;  // [1]
+
+        // Variant index — OutfitCommit reads blob[0x02] and calls
+        // SetActiveVariant. Including it here keeps the active
+        // variant aligned with what we're reloading (Lua already
+        // called SetActiveVariant; this re-asserts it via the
+        // commit pipeline).
+        info[0x02] = variantIndex;
+
+        // playerType info[0xC0] is left at 0 — see flags note below.
+        (void)playerType;
+
+        // Apply flags at info[0xBC]:
+        //   bit 0   (0x001) = "apply suit bytes" — required to write
+        //                     partsType/camo to Quark live state.
+        //   bit 1   (0x002) = "apply 13-byte loadout block" — NOT
+        //                     set, we don't want to overwrite weapon
+        //                     slots with our zeroed slot bytes.
+        //   bit 7   (0x080) = "apply face id" — NOT set, we don't
+        //                     want to change the user's face for a
+        //                     variant cycle.
+        //   bit 8   (0x100) = "playerType valid" — DELIBERATELY NOT
+        //                     SET. When this bit is set, orig SetSuit
+        //                     enters its playerType-apply branch
+        //                     which reads info[0xC8] (a packed
+        //                     soldierFace+playerType u32) to compute
+        //                     Quark+0xFB (playerType) and Quark+0xFC
+        //                     (soldierFace). Our zero-init info has
+        //                     [0xC8]=0, which makes orig write
+        //                     Quark.playerType=1 and Quark.soldierFace
+        //                     =0 — the natural LoadPartsNew that
+        //                     follows then reads those values and
+        //                     fires with playerType=1, no longer
+        //                     matching our outfit's playerType=2 →
+        //                     framework rejects as stray-custom and
+        //                     forces vanilla NORMAL.
+        //
+        //                     Skipping this branch (flags=0x01) keeps
+        //                     Quark.playerType + Quark.soldierFace at
+        //                     their existing user-character values.
+        //                     The natural LoadPartsNew correctly
+        //                     fires with the user's real playerType
+        //                     and soldierFace.
+        *reinterpret_cast<std::uint32_t*>(info + kInfoOff_Flags) =
+            0x001u;
+
+        Log("[OutfitSuitConditionApply] ForceLiveSuitReload: "
+            "playerType=%u partsType=0x%02X selector=0x%02X variant=%u "
+            "— calling 3-arg ReqLoadout trampoline (orig will dispatch "
+            "vtable[0x140] → SetSuit → engine schedules natural "
+            "LoadPartsNew ~400ms later)\n",
+            static_cast<unsigned>(playerType),
+            static_cast<unsigned>(partsType),
+            static_cast<unsigned>(selectorCode),
+            static_cast<unsigned>(variantIndex));
+
+        __try
+        {
+            // The 3-arg orig wrapper at 0x1462B6590 calls
+            // GetPlayer2System() internally; the `this` parameter
+            // (param_1) is unused by the wrapper. nullptr is fine.
+            g_OrigReqLoadout(nullptr, info, /*apply=*/1);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitSuitConditionApply] ForceLiveSuitReload: SEH "
+                "calling ReqLoadout trampoline\n");
+            return false;
+        }
+    }
+
     bool Install_OutfitSuitConditionApply_Hook()
     {
         if (!g_Installed)
