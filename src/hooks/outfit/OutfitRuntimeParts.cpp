@@ -3,6 +3,7 @@
 #include "OutfitRuntimeParts.h"
 #include "OutfitRegistry.h"
 
+#include <atomic>
 #include <cstdint>
 
 #include "AddressSet.h"
@@ -132,6 +133,43 @@ namespace
     // main-thread hook fire.
     // ----------------------------------------------------------------
     static thread_local std::uint8_t tl_SpoofedRealPartsType = 0;  // 0 = no spoof active
+
+    // After ForcePartsReload completes, the orig supply-drop pickup
+    // pipeline still fires its OWN follow-up LoadPartsNew with the
+    // broken-custom transient signal (partsType=0, camo=0xFF). The
+    // broken-custom resolver in hkLoadPartsNew then resolves it via
+    // pendingOutfitDevelopId and would re-issue the orig load — a
+    // SECOND load 100-200ms after our ForcePartsReload's first load
+    // is still mid-progress. Two concurrent loads of the same outfit
+    // race in the asset loader's state machine and hang the body
+    // change indefinitely (user-visible "infinite loading").
+    //
+    // To prevent the redundant second load, ForcePartsReload publishes
+    // the developId it just loaded into this atomic. The broken-custom
+    // resolver checks the atomic: if the resolved developId matches,
+    // skip the orig LoadPartsNew (return without calling it). The
+    // first ForcePartsReload load is still in flight; the asset loader
+    // completes that one cleanly, and we don't pile a duplicate on top.
+    //
+    // The atomic is one-shot: cleared after the first broken-custom
+    // suppression so a subsequent legitimate broken-custom signal
+    // (e.g. for a different outfit, or a reload of the same outfit
+    // later) takes the normal resolve-and-call-orig path.
+    static std::atomic<std::uint16_t> g_RecentForcePartsReloadDevId{0};
+
+    // Snapshot of the last natural LoadPartsNew's info struct values.
+    // ForcePartsReload uses these to populate the FULL info struct
+    // it passes to orig — empirically, orig short-circuits the load
+    // when fields like playerFaceId are zero (the stripped-info
+    // ForcePartsReload was building). Capturing the user's actual
+    // soldierFace / faceUnk / armType / faceEquipId from the most
+    // recent natural fire and reusing them gives orig a recognizable
+    // "real load" call so it dispatches to the per-asset loaders.
+    static std::int16_t  g_LastInfoFaceId      = 0;     // soldier face ID (e.g. 378)
+    static std::uint16_t g_LastInfoFaceEquipId = 0;
+    static std::uint8_t  g_LastInfoFaceUnk     = 0;
+    static std::uint8_t  g_LastInfoArmType     = 0;
+    static bool          g_LastInfoCaptured    = false;
 
     // Returns the partsType to use for OutfitEntry lookup. When a
     // hkLoadPartsNew partsType-spoof is active, returns the stashed REAL
@@ -322,39 +360,97 @@ namespace
     // for any future call site that isn't inlined.
     static std::uint8_t __fastcall hkDoesNeedFaceFova(std::uint32_t playerPartsType)
     {
-        // Custom partsType range only. Vanilla partsTypes defer to orig
-        // immediately so unrelated callers see vanilla behavior.
-        if (playerPartsType >= outfit::kCustomPartsTypeStart
-         && playerPartsType <= outfit::kCustomPartsTypeEnd)
+        // Resolve the EFFECTIVE partsType — `playerPartsType` is the
+        // value orig is calling us with. When `hkLoadPartsNew` has
+        // spoofed `info->playerPartsType` to 0x00 (so orig recognizes
+        // it and proceeds with the load), `playerPartsType` arrives
+        // here as 0x00 even for our custom outfits. EffectivePartsType
+        // reads the thread-local stash and returns the REAL custom
+        // partsType, so we can look up the registered outfit and
+        // decide whether the face should actually be loaded.
+        const std::uint32_t effective = EffectivePartsType(playerPartsType);
+
+        if (effective >= outfit::kCustomPartsTypeStart
+         && effective <= outfit::kCustomPartsTypeEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
-            const auto pt = static_cast<std::uint8_t>(playerPartsType & 0xFF);
+            const auto pt = static_cast<std::uint8_t>(effective & 0xFF);
             const bool found = outfit::TryGetOutfitByPartsType(pt, &entry)
                             && entry;
             const bool enabled = found && entry->IsHeadEnabled();
 
             // The non-inlined call sites (LOD / shadow / etc.) poll this
             // every frame; only log when the resolved (partsType, found,
-            // enabled) tuple changes to avoid flooding the log at 60Hz.
+            // enabled, spoofActive) tuple changes to avoid flooding the
+            // log at 60Hz.
+            const bool spoofActive = (effective != playerPartsType);
             static std::uint32_t s_lastPartsType = 0xFFFFFFFFu;
             static int           s_lastFound    = -1;
             static int           s_lastEnabled  = -1;
-            if (s_lastPartsType != playerPartsType
-                || s_lastFound  != (found   ? 1 : 0)
-                || s_lastEnabled!= (enabled ? 1 : 0))
+            static int           s_lastSpoof    = -1;
+            if (s_lastPartsType != effective
+                || s_lastFound  != (found       ? 1 : 0)
+                || s_lastEnabled!= (enabled     ? 1 : 0)
+                || s_lastSpoof  != (spoofActive ? 1 : 0))
             {
                 Log("[OutfitRuntimeParts] hkDoesNeedFaceFova: partsType=0x%X "
-                    "found=%d enableHead=%d -> %s\n",
+                    "(effective=0x%X) found=%d enableHead=%d spoof=%d -> %s\n",
                     playerPartsType,
+                    effective,
                     found ? 1 : 0,
                     enabled ? 1 : 0,
-                    enabled ? "1 (override -> load face)" : "fall-through to orig");
-                s_lastPartsType = playerPartsType;
+                    spoofActive ? 1 : 0,
+                    found
+                        ? "1 (registered outfit -> proceed with reload; "
+                          "face suppressed at info layer for !enableHead)"
+                        : "fall-through to orig");
+                s_lastPartsType = effective;
                 s_lastFound     = found   ? 1 : 0;
                 s_lastEnabled   = enabled ? 1 : 0;
+                s_lastSpoof     = spoofActive ? 1 : 0;
             }
 
-            if (enabled) return 1;
+            if (found)
+            {
+                // 2026-04-28 — REVERSED the !enableHead → 0 override.
+                //
+                // Earlier intent was: for !enableHead outfits (Jill,
+                // partsType=0x41), return 0 here to make orig SKIP
+                // its face-load branch — the body has an integrated
+                // head, a separate face FPK would float on top.
+                //
+                // Runtime testing 2026-04-28 (log 03:26:02.112)
+                // disproved that: with the spoof scope active, returning
+                // 0 from this function gates orig's BODY-PARTS dispatch
+                // too, not just the face dispatch. After the hook
+                // returned 0, orig bailed the entire reload — no
+                // LoadPlayerPartsParts, no LoadPlayerCamoFpk, body
+                // never loaded → infinite loading screen.
+                //
+                // Theory: the function-call site we're hooking is not
+                // a passive "LOD/shadow" decoration as previously
+                // hypothesized. It's actually one of orig's main
+                // dispatch gates. Returning 0 → "no face load needed"
+                // is interpreted by orig as "no work for this slot"
+                // and the entire reload short-circuits.
+                //
+                // Fix: return 1 unconditionally for any registered
+                // custom outfit in spoof scope. This lets orig think
+                // a face IS needed and proceed with the full reload
+                // (parts + camo + face). For !enableHead outfits, we
+                // suppress the face load itself via a different
+                // mechanism: hkLoadPartsNew zeroes info->playerFaceId
+                // in the spoof block for !enableHead outfits, so orig
+                // has no face record to actually load — the integrated
+                // head on the body parts file is rendered alone.
+                //
+                // For enableHead outfits (FROG, partsType=0x40), the
+                // user's face IS supposed to load (the body parts file
+                // is headless). No suppression needed.
+                return std::uint8_t{1};
+            }
+            // Custom range but no registered entry — stale partsType.
+            // Defer to orig so the game's own behavior decides.
         }
         return g_OrigDoesNeedFaceFova
              ? g_OrigDoesNeedFaceFova(playerPartsType)
@@ -393,6 +489,21 @@ namespace
                 static_cast<unsigned>(info->playerFaceEquipId),
                 static_cast<int>(info->playerFaceId),
                 static_cast<unsigned>(info->playerFaceEquipUnk));
+
+            // Snapshot user-context fields when present so ForcePartsReload
+            // can pass full info to orig (zero-init "stripped info" makes
+            // orig short-circuit the load — see g_LastInfo* declaration
+            // for full explanation). Only capture when soldierFace is
+            // populated (i.e. the call has the user's character info,
+            // not a degenerate zero-everything flag=0x40 fire).
+            if (info->playerFaceId != 0)
+            {
+                g_LastInfoFaceId      = info->playerFaceId;
+                g_LastInfoFaceEquipId = info->playerFaceEquipId;
+                g_LastInfoFaceUnk     = info->playerFaceEquipUnk;
+                g_LastInfoArmType     = info->playerArmType;
+                g_LastInfoCaptured    = true;
+            }
 
             // Supply-drop / non-MissionPrep equip path arrives at
             // LoadPartsNew with a broken-custom or partial-custom
@@ -494,6 +605,26 @@ namespace
 
                 if (chosen)
                 {
+                    // 2026-04-28 — REMOVED the "skip orig if recent
+                    // ForcePartsReload" suppression.
+                    //
+                    // Empirical evidence (iDroid Supply-Drop pickup
+                    // log 03:53:18): LoadPlayerPartsParts dispatches
+                    // from ORIG's redundant LoadPartsNew call (the one
+                    // arriving ~100-200ms after ForcePartsReload), NOT
+                    // from ForcePartsReload's trampoline call directly.
+                    // ForcePartsReload primes asset-load state; orig's
+                    // redundant call drives the actual parts dispatch.
+                    //
+                    // Skipping orig in the resolver was therefore wrong
+                    // — it bypassed the only call that actually fires
+                    // LoadPlayerPartsParts. The body never loaded
+                    // because we suppressed the call that loads it.
+                    //
+                    // Always rewrite bytes + write Quark + fall through
+                    // to the main-flow partsType-spoof block + orig.
+                    // The token (still published by ForcePartsReload
+                    // for telemetry) is no longer consumed here.
                     Log("[OutfitRuntimeParts] LoadPartsNew: supply-drop "
                         "broken-custom (partsType=0,camo=0xFF) for playerType=%u "
                         "-> resolved via %s developId=%u partsType=0x%02X selector=0x%02X\n",
@@ -504,11 +635,6 @@ namespace
                         static_cast<unsigned>(chosen->selectorCode));
                     info->playerPartsType = chosen->partsType;
                     info->playerCamoType  = chosen->selectorCode;
-
-                    // Sync Quark live state — see comment in the
-                    // partial-custom branch above. Without this the
-                    // rewritten info passes through but the orig
-                    // doesn't actually load the asset.
                     outfit::WriteLivePlayerOutfit(chosen->partsType,
                                                    chosen->selectorCode,
                                                    chosen->playerType);
@@ -621,12 +747,35 @@ namespace
             // line 1310936); the pointer points to shell+0xF0 (the
             // TypeInfo block, where byte 1 is partsType).
             //
-            // Gated on isCustom + IsHeadEnabled, so only registered
-            // outfits with enableHead=true trigger the spoof. Vanilla
-            // suits and outfits without enableHead are untouched.
+            // Gated on isCustom only — the spoof is needed for ANY
+            // custom partsType, not just enableHead ones. Originally
+            // gated on `entry->IsHeadEnabled()` because the inlined
+            // DoesNeedFaceFova gate was the known motivator. But
+            // 2026-04-28 runtime testing of supply-drop pickup of a
+            // non-enableHead custom outfit (Jill, partsType=0x41,
+            // enableHead=0) revealed orig LoadPartsNew SILENTLY BAILS
+            // when given an unrecognized partsType in the custom range
+            // (0x40..0x7F). It doesn't dispatch to the per-asset
+            // loaders (LoadPlayerPartsParts etc.), so the body never
+            // loads → infinite loading screen on supply-drop crate
+            // pickup. Spoofing to 0x00 makes orig recognize a vanilla
+            // partsType and proceed normally; per-asset hooks route
+            // back to the custom outfit's assets via EffectivePartsType.
+            //
+            // Side-effect for non-enableHead outfits: orig sees
+            // partsType=0x00 → DoesNeedFaceFova(0x00) returns true →
+            // orig wants to load a face. Without intervention, that
+            // would put the user's face on top of (e.g.) Jill's
+            // integrated head. `hkDoesNeedFaceFova` was extended in
+            // the same change to detect spoofed-non-enableHead via
+            // EffectivePartsType + entry->IsHeadEnabled() and return
+            // 0, suppressing the orig face load.
+            //
+            // Vanilla suits and non-custom outfits are untouched.
             //
             // Spoof to 0x00 (vanilla NORMAL), not 0x07 or other, because:
-            //   (a) DoesNeedFaceFova(0x00) returns true.
+            //   (a) DoesNeedFaceFova(0x00) returns true (relevant for
+            //       enableHead outfits where we want the face load).
             //   (b) The orig BlockShell equality short-circuit at line
             //       1310891-1310900 compares shell.partsType to spoofed
             //       0x00 — for re-equips of the same outfit, the previous
@@ -635,33 +784,126 @@ namespace
             //   (c) Other partsType-keyed lookups (asset arrays etc.) in
             //       orig route via param to our per-asset hooks, which
             //       use EffectivePartsType to reach the real custom range.
-            const bool spoofPartsType =
-                isCustom && entry && entry->IsHeadEnabled();
+            const bool spoofPartsType = isCustom && entry;
             const std::uint8_t origPartsType = info->playerPartsType;
+            std::uint8_t* shellTypeInfoPtr = nullptr;
+            std::uint8_t  prevShellPartsType = 0;
+            bool          shellSentinelWritten = false;
+
+            // 2026-04-28 — DISABLED playerFaceId=0 face suppression
+            // for !enableHead outfits — AGAIN.
+            //
+            // Test result (Jill via dev-menu pickup, log 04:06:14):
+            // with ForcePartsReload now driving the load AND
+            // playerFaceId=0 suppressing the face, body still didn't
+            // load (no LoadPlayerPartsParts). Comparing against
+            // working iDroid FROGS pickup (03:53:18) where soldierFace
+            // was 378 (non-zero) and body loaded fine, the face
+            // suppression appears to gate the body dispatch too.
+            //
+            // For now: don't suppress here. Body load takes priority.
+            // The user's complaint "head always appears even when
+            // enableHead=false" is a real cosmetic issue but needs
+            // a different solution layer:
+            //   - Intercept the face-FPK loader (Soldier2FaceSystem
+            //     somewhere) and emit empty paths for !enableHead
+            //     outfits.
+            //   - Or hook the shell.face/hair/hairDeco/faceDeco
+            //     PathId writes (orig writes them at line 1310939-
+            //     1310972) and zero them post-load.
+            // Both are TBD — first verify body loads.
+            constexpr bool     suppressFace = false;
+            const std::int16_t origFaceId =
+                info ? info->playerFaceId : std::int16_t{0};
+            (void)suppressFace;
+            (void)origFaceId;
+
             if (spoofPartsType)
             {
                 tl_SpoofedRealPartsType = origPartsType;  // stash real
                 info->playerPartsType   = 0x00;           // spoof to NORMAL
+
+                // PRE-ORIG SHELL CLOBBER (added 2026-04-28).
+                //
+                // Orig BlockControllerImpl::LoadPartsNew has an early
+                // equality short-circuit at named-build line 1310891-1310900
+                // that compares shell.partsType to info.playerPartsType
+                // and bails the entire reload if they match — no dispatch
+                // to LoadPlayerPartsParts/Fpk/CamoFpk, body never loads.
+                //
+                // Vulnerable case (verified in log 03:13:16.198): user
+                // wearing vanilla NORMAL (shell.partsType=0x00) requests
+                // a custom outfit via supply drop. At pickup time:
+                //   - resolver rewrites info.partsType=0x41 (real custom)
+                //   - spoof rewrites info.partsType=0x00 (vanilla NORMAL)
+                //   - shell.partsType is still 0x00 from the previous
+                //     vanilla equip
+                //   - orig sees info==shell on partsType, short-circuits,
+                //     skips body load → infinite loading screen.
+                //
+                // Re-equip-of-same-custom case worked previously because
+                // the previous LoadPartsNew's post-orig restore left
+                // shell.partsType=0x40 (the real custom value), and 0x40
+                // != 0x00 (spoofed) → orig proceeded with reload. But
+                // the first-equip-from-vanilla case wasn't covered.
+                //
+                // Fix: pre-orig, save the current shell.partsType and
+                // clobber it to 0xFE (sentinel value never written by
+                // legitimate code paths). Now orig sees info.partsType=
+                // 0x00 != shell.partsType=0xFE on every spoof-scope call,
+                // proceeds with the load, dispatches LoadPlayerPartsParts
+                // via per-asset hooks. After orig: restore shell to the
+                // REAL custom partsType (origPartsType) so future
+                // equality checks see the correct value.
+                __try
+                {
+                    shellTypeInfoPtr =
+                        *reinterpret_cast<std::uint8_t**>(
+                            reinterpret_cast<std::uint8_t*>(self)
+                            + playerIndex * 8 + 0x1100);
+                    if (shellTypeInfoPtr)
+                    {
+                        prevShellPartsType    = shellTypeInfoPtr[1];
+                        shellTypeInfoPtr[1]   = 0xFE;  // sentinel
+                        shellSentinelWritten  = true;
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    Log("[OutfitRuntimeParts] hkLoadPartsNew: SEH "
+                        "clobbering BlockShell partsType pre-orig "
+                        "(self=%p playerIndex=%u)\n",
+                        self, playerIndex);
+                    shellTypeInfoPtr = nullptr;
+                }
+
                 Log("[OutfitRuntimeParts] hkLoadPartsNew: spoofing partsType "
-                    "0x%02X -> 0x00 for inlined DoesNeedFaceFova "
-                    "(enableHead path, camo=0x%02X soldierFace=%d)\n",
+                    "0x%02X -> 0x00 (camo=0x%02X soldierFace=%d, "
+                    "shellPre=0x%02X -> 0xFE [%s]) — calling orig...\n",
                     static_cast<unsigned>(origPartsType),
                     static_cast<unsigned>(info->playerCamoType),
-                    static_cast<int>(info->playerFaceId));
+                    static_cast<int>(info->playerFaceId),
+                    static_cast<unsigned>(prevShellPartsType),
+                    shellSentinelWritten ? "clobbered" : "shell-ptr-null");
             }
 
             g_OrigLoadPartsNew(self, playerIndex, info, flags);
 
+            // Diagnostic: if this fires, orig RETURNED (didn't hang).
             if (spoofPartsType)
             {
+                Log("[OutfitRuntimeParts] hkLoadPartsNew: orig returned "
+                    "after spoofed call (partsType=0x%02X[real] camo=0x%02X "
+                    "shell=0x%02X) — restoring spoof state\n",
+                    static_cast<unsigned>(origPartsType),
+                    static_cast<unsigned>(info->playerCamoType),
+                    shellTypeInfoPtr ? static_cast<unsigned>(shellTypeInfoPtr[1])
+                                     : 0xFFFFu);
+
                 info->playerPartsType   = origPartsType;
                 tl_SpoofedRealPartsType = 0;  // clear spoof state
                 __try
                 {
-                    auto* shellTypeInfoPtr =
-                        *reinterpret_cast<std::uint8_t**>(
-                            reinterpret_cast<std::uint8_t*>(self)
-                            + playerIndex * 8 + 0x1100);
                     if (shellTypeInfoPtr)
                         shellTypeInfoPtr[1] = origPartsType;  // playerPartsType offset
                 }
@@ -672,6 +914,7 @@ namespace
                         self, playerIndex);
                 }
             }
+
             return;
         }
 
@@ -741,18 +984,30 @@ namespace outfit
             return false;
         }
 
-        // Build a minimal LoadPartsPlayerInfo populated with the target
-        // outfit bytes. The other fields (camo materials, face, etc.)
-        // are left zero — the orig + the per-asset hooks (LoadPlayerPartsParts,
-        // LoadPlayerPartsFpk, LoadPlayerCamoFpk) will resolve sub-assets
-        // from the registered OutfitEntry.
+        // Build a LoadPartsPlayerInfo populated with the target outfit
+        // bytes AND the user-context fields (soldierFace, faceUnk, arm,
+        // faceEquipId) snapshotted from the most recent natural
+        // LoadPartsNew fire. Empirically (2026-04-28 runtime testing),
+        // calling orig LoadPartsNew via trampoline with stripped info
+        // (playerFaceId=0 etc.) makes orig short-circuit the load —
+        // it doesn't dispatch to the per-asset loaders (LoadPlayerPartsParts
+        // doesn't fire), the body never appears, infinite-loading
+        // screen on supply-drop pickup. Reusing the captured user
+        // context gives orig a recognizable "real load" call so it
+        // dispatches normally; per-asset hooks then route the
+        // partsType-keyed lookups to the custom outfit's assets via
+        // EffectivePartsType.
+        // 2026-04-28 — DISABLED playerFaceId=0 face suppression for
+        // !enableHead (again). See hkLoadPartsNew spoof block comment.
+        // Body load takes priority over the head-cosmetic-overlay fix.
         LoadPartsPlayerInfo info{};
-        info.playerType      = playerType;
-        info.playerPartsType = partsType;
-        info.playerCamoType  = selectorCode;
-        info.playerArmType   = 0;
-        info.playerFaceId    = 0;
-        info.playerFaceEquipId = 0;
+        info.playerType         = playerType;
+        info.playerPartsType    = partsType;
+        info.playerCamoType     = selectorCode;
+        info.playerArmType      = g_LastInfoCaptured ? g_LastInfoArmType     : std::uint8_t{0};
+        info.playerFaceId       = g_LastInfoCaptured ? g_LastInfoFaceId      : std::int16_t{0};
+        info.playerFaceEquipId  = g_LastInfoCaptured ? g_LastInfoFaceEquipId : std::uint16_t{0};
+        info.playerFaceEquipUnk = g_LastInfoCaptured ? g_LastInfoFaceUnk     : std::uint8_t{0};
 
         // Flags 0x15F640 / 0x15F600 observed in normal LoadPartsNew
         // fires for player-slot 0 and 1 respectively (see prior runtime
@@ -771,25 +1026,88 @@ namespace outfit
         const bool quarkOk =
             outfit::WriteLivePlayerOutfit(partsType, selectorCode, playerType);
 
-        // Apply the same enableHead partsType-spoof we do in hkLoadPartsNew.
-        // ForcePartsReload calls the trampoline directly (NOT through our
-        // hook), so the spoof must happen here too — otherwise supply-drop
-        // pickups of enableHead outfits land headless.
+        // Apply the partsType-spoof we do in hkLoadPartsNew. ForcePartsReload
+        // calls the trampoline directly (NOT through our hook), so the spoof
+        // must happen here too. Originally gated on `IsHeadEnabled()` because
+        // the inlined DoesNeedFaceFova gate was the known motivator. But
+        // 2026-04-28 runtime testing of supply-drop pickup of a non-enableHead
+        // outfit (Jill, partsType=0x41) revealed orig LoadPartsNew SILENTLY
+        // BAILS when it doesn't recognize a custom-range partsType — no
+        // dispatch to per-asset loaders, body never loads, infinite loading
+        // screen. Spoofing to 0x00 (vanilla NORMAL) makes orig accept the
+        // partsType and proceed; per-asset hooks route back to the custom
+        // outfit's assets via EffectivePartsType (the thread-local that
+        // reads `tl_SpoofedRealPartsType`). hkDoesNeedFaceFova was extended
+        // in the same change to detect spoofed-non-enableHead via Effective-
+        // PartsType + IsHeadEnabled() and return 0, suppressing orig's face
+        // load (Jill has integrated head; we don't want a separate face on
+        // top).
+        //
+        // So: spoof for ALL custom outfits, regardless of enableHead.
         const outfit::OutfitEntry* entry = nullptr;
         const bool spoofPartsType =
             outfit::TryGetOutfitByPartsType(partsType, &entry)
-         && entry
-         && entry->IsHeadEnabled();
+         && entry;
         const std::uint8_t origPartsType = info.playerPartsType;
+
+        // Pre-orig shell clobber for the equality short-circuit (same
+        // motivation as the hkLoadPartsNew spoof block — see the long
+        // comment there). Orig BlockControllerImpl::LoadPartsNew bails
+        // the reload entirely if shell.partsType matches the spoofed
+        // info.playerPartsType (0x00). Most ForcePartsReload paths run
+        // shortly after a fresh natural LoadPartsNew that left the
+        // shells in some valid state, but on a freshly-vanilla shell
+        // (player was wearing NORMAL, partsType=0x00) the spoofed 0x00
+        // would equal shell's 0x00 → bail. Clobber to 0xFE pre-orig.
+        std::uint8_t* shellTypeInfoPtr0 = nullptr;
+        std::uint8_t* shellTypeInfoPtr1 = nullptr;
+        std::uint8_t  prevShellPartsType0 = 0;
+        std::uint8_t  prevShellPartsType1 = 0;
+
         if (spoofPartsType)
         {
             tl_SpoofedRealPartsType = origPartsType;
             info.playerPartsType    = 0x00;
+
+            __try
+            {
+                shellTypeInfoPtr0 =
+                    *reinterpret_cast<std::uint8_t**>(
+                        reinterpret_cast<std::uint8_t*>(g_CapturedBlockController)
+                        + 0u * 8 + 0x1100);
+                if (shellTypeInfoPtr0)
+                {
+                    prevShellPartsType0 = shellTypeInfoPtr0[1];
+                    shellTypeInfoPtr0[1] = 0xFE;
+                }
+
+                shellTypeInfoPtr1 =
+                    *reinterpret_cast<std::uint8_t**>(
+                        reinterpret_cast<std::uint8_t*>(g_CapturedBlockController)
+                        + 1u * 8 + 0x1100);
+                if (shellTypeInfoPtr1)
+                {
+                    prevShellPartsType1 = shellTypeInfoPtr1[1];
+                    shellTypeInfoPtr1[1] = 0xFE;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitRuntimeParts] ForcePartsReload: SEH "
+                    "clobbering BlockShell partsType pre-orig\n");
+                shellTypeInfoPtr0 = nullptr;
+                shellTypeInfoPtr1 = nullptr;
+            }
+
             Log("[OutfitRuntimeParts] ForcePartsReload: spoofing partsType "
-                "0x%02X -> 0x00 for inlined DoesNeedFaceFova "
-                "(enableHead path, selector=0x%02X)\n",
+                "0x%02X -> 0x00 for orig recognition "
+                "(custom outfit, enableHead=%d, selector=0x%02X, "
+                "shellPre=[0x%02X,0x%02X] -> 0xFE)\n",
                 static_cast<unsigned>(origPartsType),
-                static_cast<unsigned>(selectorCode));
+                entry && entry->IsHeadEnabled() ? 1 : 0,
+                static_cast<unsigned>(selectorCode),
+                static_cast<unsigned>(prevShellPartsType0),
+                static_cast<unsigned>(prevShellPartsType1));
         }
 
         Log("[OutfitRuntimeParts] ForcePartsReload: playerType=%u "
@@ -813,20 +1131,54 @@ namespace outfit
             // Clear spoof state on exception to avoid leaking into the
             // next legitimate LoadPartsNew fire on this thread.
             if (spoofPartsType) tl_SpoofedRealPartsType = 0;
+            // Best-effort restore of clobbered shell bytes so a stale
+            // 0xFE doesn't leak into the next natural LoadPartsNew.
+            __try
+            {
+                if (shellTypeInfoPtr0) shellTypeInfoPtr0[1] = origPartsType;
+                if (shellTypeInfoPtr1) shellTypeInfoPtr1[1] = origPartsType;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
             g_CapturedBlockController = nullptr;
             return false;
         }
 
-        // Restore spoofed bytes after the two slot fires. We don't try
-        // to restore each shell's TypeInfo cache here because the next
-        // natural hkLoadPartsNew fire will rewrite both shells with the
-        // real partsType=0x40 (Quark already has the real value, so the
-        // follow-up fire applies the real bytes). Clearing the
-        // thread-local is the only thing that's strictly required.
+        // Restore spoofed bytes after the two slot fires. Restore the
+        // shell.partsType cache to the REAL custom partsType so future
+        // equality checks see the correct value (and a stale 0xFE
+        // sentinel can't leak into the next natural LoadPartsNew).
         if (spoofPartsType)
         {
             info.playerPartsType    = origPartsType;
             tl_SpoofedRealPartsType = 0;
+            __try
+            {
+                if (shellTypeInfoPtr0) shellTypeInfoPtr0[1] = origPartsType;
+                if (shellTypeInfoPtr1) shellTypeInfoPtr1[1] = origPartsType;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitRuntimeParts] ForcePartsReload: SEH "
+                    "restoring BlockShell partsType post-orig\n");
+            }
+        }
+
+        // Publish the developId we just loaded so the broken-custom
+        // resolver in hkLoadPartsNew can suppress the orig pickup
+        // pipeline's redundant follow-up LoadPartsNew. Without this,
+        // the follow-up resolves via pendingOutfitDevelopId and
+        // re-issues the orig load while ours is still in progress —
+        // double-load race hangs the asset loader (user-visible
+        // "infinite loading on supply-drop pickup").
+        if (entry)
+        {
+            g_RecentForcePartsReloadDevId.store(
+                entry->developId, std::memory_order_release);
+            Log("[OutfitRuntimeParts] ForcePartsReload: published "
+                "developId=%u as recent-reload token (suppresses the "
+                "orig pickup pipeline's redundant LoadPartsNew that "
+                "fires ~100-200ms later)\n",
+                static_cast<unsigned>(entry->developId));
         }
         return true;
     }

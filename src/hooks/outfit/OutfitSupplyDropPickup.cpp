@@ -13,14 +13,14 @@
 namespace
 {
     // ---------------------------------------------------------------
-    // Three-layer pickup detection, in order of preference:
+    // Three-layer pickup detection:
     //
     //   1. PRIMARY — SupplyCboxActionPluginImpl phase-2 handler
     //      (FUN_1412a2f80 @ 0x1412A2F80). The action plugin has three
     //      phases (1=chopper monitoring, 2=pickup interaction active,
     //      3=post-pickup). Phase 2 is ONLY entered when the player
-    //      physically initiates pickup — so this avoids the false-
-    //      fires the phase-1 handler had during chopper inbound.
+    //      physically initiates pickup interaction — fires for the
+    //      iDroid Supply-Drop UI path.
     //
     //      Inside FUN_1412a2f80 the switch is on (param_3 - 1), so the
     //      decomp's case 9 corresponds to param_3 == 10 — that's the
@@ -32,24 +32,26 @@ namespace
     //      the player's bend-over-box pose — matches vanilla feel.
     //
     //   2. BACKSTOP — SupplyCboxSystemImpl::Reset @ 0x1415C5270.
-    //      Fires at pickup-completion (after motion ends). Used as a
-    //      fallback if for any reason the state-handler hook misses
-    //      (e.g. a different state machine path on this build, or the
-    //      stash was set without the player going through state 10).
-    //      Gated on +0x10c bit 0 (drop-state active) AND +0x124 bit
-    //      0x20000 (active-in-world) OR'd together so it doesn't fire
-    //      on post-confirm cleanup or fresh-init Resets.
+    //      Fires when the crate completes its arc (auto-burst on
+    //      landing for dev-menu R&D Requests, or pickup-completion
+    //      for iDroid drops where StateHandler1 already won the race).
+    //      Required for the dev-menu R&D Request path: orig's
+    //      dev-menu request makes the crate AUTO-BURST on landing
+    //      without giving the player a chance to physically interact,
+    //      so StateHandler1 (1) never fires. Reset is the only
+    //      pickup-completion signal in that path.
+    //
+    //      Gated on +0x10c bit 0 (drop-state active) OR +0x124 bit
+    //      0x20000 (active-in-world) so it doesn't fire on post-confirm
+    //      cleanup or fresh-init Resets. ConsumePendingSupplyDropDevelopId
+    //      is one-shot, so if (1) already won the race the Reset call
+    //      finds an empty stash and no-ops.
     //
     //   3. CLEANUP — SupplyCboxGameObjectImpl::RestoreRequestFromSVars
     //      @ 0x140ACA230. Fires only on save/load (Lua command
     //      0xc1324e75 = "restore from SVars"), NOT on actual pickup.
     //      Kept purely to clear stale stashes that linger across
     //      save/load boundaries.
-    //
-    // ConsumePendingSupplyDropDevelopId is one-shot, so whichever of
-    // (1) or (2) fires first wins; the others find an empty stash and
-    // no-op. (1) typically wins because state-10 fires ~1 second
-    // before pickup completion.
     // ---------------------------------------------------------------
 
     // ---- (1) SupplyCboxActionPluginImpl phase-2 handler ----
@@ -78,9 +80,32 @@ namespace
     static RestoreRequestFromSVars_t g_OrigRestore       = nullptr;
     static bool                      g_InstalledRestore  = false;
 
-    // Shared logic: consume the stash, look up the registered outfit,
-    // and drive ForcePartsReload to equip it. One-shot — subsequent
-    // calls with empty stash silently no-op.
+    // Consume the supply-drop stash, look up the registered outfit,
+    // and drive ForcePartsReload to equip the body. One-shot —
+    // subsequent calls with empty stash silently no-op.
+    //
+    // Architecture (verified working both iDroid and dev-menu paths
+    // 2026-04-28):
+    //
+    //   1. ForcePartsReload's trampoline call drives an internal
+    //      LoadPartsNew that primes asset-load setup state.
+    //   2. ForcePartsReload writes Quark live state with the real
+    //      outfit bytes (partsType=0x40, camo=0x80).
+    //   3. Orig pickup pipeline's redundant LoadPartsNew arrives ~100-
+    //      200ms later. Because Quark was updated, orig's call has
+    //      FULL bytes (partsType=0x40, camo=0x80) — NOT a broken-
+    //      custom transient.
+    //   4. hkLoadPartsNew main-flow spoof activates (partsType
+    //      0x40 -> 0x00 spoof), orig runs, returns.
+    //   5. LoadPlayerPartsParts dispatches → body loads ✓.
+    //
+    // The dev-menu R&D path additionally relies on
+    // OutfitItemSelector::hkSetSupplyCBoxInfo's post-orig overwrite
+    // of the SupplyCboxLoadoutInfo at self+0x23A0, which guarantees
+    // the supply-drop request itself carries the correct outfit
+    // bytes (orig populates that struct from an OOB suit-info-table
+    // read for our custom flowIndices, so we overwrite post-orig
+    // before the trigger event handler reads the bytes lazily).
     static bool ConsumeStashAndEquip(const char* tag)
     {
         const std::uint16_t pendingDevId =
@@ -134,13 +159,19 @@ namespace
             ConsumeStashAndEquip("PickupAnim");
     }
 
-    // (2) Box-side cleanup. Backstop only — primary trigger is (1).
+    // (2) Box-side completion. Required for dev-menu R&D Request path
+    // because the crate auto-bursts on landing without the player
+    // physically interacting — StateHandler1 never reaches subState=10
+    // for that flow. For iDroid drops where StateHandler1 already won,
+    // the stash is empty by the time this fires and ConsumeStashAndEquip
+    // no-ops.
+    //
+    // Gated on real-pickup flag bits to avoid firing on post-confirm
+    // cleanup or fresh-init Resets (which would consume the stash
+    // before the actual pickup).
     static void __fastcall hkReset(void* self)
     {
         // Read box-state bits before orig (orig clears some of them).
-        // dropFlags (+0x10c bit 0) is the genuine "box went through
-        // its drop sequence" signal; activeColl (+0x124 bit 0x20000)
-        // is set when interactable, cleared just before consume.
         std::uint8_t  flags10c = 0;
         std::uint32_t flags124 = 0;
         if (self)
@@ -166,8 +197,9 @@ namespace
 
         if (!realPickup) return;
 
-        // Backstop — typically a no-op because the state-1 handler
-        // already consumed the stash mid-animation.
+        // Backstop — typically a no-op for iDroid drops (StateHandler1
+        // already consumed the stash). Required for dev-menu R&D Request
+        // drops because their crate auto-bursts on landing.
         ConsumeStashAndEquip("ResetBackstop");
     }
 

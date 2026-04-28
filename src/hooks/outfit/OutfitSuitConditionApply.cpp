@@ -206,6 +206,53 @@ namespace
             }
         }
 
+        // 4. Dev-menu / iDroid supply-drop request path. Orig builds
+        //    the loadout info via the EDC's per-flowIndex table
+        //    (vtable[0xB0]/[0x108] in `DecideActMotherBaseDeviceSupport-
+        //    DropMode`). Our custom flowIndices (922..924) have no
+        //    entry in that table → orig returns vanilla NORMAL bytes
+        //    (partsType=0, camo=0, all other fields zero too) into
+        //    the loadout info. SetSuit then fires with those zeros
+        //    and applies vanilla NORMAL — visible symptom: "I requested
+        //    FROGS as DD-Female but the character is wearing camo=0x00."
+        //
+        //    Recovery signal: `pendingDevId` was set by `OutfitItemSelector::
+        //    hkDecideActSupplyDrop` (or hkDecideActMissionPrep) at the
+        //    "user confirmed" click. It's set ONLY when the click
+        //    matched a registered custom outfit (vanilla clicks clear
+        //    it), and it's one-shot (cleared on consumption), so it
+        //    can't get stale across multiple equip events.
+        //
+        //    Trigger conditions (all must hold):
+        //      - paths 1-3 didn't match  (no custom byte signal)
+        //      - flags has bit 0  (this IS a suit-equip operation)
+        //      - partsType == 0 AND camo == 0  (vanilla NORMAL bytes,
+        //        i.e. the orig's lookup couldn't find our flowIndex)
+        //      - pendingDevId != 0  (user just clicked a custom outfit)
+        //
+        //    The bit-0/zero-bytes guard prevents this path from
+        //    hijacking legitimate vanilla equips; for those, either
+        //    pendingDevId is 0 (vanilla click) OR the bytes aren't
+        //    pure zeros (vanilla suit has its own non-zero camo).
+        if (!chosen
+         && (flags & 0x01u) != 0
+         && partsType == 0x00
+         && camoType  == 0x00)
+        {
+            const std::uint16_t pendingDevId = outfit::GetPendingOutfitDevelopId();
+            if (pendingDevId != 0)
+            {
+                const outfit::OutfitEntry* byPending = nullptr;
+                if (outfit::TryGetOutfitByDevelopId(pendingDevId, &byPending)
+                    && byPending)
+                {
+                    chosen = byPending;
+                    via = "supply-drop-request-pendingDevId";
+                    outfit::ClearPendingOutfitDevelopId();
+                }
+            }
+        }
+
         if (!chosen)
         {
             // No custom matched. If the blob carries a broken-custom

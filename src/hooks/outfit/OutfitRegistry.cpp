@@ -163,26 +163,77 @@ namespace outfit
 
         std::lock_guard<std::mutex> lock(g_Mutex);
 
-        // Reject duplicate developId / flowIndex.
+        // Duplicate handling — distinguish idempotent re-registration
+        // (same outfit, same key fields → return success without
+        // changing state) from real conflicts (different outfits
+        // sharing a developId / flowIndex → reject).
+        //
+        // Idempotent re-registration happens commonly:
+        //   - Lua hot-reload during gameplay (level transitions,
+        //     save-load) re-runs the modder's RegisterOutfit calls
+        //     with the same data
+        //   - The other framework registries (EquipDevelop,
+        //     RegisterConstantEquipId, GunBasic) all handle this
+        //     gracefully with "Reusing key" / "Updated queued entry"
+        //     messages — OutfitRegistry should match that pattern
+        //
+        // Conflict criteria: same developId OR same flowIndex AND any
+        // outfit-defining field differs (playerType, partsPathCode64,
+        // fpkPathCode64). If those identifying fields match, it's the
+        // same outfit; we hand back the existing partsType and exit
+        // success.
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
-            if (e.developId == def.developId)
+
+            const bool sameDevelopId = (e.developId == def.developId);
+            const bool sameFlowIndex = (e.flowIndex == def.flowIndex);
+            if (!sameDevelopId && !sameFlowIndex) continue;
+
+            const bool sameOutfit =
+                sameDevelopId
+             && sameFlowIndex
+             && e.playerType      == def.playerType
+             && e.partsPathCode64 == def.partsPathCode64
+             && e.fpkPathCode64   == def.fpkPathCode64;
+
+            if (sameOutfit)
+            {
+                Log("[OutfitRegistry] re-registration of same outfit "
+                    "developId=%u flowIndex=%u partsType=0x%02X "
+                    "selector=0x%02X — returning existing entry "
+                    "(idempotent)\n",
+                    static_cast<unsigned>(e.developId),
+                    static_cast<unsigned>(e.flowIndex),
+                    static_cast<unsigned>(e.partsType),
+                    static_cast<unsigned>(e.selectorCode));
+                if (outAllocatedPartsType) *outAllocatedPartsType = e.partsType;
+                return true;
+            }
+
+            // Conflict — different outfit trying to claim the same
+            // developId/flowIndex slot.
+            if (sameDevelopId)
             {
                 Log("[OutfitRegistry] reject: developId %u already registered "
-                    "(existing partsType=0x%02X)\n",
+                    "by a DIFFERENT outfit (existing partsType=0x%02X "
+                    "playerType=%u, attempted playerType=%u)\n",
                     static_cast<unsigned>(def.developId),
-                    static_cast<unsigned>(e.partsType));
-                return false;
+                    static_cast<unsigned>(e.partsType),
+                    static_cast<unsigned>(e.playerType),
+                    static_cast<unsigned>(def.playerType));
             }
-            if (e.flowIndex == def.flowIndex)
+            else
             {
                 Log("[OutfitRegistry] reject: flowIndex %u already registered "
-                    "(existing partsType=0x%02X)\n",
+                    "by a DIFFERENT outfit (existing partsType=0x%02X "
+                    "developId=%u, attempted developId=%u)\n",
                     static_cast<unsigned>(def.flowIndex),
-                    static_cast<unsigned>(e.partsType));
-                return false;
+                    static_cast<unsigned>(e.partsType),
+                    static_cast<unsigned>(e.developId),
+                    static_cast<unsigned>(def.developId));
             }
+            return false;
         }
 
         const std::uint8_t partsType = AllocatePartsType_NoLock(def.partsTypeHint);
