@@ -862,28 +862,28 @@ namespace AddressSetRuntime
             0x0ull, // SubtitleManager_Get
             0x0ull, // UpdateOptCamo
             0x0ull, // g_SoundSystem
-            0x0ull, // lua_getfield
-            0x0ull, // lua_gettop
-            0x0ull, // lua_isnumber
-            0x0ull, // lua_isstring
-            0x0ull, // lua_objlen
-            0x0ull, // lua_pushboolean
-            0x0ull, // lua_pushnumber
-            0x0ull, // lua_rawgeti
-            0x0ull, // lua_settop
-            0x0ull, // lua_toboolean
-            0x0ull, // lua_tointeger
-            0x0ull, // lua_tolstring
-            0x0ull, // lua_tonumber
-            0x0ull, // lua_type
-            0x0ull, // lua_pushstring
-            0x0ull, // lua_createtable
-            0x0ull, // lua_rawset
-            0x0ull, // lua_settable
-            0x0ull, // lua_pushnil
-            0x0ull, // lua_next
-            0x0ull, // lua_gettable
-            0x0ull, // lua_pushvalue
+            0x14C987300ull, // lua_getfield
+            0x14C987CB0ull, // lua_gettop
+            0x14C988960ull, // lua_isnumber
+            0x14C988CA0ull, // lua_isstring
+            0x14C98A230ull, // lua_objlen
+            0x14C98B310ull, // lua_pushboolean
+            0x14C98D800ull, // lua_pushnumber
+            0x14C98Ebc0ull, // lua_rawgeti
+            0x14C990ED0ull, // lua_settop
+            0x14C991120ull, // lua_toboolean
+            0x14C991B80ull, // lua_tointeger
+            0x14C992060ull, // lua_tolstring
+            0x14C9924D0ull, // lua_tonumber
+            0x14C9935F0ull, // lua_type
+            0x14C98DCB0ull, // lua_pushstring
+            0x14C986520ull, // lua_createtable
+            0x14C98ED50ull, // lua_rawset
+            0x14C990BD0ull, // lua_settable
+            0x14C98D570ull, // lua_pushnil
+            0x14C98A010ull, // lua_next
+            0x14C987B90ull, // lua_gettable
+            0x14C98E1D0ull, // lua_pushvalue
 
 
 			0x0ull, // RegisterConstantEquipIdHashTable
@@ -892,8 +892,8 @@ namespace AddressSetRuntime
 			0x0ull, // TppMotherBaseManagement_RegCstDev
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
-            0x0ull, // DeclareAMs
-			0x0ull, // GetIconFtexPath
+            0x1480EE6F0ull, // DeclareAMs
+			0x147A6BD40ull, // GetIconFtexPath
             0x0ull, // LoadingTipsEv_UpdateActPhase
             0x0ull, // AK_SoundEngine_SetRTPCValue
             0x0ull, // Fox_Sd_ConvertParameterID
@@ -902,10 +902,10 @@ namespace AddressSetRuntime
             0x0ull, // EquipIdTableImpl_s_internalInfoList
 
             // ========= Player custom-suit subsystem (JPN — unfilled) =========
-            0x0ull, // LoadPlayerPartsParts
-            0x0ull, // LoadPlayerPartsFpk
-            0x0ull, // LoadPlayerCamoFpk
-            0x0ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x14844DB10ull, // LoadPlayerPartsParts
+            0x14844DE90ull, // LoadPlayerPartsFpk
+            0x14844B070ull, // LoadPlayerCamoFpk
+            0x14844CDE0ull, // LoadPlayerSnakeBlackDiamondFpk
             0x0ull, // Player2BlockController_LoadPartsNew
             0x0ull, // UpdatePartsStatus
             0x0ull, // ResolveSuitToPartsType

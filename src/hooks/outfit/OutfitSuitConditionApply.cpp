@@ -194,29 +194,47 @@ namespace
                         if (pendingHead != 0)
                         {
                             // Translate equipId -> PlayerFaceEquipId slot.
+                            // Verified empirically from vanilla flow
+                            // logs (user wears vanilla SP suit, picks
+                            // BALACLAVA; orig writes blob[3] = 0x03):
+                            //   0x400 (kHeadOption_None) -> slot 0  (NONE)
+                            //   0x210 (BALACLAVA equipId) -> slot 3
+                            //
+                            // The earlier `0x17CA - 0x17C7 = 3` formula
+                            // was based on a wrong constant in the
+                            // recon notes — `0x17CA` is NOT BALACLAVA.
+                            // The actual equipId orig's case 0x201
+                            // pipeline uses for BALACLAVA is 0x210
+                            // (verified via runtime buffer dump
+                            // 2026-04-29).
                             std::uint8_t slot = 0;
                             if (pendingHead == outfit::kHeadOption_None)
                             {
                                 slot = 0;  // NONE
                             }
-                            else if (pendingHead >= 0x17CA
-                                  && pendingHead <= 0x17CE)
+                            else if (pendingHead == 0x210)
                             {
-                                // BALACLAVA-range vanilla head options:
-                                // 0x17CA -> 3, 0x17CB -> 4, etc.
-                                slot = static_cast<std::uint8_t>(
-                                    pendingHead - 0x17C7);
+                                // BALACLAVA, vanilla SP base — orig
+                                // translates this to face slot 3.
+                                slot = 3;
                             }
                             else if (pendingHead < 0x100)
                             {
-                                // Modder gave a slot byte directly.
+                                // Modder supplied a slot byte directly
+                                // (e.g., raw face slot index 0..0xFF).
                                 slot = static_cast<std::uint8_t>(
                                     pendingHead & 0xFF);
                             }
                             else
                             {
                                 // Unknown head equipId. Fall back to 0
-                                // (NONE) so we don't write garbage.
+                                // (NONE) so we don't write garbage to
+                                // info[3]. Until we have a runtime
+                                // probe of vtable[0x128] on the develop
+                                // controller for the full equipId ->
+                                // slot table, modders should use either
+                                // 0x400 (NONE), 0x210 (BALACLAVA), or
+                                // a raw slot byte < 0x100.
                                 slot = 0;
                             }
 
