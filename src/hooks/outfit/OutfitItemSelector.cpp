@@ -158,6 +158,13 @@ namespace
         return 0;
     }
 
+    // HEAD OPTION submenu equipKind. The orig's
+    // DecideActMissionPreparationSetEquipMode has NO branch for 0x201
+    // (it falls through to the error path), so the orig's apply pipeline
+    // never writes the picked head equipId into the loadout info. We
+    // stash the click here and re-inject it in OutfitSuitConditionApply.
+    constexpr std::uint32_t kEquipKindHeadOption = 0x201;
+
     // Shared body — reads the selection state, publishes pending devId
     // if it matches a registered outfit. Used by both the MissionPrep
     // suit-click hook and the Supply-Drop suit-click hook.
@@ -170,6 +177,7 @@ namespace
         {
             const bool isSuitClick = (s.equipKind == kEquipKindMissionPrepSuit
                                    || s.equipKind == kEquipKindSupplyDropSuit);
+            const bool isHeadOption = (s.equipKind == kEquipKindHeadOption);
             const std::uint16_t devId =
                 isSuitClick ? MatchSelectionToOutfit(s) : 0;
 
@@ -185,6 +193,22 @@ namespace
                 outfit::SetPendingOutfitDevelopId(devId);
             else if (isSuitClick)
                 outfit::ClearPendingOutfitDevelopId();
+
+            // HEAD OPTION click: stash the 16-bit equipId so
+            // OutfitSuitConditionApply can re-inject it into the loadout
+            // info (info[3..4] = faceEquipId u16) when flags=0x80
+            // arrives with an empty faceId. Stash even if the equipId is
+            // 0x400 (NONE) — that's a legitimate "remove head option"
+            // selection that should also override.
+            if (isHeadOption && s.selectedId != 0xFFFF)
+            {
+                outfit::SetPendingHeadOptionEquipId(s.selectedId);
+                Log("[OutfitItemSelector:%s] head-option stash: "
+                    "equipId=0x%X (will be re-injected into faceEquipId "
+                    "during apply if orig drops it)\n",
+                    tag,
+                    static_cast<unsigned>(s.selectedId));
+            }
         }
         else
         {

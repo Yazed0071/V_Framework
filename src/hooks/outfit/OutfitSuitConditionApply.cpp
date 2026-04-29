@@ -147,6 +147,105 @@ namespace
             static_cast<unsigned>(playerType),
             flags, info);
 
+        // HEAD OPTION apply branch — flag bit 7 (0x80) means the orig
+        // wants to write the picked head equipment INDEX (a 1-byte
+        // PlayerFaceEquipId enum, NOT the 2-byte equipId) into info[3].
+        // The header comment for kInfoOff_FaceId says "u16" but the orig
+        // actually treats it as a 1-byte slot index (LoadPartsNew reads
+        // it as `faceEquipId=byte`). The decomp confirms: retail
+        // EquipDevelopControllerImpl::IsEquipHeadOption (mgsvtpp.exe.c:
+        // 3802763) takes `PlayerFaceEquipId` as its first arg, an enum
+        // with small values (3 = BALACLAVA category, 4 = ?, 5 = ?).
+        //
+        // Slot mapping (verified empirically from vanilla flow that
+        // produced `faceEquipId=0x03` after picking BALACLAVA):
+        //   0x400 (kHeadOption_None)          -> slot 0  (NONE)
+        //   0x17CA (BALACLAVA equipId)        -> slot 3
+        //   0x17CB                            -> slot 4
+        //   0x17CC                            -> slot 5
+        //   ... (BALACLAVA-range equipId - 0x17C7 = slot)
+        //
+        // For our custom outfit the orig's pipeline drops the click
+        // (DecideActMissionPreparationSetEquipMode at retail 0x1416A3670
+        // has no equipKind=0x201 branch -> falls to error path). We
+        // re-inject the translated slot byte from the stash set by
+        // OutfitItemSelector::ProcessSelectionAndPublish on the click.
+        //
+        // Gates (all must hold):
+        //   - flag bit 7 set  (this is a head-option apply)
+        //   - info[3] currently 0  (orig didn't write)
+        //   - live partsType is a registered custom outfit
+        //   - pending head-option equipId stashed (user just clicked)
+        if ((flags & 0x80u) != 0)
+        {
+            __try
+            {
+                const std::uint8_t curFaceSlot = base[kInfoOff_FaceId];
+                if (curFaceSlot == 0)
+                {
+                    const std::uint8_t livePT = outfit::ReadLivePartsType();
+                    const bool liveIsCustom =
+                        (livePT >= outfit::kCustomPartsTypeStart
+                         && livePT <= outfit::kCustomPartsTypeEnd);
+                    if (liveIsCustom)
+                    {
+                        const std::uint16_t pendingHead =
+                            outfit::GetPendingHeadOptionEquipId();
+                        if (pendingHead != 0)
+                        {
+                            // Translate equipId -> PlayerFaceEquipId slot.
+                            std::uint8_t slot = 0;
+                            if (pendingHead == outfit::kHeadOption_None)
+                            {
+                                slot = 0;  // NONE
+                            }
+                            else if (pendingHead >= 0x17CA
+                                  && pendingHead <= 0x17CE)
+                            {
+                                // BALACLAVA-range vanilla head options:
+                                // 0x17CA -> 3, 0x17CB -> 4, etc.
+                                slot = static_cast<std::uint8_t>(
+                                    pendingHead - 0x17C7);
+                            }
+                            else if (pendingHead < 0x100)
+                            {
+                                // Modder gave a slot byte directly.
+                                slot = static_cast<std::uint8_t>(
+                                    pendingHead & 0xFF);
+                            }
+                            else
+                            {
+                                // Unknown head equipId. Fall back to 0
+                                // (NONE) so we don't write garbage.
+                                slot = 0;
+                            }
+
+                            // Write the 1-byte slot at info[3] and clear
+                            // info[4] to avoid stale high-byte data
+                            // (the orig's other apply paths leave it 0).
+                            base[kInfoOff_FaceId]     = slot;
+                            base[kInfoOff_FaceId + 1] = 0;
+                            outfit::ClearPendingHeadOptionEquipId();
+                            Log("[OutfitSuitConditionApply:%s] head-option "
+                                "rewrite: info[3] = 0x%02X (translated from "
+                                "equipId 0x%X via pending stash; live "
+                                "partsType=0x%02X is custom and orig "
+                                "dropped the click)\n",
+                                tag,
+                                static_cast<unsigned>(slot),
+                                static_cast<unsigned>(pendingHead),
+                                static_cast<unsigned>(livePT));
+                        }
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitSuitConditionApply:%s] SEH in head-option "
+                    "rewrite\n", tag);
+            }
+        }
+
         const bool applySuit = (flags & 0x1u) != 0;
         if (!applySuit) return false;
 

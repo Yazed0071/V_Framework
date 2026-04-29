@@ -416,6 +416,25 @@ namespace outfit
     void          ClearPendingOutfitDevelopId();
 
     // ---------------------------------------------------------------
+    // Pending head-option equip id.
+    //
+    // Set by OutfitItemSelector when the user clicks a row in the HEAD
+    // OPTION submenu (equipKind=0x201). The selectedId is the 16-bit
+    // head-option equipId (e.g. 0x400 for NONE, 0x17CA for BALACLAVA).
+    //
+    // Consumed by OutfitSuitConditionApply's ReqLoadout/SetSuit rewrite
+    // when flags carry 0x80 (head-option apply bit) AND info[3..4]
+    // (faceEquipId u16) is 0 AND live partsType is a registered custom
+    // outfit. The orig's apply pipeline fails to write info[3..4] for
+    // our custom suit (no suit-category match -> orig drops the click),
+    // so we rewrite info[3..4] from this pending stash instead.
+    // ---------------------------------------------------------------
+
+    void          SetPendingHeadOptionEquipId(std::uint16_t equipId);
+    std::uint16_t GetPendingHeadOptionEquipId();
+    void          ClearPendingHeadOptionEquipId();
+
+    // ---------------------------------------------------------------
     // Supply-drop click latch.
     //
     // OutfitItemSelector's supply-drop hook sets this on every fire

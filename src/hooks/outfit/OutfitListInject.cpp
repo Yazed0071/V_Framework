@@ -129,6 +129,16 @@ namespace
                                             std::uint16_t flowIndex,
                                             void* entryBuf);
 
+    // ItemSelectorCallbackImpl::AddListBandana body (retail 0x14A53C210).
+    // Three-arg signature: (this, uint *count, ushort equipId). Called
+    // via raw function-pointer (no MinHook trampoline) post-orig of
+    // SetupPrefabListElement to inject custom head-option entries.
+    using AddListBandana_t = void (__fastcall*)(void* thisPtr,
+                                                std::uint32_t* count,
+                                                std::uint16_t equipId);
+    static AddListBandana_t g_AddListBandana = nullptr;
+    static std::atomic<bool> g_HeadOptionInjectFirstFire{ false };
+
     // ItemSelectorRecordCallFunc::UpdateRecords (retail 0x1416AF270).
     // Refreshes the visible elements of the focused suit row including
     // the variant cycle-button label. We hook it to overwrite the
@@ -924,6 +934,177 @@ namespace
 
     // ---- Top-level SetupPrefabListElement hook ----
 
+    // Post-orig HEAD OPTION list injection. When equipKind=0x201
+    // (HEAD OPTION submenu) and the live outfit is a registered custom
+    // with non-empty headOptionEquipIds[], the orig's branch at retail
+    // 2956068+ adds only the NONE entry (count=1) because the orig's
+    // category-detection path (vtable[0x418/0x420/...] on this+0x70)
+    // doesn't recognize our custom suit equipId — so the modder-supplied
+    // headOptions never reach the UI.
+    //
+    // Fix: post-orig, find the current count by scanning this[0xbc40+i]
+    // for the first 0 terminator, then call the orig AddListBandana for
+    // each headOptionEquipId. AddListBandana writes one entry to
+    // this+0x4440+idx*0x1e plus four parallel markers and increments
+    // *count, exactly as if the orig had emitted it.
+    static void TryInjectHeadOptionList(void* thisPtr)
+    {
+        if (!thisPtr || !g_AddListBandana) return;
+
+        const auto base = reinterpret_cast<std::uintptr_t>(thisPtr);
+
+        std::uint32_t equipKind = 0;
+        __try
+        {
+            equipKind = *reinterpret_cast<std::uint32_t*>(base + 0x4434);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return;
+        }
+        if (equipKind != 0x201) return;
+
+        const std::uint8_t pt = outfit::ReadLivePartsType();
+        if (!(pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd))
+            return;
+
+        const outfit::OutfitEntry* entry = nullptr;
+        if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry
+            || !entry->HasHeadOptions())
+            return;
+
+        // Read orig's authoritative count from this[0x442c]. The orig
+        // commits the final count there at LAB_1416aa5f0 (retail
+        // mgsvtpp.exe.c:2956937) BEFORE we run. For HEAD OPTION this is
+        // usually 1 (just NONE).
+        //
+        // We CAN'T scan this[0xbc40+i] for the first 0 — the entry
+        // buffer is shared with other equipKind passes (UNIFORMS uses
+        // it too with many entries) and the orig HEAD OPTION case only
+        // writes slot 0, leaving stale markers from a prior panel pass
+        // intact. Without this fix, going UNIFORMS -> HEAD OPTION shows
+        // the prior UNIFORMS list rendered as head-option items.
+        std::uint32_t count = 0;
+        __try
+        {
+            const std::uint32_t origCount =
+                *reinterpret_cast<std::uint32_t*>(base + 0x442c);
+
+            // Clear stale markers / parallel arrays from any prior pass
+            // beyond origCount. The orig HEAD OPTION branch never zeros
+            // them, so they linger and confuse downstream count logic.
+            std::uint8_t* markersA =
+                reinterpret_cast<std::uint8_t*>(base + 0xbc40);
+            std::uint8_t* markersB =
+                reinterpret_cast<std::uint8_t*>(base + 0xc040);
+            std::uint8_t* markersC =
+                reinterpret_cast<std::uint8_t*>(base + 0xc440);
+            std::uint8_t* markersD =
+                reinterpret_cast<std::uint8_t*>(base + 0xc840);
+            for (std::uint32_t i = origCount; i < 256; ++i)
+            {
+                if (markersA[i] == 0
+                    && markersB[i] == 0
+                    && markersC[i] == 0
+                    && markersD[i] == 0)
+                {
+                    break;  // already terminated past here
+                }
+                markersA[i] = 0;
+                markersB[i] = 0;
+                markersC[i] = 0;
+                markersD[i] = 0;
+            }
+
+            count = origCount;
+
+            // Dedup: if orig already added NONE at slot 0, don't add it
+            // again from our list.
+            const std::uint16_t firstSlotEquip =
+                (count > 0)
+                    ? *reinterpret_cast<std::uint16_t*>(base + 0x4440)
+                    : 0;
+            const bool origAddedNone =
+                (count > 0 && firstSlotEquip == outfit::kHeadOption_None);
+
+            const std::uint32_t startCount = count;
+
+            for (std::uint8_t i = 0;
+                 i < entry->headOptionCount
+                 && i < outfit::kMaxHeadOptionsPerOutfit;
+                 ++i)
+            {
+                const std::uint16_t equipId = entry->headOptionEquipIds[i];
+                if (equipId == 0) continue;
+                if (equipId == outfit::kHeadOption_None && origAddedNone)
+                    continue;
+                if (count >= 32) break;  // safety bound
+
+                const std::uint32_t addedIdx = count;  // AddListBandana writes to this index then increments
+                g_AddListBandana(thisPtr, &count, equipId);
+
+                // Force the per-row status / skill markers to "enabled
+                // and no skill gate". AddListBandana derives them from
+                // vtable[0x478] / vtable[0x670] on the equip-development
+                // controller, which return 0 / "not found" for our
+                // custom-suit context (the head option isn't recognized
+                // as developed-FOR-this-suit-category). With status=0
+                // the UI renders the row's name + icon + star as blank
+                // even though the equipId itself is valid.
+                //
+                // Mirror what the orig writes for its initial NONE entry
+                // (equipKind=0x201 branch in retail SetupPrefabListElement
+                // mgsvtpp.exe.c:2956075-2956083):
+                //   this[0xbc40] = 1;     // marker A (already 1 from AddListBandana)
+                //   this[0xc040] = 0;     // col B (already 0)
+                //   this[0xc440] = 0;     // marker C (already 0)
+                //   this[0xc840] = 0xff;  // marker D ("no skill required")
+                //   this[0x548]  = 1;     // status (display-enabled)
+                //
+                // AddListBandana wrote 0 to c840 and (vtable result) to
+                // 0x548 — overwrite to known-good "enabled, no gate".
+                if (addedIdx < 32)
+                {
+                    *reinterpret_cast<std::uint8_t*>(base + 0xc840 + addedIdx) = 0xff;
+                    *reinterpret_cast<std::uint8_t*>(base + 0x548 + addedIdx * 0xf) = 1;
+                }
+            }
+
+            // Commit the new count. The orig writes the final count to
+            // this[0x442c] (and this[0x104]) AFTER the equipKind switch,
+            // BEFORE we ran. The UI reads visible-row count from
+            // this[0x442c] (verified mgsvtpp.exe.c:2956937 +
+            // SetupPrefabListParameter:2956991 reads this[0x442c] back).
+            // Without this update our injected rows aren't displayed.
+            if (count != startCount)
+            {
+                *reinterpret_cast<std::uint32_t*>(base + 0x442c) = count;
+                *reinterpret_cast<std::uint32_t*>(base + 0x104)  = count;
+            }
+
+            if (!g_HeadOptionInjectFirstFire.exchange(true))
+            {
+                Log("[OutfitListInject:HeadOption] FIRST INJECT: "
+                    "partsType=0x%02X developId=%u declaredCount=%u "
+                    "origCount=%u finalCount=%u (origHadNone=%d) — "
+                    "committed to this[0x442c] and this[0x104]\n",
+                    static_cast<unsigned>(pt),
+                    static_cast<unsigned>(entry->developId),
+                    static_cast<unsigned>(entry->headOptionCount),
+                    static_cast<unsigned>(startCount),
+                    static_cast<unsigned>(count),
+                    origAddedNone ? 1 : 0);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitListInject:HeadOption] inject faulted; "
+                "partsType=0x%02X count-at-fault=%u\n",
+                static_cast<unsigned>(pt),
+                static_cast<unsigned>(count));
+        }
+    }
+
     static void __fastcall hkSetupPrefabListElement(void* thisPtr)
     {
         // Try to install deep hooks if we haven't already. Each panel
@@ -947,6 +1128,10 @@ namespace
         t_InsideSetupPrefab = true;
         if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
         t_InsideSetupPrefab = prev;
+
+        // Post-orig: inject head-option entries when equipKind=0x201
+        // and the live outfit is a registered custom with HasHeadOptions().
+        if (!prev) TryInjectHeadOptionList(thisPtr);
     }
 }
 
@@ -1061,6 +1246,28 @@ namespace outfit
             reinterpret_cast<void*>(&hkSetupPrefabListElement),
             reinterpret_cast<void**>(&g_OrigSetupPrefab));
         g_Installed = setupHooked;
+
+        // Resolve AddListBandana for post-orig HEAD OPTION list injection.
+        // Raw function-pointer call (no MinHook trampoline). If unresolved
+        // (e.g. JP build placeholder 0), the post-orig branch silently
+        // skips and the HEAD OPTION submenu falls back to whatever the
+        // orig list-builder produced for the current suit category.
+        if (void* addBandanaAddr = ResolveGameAddress(
+                gAddr.ItemSelector_AddListBandana))
+        {
+            g_AddListBandana =
+                reinterpret_cast<AddListBandana_t>(addBandanaAddr);
+            Log("[OutfitListInject:HeadOption] AddListBandana resolved: "
+                "%p — post-orig HEAD OPTION (equipKind=0x201) list "
+                "injection enabled for custom outfits with HasHeadOptions()\n",
+                addBandanaAddr);
+        }
+        else
+        {
+            Log("[OutfitListInject:HeadOption] AddListBandana unresolved; "
+                "HEAD OPTION submenu will not be injected for custom "
+                "outfits (JP build?)\n");
+        }
 
         // Try the fast path first: install the three deep hooks now
         // using the static addresses. If they're not in this build's

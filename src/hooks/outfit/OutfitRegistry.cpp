@@ -35,6 +35,7 @@ namespace
     // clicks a custom-outfit row. Consumed by OutfitCommit on the
     // broken-custom blob pattern.
     static std::uint16_t g_PendingDevelopId = 0;
+    static std::uint16_t g_PendingHeadOptionEquipId = 0;
 
     static bool ResolveQuarkApi()
     {
@@ -769,6 +770,24 @@ namespace outfit
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_PendingDevelopId = 0;
+    }
+
+    void SetPendingHeadOptionEquipId(std::uint16_t equipId)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_PendingHeadOptionEquipId = equipId;
+    }
+
+    std::uint16_t GetPendingHeadOptionEquipId()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return g_PendingHeadOptionEquipId;
+    }
+
+    void ClearPendingHeadOptionEquipId()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_PendingHeadOptionEquipId = 0;
     }
 
     static bool g_SupplyDropClickLatch = false;
