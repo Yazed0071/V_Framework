@@ -102,6 +102,39 @@ namespace CamoufTable
         return true;
     }
 
+    bool ImportCamoTable(const std::int32_t* values,
+                         std::size_t rowCount,
+                         std::size_t colCount)
+    {
+        if (!values || rowCount == 0 || colCount == 0)
+            return false;
+
+        const std::size_t rows = (rowCount < kMaxCamoTypes)
+            ? rowCount : kMaxCamoTypes;
+        const std::size_t cols = (colCount < kMaxMaterialTypes)
+            ? colCount : kMaxMaterialTypes;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (std::size_t c = 0; c < kMaxCamoTypes; ++c)
+        {
+            auto& row = g_Table[c];
+            if (c < rows)
+            {
+                const std::int32_t* src = values + c * colCount;
+                for (std::size_t m = 0; m < cols; ++m)
+                    row[m] = src[m];
+                for (std::size_t m = cols; m < row.size(); ++m)
+                    row[m] = 0;
+            }
+            else
+            {
+                row.fill(0);
+            }
+        }
+        g_Dirty = true;
+        return true;
+    }
+
     std::int32_t Get_CamoValue(std::int32_t camoType, std::int32_t materialType)
     {
         if (!IsValidCamoIndex(camoType) || !IsValidMaterialIndex(materialType))

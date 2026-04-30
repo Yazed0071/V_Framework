@@ -1509,6 +1509,64 @@ static int __cdecl l_ImportCamoRow(lua_State* L)
     return 1;
 }
 
+// V_FrameWork.ImportCamoTable({ row1 = { v0..v81 }, row2 = { ... }, ... })
+//
+// Bulk loader. Accepts a 2D Lua array indexed 1..117 (each row is a 1D
+// array indexed 1..82). Equivalent to the IH-style
+// `Player.InitCamoufTable(table)` — replaces the entire 117x82 table in
+// one call and pushes the result to the engine ONCE at the end (vs 117
+// separate pushes from looping ImportCamoRow on the lua side).
+//
+// Rows past 117 / cells past 82 are ignored. Missing cells fill with 0.
+static int __cdecl l_ImportCamoTable(lua_State* L)
+{
+    if (LuaType(L, 1) != 5)  // LUA_TTABLE
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const size_t rowCount = LuaObjLen(L, 1);
+    const size_t rowCap   = rowCount < CamoufTable::kMaxCamoTypes
+        ? rowCount : CamoufTable::kMaxCamoTypes;
+
+    static constexpr size_t kCols  = CamoufTable::kMaxMaterialTypes;
+    static constexpr size_t kCells = CamoufTable::kMaxCamoTypes * kCols;
+    std::int32_t buf[kCells] = {};
+
+    for (size_t r = 0; r < rowCap; ++r)
+    {
+        LuaRawGetI(L, 1, static_cast<int>(r + 1));
+        if (LuaType(L, -1) == 5)
+        {
+            const size_t colCount = LuaObjLen(L, -1);
+            const size_t colCap   = colCount < kCols ? colCount : kCols;
+            for (size_t c = 0; c < colCap; ++c)
+            {
+                LuaRawGetI(L, -1, static_cast<int>(c + 1));
+                buf[r * kCols + c] = GetLuaInt(L, -1);
+                LuaPop(L, 1);
+            }
+        }
+        LuaPop(L, 1);
+    }
+
+    const bool ok = CamoufTable::ImportCamoTable(buf, rowCap, kCols);
+    if (ok) CamoufTable::PushCamoTableToGame(L);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+// V_FrameWork.GetCamoValue(camoType, materialType) → int (0 on bad index)
+static int __cdecl l_GetCamoValue(lua_State* L)
+{
+    const int camoType     = GetLuaInt(L, 1);
+    const int materialType = GetLuaInt(L, 2);
+    const std::int32_t v   = CamoufTable::Get_CamoValue(camoType, materialType);
+    PushLuaNumber(L, static_cast<float>(v));
+    return 1;
+}
+
 // ============================================================================
 // Phase-4 outfit Lua bridge.
 // Three user-facing functions:
@@ -2021,6 +2079,21 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         }
     }
 
+    // camoBonusType — PlayerCamoType (0..116) pinned for surface-bonus
+    // lookup while this outfit is equipped. We accept the full valid
+    // range INCLUDING 0 (OLIVEDRAB) — the def's default of 0xFF is the
+    // "unset" sentinel; 0 is a real PlayerCamoType value, don't reject it.
+    // If the lua field is absent, TryReadTableIntField returns false
+    // and def.camoBonusType stays at 0xFF (no pin).
+    {
+        int rawBonusType = 0;
+        if (TryReadTableIntField(L, 1, "camoBonusType", rawBonusType)
+            && rawBonusType >= 0 && rawBonusType <= 116)
+        {
+            def.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
+        }
+    }
+
     // Top-level cycle-button label for variant 0 (the BASE appearance).
     // Counterpart to per-variant `displayName` inside the `variants`
     // array. Same string-or-precomputed-hash forms as variant entries.
@@ -2468,8 +2541,10 @@ static luaL_Reg g_VFrameWorkLib[] =
 
     // Camo table
     { "SetCamoValue",                           l_SetCamoValue },
+    { "GetCamoValue",                           l_GetCamoValue },
     { "CloneCamoRow",                           l_CloneCamoRow },
     { "ImportCamoRow",                          l_ImportCamoRow },
+    { "ImportCamoTable",                        l_ImportCamoTable },
 
     // Direct memory patches.
     { "EnableTornadoDual",                      l_EnableTornadoDual },

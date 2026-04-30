@@ -149,6 +149,28 @@ MODULE: V_TppPlayer
                                     diamondFpk / displayNameId fields.
                                     Any field omitted inherits the base.
 
+      camoBonusType       number   optional — PlayerCamoType (0..116) pinned
+                                    for SURFACE-BONUS lookup while this
+                                    outfit is equipped. Same enum the
+                                    vanilla iDroid camo picker uses
+                                    (OLIVEDRAB=0, BATTLEDRESS=16, etc.).
+                                    The framework hooks
+                                    CamouflageControllerImpl::ExecSuitCorrect
+                                    and overrides the per-slot byte at
+                                    Info+0x50[playerSlot] each update,
+                                    so the engine's GetCamoufValue lookup
+                                    indexes the modder's chosen row of
+                                    the 117×82 camo table — same
+                                    mechanism vanilla uses to pin
+                                    BATTLEDRESS / FOXTROT / etc. to
+                                    specific suits. Without this, custom
+                                    outfits inherit whatever camo the
+                                    player last selected via the iDroid.
+                                      Pass `PlayerCamoType.BATTLEDRESS`
+                                      (the vanilla MGSV lua enum value)
+                                      or a raw number 0..116.
+                                    Default: nil = no pin.
+
       develop              table    optional R&D table entry (cost, time, lang
                                     strings, icon, etc.). The wrapper auto-
                                     fills `develop.const.p00` and `.p50` with
@@ -346,6 +368,18 @@ MODULE: V_TppPlayer
       V_TppPlayer.SetCamoValue(0,            60,         50)  -- equivalent
 
   --------------------------------------------------------------------------
+  GetCamoValue(camoType, materialType) → int
+  --------------------------------------------------------------------------
+
+    Reads one cell of the framework-tracked camo table. Returns 0 for
+    invalid indices (and also for cells the framework hasn't touched
+    yet, since the framework's table starts zeroed and only the cells
+    you write are tracked — vanilla data lives in the engine).
+
+    EXAMPLE:
+      local v = V_TppPlayer.GetCamoValue("OLIVEDRAB", "MTR_LEAF")
+
+  --------------------------------------------------------------------------
   CloneCamoRow(dstCamoType, srcCamoType)
   --------------------------------------------------------------------------
 
@@ -363,6 +397,31 @@ MODULE: V_TppPlayer
 
     EXAMPLE:
       V_TppPlayer.ImportCamoRow(0, { 10, 20, 30, -5, --[[ up to 82 ]] })
+
+  --------------------------------------------------------------------------
+  ImportCamoTable(tbl)
+  --------------------------------------------------------------------------
+
+    BULK loader. Replaces the entire 117×82 camo table from a 2D Lua
+    array, then pushes the result to the engine ONCE. Equivalent to the
+    vanilla `Player.InitCamoufTable(table)` call that mods like Infinite
+    Heaven use to ship a full default table.
+
+    Much cheaper than calling ImportCamoRow 117 times in a loop (which
+    would push to the engine 117 separate times).
+
+    Shape:
+      tbl[1]    = { v1, v2, ..., v82 }   -- camoType 0 (OLIVEDRAB)
+      tbl[2]    = { v1, v2, ..., v82 }   -- camoType 1 (SPLITTER)
+      ...
+      tbl[117]  = { v1, v2, ..., v82 }   -- camoType 116 (QUIET)
+
+    Rows past 117 / cells past 82 are ignored. Missing cells become 0.
+
+    EXAMPLE:
+      local myTable = { ... full 117×82 array, e.g. lifted from
+                        IH's player2_camouf_param.lua ... }
+      V_TppPlayer.ImportCamoTable(myTable)
 
   --------------------------------------------------------------------------
   SetPlayerVoiceFpkPathForType(playerType, path)

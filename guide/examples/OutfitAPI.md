@@ -74,6 +74,12 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 
 Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamondFpk`, `displayNameId`. Any unset field inherits from the base outfit.
 
+### Surface-bonus camo pin
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `camoBonusType` | int | nil (no pin) | `PlayerCamoType` (0..116) used for surface-bonus lookup while this outfit is equipped. Pass `PlayerCamoType.BATTLEDRESS` (the vanilla MGSV lua enum) or a raw 0..116 int. The framework hooks `CamouflageControllerImpl::ExecSuitCorrect` so the engine's `GetCamoufValue` indexes the chosen row of the 117×82 table — same mechanism vanilla uses to pin BATTLEDRESS / FOXTROT / etc. to specific suits. Without this, custom outfits inherit whatever camo the player last picked via the iDroid camo menu. |
+
 ### R&D table entry (V_TppPlayer.AddOutfit only)
 
 Optional. When present, the wrapper inserts the auto-allocated `developId` into `develop.const.p00` and the auto-allocated `flowIndex` into `develop.const.p50`, then forwards the merged table to `V_FrameWork.AddToEquipDevelopTable`. Result: a fully wired R&D entry that matches the outfit's ids without manual coordination.

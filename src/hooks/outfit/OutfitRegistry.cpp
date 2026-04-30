@@ -386,6 +386,7 @@ namespace outfit
         slot->enableHead           = def.enableHead;
         slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
         slot->langEquipNameHash    = def.langEquipNameHash;
+        slot->camoBonusType       = def.camoBonusType;
 
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
 
@@ -433,10 +434,19 @@ namespace outfit
             }
         }
 
+        // camoBonusType: print "(unset)" for the 0xFF sentinel so 0
+        // (OLIVEDRAB) doesn't visually collide with "no pin"
+        char camoBuf[16] = {};
+        if (def.camoBonusType == 0xFF)
+            std::snprintf(camoBuf, sizeof(camoBuf), "(unset)");
+        else
+            std::snprintf(camoBuf, sizeof(camoBuf), "%u",
+                static_cast<unsigned>(def.camoBonusType));
+
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
             "playerType=%u partsType=0x%02X selector=0x%02X "
             "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
-            "langEquipNameHash=0x%016llX "
+            "langEquipNameHash=0x%016llX camoBonusType=%s "
             "variantCount=%u variantSelectors=[%s] "
             "variantDisplayNameHashes=[%s] "
             "parts=0x%016llX fpk=0x%016llX\n",
@@ -451,6 +461,7 @@ namespace outfit
             static_cast<unsigned>(def.headOptionCount),
             def.supportsHeadOptions ? 1 : 0,
             static_cast<unsigned long long>(def.langEquipNameHash),
+            camoBuf,
             static_cast<unsigned>(slot->variantCount),
             variantBuf,
             dispNameBuf,

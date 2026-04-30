@@ -419,6 +419,15 @@ namespace AddressSetRuntime
         //     by registered custom heads (Tier 3 head support)
         uintptr_t Player_ConverFaceIdWithFaceEquipId = 0;
 
+        // CamouflageControllerImpl::ExecSuitCorrect (retail 0x140FDC5D0).
+        // Per-update hook target for the "bonus camo pin" feature
+        // (camoBonusType in OutfitDefinition / OutfitEntry). Reads
+        // (Info+0x50)[playerSlot] as the current PlayerCamoType used by
+        // GetCamoufValue's surface-bonus lookup. Pre-orig the framework
+        // overwrites that byte to the registered camoBonusType when
+        // the live equipped outfit pins one.
+        uintptr_t CamouflageController_ExecSuitCorrect = 0;
+
         // (Removed 2026-04-30 — Soldier2FaceSystemImpl_GetFaceFovaPathIdArrayAtFaceId
         // and Soldier2FaceSystemImpl_GetFaceFovaPathIdAtFaceId. The Tier-3-A
         // approach routes custom heads to real vanilla face-fv2 indices via
@@ -714,6 +723,7 @@ namespace AddressSetRuntime
             0x14A5795C0ull, // MissionPrep_UpdateLoadMark
             0x1460B9FA0ull, // MissionPrepSystem_IsEnableHeadOptionSuit (real body, NOT the JMP thunk at 0x1409575D0). retail vtable[0x460] = 0x1409575D0 which JMPs to 0x1460B9FA0. GetSelectionNum (retail 0x1416BC2C0) calls this in mode 0/2 to decide 2 vs 3 sub-panel rows. We override to 1 when live partsType is a registered custom outfit declaring HasHeadOptions().
             0x14622A3B0ull, // Player_ConverFaceIdWithFaceEquipId (slot byte → vanilla face-fv2 router for Tier-3-A custom heads)
+            0x140FDC5D0ull, // CamouflageController_ExecSuitCorrect (per-update bonus-camo pin hook target)
             0x1416BF490ull, // SetupCharacterSlotSelectPrefabListElement
             0x1416A1AA0ull, // AddListSuit
             0x14A56BFA0ull, // IsEnableCurrentSuit
@@ -893,6 +903,7 @@ namespace AddressSetRuntime
             0x0ull, // MissionPrep_UpdateLoadMark
             0x0ull, // MissionPrepSystem_IsEnableHeadOptionSuit (JP TBD)
             0x0ull, // Player_ConverFaceIdWithFaceEquipId (JP TBD)
+            0x0ull, // CamouflageController_ExecSuitCorrect (JP TBD)
             0x0ull, // SetupCharacterSlotSelectPrefabListElement
             0x0ull, // AddListSuit
             0x0ull, // IsEnableCurrentSuit

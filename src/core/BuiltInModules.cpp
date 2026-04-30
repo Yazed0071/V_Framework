@@ -9,6 +9,7 @@
 #include "../hooks/outfit/OutfitEquippedState.h"
 #include "../hooks/outfit/OutfitCommit.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
+#include "../hooks/outfit/OutfitCamoBonus.h"
 #include "../hooks/outfit/OutfitListInject.h"
 #include "../hooks/outfit/OutfitFv2Paths.h"
 #include "../hooks/outfit/OutfitHeadOption.h"
@@ -695,11 +696,19 @@ namespace
             const bool commit  = outfit::Install_OutfitCommit_Hook();
             const bool runtime = outfit::Install_OutfitRuntimeParts_Hooks();
 
+            // Bonus-camo pin (camoBonusType). Optional polish — if the
+            // hook fails to install (e.g. ExecSuitCorrect address not
+            // resolved on a future build), the rest of the core still
+            // works; outfits with camoBonusType set just won't pin.
+            const bool camoBonus = outfit::Install_OutfitCamoBonus_Hook();
+            (void)camoBonus;
+
             return eq && commit && runtime;
         }
 
         void Uninstall() override
         {
+            outfit::Uninstall_OutfitCamoBonus_Hook();
             outfit::Uninstall_OutfitRuntimeParts_Hooks();
             outfit::Uninstall_OutfitCommit_Hook();
             outfit::Uninstall_OutfitEquippedState_Hooks();

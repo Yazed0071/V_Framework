@@ -217,6 +217,26 @@ namespace outfit
         // variant 0; variants[1..variantCount-1] override.
         OutfitVariant  variants[kMaxVariantsPerOutfit] = {};
         std::uint8_t   variantCount                    = 0;
+
+        // Camo-bonus pin (PlayerCamoType, 0..116). When set to a value
+        // in 0..116 (inclusive — `0` = OLIVEDRAB IS valid), while this
+        // outfit is equipped the framework overrides the byte at
+        // (Info+0x50)[playerSlot] inside CamouflageControllerImpl::
+        // ExecSuitCorrect so the engine's surface-bonus lookup uses
+        // this PlayerCamoType row of the 117x82 camo table — same
+        // mechanism vanilla uses to pin BATTLEDRESS / SOLIDSNAKE /
+        // etc. to specific suits at engine-coded equipIds 0x1c8..0x1d8.
+        // Custom outfits aren't in that orig table; this field plumbs
+        // the pin via our hook.
+        //
+        // 0xFF (default) = "unset", no pin → engine uses whatever the
+        // player last selected via the iDroid camo picker. We use 0xFF
+        // as the unset sentinel because 0 is a valid PlayerCamoType
+        // value (OLIVEDRAB).
+        //
+        // Lua: pass `camoBonusType = PlayerCamoType.BATTLEDRESS` (or
+        // numeric value 0..116). Omit / nil means "no pin".
+        std::uint8_t   camoBonusType                  = 0xFF;
     };
 
     // ---------------------------------------------------------------
@@ -295,6 +315,13 @@ namespace outfit
         // post-orig calls vtable[0x750]+[0x708] with this hash to
         // overwrite whatever the orig wrote.
         std::uint64_t  variantDisplayNameHashes[kMaxVariantsPerOutfit] = {};
+
+        // See OutfitDefinition::camoBonusType — PlayerCamoType (0..116)
+        // pinned for surface-bonus lookup while this outfit is equipped.
+        // 0xFF = unset / no pin (engine reads whatever the iDroid camo
+        // picker last wrote to Info+0x50[playerSlot]). 0 = OLIVEDRAB IS
+        // a valid pin — don't conflate with "unset".
+        std::uint8_t   camoBonusType                              = 0xFF;
 
         bool IsCamoCustom()      const { return camoFpk     > kSubAssetUseVanilla; }
         bool IsCamoFv2Custom()   const { return camoFv2     > kSubAssetUseVanilla; }

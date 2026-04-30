@@ -107,6 +107,12 @@ function this.AddOutfit(opts)
 
         variants            = buildVariantArray(opts.variants),
 
+        -- camoBonusType — pin a PlayerCamoType (0..116) for surface-
+        -- bonus lookup while this outfit is equipped. Pass a number
+        -- (most easily `PlayerCamoType.BATTLEDRESS` etc., which is
+        -- just the vanilla MGSV lua enum). Default nil = no pin.
+        camoBonusType      = opts.camoBonusType,
+
         -- langEquipName forwarded from develop.const (if present) so the
         -- framework can hash it via FoxStrHash and use it to override the
         -- vanilla suit-name UI lookup that returns blank for our custom
@@ -350,6 +356,13 @@ function this.SetCamoValue(camoType, materialType, value)
     return V_FrameWork.SetCamoValue(c, m, value)
 end
 
+function this.GetCamoValue(camoType, materialType)
+    local c = resolveCamoIndex(camoType)
+    local m = resolveMaterialIndex(materialType)
+    if c == nil or m == nil then return 0 end
+    return V_FrameWork.GetCamoValue(c, m)
+end
+
 function this.CloneCamoRow(dst, src)
     local d = resolveCamoIndex(dst)
     local s = resolveCamoIndex(src)
@@ -361,6 +374,23 @@ function this.ImportCamoRow(camoType, values)
     local c = resolveCamoIndex(camoType)
     if c == nil or type(values) ~= "table" then return false end
     return V_FrameWork.ImportCamoRow(c, values)
+end
+
+-- Bulk import the entire 117x82 camo table in one shot. Equivalent to the
+-- vanilla `Player.InitCamoufTable(table)` call that mods like Infinite
+-- Heaven use to ship a full default table — replaces every row, pushes
+-- to the engine ONCE.
+--
+-- `tbl` is a 1-based 2D Lua array:
+--   tbl[1]      = { v1, v2, ..., v82 }   -- camoType 0 (OLIVEDRAB), 82 material weights
+--   tbl[2]      = { ... }                -- camoType 1 (SPLITTER)
+--   ...
+--   tbl[117]    = { ... }                -- camoType 116 (QUIET)
+--
+-- Rows past 117 / cells past 82 are ignored. Missing cells become 0.
+function this.ImportCamoTable(tbl)
+    if type(tbl) ~= "table" then return false end
+    return V_FrameWork.ImportCamoTable(tbl)
 end
 
 return this
