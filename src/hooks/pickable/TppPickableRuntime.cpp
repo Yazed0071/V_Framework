@@ -23,8 +23,7 @@ namespace
     static CopyAndAdjustInfo_t g_OrigCopyAndAdjustInfo = nullptr;
 }
 
-// Clamps one count value to the runtime 12-bit range.
-// Params: value
+
 static std::uint16_t ClampPickableCount(std::uint32_t value)
 {
     if (value > 0x0FFFu)
@@ -33,8 +32,7 @@ static std::uint16_t ClampPickableCount(std::uint32_t value)
     return static_cast<std::uint16_t>(value);
 }
 
-// Returns one live PickableInfo pointer for one locator index.
-// Params: thisPtr, locatorIndex, outInfo
+
 static bool TryGetLivePickableInfoByIndex(void* thisPtr, std::uint32_t locatorIndex, std::uint16_t*& outInfo)
 {
     outInfo = nullptr;
@@ -56,8 +54,7 @@ static bool TryGetLivePickableInfoByIndex(void* thisPtr, std::uint32_t locatorIn
     return true;
 }
 
-// Returns true when one outInfo pointer belongs to one valid locator index.
-// Params: thisPtr, outInfo, outIndex
+
 static bool TryGetLocatorIndexFromOutInfo(void* thisPtr, std::uint16_t* outInfo, std::uint16_t& outIndex)
 {
     outIndex = 0;
@@ -90,8 +87,7 @@ static bool TryGetLocatorIndexFromOutInfo(void* thisPtr, std::uint16_t* outInfo,
     return true;
 }
 
-// Applies one count override to one runtime PickableInfo block.
-// Params: outInfo, countRaw
+
 static void ApplyCountOverride(std::uint16_t* outInfo, std::uint16_t countRaw)
 {
     if (!outInfo)
@@ -100,8 +96,7 @@ static void ApplyCountOverride(std::uint16_t* outInfo, std::uint16_t countRaw)
     outInfo[2] = countRaw;
 }
 
-// Returns one stored override by locator index.
-// Params: locatorIndex, outCountRaw
+
 static bool TryGetStoredOverride(std::uint16_t locatorIndex, std::uint16_t& outCountRaw)
 {
     std::lock_guard<std::mutex> lock(g_PickableCountOverridesMutex);
@@ -114,8 +109,7 @@ static bool TryGetStoredOverride(std::uint16_t locatorIndex, std::uint16_t& outC
     return true;
 }
 
-// Hooked CopyAndAdjustInfo.
-// Params: thisPtr, outInfo, statusPtr, locatorParam
+
 static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo, void* statusPtr, std::uint8_t* locatorParam)
 {
     g_LastPickableSystem = thisPtr;
@@ -137,8 +131,7 @@ static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo
         static_cast<unsigned>(overrideCount));
 }
 
-// Sets one pickable countRaw override by locator index.
-// Params: locatorIndex, countRaw
+
 bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t countRaw)
 {
     if (locatorIndex > 0xFFFFu)
@@ -171,8 +164,7 @@ bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t co
     return true;
 }
 
-// Gets one live pickable countRaw by locator index.
-// Params: locatorIndex, outCountRaw
+
 bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& outCountRaw)
 {
     if (locatorIndex > 0xFFFFu)
@@ -203,8 +195,7 @@ bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& o
     return false;
 }
 
-// Clears all pickable countRaw overrides.
-// Params: none
+
 void Clear_TppPickableCountRawOverrides()
 {
     std::lock_guard<std::mutex> lock(g_PickableCountOverridesMutex);
@@ -215,8 +206,7 @@ void Clear_TppPickableCountRawOverrides()
     Log("[TppPickable] Cleared count overrides count=%zu\n", oldCount);
 }
 
-// Installs the pickable runtime hooks.
-// Params: none
+
 bool Install_TppPickableHooks()
 {
     if (g_TppPickableHooksInstalled)
@@ -246,8 +236,7 @@ bool Install_TppPickableHooks()
     return true;
 }
 
-// Removes the pickable runtime hooks.
-// Params: none
+
 bool Uninstall_TppPickableHooks()
 {
     if (!g_TppPickableHooksInstalled)

@@ -114,467 +114,144 @@ namespace AddressSetRuntime
         uintptr_t DeclareAMs = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
-        // Wwise/fox audio — used by SoldierRtpcHook for per-soldier RTPC control.
-        uintptr_t AK_SoundEngine_SetRTPCValue = 0;   // AK::SoundEngine::SetRTPCValue (trampoline at 0x14033d520)
-        uintptr_t Fox_Sd_ConvertParameterID = 0;     // fox::sd::ConvertParameterID (FNV-1 name hasher wrapper at 0x14032adf0)
 
-        // Static EquipParameterTablesImpl instance (&PTR_PTR_142a711f0 in decomp).
-        // First field is the vtable ptr. Subsystem pointers follow:
-        //   impl+0x08 → gunBasic (0x202 rows × 12 B = 0x1818 bytes)
-        //   impl+0x10 → receiver, +0x18 barrel, +0x20 magazine, etc.
-        // SetGunBasic / SetEquipParameters do direct native-shadow writes via
-        // this instance — they can't wait for ReloadEquipParameterTablesImpl2
-        // to fire, because the boot reload happens before our DLL installs.
+        uintptr_t AK_SoundEngine_SetRTPCValue = 0;
+        uintptr_t Fox_Sd_ConvertParameterID = 0;
+
+
         uintptr_t EquipParameterTablesImpl_Instance = 0;
 
-        // Stock EquipIdTableImpl::AddToEquipIdTable(lua_State*) — writes
-        // partsPath/packPath/baseWeapon/type/block into the game's native
-        // s_internalInfoList + DAT_142c20fb8/fc0 + DAT_142a70928 arrays.
-        // Calling this directly with our queue's Lua table populates
-        // native storage without waiting for ReloadEquipIdTable to fire
-        // (which only happens at boot, before our DLL installs).
+
         uintptr_t EquipIdTableImpl_AddToEquipIdTable = 0;
 
-        // Address of the native EquipIdTableImpl::s_internalInfoList parts-
-        // path array (size 0x289 entries × 0x18 bytes). The hash field at
-        // offset 0 of each entry is non-zero when the slot is populated by
-        // vanilla. The framework's custom-equipId allocator reads this
-        // table directly to find vanilla-free slots — vanilla MGSV's
-        // TppEquipParts.lua runs BEFORE our DLL injects, so observing
-        // AddToEquipIdTable calls misses vanilla's data; reading the
-        // already-populated array is the only reliable way.
+
         uintptr_t EquipIdTableImpl_s_internalInfoList = 0;
 
-        // ============================================================
-        // Player custom-suit subsystem
-        // ============================================================
 
-        // Parts / FPK / sub-asset path loaders. Every custom suit-loading hook
-        // intercepts these and returns a custom FoxPath when the requested
-        // partsType falls in the custom range (0x40..0x7F).
-        uintptr_t LoadPlayerPartsParts              = 0;  // body .parts
-        uintptr_t LoadPlayerPartsFpk                = 0;  // body .fpk
-        uintptr_t LoadPlayerCamoFpk                 = 0;  // camo pattern .fpk
-        uintptr_t LoadPlayerSnakeBlackDiamondFpk    = 0;  // diamond-mark .fpk
-        uintptr_t Player2BlockController_LoadPartsNew = 0; // LoadPartsPlayerInfo funnel
-        uintptr_t UpdatePartsStatus                 = 0;  // head-option waterfall repair
+        uintptr_t LoadPlayerPartsParts              = 0;
+        uintptr_t LoadPlayerPartsFpk                = 0;
+        uintptr_t LoadPlayerCamoFpk                 = 0;
+        uintptr_t LoadPlayerSnakeBlackDiamondFpk    = 0;
+        uintptr_t Player2BlockController_LoadPartsNew = 0;
+        uintptr_t UpdatePartsStatus                 = 0;
 
-        // DEPRECATED (Phase 1 false lead F1, Phase 5 confirmed unused).
-        // No real retail function — left as 0 in EN. Do not hook.
+
         uintptr_t ResolveSuitToPartsType            = 0;
 
-        // Mission-prep commit. Four-arg function at 0x14973DA60 is the hook
-        // target; three-arg wrapper at 0x1462B6590 is invoked from our own
-        // TriggerSilentSuitCommit.
+
         uintptr_t MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode = 0;
         uintptr_t Player2UtilityImpl_CommitWrapper  = 0;
 
-        // DEPRECATED (Phase 5). UI selection commit + supply drop +
-        // character-selector preservation + FOVA gates were the legacy
-        // outfit subsystem's hooks; the new outfit core relies on
-        // Player2UtilityImpl::RequestToChange directly. Kept here only
-        // to preserve aggregate-init alignment of EN/JP address arrays.
+
         uintptr_t ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode = 0;
         uintptr_t ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode = 0;
         uintptr_t SupplyDropSuitSetup               = 0;
-        // SupplyCboxGameObjectImpl::RestoreRequestFromSVars —
-        // called by ProcessLuaCommand on Lua hash 0xc1324e75 when the
-        // player interacts with a delivered supply-drop crate. Reads
-        // the saved loadout request (SupplyCboxRequest, lookup hash
-        // 0xee90448b1d7e on the sub-object's vtable[0x18]) and tail-
-        // calls vtable[0x18] on it to actually apply. Hooking here
-        // catches the box-open moment so we can ForcePartsReload our
-        // outfit when the vanilla apply silently no-ops on a custom
-        // flowIndex.
+
+
         uintptr_t SupplyCboxGameObjectImpl_RestoreRequestFromSVars = 0;
-        // Player2UtilityImpl::SetSuitAndHandConditionWithLoadoutInfo —
-        // called by the supply-drop pickup pipeline to actually apply
-        // the dropped suit to the player. Reads bytes from the
-        // SupplyCboxLoadoutInfo struct (info[0]=partsType, info[1]=camo,
-        // info[0xBC]=flags, info[0xC0]=playerType) and writes them
-        // into Quark live player state. Hooking here lets us catch
-        // the exact moment the supply-drop crate "consumes" and inject
-        // our custom outfit's bytes for our flowIndex.
+
+
         uintptr_t Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo = 0;
 
-        // Wrapper that calls SetSuit then runs loadout-apply pass via
-        // Player2UtilityImpl::vtable[0x218]. For custom partsType (0x40..0x7F)
-        // with the "suit-equip pattern" flags (bit 0 + bit 7, no slot bits
-        // 2/3/4), the apply pass writes zeros to all weapon slots — which
-        // is what makes the SORTIE PREP weapon slots show NONE while
-        // wearing a custom suit. The framework hooks this function and
-        // suppresses the apply pass when it detects that pattern, while
-        // still calling SetSuit directly so the body change happens.
-        // Vanilla weapon clicks reach this function with different flags
-        // (slot bits set) and pass through to orig.
+
         uintptr_t Player2UtilityImpl_LoadoutApplyAfterSetSuit = 0;
 
-        // tpp::gm::player::impl::Player2UtilityImpl::SetInitialConditionWithLoadoutInfo
-        // (retail 0x1462C7670). The OTHER SetSuit-caller wrapper besides
-        // FUN_1462C93F0. SetSuit's XREF list shows this function calls
-        // SetSuit at 0x1462C769E (verified mgsvtpp.exe.c:5962899). The
-        // supply-drop equip flow uses THIS function (not FUN_1462C93F0),
-        // which is why the LoadoutApplyAfterSetSuit hook never fires for
-        // supply-drop and the user reported "weapon icons disappear when
-        // wearing custom suit."
-        //
-        // Function signature: void(this, info, char preserve).
-        // Body does:
-        //   1. SetSuit(this, info)                        // body change
-        //   2. for each of 3 weapon slot entries:
-        //        if (slot_keep_bit & info[0xBC]) == 0:    // not in keep mask
-        //            if (preserve == 0):                  // not preserve mode
-        //                CLEAR slot at lVar4+0x520+slot*2 = 0
-        //                CLEAR slot at lVar4+0x548+slot*2 = 0
-        //                SET   flag at lVar4+0x57E+slot   = 1
-        //   3. additional camo/face/etc. writes
-        //   4. notify QuarkSystem[0x130] vtable[0x68](info[0xB9])
-        //
-        // For custom outfit equip:
-        //   info[0xBC] = 0x01 (suit-equip pattern, no slot keep bits)
-        //   preserve = 0 (orig's caller passes 0 for fresh equips)
-        //   → slots get cleared → weapon icons disappear in SORTIE PREP
-        //
-        // Fix: hook this function, detect custom partsType in info[0],
-        // spoof preserve = 1 before calling orig. This skips the slot-
-        // clearing branch (orig keeps existing slot data intact) while
-        // still doing the body change via SetSuit. Vanilla equips with
-        // valid slot data fall through with preserve unchanged.
+
         uintptr_t Player2UtilityImpl_SetInitialConditionWithLoadoutInfo = 0;
 
-        // tpp::ui::menu::impl::CharacterSelectorCallbackImpl::ChangeDetailsWindowBuddySelect
-        // (retail 0x14163E5F0). Updates the SORTIE PREP > SELECT CHARACTER >
-        // UNIFORMS row when the user picks a buddy/character. Reads the
-        // current partsType byte from a per-soldier array at
-        // (param_1 + 0x9C70 + index*4), translates it via vtable[0x108]
-        // on a translator object to a 64-bit string hash, writes the
-        // hash to (param_1 + 0xA0D0), then calls Quark vtable[0x1E0]
-        // setter with property hash 0x30A0D543E155 to display the text.
-        //
-        // For custom partsType (0x40..0x7F) the translator returns 0
-        // → UI shows blank. The framework hooks this function and, after
-        // orig runs, overwrites (param_1 + 0xA0D0) with the registered
-        // outfit's `langEquipNameHash` and re-calls Quark's setter so
-        // the UNIFORMS row shows the user's chosen lang-string instead.
+
         uintptr_t CharacterSelectorCallbackImpl_ChangeDetailsWindowBuddySelect = 0;
 
-        // tpp::ui::menu::impl::CharacterSelectorCallbackImpl::OpenBuddySelect
-        // (retail 0x14163ECD0). Companion to ChangeDetailsWindowBuddySelect
-        // — fires when the buddy-select panel is INITIALLY opened (vs. the
-        // Change function which fires only when the user moves the cursor
-        // to a different row). Same UNIFORMS-row write path: reads
-        // partsType from (this + 0x9C70 + slot*4) where `slot` is computed
-        // as (this+0xA0 + this+0x9C) % this+0x94, calls vtable[0x108]
-        // translator → buffer at (this + 0xA0D0), then setter
-        // 0x30A0D543E155. Hooked alongside the Change function so the
-        // initial UNIFORMS row text is correct when the panel first opens.
+
         uintptr_t CharacterSelectorCallbackImpl_OpenBuddySelect = 0;
 
-        // Deep-hook targets used by OutfitListInject for the SORTIE PREP /
-        // R&D suit list. These functions belong to two list-helper objects
-        // reached via SetupPrefabListElement's `this`:
-        //   - GetDevelopedSuitCount  (vtable[0x230] on this+0x50+0xAC8)
-        //   - FillDevelopedFlowIxs   (vtable[0x240] on this+0x50+0xAC8)
-        //   - GetSuitInfoTable       (vtable[0x718] on this+0x58)
-        //
-        // Originally captured at runtime on the first SetupPrefabListElement
-        // fire (which only happens once the user opens the UNIFORMS menu).
-        // That made R&D listings stale for custom outfits between develop-
-        // completion and the user's first uniforms-menu visit. The function
-        // body addresses are stable across runs (verified in multiple user
-        // logs: 0x140F660C0 / 0x140F65F70 / 0x14024D330), so we hard-code
-        // them here and hook directly at DLL init — R&D updates immediately
-        // when a custom outfit develop finishes.
+
         uintptr_t SuitList_GetDevelopedCount    = 0;
         uintptr_t SuitList_FillDevelopedFlowIxs = 0;
         uintptr_t SuitList_GetSuitInfoTable     = 0;
-        // SupplyCboxSystemImpl::Reset — VERIFIED 2026-04-26 as THE
-        // pickup-time trigger. Fires when the box is consumed/cleared
-        // post-pickup. Our hook in OutfitSupplyDropPickup consumes the
-        // stash from OutfitSupplyDropSetup's confirm latch and drives
-        // ForcePartsReload to equip the custom outfit. Also fires on
-        // mission init / despawn — harmless because the stash is empty
-        // outside an active confirm→pickup window.
+
+
         uintptr_t SupplyCboxSystemImpl_Reset = 0;
-        // SupplyCboxActionPluginImpl phase-2 handler at retail
-        // 0x1412A2F80 (FUN_1412a2f80 in mgsvtpp.exe.c:2402357).
-        //
-        // The action plugin's parent state machine has three phases
-        // dispatched via ExecStateChangeImpl: phase 1 (chopper inbound /
-        // monitoring) → FUN_1412a3ad0; phase 2 (pickup interaction
-        // active) → FUN_1412a2f80; phase 3 → FUN_1412a3de0.
-        //
-        // Inside FUN_1412a2f80, switch is on (param_3 - 1) — decomp
-        // case 9 = param_3 == 10 = the pickup-motion-progress check
-        // that fires Lua hash 0x6c72b84d at 50% progress (line 2402782).
-        // Phase 2 is ONLY entered when the player physically initiates
-        // the pickup, so hooking this avoids the 7-second-premature
-        // false-fire we got with the phase-1 handler.
-        //
-        // We trigger ForcePartsReload on the FIRST param_3==10 entry
-        // (start of pickup motion). The ~500ms FoxPath load completes
-        // mid-animation, masking the visual transition under the
-        // player's bend-over-box pose — matches vanilla feel.
+
+
         uintptr_t SupplyCboxActionPluginImpl_StateHandler1 = 0;
-        // SupplyCboxSystemImpl::RequestToDropImpl at retail 0x14A3A9030
-        // (mgsvtpp.exe.c:2835510). Decides interactive-pickup vs
-        // auto-burst-on-landing based on:
-        //   bVar2 = vtable[0x18](this+0x20) != 0 && (this[0x124] & 0x20)
-        //   if (bVar2 && this[0xf0] == 10) → AUTO-BURST (this[0x124] |= 0x10)
-        //   else                            → INTERACTIVE (this[0x124] |= 0x08)
-        //
-        // Dev-menu R&D Request supply drops have bit 0x20 set at +0x124,
-        // making them auto-burst on landing. iDroid Supply-Drop UI drops
-        // don't, so they enter the interactive pickup path. To make
-        // dev-menu custom-outfit drops behave like iDroid (vanilla feel),
-        // we hook this function and clear bit 0x20 BEFORE orig runs —
-        // ONLY when our pendingSupplyDropDevelopId stash matches a
-        // registered custom outfit. Vanilla supply drops left alone.
+
+
         uintptr_t SupplyCboxSystemImpl_RequestToDropImpl = 0;
-        // SupplyCboxSystemImpl drop-timer tick handler at retail
-        // 0x14A3A83F0 (FUN_14a3a83f0; mgsvtpp.exe.c:2835446-2835484).
-        // Disproven hypothesis 2026-04-28: thought this was the auto-
-        // burst trigger (counter-completion path setting bit 0x10).
-        // Empirically it's NEVER called for dev-menu R&D Request flows
-        // — its only call site is FUN_14a3b1ca0, a TargetCallbackExec-
-        // style collision/hit handler (XREF count = 1). Hook is kept
-        // as a low-cost no-op for telemetry; the real auto-burst path
-        // is SupplyCboxSystemImpl_SettledHandler below.
+
+
         uintptr_t SupplyCboxSystemImpl_OnDropTimerTick = 0;
-        // SupplyCboxSystemImpl mode-7 ("settled after chopper drop")
-        // handler at retail 0x14A3A7B30 (FUN_14a3a7b30; named in the
-        // Update state machine at FUN_1415c2210 case 7, mgsvtpp.exe.c:
-        // 2834024-2834026). When the chopper-drop arc completes the
-        // state machine advances mode through 0→1→2→3→...→7. Mode 7
-        // dispatches to this handler which inspects flags124 bit 0x20:
-        //   * bit 0x20 SET (vanilla iDroid Supply-Drop UI flow):
-        //     skips raycast/Reset block, advances mode → 8 with bit
-        //     0x08 set (interactive pickup ready). Phase machine then
-        //     engages phase 2 → player walks up → E-press → pickup.
-        //   * bit 0x20 CLEAR (dev-menu R&D Request flow): runs raycast
-        //     (line 2835392); if iVar7 == 0, calls Reset → box bursts
-        //     visually + mode → 0 + dropFlags cleared. THIS IS THE
-        //     "SELF-DESTRUCT ON LANDING" THE USER REPORTED.
-        //
-        // Hook this function with a pre-orig override: when our
-        // pendingSupplyDropDevelopId stash matches a registered custom
-        // outfit, REPLACE orig entirely with manual state advancement
-        // (clear bit 0x80, set bits 0x40 / 0x20 / 0x08, mode = 8).
-        // This mimics orig's success-path end state without going
-        // through the raycast→Reset block. The state machine continues
-        // to mode 8 and beyond; phase 2 engages for the player to walk
-        // up and press E (vanilla pickup motion). Vanilla iDroid drops
-        // are not touched (they don't match our stash).
+
+
         uintptr_t SupplyCboxSystemImpl_SettledHandler = 0;
         uintptr_t CharacterSelectorCallbackImpl_StoreCurrentCharacterSuitAndHeadPartsInfo = 0;
         uintptr_t ResourceTable_DoesNeedFaceFova           = 0;
         uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar  = 0;
 
-        // Camo system global pointer (not a function) — points to the
-        // engine-side object whose vtable[1] accepts a Lua 117x82 table and
-        // applies it to the runtime camo parameter system.
+
         uintptr_t CamoSystemObject                  = 0;
 
-        // DEPRECATED (Phase 5). Legacy variant/head-option hooks —
-        // Phase 1 false leads F4/F6. Replaced by the Phase-3
-        // OutfitHeadOption gate + per-outfit headOptionEquipIds[]
-        // and the OutfitListInject flow. Kept here only for align.
+
         uintptr_t GetSuitVariation                  = 0;
         uintptr_t HeadOptionTableLookup             = 0;
         uintptr_t HasHeadOptions                    = 0;
         uintptr_t HeadOptionIndexGetter             = 0;
         uintptr_t SuitCatalog_FindHeadOptionRow     = 0;
         uintptr_t FetchCurrentHeadOptionKey         = 0;
-         
-        // Mission-prep UI. UpdateLoadMark deprecated (Phase 1 F5).
-        // GetSelectionNum unused since Phase 4. IsEnableCurrentHeadOption
-        // is the active Phase-3 head-option gate target.
+
+
         uintptr_t MissionPrep_GetSelectionNum       = 0;
         uintptr_t MissionPrep_IsEnableCurrentHeadOption = 0;
         uintptr_t MissionPrep_UpdateLoadMark        = 0;
-        // MissionPreparationSystemImpl::IsEnableHeadOptionSuit
-        // (vtable slot 134 on the inner system at MissionPrep+0x48 — the
-        // class is MissionPreparationSystemImpl, NOT
-        // CustomizeSlotSelectorCallbackImpl as Phase-1 notes guessed).
-        //
-        // Retail body at 0x140957D30 has an inlined switch over a
-        // translated equipId, accepting only the vanilla head-option-
-        // supporting suits (equipIds 0x4A60..0x4A8B). For our custom
-        // outfits' flowIndices, the translation returns an out-of-range
-        // value → returns 0 → the orig SORTIE PREP UI never surfaces
-        // a head-option submenu button.
-        //
-        // Hook returns 1 (override-true) when the inbound flowIndex
-        // matches a registered custom outfit declaring HasHeadOptions(),
-        // unblocking the orig UI's head-option button surfacing.
+
+
         uintptr_t MissionPrepSystem_IsEnableHeadOptionSuit = 0;
 
-        // tpp::gm::player::impl::`anonymous_namespace'::
-        // ConverFaceIdWithFaceEquipId (retail 0x14622A3B0). Translates the
-        // 1-byte playerFaceEquipId slot (info[3]) -> 2-byte face-fv2 index
-        // (TppEnemyFaceId.dds_balaclava{0..5}) per playerType. Only slots
-        // 3/4/5 produce vanilla overrides; others fall through. Hooked to:
-        //   - probe (diagnostic, verify slot mapping)
-        //   - return CustomHeadRegistry sentinel for slot bytes >= 6 owned
-        //     by registered custom heads (Tier 3 head support)
+
         uintptr_t Player_ConverFaceIdWithFaceEquipId = 0;
 
-        // CamouflageControllerImpl::ExecSuitCorrect (retail 0x140FDC5D0).
-        // Per-update hook target for the "bonus camo pin" feature
-        // (camoBonusType in OutfitDefinition / OutfitEntry). Reads
-        // (Info+0x50)[playerSlot] as the current PlayerCamoType used by
-        // GetCamoufValue's surface-bonus lookup. Pre-orig the framework
-        // overwrites that byte to the registered camoBonusType when
-        // the live equipped outfit pins one.
+
         uintptr_t CamouflageController_ExecSuitCorrect = 0;
 
-        // CamoufParamInfoImpl::GetCamoufValue (retail 0x14691B460).
-        // Leaf bonus-table lookup: int (this, uint camoType, uint
-        // materialType). Hook target for the per-outfit "unique camo
-        // bonus row" feature (camoBonusValues / hasCamoBonusValues on
-        // OutfitDefinition / OutfitEntry). When the orig is called
-        // with a virtual camoType id (kCamoVirtualIdStart..End),
-        // our hook returns the per-outfit inline value instead of
-        // reading the orig 117x82 table (which has no row for our
-        // virtual ids and would OOB-read since the function does no
-        // bounds-check on camoType).
+
         uintptr_t CamoufParamInfo_GetCamoufValue = 0;
 
-        // (Removed 2026-04-30 — Soldier2FaceSystemImpl_GetFaceFovaPathIdArrayAtFaceId
-        // and Soldier2FaceSystemImpl_GetFaceFovaPathIdAtFaceId. The Tier-3-A
-        // approach routes custom heads to real vanilla face-fv2 indices via
-        // ConverFaceIdWithFaceEquipId, so we no longer need to intercept the
-        // PathId resolver. Future custom-mesh support would re-add these.)
 
-        // UI list / panel setup. SetupCharacterSlotSelectPrefabListElement
-        // is unused. AddListSuit is the call target invoked from
-        // Phase-3 OutfitListInject. IsEnableCurrentSuit + SetupEquipPanelParam
-        // were legacy hook targets, now unused.
         uintptr_t SetupCharacterSlotSelectPrefabListElement = 0;
         uintptr_t AddListSuit                       = 0;
         uintptr_t IsEnableCurrentSuit               = 0;
         uintptr_t SetupEquipPanelParam              = 0;
 
-        // Phase-2 incorrect attribution — kept here as a deprecated
-        // pointer. SetInDecideOpen is NOT the UNIFORMS list builder.
+
         uintptr_t ItemSelectorCallbackImpl_SetInDecideOpen = 0;
 
-        // Phase-3 verified UNIFORMS list builder. Contains the two
-        // AddListSuit call sites (0x1416AA904, 0x1416AAEA4) that
-        // append vanilla suit rows. Hooked to append our custom
-        // outfits after the vanilla pass completes.
-        // (verified mgsvtpp.exe_Addresses.txt:15790389).
+
         uintptr_t ItemSelectorCallbackImpl_SetupPrefabListElement = 0;
 
-        // tpp::ui::menu::impl::ItemSelectorCallbackImpl::AddListBandana
-        // body (retail 0x14A53C210, mgsvtpp.exe.c:7418432). Reached
-        // via the thunk_FUN_14a53c210 stub; we call the body directly
-        // post-orig of SetupPrefabListElement to inject custom head-
-        // option entries when equipKind=0x201 and the live outfit is a
-        // registered custom with HasHeadOptions(). Three-arg signature:
-        //   (this, uint *count, ushort equipId)
-        // Writes one entry to this+0x4440+idx*0x1e plus four parallel
-        // markers, increments *count.
+
         uintptr_t ItemSelector_AddListBandana = 0;
 
-        // tpp::ui::menu::impl::ItemSelectorRecordCallFunc::UpdateRecords
-        // (retail 0x1416AF270, mgsvtpp.exe.c:2958850).
-        // Refreshes the visible UI elements of the currently-focused
-        // suit row in UNIFORMS — including the variant cycle-button
-        // label. Vanilla reads the cell type field (+0xCC44 of the
-        // 12-byte cell at +0xCC40+(row*15+var)*12) and maps three
-        // hardcoded values (0/1/7) to LangId hashes for STANDARD /
-        // SCARF / NAKED. Hooked to override the label with our outfit's
-        // per-variant displayName hash post-orig (custom variant text
-        // in the cycle button without breaking vanilla labels).
+
         uintptr_t ItemSelectorRecordCallFunc_UpdateRecords = 0;
 
-        // Phase-3 FV2 (face variant 2) loaders.
-        uintptr_t LoadPlayerCamoFv2                = 0;  // 0x146863F80
-        uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;  // 0x146864C80
 
-        // UI read-back. GetEquipIdFromLoadoutInfo + IsEquipDeveloped
-        // are the Phase-2 OutfitEquippedState hook targets.
-        // GetCurrentSuitFlowIndex + SetItemDetail are deprecated.
-        // SendTrigger is used by other (non-outfit) subsystems.
+        uintptr_t LoadPlayerCamoFv2                = 0;
+        uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;
+
+
         uintptr_t GetCurrentSuitFlowIndex           = 0;
         uintptr_t GetEquipIdFromLoadoutInfo         = 0;
         uintptr_t IsEquipDeveloped                  = 0;
         uintptr_t SetItemDetail                     = 0;
         uintptr_t SendTrigger                       = 0;
 
-        // tpp::mbm::impl::EquipDevelopControllerImpl::IsEquipSuit
-        // (retail 0x140F6D7A0, named-build line 3802855). Signature:
-        //   bool IsEquipSuit(this, PlayerType pt, ushort flowIndex)
-        // Internally translates flowIndex → camo via vtable[0x608],
-        // then tail-calls vtable[0x620] (`IsEquipSuitWithCamoType`)
-        // which iterates `g_suitInterdiction` checking PT bits per
-        // camo. For our custom flowIndices the camo translator returns
-        // 0/garbage and the camo iterator falls through to the default
-        // "any PT" return-true.
-        //
-        // This function gates the "Request Supply Drop" / develop-menu
-        // request action for suits — vanilla returns false for PT-
-        // mismatched vanilla outfits (e.g. Female-only suit while
-        // playing as Snake), and the UI grays out the request button.
-        // Hook this and return false for our custom outfits when the
-        // requesting PT doesn't match the registered outfit's PT, so
-        // custom outfits get the same "can't request wrong-PT outfit"
-        // restriction as vanilla. Visibility (IsEquipDeveloped) stays
-        // PT-independent so the outfit still shows in the dev list.
+
         uintptr_t IsEquipSuit                       = 0;
 
-        // tpp::ui::menu::mbm::impl::EquipDevelopCallbackImpl::SetSupplyCBoxInfo
-        // (retail 0x141675600, named-build line 5012869). Signature:
-        //   void(this, ushort flowIndex)
-        // R&D MotherBase dev-menu "Request Supply Drop" handler — fires
-        // when the user clicks "Request" on a developed item in the R&D
-        // screen. Reads category byte from suit-info table at
-        // (flowIndex * 0x68 + 0x36 + table_base) and dispatches to the
-        // SUIT/WEAPON/etc. branch. For SUIT category (0x14), builds a
-        // SupplyCboxLoadoutInfo at (this + 0x2370 / 0x2380 area) and
-        // fires trigger event with hash 0x5DB695F97E34 to queue the
-        // supply drop.
-        //
-        // For our custom flowIndices (922..924), the suit-info table
-        // overlay marks them as cat 0x14 (suit) so they take the SUIT
-        // branch — but the orig's vtable lookups (for equipId / params /
-        // etc.) return zeros for our flowIndices, so the loadout info
-        // stored is all-zero. The supply drop crate arrives ~30s later
-        // with that zero loadout, the pickup pipeline emits the broken-
-        // custom transient (partsType=0, camo=0xFF) at LoadPartsNew,
-        // and without a pendingDevId stash the framework forces vanilla
-        // NORMAL.
-        //
-        // Hook this function to recognize the user's custom-outfit
-        // request: pre-orig, look up the registered outfit by
-        // `param_1` (flowIndex) and stash pendingDevId in BOTH framework
-        // stashes (`pendingOutfitDevelopId` for the SetSuit/LoadParts-
-        // New broken-custom resolver, and `pendingSupplyDropDevelopId`
-        // for the OutfitSupplyDropPickup hooks). When the crate arrives,
-        // either pickup hook consumes its stash and force-equips the
-        // correct outfit. The R&D dev-menu path doesn't go through
-        // `ItemSelectorCallbackImpl::DecideActMotherBaseDeviceSupport-
-        // DropMode`, so this is the only place we can reliably catch
-        // the click.
+
         uintptr_t EquipDevelopCallbackImpl_SetSupplyCBoxInfo = 0;
 
-        // 2-byte JZ instruction (74 10) inside tpp::gm::player::impl::UnrealUpdaterImpl::PreUpdate
-        // (retail EN 0x149CFBA54). Original code:
-        //   MOV  EAX, [RCX + 0x204]
-        //   SHR  EAX, 0x12
-        //   TEST AL, 1
-        //   JZ   skip_block          <-- patch site (74 10)
-        //   MOV  RCX, [RCX + 0xC8]
-        //   MOV  RAX, [RCX]
-        //   CALL [RAX + 0x218]
-        // skip_block:
-        //
-        // Patching the JZ to NOP NOP (90 90) — equivalently REX.W NOP (48 90) —
-        // makes the call branch run unconditionally on every PreUpdate tick,
-        // which enables the "tornado dual" behavior. The Lua API
-        // V_FrameWork.EnableTornadoDual(enable) writes 90 90 when enable=true
-        // and restores the original 74 10 when enable=false.
+
         uintptr_t TornadoDualPatch                  = 0;
     };
 
@@ -693,7 +370,7 @@ namespace AddressSetRuntime
             0x140A29730ull, // EquipIdTableImpl_AddToEquipIdTable
             0x142C20FB0ull, // EquipIdTableImpl_s_internalInfoList (parts-path array, 0x289 entries × 0x18 bytes)
 
-            // ========= Player custom-suit subsystem =========
+
             0x146865F80ull, // LoadPlayerPartsParts
             0x146866C80ull, // LoadPlayerPartsFpk
             0x146864180ull, // LoadPlayerCamoFpk
@@ -741,16 +418,8 @@ namespace AddressSetRuntime
             0x1416A1AA0ull, // AddListSuit
             0x14A56BFA0ull, // IsEnableCurrentSuit
             0x1416C0690ull, // SetupEquipPanelParam
-            // ALIGNMENT FIX 2026-04-26: positions 130..138 below
-            // re-ordered to match the struct field declaration order.
-            // Previously the EN array had SetInDecideOpen / Setup-
-            // PrefabListElement / LoadPlayerCamoFv2 / LoadPlayerSnake-
-            // BlackDiamondFv2 listed AFTER the GetCurrentSuitFlowIndex
-            // ..SendTrigger group, while the struct declared them
-            // before. Aggregate-init binds by position, so e.g.
-            // gAddr.ItemSelectorCallbackImpl_SetupPrefabListElement
-            // was silently resolving to 0x1416BB9C0 (GetEquipIdFromLoadoutInfo)
-            // — every dependent hook landed on the wrong function.
+
+
             0x1416A7A30ull, // ItemSelectorCallbackImpl_SetInDecideOpen
             0x1416A9B80ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
             0x14A53C210ull, // ItemSelector_AddListBandana
@@ -774,9 +443,9 @@ namespace AddressSetRuntime
     {
         static const AddressSet value =
         {
-            0x0ull, // AddCassetteTapeTrack
-            0x0ull, // AddNoise
-            0x0ull, // AddNoticeInfo
+            0x1482D77E0ull, // AddCassetteTapeTrack
+            0x14147F210ull, // AddNoise
+            0x1414DCB30ull, // AddNoticeInfo
             0x0ull, // ArrayBaseFree
             0x0ull, // BeginSoundSystem
             0x0ull, // CallImpl
@@ -874,7 +543,7 @@ namespace AddressSetRuntime
             0x0ull, // EquipIdTableImpl_AddToEquipIdTable
             0x0ull, // EquipIdTableImpl_s_internalInfoList
 
-            // ========= Player custom-suit subsystem (JPN — unfilled) =========
+
             0x14844DB10ull, // LoadPlayerPartsParts
             0x14844DE90ull, // LoadPlayerPartsFpk
             0x14844B070ull, // LoadPlayerCamoFpk
@@ -922,9 +591,8 @@ namespace AddressSetRuntime
             0x0ull, // AddListSuit
             0x0ull, // IsEnableCurrentSuit
             0x0ull, // SetupEquipPanelParam
-            // ALIGNMENT FIX 2026-04-26: positions 130..138 below
-            // re-ordered to match the struct field declaration order
-            // (mirror of EN array fix).
+
+
             0x0ull, // ItemSelectorCallbackImpl_SetInDecideOpen
             0x0ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
             0x0ull, // ItemSelector_AddListBandana (JP TBD)

@@ -403,28 +403,6 @@ static void QueueGunBasicEntry(const GunBasicEntry& entry)
     Log("[GunBasic] Queued new entry weaponId=0x%X\n", entry.weaponId);
 }
 
-// Direct native-shadow write path.
-//
-// The reload-hook approach (modify the Lua gunBasic table inside
-// hkReloadEquipParameterTablesImpl2, let stock walk it and write the native
-// buffer) is unreliable: vanilla's boot-time TppEquip.ReloadEquipParameterTables
-// call fires BEFORE our DLL is injected, and nothing else triggers another
-// reload during normal play. The queue sits forever without reaching native.
-//
-// Fix: on every l_SetGunBasic call, resolve the static
-// EquipParameterTablesImpl instance, (one-time) allocate a shadow buffer
-// pre-filled with stock rows and redirect impl->gunBasic at it, then write
-// the row bytes DIRECTLY to that buffer. From then on the game reads our
-// shadow for all gunBasic lookups.
-//
-// Row layout (12 bytes, all single-byte fields; confirmed from
-// ReadGunBasicParameter2 decomp at mgsvtpp.exe.c:1370801):
-//   [0] receiver   [1] barrel      [2] ammo      [3] stock
-//   [4] muzzle     [5] muzzleOpt   [6] scope1    [7] scope2
-//   [8] laserFlash1 [9] laserFlash2 [10] underBarrel [11] grade
-//
-// Fields < 0 on the entry are skipped so partial overrides (e.g. grade only)
-// preserve the vanilla byte at that position.
 
 static bool InitGunBasicNativeShadow_NoLock()
 {
@@ -448,7 +426,7 @@ static bool InitGunBasicNativeShadow_NoLock()
         return false;
     }
 
-    // Size shadow for max(0x202 stock rows, current max custom weaponId)
+
     std::uint32_t customMax = 0;
     for (const auto& e : g_CustomGunBasicEntries)
         if (e.weaponId > 0 && static_cast<std::uint32_t>(e.weaponId) > customMax)
@@ -468,14 +446,13 @@ static bool InitGunBasicNativeShadow_NoLock()
         return false;
     }
 
-    // Copy stock rows verbatim so vanilla weapons keep working.
+
     std::memcpy(g_GunBasicShadowBuffer.data(), stockPtr, kStockGunBasicByteSize);
 
     g_StockGunBasicPtr = stockPtr;
     g_GunBasicShadowCapacity = capacity;
 
-    // Redirect impl->gunBasic at our shadow. Every subsequent game read
-    // lands here and sees both vanilla rows AND our custom ones.
+
     *ppGunBasic = g_GunBasicShadowBuffer.data();
     g_LastEquipParameterTablesImpl = impl;
     g_NativeShadowInitialized = true;
@@ -486,8 +463,7 @@ static bool InitGunBasicNativeShadow_NoLock()
         *ppGunBasic, g_GunBasicShadowCapacity,
         kStockGunBasicByteSize);
 
-    // Show vanilla row[0] as a sanity check — if this is all zero, the
-    // stock gunBasic pointer was already pointing at empty storage.
+
     const std::uint8_t* row0 = g_GunBasicShadowBuffer.data();
     Log("[GunBasic] Vanilla row[0] (12B): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
         row0[0], row0[1], row0[2], row0[3], row0[4], row0[5],
@@ -514,12 +490,12 @@ static bool GrowGunBasicShadowIfNeeded_NoLock(std::uint32_t weaponId)
         return false;
     }
 
-    // Preserve existing content (vanilla rows + any customs we've written).
+
     std::memcpy(newBuf.data(), g_GunBasicShadowBuffer.data(), g_GunBasicShadowBuffer.size());
     g_GunBasicShadowBuffer = std::move(newBuf);
     g_GunBasicShadowCapacity = weaponId;
 
-    // Re-point impl in case the vector reallocated to a new address.
+
     if (g_LastEquipParameterTablesImpl)
     {
         void** ppGunBasic = reinterpret_cast<void**>(
@@ -562,7 +538,7 @@ static void WriteGunBasicEntryToShadow_NoLock(const GunBasicEntry& entry)
             row[off] = static_cast<std::uint8_t>(value & 0xFF);
     };
 
-    // Native row layout — confirmed from ReadGunBasicParameter2 decomp.
+
     writeByte(0,  entry.receiverId);
     writeByte(1,  entry.barrelId);
     writeByte(2,  entry.ammoId);
@@ -754,10 +730,7 @@ int __cdecl l_SetGunBasic(lua_State* L)
 
     QueueGunBasicEntry(entry);
 
-    // Direct-write the row into native storage immediately. Don't wait for
-    // the reload hook to fire — vanilla's boot reload already happened
-    // before our DLL installed, and nothing else reliably triggers another
-    // reload during gameplay.
+
     {
         std::lock_guard<std::mutex> lock(g_CustomGunBasicMutex);
         WriteGunBasicEntryToShadow_NoLock(entry);

@@ -143,11 +143,22 @@ MODULE: V_TppPlayer
                                       • custom-head equipId (number) — value
                                         returned from RegisterHeadOption
 
+      displayName         string   optional — LangId for variant 0 (the BASE
+                                    appearance) cycle-button label in the
+                                    UNIFORMS panel. Without it, the cycle
+                                    button shows whatever orig falls back to
+                                    (typically blank for our custom partsType
+                                    range, or one of vanilla's hardcoded
+                                    STANDARD/SCARF/NAKED labels). The
+                                    framework hashes this via StrCode64.
+
       variants             array    optional — multi-variant outfit
                                     Each entry is a sub-table with
                                     partsPath / fpkPath / camoFpk / camoFv2 /
-                                    diamondFpk / displayNameId fields.
-                                    Any field omitted inherits the base.
+                                    diamondFpk / displayName fields.
+                                    `displayName` per-variant uses the same
+                                    LangId-string form as the top-level
+                                    field. Any field omitted inherits the base.
 
       camoBonusType       number   optional — PlayerCamoType (0..116) pinned
                                     for SURFACE-BONUS lookup while this

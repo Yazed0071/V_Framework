@@ -11,17 +11,14 @@
 
 namespace
 {
-    // tpp::sd::SoundMusicPlayer::GetTrackInfoByName
-    // Params: thisPtr, trackNameStrCode
+
+
     using GetTrackInfoByName_t = void* (__fastcall*)(void* thisPtr, std::int32_t trackNameStrCode);
 
-    // Replace this with your real absolute address for:
-    // _?s_instance@MusicManager@sd@tpp@@0VGlobalEntityPtr@fox@@A
+
 }
 
-// Resolves a direct-play tape track id from a C string.
-// Params: trackName
-// Returns: direct-play track id, or -1 on failure.
+
 std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
 {
     if (trackName == nullptr || trackName[0] == '\0')

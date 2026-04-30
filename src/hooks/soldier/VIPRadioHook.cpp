@@ -15,21 +15,14 @@
 
 namespace
 {
-    // Address of tpp::gm::corpse::impl::CorpseManagerImpl::RequestCorpse.
-    // Params: self, animControl, ragdollPlugin, facialPlugin, facialParam, location, originalGameObjectId, inheritanceInfo, fromScript
-    // Address of tpp::gm::impl::cp::ActionControllerImpl::StateRadio.
-    // Params: self, slot, proc
-    // Address of tpp::gm::impl::cp::anonymous_namespace::RadioSpeechHandlerImpl::CallWithRadioType.
-    // Params: self, outHandle, ownerIndex, radioType, arg5
-    // Address of tpp::gm::impl::cp::anonymous_namespace::RadioSpeechHandlerImpl::CallImpl.
-    // Params: selfMinus20, outHandle, ownerIndex, speechLabel, arg5
-    // CPR0040: body found.
+
+
     static constexpr std::uint8_t kRadioTypeBodyFound = 0x0E;
 
-    // CPR0042: VIP body found.
+
     static constexpr std::uint8_t kRadioTypeVipBodyFound = 0x0F;
 
-    // Officer-specific direct speech label.
+
     static constexpr std::uint32_t kOfficerBodyFoundSpeechLabel = 0xDD6EA61Bu;
 
     struct ImportantTargetInfo
@@ -45,8 +38,7 @@ namespace
         ImportantTargetInfo target{};
     };
 
-    // Function pointer for CorpseManagerImpl::RequestCorpse.
-    // Params: self, animControl, ragdollPlugin, facialPlugin, facialParam, location, originalGameObjectId, inheritanceInfo, fromScript
+
     using RequestCorpse_t = void(__fastcall*)(
         void* self,
         void* animControl,
@@ -58,12 +50,10 @@ namespace
         const void* inheritanceInfo,
         bool fromScript);
 
-    // Function pointer for ActionControllerImpl::StateRadio.
-    // Params: self, slot, proc
+
     using StateRadio_t = void(__fastcall*)(void* self, std::uint32_t slot, int proc);
 
-    // Function pointer for RadioSpeechHandlerImpl::CallWithRadioType.
-    // Params: self, outHandle, ownerIndex, radioType, arg5
+
     using CallWithRadioType_t = short* (__fastcall*)(
         void* self,
         short* outHandle,
@@ -71,8 +61,7 @@ namespace
         std::uint8_t radioType,
         std::uint16_t arg5);
 
-    // Function pointer for RadioSpeechHandlerImpl::CallImpl.
-    // Params: selfMinus20, outHandle, ownerIndex, speechLabel, arg5
+
     using CallImpl_t = short* (__fastcall*)(
         long long selfMinus20,
         short* outHandle,
@@ -87,26 +76,24 @@ namespace
 
     static std::mutex g_StateMutex;
 
-    // Registered important targets.
+
     static std::unordered_map<std::uint32_t, ImportantTargetInfo> g_ImportantByGameObjectId;
     static std::unordered_map<std::uint16_t, ImportantTargetInfo> g_ImportantBySoldierIndex;
 
-    // Bodies that were actually discovered and are waiting to override the next radio.
+
     static std::deque<ImportantTargetInfo> g_DiscoveredImportantBodyQueue;
 
-    // Duplicate suppression for discovered important bodies.
+
     static std::unordered_set<std::uint64_t> g_SeenDiscoveredImportantBodies;
 
-    // Recent important corpses seen by RequestCorpse.
-    // Used only as a fallback when SleepFaint extracts the wrong discovered target.
+
     static std::deque<ImportantTargetInfo> g_RecentImportantCorpsesFromRequest;
 
-    // The currently armed body-found override.
+
     static PendingBodyFoundOverride g_PendingBodyFoundOverride;
 }
 
-// Converts a gameObjectId to the soldier index used by gameplay code.
-// Params: gameObjectId
+
 static std::uint16_t GameObjectIdToSoldierIndex(std::uint32_t gameObjectId)
 {
     const std::uint16_t low8 = static_cast<std::uint16_t>(gameObjectId & 0x00FFu);
@@ -116,15 +103,13 @@ static std::uint16_t GameObjectIdToSoldierIndex(std::uint32_t gameObjectId)
     return static_cast<std::uint16_t>(gameObjectId & 0xFFFFu);
 }
 
-// Returns YES/NO for logs.
-// Params: value
+
 static const char* YesNo(bool value)
 {
     return value ? "YES" : "NO";
 }
 
-// Normalizes a soldier index so broken values like 0x0408 do not poison lookups.
-// Params: gameObjectId, soldierIndex
+
 static std::uint16_t NormalizeSoldierIndex(std::uint32_t gameObjectId, std::uint16_t soldierIndex)
 {
     if (soldierIndex != 0 && soldierIndex <= 0x00FFu)
@@ -133,15 +118,13 @@ static std::uint16_t NormalizeSoldierIndex(std::uint32_t gameObjectId, std::uint
     return GameObjectIdToSoldierIndex(gameObjectId);
 }
 
-// Builds a stable key for duplicate suppression.
-// Params: gameObjectId, soldierIndex
+
 static std::uint64_t MakeBodyKey(std::uint32_t gameObjectId, std::uint16_t soldierIndex)
 {
     return (static_cast<std::uint64_t>(gameObjectId) << 32) | static_cast<std::uint64_t>(soldierIndex);
 }
 
-// Looks up an important target by gameObjectId first, then by normalized soldierIndex.
-// Params: gameObjectId, soldierIndex, outInfo
+
 static bool FindImportantTarget(
     std::uint32_t gameObjectId,
     std::uint16_t soldierIndex,
@@ -171,8 +154,7 @@ static bool FindImportantTarget(
     return false;
 }
 
-// Convenience overload when only a gameObjectId is available.
-// Params: gameObjectId, outInfo
+
 static bool FindImportantTarget(std::uint32_t gameObjectId, ImportantTargetInfo& outInfo)
 {
     return FindImportantTarget(
@@ -181,8 +163,7 @@ static bool FindImportantTarget(std::uint32_t gameObjectId, ImportantTargetInfo&
         outInfo);
 }
 
-// Reads the current radio type from ActionControllerImpl state.
-// Params: self, slot
+
 static std::uint8_t ReadRadioType(void* self, std::uint32_t slot)
 {
     const auto selfBytes = reinterpret_cast<std::uint8_t*>(self);
@@ -193,8 +174,7 @@ static std::uint8_t ReadRadioType(void* self, std::uint32_t slot)
     return *(entry88Base + 8 + static_cast<std::size_t>(slot) * 0x0C);
 }
 
-// Removes one recent RequestCorpse candidate by exact target.
-// Params: info
+
 static void RemoveRecentImportantCorpse_NoLock(const ImportantTargetInfo& info)
 {
     for (auto it = g_RecentImportantCorpsesFromRequest.begin();
@@ -210,8 +190,7 @@ static void RemoveRecentImportantCorpse_NoLock(const ImportantTargetInfo& info)
     }
 }
 
-// Clears runtime radio state without taking the mutex.
-// Params: none
+
 static void ClearRuntimeRadioState_NoLock()
 {
     g_DiscoveredImportantBodyQueue.clear();
@@ -220,8 +199,7 @@ static void ClearRuntimeRadioState_NoLock()
     g_PendingBodyFoundOverride = {};
 }
 
-// Queues a discovered important body for the next body-found radio override.
-// Params: foundGameObjectId, foundSoldierIndex
+
 static bool QueueDiscoveredImportantBody(std::uint32_t foundGameObjectId, std::uint16_t foundSoldierIndex)
 {
     ImportantTargetInfo info{};
@@ -259,9 +237,7 @@ static bool QueueDiscoveredImportantBody(std::uint32_t foundGameObjectId, std::u
     return true;
 }
 
-// Hook for CorpseManagerImpl::RequestCorpse.
-// This only logs corpse creation and caches recent important corpses for fallback use.
-// Params: self, animControl, ragdollPlugin, facialPlugin, facialParam, location, originalGameObjectId, inheritanceInfo, fromScript
+
 static void __fastcall hkRequestCorpse(
     void* self,
     void* animControl,
@@ -346,9 +322,7 @@ static void __fastcall hkRequestCorpse(
         YesNo(fromScript));
 }
 
-// Hook for ActionControllerImpl::StateRadio.
-// This only arms from already-verified discovered important bodies.
-// Params: self, slot, proc
+
 static void __fastcall hkStateRadio(void* self, std::uint32_t slot, int proc)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -390,9 +364,7 @@ static void __fastcall hkStateRadio(void* self, std::uint32_t slot, int proc)
         g_OrigStateRadio(self, slot, proc);
 }
 
-// Hook for RadioSpeechHandlerImpl::CallWithRadioType.
-// If the next body-found radio belongs to a discovered important body, this swaps the line.
-// Params: self, outHandle, ownerIndex, radioType, arg5
+
 static short* __fastcall hkCallWithRadioType(
     void* self,
     short* outHandle,
@@ -485,8 +457,7 @@ static short* __fastcall hkCallWithRadioType(
     return outHandle;
 }
 
-// Adds one important target using both gameObjectId and soldierIndex.
-// Params: gameObjectId, soldierIndex, isOfficer
+
 void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldierIndex, bool isOfficer)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -509,8 +480,7 @@ void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldi
         YesNo(info.isOfficer));
 }
 
-// Adds one important target using only the gameObjectId.
-// Params: gameObjectId, isOfficer
+
 void Add_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer)
 {
     Add_VIPRadioImportantTarget(
@@ -519,8 +489,7 @@ void Add_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId, bool isOffice
         isOfficer);
 }
 
-// Removes one important target by gameObjectId.
-// Params: gameObjectId
+
 void Remove_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -538,8 +507,7 @@ void Remove_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId)
         static_cast<unsigned int>(soldierIndex));
 }
 
-// Queues a discovered important body using gameObjectId.
-// Params: foundGameObjectId
+
 bool Notify_VIPRadioBodyDiscovered(std::uint32_t foundGameObjectId)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -551,8 +519,7 @@ bool Notify_VIPRadioBodyDiscovered(std::uint32_t foundGameObjectId)
         GameObjectIdToSoldierIndex(foundGameObjectId));
 }
 
-// Queues a discovered important body using gameObjectId + soldierIndex.
-// Params: foundGameObjectId, foundSoldierIndex
+
 bool Notify_VIPRadioBodyDiscoveredTarget(std::uint32_t foundGameObjectId, std::uint16_t foundSoldierIndex)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -562,8 +529,7 @@ bool Notify_VIPRadioBodyDiscoveredTarget(std::uint32_t foundGameObjectId, std::u
     return QueueDiscoveredImportantBody(foundGameObjectId, foundSoldierIndex);
 }
 
-// Returns true only when there is exactly one recent important corpse from RequestCorpse.
-// Params: outSoldierIndex, outIsOfficer
+
 bool Try_GetSingleRecentImportantCorpseIndex(std::uint16_t& outSoldierIndex, bool& outIsOfficer)
 {
     outSoldierIndex = 0xFFFFu;
@@ -579,8 +545,7 @@ bool Try_GetSingleRecentImportantCorpseIndex(std::uint16_t& outSoldierIndex, boo
     return true;
 }
 
-// Clears all important targets and runtime state.
-// Params: none
+
 void Clear_VIPRadioImportantGameObjectIds()
 {
     std::lock_guard<std::mutex> lock(g_StateMutex);
@@ -591,8 +556,7 @@ void Clear_VIPRadioImportantGameObjectIds()
     Log("[Radio] Cleared important targets, discovered-body queue, duplicate cache, and pending radio state\n");
 }
 
-// Installs the VIP radio hooks.
-// Params: none
+
 bool Install_VIPRadio_Hook()
 {
     g_CallImpl = reinterpret_cast<CallImpl_t>(ResolveGameAddress(gAddr.CallImpl));
@@ -628,8 +592,7 @@ bool Install_VIPRadio_Hook()
     return ok;
 }
 
-// Removes the VIP radio hooks.
-// Params: none
+
 bool Uninstall_VIPRadio_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.RequestCorpse));

@@ -15,7 +15,7 @@ namespace EquipParams
         int (*LuaType)(lua_State*, int);
 
         int (*GetLuaInt)(lua_State*, int);
-        double (*GetLuaNumber)(lua_State*, int);   // <- add this
+        double (*GetLuaNumber)(lua_State*, int);
         const char* (*GetLuaString)(lua_State*, int);
 
         size_t(*LuaObjLen)(lua_State*, int);

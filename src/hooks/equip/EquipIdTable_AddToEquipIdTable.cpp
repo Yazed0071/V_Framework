@@ -39,10 +39,7 @@ namespace
     ReloadEquipIdTable_t g_OrigReloadEquipIdTable = nullptr;
     StockAddToEquipIdTable_t g_StockAddToEquipIdTable = nullptr;
 
-    // Trampoline pointer — set once Install_StockAddToEquipIdTable_Observer
-    // is called. After the observer hook is installed, our framework's
-    // direct call path uses this trampoline (NOT g_StockAddToEquipIdTable)
-    // to bypass our own observer hook and avoid an infinite loop.
+
     StockAddToEquipIdTable_t g_OrigStockAddToEquipIdTable = nullptr;
 
     bool g_ReloadEquipIdTableHookInstalled = false;
@@ -159,18 +156,7 @@ namespace
         if (row.equipId <= 0)
             return;
 
-        // Bounds check (defense in depth). Native AddToEquipIdTable
-        // OOB-writes for equipIds whose compressed index >= 0x289,
-        // corrupting whatever vanilla data lives immediately after the
-        // four parallel tables (_s_internalInfoList / DAT_142c20fb8 /
-        // DAT_142c20fc0 / DAT_142a70928). Symptoms include vanilla
-        // weapon icons disappearing from sortie-prep slots and custom-
-        // suit names rendering blank in SELECT CHARACTER.
-        //
-        // The framework's allocator (V_FrameWorkState::ResolveOrCreateEquipId
-        // -> AllocateNextFreeEquipId_NoLock + EquipIdCompression::FindLowestFreeEquipId)
-        // is supposed to pick in-bounds slots, but if a caller bypasses
-        // it and queues an OOB equipId directly, we refuse here.
+
         const std::int32_t compressed =
             EquipIdCompression::ComputeCompressed(row.equipId);
         if (!EquipIdCompression::IsCompressedInBounds(compressed))
@@ -205,10 +191,7 @@ namespace
             row.equipId, compressed);
     }
 
-    // Observer hook — fires for every native AddToEquipIdTable call
-    // (vanilla boot scripts, our own forwarded rows). Records each row's
-    // compressed slot so the custom-equipId allocator can find slots
-    // vanilla hasn't claimed.
+
     static void __cdecl hkStockAddToEquipIdTable_Observer(lua_State* L)
     {
         if (L && g_Deps.LuaObjLen && g_Deps.LuaRawGetI &&
@@ -292,8 +275,7 @@ namespace
         Log("[EquipIdTable] Appended equipId=%d at row=%d\n", row.equipId, newRowIndex1Based);
     }
 
-    // Applies queued rows into argument table #1 before stock ReloadEquipIdTable runs.
-    // Params: L
+
     static void ApplyAllQueuedEquipIdRows(lua_State* L)
     {
         if (!L || !EnsureLuaReady())
@@ -322,8 +304,7 @@ namespace
         }
     }
 
-    // Hooked stock ReloadEquipIdTable.
-    // Params: L
+
     static int __fastcall hkReloadEquipIdTable(lua_State* L)
     {
         if (L)
@@ -343,8 +324,7 @@ namespace EquipIdTableAdd
         g_Deps = deps;
     }
 
-    // Lua: V_FrameWork.AddToEquipIdTable({ { equipId, equipType, value3, equipBlock, partsPath, packPath }, ... })
-    // Params: L
+
     int __cdecl Lua_AddToEquipIdTable(lua_State* L)
     {
         if (!L || !EnsureLuaReady() || !IsLuaTable(L, 1))
@@ -369,38 +349,14 @@ namespace EquipIdTableAdd
             g_Deps.LuaPop(L, 1);
         }
 
-        // Call the stock EquipIdTableImpl::AddToEquipIdTable directly with the
-        // same Lua state. It iterates arg #1 and writes each row's
-        // partsPath / packPath / baseWeapon / type / block into the game's
-        // static s_internalInfoList + DAT_142c20fb8 / fc0 + DAT_142a70928
-        // arrays — same native effect the vanilla reload would produce,
-        // without waiting for the hook to fire (which only happens at boot
-        // before our DLL is installed).
-        //
-        // UI stats path: equipId → s_internalInfoList[compressed].baseWeapon
-        // → gunBasic[baseWeapon - 1] → receiver / barrel / ammo stats.
-        // Without this direct call, s_internalInfoList[compressed] stays
-        // zero, baseWeapon resolves to 0, and the stats panel reads
-        // gunBasic[-1] → empty damage / shock / penetration / etc. bars.
+
         if (!g_StockAddCallInProgress)
         {
             if (!g_StockAddToEquipIdTable)
                 g_StockAddToEquipIdTable = reinterpret_cast<StockAddToEquipIdTable_t>(
                     ResolveGameAddress(gAddr.EquipIdTableImpl_AddToEquipIdTable));
 
-            // Pick the call target. Once the observer hook is installed,
-            // calling the public g_StockAddToEquipIdTable address would
-            // re-enter our hook (infinite recursion); call the trampoline
-            // (g_OrigStockAddToEquipIdTable) instead so the observer sees
-            // the call exactly once via QueueEquipIdRow's earlier path
-            // (the observer also records, but rows we've already filtered
-            // out by OOB rejection above never reach this point).
-            //
-            // CallTarget invariants:
-            //  - Observer installed: trampoline is non-null, public is hooked.
-            //    Use trampoline.
-            //  - Observer not installed: trampoline is null, public is unhooked.
-            //    Use public.
+
             StockAddToEquipIdTable_t callTarget =
                 g_OrigStockAddToEquipIdTable
                     ? g_OrigStockAddToEquipIdTable
@@ -425,8 +381,7 @@ namespace EquipIdTableAdd
         return 0;
     }
 
-    // Installs hook on EquipIdTableImpl::ReloadEquipIdTable.
-    // Params: none
+
     bool Install_EquipIdTableImpl_ReloadEquipIdTable_Hook()
     {
         if (g_ReloadEquipIdTableHookInstalled)
@@ -458,8 +413,7 @@ namespace EquipIdTableAdd
         return true;
     }
 
-    // Removes hook on EquipIdTableImpl::ReloadEquipIdTable.
-    // Params: none
+
     bool Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook()
     {
         if (!g_ReloadEquipIdTableHookInstalled)
@@ -474,9 +428,7 @@ namespace EquipIdTableAdd
         return true;
     }
 
-    // Installs hook on EquipIdTableImpl::AddToEquipIdTable for vanilla-
-    // slot-occupancy observation (see header comment). No-op if already
-    // installed.
+
     bool Install_StockAddToEquipIdTable_Observer()
     {
         if (g_StockAddObserverHookInstalled)
@@ -500,10 +452,7 @@ namespace EquipIdTableAdd
             return false;
         }
 
-        // After hook install, the public address points at our hook —
-        // make sure the cached g_StockAddToEquipIdTable still points
-        // at the same address (it'll route through the hook on call,
-        // but by convention we use the trampoline now anyway).
+
         g_StockAddToEquipIdTable = reinterpret_cast<StockAddToEquipIdTable_t>(target);
 
         g_StockAddObserverHookInstalled = true;

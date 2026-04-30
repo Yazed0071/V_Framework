@@ -45,9 +45,7 @@ namespace
         return out;
     }
 
-    // Locate a registered outfit by (playerType, partsType). Returns
-    // false if partsType is not in the custom range or no registry
-    // entry matches the playerType.
+
     static const outfit::OutfitEntry* FindCustomEntry(
         std::uint32_t playerType, std::uint32_t playerPartsType)
     {
@@ -70,17 +68,11 @@ namespace
         const auto* entry = FindCustomEntry(playerType, playerPartsType);
         if (entry)
         {
-            // Custom outfit with a custom FV2 path → write it.
+
             if (entry->IsCamoFv2Custom())
                 return WriteFoxPath(outPath, entry->camoFv2);
 
-            // Custom outfit with kSubAssetUseVanilla on FV2 → pass to
-            // vanilla load (which will likely fail to find a row for
-            // our partsType and produce an empty path; that is what
-            // we want for "no FV2").
-            //
-            // Custom outfit with kSubAssetDisabled → write null FoxPath
-            // explicitly so the engine doesn't index its array.
+
             if (entry->camoFv2 == outfit::kSubAssetDisabled)
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }

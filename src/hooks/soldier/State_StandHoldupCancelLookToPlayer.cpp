@@ -1,5 +1,5 @@
-// HoldupCancelLookToPlayerHook.cpp
-// tpp::gm::soldier::impl::HoldupActionImpl::State_StandHoldupCancelLookToPlayer
+
+
 #include "pch.h"
 #include <Windows.h>
 #include <cstdint>
@@ -12,12 +12,7 @@
 
 extern void Log(const char* fmt, ...);
 
-// -----------------------------------------------------------------------------
-// Target address
-// VA: 0x14A141910
-// Image base:    0x140000000
-// RVA = VA - ImageBase = 0x0A141910
-// -----------------------------------------------------------------------------
+
 static uintptr_t gBase = 0;
 
 using StateFn_t = void(__fastcall*)(void* holdupThis, uint64_t id, int phase);
@@ -56,7 +51,7 @@ static __forceinline void WriteByteNoThrow(uintptr_t addr, uint8_t v)
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-// slot = *(this+0x88) + ( (id32 - *(this+0x90)) * 0x40 )
+
 static uintptr_t GetHoldupSlot(void* holdupThis, uint32_t id32)
 {
     const auto p1 = reinterpret_cast<uintptr_t>(holdupThis);
@@ -78,7 +73,7 @@ static uint32_t ComputeLineIdFromSlot(uintptr_t slot)
     return lineId;
 }
 
-// plVar2 = *( *(this + 0x70) + 0xA8 )
+
 static void* ResolveSpeakObject(void* holdupThis)
 {
     const auto p1 = reinterpret_cast<uintptr_t>(holdupThis);
@@ -138,9 +133,9 @@ static void TrySpeak_EnterDownHoldupStyle(void* holdupThis, uint32_t id32, uint3
         fn(obj,
             id32,
             0x95EA16B0u,
-            4,              // IMPORTANT: matches State_EnterDownHoldup
-			lineId,         // IMPORTANT: FNV132 of line name, e.g. "EVR071:Player has their gun on the enemy - more reaction variations. Bold reactions."
-            0.0f);          // IMPORTANT: delay??
+            4,
+			lineId,
+            0.0f);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {

@@ -42,8 +42,8 @@ namespace
 
     struct DevelopKeyIds
     {
-        std::uint16_t developId = 0; // p00
-        std::uint16_t flowIndex = 0; // p50
+        std::uint16_t developId = 0;
+        std::uint16_t flowIndex = 0;
     };
 
     struct PendingDevelopRequest
@@ -61,7 +61,7 @@ namespace
     bool g_RegCstDevHookInstalled = false;
     bool g_RegFlwDevHookInstalled = false;
 
-    std::mutex g_StateMutex;
+    std::recursive_mutex g_StateMutex;
     std::unordered_map<std::string, DevelopKeyIds> g_KeyRegistry;
     std::vector<PendingDevelopRequest> g_PendingRequests;
     bool g_IsFlushingPending = false;
@@ -71,14 +71,7 @@ namespace
     bool g_ObservedAnyDevelopId = false;
     bool g_ObservedAnyFlowIndex = false;
 
-    // Sets of every developId / flowIndex the orig RegCstDev / RegFlwDev
-    // lua functions registered during boot — i.e. every id vanilla MGSV's
-    // own equip-develop tables claim. The V_FrameWorkState allocator uses
-    // these as a "do not touch" mask so newly-allocated mod outfit ids
-    // never collide with a vanilla row, while still packing into the
-    // lowest-available custom slots above kFirstCustomDevelopId /
-    // kFirstCustomFlowIndex (instead of jumping over the entire vanilla
-    // range with a high static base).
+
     std::unordered_set<std::uint32_t> g_ObservedStockDevelopIds;
     std::unordered_set<std::uint32_t> g_ObservedStockFlowIndices;
 
@@ -86,8 +79,7 @@ namespace
     constexpr int LUA_TSTRING_CONST = 4;
     constexpr int LUA_TTABLE_CONST = 5;
 
-    // Bootstrap values for the current English build you are using.
-    // These are the same working custom ranges your logs already showed.
+
     constexpr std::uint32_t kBootstrapDevelopIdStart = 51006;
     constexpr std::uint32_t kBootstrapFlowIndexStart = 922;
     constexpr std::uint32_t kMaxAllocId = 0xFFFEu;
@@ -276,12 +268,8 @@ namespace
 
     static bool CanInjectRowsNow_NoLock()
     {
-        // Original function pointers must be available (hooks installed).
-        // The observation flags are a bonus — if either is set, the game's
-        // develop tables definitely exist. But even without observation,
-        // if both hooks are installed the tables are live and injection is safe.
-        // This prevents a timing race where our Lua registers suits before
-        // the game's stock RegCstDev/RegFlwDev calls set the observation flags.
+
+
         return g_OrigRegCstDev && g_OrigRegFlwDev;
     }
 
@@ -313,7 +301,7 @@ namespace
         std::uint16_t& outDevelopId,
         std::uint16_t& outFlowIndex)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
         return TryGetIdsForKey_NoLock(key, outDevelopId, outFlowIndex);
     }
 
@@ -337,7 +325,7 @@ namespace
         outFlowIndex = 0;
         outCreated = false;
 
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         if (key.empty())
             return false;
@@ -360,7 +348,7 @@ namespace
 
         DevelopKeyIds ids{};
 
-        // Try to reuse a persistent developId from the unified state
+
         std::int32_t persistedDevelopId = 0;
         if (V_FrameWorkState::ResolveOrCreateDevelopId(
                 key.c_str(),
@@ -377,10 +365,7 @@ namespace
             ids.developId = static_cast<std::uint16_t>(g_NextDevelopId++);
         }
 
-        // Try to reuse a persistent flowIndex from the unified state.
-        // Same mechanism developId uses, so outfit registration (which
-        // also calls ResolveOrCreateFlowIndex on the same key) reads
-        // back the SAME value rather than allocating a different one.
+
         std::int32_t persistedFlowIndex = 0;
         if (V_FrameWorkState::ResolveOrCreateFlowIndex(
                 key.c_str(),
@@ -418,7 +403,7 @@ namespace
         const std::vector<FieldValue>& constFields,
         const std::vector<FieldValue>& flowFields)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         if (key.empty())
             return;
@@ -441,30 +426,25 @@ namespace
 
     static void ObserveDevelopId(std::uint32_t developId)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         g_ObservedAnyDevelopId = true;
         if (developId >= g_NextDevelopId)
             g_NextDevelopId = developId + 1;
 
-        // Record the exact id so the V_FrameWorkState allocator can skip
-        // it when handing out new ids to mod outfits. Without this the
-        // allocator would happily reuse a low vanilla developId (e.g.
-        // 4097) for a custom outfit and stomp the orig row at that slot.
+
         g_ObservedStockDevelopIds.insert(developId);
     }
 
     static void ObserveFlowIndex(std::uint32_t flowIndex)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         g_ObservedAnyFlowIndex = true;
         if (flowIndex >= g_NextFlowIndex)
             g_NextFlowIndex = flowIndex + 1;
 
-        // Same rationale as ObserveDevelopId — record the exact flowIndex
-        // so V_FrameWorkState's allocator can avoid colliding with vanilla
-        // rows when packing new outfits into low free slots.
+
         g_ObservedStockFlowIndices.insert(flowIndex);
     }
 
@@ -693,7 +673,7 @@ namespace
 
         std::vector<PendingDevelopRequest> work;
         {
-            std::lock_guard<std::mutex> lock(g_StateMutex);
+            std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
             if (g_IsFlushingPending)
                 return;
@@ -720,7 +700,7 @@ namespace
         }
 
         {
-            std::lock_guard<std::mutex> lock(g_StateMutex);
+            std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
             if (!completedKeys.empty())
             {
@@ -802,12 +782,12 @@ namespace EquipDevelopAdd
             return 0;
         }
 
-        // Already fully known: keep returning the same stable develop id.
+
         if (!created)
         {
             bool stillPending = false;
             {
-                std::lock_guard<std::mutex> lock(g_StateMutex);
+                std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
                 stillPending = (FindPendingRequest_NoLock(key) != nullptr);
             }
 
@@ -825,10 +805,10 @@ namespace EquipDevelopAdd
             }
         }
 
-        // New key, or existing key still pending injection.
+
         QueueOrUpdatePendingRequest(key, constFields, flowFields);
 
-        // If vanilla develop tables are already live, inject immediately.
+
         FlushPendingRegistrations(L);
 
         g_Deps.PushLuaNumber(L, static_cast<float>(developId));
@@ -837,7 +817,7 @@ namespace EquipDevelopAdd
 
     bool TryGetFlowIndexForDevelopId(std::uint16_t developId, std::uint16_t& outFlowIndex)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         for (const auto& kv : g_KeyRegistry)
         {
@@ -854,14 +834,14 @@ namespace EquipDevelopAdd
 
     bool IsDevelopIdReservedByStock(std::uint32_t developId)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
         return g_ObservedStockDevelopIds.find(developId)
             != g_ObservedStockDevelopIds.end();
     }
 
     bool IsFlowIndexReservedByStock(std::uint32_t flowIndex)
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
         return g_ObservedStockFlowIndices.find(flowIndex)
             != g_ObservedStockFlowIndices.end();
     }

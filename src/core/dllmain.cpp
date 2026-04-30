@@ -66,17 +66,7 @@ static DWORD WINAPI InitThread(LPVOID)
         return 0;
     }
 
-    // Install the AddToEquipIdTable observer hook IMMEDIATELY after
-    // address resolution and BEFORE any other framework state. The
-    // observer records which compressed equip-id slots vanilla's boot
-    // scripts populate; the framework's custom-equipId allocator
-    // queries this to pick truly-free in-bounds slots and avoid the
-    // 0x289-bound OOB write that corrupts vanilla UI state.
-    //
-    // This is installed here (not via the FeatureModule pipeline)
-    // because vanilla's TppEquipParts.lua / similar boot scripts may
-    // call AddToEquipIdTable from the Lua state we just made writable
-    // via SetLuaFunctions — installing later would miss those calls.
+
     const bool observerOk =
         EquipIdTableAdd::Install_StockAddToEquipIdTable_Observer();
     Log("[DLL] Early Install_StockAddToEquipIdTable_Observer -> %s\n",
@@ -85,7 +75,6 @@ static DWORD WINAPI InitThread(LPVOID)
     V_FrameWorkState::Load();
 
     RegisterBuiltInFeatureModules();
-
 
 
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
@@ -99,22 +88,8 @@ static void UninstallAll(bool processTerminating)
 {
     if (processTerminating)
     {
-        // Process is exiting (Windows DLL_PROCESS_DETACH with
-        // lpReserved != nullptr). Per MSDN guidance we MUST NOT call
-        // into other DLLs here — MinHook trampolines, FeatureModule
-        // uninstalls, and even file I/O may touch DLLs that have
-        // already been unloaded by the loader. Skipping the heavy
-        // uninstall is the safe path; the OS cleans up the address
-        // space anyway when the process terminates.
-        //
-        // What we DO want to do safely: log a marker so it's clear
-        // why the per-hook "uninstall" lines are absent, flush log
-        // buffers so the in-progress line lands on disk, and free
-        // our AllocConsole handle so conhost.exe (the console host
-        // process) terminates with us instead of lingering. Without
-        // FreeConsole, conhost can keep the console window alive
-        // for a beat after the game exits — user-visible as "the
-        // console never closes."
+
+
         Log("[DLL] DLL_PROCESS_DETACH: process terminating, skipping "
             "FeatureModule uninstall (per MSDN guidance — other DLLs "
             "may already be unloaded). OS will reclaim address space.\n");

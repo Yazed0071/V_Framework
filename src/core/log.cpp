@@ -33,8 +33,7 @@ void InitLog()
     strcpy_s(logPath, gameDir);
     strcat_s(logPath, "mod\\V_FrameWork\\V_FrameWork_log.txt");
 
-    // _fsopen with _SH_DENYWR lets external viewers/tail tools read the log
-    // while the game is running (fopen_s's default share mode blocks them).
+
     g_LogFile = _fsopen(logPath, "w", _SH_DENYWR);
     if (g_LogFile)
         fprintf(g_LogFile, "[LOG] V_FrameWork log initialized at %s\n", logPath);

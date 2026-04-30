@@ -41,7 +41,7 @@ namespace
         std::uint16_t rawGameObjectId = LHD_INVALID_TARGET_ID;
         int           hostageType = -1;
         std::uint32_t speechLabel = 0u;
-    }; 
+    };
 
     struct LostHostageDiscoveryRadioRequestEntryView
     {
@@ -502,8 +502,7 @@ std::uint32_t LostHostageDiscovery_OnConvertRadioTypeToSpeechLabel(
     if (g_LHD_SelectedRadioQueue.empty())
         return baseLabel;
 
-    // FIFO consume so back-to-back hostage discoveries from different soldiers
-    // do not overwrite each other before conversion happens.
+
     const LostHostageDiscoverySelectedRadio selected = g_LHD_SelectedRadioQueue.front();
     g_LHD_SelectedRadioQueue.pop_front();
 

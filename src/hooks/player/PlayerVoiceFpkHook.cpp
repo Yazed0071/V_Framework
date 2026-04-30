@@ -17,10 +17,7 @@ namespace
     using LoadPlayerVoiceFpk_t = void* (__fastcall*)(void* fileSlotPath, std::uint32_t playerType, std::uint32_t playerFaceId);
     using FoxPath_Path_t = void* (__fastcall*)(void* outPath, std::uint64_t pathCode64Ext);
 
-    // Absolute address of player::voice::LoadPlayerVoiceFpk.
-    // Params: fileSlotPath (void*), playerType (uint32_t), playerFaceId (uint32_t)
-    // Absolute address of fox::Path::Path(Path*, PathCode64Ext).
-    // Params: outPath (void*), pathCode64Ext (uint64_t)
+
     static LoadPlayerVoiceFpk_t g_OrigLoadPlayerVoiceFpk = nullptr;
     static FoxPath_Path_t g_FoxPath_Path = nullptr;
 
@@ -35,8 +32,7 @@ namespace
     static std::mutex g_OverrideMutex;
 }
 
-// Resolves the fox::Path::Path helper used to write the selected path into the output object.
-// Params: none
+
 static bool ResolvePlayerVoiceApi()
 {
     if (!g_FoxPath_Path)
@@ -49,16 +45,13 @@ static bool ResolvePlayerVoiceApi()
     return g_FoxPath_Path != nullptr;
 }
 
-// Returns true when the type should use an exact stored slot instead of fallback.
-// Params: playerType (uint32_t)
+
 static bool IsExplicitType(std::uint32_t playerType)
 {
     return playerType == 1 || playerType == 2;
 }
 
-// Returns a copy of the effective override for an incoming player type.
-// Exact types 1 and 2 use map entries. All others use the fallback slot.
-// Params: playerType (uint32_t)
+
 static VoiceOverrideSlot GetEffectiveOverrideForType(std::uint32_t playerType)
 {
     std::lock_guard<std::mutex> lock(g_OverrideMutex);
@@ -75,8 +68,7 @@ static VoiceOverrideSlot GetEffectiveOverrideForType(std::uint32_t playerType)
     return g_FallbackOverride;
 }
 
-// Writes a selected voice pack path into the game's output Path object.
-// Params: outPath (void*), pathCode64Ext (uint64_t)
+
 static void* WritePlayerVoicePath(void* outPath, std::uint64_t pathCode64Ext)
 {
     if (!ResolvePlayerVoiceApi() || !outPath || pathCode64Ext == 0)
@@ -109,8 +101,7 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
     return fileSlotPath;
 }
 
-// Installs the player voice FPK selector hook.
-// Params: none
+
 bool Install_PlayerVoiceFpk_Hook()
 {
     ResolvePlayerVoiceApi();
@@ -132,8 +123,7 @@ bool Install_PlayerVoiceFpk_Hook()
     return ok;
 }
 
-// Removes the player voice FPK selector hook and clears stored overrides.
-// Params: none
+
 bool Uninstall_PlayerVoiceFpk_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerVoiceFpk));
@@ -150,12 +140,7 @@ bool Uninstall_PlayerVoiceFpk_Hook()
     return true;
 }
 
-// Sets a player-type-specific voice FPK override from a raw path string.
-// Supported intended values:
-//   1 = male DD
-//   2 = female DD
-//   anything else = fallback/non-DD
-// Params: playerType (uint32_t), rawPath (const char*)
+
 void Set_PlayerVoiceFpkPathForType(std::uint32_t playerType, const char* rawPath)
 {
     if (!rawPath || !*rawPath)
@@ -185,12 +170,7 @@ void Set_PlayerVoiceFpkPathForType(std::uint32_t playerType, const char* rawPath
     );
 }
 
-// Clears a player-type-specific voice FPK override.
-// Supported intended values:
-//   1 = male DD
-//   2 = female DD
-//   anything else = fallback/non-DD
-// Params: playerType (uint32_t)
+
 void Clear_PlayerVoiceFpkPathForType(std::uint32_t playerType)
 {
     std::lock_guard<std::mutex> lock(g_OverrideMutex);
@@ -207,8 +187,7 @@ void Clear_PlayerVoiceFpkPathForType(std::uint32_t playerType)
     Log("[PlayerVoiceFpk] Type override cleared: playerType=%u\n", playerType);
 }
 
-// Clears all player voice FPK overrides.
-// Params: none
+
 void Clear_AllPlayerVoiceFpkOverrides()
 {
     std::lock_guard<std::mutex> lock(g_OverrideMutex);

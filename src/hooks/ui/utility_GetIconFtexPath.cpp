@@ -20,8 +20,7 @@ namespace
     static bool g_EquipIconFtexPathHookInstalled = false;
 }
 
-// Sets a custom FTEX icon path for one equipId.
-// Params: equipId (int), texturePathHash (uint64_t)
+
 void EquipIcon_SetEquipIdIconFtexPath(int equipId, uint64_t texturePathHash)
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
@@ -32,8 +31,7 @@ void EquipIcon_SetEquipIdIconFtexPath(int equipId, uint64_t texturePathHash)
         static_cast<unsigned long long>(texturePathHash));
 }
 
-// Clears a custom FTEX icon path for one equipId.
-// Params: equipId (int)
+
 void EquipIcon_ClearIconFtexPath(int equipId)
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
@@ -41,8 +39,7 @@ void EquipIcon_ClearIconFtexPath(int equipId)
     Log("[EquipIcon] EquipId %d cleared\n", equipId);
 }
 
-// Clears all custom FTEX icon path overrides.
-// Params: none
+
 void EquipIcon_ClearAllIconFtexPaths()
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
@@ -50,8 +47,7 @@ void EquipIcon_ClearAllIconFtexPaths()
     Log("[EquipIcon] All per-equip icon paths cleared\n");
 }
 
-// Hooked version of tpp::ui::utility::GetIconFtexPath.
-// Params: outPathId (int64_t*), equipId (uint32_t), mode (int)
+
 static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::uint32_t equipId, int mode)
 {
     {
@@ -68,19 +64,11 @@ static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::
         }
     }
 
-    // Diagnostic fall-through logging removed 2026-04-28 — was added
-    // 2026-04-27 to debug the "vanilla weapon icon doesn't show when
-    // custom suit equipped" regression (root cause was the loadout-
-    // clear in SetInitialConditionWithLoadoutInfo, now fixed via
-    // preserve-flag spoof). The dedup-by-(equipId,mode,isZero) was
-    // too coarse — UI polls this every frame and alternates between
-    // equipId=570 and equipId=0, so the dedup cache flipped each call
-    // and the line spammed at 60Hz. No longer needed.
+
     return g_OrigGetIconFtexPath(outPathId, equipId, mode);
 }
 
-// Installs the Equip icon FTEX path hook.
-// Params: none
+
 bool Install_EquipIconFtexPath_Hook()
 {
     if (g_EquipIconFtexPathHookInstalled)
@@ -110,8 +98,7 @@ bool Install_EquipIconFtexPath_Hook()
     return true;
 }
 
-// Uninstalls the Equip icon FTEX path hook.
-// Params: none
+
 bool Uninstall_EquipIconFtexPath_Hook()
 {
     if (!g_EquipIconFtexPathHookInstalled)

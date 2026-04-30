@@ -11,24 +11,19 @@
 
 namespace
 {
-    // Hook target:
-    // tpp::gm::soldier::impl::HoldupActionImpl::State_EnterDownHoldup
-    // Params:
-    //   self    = HoldupActionImpl*
-    //   actorId = acting soldier slot/id
-    //   proc    = state proc
+
+
     using State_EnterDownHoldup_t =
         void(__fastcall*)(void* self, std::uint32_t actorId, std::uint32_t proc);
 
-    // Absolute address of HoldupActionImpl::State_EnterDownHoldup.
+
     static State_EnterDownHoldup_t g_OrigState_EnterDownHoldup = nullptr;
 
-    // Small RNG state for random voice selection.
+
     static std::atomic<std::uint64_t> g_RngState{ 0 };
 }
 
-// Safely reads a qword from memory.
-// Params: addr (uintptr_t), outValue (uint64_t&)
+
 static bool SafeReadQword(std::uintptr_t addr, std::uint64_t& outValue)
 {
     if (!addr)
@@ -45,8 +40,7 @@ static bool SafeReadQword(std::uintptr_t addr, std::uint64_t& outValue)
     }
 }
 
-// Safely reads a dword from memory.
-// Params: addr (uintptr_t), outValue (uint32_t&)
+
 static bool SafeReadDword(std::uintptr_t addr, std::uint32_t& outValue)
 {
     if (!addr)
@@ -63,8 +57,7 @@ static bool SafeReadDword(std::uintptr_t addr, std::uint32_t& outValue)
     }
 }
 
-// Safely reads a byte from memory.
-// Params: addr (uintptr_t), outValue (uint8_t&)
+
 static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
 {
     if (!addr)
@@ -81,10 +74,7 @@ static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
     }
 }
 
-// Resolves the per-action entry used by HoldupActionImpl::State_EnterDownHoldup.
-// Formula from decomp:
-//   entry = ((actorId - *(int*)(self+0x90)) * 0x40) + *(qword*)(self+0x88)
-// Params: self (void*), actorId (uint32_t)
+
 static std::uintptr_t GetHoldupEntry(void* self, std::uint32_t actorId)
 {
     if (!self)
@@ -105,10 +95,7 @@ static std::uintptr_t GetHoldupEntry(void* self, std::uint32_t actorId)
     return static_cast<std::uintptr_t>(tableBase + (static_cast<std::uint64_t>(slot) * 0x40ull));
 }
 
-// Dispatches the holdup-down reaction through the same downstream manager used by the game.
-// This matches the original call shape:
-//   manager->Dispatch(actorId, 0x95EA16B0, 4, reactionHash, 0)
-// Params: self (void*), actorId (uint32_t), reactionHash (uint32_t)
+
 static void DispatchHoldupDownReaction(void* self, std::uint32_t actorId, std::uint32_t reactionHash)
 {
     if (!self)
@@ -147,8 +134,7 @@ static void DispatchHoldupDownReaction(void* self, std::uint32_t actorId, std::u
     }
 }
 
-// Returns a random bit used to choose between the two unused holdup-down lines.
-// Params: none
+
 static std::uint32_t NextRandomBit()
 {
     std::uint64_t state = g_RngState.load(std::memory_order_relaxed);
@@ -165,17 +151,13 @@ static std::uint32_t NextRandomBit()
     return static_cast<std::uint32_t>(state & 1ull);
 }
 
-// Chooses one of the two unused holdup-down reaction hashes at random.
-// Params: none
+
 static std::uint32_t ChooseRandomHoldupDownHash()
 {
     return (NextRandomBit() != 0) ? 0x16CD9714u : 0x16CD9715u;
 }
 
-// Hooked EnterDownHoldup.
-// If the original code would skip the reaction because entry+0x3F has bit 0x2 set,
-// force one of the two unused lines randomly, then continue with the original function.
-// Params: self (void*), actorId (uint32_t), proc (uint32_t)
+
 static void __fastcall hkState_EnterDownHoldup(
     void* self,
     std::uint32_t actorId,
@@ -191,8 +173,8 @@ static void __fastcall hkState_EnterDownHoldup(
             std::uint8_t flags3F = 0;
             if (SafeReadByte(entry + 0x3Full, flags3F))
             {
-                // Original code only dispatches the 0x16CD9714 / 0x16CD9715 reaction when bit 0x2 is NOT set.
-                // If bit 0x2 IS set, force a random voice so the skipped lines can play.
+
+
                 if ((flags3F & 0x2u) != 0)
                 {
                     const std::uint32_t reactionHash = ChooseRandomHoldupDownHash();
@@ -211,8 +193,7 @@ static void __fastcall hkState_EnterDownHoldup(
     g_OrigState_EnterDownHoldup(self, actorId, proc);
 }
 
-// Installs the EnterDownHoldup forced-random-voice hook.
-// Params: none
+
 bool Install_State_EnterDownHoldupForceVoice_Hook()
 {
     void* target = ResolveGameAddress(gAddr.State_EnterDownHoldup);
@@ -231,8 +212,7 @@ bool Install_State_EnterDownHoldupForceVoice_Hook()
     return ok;
 }
 
-// Removes the EnterDownHoldup forced-random-voice hook.
-// Params: none
+
 bool Uninstall_State_EnterDownHoldupForceVoice_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterDownHoldup));

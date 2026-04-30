@@ -13,11 +13,11 @@
 
 namespace
 {
-    // Stores the original UpdateOptCamo function.
-    // Params: self, actorIndex
+
+
     using UpdateOptCamo_t = void(__fastcall*)(void* self, std::uint32_t actorIndex);
 
-    // Describes the per-mappedIndex override mode.
+
     enum class OptCamoForceMode : std::uint32_t
     {
         None = 0,
@@ -25,7 +25,7 @@ namespace
         ForceOff = 2
     };
 
-    // Describes resolve failures while finding the mappedIndex config entry.
+
     enum class ResolveOptCamoStatus : std::uint32_t
     {
         Ok = 0,
@@ -47,8 +47,7 @@ namespace
     static std::unordered_map<std::uint32_t, OptCamoForceMode> g_MappedIndexModes;
 }
 
-// Reads one uint32 with SEH protection.
-// Params: ptr, outValue
+
 static bool TryReadUInt32SEH(const std::uint32_t* ptr, std::uint32_t& outValue)
 {
     outValue = 0;
@@ -68,8 +67,7 @@ static bool TryReadUInt32SEH(const std::uint32_t* ptr, std::uint32_t& outValue)
     }
 }
 
-// Writes one uint32 with SEH protection.
-// Params: ptr, value
+
 static bool TryWriteUInt32SEH(std::uint32_t* ptr, std::uint32_t value)
 {
     if (!ptr)
@@ -86,8 +84,7 @@ static bool TryWriteUInt32SEH(std::uint32_t* ptr, std::uint32_t value)
     }
 }
 
-// Resolves the flags field for the current actor's mappedIndex.
-// Params: self, actorIndex, outFlagsPtr, outMappedIndex, outStatus
+
 static bool ResolveOptCamoFlagsField(
     void* self,
     std::uint32_t actorIndex,
@@ -180,8 +177,7 @@ static bool ResolveOptCamoFlagsField(
     }
 }
 
-// Returns the current override mode for one mappedIndex.
-// Params: mappedIndex
+
 static OptCamoForceMode GetModeForMappedIndex(std::uint32_t mappedIndex)
 {
     std::lock_guard<std::mutex> lock(g_UpdateOptCamoMutex);
@@ -193,8 +189,7 @@ static OptCamoForceMode GetModeForMappedIndex(std::uint32_t mappedIndex)
     return OptCamoForceMode::None;
 }
 
-// Sets one mappedIndex override mode without taking the mutex.
-// Params: mappedIndex, mode
+
 static void SetMappedIndexMode_NoLock(std::uint32_t mappedIndex, OptCamoForceMode mode)
 {
     if (mode == OptCamoForceMode::None)
@@ -207,8 +202,7 @@ static void SetMappedIndexMode_NoLock(std::uint32_t mappedIndex, OptCamoForceMod
     }
 }
 
-// Forces the desired opt-camo bit for mappedIndex overrides during UpdateOptCamo.
-// Params: self, actorIndex
+
 static void __fastcall hkUpdateOptCamo(void* self, std::uint32_t actorIndex)
 {
     if (!g_OrigUpdateOptCamo)
@@ -275,8 +269,7 @@ static void __fastcall hkUpdateOptCamo(void* self, std::uint32_t actorIndex)
     }
 }
 
-// Installs the UpdateOptCamo hook.
-// Params: none
+
 bool Install_UpdateOptCamo_Hook()
 {
     void* target = ResolveGameAddress(gAddr.UpdateOptCamo);
@@ -295,8 +288,7 @@ bool Install_UpdateOptCamo_Hook()
     return ok;
 }
 
-// Removes the UpdateOptCamo hook and clears overrides.
-// Params: none
+
 bool Uninstall_UpdateOptCamo_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.UpdateOptCamo));
@@ -310,8 +302,7 @@ bool Uninstall_UpdateOptCamo_Hook()
     return true;
 }
 
-// Enables or disables one mappedIndex override.
-// Params: mappedIndex, enabled
+
 void Set_UpdateOptCamoEnableMappedIndex(std::uint32_t mappedIndex, bool enabled)
 {
     std::lock_guard<std::mutex> lock(g_UpdateOptCamoMutex);
@@ -331,8 +322,7 @@ void Set_UpdateOptCamoEnableMappedIndex(std::uint32_t mappedIndex, bool enabled)
         enabled ? "true" : "false");
 }
 
-// Clears all mappedIndex overrides.
-// Params: none
+
 void Clear_UpdateOptCamoMappedIndexOverrides()
 {
     std::lock_guard<std::mutex> lock(g_UpdateOptCamoMutex);

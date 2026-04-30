@@ -66,13 +66,14 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 > on the develop block to start them pre-researched. See
 > `OutfitWithCustomHead.lua` for the full pattern.
 
-### Variants
+### Variants & display names
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `variants` | table[] | empty | Up to 8 variant tables. Variant 0 is implicit (base outfit's paths); explicit entries fill variants 1..N. |
+| `displayName` | string | nil | LangId for the cycle-button label of variant 0 (the BASE appearance). Pass an `<Entry LangId=...>` value from a vanilla or modded LangId XML; the framework hashes it via StrCode64 and overrides the UNIFORMS-row label that the orig translator returns blank for our custom partsType range. Without it, the base cycle button shows whatever orig falls back to (typically blank, or one of vanilla's hardcoded STANDARD/SCARF/NAKED labels). |
+| `variants` | table[] | empty | Up to 8 variant tables. Variant 0 is implicit (base outfit's paths + the top-level `displayName`); explicit entries fill variants 1..N with their own `displayName`. |
 
-Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamondFpk`, `displayNameId`. Any unset field inherits from the base outfit.
+Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamondFpk`, `displayName`. Any unset field inherits from the base outfit. The `displayName` field is the LangId string (same form as the top-level field) — the framework hashes it per-variant.
 
 ### Surface-bonus camo pin
 

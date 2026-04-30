@@ -18,22 +18,7 @@ namespace
 {
     constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
-    // Native AddToEquipIdTable's compression formula maps:
-    //   equipId in [0x000, 0x400)  -> compressed = equipId
-    //   equipId in [0x400, 0x600)  -> compressed = equipId - 0x1D0
-    //   equipId in [0x600, ...)    -> compressed = equipId - 0x380
-    // The four parallel native arrays it indexes are sized 0x289, so
-    // any equipId whose compressed index >= 0x289 OOB-writes and
-    // corrupts adjacent vanilla data (causing vanilla weapon-slot
-    // icons to disappear and custom-suit names to render blank).
-    //
-    // 0x609 was the framework's old default — sits exactly 1 past
-    // the bound (0x609 - 0x380 = 0x289). The new allocator scans
-    // for compressed slots that vanilla's boot reload didn't claim
-    // (observed via EquipIdCompression::MarkCompressedSlotUsed), so
-    // we no longer need a hardcoded "first custom" constant. We
-    // keep this minimum=0 since the allocator will skip every slot
-    // vanilla actually populated.
+
     constexpr std::int32_t kMinimumCustomEquipId = 0;
 
     RegisterConstantEquipId::Deps g_Deps{};
@@ -90,7 +75,7 @@ namespace
         g_Deps.LuaPushNil(L);
         while (g_Deps.LuaNext(L, tableIndex) != 0)
         {
-            // key at -2, value at -1
+
             if (g_Deps.LuaIsString(L, -2) && g_Deps.LuaIsNumber(L, -1))
             {
                 const char* key = g_Deps.GetLuaString(L, -2);
@@ -107,39 +92,24 @@ namespace
                 }
             }
 
-            // pop value, keep key for next iteration
+
             g_Deps.LuaPop(L, 1);
         }
 
         return highest;
     }
 
-    std::int32_t ComputeMinimumCustomEquipId(lua_State* /*L*/, const int /*tppEquipIndex*/)
+    std::int32_t ComputeMinimumCustomEquipId(lua_State* , const int )
     {
-        // Old behavior tried to find the highest declared TppEquip.EQP_*
-        // value and start above it. That made sense when the custom
-        // range lived above vanilla equipIds — but the actual constraint
-        // is the COMPRESSED slot bound (0x289), not "above all vanilla
-        // numbers." Vanilla's highest equipId (0x608) compresses to slot
-        // 0x288, the LAST in-bounds slot, so "above 0x608" is by
-        // definition out of bounds.
-        //
-        // Allocator strategy now: scan compressed slots [0, 0x289) for
-        // ones vanilla didn't claim (observed via the AddToEquipIdTable
-        // observer hook) and the session hasn't claimed. The first such
-        // slot's equipId form (== slot index, since compressed == equipId
-        // for equipId < 0x400) is what we return. Returning 0 here means
-        // "no minimum constraint" — the scan starts at 0 and walks up.
+
+
         return kMinimumCustomEquipId;
     }
 
     bool IsCustomEquipIdInSafeRange(const std::int32_t equipId)
     {
-        // "Safe" now means "won't OOB-write the native EquipIdTable
-        // compressed-slot arrays" (and won't be negative). This matches
-        // exactly what the native AddToEquipIdTable can store — vanilla
-        // equipIds in the same compressed range collide if used, but
-        // the allocator gives us slots vanilla is observed NOT to use.
+
+
         return equipId >= 0
             && EquipIdCompression::IsEquipIdSafeForNativeTable(equipId);
     }
@@ -181,7 +151,7 @@ namespace RegisterConstantEquipId
             return 1;
         }
 
-        // Get or create TppEquip.
+
         g_Deps.LuaGetField(L, LUA_GLOBALSINDEX_51, "TppEquip");
         if (g_Deps.LuaType(L, -1) != LUA_TTABLE)
         {
@@ -202,7 +172,7 @@ namespace RegisterConstantEquipId
 
         const int tppEquipIndex = g_Deps.GetLuaTop(L);
 
-        // Never replace existing declarations.
+
         g_Deps.LuaGetField(L, tppEquipIndex, eqpName.c_str());
         const int existingType = g_Deps.LuaType(L, -1);
 

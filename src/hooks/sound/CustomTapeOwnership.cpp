@@ -26,32 +26,26 @@ extern "C"
 
 namespace
 {
-    // Original TppMotherBaseManagement::AddCassetteTapeTrack.
-    // Params: luaState
+
+
     using AddCassetteTapeTrack_t = std::uint64_t(__cdecl*)(lua_State* luaState);
 
-    // Original TppMotherBaseManagement::IsGotCassetteTapeTrack.
-    // Params: luaState
+
     using IsGotCassetteTapeTrack_t = int(__cdecl*)(lua_State* luaState);
 
-    // Original TppMotherBaseManagement::SetCassetteTapeTrackNewFlag.
-    // Params: luaState
+
     using SetCassetteTapeTrackNewFlag_t = int(__cdecl*)(lua_State* luaState);
 
-    // Original anonymous CollectGotTapes.
-    // Params: albumType, outAlbumIds, outCapacity, cassetteCallbackThis
+
     using CollectGotTapes_t = std::uint64_t(__cdecl*)(std::uint32_t albumType, std::intptr_t outAlbumIds, std::uint32_t outCapacity, std::intptr_t cassetteCallbackThis);
 
-    // fox::GetQuarkSystemTable
-    // Params: none
+
     using GetQuarkSystemTable_t = void* (__cdecl*)();
 
-    // SoundMusicPlayer::GetTrackInfoByName.
-    // Params: soundMusicPlayer, trackNameStrCode
+
     using GetTrackInfoByName_t = void* (__fastcall*)(void* soundMusicPlayer, std::int32_t trackNameStrCode);
 
-    // Game Lua helpers.
-    // Params: luaState, idx
+
     using lua_isstring_t = int(__fastcall*)(lua_State* luaState, int idx);
     using lua_type_t = int(__fastcall*)(lua_State* luaState, int idx);
     using lua_tolstring_t = const char* (__fastcall*)(lua_State* luaState, int idx, size_t* len);
@@ -62,8 +56,7 @@ namespace
     static constexpr std::int16_t kCustomSaveIndexMax = 1999;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
 
-    // Persisted custom tape state entry.
-    // Params: none
+
     struct CustomTapePersistEntry
     {
         std::int16_t saveIndex = -1;
@@ -94,16 +87,13 @@ namespace
     static std::once_flag g_CustomTapeStateLoadOnce;
 }
 
-// Resolves the live cassette bitfield table.
-// Params: none
+
 static std::uint8_t* ResolveLiveCassetteFlagTable();
 
-// Applies one custom tape owned/new state into the live cassette table.
-// Params: saveIndex, owned, isNew
+
 static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, bool isNew);
 
-// Resolves the Lua helpers used by this file.
-// Params: none
+
 static bool ResolveLuaHelpers()
 {
     if (!g_lua_isstring)
@@ -124,15 +114,13 @@ static bool ResolveLuaHelpers()
     return g_lua_isstring && g_lua_type && g_lua_tolstring && g_lua_toboolean && g_lua_pushboolean;
 }
 
-// Returns true when one saveIndex belongs to the custom tape range.
-// Params: saveIndex
+
 bool IsCustomTapeSaveIndex(std::int16_t saveIndex)
 {
     return saveIndex >= kCustomSaveIndexMin && saveIndex <= kCustomSaveIndexMax;
 }
 
-// Returns the folder that contains V_FrameWork.dll.
-// Params: none
+
 static std::string GetModuleDirectoryPath()
 {
     char modulePath[MAX_PATH] = {};
@@ -160,8 +148,7 @@ static std::string GetModuleDirectoryPath()
     return path;
 }
 
-// Creates all missing directories in one path.
-// Params: absoluteDirectoryPath
+
 static bool EnsureDirectoryExistsRecursive(const std::string& absoluteDirectoryPath)
 {
     if (absoluteDirectoryPath.empty())
@@ -191,8 +178,7 @@ static bool EnsureDirectoryExistsRecursive(const std::string& absoluteDirectoryP
     return error == ERROR_ALREADY_EXISTS;
 }
 
-// Returns the combined custom tape state file path.
-// Params: none
+
 static std::string GetCustomTapeStateFilePath()
 {
     std::string path = GetModuleDirectoryPath();
@@ -206,8 +192,7 @@ static std::string GetCustomTapeStateFilePath()
     return path;
 }
 
-// Escapes one string for a Lua [[...]] literal by breaking ]] sequences.
-// Params: value
+
 static std::string EscapeForLuaLongString(const std::string& value)
 {
     std::string escaped;
@@ -228,8 +213,7 @@ static std::string EscapeForLuaLongString(const std::string& value)
     return escaped;
 }
 
-// Resolves the live SoundMusicPlayer instance from MusicManager::s_instance.
-// Params: none
+
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
@@ -250,8 +234,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
 }
 
-// Resolves one trackInfo from a track name.
-// Params: trackName
+
 static void* ResolveTrackInfoByName(const char* trackName)
 {
     if (!trackName || !trackName[0])
@@ -281,8 +264,7 @@ static void* ResolveTrackInfoByName(const char* trackName)
     }
 }
 
-// Reads saveIndex from one trackInfo record.
-// Params: trackInfo, outSaveIndex
+
 static bool TryGetTrackSaveIndex(void* trackInfo, std::int16_t& outSaveIndex)
 {
     outSaveIndex = -1;
@@ -302,8 +284,7 @@ static bool TryGetTrackSaveIndex(void* trackInfo, std::int16_t& outSaveIndex)
     }
 }
 
-// Returns one custom persist entry and creates it when missing.
-// Params: saveIndex
+
 static CustomTapePersistEntry& GetOrCreatePersistEntry(std::int16_t saveIndex)
 {
     CustomTapePersistEntry& entry = g_CustomTapePersistEntries[static_cast<int>(saveIndex)];
@@ -313,8 +294,7 @@ static CustomTapePersistEntry& GetOrCreatePersistEntry(std::int16_t saveIndex)
     return entry;
 }
 
-// Reads one live owned/new state from the cassette bit table.
-// Params: saveIndex, outOwned, outNew
+
 static bool TryReadLiveCassetteState(std::int16_t saveIndex, bool& outOwned, bool& outNew)
 {
     outOwned = false;
@@ -348,12 +328,11 @@ static bool TryReadLiveCassetteState(std::int16_t saveIndex, bool& outOwned, boo
     }
 }
 
-// Writes the current combined custom tape state to one Lua file.
-// Params: none
+
 static bool SaveCustomTapeStateToDisk()
 {
-    // Persistence is now handled by V_FrameWorkState.
-    // This function is kept as a no-op so call sites don't need changing.
+
+
     return true;
 
     std::vector<CustomTapePersistEntry> entries;
@@ -421,8 +400,7 @@ static bool SaveCustomTapeStateToDisk()
     return true;
 }
 
-// Loads the full custom tape state from one Lua file.
-// Params: none
+
 static bool LoadCustomTapeStateFromDisk()
 {
     const std::string path = GetCustomTapeStateFilePath();
@@ -489,7 +467,7 @@ static bool LoadCustomTapeStateFromDisk()
         g_CustomTapePersistEntries.size(),
         path.c_str());
 
-    // Sync old file's owned/new state into the unified state file.
+
     for (const auto& kv : g_CustomTapePersistEntries)
     {
         const auto& entry = kv.second;
@@ -500,8 +478,7 @@ static bool LoadCustomTapeStateFromDisk()
     return true;
 }
 
-// Ensures the persisted custom tape state is loaded exactly once before any read/write path uses it.
-// Params: none
+
 static void EnsureCustomTapeStateLoaded()
 {
     std::call_once(g_CustomTapeStateLoadOnce, []()
@@ -511,8 +488,7 @@ static void EnsureCustomTapeStateLoaded()
         });
 }
 
-// Updates or creates metadata for one custom tape.
-// Params: saveIndex, albumId, fileName
+
 static bool UpdateCustomTapeMetadata_NoLock(std::int16_t saveIndex, const char* albumId, const char* fileName)
 {
     if (!IsCustomTapeSaveIndex(saveIndex))
@@ -561,8 +537,7 @@ void Register_CustomTapeStateTrackMetadata(std::int16_t saveIndex, const char* a
     }
 }
 
-// Builds one stable lookup key for albumId + fileName.
-// Params: albumId, fileName
+
 static std::string BuildCustomTapeTrackKey(const char* albumId, const char* fileName)
 {
     const char* safeAlbumId = albumId ? albumId : "";
@@ -576,8 +551,7 @@ static std::string BuildCustomTapeTrackKey(const char* albumId, const char* file
     return key;
 }
 
-// Finds one persisted entry by albumId + fileName without locking.
-// Params: trackKey, outSaveIndex
+
 static bool FindPersistEntryByTrackKey_NoLock(const std::string& trackKey, std::int16_t& outSaveIndex)
 {
     outSaveIndex = -1;
@@ -597,17 +571,14 @@ static bool FindPersistEntryByTrackKey_NoLock(const std::string& trackKey, std::
     return false;
 }
 
-// Returns true when one custom saveIndex is already reserved in this boot session.
-// Params: saveIndex
+
 static bool IsSaveIndexReservedThisSession_NoLock(std::int16_t saveIndex)
 {
     return g_ActiveSessionCustomTapeSaveIndices.find(static_cast<int>(saveIndex)) !=
         g_ActiveSessionCustomTapeSaveIndices.end();
 }
 
-// Finds the next reusable custom saveIndex for the current boot session.
-// Inactive persisted entries are reusable.
-// Params: none
+
 static std::int16_t FindNextAvailableCustomSaveIndex_NoLock()
 {
     for (std::int16_t saveIndex = kCustomSaveIndexMin; saveIndex <= kCustomSaveIndexMax; ++saveIndex)
@@ -634,10 +605,10 @@ bool ResolveOrCreateCustomTapeSaveIndex(
     if (!albumId || !albumId[0] || !fileName || !fileName[0])
         return false;
 
-    // Build a unified state key for stable saveIndex persistence.
+
     const std::string unifiedKey = std::string(albumId) + ":" + std::string(fileName);
 
-    // Check unified state first for a pre-assigned saveIndex.
+
     std::int16_t unifiedSaveIndex = -1;
     if (V_FrameWorkState::ResolveOrCreateTapeSaveIndex(
         unifiedKey.c_str(), requestedSaveIndex, unifiedSaveIndex) &&
@@ -793,8 +764,7 @@ void InitializeCustomTapeStateIfMissing(
         isNew ? 1 : 0);
 }
 
-// Returns true when one custom saveIndex is owned in the external custom state.
-// Params: saveIndex
+
 bool IsCustomTapeOwnedSaveIndex(std::int16_t saveIndex)
 {
     EnsureCustomTapeStateLoaded();
@@ -802,8 +772,7 @@ bool IsCustomTapeOwnedSaveIndex(std::int16_t saveIndex)
     return g_CustomOwnedTapeSaveIndices.find(static_cast<int>(saveIndex)) != g_CustomOwnedTapeSaveIndices.end();
 }
 
-// Returns true when one custom saveIndex has the external new flag set.
-// Params: saveIndex
+
 bool IsCustomTapeNewFlagSaveIndex(std::int16_t saveIndex)
 {
     EnsureCustomTapeStateLoaded();
@@ -811,8 +780,7 @@ bool IsCustomTapeNewFlagSaveIndex(std::int16_t saveIndex)
     return g_CustomNewTapeSaveIndices.find(static_cast<int>(saveIndex)) != g_CustomNewTapeSaveIndices.end();
 }
 
-// Sets ownership for one custom saveIndex.
-// Params: saveIndex, owned
+
 static bool SetCustomTapeOwnedSaveIndex(std::int16_t saveIndex, bool owned)
 {
     bool changed = false;
@@ -833,8 +801,7 @@ static bool SetCustomTapeOwnedSaveIndex(std::int16_t saveIndex, bool owned)
     return changed;
 }
 
-// Sets the new flag for one custom saveIndex.
-// Params: saveIndex, isNew
+
 static bool SetCustomTapeNewFlagSaveIndex(std::int16_t saveIndex, bool isNew)
 {
     bool changed = false;
@@ -855,8 +822,7 @@ static bool SetCustomTapeNewFlagSaveIndex(std::int16_t saveIndex, bool isNew)
     return changed;
 }
 
-// Returns the first Lua string argument, or null on failure.
-// Params: luaState
+
 static const char* GetLuaTrackNameArg(lua_State* luaState)
 {
     if (!ResolveLuaHelpers() || !luaState)
@@ -868,8 +834,7 @@ static const char* GetLuaTrackNameArg(lua_State* luaState)
     return g_lua_tolstring(luaState, 1, nullptr);
 }
 
-// Returns the second Lua bool argument and whether it was a real bool.
-// Params: luaState, outValue
+
 static bool TryGetLuaBoolArg2(lua_State* luaState, bool& outValue)
 {
     outValue = false;
@@ -884,8 +849,7 @@ static bool TryGetLuaBoolArg2(lua_State* luaState, bool& outValue)
     return true;
 }
 
-// Pushes one bool result back to Lua.
-// Params: luaState, value
+
 static void PushLuaBool(lua_State* luaState, bool value)
 {
     if (!ResolveLuaHelpers() || !luaState)
@@ -894,8 +858,7 @@ static void PushLuaBool(lua_State* luaState, bool value)
     g_lua_pushboolean(luaState, value ? 1 : 0);
 }
 
-// Resolves the live cassette bitfield table.
-// Params: none
+
 static std::uint8_t* ResolveLiveCassetteFlagTable()
 {
     void* fnAddr = ResolveGameAddress(gAddr.GetQuarkSystemTable);
@@ -930,8 +893,7 @@ static std::uint8_t* ResolveLiveCassetteFlagTable()
     }
 }
 
-// Writes one custom tape's live owned/new bits into the game's cassette flag table.
-// Params: saveIndex, owned, isNew
+
 static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, bool isNew)
 {
     if (!IsCustomTapeSaveIndex(saveIndex))
@@ -964,10 +926,7 @@ static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, 
     }
 }
 
-// Syncs all loaded custom tape states into the live cassette flag table.
-// Important: if the game already cleared a custom tape's NEW bit in the live table,
-// adopt that cleared state into persistence so album rebuilds do not re-add it.
-// Params: none
+
 static void SyncAllCustomTapeStateToLiveTable()
 {
     std::vector<CustomTapePersistEntry> entries;
@@ -1032,8 +991,7 @@ static void SyncAllCustomTapeStateToLiveTable()
         bool liveNew = false;
         const bool hasLiveState = TryReadLiveCassetteState(entry.saveIndex, liveOwned, liveNew);
 
-        // Only adopt the live NEW bit when the track is still owned both in persistence and live state.
-        // This is the case where the menu/view logic already cleared NEW after the player saw the tape.
+
         if (hasLiveState && persistedOwned && liveOwned && persistedNew != liveNew)
         {
             if (SetCustomTapeNewFlagSaveIndex(entry.saveIndex, liveNew))
@@ -1059,8 +1017,7 @@ void Sync_CustomTapeStateToLiveTable()
     SyncAllCustomTapeStateToLiveTable();
 }
 
-// Reads the vanilla ownership bit from the cassette menu callback path.
-// Params: cassetteCallbackThis, ownedBitIndex
+
 static bool ReadVanillaTapeOwnedBitFromCallback(std::intptr_t cassetteCallbackThis, std::uint16_t ownedBitIndex)
 {
     __try
@@ -1085,8 +1042,7 @@ static bool ReadVanillaTapeOwnedBitFromCallback(std::intptr_t cassetteCallbackTh
     }
 }
 
-// Returns true when one track should count as owned inside the cassette menu.
-// Params: trackInfo, cassetteCallbackThis
+
 static bool IsTrackOwnedForCassetteMenu(void* trackInfo, std::intptr_t cassetteCallbackThis)
 {
     std::int16_t saveIndex = -1;
@@ -1106,8 +1062,7 @@ static bool IsTrackOwnedForCassetteMenu(void* trackInfo, std::intptr_t cassetteC
     return ReadVanillaTapeOwnedBitFromCallback(cassetteCallbackThis, ownedBitIndex);
 }
 
-// Calls SoundMusicPlayer virtual +0x160 and returns the album array base.
-// Params: soundMusicPlayer
+
 static std::uintptr_t CallGetAlbumArray(void* soundMusicPlayer)
 {
     __try
@@ -1123,8 +1078,7 @@ static std::uintptr_t CallGetAlbumArray(void* soundMusicPlayer)
     }
 }
 
-// Calls SoundMusicPlayer virtual +0x150 and returns the album count.
-// Params: soundMusicPlayer
+
 static std::uint32_t CallGetAlbumCount(void* soundMusicPlayer)
 {
     __try
@@ -1140,8 +1094,7 @@ static std::uint32_t CallGetAlbumCount(void* soundMusicPlayer)
     }
 }
 
-// Calls SoundMusicPlayer virtual +0x188 and returns trackInfo for albumId + trackIndex.
-// Params: soundMusicPlayer, albumId, trackIndex
+
 static void* CallGetTrackInfoByAlbumAndIndex(void* soundMusicPlayer, std::uint64_t albumId, std::uint32_t trackIndex)
 {
     __try
@@ -1157,16 +1110,14 @@ static void* CallGetTrackInfoByAlbumAndIndex(void* soundMusicPlayer, std::uint64
     }
 }
 
-// Saves state only when at least one custom flag or metadata changed.
-// Params: ownedChanged, newChanged, metadataChanged
+
 static void FlushCustomTapeStateIfChanged(bool ownedChanged, bool newChanged, bool metadataChanged)
 {
     if (ownedChanged || newChanged || metadataChanged)
         SaveCustomTapeStateToDisk();
 }
 
-// Hooked AddCassetteTapeTrack.
-// Params: luaState
+
 static std::uint64_t __cdecl hkAddCassetteTapeTrack(lua_State* luaState)
 {
     const char* trackName = GetLuaTrackNameArg(luaState);
@@ -1202,8 +1153,7 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrack(lua_State* luaState)
     return 0ull;
 }
 
-// Hooked IsGotCassetteTapeTrack.
-// Params: luaState
+
 static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
 {
     const char* trackName = GetLuaTrackNameArg(luaState);
@@ -1228,8 +1178,7 @@ static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
     return 1;
 }
 
-// Hooked SetCassetteTapeTrackNewFlag.
-// Params: luaState
+
 static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
 {
     const char* trackName = GetLuaTrackNameArg(luaState);
@@ -1266,8 +1215,7 @@ static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
     return 0;
 }
 
-// Hooked CollectGotTapes.
-// Params: albumType, outAlbumIds, outCapacity, cassetteCallbackThis
+
 static std::uint64_t __cdecl hkCollectGotTapes(
     std::uint32_t albumType,
     std::intptr_t outAlbumIds,
@@ -1351,8 +1299,7 @@ static std::uint64_t __cdecl hkCollectGotTapes(
     }
 }
 
-// Installs the combined custom tape state hooks.
-// Params: none
+
 bool Install_CustomTapeOwnership_Hooks()
 {
     EnsureCustomTapeStateLoaded();
@@ -1405,8 +1352,7 @@ bool Install_CustomTapeOwnership_Hooks()
     return okAdd && okIsGot && okSetNew && okCollect;
 }
 
-// Removes the combined custom tape state hooks.
-// Params: none
+
 bool Uninstall_CustomTapeOwnership_Hooks()
 {
     EnsureCustomTapeStateLoaded();

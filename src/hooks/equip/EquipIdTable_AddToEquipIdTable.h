@@ -34,16 +34,7 @@ namespace EquipIdTableAdd
     bool Install_EquipIdTableImpl_ReloadEquipIdTable_Hook();
     bool Uninstall_EquipIdTableImpl_ReloadEquipIdTable_Hook();
 
-    // Installs an observer hook on tpp::gm::impl::equip::EquipIdTableImpl::AddToEquipIdTable
-    // (the function vanilla boot scripts call once per equipment row).
-    // The hook records each row's compressed slot via
-    // EquipIdCompression::MarkCompressedSlotUsed before forwarding to
-    // orig, so the framework's custom-equipId allocator can avoid
-    // collisions with vanilla and stay within the 0x289-slot bound.
-    //
-    // MUST be installed early in DLL init — before user-mod scripts
-    // run RegisterConstantEquipId — so vanilla's own boot-time calls
-    // are observed.
+
     bool Install_StockAddToEquipIdTable_Observer();
     bool Uninstall_StockAddToEquipIdTable_Observer();
 }

@@ -19,8 +19,7 @@ namespace
     static SetCurrentAlbum_t g_OrigSetCurrentAlbum = nullptr;
 }
 
-// Returns true if one vanilla save index is unlocked in the game's raw bitfield.
-// Params: thisPtr, saveIndex
+
 static bool IsVanillaTapeOwnedBySaveIndex(void* thisPtr, std::int16_t saveIndex)
 {
     if (!thisPtr || saveIndex < 0)
@@ -58,8 +57,7 @@ static bool IsVanillaTapeOwnedBySaveIndex(void* thisPtr, std::int16_t saveIndex)
     }
 }
 
-// Returns true if one track should be shown in the cassette menu.
-// Params: thisPtr, albumType, trackInfo
+
 static bool IsTrackAcceptedForMenu(void* thisPtr, std::uint16_t albumType, void* trackInfo)
 {
     if (!trackInfo)
@@ -86,8 +84,7 @@ static bool IsTrackAcceptedForMenu(void* thisPtr, std::uint16_t albumType, void*
 using GetAlbumArray_t = std::uintptr_t(__fastcall*)(void* thisPtr);
 using GetAlbumCount_t = std::uint32_t(__fastcall*)(void* thisPtr);
 
-// Finds one album record by albumId using the player's virtual album-array accessors.
-// Params: soundPlayer, albumId
+
 static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t albumId)
 {
     if (!soundPlayer || albumId == 0)
@@ -171,8 +168,7 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
     }
 }
 
-// Rebuilds the callback's accepted direct-play track-id table using vanilla ownership for vanilla save indices and custom ownership for custom save indices.
-// Params: thisPtr, albumId
+
 static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t albumId)
 {
     if (!thisPtr)
@@ -332,8 +328,7 @@ static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
     RebuildAcceptedTrackIdsForCurrentAlbum(thisPtr, albumId);
 }
 
-// Installs the SetCurrentAlbum hook.
-// Params: none
+
 bool Install_CassetteTapeSetCurrentAlbum_Hook()
 {
     void* target = ResolveGameAddress(gAddr.SetCurrentAlbum);
@@ -352,8 +347,7 @@ bool Install_CassetteTapeSetCurrentAlbum_Hook()
     return ok;
 }
 
-// Removes the SetCurrentAlbum hook.
-// Params: none
+
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetCurrentAlbum));

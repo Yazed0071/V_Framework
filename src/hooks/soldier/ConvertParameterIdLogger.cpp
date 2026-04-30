@@ -12,18 +12,14 @@
 
 namespace
 {
-    // fox::sd::ConvertParameterID signature: takes a C-string name, returns a
-    // 32-bit parameter id (FNV-1 over the string). See mgsvtpp.exe.c line
-    // 8381463 for an in-context use: `sd::_fnv132HashString(*puVar2)` feeding
-    // the SetRTPC call inside fox::sdx::SourceBody::SetRTPC.
+
+
     using ConvertParameterID_t = std::uint32_t(__cdecl*)(const char* name);
 
     static ConvertParameterID_t g_OrigConvertParameterID = nullptr;
     static void* g_HookedAddr = nullptr;
 
-    // De-dupe set: each unique (name) is logged exactly once to keep the log
-    // readable. After warm-up the hook is effectively free — a single
-    // hash-set .contains() check per call.
+
     static std::mutex g_Mutex;
     static std::unordered_set<std::string> g_SeenNames;
 
@@ -42,7 +38,7 @@ namespace
             }
             if (firstSeen)
             {
-                //Log("[ParamID] \"%s\" -> 0x%08X\n", name, id);
+
             }
         }
         return id;

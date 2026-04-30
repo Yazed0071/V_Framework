@@ -33,10 +33,10 @@ namespace
     constexpr int LUA_TSTRING_CONST = 4;
     constexpr int LUA_TTABLE_CONST = 5;
 
-    // Lua 5.1 globals table index.
+
     constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
-    // Vanilla AMs go from 0x00 to 0xBF, so customs start at 0xC0.
+
     constexpr std::int32_t FIRST_CUSTOM_AMMO_ID = 0xC0;
 }
 
@@ -229,8 +229,7 @@ namespace DeclareAMs
         if (!L || !EnsureLuaReady())
             return 0;
 
-        // Single string:
-        // V_FrameWork.DeclareAMs("AM_AK12_545")
+
         if (LuaIsString(L, 1))
         {
             const char* rawName = g_Deps.GetLuaString(L, 1);
@@ -247,8 +246,7 @@ namespace DeclareAMs
             return 0;
         }
 
-        // Table of strings:
-        // V_FrameWork.DeclareAMs({ "AM_AK12_545", "AM_AK12_545_AP" })
+
         if (LuaIsTable(L, 1))
         {
             g_Deps.LuaPushNil(L);

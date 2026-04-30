@@ -11,32 +11,28 @@
 
 namespace
 {
-    // Hook type for NoticeActionImpl::State_StandEnterRecoverySleepFaintHoldupComradeBySound.
-    // Params: self, actorId, proc, evt
+
+
     using State_SoundRecovery_t =
         void(__fastcall*)(void* self, std::uint32_t actorId, int proc, void* evt);
 
-    // Event hash the vanilla path uses to dispatch the voice notice.
+
     static constexpr std::uint32_t HASH_EVENT_VOICE_NOTICE = 0x1077DB8Du;
 
-    // Reaction category used by the game's notice reaction manager.
+
     static constexpr std::uint32_t HASH_REACTION_CATEGORY_NOTICE = 0x95EA16B0u;
 
-    // Custom reaction hash for sleep/faint wake. Shared with the Touch/Kick
-    // hook so all three recovery paths collapse to a single Lua handler.
-    // Replaces the vanilla 0x9CD0A89E selected when entry[+0x57] != 0x0A.
+
     static constexpr std::uint32_t HASH_SLEEP_WAKE_OFFICER = 0x9CD0A89Cu;
 
-    // Custom reaction hash for holdup recovery. Shared with the Holdup hook.
-    // Replaces the vanilla 0x92D098DF selected when entry[+0x57] == 0x0A.
+
     static constexpr std::uint32_t HASH_HOLDUP_RECOVERY_VIP = 0x92D098DEu;
 
-    // Original function pointer captured at install time.
+
     static State_SoundRecovery_t g_OrigState_SoundRecovery = nullptr;
 }
 
-// Safely reads one byte from memory.
-// Params: addr, outValue
+
 static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
 {
     if (!addr)
@@ -53,9 +49,7 @@ static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
     }
 }
 
-// Resolves one NoticeAction state entry using the game's table math.
-// Mirrors the vanilla pattern: (actorId - self[+0x98]) * 0x68 + self[+0x90].
-// Params: self, actorId
+
 static std::uintptr_t GetNoticeActionEntry(void* self, std::uint32_t actorId)
 {
     if (!self)
@@ -81,8 +75,7 @@ static std::uintptr_t GetNoticeActionEntry(void* self, std::uint32_t actorId)
     }
 }
 
-// Reads the event hash by calling the first virtual function on the event object.
-// Params: evt
+
 static std::uint32_t GetEventHash(void* evt)
 {
     if (!evt)
@@ -109,9 +102,7 @@ static std::uint32_t GetEventHash(void* evt)
     }
 }
 
-// Dispatches one custom notice reaction through the game's reaction manager.
-// Mirrors the vanilla call chain: self[+0x78][+0xA8]->vtable[+0x20](...).
-// Params: noticeSelf, actorId, reactionHash
+
 static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std::uint32_t reactionHash)
 {
     if (!noticeSelf)
@@ -165,13 +156,7 @@ static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std:
     }
 }
 
-// Hooked State_StandEnterRecoverySleepFaintHoldupComradeBySound.
-// On proc=6 with the voice-notice event, swaps the vanilla reaction hash
-// (0x9CD0A89E or 0x92D098DF, picked by entry[+0x57] == 0x0A) for the custom
-// hash used by the other recovery hooks, then skips the original so the game
-// does not also dispatch the vanilla reaction. All other procs and events
-// pass through unchanged.
-// Params: self, actorId, proc, evt
+
 static void __fastcall hkState_SoundRecovery(
     void* self,
     std::uint32_t actorId,
@@ -217,8 +202,7 @@ static void __fastcall hkState_SoundRecovery(
         g_OrigState_SoundRecovery(self, actorId, proc, evt);
 }
 
-// Installs the sound-recovery hook.
-// Params: none
+
 bool Install_VIPSoundRecovery_Hook()
 {
     void* target = ResolveGameAddress(
@@ -241,8 +225,7 @@ bool Install_VIPSoundRecovery_Hook()
     return ok;
 }
 
-// Removes the sound-recovery hook.
-// Params: none
+
 bool Uninstall_VIPSoundRecovery_Hook()
 {
     DisableAndRemoveHook(

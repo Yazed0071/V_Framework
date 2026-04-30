@@ -19,13 +19,13 @@ namespace
     using GameOverSetVisible_t = void(__fastcall*)(uint64_t* layout, char visible);
     using LoadingTipsEvUpdateActPhase_t = void(__fastcall*)(void* self);
 
-    // Slot hash used by the equip background function for Mask_Texture.
+
     static uint64_t g_MaskTextureSlotHash = 0;
 
-    // Slot hash used by loading/game-over splash main textures.
+
     static constexpr uint64_t SLOT_MAIN_TEXTURE = 0x3bbf9889ull;
 
-    // Slot hash used by the blur layer on game-over nodes 8 and 9.
+
     static constexpr uint64_t SLOT_BLUR_LAYER = 0x8d982b8eull;
 
     static SetEquipBackgroundTexture_t      g_OrigSetEquipBackgroundTexture = nullptr;
@@ -48,8 +48,7 @@ namespace
     static SplashConfig g_LoadingConfig;
     static SplashConfig g_GameOverConfig;
 
-    // Returns true when the vanilla function would draw the DD weapon background.
-    // Params: equipId (int), sortieWeaponNode (void*)
+
     static bool ShouldUseVanillaDdWeaponBg(int equipId, void* sortieWeaponNode)
     {
         if (sortieWeaponNode == nullptr)
@@ -67,15 +66,13 @@ namespace
         return true;
     }
 
-    // Returns true when the equipId is one of the unique prosthetic arm IDs.
-    // Params: equipId (int)
+
     static bool IsUniqueArmEquip(int equipId)
     {
         return equipId >= 0x203 && equipId <= 0x206;
     }
 
-    // Returns true when the equipId is in the non-DD category that vanilla skips.
-    // Params: equipId (int), sortieWeaponNode (void*)
+
     static bool IsEnemyWeaponLikeCategory(int equipId, void* sortieWeaponNode)
     {
         if (sortieWeaponNode == nullptr)
@@ -87,8 +84,7 @@ namespace
         return !ShouldUseVanillaDdWeaponBg(equipId, sortieWeaponNode);
     }
 
-    // Applies a texture directly to a ModelNodeMesh.
-    // Params: modelNodeMesh (void*), textureHash (uint64_t)
+
     static uint8_t ApplyTexture(void* modelNodeMesh, uint64_t textureHash)
     {
         if (!modelNodeMesh || !textureHash || !g_SetTextureName)
@@ -98,8 +94,7 @@ namespace
         return 1;
     }
 
-    // Resolves the direct-call helpers used by this module.
-    // Params: none
+
     static bool ResolveUiHelpers()
     {
         if (!g_SetTextureName)
@@ -117,8 +112,7 @@ namespace
     }
 }
 
-// Sets the default DD equip background texture hash.
-// Params: textureHash (uint64_t)
+
 void EquipBg_SetDefaultTexture(uint64_t textureHash)
 {
     g_DefaultTexture = textureHash;
@@ -126,16 +120,14 @@ void EquipBg_SetDefaultTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the default DD equip background texture override.
-// Params: none
+
 void EquipBg_ClearDefaultTexture()
 {
     g_DefaultTexture = 0;
     Log("[EquipBg] DefaultTexture cleared\n");
 }
 
-// Sets the enemy-weapon equip background texture hash.
-// Params: textureHash (uint64_t)
+
 void EquipBg_SetEnemyWeaponTexture(uint64_t textureHash)
 {
     g_EnemyWeaponTexture = textureHash;
@@ -143,8 +135,7 @@ void EquipBg_SetEnemyWeaponTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the enemy-weapon equip background texture override.
-// Params: none
+
 void EquipBg_ClearEnemyWeaponTexture()
 {
     g_EnemyWeaponTexture = 0;
@@ -152,9 +143,6 @@ void EquipBg_ClearEnemyWeaponTexture()
 }
 
 
-
-// Sets a custom equip background texture for a specific equipId.
-// Params: equipId (int), textureHash (uint64_t)
 void EquipBg_SetEquipTexture(int equipId, uint64_t textureHash)
 {
     g_PerEquipTextures[equipId] = textureHash;
@@ -163,16 +151,14 @@ void EquipBg_SetEquipTexture(int equipId, uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears a custom equip background texture for a specific equipId.
-// Params: equipId (int)
+
 void EquipBg_ClearEquipTexture(int equipId)
 {
     g_PerEquipTextures.erase(equipId);
     Log("[EquipBg] EquipId %d cleared\n", equipId);
 }
 
-// Sets a custom enemy equip background texture for a specific equipId.
-// Params: equipId (int), textureHash (uint64_t)
+
 void EquipBg_SetEnemyEquipTexture(int equipId, uint64_t textureHash)
 {
     g_PerEnemyEquipTextures[equipId] = textureHash;
@@ -181,18 +167,14 @@ void EquipBg_SetEnemyEquipTexture(int equipId, uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears a custom enemy equip background texture for a specific equipId.
-// Params: equipId (int)
+
 void EquipBg_ClearEnemyEquipTexture(int equipId)
 {
     g_PerEnemyEquipTextures.erase(equipId);
     Log("[EquipBg][EnemyPerEquip] EquipId %d cleared\n", equipId);
 }
 
-// Clears all per-equip background overrides.
-// Params: none
-// Clears all per-equip background overrides.
-// Params: none
+
 void EquipBg_ClearAllEquipTextures()
 {
     g_PerEquipTextures.clear();
@@ -200,8 +182,7 @@ void EquipBg_ClearAllEquipTextures()
     Log("[EquipBg] All per-equip textures cleared\n");
 }
 
-// Sets the loading splash main texture hash.
-// Params: textureHash (uint64_t)
+
 void LoadingSplash_SetMainTexture(uint64_t textureHash)
 {
     g_LoadingConfig.mainTexture = textureHash;
@@ -209,16 +190,14 @@ void LoadingSplash_SetMainTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the loading splash main texture override.
-// Params: none
+
 void LoadingSplash_ClearMainTexture()
 {
     g_LoadingConfig.mainTexture = 0;
     Log("[LoadingSplash] MainTexture cleared\n");
 }
 
-// Sets the loading splash blur texture hash.
-// Params: textureHash (uint64_t)
+
 void LoadingSplash_SetBlurTexture(uint64_t textureHash)
 {
     g_LoadingConfig.blurTexture = textureHash;
@@ -226,16 +205,14 @@ void LoadingSplash_SetBlurTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the loading splash blur texture override.
-// Params: none
+
 void LoadingSplash_ClearBlurTexture()
 {
     g_LoadingConfig.blurTexture = 0;
     Log("[LoadingSplash] BlurTexture cleared\n");
 }
 
-// Clears both loading splash overrides.
-// Params: none
+
 void LoadingSplash_ClearTextures()
 {
     g_LoadingConfig.mainTexture = 0;
@@ -243,8 +220,7 @@ void LoadingSplash_ClearTextures()
     Log("[LoadingSplash] All textures cleared\n");
 }
 
-// Sets the game over splash main texture hash.
-// Params: textureHash (uint64_t)
+
 void GameOverSplash_SetMainTexture(uint64_t textureHash)
 {
     g_GameOverConfig.mainTexture = textureHash;
@@ -252,16 +228,14 @@ void GameOverSplash_SetMainTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the game over splash main texture override.
-// Params: none
+
 void GameOverSplash_ClearMainTexture()
 {
     g_GameOverConfig.mainTexture = 0;
     Log("[GameOverSplash] MainTexture cleared\n");
 }
 
-// Sets the game over splash blur texture hash.
-// Params: textureHash (uint64_t)
+
 void GameOverSplash_SetBlurTexture(uint64_t textureHash)
 {
     g_GameOverConfig.blurTexture = textureHash;
@@ -269,16 +243,14 @@ void GameOverSplash_SetBlurTexture(uint64_t textureHash)
         static_cast<unsigned long long>(textureHash));
 }
 
-// Clears the game over splash blur texture override.
-// Params: none
+
 void GameOverSplash_ClearBlurTexture()
 {
     g_GameOverConfig.blurTexture = 0;
     Log("[GameOverSplash] BlurTexture cleared\n");
 }
 
-// Clears both game over splash overrides.
-// Params: none
+
 void GameOverSplash_ClearTextures()
 {
     g_GameOverConfig.mainTexture = 0;
@@ -286,8 +258,7 @@ void GameOverSplash_ClearTextures()
     Log("[GameOverSplash] All textures cleared\n");
 }
 
-// Hooked version of ui::equip::SetEquipBackgroundTexture.
-// Params: equipId (int), sortieWeaponNode (void*)
+
 static uint8_t __fastcall hkSetEquipBackgroundTexture(int equipId, void* sortieWeaponNode)
 {
     if (!ResolveUiHelpers())
@@ -335,8 +306,7 @@ static uint8_t __fastcall hkSetEquipBackgroundTexture(int equipId, void* sortieW
     return g_OrigSetEquipBackgroundTexture(equipId, sortieWeaponNode);
 }
 
-// Hooked version of ui::loading::LoadingScreenOrGameOverSplash2.
-// Params: self (void*)
+
 static void __fastcall hkLoadingScreenOrGameOverSplash2(void* self)
 {
     g_OrigLoadingScreenOrGameOverSplash2(self);
@@ -366,14 +336,6 @@ static void __fastcall hkLoadingScreenOrGameOverSplash2(void* self)
 }
 
 
-// Hook for tpp::ui::menu::LoadingTipsEv::UpdateActPhase (0x145ccfcc0).
-// This function is called from the LoadingTipsEv update state machine and,
-// like LoadingScreenOrGameOverSplash2, writes the DD-logo texture to the two
-// mesh nodes at self+0x9d8 (main) and self+0x9e0 (blur). The loading-tips
-// variant is a separate UI path, so without a hook here it continues to
-// render the vanilla DD logo even after the standard loading splash is
-// overridden. Reuses g_LoadingConfig so SetLoadingSplashMainTexturePath /
-// SetLoadingSplashBlurTexturePath cover both variants.
 static void __fastcall hkLoadingTipsEvUpdateActPhase(void* self)
 {
     g_OrigLoadingTipsEvUpdateActPhase(self);
@@ -385,10 +347,7 @@ static void __fastcall hkLoadingTipsEvUpdateActPhase(void* self)
     void* const mainNode = *reinterpret_cast<void**>(base + 0x9d8);
     void* const blurNode = *reinterpret_cast<void**>(base + 0x9e0);
 
-    // UpdateActPhase runs every frame while the loading-tips screen is up,
-    // so we still call SetTextureName each frame (cheap, needed for the
-    // write to stick against vanilla) but log only when the (node, hash)
-    // pair changes to avoid flooding the console with duplicates.
+
     static void* s_lastMainNode = nullptr;
     static std::uint64_t s_lastMainHash = 0;
     static void* s_lastBlurNode = nullptr;
@@ -467,8 +426,7 @@ static void __fastcall hkGameOverSetVisible(uint64_t* layout, char visible)
     }
 }
 
-// Installs the unified UI texture override hooks.
-// Params: none
+
 bool Install_UiTextureOverrides_Hook()
 {
     ResolveUiHelpers();

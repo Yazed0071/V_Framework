@@ -12,92 +12,36 @@
 
 namespace
 {
-    // Verified signature (mgsvtpp.exe_Addresses.txt:7981094..7981196):
-    //   RCX = this (Player2UtilityImpl*)
-    //   RDX = SupplyCboxLoadoutInfo*
+
+
     using SetSuitAndHandConditionWithLoadoutInfo_t =
         void (__fastcall*)(void* self, void* loadoutInfo);
 
     static SetSuitAndHandConditionWithLoadoutInfo_t g_Orig = nullptr;
     static bool g_Installed = false;
 
-    // Player2UtilityImpl::RequestToChangePlayerPartsInMissionPreparationMode
-    // (3-arg variant — takes SupplyCboxLoadoutInfo*, not a raw blob).
-    // Verified retail 0x1462B6590. Different from the 4-arg blob variant
-    // OutfitCommit hooks (which is 0x14973DA60). The 3-arg wrapper is
-    // the public API supply-drop pickup uses to request a suit change
-    // via the loadout struct, so it's the natural intercept point for
-    // catching the box-open equip event.
+
     using RequestToChangeLoadout_t =
         void (__fastcall*)(void* self, void* loadoutInfo, std::uint8_t apply);
 
     static RequestToChangeLoadout_t g_OrigReqLoadout    = nullptr;
     static bool                     g_InstalledReqLoadout = false;
 
-    // Wrapper around SetSuit that ALSO applies the per-slot loadout buffer
-    // to the player via Player2UtilityImpl::vtable[0x218]. Verified at
-    // named-build line 5963287 (FUN_1462c93f0):
-    //   void FUN_1462c93f0(Player2UtilityImpl*, SupplyCboxLoadoutInfo*) {
-    //       SetSuitAndHandConditionWithLoadoutInfo(p1, p2);  // body change
-    //       memset(&local_128, 0, 0xA0);
-    //       /* build 3-slot buffer based on info[0xBC] flag bits 2/3/4 */
-    //       /* zero slot if flag bit not set, else copy info[0x18+] */
-    //       /* ... face apply, 0x54-0xA1 fields apply ... */
-    //       (vtable[0x218])(p1, &local_128);  // APPLY to player
-    //       p1[0x190] |= 8;  // post-flag
-    //       Player2System+0x204 |= 0x80000;  // post-flag
-    //   }
-    //
-    // The slot-clear-when-no-flag is what makes weapon slots show NONE
-    // while wearing custom suits — broken-custom suit equip uses
-    // flags=0x81 (bits 0+7 only, no slot bits) so the apply zeroes
-    // slots. Vanilla weapon clicks use flags with slot bits set so
-    // their click data populates the new weapon.
+
     using LoadoutApplyAfterSetSuit_t =
         void (__fastcall*)(void* self, void* loadoutInfo);
 
     static LoadoutApplyAfterSetSuit_t g_OrigLoadoutApply    = nullptr;
     static bool                       g_InstalledLoadoutApply = false;
 
-    // tpp::gm::player::impl::Player2UtilityImpl::SetInitialConditionWithLoadoutInfo
-    // (retail 0x1462C7670). Verified at named-build line 5962858:
-    //   void(this, info, char preserve) {
-    //       SetSuitAndHandConditionWithLoadoutInfo(this, info);  // body change
-    //       // 3-iteration weapon-slot apply loop:
-    //       for each of 3 slots:
-    //           if ((slot_keep_bit & info[0xBC]) == 0) {
-    //               if (preserve == 0) {
-    //                   *(u16*)(quark_live + 0x520 + slot*2) = 0;  // CLEAR
-    //                   *(u16*)(quark_live + 0x548 + slot*2) = 0;
-    //                   *(u8 *)(quark_live + 0x57E + slot)   = 1;
-    //               }
-    //               // else: preserve mode — keep existing slot values
-    //           } else {
-    //               // copy slot data from info to player state
-    //           }
-    //       // additional camo/face/etc. blocks
-    //       if (preserve == 0) Quark[0x130]->vtable[0x68](info[0xB9]);
-    //   }
-    //
-    // For supply-drop custom outfit equip the orig caller passes
-    // preserve=0 with info[0xBC]=0x01 (suit only, no slot keep bits) →
-    // 3 slots cleared → weapon icons disappear in SORTIE PREP.
-    //
-    // Strategy: spoof preserve=1 when we detect a custom partsType in
-    // info[0]. Skipping the slot-clear branch preserves the player's
-    // existing weapon slots intact. Vanilla equips with valid slot data
-    // pass through with preserve unchanged.
+
     using SetInitialConditionWithLoadoutInfo_t =
         void (__fastcall*)(void* self, void* loadoutInfo, std::uint8_t preserve);
 
     static SetInitialConditionWithLoadoutInfo_t g_OrigSetInitial    = nullptr;
     static bool                                 g_InstalledSetInitial = false;
 
-    // SupplyCboxLoadoutInfo field offsets (verified from
-    // SetSuitAndHandConditionWithLoadoutInfo disasm, retail addresses).
-    // These differ from the SupplyDropSuitSetup state buffer layout —
-    // SupplyCboxLoadoutInfo is the post-translation struct passed to
-    // the actual equip pipeline.
+
     constexpr std::size_t kInfoOff_PartsType  = 0x00;  // u8
     constexpr std::size_t kInfoOff_CamoType   = 0x01;  // u8
     constexpr std::size_t kInfoOff_Variant    = 0x02;  // u8 (matches OutfitCommit::kBlobOff_Variant)
@@ -105,17 +49,7 @@ namespace
     constexpr std::size_t kInfoOff_Flags      = 0xBC;  // u32
     constexpr std::size_t kInfoOff_PlayerType = 0xC0;  // u8
 
-    // Flag bits in info[0xBC] (decoded from disasm jump-table at
-    // SetSuitAndHandConditionWithLoadoutInfo+0x35..+0x153):
-    //   bit 0 (0x001) = "apply suit bytes"  (info[0..2])
-    //   bit 1 (0x002) = "apply 13-byte loadout block" (info[8..])
-    //   bit 7 (0x080) = "apply face id"     (info[3])
-    //   bit 8 (0x100) = "playerType valid"  (info[0xC0])
 
-    // Inspect a SupplyCboxLoadoutInfo, log it, and (if it carries a
-    // suit and we can identify a registered custom outfit) rewrite
-    // info[0]/info[1]/info[0xC0]/info[0xBC] in-place. Returns true if
-    // a rewrite occurred. Used by both hkSetSuit and hkReqLoadout.
     static bool InspectAndRewriteLoadout(void* info, const char* tag)
     {
         if (!info) return false;
@@ -148,35 +82,7 @@ namespace
             static_cast<unsigned>(playerType),
             flags, info);
 
-        // HEAD OPTION apply branch — flag bit 7 (0x80) means the orig
-        // wants to write the picked head equipment INDEX (a 1-byte
-        // PlayerFaceEquipId enum, NOT the 2-byte equipId) into info[3].
-        // The header comment for kInfoOff_FaceId says "u16" but the orig
-        // actually treats it as a 1-byte slot index (LoadPartsNew reads
-        // it as `faceEquipId=byte`). The decomp confirms: retail
-        // EquipDevelopControllerImpl::IsEquipHeadOption (mgsvtpp.exe.c:
-        // 3802763) takes `PlayerFaceEquipId` as its first arg, an enum
-        // with small values (3 = BALACLAVA category, 4 = ?, 5 = ?).
-        //
-        // Slot mapping (verified empirically from vanilla flow that
-        // produced `faceEquipId=0x03` after picking BALACLAVA):
-        //   0x400 (kHeadOption_None)          -> slot 0  (NONE)
-        //   0x17CA (BALACLAVA equipId)        -> slot 3
-        //   0x17CB                            -> slot 4
-        //   0x17CC                            -> slot 5
-        //   ... (BALACLAVA-range equipId - 0x17C7 = slot)
-        //
-        // For our custom outfit the orig's pipeline drops the click
-        // (DecideActMissionPreparationSetEquipMode at retail 0x1416A3670
-        // has no equipKind=0x201 branch -> falls to error path). We
-        // re-inject the translated slot byte from the stash set by
-        // OutfitItemSelector::ProcessSelectionAndPublish on the click.
-        //
-        // Gates (all must hold):
-        //   - flag bit 7 set  (this is a head-option apply)
-        //   - info[3] currently 0  (orig didn't write)
-        //   - live partsType is a registered custom outfit
-        //   - pending head-option equipId stashed (user just clicked)
+
         if ((flags & 0x80u) != 0)
         {
             __try
@@ -194,45 +100,31 @@ namespace
                             outfit::GetPendingHeadOptionEquipId();
                         if (pendingHead != 0)
                         {
-                            // Translate equipId -> PlayerFaceEquipId slot.
-                            // Verified empirically from vanilla flow
-                            // logs (user wears vanilla SP suit, picks
-                            // BALACLAVA; orig writes blob[3] = 0x03):
-                            //   0x400 (kHeadOption_None) -> slot 0  (NONE)
-                            //   0x210 (BALACLAVA equipId) -> slot 3
-                            //
-                            // The earlier `0x17CA - 0x17C7 = 3` formula
-                            // was based on a wrong constant in the
-                            // recon notes — `0x17CA` is NOT BALACLAVA.
-                            // The actual equipId orig's case 0x201
-                            // pipeline uses for BALACLAVA is 0x210
-                            // (verified via runtime buffer dump
-                            // 2026-04-29).
+
+
                             std::uint8_t slot = 0;
                             if (pendingHead == outfit::kHeadOption_None)
                             {
-                                slot = 0;  // NONE
+                                slot = 0;
                             }
                             else if (pendingHead == 0x210)
                             {
-                                slot = 3;  // BALACLAVA
+                                slot = 3;
                             }
                             else if (pendingHead == 0x211)
                             {
-                                slot = 4;  // SP-HEADGEAR (best guess —
-                                           // verify via probe before
-                                           // shipping)
+                                slot = 4;
+
+
                             }
                             else if (pendingHead == 0x212)
                             {
-                                slot = 5;  // HP-HEADGEAR (same caveat)
+                                slot = 5;
                             }
                             else if (outfit::IsCustomHeadEquipId(pendingHead))
                             {
-                                // Tier-3 custom head registered via
-                                // V_FrameWork.RegisterCustomHead. Look
-                                // up the slot byte assigned at register
-                                // time.
+
+
                                 if (const auto* head =
                                     outfit::TryGetCustomHeadByEquipId(
                                         pendingHead))
@@ -253,7 +145,7 @@ namespace
                             }
                             else if (pendingHead < 0x100)
                             {
-                                // Modder supplied a raw slot byte directly.
+
                                 slot = static_cast<std::uint8_t>(
                                     pendingHead & 0xFF);
                             }
@@ -262,9 +154,7 @@ namespace
                                 slot = 0;
                             }
 
-                            // Write the 1-byte slot at info[3] and clear
-                            // info[4] to avoid stale high-byte data
-                            // (the orig's other apply paths leave it 0).
+
                             base[kInfoOff_FaceId]     = slot;
                             base[kInfoOff_FaceId + 1] = 0;
                             outfit::ClearPendingHeadOptionEquipId();
@@ -294,7 +184,7 @@ namespace
         const outfit::OutfitEntry* chosen = nullptr;
         const char*                via    = nullptr;
 
-        // 1. partsType already in custom range — direct lookup.
+
         if (partsType >= outfit::kCustomPartsTypeStart
          && partsType <= outfit::kCustomPartsTypeEnd)
         {
@@ -302,14 +192,7 @@ namespace
             if (chosen) via = "by-partsType";
         }
 
-        // 2. camo in custom selector range. Use the variant-aware
-        // lookup so a non-base cycle cell (selectorCode=variant N's
-        // reserved code) decodes to the right (entry, variantIndex)
-        // pair. The variant index will be written into blob[0x02]
-        // below so OutfitCommit's downstream `SetActiveVariant` reads
-        // the right value (rather than the orig pipeline's default 0
-        // — which would silently clobber any prior SetActiveVariant
-        // call from the ItemSelector click handler).
+
         std::uint8_t resolvedVariantIdx = 0;
         bool         resolvedVariantValid = false;
         if (!chosen
@@ -326,27 +209,7 @@ namespace
             }
         }
 
-        // 3. Broken-custom signal (partsType=0, camo=0xFF) — resolve
-        //    ONLY via pendingDevId from a recent ItemSelector click.
-        //
-        // The previous "live-PT-unique" fallback (resolve to the only
-        // registered outfit matching the live player's playerType) was
-        // removed 2026-04-26 because it hijacked legitimate vanilla
-        // selections: when the user picks a vanilla suit while a
-        // custom outfit is already equipped, the orig pipeline emits
-        // a camo=0xFF transient and the fallback would silently re-
-        // equip the custom outfit, dragging the playerType along with
-        // it. Result: vanilla click → custom outfit stays equipped,
-        // but with playerType-mismatch downstream forcing the slot
-        // back to vanilla bytes — looked like "selecting Jill changed
-        // my player type" because the player swapped DDFemale →
-        // DDMale-in-vanilla.
-        //
-        // The supply-drop pickup path no longer needs this fallback —
-        // OutfitSupplyDropPickup writes Quark + calls LoadPartsNew
-        // directly with the right bytes, never emitting a broken-
-        // custom signal. So pendingDevId is the only legitimate
-        // source of "the user just picked a custom outfit."
+
         if (!chosen && partsType == 0x00 && camoType == 0xFF)
         {
             const std::uint16_t pendingDevId = outfit::GetPendingOutfitDevelopId();
@@ -363,34 +226,7 @@ namespace
             }
         }
 
-        // 4. Dev-menu / iDroid supply-drop request path. Orig builds
-        //    the loadout info via the EDC's per-flowIndex table
-        //    (vtable[0xB0]/[0x108] in `DecideActMotherBaseDeviceSupport-
-        //    DropMode`). Our custom flowIndices (922..924) have no
-        //    entry in that table → orig returns vanilla NORMAL bytes
-        //    (partsType=0, camo=0, all other fields zero too) into
-        //    the loadout info. SetSuit then fires with those zeros
-        //    and applies vanilla NORMAL — visible symptom: "I requested
-        //    FROGS as DD-Female but the character is wearing camo=0x00."
-        //
-        //    Recovery signal: `pendingDevId` was set by `OutfitItemSelector::
-        //    hkDecideActSupplyDrop` (or hkDecideActMissionPrep) at the
-        //    "user confirmed" click. It's set ONLY when the click
-        //    matched a registered custom outfit (vanilla clicks clear
-        //    it), and it's one-shot (cleared on consumption), so it
-        //    can't get stale across multiple equip events.
-        //
-        //    Trigger conditions (all must hold):
-        //      - paths 1-3 didn't match  (no custom byte signal)
-        //      - flags has bit 0  (this IS a suit-equip operation)
-        //      - partsType == 0 AND camo == 0  (vanilla NORMAL bytes,
-        //        i.e. the orig's lookup couldn't find our flowIndex)
-        //      - pendingDevId != 0  (user just clicked a custom outfit)
-        //
-        //    The bit-0/zero-bytes guard prevents this path from
-        //    hijacking legitimate vanilla equips; for those, either
-        //    pendingDevId is 0 (vanilla click) OR the bytes aren't
-        //    pure zeros (vanilla suit has its own non-zero camo).
+
         if (!chosen
          && (flags & 0x01u) != 0
          && partsType == 0x00
@@ -412,11 +248,8 @@ namespace
 
         if (!chosen)
         {
-            // No custom matched. If the blob carries a broken-custom
-            // signal (partsType=0, camo=0xFF) without any pending
-            // selection, that's a stale orig-pipeline transient — zero
-            // it out so orig sees clean vanilla NORMAL instead of an
-            // invalid camo=0xFF that could OOB downstream.
+
+
             if (partsType == 0x00 && camoType == 0xFF)
             {
                 __try
@@ -434,18 +267,8 @@ namespace
 
         __try
         {
-            // Determine the EFFECTIVE playerType after orig SetSuit
-            // returns:
-            //   - If flags has 0x100, info[0xC0] is the TARGET PT.
-            //     Orig will commit a body change (character switch,
-            //     loadout slot restore, etc.). We must compare against
-            //     this target — comparing against livePT misses
-            //     because livePT is still the OLD body until orig
-            //     finishes applying.
-            //   - If flags lacks 0x100, info[0xC0] is junk and the
-            //     orig keeps the body at livePT (broken-custom
-            //     transient signal during active equip — flags=0x81).
-            //     livePT IS the effective PT in that case.
+
+
             const bool playerTypeValid = (flags & 0x100u) != 0;
             const std::uint8_t livePT = outfit::ReadLivePlayerType();
             const std::uint8_t effectivePT =
@@ -454,34 +277,11 @@ namespace
             const bool clearMismatch = canCheckPT
                                     && (effectivePT != chosen->playerType);
 
-            // We do NOT mask the 0x100 bit. Earlier (2026-04-27) we
-            // masked it as a defense against saved-state corruption
-            // sync events writing stale playerType to the player
-            // slot, but that mask blocked legitimate character
-            // switches: when the user picks a different character
-            // in the menu, orig fires this hook with 0x100 set and
-            // info[0xC0] = the new character's playerType, expecting
-            // to commit the body swap. Masking 0x100 made the swap
-            // a no-op — symptom user reported 2026-04-27: "when I
-            // have Jill equipped, I can't change to any other
-            // character, even if it's a female."
-            //
-            // Trade-off: the saved-state-corruption case (if it ever
-            // re-emerges) will let the body change to whatever the
-            // saved playerType says. That's vanilla orig behavior
-            // and acceptable — the user's clear preference is that
-            // character switches must work.
 
             if (clearMismatch)
             {
-                // Effective body after this commit can't wear the
-                // matched outfit (either user is on the wrong body,
-                // or they're switching to a body that can't wear
-                // it). Write vanilla NORMAL bytes — orig commits
-                // the body change AND lands on a clean vanilla
-                // outfit. No stray-custom transient, no infinite
-                // loading from custom partsType on a body that
-                // doesn't have the assets.
+
+
                 base[kInfoOff_PartsType] = 0x00;
                 base[kInfoOff_CamoType]  = 0x00;
 
@@ -502,31 +302,11 @@ namespace
                 return true;
             }
 
-            // Match path (effectivePT == chosen->playerType, OR PT
-            // unavailable so we apply-and-pray): write the outfit's
-            // bytes. If effectivePT truly matches, LoadPartsNew's
-            // ResolveCustomEntry hits and the outfit applies cleanly.
-            // If PT was unavailable and the body turns out to
-            // mismatch, LoadPartsNew's stray-custom path catches it
-            // as a safety net (force-vanilla).
+
             base[kInfoOff_PartsType] = chosen->partsType;
             base[kInfoOff_CamoType]  = chosen->selectorCode;
 
-            // Variant byte at blob[0x02] is read by OutfitCommit which
-            // calls `SetActiveVariant(partsType, blob[0x02])` post-orig.
-            // If a UNIFORMS-cycle cell click triggered this rewrite,
-            // we know the user-selected variant index (decoded from the
-            // per-variant selector code) — write it here so the
-            // downstream SetActiveVariant call sees the right value.
-            // Otherwise the orig pipeline's default of 0 silently
-            // clobbers any earlier variant the ItemSelector click
-            // handler set.
-            //
-            // For other resolution paths (by-partsType, broken-custom,
-            // etc.) we DON'T have a clean variant signal — leave
-            // blob[0x02] alone so OutfitCommit can either honor an
-            // already-set value (e.g. from an explicit Lua API call)
-            // or pick the default 0 (base outfit).
+
             if (resolvedVariantValid)
             {
                 base[kInfoOff_Variant] = resolvedVariantIdx;
@@ -560,25 +340,7 @@ namespace
     {
         InspectAndRewriteLoadout(info, "SetSuit");
 
-        // No partsType spoofing here. Earlier attempts to spoof partsType
-        // and/or camo to vanilla NORMAL inside this hook regressed body
-        // rendering (orig SetSuit wrote spoofed values to a player-slot
-        // state struct that LoadPartsNew later reads) or hung the load
-        // (orig SetSuit set up state for partsType=0x00 while LoadPartsNew
-        // tried to load custom assets for the rewritten partsType=0x40).
-        //
-        // The actual loadout-clearing happens NOT in SetSuit itself but
-        // in its caller wrapper FUN_1462c93f0 (retail 0x1462C93F0). That
-        // wrapper calls SetSuit and then runs a 3-slot apply pass that
-        // zeroes player weapon-slot data when info[0xBC] flag bits 2/3/4
-        // aren't set. Broken-custom suit equip arrives there with
-        // flags=0x81 (no slot bits) → slots zeroed.
-        //
-        // The fix is `hkLoadoutApplyAfterSetSuit` below: it detects the
-        // suppress-pattern (custom partsType + suit-equip-only flags) at
-        // the FUN_1462c93f0 layer, calls SetSuit directly via this
-        // hook's trampoline (so body change still happens), and skips
-        // the slot-apply pass — preserving the player's loadout.
+
         g_Orig(self, info);
     }
 
@@ -588,22 +350,7 @@ namespace
         g_OrigReqLoadout(self, info, apply);
     }
 
-    // Hook for FUN_1462c93f0 — the function that runs SetSuit then applies
-    // a 3-slot loadout buffer to the player based on info[0xBC] flag bits.
-    // For broken-custom suit-equip (flags=0x81 = bit 0 + bit 7, no slot
-    // bits 2/3/4), the apply step zeroes the player's weapon slots →
-    // SORTIE PREP slots show NONE while wearing a custom suit.
-    //
-    // Strategy: detect this exact pattern (custom partsType in info[0],
-    // suit-equip flags lacking slot bits) and bypass orig — instead
-    // call SetSuit directly via its trampoline so the body change still
-    // happens, but skip the slot-apply. The player's existing weapon-
-    // slot loadout is NOT touched, so SORTIE PREP keeps showing the
-    // weapons.
-    //
-    // Other call patterns (vanilla weapon clicks with slot bits set,
-    // full vanilla suit equip with flags=0x1FF) fall through to orig
-    // — those need the apply to populate new weapon data.
+
     static void __fastcall hkLoadoutApplyAfterSetSuit(void* self, void* info)
     {
         if (!info || !g_OrigLoadoutApply)
@@ -626,17 +373,7 @@ namespace
                 partsType >= outfit::kCustomPartsTypeStart
              && partsType <= outfit::kCustomPartsTypeEnd;
 
-            // The clearing pattern: custom partsType + flags without
-            // slot bits 2/3/4 (mask 0x1C). info[0x18+] in this pattern
-            // is uninitialized garbage — orig would zero slots in
-            // local_128 and apply that, clearing the player's loadout.
-            //
-            // Vanilla suit equip uses flags=0x1FF (slot bits set + good
-            // info[0x18+]) → orig applies populated slot data correctly,
-            // we let it through.
-            // Vanilla weapon clicks use varying flags but at least one
-            // slot bit set → orig applies the click's weapon, we let
-            // it through.
+
             const bool noSlotBits = (flags & 0x1Cu) == 0;
             const bool hasSuitBit = (flags & 0x01u) != 0;
 
@@ -659,29 +396,11 @@ namespace
                 static_cast<unsigned>(partsType),
                 flags);
 
-            // Call SetSuit directly via the trampoline we already have.
-            // This handles the body change exactly the same way orig
-            // FUN_1462c93f0 would (it calls SetSuit as its first action).
-            // We then skip the slot-apply (vtable[0x218] call) — the
-            // player's loadout stays untouched.
+
             if (g_Orig)
                 g_Orig(self, info);
 
-            // Replicate orig's post-flag-set on Player2UtilityImpl so
-            // downstream "loadout changed" listeners (notably the
-            // event handler that fires LoadPartsNew ~400ms later for
-            // body re-render) still see the signal. Without this bit,
-            // LoadPartsNew may not fire and the body wouldn't update
-            // visually after our suppressed-orig path.
-            //
-            // Verified at named-build line 5963470 inside FUN_1462c93f0:
-            //   *(uint *)(param_1 + 0x190) = *(uint *)(param_1 + 0x190) | 8;
-            // (decimal 400 = hex 0x190)
-            //
-            // We do NOT replicate the secondary set on
-            // Player2System+0x204 |= 0x80000 yet — that requires
-            // GetPlayer2System() which we don't currently expose. If
-            // LoadPartsNew doesn't fire visibly, we'll add it.
+
             __try
             {
                 auto* p1 = reinterpret_cast<std::uint8_t*>(self);
@@ -701,11 +420,7 @@ namespace
         g_OrigLoadoutApply(self, info);
     }
 
-    // SetInitialConditionWithLoadoutInfo hook — see AddressSet comment
-    // for full background. The body change happens via the orig calling
-    // SetSuit internally; we only manipulate the `preserve` flag to
-    // suppress the post-SetSuit slot-clearing loop when a custom outfit
-    // is being equipped.
+
     static void __fastcall hkSetInitialConditionWithLoadoutInfo(
         void* self, void* info, std::uint8_t preserve)
     {
@@ -727,11 +442,7 @@ namespace
             camoType   = base[kInfoOff_CamoType];
             flags      = *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags);
 
-            // Detect custom outfit equip: either the partsType is in the
-            // custom range, or (broken-custom transient) the camo is in
-            // the custom selector range. Either way, the orig's slot-
-            // clearing branch would zero out the player's loadout — we
-            // want to preserve it.
+
             const bool customPT =
                 partsType >= outfit::kCustomPartsTypeStart
              && partsType <= outfit::kCustomPartsTypeEnd;
@@ -739,10 +450,7 @@ namespace
                 camoType >= outfit::kCustomSelectorStart
              && camoType <= outfit::kCustomSelectorEnd;
 
-            // Also catch the broken-custom signal (partsType=0, camo=0xFF).
-            // InspectAndRewriteLoadout typically rewrites this to a real
-            // partsType earlier in the pipeline, but if we reach here
-            // before that rewrite happens we want to be safe.
+
             const bool brokenCustom = (partsType == 0x00 && camoType == 0xFF);
 
             isCustomOutfitEquip = customPT || customSel || brokenCustom;
@@ -769,8 +477,7 @@ namespace
             return;
         }
 
-        // Vanilla equip OR caller already requested preserve mode — pass
-        // through with no modification.
+
         g_OrigSetInitial(self, info, preserve);
     }
 }
@@ -790,56 +497,19 @@ namespace outfit
             return false;
         }
 
-        // Synthesize a SupplyCboxLoadoutInfo. Zero-init a buffer
-        // larger than the largest field we touch (info[0xC0]) plus
-        // headroom for any unmapped fields orig might dereference
-        // beyond what we've documented. 256 bytes is generous.
+
         alignas(8) std::uint8_t info[256] = {};
 
-        info[kInfoOff_PartsType] = partsType;     // [0]
-        info[kInfoOff_CamoType]  = selectorCode;  // [1]
+        info[kInfoOff_PartsType] = partsType;
+        info[kInfoOff_CamoType]  = selectorCode;
 
-        // Variant index — OutfitCommit reads blob[0x02] and calls
-        // SetActiveVariant. Including it here keeps the active
-        // variant aligned with what we're reloading (Lua already
-        // called SetActiveVariant; this re-asserts it via the
-        // commit pipeline).
+
         info[0x02] = variantIndex;
 
-        // playerType info[0xC0] is left at 0 — see flags note below.
+
         (void)playerType;
 
-        // Apply flags at info[0xBC]:
-        //   bit 0   (0x001) = "apply suit bytes" — required to write
-        //                     partsType/camo to Quark live state.
-        //   bit 1   (0x002) = "apply 13-byte loadout block" — NOT
-        //                     set, we don't want to overwrite weapon
-        //                     slots with our zeroed slot bytes.
-        //   bit 7   (0x080) = "apply face id" — NOT set, we don't
-        //                     want to change the user's face for a
-        //                     variant cycle.
-        //   bit 8   (0x100) = "playerType valid" — DELIBERATELY NOT
-        //                     SET. When this bit is set, orig SetSuit
-        //                     enters its playerType-apply branch
-        //                     which reads info[0xC8] (a packed
-        //                     soldierFace+playerType u32) to compute
-        //                     Quark+0xFB (playerType) and Quark+0xFC
-        //                     (soldierFace). Our zero-init info has
-        //                     [0xC8]=0, which makes orig write
-        //                     Quark.playerType=1 and Quark.soldierFace
-        //                     =0 — the natural LoadPartsNew that
-        //                     follows then reads those values and
-        //                     fires with playerType=1, no longer
-        //                     matching our outfit's playerType=2 →
-        //                     framework rejects as stray-custom and
-        //                     forces vanilla NORMAL.
-        //
-        //                     Skipping this branch (flags=0x01) keeps
-        //                     Quark.playerType + Quark.soldierFace at
-        //                     their existing user-character values.
-        //                     The natural LoadPartsNew correctly
-        //                     fires with the user's real playerType
-        //                     and soldierFace.
+
         *reinterpret_cast<std::uint32_t*>(info + kInfoOff_Flags) =
             0x001u;
 
@@ -855,10 +525,9 @@ namespace outfit
 
         __try
         {
-            // The 3-arg orig wrapper at 0x1462B6590 calls
-            // GetPlayer2System() internally; the `this` parameter
-            // (param_1) is unused by the wrapper. nullptr is fine.
-            g_OrigReqLoadout(nullptr, info, /*apply=*/1);
+
+
+            g_OrigReqLoadout(nullptr, info, 1);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

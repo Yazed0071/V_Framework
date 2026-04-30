@@ -48,7 +48,7 @@ local function buildVariantArray(srcVariants)
                 camoFpk       = v.camoFpk,
                 camoFv2       = v.camoFv2,
                 diamondFpk    = v.diamondFpk,
-                displayNameId = v.displayNameId,
+                displayName = v.displayName,
             }
         end
     end
@@ -104,6 +104,15 @@ function this.AddOutfit(opts)
         -- The C++ auto-enables the HEAD OPTION submenu whenever
         -- `headOptions` is non-empty, so just pass the array through.
         headOptions         = opts.headOptions,
+
+        -- Top-level cycle-button label for variant 0 (the base appearance
+        -- shown in SORTIE PREP > UNIFORMS before the user cycles to a
+        -- variant). Per-variant `displayName` lives inside each entry of
+        -- the `variants` array (handled by buildVariantArray above).
+        -- The bridge accepts either a LangId string (`displayName`) and
+        -- computes StrCode64, or a precomputed `displayNameHash` number.
+        displayName         = opts.displayName,
+        displayNameHash     = opts.displayNameHash,
 
         variants            = buildVariantArray(opts.variants),
 

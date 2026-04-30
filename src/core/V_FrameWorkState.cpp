@@ -20,18 +20,7 @@ namespace V_FrameWorkState
         static constexpr const char* kSavePath    = "mod\\V_FrameWork\\V_FrameWork_State.lua";
         static constexpr const char* kLegacyPath  = "mod\\saves\\V_FrameWork_State.lua";
 
-        // Old default 0x609 was the FIRST OOB equipId for the native
-        // AddToEquipIdTable (compressed = 0x609 - 0x380 = 0x289 = bound).
-        // The new allocator uses EquipIdCompression::FindLowestFreeEquipId
-        // which scans compressed slots [floor, 0x289) and avoids slots
-        // vanilla MGSV has already populated (verified via SyncFromNativeTable
-        // reading the native _s_internalInfoList_ array directly).
-        //
-        // Floor is 1 (not 0) because EquipIdTable_AddToEquipIdTable.cpp's
-        // ReadEquipIdRow treats equipId=0 as "invalid row, drop it" — if
-        // we ever picked 0 the row would silently never reach the native
-        // table and the weapon would be unusable. Skipping 0 also matches
-        // vanilla convention (equipId 0 is reserved/sentinel in TppEquip).
+
         static constexpr std::int32_t kFirstCustomEquipIdMinimum = 1;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
         static constexpr std::int32_t kFirstCustomFlowIndex = 922;
@@ -40,9 +29,8 @@ namespace V_FrameWorkState
 
         struct EquipEntry
         {
-            // developId and flowIndex are persisted together per key.
-            // Equip ids (EQP_* namespace) are session-scoped and live in
-            // g_SessionEquipIds below — they never land in the state file.
+
+
             std::int32_t developId = 0;
             std::int32_t flowIndex = 0;
         };
@@ -65,10 +53,7 @@ namespace V_FrameWorkState
         static State g_State;
         static std::mutex g_Mutex;
 
-        // Session-only cache of equipIds allocated via ResolveOrCreateEquipId.
-        // Never persisted: equipIds are reallocated fresh each game session,
-        // then memoized here so repeated calls with the same key in one
-        // session return the same id.
+
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
 
         static std::string Trim(const std::string& s)
@@ -86,9 +71,7 @@ namespace V_FrameWorkState
             CreateDirectoryA("mod\\V_FrameWork", nullptr);
         }
 
-        // One-shot migration: if an older state file still lives under
-        // mod\saves but the new mod\V_FrameWork path is missing, move it so
-        // previously-assigned equip/develop/tape ids survive the relocation.
+
         static void MigrateLegacyStateFile_NoLock()
         {
             const DWORD newAttr = GetFileAttributesA(kSavePath);
@@ -110,9 +93,7 @@ namespace V_FrameWorkState
                     GetLastError(), kLegacyPath, kSavePath);
         }
 
-        // Parses a line like: ["key"] = { developId = 456 },
-        // Legacy `equipId = N` fields are ignored — equipIds are now
-        // session-scoped and do not participate in the persisted state.
+
         static bool ParseEquipLine(const std::string& line, std::string& outKey, EquipEntry& out)
         {
             const auto lb = line.find("[\"");
@@ -145,7 +126,7 @@ namespace V_FrameWorkState
             return !outKey.empty();
         }
 
-        // Parses a line like: ["key"] = { saveIndex = 300 },
+
         static bool ParseTapeLine(const std::string& line, std::string& outKey, TapeEntry& out)
         {
             const auto lb = line.find("[\"");
@@ -216,7 +197,7 @@ namespace V_FrameWorkState
                     continue;
                 }
 
-                // Section closing brace (but not the outer table close)
+
                 if (trimmed == "}," || (trimmed == "}" && section != None))
                 {
                     section = None;
@@ -256,7 +237,7 @@ namespace V_FrameWorkState
 
             out << "return {\n";
 
-            // Equips section
+
             {
                 std::vector<std::pair<std::string, EquipEntry>> sorted;
                 sorted.reserve(g_State.equips.size());
@@ -268,8 +249,8 @@ namespace V_FrameWorkState
                 out << "    equips = {\n";
                 for (const auto& kv : sorted)
                 {
-                    // Persist any entry that has a developId OR a flowIndex.
-                    // equipIds are session-scoped and re-allocated each run.
+
+
                     if (kv.second.developId == 0 && kv.second.flowIndex == 0)
                         continue;
                     out << "        [\"" << kv.first << "\"] = {";
@@ -282,7 +263,7 @@ namespace V_FrameWorkState
                 out << "    },\n";
             }
 
-            // Tapes section
+
             {
                 std::vector<std::pair<std::string, TapeEntry>> sorted;
                 sorted.reserve(g_State.tapes.size());
@@ -331,39 +312,20 @@ namespace V_FrameWorkState
             return false;
         }
 
-        // Set on first allocation request — triggers a one-time scan of
-        // the native EquipIdTable to populate the vanilla-occupancy
-        // bitset. Vanilla MGSV's TppEquipParts.lua runs BEFORE our DLL
-        // injects, so the live observer hook on AddToEquipIdTable misses
-        // vanilla's calls; reading the populated table directly is the
-        // only reliable way to know which slots are off-limits.
+
         static bool g_NativeTableSynced = false;
 
         static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum)
         {
-            // First-call sync: scan the native _s_internalInfoList_ array
-            // for non-zero parts-path hashes and mark those compressed
-            // slots as vanilla-occupied. This MUST happen before the
-            // bitset scan below, otherwise we'd allocate slots vanilla
-            // already filled and overwrite vanilla equipment data on the
-            // next AddToEquipIdTable call.
+
+
             if (!g_NativeTableSynced)
             {
                 EquipIdCompression::SyncFromNativeTable();
                 g_NativeTableSynced = true;
             }
 
-            // Scan compressed slots [floor, 0x289) for one that:
-            //   (a) isn't marked vanilla-occupied (from native table sync
-            //       AND any live AddToEquipIdTable hook fires), AND
-            //   (b) isn't already used by another session-allocated equip.
-            //
-            // Returns the slot index as the equipId — for slots < 0x400
-            // the compressed index IS the equipId (1:1 mapping). We don't
-            // try to address a free slot through the 0x400+/0x600+ ranges
-            // because those would only be reachable if the slot were
-            // *also* unused at compressed = equipId - 0x1D0 / 0x380, and
-            // direct addressing keeps the allocation behavior simple.
+
             const std::int32_t floor =
                 (minimum > kFirstCustomEquipIdMinimum)
                     ? minimum
@@ -386,18 +348,7 @@ namespace V_FrameWorkState
             return result;
         }
 
-        // Pack mod outfit ids into the LOWEST free slot above the static
-        // custom-pool base, skipping both:
-        //   (a) ids already claimed by another mod's name in this state
-        //       file (IsDevelopIdInUse_NoLock / IsFlowIndexInUse_NoLock),
-        //       AND
-        //   (b) ids the vanilla MGSV equip-develop tables claimed during
-        //       boot (IsDevelopIdReservedByStock /
-        //       IsFlowIndexReservedByStock — populated by the RegCstDev /
-        //       RegFlwDev observation hooks in EquipDevelopAdd).
-        // Without (b) the allocator would happily reuse a low vanilla
-        // developId (e.g. 4097) for a custom outfit and silently stomp
-        // the orig row at that slot.
+
         static std::int32_t AllocateNextFreeDevelopId_NoLock(std::int32_t minimum)
         {
             std::int32_t id = (minimum > kFirstCustomDevelopId) ? minimum : kFirstCustomDevelopId;
@@ -457,8 +408,7 @@ namespace V_FrameWorkState
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
-        // Session-only: repeated calls with the same key hand back the
-        // same id within one game session. Does NOT touch the state file.
+
         auto it = g_SessionEquipIds.find(key);
         if (it != g_SessionEquipIds.end() && it->second != 0)
         {
@@ -469,10 +419,8 @@ namespace V_FrameWorkState
         const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId);
         if (newId < 0)
         {
-            // Allocation failed (every in-bounds compressed slot is taken
-            // by vanilla + session). Don't cache the failure — the
-            // observer might still be receiving vanilla rows, or the
-            // session might free a slot. Caller falls back / errors out.
+
+
             outEquipId = 0;
             Log("[V_FrameWorkState] EquipId allocation FAILED for '%s' "
                 "(every in-bounds slot occupied)\n", key);

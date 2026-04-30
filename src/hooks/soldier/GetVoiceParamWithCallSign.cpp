@@ -13,30 +13,27 @@
 
 namespace
 {
-    // Hook type for RadioSpeechHandlerImpl::GetVoiceParamWithCallSign.
-    // Params: self (RadioSpeechHandlerImpl*), ownerIndex (uint32_t)
+
+
     using GetVoiceParamWithCallSign_t = std::uint64_t(__fastcall*)(void* self, std::uint32_t ownerIndex);
 
-    // Virtual function type used by *(self + 0x28)->vfunc[0xA0] to get the base voice param.
-    // Params: obj28 (void*), ownerIndexLow8 (uint32_t)
+
     using GetBaseVoiceParam_t = std::uint64_t(__fastcall*)(void* obj28, std::uint32_t ownerIndexLow8);
 
-    // Absolute address of RadioSpeechHandlerImpl::GetVoiceParamWithCallSign.
-    // Turn this on only if you want every matching-base call logged.
+
     static constexpr bool kLogBaseMatchMisses = true;
 
-    // Turn this on only if you want every vanilla call logged too.
+
     static constexpr bool kLogEveryCall = false;
 
     static GetVoiceParamWithCallSign_t g_OrigGetVoiceParamWithCallSign = nullptr;
 
-    // Soldiers that should use the hardcoded extra call-sign mapping.
-    // Stored by normalized soldier index.
+
     static std::unordered_set<std::uint16_t> g_ExtraSoldierIndices;
 
     static std::mutex g_CallSignMutex;
 
-    // One hardcoded "base list -> extra StateId" mapping.
+
     struct HardcodedCallSignExtra
     {
         std::uint32_t baseVoiceParam = 0;
@@ -44,8 +41,7 @@ namespace
         const char* label = nullptr;
     };
 
-    // Parsed owner entry from self + 0x58, indexed by ownerIndex with stride 0x14.
-    // This is the same entry family used by CallPart and GetVoiceParamWithCallSign.
+
     struct CallSignOwnerEntry58
     {
         std::uint32_t dword00 = 0;
@@ -60,8 +56,7 @@ namespace
         std::uint8_t byte13 = 0;
     };
 
-    // Hardcoded per-list extra StateIds.
-    // Add the rest of your lists here later.
+
     static constexpr HardcodedCallSignExtra kHardcodedCallSignExtras[] =
     {
         { 0x69C268FEu, 0xBF58FDC6u, "DAT_142345928_EXTRA" },
@@ -80,15 +75,13 @@ namespace
     };
 }
 
-// Returns YES or NO for logging.
-// Params: value
+
 static const char* YesNo(bool value)
 {
     return value ? "YES" : "NO";
 }
 
-// Safely reads a byte from memory.
-// Params: addr, outValue
+
 static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
 {
     if (!addr)
@@ -105,8 +98,7 @@ static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
     }
 }
 
-// Safely reads a word from memory.
-// Params: addr, outValue
+
 static bool SafeReadWord(std::uintptr_t addr, std::uint16_t& outValue)
 {
     if (!addr)
@@ -123,8 +115,7 @@ static bool SafeReadWord(std::uintptr_t addr, std::uint16_t& outValue)
     }
 }
 
-// Safely reads a dword from memory.
-// Params: addr, outValue
+
 static bool SafeReadDword(std::uintptr_t addr, std::uint32_t& outValue)
 {
     if (!addr)
@@ -141,8 +132,7 @@ static bool SafeReadDword(std::uintptr_t addr, std::uint32_t& outValue)
     }
 }
 
-// Safely reads a qword from memory.
-// Params: addr, outValue
+
 static bool SafeReadQword(std::uintptr_t addr, std::uint64_t& outValue)
 {
     if (!addr)
@@ -159,8 +149,7 @@ static bool SafeReadQword(std::uintptr_t addr, std::uint64_t& outValue)
     }
 }
 
-// Converts a soldier GameObjectId like 0x040B into soldier index 0x000B.
-// Params: gameObjectId
+
 static std::uint16_t NormalizeSoldierIndexFromGameObjectId(std::uint32_t gameObjectId)
 {
     const std::uint16_t raw = static_cast<std::uint16_t>(gameObjectId);
@@ -174,9 +163,7 @@ static std::uint16_t NormalizeSoldierIndexFromGameObjectId(std::uint32_t gameObj
     return static_cast<std::uint16_t>(raw & 0x01FFu);
 }
 
-// Normalizes the soldier index read from the owner entry.
-// CallPart checks 0x01FF as the invalid sentinel.
-// Params: rawSoldierIndex
+
 static std::uint16_t NormalizeSoldierIndexFromOwnerEntry(std::uint16_t rawSoldierIndex)
 {
     if (rawSoldierIndex == 0xFFFFu)
@@ -191,9 +178,7 @@ static std::uint16_t NormalizeSoldierIndexFromOwnerEntry(std::uint16_t rawSoldie
     return rawSoldierIndex;
 }
 
-// Reads the owner entry from self + 0x58 for one ownerIndex.
-// Entry layout is 0x14 bytes wide.
-// Params: self, ownerIndex, outEntry
+
 static bool TryReadCallSignOwnerEntry58(
     void* self,
     std::uint32_t ownerIndex,
@@ -237,8 +222,7 @@ static bool TryReadCallSignOwnerEntry58(
     return true;
 }
 
-// Computes rawCallSign % 12 for logging/debug.
-// Params: rawCallSign, outModuloIndex
+
 static bool TryComputeCallSignModulo12(std::uint16_t rawCallSign, std::uint32_t& outModuloIndex)
 {
     outModuloIndex = 0;
@@ -250,8 +234,7 @@ static bool TryComputeCallSignModulo12(std::uint16_t rawCallSign, std::uint32_t&
     return true;
 }
 
-// Calls the internal base voice-param getter used by GetVoiceParamWithCallSign.
-// Params: self, ownerIndex, outBaseVoiceParam
+
 static bool TryReadBaseVoiceParam(void* self, std::uint32_t ownerIndex, std::uint64_t& outBaseVoiceParam)
 {
     outBaseVoiceParam = 0;
@@ -278,8 +261,7 @@ static bool TryReadBaseVoiceParam(void* self, std::uint32_t ownerIndex, std::uin
     return true;
 }
 
-// Returns the hardcoded extra StateId for one base voice-param/list hash.
-// Params: baseVoiceParam
+
 static const HardcodedCallSignExtra* FindHardcodedCallSignExtra(std::uint32_t baseVoiceParam)
 {
     for (const auto& entry : kHardcodedCallSignExtras)
@@ -291,8 +273,7 @@ static const HardcodedCallSignExtra* FindHardcodedCallSignExtra(std::uint32_t ba
     return nullptr;
 }
 
-// Logs one call-sign owner entry in a compact form.
-// Params: ownerIndex, entry, normalizedSoldierIndex, hasModulo12, modulo12, baseVoiceParam
+
 static void LogOwnerEntry58(
     std::uint32_t ownerIndex,
     const CallSignOwnerEntry58& entry,
@@ -318,10 +299,7 @@ static void LogOwnerEntry58(
         static_cast<unsigned>(baseVoiceParam));
 }
 
-// Hook for RadioSpeechHandlerImpl::GetVoiceParamWithCallSign.
-// Resolves the speaker from the owner entry at self + 0x58 and matches the registered soldier set
-// against entry + 0x0C instead of ownerIndex.
-// Params: self, ownerIndex
+
 static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uint32_t ownerIndex)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -446,8 +424,7 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
     return finalVoiceParam;
 }
 
-// Marks one soldier to use hardcoded extra call-sign overrides.
-// Params: gameObjectId
+
 void Add_CallSignExtraSoldier(std::uint32_t gameObjectId)
 {
     const std::uint16_t soldierIndex =
@@ -469,8 +446,7 @@ void Add_CallSignExtraSoldier(std::uint32_t gameObjectId)
         static_cast<unsigned>(soldierIndex));
 }
 
-// Removes one soldier from hardcoded extra call-sign overrides.
-// Params: gameObjectId
+
 void Remove_CallSignExtraSoldier(std::uint32_t gameObjectId)
 {
     const std::uint16_t soldierIndex =
@@ -492,8 +468,7 @@ void Remove_CallSignExtraSoldier(std::uint32_t gameObjectId)
         static_cast<unsigned>(soldierIndex));
 }
 
-// Clears all soldiers from hardcoded extra call-sign overrides.
-// Params: none
+
 void Clear_CallSignExtraSoldiers()
 {
     {
@@ -504,8 +479,7 @@ void Clear_CallSignExtraSoldiers()
     Log("[CallSignExtra] Cleared all soldiers\n");
 }
 
-// Installs the hardcoded GetVoiceParamWithCallSign hook.
-// Params: none
+
 bool Install_CallSignExtra_Hook()
 {
     void* target = ResolveGameAddress(gAddr.GetVoiceParamWithCallSign);
@@ -524,8 +498,7 @@ bool Install_CallSignExtra_Hook()
     return ok;
 }
 
-// Removes the hardcoded GetVoiceParamWithCallSign hook.
-// Params: none
+
 bool Uninstall_CallSignExtra_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.GetVoiceParamWithCallSign));

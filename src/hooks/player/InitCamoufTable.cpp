@@ -21,15 +21,10 @@ namespace
     static CamoufTable::Deps    g_Deps{};
     static bool                 g_HasDeps     = false;
 
-    // CamoSystemObject's vtable[1] is a function taking (self, lua_State*)
-    // that reads the Lua table at the top of stack and applies it to the
-    // internal camo parameters.
+
     using ApplyCamoTable_t = void(__fastcall*)(void* self, lua_State* L);
 
-    // Wrapper that invokes the engine's camo-apply vtable slot under SEH.
-    // Extracted into a plain function because MSVC C2712 forbids __try inside
-    // any function that also contains a C++ object requiring stack unwinding
-    // (PushCamoTableToGame holds a std::lock_guard in a nested block).
+
     static bool CallApplyCamoTableSeh(ApplyCamoTable_t fn, void* self, lua_State* L)
     {
         __try
@@ -190,7 +185,7 @@ namespace CamoufTable
 
         const int baseTop = g_Deps.LuaGetTop(L);
 
-        // Build Lua table: [camoType] = { [materialType] = value, ... }
+
         g_Deps.LuaCreateTable(L, 0, static_cast<int>(kMaxCamoTypes));
         const int outerIdx = g_Deps.LuaGetTop(L);
 
@@ -214,7 +209,7 @@ namespace CamoufTable
             }
         }
 
-        // Call vtable[1](self, L).
+
         auto** vtbl = *reinterpret_cast<void***>(camoSysObj);
         auto  fn    = reinterpret_cast<ApplyCamoTable_t>(vtbl[1]);
         if (!fn)

@@ -27,13 +27,10 @@ namespace
     static std::mutex                            g_Mutex;
     static GetQuarkSystemTable_t                 g_GetQuarkSystemTable = nullptr;
 
-    // Active variant per partsType slot. Index 0 = partsType 0x40.
-    // Total slots = kCustomPartsTypeEnd - kCustomPartsTypeStart + 1 = 0x40.
+
     static std::uint8_t g_ActiveVariant[0x40] = {};
 
-    // Pending developId published by OutfitItemSelector when the user
-    // clicks a custom-outfit row. Consumed by OutfitCommit on the
-    // broken-custom blob pattern.
+
     static std::uint16_t g_PendingDevelopId = 0;
     static std::uint16_t g_PendingHeadOptionEquipId = 0;
 
@@ -67,8 +64,7 @@ namespace
         return v >= kCustomSelectorStart && v <= kCustomSelectorEnd;
     }
 
-    // Allocate the next free partsType byte from the custom pool.
-    // Returns 0xFF on exhaustion. Caller holds g_Mutex.
+
     static std::uint8_t AllocatePartsType_NoLock(std::uint8_t hint)
     {
         if (IsCustomPartsType(hint))
@@ -94,26 +90,15 @@ namespace
         return 0xFF;
     }
 
-    // Returns true if `code` is currently held by ANY registered outfit
-    // — either as the base selectorCode OR as one of the per-variant
-    // cycle-button selectors. Both must be checked when allocating new
-    // selectors; otherwise an outfit with N variants (which claims N+1
-    // contiguous-by-availability codes from the pool) would have its
-    // variant-slot codes silently stolen by a later outfit's base
-    // allocation, producing collision-driven mis-routing in the click
-    // handler (ItemSelectorCallbackImpl::TryReadSelection reads the cell
-    // selector and TryGetOutfitBySelectorCode resolves to whichever
-    // entry was registered first that owns the code — wrong outfit
-    // gets equipped).
+
     static bool IsSelectorTaken_NoLock(std::uint8_t code)
     {
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
             if (e.selectorCode == code) return true;
-            // Slot 0 is always == selectorCode, already covered above.
-            // Check explicit variant slots 1..variantCount-1 too — those
-            // are the additional codes this outfit reserved for cycle.
+
+
             for (std::uint8_t k = 1; k < e.variantCount; ++k)
             {
                 if (e.variantSelectorCodes[k] == code) return true;
@@ -161,13 +146,7 @@ namespace outfit
             return false;
         }
 
-        // EDC's bit-array and row-array are sized 0x400 entries.
-        // A flowIndex >= 0x400 causes the vanilla IsEquipDeveloped
-        // (and any downstream code that indexes by flowIndex) to do
-        // an OOB read — which presents as a hard freeze on equip.
-        // Reject early with a loud log so the modder fixes their
-        // script (typical bug: passing flowIndex == developId, where
-        // developId is in the 51000+ range).
+
         constexpr std::uint16_t kEdcRowCapacity = 0x400;
         if (def.flowIndex >= kEdcRowCapacity)
         {
@@ -184,25 +163,7 @@ namespace outfit
 
         std::lock_guard<std::mutex> lock(g_Mutex);
 
-        // Duplicate handling — distinguish idempotent re-registration
-        // (same outfit, same key fields → return success without
-        // changing state) from real conflicts (different outfits
-        // sharing a developId / flowIndex → reject).
-        //
-        // Idempotent re-registration happens commonly:
-        //   - Lua hot-reload during gameplay (level transitions,
-        //     save-load) re-runs the modder's RegisterOutfit calls
-        //     with the same data
-        //   - The other framework registries (EquipDevelop,
-        //     RegisterConstantEquipId, GunBasic) all handle this
-        //     gracefully with "Reusing key" / "Updated queued entry"
-        //     messages — OutfitRegistry should match that pattern
-        //
-        // Conflict criteria: same developId OR same flowIndex AND any
-        // outfit-defining field differs (playerType, partsPathCode64,
-        // fpkPathCode64). If those identifying fields match, it's the
-        // same outfit; we hand back the existing partsType and exit
-        // success.
+
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
@@ -232,8 +193,7 @@ namespace outfit
                 return true;
             }
 
-            // Conflict — different outfit trying to claim the same
-            // developId/flowIndex slot.
+
             if (sameDevelopId)
             {
                 Log("[OutfitRegistry] reject: developId %u already registered "
@@ -271,14 +231,7 @@ namespace outfit
             return false;
         }
 
-        // Reserve additional selectors for explicit variants. Variant 0
-        // is the base outfit (uses `selector` already allocated above);
-        // variants[1..variantCount-1] each need their own selector for
-        // the UNIFORMS panel cycle to write distinct cell entries.
-        //
-        // Allocator picks free slots from the same 0x80..0xFE pool, so
-        // we may not get contiguous codes — that's fine, the panel
-        // cycle uses the per-cell stored selector, not arithmetic.
+
         const std::uint8_t variantSlots =
             (def.variantCount > outfit::kMaxVariantsPerOutfit)
                 ? static_cast<std::uint8_t>(outfit::kMaxVariantsPerOutfit)
@@ -286,23 +239,19 @@ namespace outfit
 
         std::uint8_t variantSelectors[outfit::kMaxVariantsPerOutfit] = {};
         for (auto& v : variantSelectors) v = 0xFF;
-        variantSelectors[0] = selector;  // variant 0 = base
+        variantSelectors[0] = selector;
         for (std::uint8_t vi = 1; vi < variantSlots; ++vi)
         {
-            // Pre-mark earlier ones as taken by inserting them into a
-            // scratch tracker. AllocateSelector_NoLock walks g_Entries
-            // for "taken" state, so we need a temp registration to
-            // prevent double-allocation. Cheapest: do iterative scans
-            // that include our just-allocated codes by checking
-            // variantSelectors[0..vi-1] manually.
+
+
             std::uint8_t alloc = 0xFF;
             for (std::uint16_t cand = kCustomSelectorStart;
                  cand <= kCustomSelectorEnd; ++cand)
             {
                 const auto c = static_cast<std::uint8_t>(cand);
                 if (IsSelectorTaken_NoLock(c)) continue;
-                // Exclude codes we just allocated to earlier siblings
-                // of this same outfit's variants (variantSelectors[0..vi-1]).
+
+
                 bool taken = false;
                 for (std::uint8_t k = 0; k < vi; ++k)
                 {
@@ -322,7 +271,7 @@ namespace outfit
             variantSelectors[vi] = alloc;
         }
 
-        // Find a free entry slot.
+
         OutfitEntry* slot = nullptr;
         for (auto& e : g_Entries)
         {
@@ -350,7 +299,7 @@ namespace outfit
         slot->diamondFpk      = def.diamondFpk;
         slot->enableArm       = def.enableArm;
 
-        // Phase 3 fields.
+
         slot->camoFv2             = def.camoFv2;
         slot->diamondFv2          = def.diamondFv2;
         slot->supportsHeadOptions = def.supportsHeadOptions;
@@ -368,15 +317,11 @@ namespace outfit
         for (std::size_t i = 0; i < slot->variantCount; ++i)
             slot->variants[i] = def.variants[i];
 
-        // Copy the variant selectors we reserved above. Slot 0 always
-        // holds the base selector; slots 1..variantCount-1 hold the
-        // additional cycle selectors. Unused slots get 0xFF sentinel.
+
         for (std::size_t i = 0; i < outfit::kMaxVariantsPerOutfit; ++i)
             slot->variantSelectorCodes[i] = variantSelectors[i];
 
-        // Variant 0 = base outfit (uses OutfitDefinition::baseDisplayNameHash).
-        // Variants 1..variantCount-1 = OutfitVariant::displayNameHash.
-        // Slots beyond variantCount stay at 0 (no override).
+
         slot->variantDisplayNameHashes[0] = def.baseDisplayNameHash;
         for (std::uint8_t vi = 1; vi < slot->variantCount; ++vi)
         {
@@ -388,17 +333,11 @@ namespace outfit
         slot->langEquipNameHash    = def.langEquipNameHash;
         slot->camoBonusType        = def.camoBonusType;
 
-        // Per-outfit camo bonus row. If the def carries values, allocate
-        // a fresh virtual camo-type id, copy the 82-cell row inline,
-        // and rewrite slot->camoBonusType so the runtime path lands at
-        // the virtual id (which our GetCamoufValue hook intercepts).
-        // The vanilla-pin path (def.camoBonusType in 0..116) is left
-        // untouched; the values path overrides on conflict.
+
         if (def.hasCamoBonusValues)
         {
-            // Find the next free virtual id in the reserved range.
-            // Linear-scan against existing entries — the pool is small
-            // (55 ids) so this is essentially O(1) in practice.
+
+
             std::uint8_t virtualId = 0xFF;
             for (std::uint16_t v = kCamoVirtualIdStart;
                  v <= kCamoVirtualIdEnd; ++v)
@@ -443,8 +382,7 @@ namespace outfit
 
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
 
-        // Build the variant-selector list as a single string so the
-        // log is independent of kMaxVariantsPerOutfit's value.
+
         char variantBuf[16 * 5 + 1] = {};
         {
             std::size_t pos = 0;
@@ -459,10 +397,7 @@ namespace outfit
             }
         }
 
-        // Same idea for the per-variant displayName hashes — show
-        // 16-bit-hi-half + 16-bit-mid-half so we don't bloat the log
-        // with full 64-bit values for every slot. Empty slot is shown
-        // as ".." so the column count matches selector count.
+
         char dispNameBuf[16 * 12 + 1] = {};
         {
             std::size_t pos = 0;
@@ -487,13 +422,7 @@ namespace outfit
             }
         }
 
-        // camoBonusType: read from the SLOT (post-allocation) so the
-        // virtual-id assigned by the camoBonusValues path shows up in
-        // the log instead of the def's untouched 0xFF default.
-        // Print "(unset)" for the 0xFF sentinel so 0 (OLIVEDRAB) doesn't
-        // visually collide with "no pin". Append "[values]" when the
-        // outfit shipped a unique camoBonusValues row so the log
-        // distinguishes vanilla pins from virtual-row outfits.
+
         char camoBuf[32] = {};
         if (slot->camoBonusType == 0xFF)
             std::snprintf(camoBuf, sizeof(camoBuf), "(unset)");
@@ -558,10 +487,8 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
-            // Match base or any variant selector — the caller usually
-            // just wants the entry regardless of which variant cell
-            // was clicked. Use TryGetOutfitByVariantSelector if you
-            // also need the variant index.
+
+
             if (e.selectorCode == selectorCode)
             {
                 if (outEntry) *outEntry = &e;
@@ -601,15 +528,15 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
-            // Variant 0 is always the base selector.
+
             if (e.selectorCode == selectorCode)
             {
                 if (outEntry) *outEntry = &e;
                 if (outVariantIndex) *outVariantIndex = 0;
                 return true;
             }
-            // Variants 1..variantCount-1 use the reserved per-variant
-            // selectors. Skip slot 0 (already checked via base).
+
+
             for (std::uint8_t vi = 1; vi < e.variantCount; ++vi)
             {
                 if (e.variantSelectorCodes[vi] == selectorCode)
@@ -653,8 +580,8 @@ namespace outfit
     bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
                                      const OutfitEntry** outEntry)
     {
-        // Bounds-check up front so callers can pass arbitrary uint8 from
-        // the GetCamoufValue hook without an extra range check there.
+
+
         if (virtualId < kCamoVirtualIdStart || virtualId > kCamoVirtualIdEnd)
             return false;
 
@@ -718,10 +645,6 @@ namespace outfit
         return count;
     }
 
-    // ---------------------------------------------------------------
-    // Variant accessors (cascade: variant slot → base outfit field).
-    // variantIndex 0 always returns the base outfit values.
-    // ---------------------------------------------------------------
 
     std::uint64_t OutfitEntry::GetVariantPartsPath(std::uint8_t idx) const
     {
@@ -799,9 +722,6 @@ namespace outfit
         }
     }
 
-    // ---------------------------------------------------------------
-    // Active-variant tracker.
-    // ---------------------------------------------------------------
 
     void SetActiveVariant(std::uint8_t partsType, std::uint8_t variantIndex)
     {
@@ -810,10 +730,7 @@ namespace outfit
 
         std::uint8_t clamped = variantIndex;
 
-        // Clamp against the registered outfit's variantCount (if any).
-        // Read entry under lock — but g_ActiveVariant write itself is
-        // a single byte and benefits from the same lock guard for
-        // ordering with reads.
+
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
@@ -844,9 +761,6 @@ namespace outfit
         g_ActiveVariant[partsType - kCustomPartsTypeStart] = 0;
     }
 
-    // ---------------------------------------------------------------
-    // Pending-developId bridge (atomic byte writes, no lock needed).
-    // ---------------------------------------------------------------
 
     void SetPendingOutfitDevelopId(std::uint16_t developId)
     {

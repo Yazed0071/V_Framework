@@ -10,15 +10,14 @@
 
 namespace
 {
-    // SoundMusicPlayer::GetTrackInfoByName
-    // Params: this, trackNameStrCode
+
+
     using GetTrackInfoByName_t = void* (__fastcall*)(void* thisPtr, std::int32_t trackNameStrCode);
 
     static GetTrackInfoByName_t g_OrigGetTrackInfoByName = nullptr;
 }
 
-// Logs one 16-byte row in hex.
-// Params: prefix, baseOffset, rowBytes
+
 static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uint8_t* rowBytes)
 {
     Log(
@@ -45,8 +44,7 @@ static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uin
         static_cast<unsigned int>(rowBytes[15]));
 }
 
-// Dumps one 0x38-byte trackInfo record.
-// Params: trackInfo
+
 static void DumpTrackInfoRecord(void* trackInfo)
 {
     if (!trackInfo)
@@ -115,8 +113,7 @@ static void DumpTrackInfoRecord(void* trackInfo)
         static_cast<unsigned int>(d34));
 }
 
-// Hook for SoundMusicPlayer::GetTrackInfoByName
-// Params: thisPtr, trackNameStrCode
+
 static void* __fastcall hkGetTrackInfoByName(void* thisPtr, std::int32_t trackNameStrCode)
 {
     void* result = nullptr;
@@ -140,8 +137,7 @@ static void* __fastcall hkGetTrackInfoByName(void* thisPtr, std::int32_t trackNa
     return result;
 }
 
-// Installs the hook.
-// Params: none
+
 bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
 {
     void* target = ResolveGameAddress(gAddr.GetTrackInfoByName);
@@ -160,8 +156,7 @@ bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
     return ok;
 }
 
-// Removes the hook.
-// Params: none
+
 bool Uninstall_SoundMusicPlayer_GetTrackInfoByName_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.GetTrackInfoByName));

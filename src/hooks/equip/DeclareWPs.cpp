@@ -16,8 +16,7 @@ namespace
     constexpr int LUA_TSTRING_51 = 4;
     constexpr int LUA_TNUMBER_51 = 3;
 
-    // Native DeclareWPs uses its own WP_* range.
-    // Custom WP ids should begin after the stock WP table, not after EquipIds.
+
     constexpr std::uint32_t kFirstCustomWpId = 0x203;
 
     DeclareWPs::Deps g_Deps{};
@@ -68,12 +67,12 @@ namespace
         if (!EnsureTppEquipTable(L))
             return;
 
-        // stack top is TppEquip
+
         g_Deps.LuaPushString(L, name);
         g_Deps.PushLuaNumber(L, static_cast<float>(wpId));
         g_Deps.LuaSetTable(L, -3);
 
-        // pop TppEquip
+
         g_Deps.LuaPop(L, 1);
     }
 
@@ -84,7 +83,7 @@ namespace
         g_Deps.LuaPushNil(L);
         while (g_Deps.LuaNext(L, tableIndex) != 0)
         {
-            // key at -2, value at -1
+
             if (g_Deps.LuaType(L, -2) == LUA_TSTRING_51 &&
                 g_Deps.LuaType(L, -1) == LUA_TNUMBER_51)
             {
@@ -101,7 +100,7 @@ namespace
                 }
             }
 
-            // pop value, keep key
+
             g_Deps.LuaPop(L, 1);
         }
 
@@ -116,7 +115,7 @@ namespace
         const int tppEquipIndex = g_Deps.GetLuaTop(L);
         int highestWp = FindHighestDeclaredWpValue(L, tppEquipIndex);
 
-        // pop TppEquip
+
         g_Deps.LuaPop(L, 1);
 
         std::uint32_t nextWpId = kFirstCustomWpId;
@@ -144,7 +143,7 @@ namespace
         if (found)
             outWpId = static_cast<std::uint32_t>(g_Deps.GetLuaInt(L, -1));
 
-        // pop field value + TppEquip
+
         g_Deps.LuaPop(L, 2);
         return found;
     }
@@ -192,7 +191,7 @@ namespace DeclareWPs
             }
             else
             {
-                // If Lua already has this WP_* constant, reuse it.
+
                 if (TryGetExistingWpFromLua(L, name, wpId))
                 {
                     g_DeclaredWPs.emplace(name, wpId);

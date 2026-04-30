@@ -1,4 +1,4 @@
-// DeclareSWPs.cpp
+
 #include "pch.h"
 #include "DeclareSWPs.h"
 
@@ -20,7 +20,7 @@ namespace
     std::mutex g_DeclareSWPsMutex;
     std::unordered_map<std::string, std::uint32_t> g_DeclaredSWPs;
 
-    // Stock DeclareSWPs covers 0x00..0x58 inclusive, so custom starts at 0x59.
+
     std::uint32_t g_NextCustomSwpId = 0x59;
 }
 
@@ -63,12 +63,12 @@ namespace
         if (!EnsureTppEquipTable(L))
             return;
 
-        // stack top is TppEquip
+
         g_Deps.LuaPushString(L, name);
         g_Deps.PushLuaNumber(L, static_cast<float>(swpId));
         g_Deps.LuaSetTable(L, -3);
 
-        // pop TppEquip
+
         g_Deps.LuaPop(L, 1);
     }
 }

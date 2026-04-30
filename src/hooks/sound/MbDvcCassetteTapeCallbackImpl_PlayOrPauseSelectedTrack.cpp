@@ -14,16 +14,14 @@
 
 namespace
 {
-    // Cassette Start.
-    // Params: cassetteCallbackBase
+
+
     using CassetteStart_t = void(__fastcall*)(void* cassetteCallbackBase);
 
-    // Cassette PlayOrPause wrapper.
-    // Params: cassetteCallbackBase
+
     using PlayOrPauseSelectedTrack_t = bool(__fastcall*)(void* cassetteCallbackBase);
 
-    // Real lower-level cassette/music play function from player vtable +0xF0.
-    // Params: player, outHandle, playMode, tapeIdTable, albumIndex, selectedTrackIndex, reservedZero, loopPlayFlag, allOrOneFlag
+
     using MusicPlayerPlay_t = void(__fastcall*)(
         void* player,
         void* outHandle,
@@ -35,17 +33,14 @@ namespace
         std::uint8_t loopPlayFlag,
         std::uint8_t allOrOneFlag);
 
-    // Reads the cassette player state.
-    // Params: player
+
     using CassettePlayerGetState_t = int(__fastcall*)(void* player);
 
-    // Sets the cassette speaker mode.
-    // Params: player, outResult, targetMode
+
     using CassettePlayerSetSpeakerMode_t =
         std::uint32_t* (__fastcall*)(void* player, void* outResult, std::uint32_t targetMode);
 
-    // Gets the cassette speaker mode.
-    // Params: player
+
     using CassettePlayerGetSpeakerMode_t = int(__fastcall*)(void* player);
 
     static constexpr std::size_t kMusicPlayerPlayVtableOffset = 0xF0ull;
@@ -57,7 +52,6 @@ namespace
     static constexpr std::uint32_t kCassetteSpeakerModeEnabled = 1u;
 
 
-    // Copy buffer for callbackBase + 0xD80.
     static constexpr std::size_t kTapeIdTableSize = 0x200ull;
 
     static CassetteStart_t g_OrigCassetteStart = nullptr;
@@ -79,12 +73,11 @@ namespace
     static std::uint8_t g_CachedTapeIdTable[kTapeIdTableSize] = {};
     static bool g_HasCopiedTapeIdTable = false;
 
-    // Persistent synthetic table for direct play-by-track-id tests.
+
     static std::uint32_t g_DirectTrackTable[0x80] = {};
 }
 
-// Logs the real lower-level cassette play call.
-// Params: player, outHandle, playMode, tapeIdTable, albumIndex, selectedTrackIndex, reservedZero, flag1, flag2
+
 static void __fastcall hkMusicPlayerPlay(
     void* player,
     void* outHandle,
@@ -96,8 +89,7 @@ static void __fastcall hkMusicPlayerPlay(
     std::uint8_t flag1,
     std::uint8_t flag2);
 
-// Resolves the lower-level music player object from the cassette callback.
-// Params: cassetteCallbackBase
+
 static void* ResolveMusicPlayerFromCassetteCallback(void* cassetteCallbackBase)
 {
     if (!cassetteCallbackBase)
@@ -122,8 +114,7 @@ static void* ResolveMusicPlayerFromCassetteCallback(void* cassetteCallbackBase)
     }
 }
 
-// Resolves the real lower-level play target from the music player vtable.
-// Params: musicPlayer
+
 static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
 {
     if (!musicPlayer)
@@ -148,9 +139,7 @@ static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
     }
 }
 
-// Safely copies raw bytes from game memory.
-// Params: source, dest, size
-// Returns: true on success, false on failure.
+
 static bool TryCopyBytes(const void* source, void* dest, std::size_t size)
 {
     if (!source || !dest || size == 0)
@@ -167,9 +156,7 @@ static bool TryCopyBytes(const void* source, void* dest, std::size_t size)
     }
 }
 
-// Copies the tape-id table bytes from the cassette callback into a temporary buffer.
-// Params: cassetteCallbackBase, outBuffer
-// Returns: true on success, false on failure.
+
 static bool TryCopyTapeIdTableFromCassetteCallback(void* cassetteCallbackBase, std::uint8_t* outBuffer)
 {
     if (!cassetteCallbackBase || !outBuffer)
@@ -189,8 +176,7 @@ static bool TryCopyTapeIdTableFromCassetteCallback(void* cassetteCallbackBase, s
     }
 }
 
-// Copies callbackBase + 0xD80 into a persistent local buffer.
-// Params: cassetteCallbackBase
+
 static void CacheTapeIdTableFromCassetteCallback(void* cassetteCallbackBase)
 {
     if (!cassetteCallbackBase)
@@ -220,8 +206,7 @@ static void CacheTapeIdTableFromCassetteCallback(void* cassetteCallbackBase)
         kTapeIdTableSize);
 }
 
-// Logs one 16-byte row in hex.
-// Params: prefix, baseOffset, rowBytes
+
 static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uint8_t* rowBytes)
 {
     Log(
@@ -248,8 +233,7 @@ static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uin
         static_cast<unsigned int>(rowBytes[15]));
 }
 
-// Logs important cassette callback fields built by Start.
-// Params: cassetteCallbackBase
+
 static void LogCassetteCallbackState(void* cassetteCallbackBase)
 {
     if (!cassetteCallbackBase)
@@ -354,8 +338,7 @@ static void LogCassetteCallbackState(void* cassetteCallbackBase)
     }
 }
 
-// Logs raw cassette-table bytes for the live selection.
-// Params: tapeIdTable, albumIndex, selectedTrackIndex
+
 static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumIndex, std::uint32_t selectedTrackIndex)
 {
     if (!tapeIdTable)
@@ -442,8 +425,7 @@ static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumInde
     }
 }
 
-// Installs the real lower-level play hook from the player vtable.
-// Params: musicPlayer
+
 static void TryInstallMusicPlayerPlayHook(void* musicPlayer)
 {
     if (!musicPlayer)
@@ -480,8 +462,7 @@ static void TryInstallMusicPlayerPlayHook(void* musicPlayer)
         targetPtr);
 }
 
-// Logs the real lower-level cassette play call.
-// Params: player, outHandle, playMode, tapeIdTable, albumIndex, selectedTrackIndex, reservedZero, flag1, flag2
+
 static void __fastcall hkMusicPlayerPlay(
     void* player,
     void* outHandle,
@@ -620,8 +601,7 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
     return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
 }
 
-// Resolves one function pointer from the cassette player vtable.
-// Params: player, vtableOffset
+
 static void* ResolveCassettePlayerVtableFunction(void* player, std::size_t vtableOffset)
 {
     if (!player)
@@ -646,8 +626,7 @@ static void* ResolveCassettePlayerVtableFunction(void* player, std::size_t vtabl
     }
 }
 
-// Resolves the cached cassette callback and its player.
-// Params: outCallbackBase, outPlayer
+
 static bool ResolveCachedCassetteCallbackAndPlayer(void*& outCallbackBase, void*& outPlayer)
 {
     outCallbackBase = nullptr;
@@ -665,8 +644,7 @@ static bool ResolveCachedCassetteCallbackAndPlayer(void*& outCallbackBase, void*
     return outPlayer != nullptr;
 }
 
-// Returns true if the current cassette player state allows speaker switching.
-// Params: player
+
 static bool CanSwitchCassetteSpeakerMode(void* player)
 {
     if (!player)
@@ -690,9 +668,7 @@ static bool CanSwitchCassetteSpeakerMode(void* player)
     }
 }
 
-// Gets the current cassette speaker state from the cached cassette callback.
-// Params: outEnabled
-// Returns: true on success, false on failure.
+
 bool IsCassetteSpeakerEnabled(bool& outEnabled)
 {
     outEnabled = false;
@@ -746,9 +722,7 @@ bool IsCassetteSpeakerEnabled(bool& outEnabled)
     }
 }
 
-// Sets the cassette speaker state on the cached cassette callback.
-// Params: enabled
-// Returns: true on success, false on failure.
+
 bool SetCassetteSpeakerEnabled(bool enabled)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -820,9 +794,7 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     }
 }
 
-// Resolves the real lower-level play function and player.
-// Params: outPlayFn, outPlayer
-// Returns: true on success, false on failure.
+
 static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlayer)
 {
     outPlayFn = nullptr;
@@ -852,8 +824,7 @@ static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlaye
     return (outPlayFn != nullptr && outPlayer != nullptr);
 }
 
-// Installs the cassette Start hook and the PlayOrPause hook.
-// Params: none
+
 bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
     void* startTarget = ResolveGameAddress(gAddr.CassetteStart);
@@ -886,8 +857,7 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
     return okStart && okPlay;
 }
 
-// Removes the Start hook, the PlayOrPause hook, and the real player-play hook.
-// Params: none
+
 bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteStart));
@@ -923,9 +893,7 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
     return true;
 }
 
-// Plays a cassette directly using the cached lower-level player and cached menu table.
-// Params: albumIndex, trackIndex, loopPlay, playAll
-// Returns: true on success, false on failure.
+
 bool PlayCassetteByAlbumAndTrack(
     std::uint32_t albumIndex,
     std::uint32_t trackIndex,
@@ -992,9 +960,7 @@ bool PlayCassetteByAlbumAndTrack(
     return true;
 }
 
-// Plays a cassette directly by numeric track id using a persistent synthetic table.
-// Params: albumIndex, trackId, loopPlay, playAll
-// Returns: true on success, false on failure.
+
 bool PlayCassetteByTrackId(
     std::uint32_t albumIndex,
     std::uint32_t trackId,

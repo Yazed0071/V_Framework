@@ -273,14 +273,7 @@ namespace
     std::vector<UnderBarrelDef>  g_CustomUnderBarrels;
     std::vector<BulletDef>       g_CustomBullets;
 
-    // Magazine direct-native-shadow state.
-    //
-    // Lives at `impl + 0x20` → pointer to `g_magazineParameters2`
-    // (0x5F8 bytes = 191 rows × 8 bytes). We allocate a shadow buffer,
-    // memcpy the stock rows once, redirect the impl pointer at the shadow,
-    // and thereafter write each custom magazine row directly into our
-    // shadow. The reload-hook path is unreliable because vanilla's boot
-    // reload fires BEFORE our DLL installs, and nothing re-reloads later.
+
     constexpr std::size_t kMagazineEntrySize = 8;
     constexpr std::ptrdiff_t kEquipParameterTablesImpl_MagazinePtr_Offset = 0x20;
     constexpr std::size_t kStockMagazineByteSize = 0x5F8;
@@ -1091,18 +1084,7 @@ namespace
             def.barrelId, def.ownerKey.c_str());
     }
 
-    // Direct native-shadow write for the magazine table.
-    // Mirrors what SetGunBasic does at impl+0x08 — same pattern, different
-    // subsystem offset (impl+0x20) and row size (8 bytes instead of 12).
-    //
-    // Native row layout (8 bytes per row, row idx = ammoId - 1):
-    //   [0-1] eqpAmmoId    (u16)
-    //   [2-3] magCapacity  (u16, capped to 0x3FF)
-    //   [4-5] totalCarry   (u16, capped to 0x3FFF; native treats 0 as max)
-    //   [6-7] bulletId     (u16, but vanilla values fit in a byte)
-    //
-    // Note: our MagazineDef names are legacy — `rank` holds magCapacity,
-    // `magSize` holds totalCarryCapacity. ParseMagazine maps them from Lua.
+
     static bool InitMagazineNativeShadow_NoLock()
     {
         if (g_MagazineShadowInitialized)
@@ -1125,7 +1107,7 @@ namespace
             return false;
         }
 
-        // Size shadow for max(191 stock rows, current max custom ammoId).
+
         std::uint32_t customMax = 0;
         for (const auto& m : g_CustomMagazines)
         {
@@ -1147,13 +1129,13 @@ namespace
             return false;
         }
 
-        // Copy stock rows verbatim so vanilla magazines keep working.
+
         std::memcpy(g_MagazineShadowBuffer.data(), stockPtr, kStockMagazineByteSize);
 
         g_StockMagazinePtr = stockPtr;
         g_MagazineShadowCapacity = capacity;
 
-        // Redirect impl->magazine at our shadow.
+
         *ppMagazine = g_MagazineShadowBuffer.data();
         g_MagazineShadowImpl = impl;
         g_MagazineShadowInitialized = true;
@@ -1188,7 +1170,7 @@ namespace
         g_MagazineShadowBuffer = std::move(newBuf);
         g_MagazineShadowCapacity = ammoId;
 
-        // Re-point impl in case the vector reallocated.
+
         if (g_MagazineShadowImpl)
         {
             void** ppMagazine = reinterpret_cast<void**>(
@@ -1261,9 +1243,7 @@ namespace
         Log("[EquipParams] queued magazine ammoId=0x%X owner='%s'\n",
             def.ammoId, def.ownerKey.c_str());
 
-        // Direct native-shadow write. Don't wait for any reload — vanilla's
-        // boot call to ReloadEquipParameterTables already fired before our
-        // DLL installed, and nothing else reliably triggers another reload.
+
         WriteMagazineEntryToShadow_NoLock(def);
     }
 

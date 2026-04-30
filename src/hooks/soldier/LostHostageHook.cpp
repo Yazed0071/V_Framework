@@ -16,24 +16,12 @@
 #include "AddressSet.h"
 
 
-// ============================================================
-// Function pointer types for hooked game functions
-// ============================================================
-
 using ExecCallback_t = void(__fastcall*)(void* self, void* trapInfo);
 using ConvertRadioTypeToSpeechLabel_t = std::uint32_t(__fastcall*)(std::uint8_t radioType);
 using AddNoticeInfo_t = bool(__fastcall*)(void* self, std::uint32_t soldierIndex, const void* noticeBlob);
 using StateRadioRequest_t = void(__fastcall*)(void* self, int actionIndex, int stateProc);
 using GetNameIdWithGameObjectId_t = std::uint32_t(__fastcall*)(std::uint16_t gameObjectId);
 
-
-// ============================================================
-// Game addresses
-// ============================================================
-
-// ============================================================
-// Game constants
-// ============================================================
 
 static constexpr std::uint8_t  RADIO_PRISONER_GONE = 0x1Au;
 static constexpr std::uint8_t  NOTICE_ESCAPE_OBJECT = 0x21u;
@@ -55,10 +43,6 @@ static constexpr std::uint32_t LABEL_FEMALE_TAKEN = 0xD586CA7Bu;
 static constexpr std::uint32_t LABEL_CHILD_NOT_TAKEN = 0x2A2B54E0u;
 static constexpr std::uint32_t LABEL_CHILD_TAKEN = 0x96902568u;
 
-
-// ============================================================
-// Data structures
-// ============================================================
 
 struct TrackedHostage
 {
@@ -100,10 +84,6 @@ struct PendingReport
 };
 
 
-// ============================================================
-// Global state
-// ============================================================
-
 static ExecCallback_t                  g_OrigExecCallback = nullptr;
 static ConvertRadioTypeToSpeechLabel_t g_OrigConvertLabel = nullptr;
 static AddNoticeInfo_t                 g_OrigAddNoticeInfo = nullptr;
@@ -117,10 +97,6 @@ static std::unordered_map<std::uint32_t, PendingReport>  g_PendingBySoldier;
 static PendingReport                                     g_SelectedReport;
 static std::mutex                                        g_Mutex;
 
-
-// ============================================================
-// Small utilities
-// ============================================================
 
 static const char* HostageTypeName(int type)
 {
@@ -147,12 +123,6 @@ static std::uint32_t PickSpeechLabel(int hostageType, bool playerTookIt)
     return 0;
 }
 
-
-// ============================================================
-// Safe memory reads
-// Each one returns false if the address is null or causes
-// an access violation, instead of crashing the game.
-// ============================================================
 
 static bool ReadU8(std::uintptr_t addr, std::uint8_t& out)
 {
@@ -189,10 +159,6 @@ static bool ReadBytes(std::uintptr_t addr, std::uint8_t* buf, std::size_t size)
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-
-// ============================================================
-// Helpers that read structured data from game objects
-// ============================================================
 
 static bool LoadGetNameIdFunction()
 {
@@ -310,10 +276,6 @@ static bool ReadRadioEntry(void* self, int actionIndex, std::uint32_t& outSoldie
 }
 
 
-// ============================================================
-// State helpers
-// ============================================================
-
 static bool FindTrackedHostage(std::uint16_t objectId, int moverNameId, int expectedNameId, TrackedHostage& out)
 {
     std::lock_guard<std::mutex> lock(g_Mutex);
@@ -422,10 +384,6 @@ static void ClearSelectedReport(const char* reason)
     g_SelectedReport = {};
 }
 
-
-// ============================================================
-// Hooks
-// ============================================================
 
 static void __fastcall hkExecCallback(void* self, void* trapInfo)
 {
@@ -546,12 +504,10 @@ static void __fastcall hkStateRadioRequest(void* self, int actionIndex, int stat
 
     g_OrigRadioRequest(self, actionIndex, stateProc);
 
-    // From the logs: stateProc=0 is when byte12 flips to 0x02, meaning the
-    // radio is actually about to transmit. All other stateProc values fire too
-    // early or too late relative to ConvertRadioTypeToSpeechLabel being called.
+
     if (stateProc != 0) return;
 
-    // Let the discovery helper inspect the same shared RadioRequest event.
+
     LostHostageDiscovery_OnRadioRequest(self, actionIndex, stateProc);
 
     std::uint32_t soldierIndex = 0xFFFFFFFFu;
@@ -621,10 +577,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
     return LostHostageDiscovery_OnConvertRadioTypeToSpeechLabel(radioType, defaultLabel);
 }
 
-
-// ============================================================
-// Public API
-// ============================================================
 
 void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType)
 {

@@ -15,6 +15,6 @@ namespace CustomEquipIdState
 
     void ResetForNewSession()
     {
-        // The unified state handles its own lifecycle.
+
     }
 }

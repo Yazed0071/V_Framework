@@ -85,8 +85,7 @@ namespace
 
     static constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
-    // English bootstrap addresses for the Lua bridge.
-    // These are used before version_info.txt is resolved so the bridge can hook as early as the original build.
+
     static constexpr uintptr_t BOOTSTRAP_EN_SetLuaFunctions = 0x1408D78A0ull;
     static constexpr uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring = 0x141A123C0ull;
@@ -142,15 +141,13 @@ namespace
     static bool g_SetLuaFunctionsHookInstalled = false;
 }
 
-// Returns one Lua bridge address, using the resolved address set when available and the original English bootstrap address otherwise.
-// Params: resolvedAddr, bootstrapAddr
+
 static uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr, uintptr_t bootstrapAddr)
 {
     return resolvedAddr ? resolvedAddr : bootstrapAddr;
 }
 
-// Resolves the Lua/game functions used by this file.
-// Params: none
+
 static bool ResolveLuaApi()
 {
     if (!g_FoxLuaRegisterLibrary)
@@ -249,8 +246,7 @@ static bool ResolveLuaApi()
         g_lua_next;
 }
 
-// Returns the current Lua stack top.
-// Params: L
+
 static int GetLuaTop(lua_State* L)
 {
     if (!ResolveLuaApi() || !g_lua_gettop)
@@ -259,8 +255,7 @@ static int GetLuaTop(lua_State* L)
     return g_lua_gettop(L);
 }
 
-// Sets the Lua stack top.
-// Params: L, idx
+
 static void SetLuaTop(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_settop)
@@ -269,8 +264,7 @@ static void SetLuaTop(lua_State* L, int idx)
     g_lua_settop(L, idx);
 }
 
-// Pushes one table field onto the stack.
-// Params: L, idx, fieldName
+
 static void LuaGetField(lua_State* L, int idx, const char* fieldName)
 {
     if (!ResolveLuaApi() || !g_lua_getfield || !fieldName)
@@ -279,8 +273,7 @@ static void LuaGetField(lua_State* L, int idx, const char* fieldName)
     g_lua_getfield(L, idx, const_cast<char*>(fieldName));
 }
 
-// Pushes one array entry onto the stack.
-// Params: L, idx, n
+
 static void LuaRawGetI(lua_State* L, int idx, int n)
 {
     if (!ResolveLuaApi() || !g_lua_rawgeti)
@@ -289,8 +282,7 @@ static void LuaRawGetI(lua_State* L, int idx, int n)
     g_lua_rawgeti(L, idx, n);
 }
 
-// Returns the Lua value type.
-// Params: L, idx
+
 static int LuaType(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_type)
@@ -299,8 +291,7 @@ static int LuaType(lua_State* L, int idx)
     return g_lua_type(L, idx);
 }
 
-// Returns true if one Lua value is a string.
-// Params: L, idx
+
 static bool LuaIsString(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_isstring)
@@ -309,8 +300,7 @@ static bool LuaIsString(lua_State* L, int idx)
     return g_lua_isstring(L, idx) != 0;
 }
 
-// Returns true if one Lua value is a number.
-// Params: L, idx
+
 static bool LuaIsNumber(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_isnumber)
@@ -319,8 +309,7 @@ static bool LuaIsNumber(lua_State* L, int idx)
     return g_lua_isnumber(L, idx) != 0;
 }
 
-// Returns the Lua object length.
-// Params: L, idx
+
 static size_t LuaObjLen(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_objlen)
@@ -329,8 +318,7 @@ static size_t LuaObjLen(lua_State* L, int idx)
     return g_lua_objlen(L, idx);
 }
 
-// Pushes one boolean back to Lua.
-// Params: L, value
+
 static void PushLuaBool(lua_State* L, bool value)
 {
     if (!ResolveLuaApi() || !g_lua_pushboolean)
@@ -339,8 +327,7 @@ static void PushLuaBool(lua_State* L, bool value)
     g_lua_pushboolean(L, value ? 1 : 0);
 }
 
-// Pops values from the Lua stack.
-// Params: L, count
+
 static void LuaPop(lua_State* L, int count)
 {
     if (!ResolveLuaApi() || !g_lua_settop)
@@ -349,8 +336,7 @@ static void LuaPop(lua_State* L, int count)
     g_lua_settop(L, -count - 1);
 }
 
-// Registers one C library into Fox Lua.
-// Params: L, libName, funcs
+
 static bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* funcs)
 {
     if (!ResolveLuaApi() || !L || !libName || !funcs)
@@ -361,8 +347,7 @@ static bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* func
     return true;
 }
 
-// Returns a Lua string argument.
-// Params: L, idx
+
 static const char* GetLuaString(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tolstring)
@@ -371,8 +356,7 @@ static const char* GetLuaString(lua_State* L, int idx)
     return g_lua_tolstring(L, idx, nullptr);
 }
 
-// Returns a Lua int argument.
-// Params: L, idx
+
 static int GetLuaInt(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tointeger)
@@ -381,8 +365,7 @@ static int GetLuaInt(lua_State* L, int idx)
     return static_cast<int>(g_lua_tointeger(L, idx));
 }
 
-// Returns a Lua int64 argument.
-// Params: L, idx
+
 static std::uint64_t GetLuaInt64(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tointeger)
@@ -391,8 +374,7 @@ static std::uint64_t GetLuaInt64(lua_State* L, int idx)
     return static_cast<std::uint64_t>(g_lua_tointeger(L, idx));
 }
 
-// Returns a Lua bool argument.
-// Params: L, idx
+
 static bool GetLuaBool(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_toboolean)
@@ -401,8 +383,7 @@ static bool GetLuaBool(lua_State* L, int idx)
     return g_lua_toboolean(L, idx) != 0;
 }
 
-// Returns a Lua float argument.
-// Params: L, idx
+
 static float GetLuaNumber(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_tonumber)
@@ -411,8 +392,7 @@ static float GetLuaNumber(lua_State* L, int idx)
     return static_cast<float>(g_lua_tonumber(L, idx));
 }
 
-// Pushes one float back to Lua.
-// Params: L, value
+
 static void PushLuaNumber(lua_State* L, float value)
 {
     if (!ResolveLuaApi() || !g_lua_pushnumber)
@@ -421,32 +401,28 @@ static void PushLuaNumber(lua_State* L, float value)
     g_lua_pushnumber(L, static_cast<lua_Number>(value));
 }
 
-// Returns true if this Lua state was already registered.
-// Params: L
+
 static bool IsLuaStateRegistered(lua_State* L)
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     return g_RegisteredLuaStates.find(L) != g_RegisteredLuaStates.end();
 }
 
-// Tracks one Lua state after registration.
-// Params: L
+
 static void TrackLuaState(lua_State* L)
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     g_RegisteredLuaStates.insert(L);
 }
 
-// Clears tracked Lua states.
-// Params: none
+
 static void ClearTrackedLuaStates()
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     g_RegisteredLuaStates.clear();
 }
 
-// Reads one required string field from a Lua table.
-// Params: L, fieldName, outValue
+
 static bool LuaReadRequiredStringField(lua_State* L, const char* fieldName, std::string& outValue)
 {
     outValue.clear();
@@ -480,8 +456,7 @@ static double LuaToNumber(lua_State* L, int idx)
     return static_cast<double>(g_lua_tonumber(L, idx));
 }
 
-// Reads one optional signed integer field from a Lua table.
-// Params: L, fieldName, defaultValue
+
 static std::int32_t LuaReadOptionalIntField(lua_State* L, const char* fieldName, std::int32_t defaultValue)
 {
     LuaGetField(L, -1, fieldName);
@@ -496,8 +471,7 @@ static std::int32_t LuaReadOptionalIntField(lua_State* L, const char* fieldName,
     return value;
 }
 
-// Reads one optional unsigned integer field from a Lua table.
-// Params: L, fieldName, defaultValue
+
 static std::uint32_t LuaReadOptionalUIntField(lua_State* L, const char* fieldName, std::uint32_t defaultValue)
 {
     LuaGetField(L, -1, fieldName);
@@ -552,10 +526,7 @@ static bool TryReadTableBoolField(lua_State* L, int tableIndex, const char* fiel
     return result;
 }
 
-// Reads a sub-asset field that can be:
-//   string path  -> outPath set, returns true
-//   true         -> outPath null, outVanilla true, returns true
-//   false / nil  -> outPath null, outVanilla false, returns true
+
 static bool TryReadTableSubAssetField(
     lua_State* L, int tableIndex, const char* fieldName,
     const char*& outPath, bool& outVanilla, bool defaultVanilla)
@@ -566,16 +537,16 @@ static bool TryReadTableSubAssetField(
     LuaGetField(L, tableIndex, const_cast<char*>(fieldName));
     const int type = LuaType(L, -1);
 
-    if (type == 4) // string
+    if (type == 4)
     {
         outPath = GetLuaString(L, -1);
         outVanilla = false;
     }
-    else if (type == 1) // boolean
+    else if (type == 1)
     {
         outVanilla = GetLuaBool(L, -1);
     }
-    // else nil — use default
+
 
     SetLuaTop(L, -2);
     return true;
@@ -645,8 +616,7 @@ static void LuaPushValue(lua_State* L, int idx)
     g_lua_pushvalue(L, idx);
 }
 
-// Sets the default equip background texture.
-// Params: path
+
 static int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -657,8 +627,7 @@ static int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears the default equip background texture.
-// Params: none
+
 static int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -666,8 +635,7 @@ static int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets the enemy-weapon equip background texture.
-// Params: path
+
 static int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -678,8 +646,7 @@ static int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears the enemy-weapon equip background texture.
-// Params: none
+
 static int __cdecl l_ClearEnemyWeaponBgTexture(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -687,8 +654,7 @@ static int __cdecl l_ClearEnemyWeaponBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets one per-enemy equip background texture.
-// Params: equipId, path
+
 static int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -701,8 +667,7 @@ static int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears one per-enemy equip background texture.
-// Params: equipId
+
 static int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -710,8 +675,7 @@ static int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Sets one per-equip background texture.
-// Params: equipId, path
+
 static int __cdecl l_SetEquipBgTexturePath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -724,8 +688,7 @@ static int __cdecl l_SetEquipBgTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears one per-equip background texture.
-// Params: equipId
+
 static int __cdecl l_ClearEquipBgTexture(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -733,8 +696,7 @@ static int __cdecl l_ClearEquipBgTexture(lua_State* L)
     return 0;
 }
 
-// Clears all per-equip background textures.
-// Params: none
+
 static int __cdecl l_ClearAllEquipBgTextures(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -742,8 +704,7 @@ static int __cdecl l_ClearAllEquipBgTextures(lua_State* L)
     return 0;
 }
 
-// Sets the loading splash main texture.
-// Params: path
+
 static int __cdecl l_SetLoadingSplashMainTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -754,8 +715,7 @@ static int __cdecl l_SetLoadingSplashMainTexturePath(lua_State* L)
     return 0;
 }
 
-// Sets the loading splash blur texture.
-// Params: path
+
 static int __cdecl l_SetLoadingSplashBlurTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -766,8 +726,7 @@ static int __cdecl l_SetLoadingSplashBlurTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears loading splash textures.
-// Params: none
+
 static int __cdecl l_ClearLoadingSplashTextures(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -775,8 +734,7 @@ static int __cdecl l_ClearLoadingSplashTextures(lua_State* L)
     return 0;
 }
 
-// Sets the game over splash main texture.
-// Params: path
+
 static int __cdecl l_SetGameOverSplashMainTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -787,8 +745,7 @@ static int __cdecl l_SetGameOverSplashMainTexturePath(lua_State* L)
     return 0;
 }
 
-// Sets the game over splash blur texture.
-// Params: path
+
 static int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -799,8 +756,7 @@ static int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
     return 0;
 }
 
-// Clears game over splash textures.
-// Params: none
+
 static int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -808,8 +764,7 @@ static int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
     return 0;
 }
 
-// Sets the caution timer override.
-// Params: seconds
+
 static int l_SetCautionStepNormalDurationSeconds(lua_State* L)
 {
     const float seconds = GetLuaNumber(L, 1);
@@ -817,16 +772,14 @@ static int l_SetCautionStepNormalDurationSeconds(lua_State* L)
     return 0;
 }
 
-// Gets the caution timer override.
-// Params: none
+
 static int l_GetCautionStepNormalDurationSeconds(lua_State* L)
 {
     PushLuaNumber(L, Get_CautionStepNormalDurationSeconds());
     return 1;
 }
 
-// Clears the caution timer override.
-// Params: none
+
 static int l_UnsetCautionStepNormalDurationSeconds(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -834,16 +787,14 @@ static int l_UnsetCautionStepNormalDurationSeconds(lua_State* L)
     return 0;
 }
 
-// Gets the remaining caution timer.
-// Params: none
+
 static int l_GetCautionStepNormalRemainingSeconds(lua_State* L)
 {
     PushLuaNumber(L, Get_CautionStepNormalRemainingSeconds());
     return 1;
 }
 
-// Sets one player voice FPK override.
-// Params: playerType, path
+
 static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
@@ -856,8 +807,7 @@ static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
     return 0;
 }
 
-// Clears one player voice FPK override.
-// Params: playerType
+
 static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
@@ -865,8 +815,7 @@ static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
     return 0;
 }
 
-// Clears all player voice FPK overrides.
-// Params: none
+
 static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -874,24 +823,20 @@ static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
     return 0;
 }
 
-// Sets a Wwise RTPC for a single soldier identified by FOX gameObjectId.
-// Lua params: gameObjectId (integer), rtpcName (string), value (number), [timeMs (integer, default 0)]
-// Returns: AKRESULT integer (1 = AK_Success, negative = resolve failure or empty name)
+
 static int __cdecl l_SetSoldierRtpc(lua_State* L)
 {
     const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const char* rtpcName = GetLuaString(L, 2);
     const float value = GetLuaNumber(L, 3);
-    const long timeMs = static_cast<long>(GetLuaInt(L, 4));  // optional; 0 if absent
+    const long timeMs = static_cast<long>(GetLuaInt(L, 4));
 
     const int result = SoldierRtpc::SetSoldierRtpc(goId, rtpcName, value, timeMs);
     PushLuaNumber(L, static_cast<float>(result));
     return 1;
 }
 
-// Sets a Wwise RTPC globally (AK_INVALID_GAME_OBJECT scope — affects all listeners).
-// Lua params: rtpcName (string), value (number), [timeMs (integer, default 0)]
-// Returns: AKRESULT integer (1 = AK_Success, negative = resolve failure or empty name)
+
 static int __cdecl l_SetGlobalRtpc(lua_State* L)
 {
     const char* rtpcName = GetLuaString(L, 1);
@@ -903,9 +848,7 @@ static int __cdecl l_SetGlobalRtpc(lua_State* L)
     return 1;
 }
 
-// Sets a Wwise RTPC on one soldier by pre-hashed numeric id (skips name hashing).
-// Lua params: gameObjectId (integer), rtpcId (integer uint32), value (number), [timeMs (integer, default 0)]
-// Returns: AKRESULT integer
+
 static int __cdecl l_SetSoldierRtpcById(lua_State* L)
 {
     const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -918,9 +861,7 @@ static int __cdecl l_SetSoldierRtpcById(lua_State* L)
     return 1;
 }
 
-// Sets a Wwise RTPC globally by pre-hashed numeric id (skips name hashing).
-// Lua params: rtpcId (integer uint32), value (number), [timeMs (integer, default 0)]
-// Returns: AKRESULT integer
+
 static int __cdecl l_SetGlobalRtpcById(lua_State* L)
 {
     const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -932,8 +873,7 @@ static int __cdecl l_SetGlobalRtpcById(lua_State* L)
     return 1;
 }
 
-// Marks one VIP-important soldier.
-// Params: gameObjectId, isOfficer
+
 static int __cdecl l_SetVIPImportant(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -945,8 +885,7 @@ static int __cdecl l_SetVIPImportant(lua_State* L)
     return 0;
 }
 
-// Removes one VIP-important soldier.
-// Params: gameObjectId
+
 static int __cdecl l_RemoveVIPImportant(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -957,8 +896,7 @@ static int __cdecl l_RemoveVIPImportant(lua_State* L)
     return 0;
 }
 
-// Clears all VIP-important soldiers.
-// Params: none
+
 static int __cdecl l_ClearVIPImportant(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -969,8 +907,7 @@ static int __cdecl l_ClearVIPImportant(lua_State* L)
     return 0;
 }
 
-// Sets the custom non-VIP holdup recovery toggle.
-// Params: enabled
+
 static int l_SetUseConcernedHoldupRecovery(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1) != 0;
@@ -978,8 +915,7 @@ static int l_SetUseConcernedHoldupRecovery(lua_State* L)
     return 0;
 }
 
-// Sets cowardly holdup reactions toggle.
-// Params: enabled
+
 static int l_HoldUpReactionCowardlyReactions(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
@@ -987,8 +923,7 @@ static int l_HoldUpReactionCowardlyReactions(lua_State* L)
     return 0;
 }
 
-// Adds one call-sign-extra soldier.
-// Params: gameObjectId
+
 static int __cdecl l_AddCallSignExtraSoldier(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -996,8 +931,7 @@ static int __cdecl l_AddCallSignExtraSoldier(lua_State* L)
     return 0;
 }
 
-// Removes one call-sign-extra soldier.
-// Params: gameObjectId
+
 static int __cdecl l_RemoveCallSignExtraSoldier(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -1005,8 +939,7 @@ static int __cdecl l_RemoveCallSignExtraSoldier(lua_State* L)
     return 0;
 }
 
-// Clears all call-sign-extra soldiers.
-// Params: none
+
 static int __cdecl l_ClearCallSignExtraSoldiers(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1014,8 +947,7 @@ static int __cdecl l_ClearCallSignExtraSoldiers(lua_State* L)
     return 0;
 }
 
-// Adds one lost hostage.
-// Params: gameObjectId, hostageType
+
 static int __cdecl l_SetLostHostage(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -1026,8 +958,7 @@ static int __cdecl l_SetLostHostage(lua_State* L)
     return 0;
 }
 
-// Removes one lost hostage.
-// Params: gameObjectId
+
 static int __cdecl l_RemoveLostHostage(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -1037,8 +968,7 @@ static int __cdecl l_RemoveLostHostage(lua_State* L)
     return 0;
 }
 
-// Clears all lost hostages.
-// Params: none
+
 static int __cdecl l_ClearLostHostages(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1055,8 +985,7 @@ static int __cdecl l_SetLostHostageFromPlayer(lua_State* L)
     return 0;
 }
 
-// Enables or disables stealth camo for one mappedIndex.
-// Params: mappedIndex, enabled
+
 static int __cdecl l_EnableSoldierStealthCamo(lua_State* L)
 {
     const std::uint32_t mappedIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
@@ -1065,8 +994,7 @@ static int __cdecl l_EnableSoldierStealthCamo(lua_State* L)
     return 0;
 }
 
-// Clears all per-soldier stealth camo overrides.
-// Params: none
+
 static int __cdecl l_ClearSoldierStealthCamoOverrides(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1074,8 +1002,7 @@ static int __cdecl l_ClearSoldierStealthCamoOverrides(lua_State* L)
     return 0;
 }
 
-// Plays a cassette directly using album and track indices.
-// Params: albumIndex, trackIndex, loopPlay, playAll
+
 static int __cdecl l_PlayCassetteTapeByAlbumAndTrack(lua_State* L)
 {
     const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
@@ -1101,8 +1028,7 @@ static int __cdecl l_PlayCassetteTapeByAlbumAndTrack(lua_State* L)
     return 1;
 }
 
-// Plays a cassette directly using a numeric track id.
-// Params: trackId, loopPlay, playAll
+
 static int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
 {
     const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
@@ -1213,8 +1139,7 @@ static int __cdecl l_StopCassette(lua_State* L)
     return 1;
 }
 
-// Gets the current cassette speaker state.
-// Params: none
+
 static int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1232,8 +1157,7 @@ static int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L)
     return 1;
 }
 
-// Sets the cassette speaker state.
-// Params: enabled
+
 static int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
@@ -1242,8 +1166,7 @@ static int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
     return 1;
 }
 
-// Registers custom cassette albums and tracks.
-// Params: tapeInfoTable
+
 static int __cdecl l_RegisterCustomTapes(lua_State* L)
 {
     Log("[CustomTapes] l_RegisterCustomTapes entered\n");
@@ -1307,7 +1230,7 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
                 def.important = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "important", 0));
                 def.special = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "special", 0));
 
-                // Optional. If omitted in Lua, defaults to false.
+
                 def.unlocked = LuaReadOptionalUIntField(L, "unlocked", 0) != 0;
 
                 if (hasAlbumId && hasLangId && hasFileName)
@@ -1328,8 +1251,7 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
     return 1;
 }
 
-// Clears all registered custom cassette albums and tracks.
-// Params: none
+
 static int __cdecl l_ClearCustomTapes(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1337,8 +1259,7 @@ static int __cdecl l_ClearCustomTapes(lua_State* L)
     return 0;
 }
 
-// Sets one pickable countRaw override by locator index.
-// Params: locatorIndex, countRaw
+
 static int __cdecl l_SetPickableCountRawByIndex(lua_State* L)
 {
     const int locatorIndex = GetLuaInt(L, 1);
@@ -1352,8 +1273,7 @@ static int __cdecl l_SetPickableCountRawByIndex(lua_State* L)
     return 1;
 }
 
-// Gets one pickable countRaw override by locator index.
-// Params: locatorIndex
+
 static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
 {
     const int locatorIndex = GetLuaInt(L, 1);
@@ -1373,8 +1293,7 @@ static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
     return 1;
 }
 
-// Sets one per-equip icon FTEX path.
-// Params: equipId, path
+
 static int __cdecl l_SetEquipIdIconFtexPath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -1387,8 +1306,7 @@ static int __cdecl l_SetEquipIdIconFtexPath(lua_State* L)
     return 0;
 }
 
-// Clears one per-equip icon FTEX path.
-// Params: equipId
+
 static int __cdecl l_ClearIconFtexPath(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
@@ -1396,8 +1314,7 @@ static int __cdecl l_ClearIconFtexPath(lua_State* L)
     return 0;
 }
 
-// Clears all per-equip icon FTEX paths.
-// Params: none
+
 static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
@@ -1428,35 +1345,20 @@ static int __cdecl l_GetModFiles(lua_State* L)
     return 1;
 }
 
-// Writes a message to mod\V_FrameWork\V_FrameWork_log.txt through the same
-// Log() routine the C++ hooks use, so Lua-originated messages interleave
-// with hook events chronologically. Returns nothing.
-// Lua params: msg (string)
+
 static int __cdecl l_Log(lua_State* L)
 {
     const char* msg = GetLuaString(L, 1);
     if (msg && *msg)
     {
-        // Log() appends its own newline? Check log.cpp — it does NOT auto-newline,
-        // so we add one here so each Lua Log call is a new line in the file.
+
+
         Log("%s\n", msg);
     }
     return 0;
 }
 
-// =================================================================
-// Player custom-suit subsystem
-// =================================================================
 
-// (Phase-5 cleanup removed the legacy outfit Lua functions
-// l_SetPlayerPartsPath, l_LinkDevelopIdToPlayerSuit,
-// l_AllocateVariantGroupId, l_SetVariantGroup. Modders use
-// V_FrameWork.RegisterOutfit / SetOutfitVariant / GetOutfitInfo
-// — defined below near the g_VFrameWorkLib table.)
-
-// ---------------- Camo table -------------------------------------------
-
-// V_FrameWork.SetCamoValue(camoType, materialType, value)
 static int __cdecl l_SetCamoValue(lua_State* L)
 {
     const int camoType     = GetLuaInt(L, 1);
@@ -1469,7 +1371,7 @@ static int __cdecl l_SetCamoValue(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.CloneCamoRow(dstCamoType, srcCamoType)
+
 static int __cdecl l_CloneCamoRow(lua_State* L)
 {
     const int dst = GetLuaInt(L, 1);
@@ -1481,11 +1383,11 @@ static int __cdecl l_CloneCamoRow(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.ImportCamoRow(camoType, { v0, v1, ... })
+
 static int __cdecl l_ImportCamoRow(lua_State* L)
 {
     const int camoType = GetLuaInt(L, 1);
-    if (LuaType(L, 2) != 5)  // LUA_TTABLE
+    if (LuaType(L, 2) != 5)
     {
         PushLuaBool(L, false);
         return 1;
@@ -1509,18 +1411,10 @@ static int __cdecl l_ImportCamoRow(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.ImportCamoTable({ row1 = { v0..v81 }, row2 = { ... }, ... })
-//
-// Bulk loader. Accepts a 2D Lua array indexed 1..117 (each row is a 1D
-// array indexed 1..82). Equivalent to the IH-style
-// `Player.InitCamoufTable(table)` — replaces the entire 117x82 table in
-// one call and pushes the result to the engine ONCE at the end (vs 117
-// separate pushes from looping ImportCamoRow on the lua side).
-//
-// Rows past 117 / cells past 82 are ignored. Missing cells fill with 0.
+
 static int __cdecl l_ImportCamoTable(lua_State* L)
 {
-    if (LuaType(L, 1) != 5)  // LUA_TTABLE
+    if (LuaType(L, 1) != 5)
     {
         PushLuaBool(L, false);
         return 1;
@@ -1557,7 +1451,7 @@ static int __cdecl l_ImportCamoTable(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.GetCamoValue(camoType, materialType) → int (0 on bad index)
+
 static int __cdecl l_GetCamoValue(lua_State* L)
 {
     const int camoType     = GetLuaInt(L, 1);
@@ -1567,18 +1461,11 @@ static int __cdecl l_GetCamoValue(lua_State* L)
     return 1;
 }
 
-// ============================================================================
-// Phase-4 outfit Lua bridge.
-// Three user-facing functions:
-//   V_FrameWork.RegisterOutfit(def)        — register a new custom outfit
-//   V_FrameWork.SetOutfitVariant(devId, i) — switch active variant by index
-//   V_FrameWork.GetOutfitInfo(developId)   — query allocated values
-// ============================================================================
 
 namespace
 {
-    // Convert a Lua playerType field (string name OR numeric value)
-    // to the byte the registry expects. Returns 0xFF on parse error.
+
+
     std::uint8_t ParseOutfitPlayerType(lua_State* L, int tableIndex)
     {
         LuaGetField(L, tableIndex, "playerType");
@@ -1586,7 +1473,7 @@ namespace
 
         std::uint8_t result = 0xFF;
 
-        if (type == 4)  // string
+        if (type == 4)
         {
             const char* s = GetLuaString(L, -1);
             if (s)
@@ -1597,7 +1484,7 @@ namespace
                 else if (_stricmp(s, "Avatar")   == 0) result = outfit::kPlayerType_Avatar;
             }
         }
-        else if (type == 3)  // number
+        else if (type == 3)
         {
             const int v = GetLuaInt(L, -1);
             if (v >= 0 && v <= 3) result = static_cast<std::uint8_t>(v);
@@ -1607,11 +1494,7 @@ namespace
         return result;
     }
 
-    // Read a sub-asset path field. Semantics:
-    //   string  → custom path (return PathCode64Ext hash)
-    //   nil     → defaultValue (caller decides vanilla vs disabled)
-    //   false   → kSubAssetDisabled (forces disabled)
-    //   true    → kSubAssetUseVanilla (forces vanilla)
+
     std::uint64_t ReadSubAssetField(
         lua_State* L, int tableIndex, const char* fieldName,
         std::uint64_t defaultValue)
@@ -1621,24 +1504,24 @@ namespace
 
         std::uint64_t result = defaultValue;
 
-        if (type == 4)  // string
+        if (type == 4)
         {
             const char* s = GetLuaString(L, -1);
             if (s && s[0] != '\0')
                 result = FoxHashes::PathCode64Ext(s);
         }
-        else if (type == 1)  // boolean
+        else if (type == 1)
         {
             const bool b = GetLuaBool(L, -1) != 0;
             result = b ? outfit::kSubAssetUseVanilla : outfit::kSubAssetDisabled;
         }
-        // nil / other → keep defaultValue
+
 
         SetLuaTop(L, -2);
         return result;
     }
 
-    // Read a required path field. Returns 0 on missing/invalid.
+
     std::uint64_t ReadRequiredPathField(
         lua_State* L, int tableIndex, const char* fieldName)
     {
@@ -1657,9 +1540,7 @@ namespace
         return result;
     }
 
-    // Vanilla EquipDevelopConstSetting row indices for the standard
-    // head options. Modders can reference these by name in headOptions
-    // (case-insensitive; '-', '_' and ' ' are interchangeable).
+
     struct HeadAlias
     {
         const char*    name;
@@ -1674,8 +1555,7 @@ namespace
         { "hpheadgear",       0x212 },
     };
 
-    // Lower-case + strip '-', '_', ' '. Output buffer must be at least
-    // 64 bytes; truncates silently if input exceeds capacity.
+
     static void NormalizeHeadAlias(const char* in, char* out, std::size_t cap)
     {
         std::size_t j = 0;
@@ -1702,13 +1582,7 @@ namespace
         return 0;
     }
 
-    // -------- MaterialType name → index lookup --------------------
-    // Mirror of IH's player2_camouf_param.lua materialTypeNames array
-    // (and our V_TppPlayer.lua k_MaterialByName). Used by
-    // ReadCamoBonusValuesField to resolve named keys like "MTR_LEAF"
-    // → 60 when populating per-outfit camo bonus rows. The order MUST
-    // match the orig engine's MaterialType enum (matches IH because
-    // IH's list is itself derived from RecoilMaterialTable.lua).
+
     struct MaterialNameEntry
     {
         const char*     name;
@@ -1767,32 +1641,21 @@ namespace
         return -1;
     }
 
-    // Read def.camoBonusValues = { MTR_LEAF=50, MTR_RLEF=50, [n]=v, ... }
-    // into the OutfitDefinition. Sparse: any material not listed stays
-    // at 0. Sets def.hasCamoBonusValues = true if at least one valid
-    // (key, value) pair was read.
-    //
-    // Accepted key forms:
-    //   - String: a MaterialType name like "MTR_LEAF" → resolved via
-    //     k_MaterialNames table to index 0..81
-    //   - Number: a 1-based Lua index 1..82, mapped to MaterialType
-    //     index 0..81 (Lua convention; this matches how IH lists rows)
+
     static void ReadCamoBonusValuesField(
         lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
     {
         LuaGetField(L, tableIndex, "camoBonusValues");
         if (LuaType(L, -1) != LUA_TTABLE)
         {
-            SetLuaTop(L, -2);   // pop the non-table
+            SetLuaTop(L, -2);
             return;
         }
 
         const int valuesTbl = GetLuaTop(L);
         std::size_t writeCount = 0;
 
-        // Iterate (key, value) pairs via lua_next. After the call,
-        // the value is at -1 and the key at -2; we pop the value to
-        // resume iteration with the key at -1.
+
         LuaPushNil(L);
         while (LuaNext(L, valuesTbl) != 0)
         {
@@ -1806,7 +1669,7 @@ namespace
             }
             else if (keyType == LUA_TNUMBER)
             {
-                // Lua 1-based → MaterialType 0-based
+
                 const int keyIdx = GetLuaInt(L, -2);
                 if (keyIdx >= 1
                     && keyIdx <= static_cast<int>(outfit::kCamoMaterialCount))
@@ -1822,18 +1685,17 @@ namespace
                 ++writeCount;
             }
 
-            // Pop the value; key stays for the next lua_next call.
+
             SetLuaTop(L, -2);
         }
 
         if (writeCount > 0)
             def.hasCamoBonusValues = true;
 
-        SetLuaTop(L, -2);   // pop the camoBonusValues table itself
+        SetLuaTop(L, -2);
     }
 
-    // Read def.headOptions = { equipId1, equipId2, ... } into the
-    // OutfitDefinition. Caller already verified the table at tableIndex.
+
     void ReadHeadOptionsArray(
         lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
     {
@@ -1851,10 +1713,8 @@ namespace
                 LuaRawGetI(L, -1, static_cast<int>(i));
                 if (LuaIsNumber(L, -1))
                 {
-                    // Numeric entry — vanilla EquipDevelopConstSetting row
-                    // index (e.g. 0x210 BALACLAVA) or a custom-head equipId
-                    // returned from a previous V_FrameWork.RegisterCustomHead
-                    // call.
+
+
                     const int v = GetLuaInt(L, -1);
                     if (v > 0 && v <= 0xFFFF)
                     {
@@ -1864,9 +1724,8 @@ namespace
                 }
                 else if (LuaIsString(L, -1))
                 {
-                    // String entry — try the vanilla alias table first
-                    // ("BALACLAVA" / "SP-HEADGEAR" / etc.), then fall back
-                    // to a previously-registered custom-head name.
+
+
                     const char* name = GetLuaString(L, -1);
                     if (const std::uint16_t alias = TryResolveHeadAlias(name);
                         alias != 0)
@@ -1893,34 +1752,7 @@ namespace
         LuaPop(L, 1);
     }
 
-    // Read def.variants = { {partsPath=..., fpkPath=..., ...}, ... }
-    // into the OutfitDefinition.
-    //
-    // Layout convention (matches OutfitEntry::GetVariantPartsPath and
-    // friends, which return the base for idx==0):
-    //   * variant index 0 is IMPLICIT — the outfit's top-level
-    //     partsPath / fpkPath / camoFpk / etc. fields define this
-    //     "base" appearance. variants[0] is left default-constructed
-    //     and never accessed by the runtime getters.
-    //   * variant index 1..N corresponds to entries in the Lua
-    //     `variants` array (1-based in Lua → variants[1..N] in C++).
-    //   * variantCount = N + 1 when at least one Lua entry is
-    //     populated (so HasVariants() returns true and the runtime
-    //     accessors can index up through the highest filled slot).
-    //   * variantCount = 0 when no Lua entries (HasVariants() is
-    //     false; runtime asks GetActiveVariant which returns 0 →
-    //     getters return base).
-    //
-    // BUG FIX 2026-04-28: previously this code wrote each Lua entry
-    // to variants[def.variantCount++], starting at variants[0]. That
-    // collided with the base-at-index-0 convention — variants[0] was
-    // silently shadowed by the base in every getter, and SetActive-
-    // Variant clamped to variantCount-1 so the user's first Lua
-    // entry was unreachable. With one Lua entry, variants didn't work
-    // at all; with two, only the second was accessible (as variant 1).
-    // Now we write variants[i] (1-based) and set variantCount=N+1, so
-    // variants[1..N] match Lua entries 1..N and variant index 0 stays
-    // the base.
+
     void ReadVariantsArray(
         lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
     {
@@ -1930,8 +1762,8 @@ namespace
         if (LuaType(L, -1) == LUA_TTABLE)
         {
             const std::size_t n = LuaObjLen(L, -1);
-            // Reserve variants[0] for the base; usable override slots
-            // are variants[1..kMaxVariantsPerOutfit-1] → cap = max-1.
+
+
             const std::size_t cap = outfit::kMaxVariantsPerOutfit - 1;
             const std::size_t lim = (n < cap) ? n : cap;
 
@@ -1952,11 +1784,7 @@ namespace
                     v.diamondFpk      = ReadSubAssetField(L, -1, "diamondFpk",
                                             outfit::kSubAssetDisabled);
 
-                    // Variant cycle-button label: support either
-                    // `displayName = "lang_id_string"` (we compute the
-                    // StrCode64 hash) OR `displayNameHash = 0x...`
-                    // (precomputed, e.g. for non-LangId-string sources).
-                    // String form takes precedence if both supplied.
+
                     LuaGetField(L, -1, "displayName");
                     if (LuaType(L, -1) == LUA_TSTRING)
                     {
@@ -1971,20 +1799,15 @@ namespace
                         const int t = LuaType(L, -1);
                         if (t == LUA_TNUMBER)
                         {
-                            // Lua numbers are doubles — full 64-bit
-                            // hashes with the top bit set won't fit
-                            // exactly, but typical LangId hashes have
-                            // small upper words (fewer than 53 bits)
-                            // so a double round-trip is fine.
+
+
                             v.displayNameHash =
                                 static_cast<std::uint64_t>(GetLuaInt(L, -1));
                         }
                         LuaPop(L, 1);
                     }
 
-                    // Lua entry i (1-based) → variants[i]; matches the
-                    // runtime getter convention where idx 0 = base and
-                    // idx 1..N = explicit overrides.
+
                     def.variants[i] = v;
                     maxFilledSlot   = static_cast<std::uint8_t>(i);
                 }
@@ -1993,9 +1816,8 @@ namespace
 
             if (maxFilledSlot > 0)
             {
-                // variantCount = highest-filled-slot + 1 so HasVariants()
-                // is true and the getters' `idx >= variantCount` bounds
-                // check accepts indices 0..maxFilledSlot.
+
+
                 def.variantCount = static_cast<std::uint8_t>(maxFilledSlot + 1);
             }
         }
@@ -2003,54 +1825,7 @@ namespace
     }
 }
 
-// V_FrameWork.RegisterOutfit(def) — register a custom outfit.
-// Returns: partsType (0x40..0x7F) on success, or false on failure.
-//
-// def fields:
-//   key                  string (optional)         — stable mod-side identifier
-//   developId            int (required, non-zero)
-//   flowIndex            int (required, non-zero)
-//   playerType           string|int (required)     — "Snake"/"DDMale"/"DDFemale"/"Avatar" or 0..3
-//   partsPath            string (required)         — body .parts asset path
-//   fpkPath              string (required)         — body .fpk asset path
-//
-//   camoFpk              string|true|false|nil     — default disabled
-//   faceFpk              string|true|false|nil     — default vanilla
-//   skinFv2              string|true|false|nil     — default vanilla
-//   diamondFpk           string|true|false|nil     — default disabled
-//   camoFv2              string|true|false|nil     — default vanilla (Phase 3)
-//   diamondFv2           string|true|false|nil     — default vanilla (Phase 3)
-//
-//   enableArm            bool (default true)         — load vanilla bionic
-//                                                       prosthetic arm. Set
-//                                                       false for non-Snake
-//                                                       characters that don't
-//                                                       have the arm (Quiet,
-//                                                       Female DD soldiers,
-//                                                       FROG ports, etc.).
-//
-//   enableHead           bool (default false)        — load default DD head
-//                                                       FPK on top of the body
-//                                                       (for body parts that
-//                                                       don't ship an integrated
-//                                                       head, like FROG/SSD ports).
-//                                                       Independent of headgear:
-//                                                       false = body's integrated
-//                                                       head (or no head); true =
-//                                                       force a DD head FPK load.
-//   supportsHeadOptions  bool (default false; auto-true when headOptions set)
-//   headOptions          { equipId1, equipId2, ... }  — head-option equipIds
-//                                                       (when present and non-
-//                                                       empty, supportsHeadOptions
-//                                                       is automatically true; the
-//                                                       user need not write the
-//                                                       boolean explicitly).
-//   variants             { { partsPath=..., fpkPath=..., ... }, ... }
-//
-// Note: partsType / selectorCode are ALWAYS auto-allocated from the
-// session-only custom pools (0x40..0x7F and 0x80..0xFE). The lua API
-// no longer exposes a hint — the C++ struct fields default to 0xFF
-// ("auto") and stay that way.
+
 static int __cdecl l_RegisterOutfit(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
@@ -2062,18 +1837,14 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
 
     outfit::OutfitDefinition def{};
 
-    // Key — REQUIRED for the auto-allocation path. Optional only when
-    // BOTH developId AND flowIndex are passed explicitly. The key is
-    // also persisted in V_FrameWork_State.lua so the assigned ids
-    // survive across sessions (same mechanism as weapons).
+
     const char* key = nullptr;
     TryReadTableStringField(L, 1, "key", key);
     def.key = key;
 
     int v = 0;
 
-    // developId — explicit overrides auto-allocate. Auto-allocate if
-    // omitted OR <= 0 AND a key is provided.
+
     if (TryReadTableIntField(L, 1, "developId", v) && v > 0 && v <= 0xFFFF)
     {
         def.developId = static_cast<std::uint16_t>(v);
@@ -2096,11 +1867,7 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         return 1;
     }
 
-    // flowIndex — same pattern. Explicit overrides auto-allocate,
-    // BUT only if the explicit value is in EDC row range (1..0x3FF).
-    // Out-of-range values (a common mod-side bug is passing
-    // flowIndex==developId which puts it in the 51000 range) fall
-    // through to auto-allocate so the user's mod still works.
+
     constexpr std::int32_t kEdcRowCapacity = 0x400;
 
     if (TryReadTableIntField(L, 1, "flowIndex", v) && v > 0 && v < kEdcRowCapacity)
@@ -2149,7 +1916,7 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         return 1;
     }
 
-    // Sub-asset slots — defaults match common use case.
+
     def.camoFpk    = ReadSubAssetField(L, 1, "camoFpk",    outfit::kSubAssetDisabled);
     def.faceFpk    = ReadSubAssetField(L, 1, "faceFpk",    outfit::kSubAssetUseVanilla);
     def.skinFv2    = ReadSubAssetField(L, 1, "skinFv2",    outfit::kSubAssetUseVanilla);
@@ -2160,32 +1927,10 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     def.camoFv2    = ReadSubAssetField(L, 1, "camoFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFv2 = ReadSubAssetField(L, 1, "diamondFv2", outfit::kSubAssetUseVanilla);
 
-    // Head loading: separate from headgear/dropdown options.
-    //   enableHead = true  → framework spoofs info->playerPartsType to
-    //                        a vanilla value during orig LoadPartsNew
-    //                        so the inlined DoesNeedFaceFova gate
-    //                        returns true, and orig dispatches the
-    //                        face/head FPK loader (Soldier2FaceSystem
-    //                        loads default DD head for the playerType).
-    //                        Per-asset hooks honor a thread-local spoof
-    //                        state so the outfit's parts/fpk/camo still
-    //                        load correctly despite the spoofed param.
-    //   enableHead = false → no spoof; orig sees real custom partsType,
-    //                        DoesNeedFaceFova returns false, no face
-    //                        FPK is queued and the head must come from
-    //                        the body parts file's integrated mesh
-    //                        (Quiet-style).
+
     def.enableHead = TryReadTableBoolField(L, 1, "enableHead", false);
 
-    // Optional soldier face index override. The orig face-load reads
-    // FaceUnit[playerFaceId] from a 900-entry pool; until vanilla Lua
-    // boot scripts call SetFaceFovaDefinitionTable for a given index,
-    // FaceUnit[idx].flags is 0 and the orig outputs all-null PathIds
-    // (no head). If the default playerFaceId=0 has no populated entry
-    // for the targeted playerType, set this to a known-good face index
-    // (1..899). Only takes effect when enableHead=true and
-    // info->playerFaceId is currently 0 (preserves any face the user
-    // has manually chosen via the vanilla face dropdown).
+
     int defaultSoldierFaceId = 0;
     if (TryReadTableIntField(L, 1, "defaultSoldierFaceId", defaultSoldierFaceId)
         && defaultSoldierFaceId > 0 && defaultSoldierFaceId < 900)
@@ -2194,12 +1939,7 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
             static_cast<std::uint16_t>(defaultSoldierFaceId);
     }
 
-    // langEquipName — passed by the V_TppPlayer.AddOutfit wrapper from
-    // `opts.develop.const.langEquipName` (or directly via `opts.langEquipName`).
-    // Hash it once at registration so the UNIFORMS-row UI hook can write
-    // the hash directly without computing per-frame. Empty / nil → 0
-    // (no override; UI shows blank for unknown partsType, matching old
-    // behavior).
+
     {
         const char* langEquipName = nullptr;
         if (TryReadTableStringField(L, 1, "langEquipName", langEquipName)
@@ -2209,12 +1949,7 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         }
     }
 
-    // camoBonusType — PlayerCamoType (0..116) pinned for surface-bonus
-    // lookup while this outfit is equipped. We accept the full valid
-    // range INCLUDING 0 (OLIVEDRAB) — the def's default of 0xFF is the
-    // "unset" sentinel; 0 is a real PlayerCamoType value, don't reject it.
-    // If the lua field is absent, TryReadTableIntField returns false
-    // and def.camoBonusType stays at 0xFF (no pin).
+
     {
         int rawBonusType = 0;
         if (TryReadTableIntField(L, 1, "camoBonusType", rawBonusType)
@@ -2224,31 +1959,10 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         }
     }
 
-    // camoBonusValues — sparse table of per-material overrides giving
-    // this outfit a UNIQUE camo bonus row. Accepts named-key form (the
-    // ergonomic case) and/or numeric-key form (1-based, 1..82):
-    //
-    //   camoBonusValues = {
-    //       MTR_LEAF   = 50,    -- named keys → resolved via the
-    //       MTR_RLEF   = 50,    --   k_MaterialByName mirror below
-    //       [60+1]     = 50,    -- numeric keys (Lua is 1-based, so
-    //                           --   index 61 = MaterialType 60)
-    //   }
-    //
-    // Anything not listed defaults to 0 (no bonus on that surface).
-    // When this table is non-empty the framework allocates a virtual
-    // PlayerCamoType id for the outfit and routes the engine's
-    // GetCamoufValue lookup through our hook to this row instead of
-    // the vanilla 117-row table. If both camoBonusType and
-    // camoBonusValues are passed, values wins (more specific).
+
     ReadCamoBonusValuesField(L, 1, def);
 
-    // Top-level cycle-button label for variant 0 (the BASE appearance).
-    // Counterpart to per-variant `displayName` inside the `variants`
-    // array. Same string-or-precomputed-hash forms as variant entries.
-    // Without this, the cycle button for variant 0 falls back to
-    // whatever orig writes from the cell type field (typically blank
-    // or one of vanilla's STANDARD/SCARF/NAKED hardcoded labels).
+
     {
         const char* baseDisplayName = nullptr;
         if (TryReadTableStringField(L, 1, "displayName", baseDisplayName)
@@ -2268,25 +1982,15 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         }
     }
 
-    // Head options dropdown — read the array first, then auto-imply
-    // supportsHeadOptions=true if the array is non-empty (so users only
-    // need to write `headOptions = { ... }` and skip the boolean). The
-    // auto-imply is passed as the default to TryReadTableBoolField, so
-    // an explicit `supportsHeadOptions = true|false` in the user's lua
-    // still takes precedence — supports the rare "register the array
-    // but disable the dropdown" case.
+
     ReadHeadOptionsArray(L, 1, def);
     const bool autoImpliedSupports = (def.headOptionCount > 0);
     def.supportsHeadOptions = TryReadTableBoolField(
         L, 1, "supportsHeadOptions", autoImpliedSupports);
 
-    // Variants.
+
     ReadVariantsArray(L, 1, def);
 
-    // partsType / selectorCode are always auto-allocated. The struct
-    // fields default to 0xFF ("auto") in OutfitDefinition's ctor; we
-    // intentionally leave them untouched so the allocator picks from
-    // the session pools.
 
     std::uint8_t allocatedPartsType = 0xFF;
     const bool ok = outfit::RegisterOutfit(def, &allocatedPartsType);
@@ -2297,45 +2001,14 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
         return 1;
     }
 
-    // Multi-return so the modder can capture all allocated ids in one
-    // call:   local partsType, developId, flowIndex = V_FrameWork.RegisterOutfit({...})
+
     PushLuaNumber(L, static_cast<float>(allocatedPartsType));
     PushLuaNumber(L, static_cast<float>(def.developId));
     PushLuaNumber(L, static_cast<float>(def.flowIndex));
     return 3;
 }
 
-// V_FrameWork.RegisterHeadOption{ name=..., TppEnemyFaceId=... }
-// — registers a custom head option and returns its assigned equipId.
-// The returned equipId can be listed in any outfit's `headOptions`
-// array (numeric form), or the registered `name` can be listed instead
-// (string form — the framework resolves it during outfit registration).
-//
-// Tier-3-A architecture: the head's visual is a vanilla balaclava
-// chosen by `TppEnemyFaceId`. Custom-mesh heads aren't yet supported —
-// custom face id sentinels hang the orig asset loader (verified
-// 2026-04-30: bookkeeping requires a real FaceUnit-table entry). The
-// framework still owns:
-//   - name → equipId mapping (so headOptions can reference it)
-//   - slot byte allocation and orig translation routing
-//   - link to V_TppEquip.AddToEquipDevelopTable for iDroid label / icon
-//     (via shared developId key)
-//
-// Idempotent on `name`: re-registering the same name returns the same
-// equipId. lang / icon / TppEnemyFaceId ARE refreshed.
-//
-// def fields:
-//   name           string (required)   stable mod-side identifier
-//   TppEnemyFaceId number (optional)   visual face id; default 0x22D
-//                                      (DDFemale BALACLAVA). Use the
-//                                      vanilla MGSV lua `TppEnemyFaceId`
-//                                      table values, e.g.
-//                                        TppEnemyFaceId.dds_balaclava0..5
-//                                        TppEnemyFaceId.svs_balaclava
-//   langName       string (optional)   iDroid label override (StrCode64)
-//   iconFtex       string (optional)   iDroid icon override
-//
-// Returns the equipId on success, 0 on failure (logged).
+
 static int __cdecl l_RegisterHeadOption(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
@@ -2377,15 +2050,7 @@ static int __cdecl l_RegisterHeadOption(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.SetCurrentOutfit(developId) — tells the framework which
-// custom outfit the user is about to commit. Use this from your mod's
-// selection callback when your UI doesn't go through the standard
-// sortie UNIFORMS panel (which auto-tracks via OutfitItemSelector).
-//
-// The next BROKEN-custom commit (blob[0..2]=00 FF 00) will be rewritten
-// using the published developId. Pass 0 to clear pending.
-//
-// Returns true on success, false if developId is not registered (and != 0).
+
 static int __cdecl l_SetCurrentOutfit(lua_State* L)
 {
     const int developIdRaw = GetLuaInt(L, 1);
@@ -2426,13 +2091,7 @@ static int __cdecl l_SetCurrentOutfit(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.SetOutfitVariant(developId, variantIndex) — programmatic
-// variant switch. Updates the active-variant tracker; if the outfit
-// being changed is the one currently equipped on the live player,
-// also drives ForcePartsReload to render the new variant immediately
-// (otherwise the change only takes effect on the next equip).
-// variantIndex is clamped to the outfit's variantCount internally.
-// Returns true on success, false if developId not found.
+
 static int __cdecl l_SetOutfitVariant(lua_State* L)
 {
     const int developIdRaw   = GetLuaInt(L, 1);
@@ -2458,25 +2117,7 @@ static int __cdecl l_SetOutfitVariant(lua_State* L)
 
     outfit::SetActiveVariant(entry->partsType, v);
 
-    // If this outfit is currently equipped on the live player, drive
-    // an immediate re-equip so the variant change is visible NOW.
-    // Otherwise the change only takes effect at the next equip
-    // (mission-prep commit / supply-drop pickup).
-    //
-    // Uses ForceLiveSuitReload (3-arg ReqLoadout trampoline) which
-    // triggers the FULL natural pipeline: the orig wrapper calls
-    // vtable[0x140] internally, eventually firing SetSuit and an
-    // engine-scheduled LoadPartsNew (~400ms later) which dispatches
-    // through our per-asset hooks (LoadPlayerPartsParts etc.) and
-    // picks up the new GetActiveVariant result. This is what the
-    // mission-prep UNIFORMS panel cycle uses for vanilla outfits.
-    //
-    // Compare with ForcePartsReload (the supply-drop pickup helper),
-    // which calls trampoline LoadPartsNew directly — that primes
-    // asset state but doesn't re-trigger dispatch on its own (the
-    // supply-drop pipeline supplies the natural follow-up call).
-    // For a Lua-driven cycle there's no supply-drop pipeline running,
-    // so ForcePartsReload alone wouldn't actually re-render.
+
     const std::uint8_t livePartsType = outfit::ReadLivePartsType();
     const bool         isLiveOutfit  = (livePartsType == entry->partsType);
 
@@ -2502,15 +2143,12 @@ static int __cdecl l_SetOutfitVariant(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.GetOutfitInfo(developId) — returns a Lua table with the
-// allocated values for a registered outfit (partsType, selectorCode,
-// flowIndex, playerType, variantCount, supportsHeadOptions). Returns
-// nil if developId not found.
+
 static int __cdecl l_GetOutfitInfo(lua_State* L)
 {
     const int developIdRaw = GetLuaInt(L, 1);
     if (developIdRaw <= 0 || developIdRaw > 0xFFFF)
-        return 0;  // returns nil
+        return 0;
 
     const outfit::OutfitEntry* entry = nullptr;
     if (!outfit::TryGetOutfitByDevelopId(
@@ -2555,12 +2193,7 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
     return 1;
 }
 
-// V_FrameWork.EnableTornadoDual(enable) — toggles a 2-byte memory patch on
-// the JZ inside UnrealUpdaterImpl::PreUpdate that gates the bit-0x12 update
-// branch. enable=true writes 90 90 (NOP NOP) so the branch always runs;
-// enable=false restores the original 74 10 (JZ +0x10). Returns true on
-// success, false if the patch address isn't filled for the current build
-// (e.g. JP) or the page write fails.
+
 static int __cdecl l_EnableTornadoDual(lua_State* L)
 {
     static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
@@ -2680,28 +2313,27 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
 
-    // Player custom-outfit API (Phase 4).
+
     { "RegisterOutfit",                         l_RegisterOutfit },
     { "RegisterHeadOption",                     l_RegisterHeadOption },
     { "SetCurrentOutfit",                       l_SetCurrentOutfit },
     { "SetOutfitVariant",                       l_SetOutfitVariant },
     { "GetOutfitInfo",                          l_GetOutfitInfo },
 
-    // Camo table
+
     { "SetCamoValue",                           l_SetCamoValue },
     { "GetCamoValue",                           l_GetCamoValue },
     { "CloneCamoRow",                           l_CloneCamoRow },
     { "ImportCamoRow",                          l_ImportCamoRow },
     { "ImportCamoTable",                        l_ImportCamoTable },
 
-    // Direct memory patches.
+
     { "EnableTornadoDual",                      l_EnableTornadoDual },
 
     { nullptr, nullptr }
 };
 
-// Registers V_FrameWork into one Lua state once.
-// Params: L
+
 static void RegisterAllUiLuaLibraries(lua_State* L)
 {
     if (!L)
@@ -2716,8 +2348,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
     }
 }
 
-// Hooked SetLuaFunctions.
-// Params: L
+
 static void __fastcall hkSetLuaFunctions(lua_State* L)
 {
     Log("[Hook] SetLuaFunctions invoked: L=%p\n", L);
@@ -2730,15 +2361,13 @@ static void __fastcall hkSetLuaFunctions(lua_State* L)
     RegisterAllUiLuaLibraries(L);
 }
 
-// Exported require("V_FrameWork") loader.
-// Params: L
+
 extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
 {
     return RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib) ? 1 : 0;
 }
 
-// Installs the SetLuaFunctions hook.
-// Params: none
+
 bool Install_SetLuaFunctions_Hook()
 {
     if (g_SetLuaFunctionsHookInstalled)
@@ -2904,7 +2533,7 @@ bool Install_SetLuaFunctions_Hook()
     equipParamsDeps.LuaPushValue = &LuaPushValue;
     EquipParams::Bind(equipParamsDeps);
 
-    // Camo subsystem Lua deps.
+
     CamoufTable::Deps camoDeps{};
     camoDeps.LuaCreateTable = &LuaCreateTable;
     camoDeps.LuaPushString  = &LuaPushString;
@@ -2937,8 +2566,7 @@ bool Install_SetLuaFunctions_Hook()
     return ok;
 }
 
-// Removes the SetLuaFunctions hook.
-// Params: none
+
 bool Uninstall_SetLuaFunctions_Hook()
 {
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);

@@ -11,35 +11,30 @@
 
 namespace
 {
-    // Shared signature for both HoldupActionImpl state functions.
-    // Params: self, actorId, proc
+
+
     using HoldupState_t =
         void(__fastcall*)(void* self, std::uint32_t actorId, int proc);
 
-    // HoldupActionImpl::AddNoise.
-    // Params: self, actorId
+
     using AddNoise_t =
         void(__fastcall*)(void* self, std::uint32_t actorId);
 
-    // Absolute address of HoldupActionImpl::State_EnterStandHoldup1.
-    // Absolute address of HoldupActionImpl::State_EnterStandHoldupUnarmed.
-    // Absolute address of HoldupActionImpl::AddNoise.
-    // Reaction category used by the game's notice reaction manager.
+
     static constexpr std::uint32_t HASH_REACTION_CATEGORY_NOTICE = 0x95EA16B0u;
 
-    // Your custom cowardly reaction hash.
+
     static constexpr std::uint32_t HASH_HOLDUP_REACTION_COWARDLY = 0x16CD9714u;
 
     static HoldupState_t g_OrigState_EnterStandHoldup1 = nullptr;
     static HoldupState_t g_OrigState_EnterStandHoldupUnarmed = nullptr;
     static AddNoise_t    g_AddNoise = nullptr;
 
-    // Global toggle controlled from Lua.
+
     static bool g_UseHoldUpReactionCowardlyReactions = false;
 }
 
-// Safely reads one byte from memory.
-// Params: addr, outValue
+
 static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
 {
     if (!addr)
@@ -56,8 +51,7 @@ static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
     }
 }
 
-// Safely writes one byte to memory.
-// Params: addr, value
+
 static bool SafeWriteByte(std::uintptr_t addr, std::uint8_t value)
 {
     if (!addr)
@@ -74,8 +68,7 @@ static bool SafeWriteByte(std::uintptr_t addr, std::uint8_t value)
     }
 }
 
-// Resolves one HoldupAction entry using the game's table math.
-// Params: self, actorId
+
 static std::uintptr_t GetHoldupEntry(void* self, std::uint32_t actorId)
 {
     if (!self)
@@ -101,9 +94,7 @@ static std::uintptr_t GetHoldupEntry(void* self, std::uint32_t actorId)
     }
 }
 
-// Dispatches one custom notice reaction through the reaction manager used by HoldupActionImpl.
-// Matches the original call shape at vfunc +0x20 with arg4 = 4 and delay = 0.0f.
-// Params: holdupSelf, actorId, reactionHash
+
 static void DispatchHoldupReaction(void* holdupSelf, std::uint32_t actorId, std::uint32_t reactionHash)
 {
     if (!holdupSelf)
@@ -156,8 +147,7 @@ static void DispatchHoldupReaction(void* holdupSelf, std::uint32_t actorId, std:
     }
 }
 
-// Calls HoldupActionImpl::AddNoise if resolved.
-// Params: self, actorId
+
 static void CallHoldupAddNoise(void* self, std::uint32_t actorId)
 {
     if (!g_AddNoise || !self)
@@ -173,10 +163,7 @@ static void CallHoldupAddNoise(void* self, std::uint32_t actorId)
     }
 }
 
-// Shared replacement logic for both stand-holdup states.
-// If enabled, suppresses the vanilla concerned reaction by temporarily setting bit 0x2,
-// then dispatches the cowardly reaction instead.
-// Params: stateTag, origFn, self, actorId, proc
+
 static void RunCowardlyReactionOverride(
     const char* stateTag,
     HoldupState_t origFn,
@@ -214,8 +201,7 @@ static void RunCowardlyReactionOverride(
         return;
     }
 
-    // Vanilla only dispatches the concerned reaction when bit 0x2 is NOT set.
-    // If it is already set, keep vanilla behavior.
+
     if ((flags3F & 0x2u) != 0u)
     {
         origFn(self, actorId, proc);
@@ -229,13 +215,13 @@ static void RunCowardlyReactionOverride(
         return;
     }
 
-    // Let vanilla do everything except the concerned reaction branch.
+
     origFn(self, actorId, proc);
 
-    // Restore original flags.
+
     SafeWriteByte(entry + 0x3Full, flags3F);
 
-    // Dispatch your custom reaction in place of the vanilla one.
+
     Log("[HoldUpReactionCowardly][%s] actor=%u flags3F=0x%02X customHash=0x%08X\n",
         stateTag,
         actorId,
@@ -246,8 +232,7 @@ static void RunCowardlyReactionOverride(
     CallHoldupAddNoise(self, actorId);
 }
 
-// Enables or disables the cowardly holdup reaction replacement.
-// Params: enabled
+
 void Set_HoldUpReactionCowardlyReactions(bool enabled)
 {
     g_UseHoldUpReactionCowardlyReactions = enabled;
@@ -257,15 +242,13 @@ void Set_HoldUpReactionCowardlyReactions(bool enabled)
         static_cast<unsigned>(HASH_HOLDUP_REACTION_COWARDLY));
 }
 
-// Returns whether the cowardly holdup reaction replacement is enabled.
-// Params: none
+
 bool Get_HoldUpReactionCowardlyReactions()
 {
     return g_UseHoldUpReactionCowardlyReactions;
 }
 
-// Hooked version of HoldupActionImpl::State_EnterStandHoldup1.
-// Params: self, actorId, proc
+
 static void __fastcall hkState_EnterStandHoldup1(
     void* self,
     std::uint32_t actorId,
@@ -279,8 +262,7 @@ static void __fastcall hkState_EnterStandHoldup1(
         proc);
 }
 
-// Hooked version of HoldupActionImpl::State_EnterStandHoldupUnarmed.
-// Params: self, actorId, proc
+
 static void __fastcall hkState_EnterStandHoldupUnarmed(
     void* self,
     std::uint32_t actorId,
@@ -294,8 +276,7 @@ static void __fastcall hkState_EnterStandHoldupUnarmed(
         proc);
 }
 
-// Installs both cowardly-reaction hooks.
-// Params: none
+
 bool Install_HoldUpReactionCowardlyReactions_Hook()
 {
     g_AddNoise = reinterpret_cast<AddNoise_t>(ResolveGameAddress(gAddr.AddNoise));
@@ -325,8 +306,7 @@ bool Install_HoldUpReactionCowardlyReactions_Hook()
     return ok;
 }
 
-// Removes both cowardly-reaction hooks.
-// Params: none
+
 bool Uninstall_HoldUpReactionCowardlyReactions_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterStandHoldup1));

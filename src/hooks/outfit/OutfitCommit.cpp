@@ -11,11 +11,8 @@
 
 namespace
 {
-    // Verified arg layout (mgsvtpp.exe_Addresses.txt:128150140-128150152):
-    //   RCX = self (Player2UtilityImpl*)
-    //   RDX = int param2 (saved into R14D)
-    //   R8  = blob*  (saved into R9 then used as memcpy source)
-    //   R9B = u8 apply (saved into R15D)
+
+
     using RequestCommit_t = void (__fastcall*)(
         void*           self,
         std::uint32_t   param2,
@@ -25,9 +22,7 @@ namespace
     static RequestCommit_t g_OrigRequestCommit = nullptr;
     static bool            g_Installed         = false;
 
-    // Decoded blob field offsets currently treated as PROVISIONAL.
-    // The decomp doesn't expose layout; we log raw bytes on every
-    // commit to validate at runtime. Confirmed at runtime in Phase 3.
+
     constexpr std::size_t kBlobOff_PartsType    = 0x00;
     constexpr std::size_t kBlobOff_Selector     = 0x01;
     constexpr std::size_t kBlobOff_Variant      = 0x02;
@@ -36,12 +31,7 @@ namespace
     constexpr std::size_t kBlobOff_PlayerType   = 0xC0;
     constexpr std::size_t kBlobLogSpan          = 0xC4;
 
-    // Identify a commit that the ItemSelector failed to fully resolve
-    // (custom suit selected via the developId-bridge UI path). The
-    // game writes blob[0]=0x00, blob[1]=0xFF, blob[2]=0x00 to mean
-    // "reserved for the resolver to fill". On retail with no resolver
-    // installed, this pattern is what reaches commit when a custom
-    // outfit is picked through R&D-style selectors.
+
     static bool IsBrokenCustomPattern(const std::uint8_t* blob, std::uint8_t apply)
     {
         return apply == 1
@@ -50,9 +40,7 @@ namespace
             && blob[0x02] == 0x00;
     }
 
-    // Already-resolved custom pattern: blob carries our partsType and
-    // selector directly. We re-confirm variant/head fields and route
-    // ActiveCustomSuit state.
+
     static bool IsAlreadyResolvedCustom(const std::uint8_t* blob, std::uint8_t apply)
     {
         return apply == 1
@@ -70,8 +58,7 @@ namespace
             return;
         }
 
-        // Read defensively — the blob CAN be in a stack frame about
-        // to be popped on the caller side; SEH-guard to be safe.
+
         std::uint8_t b[kBlobLogSpan] = {};
         __try
         {
@@ -102,18 +89,14 @@ namespace
 
         LogBlobSnapshot("pre", blob);
 
-        // Path 1: blob arrives as a fully-resolved custom — re-confirm
-        // ActiveCustomSuit registry and pass through. Variant cycling
-        // (blob[0x02]) and head option (blob[0x03]) are honored verbatim
-        // in Phase 2; Phase 3 will validate against the entry's variant
-        // and head-option arrays.
+
         if (IsAlreadyResolvedCustom(blob, apply))
         {
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitBySelectorCode(blob[kBlobOff_Selector], &entry) && entry)
             {
-                // Phase 3: publish active variant index so the
-                // runtime-parts hooks pick the right variant paths.
+
+
                 const std::uint8_t variantIdx = blob[kBlobOff_Variant];
                 outfit::SetActiveVariant(entry->partsType, variantIdx);
 
@@ -132,29 +115,13 @@ namespace
             return;
         }
 
-        // Path 2: broken-custom pattern. Resolves via two routes:
-        //   (a) Pending developId published by OutfitItemSelector on a
-        //       UI click. (Highest precedence — the user's actual click.)
-        //   (b) Live-player-type fallback — when no pending devId is
-        //       set (selector hook didn't fire / didn't match), AND the
-        //       live player type has exactly ONE registered outfit, use
-        //       that outfit. Single-outfit testing flow benefits hugely:
-        //       the user can be on Snake / DDFemale / etc. and clicking
-        //       a "looks-like-the-mod" UNIFORMS row will route to the
-        //       only registered outfit for their character.
-        // If both routes miss, NEUTRALIZE the commit by rewriting the
-        // blob to safe vanilla NORMAL — passing the broken blob through
-        // makes the game write selector=0xFF into player state, which
-        // breaks the mesh load and causes infinite-loading or invisible
-        // character symptoms.
+
         if (IsBrokenCustomPattern(blob, apply))
         {
             const std::uint16_t pendingDevId = outfit::GetPendingOutfitDevelopId();
             const outfit::OutfitEntry* entry = nullptr;
 
-            // (b) live-player-type fallback search — only used when
-            // (a) misses. We do the scan up front to log a helpful
-            // diagnostic regardless of which path wins.
+
             const std::uint8_t livePT = outfit::ReadLivePlayerType();
             const outfit::OutfitEntry* livePtUnique = nullptr;
             std::size_t livePtCount = 0;
@@ -181,7 +148,7 @@ namespace
                 blob[kBlobOff_PartsType]  = entry->partsType;
                 blob[kBlobOff_Selector]   = entry->selectorCode;
                 blob[kBlobOff_Variant]    = variantIdx;
-                // Leave blob[0x03] (head option) alone.
+
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
                 blob[kBlobOff_PlayerType] = entry->playerType;
 
@@ -197,18 +164,15 @@ namespace
             }
             else if (livePtCount == 1 && livePtUnique)
             {
-                // (b) Live-player-type fallback. Exactly one registered
-                // outfit matches the live character — assume that's
-                // what the user wanted. Most common in single-mod
-                // testing where the user has e.g. one Jill outfit
-                // for DDFemale and clicks any UNIFORMS row.
+
+
                 const std::uint8_t variantIdx =
                     outfit::GetActiveVariant(livePtUnique->partsType);
 
                 blob[kBlobOff_PartsType]  = livePtUnique->partsType;
                 blob[kBlobOff_Selector]   = livePtUnique->selectorCode;
                 blob[kBlobOff_Variant]    = variantIdx;
-                // Leave blob[0x03] (head option) alone.
+
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
                 blob[kBlobOff_PlayerType] = livePtUnique->playerType;
 
@@ -223,21 +187,8 @@ namespace
             }
             else
             {
-                // Setting apply=0 alone is insufficient — the game's
-                // commit pipeline copies blob bytes into player state
-                // regardless of apply (apply only gates visual
-                // transitions). If we leave selector=0xFF in the
-                // blob, the game writes playerCamoType=0xFF, then
-                // LoadPartsNew tries to load camo type 0xFF →
-                // invalid → infinite loading.
-                //
-                // Rewrite the blob to safe vanilla NORMAL values so
-                // the propagated state is valid:
-                //   partsType=0 (vanilla NORMAL)
-                //   selector=0  (no specific selector)
-                //   variant=0
-                //   head=0
-                // ApplyFlag and playerType left as-is.
+
+
                 Log("[OutfitCommit] BROKEN-custom unresolvable "
                     "(pendingDevId=%u livePT=%u livePtCount=%zu — "
                     "0=no Quark, !=1 means ambiguous). Rewriting blob "
@@ -253,7 +204,7 @@ namespace
             }
         }
 
-        // Path 3: vanilla — passthrough (or apply=0 from path 2).
+
         Log("[OutfitCommit] calling orig (apply=%u)...\n",
             static_cast<unsigned>(apply));
         g_OrigRequestCommit(self, param2, blob, apply);

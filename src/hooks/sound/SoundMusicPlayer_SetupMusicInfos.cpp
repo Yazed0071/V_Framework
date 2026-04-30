@@ -44,8 +44,7 @@ namespace
 
 #pragma pack(push, 1)
 
-// Holds one in-memory tape album record.
-// Params: none
+
 struct TapeAlbumRecord
 {
     std::uint64_t albumId;
@@ -55,8 +54,7 @@ struct TapeAlbumRecord
     std::uint32_t pad14;
 };
 
-// Holds one in-memory tape track record.
-// Params: none
+
 struct TapeTrackRecord
 {
     std::uint64_t albumId;
@@ -91,8 +89,8 @@ static_assert(sizeof(TapeTrackRecord) == 0x38, "TapeTrackRecord size mismatch");
 
 namespace
 {
-    // Holds one validated custom album ready for injection.
-    // Params: none
+
+
     struct PreparedCustomAlbum
     {
         std::string albumId;
@@ -101,8 +99,7 @@ namespace
         std::uint16_t type = 0;
     };
 
-    // Holds one validated custom track ready for injection.
-    // Params: none
+
     struct PreparedCustomTrack
     {
         std::string albumId;
@@ -119,8 +116,7 @@ namespace
         bool usePersistentSaveIndex = true;
     };
 
-    // Holds a POD snapshot of the live SoundMusicPlayer arrays and counters.
-    // Params: none
+
     struct SoundMusicPlayerSnapshot
     {
         TapeAlbumRecord* oldAlbums = nullptr;
@@ -132,8 +128,7 @@ namespace
     };
 }
 
-// Allocates game memory with the Fox allocator.
-// Params: sizeBytes, alignment
+
 static void* GameAllocAligned(std::uint64_t sizeBytes, std::uint64_t alignment)
 {
     void* fnAddr = ResolveGameAddress(gAddr.KernelAllocAligned);
@@ -146,8 +141,7 @@ static void* GameAllocAligned(std::uint64_t sizeBytes, std::uint64_t alignment)
     return kernelAllocAligned(sizeBytes, alignment, kFoxAllocTag);
 }
 
-// Frees game memory with the Fox allocator.
-// Params: data
+
 static void GameFree(void* data)
 {
     if (!data)
@@ -163,8 +157,7 @@ static void GameFree(void* data)
     arrayBaseFree(data, kFoxAllocTag);
 }
 
-// Returns true when the current voice language is Japanese.
-// Params: none
+
 static bool IsJapaneseVoiceLanguage()
 {
     void* getMgrAddr = ResolveGameAddress(gAddr.SubtitleManager_Get);
@@ -191,8 +184,7 @@ static bool IsJapaneseVoiceLanguage()
     }
 }
 
-// Reads the live SoundMusicPlayer arrays and counters.
-// Params: soundMusicPlayer, outSnapshot
+
 static bool ReadSoundMusicPlayerSnapshot(
     void* soundMusicPlayer,
     SoundMusicPlayerSnapshot& outSnapshot)
@@ -222,8 +214,7 @@ static bool ReadSoundMusicPlayerSnapshot(
     }
 }
 
-// Swaps rebuilt arrays into SoundMusicPlayer and updates counters.
-// Params: soundMusicPlayer, oldAlbums, oldTracks, newAlbums, newTracks, newLuaAlbumCount, newTotalAlbumCount, newLuaTrackCount, newTotalTrackCount
+
 static bool WriteSoundMusicPlayerSnapshot(
     void* soundMusicPlayer,
     TapeAlbumRecord* oldAlbums,
@@ -260,8 +251,7 @@ static bool WriteSoundMusicPlayerSnapshot(
     return true;
 }
 
-// Finds one album record by StrCode64 album id.
-// Params: albums, count, albumIdHash
+
 static const TapeAlbumRecord* FindAlbumRecordByHash(
     const TapeAlbumRecord* albums,
     std::uint32_t count,
@@ -279,8 +269,7 @@ static const TapeAlbumRecord* FindAlbumRecordByHash(
     return nullptr;
 }
 
-// Finds one mutable album record by StrCode64 album id.
-// Params: albums, count, albumIdHash
+
 static TapeAlbumRecord* FindMutableAlbumRecordByHash(
     TapeAlbumRecord* albums,
     std::uint32_t count,
@@ -298,16 +287,14 @@ static TapeAlbumRecord* FindMutableAlbumRecordByHash(
     return nullptr;
 }
 
-// Copies the current registry under lock.
-// Params: outRegistry
+
 static void CopyCustomTapeRegistry(CustomTapeRegistry& outRegistry)
 {
     std::lock_guard<std::mutex> lock(g_CustomTapeMutex);
     outRegistry = g_CustomTapeRegistry;
 }
 
-// Resolves a user-facing album type string to one stock album id exemplar.
-// Params: typeName
+
 static const char* GetStockAlbumIdForTypeName(const std::string& typeName)
 {
     if (typeName == "PREINSTALL_MISSION_INFO")
@@ -328,8 +315,7 @@ static const char* GetStockAlbumIdForTypeName(const std::string& typeName)
     return nullptr;
 }
 
-// Returns true when one track should keep the stock mission-info saveIndex behavior.
-// Params: albumId, requestedSaveIndex
+
 static bool ShouldUseStockMissionInfoSaveIndex(
     const std::string& albumId,
     std::int16_t requestedSaveIndex)
@@ -337,8 +323,7 @@ static bool ShouldUseStockMissionInfoSaveIndex(
     return albumId == "tp_mission_01" && requestedSaveIndex < 0;
 }
 
-// Returns true when one track is allowed to target an already-existing stock mission-info album.
-// Params: albumIdHash, existingAlbums, existingAlbumCount
+
 static bool ShouldAllowTrackOnExistingMissionInfoAlbum(
     std::uint64_t albumIdHash,
     const TapeAlbumRecord* existingAlbums,
@@ -350,8 +335,7 @@ static bool ShouldAllowTrackOnExistingMissionInfoAlbum(
     return FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr;
 }
 
-// Validates and prepares custom albums against the current player arrays.
-// Params: registry, existingAlbums, existingAlbumCount, outAlbums
+
 static void PrepareCustomAlbums(
     const CustomTapeRegistry& registry,
     const TapeAlbumRecord* existingAlbums,
@@ -445,9 +429,7 @@ static void PrepareCustomAlbums(
     }
 }
 
-// Validates and prepares custom tracks against the validated custom albums
-// and the existing stock mission-info album.
-// Params: registry, isJapaneseVoice, existingAlbums, existingAlbumCount, validAlbums, outTracks
+
 static void PrepareCustomTracks(
     const CustomTapeRegistry& registry,
     bool isJapaneseVoice,
@@ -541,10 +523,7 @@ static void PrepareCustomTracks(
     }
 }
 
-// Resolves save indices for prepared tracks.
-// Mission-info tracks can keep stock-style negative save indices.
-// Other tracks use the persistent custom save-index allocator.
-// Params: preparedTracks
+
 static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& preparedTracks)
 {
     for (PreparedCustomTrack& track : preparedTracks)
@@ -610,8 +589,7 @@ static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& pr
     return true;
 }
 
-// Injects validated custom albums and tracks into the built player arrays.
-// Params: soundMusicPlayer
+
 static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 {
     if (!soundMusicPlayer)
@@ -863,8 +841,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     return true;
 }
 
-// Resolves the real SoundMusicPlayer from MusicManager::s_instance.
-// Returns: SoundMusicPlayer pointer or null.
+
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
@@ -902,8 +879,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
 }
 
-// Applies current custom tapes to the cached player, or resolves it directly if needed.
-// Params: none
+
 static bool ApplyToCachedSoundMusicPlayer()
 {
     void* soundMusicPlayer = g_LastSoundMusicPlayer;
@@ -926,8 +902,7 @@ static bool ApplyToCachedSoundMusicPlayer()
     return ApplyCustomTapesToPlayer(soundMusicPlayer);
 }
 
-// Hooked SetupMusicInfos.
-// Params: thisPtr
+
 static void __fastcall hkSetupMusicInfos(void* thisPtr)
 {
     if (!g_OrigSetupMusicInfos)
@@ -943,8 +918,7 @@ static void __fastcall hkSetupMusicInfos(void* thisPtr)
     Log("[CustomTapes] hkSetupMusicInfos apply finished\n");
 }
 
-// Installs the SetupMusicInfos hook.
-// Params: none
+
 bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
 {
     Log("[CustomTapes] Install_SoundMusicPlayer_SetupMusicInfos_Hook begin\n");
@@ -970,8 +944,7 @@ bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
     return ok;
 }
 
-// Removes the SetupMusicInfos hook.
-// Params: none
+
 bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetupMusicInfos));
@@ -987,10 +960,7 @@ bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook()
     return true;
 }
 
-// Registers custom albums and tracks.
-// If the player was already naturally built once, applies immediately.
-// Otherwise waits for the next natural SetupMusicInfos call.
-// Params: albums, tracks
+
 bool Register_CustomTapes(
     const std::vector<CustomTapeAlbumDefinition>& albums,
     const std::vector<CustomTapeTrackDefinition>& tracks)
@@ -1016,9 +986,7 @@ bool Register_CustomTapes(
     return ApplyToCachedSoundMusicPlayer();
 }
 
-// Clears all custom albums and tracks.
-// Note: this only clears the pending registry. It does not live-remove already injected entries.
-// Params: none
+
 void Clear_CustomTapes()
 {
     {

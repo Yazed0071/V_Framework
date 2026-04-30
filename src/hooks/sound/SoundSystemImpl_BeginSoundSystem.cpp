@@ -12,35 +12,29 @@
 
 namespace
 {
-    // Original BeginSoundSystem.
-    // Params: none
+
+
     using BeginSoundSystem_t = void(__fastcall*)();
 
-    // Original SoundSystemImpl constructor.
-    // Params: thisPtr, a2, a3, a4
+
     using SoundSystemCtor_t = void* (__fastcall*)(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4);
 
-    // Original SoundMusicPlayer::GetPlayingTime.
-    // Params: thisPtr
+
     using GetPlayingTime_t = std::uint32_t(__fastcall*)(void* thisPtr);
 
-    // Original SoundMusicPlayer::GetPlayingTrackId.
-    // Params: thisPtr
+
     using GetPlayingTrackId_t = std::uint32_t(__fastcall*)(void* thisPtr);
 
-    // Original SoundMusicPlayer::Pause.
-    // Params: thisPtr, outError, fadeMs
+
     using PauseMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
 
-    // Original SoundMusicPlayer::Resume.
-    // Params: thisPtr, outError, fadeMs
+
     using ResumeMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
 
-    // Original SoundMusicPlayer::Stop.
-    // Params: thisPtr, outError, fadeMs, stopByUser
+
     using StopMusicPlayer_t = std::uint32_t* (__fastcall*)(void* thisPtr, std::uint32_t* outError, std::uint32_t fadeMs, std::uint8_t stopByUser);
 
-    // MusicManager::s_instance global.
+
     static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
     static constexpr std::size_t kSubObjectScanSize = 0x200ull;
 
@@ -53,8 +47,7 @@ namespace
     static void* g_CachedCassettePlayer = nullptr;
 }
 
-// Safely reads one pointer.
-// Params: address, outValue
+
 static bool TryReadPtr(const void* address, std::uintptr_t& outValue)
 {
     outValue = 0;
@@ -74,8 +67,7 @@ static bool TryReadPtr(const void* address, std::uintptr_t& outValue)
     }
 }
 
-// Resolves g_SoundSystem directly from the global slot.
-// Returns: sound-system pointer or null.
+
 static void* ResolveSoundSystemFromGlobal()
 {
     void* slot = ResolveGameAddress(gAddr.g_SoundSystem);
@@ -92,8 +84,7 @@ static void* ResolveSoundSystemFromGlobal()
     }
 }
 
-// Resolves the real SoundMusicPlayer from MusicManager::s_instance.
-// Returns: SoundMusicPlayer pointer or null.
+
 static void* ResolveSoundMusicPlayerFromMusicManager()
 {
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
@@ -131,8 +122,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
 }
 
-// Checks whether an object begins with the expected vtable.
-// Params: objectPtr, expectedVtable
+
 static bool HasExpectedVtable(void* objectPtr, std::uintptr_t expectedVtable)
 {
     if (!objectPtr)
@@ -145,8 +135,7 @@ static bool HasExpectedVtable(void* objectPtr, std::uintptr_t expectedVtable)
     return actualVtable == expectedVtable;
 }
 
-// Scans one struct-sized region for a pointer to the cassette player.
-// Params: basePtr, scanSize
+
 static void* FindCassettePlayerInStruct(void* basePtr, std::size_t scanSize)
 {
     if (!basePtr || scanSize < sizeof(std::uintptr_t))
@@ -173,8 +162,7 @@ static void* FindCassettePlayerInStruct(void* basePtr, std::size_t scanSize)
     return nullptr;
 }
 
-// Scans the sound-system object and one level of pointed subobjects for the cassette player.
-// Params: soundSystem
+
 static void* FindCassettePlayerFromSoundSystemInternal(void* soundSystem)
 {
     if (!soundSystem)
@@ -216,8 +204,7 @@ static void* FindCassettePlayerFromSoundSystemInternal(void* soundSystem)
     return nullptr;
 }
 
-// Re-scans the cached/global sound-system object for the cassette music player.
-// Returns: true on success, false on failure.
+
 bool RefreshGlobalCassetteMusicPlayerFromSoundSystem()
 {
     void* soundSystem = nullptr;
@@ -260,24 +247,21 @@ bool RefreshGlobalCassetteMusicPlayerFromSoundSystem()
     return true;
 }
 
-// Gets the cached sound-system pointer.
-// Returns: cached pointer or null.
+
 void* GetCachedSoundSystem()
 {
     std::lock_guard<std::mutex> lock(g_SoundSystemMutex);
     return g_CachedSoundSystem;
 }
 
-// Gets the cached cassette music player pointer.
-// Returns: cached player pointer or null.
+
 void* GetGlobalCassetteMusicPlayerFromSoundSystem()
 {
     std::lock_guard<std::mutex> lock(g_SoundSystemMutex);
     return g_CachedCassettePlayer;
 }
 
-// Gets the current playing time from SoundMusicPlayer.
-// Returns: raw playing-time value, or 0 on failure.
+
 std::uint32_t GetCassettePlayingTime()
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -312,8 +296,7 @@ std::uint32_t GetCassettePlayingTime()
     }
 }
 
-// Gets the current playing track id from SoundMusicPlayer.
-// Returns: raw playing-track id, or 0 on failure.
+
 std::uint32_t GetCassettePlayingTrackId()
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -349,9 +332,7 @@ std::uint32_t GetCassettePlayingTrackId()
     }
 }
 
-// Pauses the current cassette through SoundMusicPlayer.
-// Params: fadeMs
-// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+
 std::int32_t PauseCassette(std::uint32_t fadeMs)
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -388,9 +369,7 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
     }
 }
 
-// Resumes the current cassette through SoundMusicPlayer.
-// Params: fadeMs
-// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+
 std::int32_t ResumeCassette(std::uint32_t fadeMs)
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -427,9 +406,7 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     }
 }
 
-// Stops the current cassette through SoundMusicPlayer.
-// Params: fadeMs, stopByUser
-// Returns: fox::ErrorCode as int. 0 = success, -1 = fail.
+
 std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
 {
     void* soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
@@ -467,8 +444,7 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
     }
 }
 
-// Hooks SoundSystemImpl constructor and caches the created object.
-// Params: thisPtr, a2, a3, a4
+
 static void* __fastcall hkSoundSystemCtor(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4)
 {
     if (!g_OrigSoundSystemCtor)
@@ -487,8 +463,7 @@ static void* __fastcall hkSoundSystemCtor(void* thisPtr, std::uint64_t a2, std::
     return result;
 }
 
-// Hooks BeginSoundSystem and refreshes discovery after startup.
-// Params: none
+
 static void __fastcall hkBeginSoundSystem()
 {
     if (!g_OrigBeginSoundSystem)
@@ -503,8 +478,7 @@ static void __fastcall hkBeginSoundSystem()
     RefreshGlobalCassetteMusicPlayerFromSoundSystem();
 }
 
-// Installs the sound-system hooks.
-// Params: none
+
 bool Install_SoundSystem_BeginSoundSystem_Hook()
 {
     void* beginTarget = ResolveGameAddress(gAddr.BeginSoundSystem);
@@ -537,8 +511,7 @@ bool Install_SoundSystem_BeginSoundSystem_Hook()
     return okBegin && okCtor;
 }
 
-// Removes the sound-system hooks.
-// Params: none
+
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.BeginSoundSystem));
