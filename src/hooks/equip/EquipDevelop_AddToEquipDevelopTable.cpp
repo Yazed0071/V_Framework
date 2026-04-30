@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "AddressSet.h"
@@ -69,6 +70,17 @@ namespace
     std::uint32_t g_NextFlowIndex = 0;
     bool g_ObservedAnyDevelopId = false;
     bool g_ObservedAnyFlowIndex = false;
+
+    // Sets of every developId / flowIndex the orig RegCstDev / RegFlwDev
+    // lua functions registered during boot — i.e. every id vanilla MGSV's
+    // own equip-develop tables claim. The V_FrameWorkState allocator uses
+    // these as a "do not touch" mask so newly-allocated mod outfit ids
+    // never collide with a vanilla row, while still packing into the
+    // lowest-available custom slots above kFirstCustomDevelopId /
+    // kFirstCustomFlowIndex (instead of jumping over the entire vanilla
+    // range with a high static base).
+    std::unordered_set<std::uint32_t> g_ObservedStockDevelopIds;
+    std::unordered_set<std::uint32_t> g_ObservedStockFlowIndices;
 
     constexpr int LUA_TNUMBER_CONST = 3;
     constexpr int LUA_TSTRING_CONST = 4;
@@ -434,6 +446,12 @@ namespace
         g_ObservedAnyDevelopId = true;
         if (developId >= g_NextDevelopId)
             g_NextDevelopId = developId + 1;
+
+        // Record the exact id so the V_FrameWorkState allocator can skip
+        // it when handing out new ids to mod outfits. Without this the
+        // allocator would happily reuse a low vanilla developId (e.g.
+        // 4097) for a custom outfit and stomp the orig row at that slot.
+        g_ObservedStockDevelopIds.insert(developId);
     }
 
     static void ObserveFlowIndex(std::uint32_t flowIndex)
@@ -443,6 +461,11 @@ namespace
         g_ObservedAnyFlowIndex = true;
         if (flowIndex >= g_NextFlowIndex)
             g_NextFlowIndex = flowIndex + 1;
+
+        // Same rationale as ObserveDevelopId — record the exact flowIndex
+        // so V_FrameWorkState's allocator can avoid colliding with vanilla
+        // rows when packing new outfits into low free slots.
+        g_ObservedStockFlowIndices.insert(flowIndex);
     }
 
     static void CollectKnownFields(
@@ -827,6 +850,20 @@ namespace EquipDevelopAdd
 
         outFlowIndex = 0xFFFF;
         return false;
+    }
+
+    bool IsDevelopIdReservedByStock(std::uint32_t developId)
+    {
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+        return g_ObservedStockDevelopIds.find(developId)
+            != g_ObservedStockDevelopIds.end();
+    }
+
+    bool IsFlowIndexReservedByStock(std::uint32_t flowIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_StateMutex);
+        return g_ObservedStockFlowIndices.find(flowIndex)
+            != g_ObservedStockFlowIndices.end();
     }
 
     bool Install_TppMotherBaseManagement_EquipDevelopHooks()

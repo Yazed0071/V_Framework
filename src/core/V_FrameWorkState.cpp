@@ -3,6 +3,7 @@
 #include "log.h"
 #include "AddressSet.h"
 #include "../hooks/equip/EquipIdCompression.h"
+#include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -385,10 +386,25 @@ namespace V_FrameWorkState
             return result;
         }
 
+        // Pack mod outfit ids into the LOWEST free slot above the static
+        // custom-pool base, skipping both:
+        //   (a) ids already claimed by another mod's name in this state
+        //       file (IsDevelopIdInUse_NoLock / IsFlowIndexInUse_NoLock),
+        //       AND
+        //   (b) ids the vanilla MGSV equip-develop tables claimed during
+        //       boot (IsDevelopIdReservedByStock /
+        //       IsFlowIndexReservedByStock — populated by the RegCstDev /
+        //       RegFlwDev observation hooks in EquipDevelopAdd).
+        // Without (b) the allocator would happily reuse a low vanilla
+        // developId (e.g. 4097) for a custom outfit and silently stomp
+        // the orig row at that slot.
         static std::int32_t AllocateNextFreeDevelopId_NoLock(std::int32_t minimum)
         {
             std::int32_t id = (minimum > kFirstCustomDevelopId) ? minimum : kFirstCustomDevelopId;
-            while (IsDevelopIdInUse_NoLock(id)) ++id;
+            while (IsDevelopIdInUse_NoLock(id)
+                || EquipDevelopAdd::IsDevelopIdReservedByStock(
+                       static_cast<std::uint32_t>(id)))
+                ++id;
             return id;
         }
 
@@ -402,7 +418,10 @@ namespace V_FrameWorkState
         static std::int32_t AllocateNextFreeFlowIndex_NoLock(std::int32_t minimum)
         {
             std::int32_t idx = (minimum > kFirstCustomFlowIndex) ? minimum : kFirstCustomFlowIndex;
-            while (IsFlowIndexInUse_NoLock(idx)) ++idx;
+            while (IsFlowIndexInUse_NoLock(idx)
+                || EquipDevelopAdd::IsFlowIndexReservedByStock(
+                       static_cast<std::uint32_t>(idx)))
+                ++idx;
             return idx;
         }
 
