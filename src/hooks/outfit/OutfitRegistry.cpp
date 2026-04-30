@@ -386,7 +386,60 @@ namespace outfit
         slot->enableHead           = def.enableHead;
         slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
         slot->langEquipNameHash    = def.langEquipNameHash;
-        slot->camoBonusType       = def.camoBonusType;
+        slot->camoBonusType        = def.camoBonusType;
+
+        // Per-outfit camo bonus row. If the def carries values, allocate
+        // a fresh virtual camo-type id, copy the 82-cell row inline,
+        // and rewrite slot->camoBonusType so the runtime path lands at
+        // the virtual id (which our GetCamoufValue hook intercepts).
+        // The vanilla-pin path (def.camoBonusType in 0..116) is left
+        // untouched; the values path overrides on conflict.
+        if (def.hasCamoBonusValues)
+        {
+            // Find the next free virtual id in the reserved range.
+            // Linear-scan against existing entries — the pool is small
+            // (55 ids) so this is essentially O(1) in practice.
+            std::uint8_t virtualId = 0xFF;
+            for (std::uint16_t v = kCamoVirtualIdStart;
+                 v <= kCamoVirtualIdEnd; ++v)
+            {
+                bool taken = false;
+                for (const auto& e : g_Entries)
+                {
+                    if (!e.used) continue;
+                    if (e.hasCamoBonusValues
+                        && e.camoBonusType == static_cast<std::uint8_t>(v))
+                    {
+                        taken = true;
+                        break;
+                    }
+                }
+                if (!taken)
+                {
+                    virtualId = static_cast<std::uint8_t>(v);
+                    break;
+                }
+            }
+
+            if (virtualId == 0xFF)
+            {
+                Log("[OutfitRegistry] camo-virtual-id pool exhausted "
+                    "(range 0x%02X..0x%02X full); outfit '%s' will run "
+                    "without per-outfit camo values\n",
+                    static_cast<unsigned>(kCamoVirtualIdStart),
+                    static_cast<unsigned>(kCamoVirtualIdEnd),
+                    def.key ? def.key : "(unkeyed)");
+                slot->hasCamoBonusValues = false;
+            }
+            else
+            {
+                slot->camoBonusType = virtualId;
+                slot->hasCamoBonusValues = true;
+                std::memcpy(slot->camoBonusValues,
+                            def.camoBonusValues,
+                            sizeof(slot->camoBonusValues));
+            }
+        }
 
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
 
@@ -434,14 +487,22 @@ namespace outfit
             }
         }
 
-        // camoBonusType: print "(unset)" for the 0xFF sentinel so 0
-        // (OLIVEDRAB) doesn't visually collide with "no pin"
-        char camoBuf[16] = {};
-        if (def.camoBonusType == 0xFF)
+        // camoBonusType: read from the SLOT (post-allocation) so the
+        // virtual-id assigned by the camoBonusValues path shows up in
+        // the log instead of the def's untouched 0xFF default.
+        // Print "(unset)" for the 0xFF sentinel so 0 (OLIVEDRAB) doesn't
+        // visually collide with "no pin". Append "[values]" when the
+        // outfit shipped a unique camoBonusValues row so the log
+        // distinguishes vanilla pins from virtual-row outfits.
+        char camoBuf[32] = {};
+        if (slot->camoBonusType == 0xFF)
             std::snprintf(camoBuf, sizeof(camoBuf), "(unset)");
+        else if (slot->hasCamoBonusValues)
+            std::snprintf(camoBuf, sizeof(camoBuf), "%u[values]",
+                static_cast<unsigned>(slot->camoBonusType));
         else
             std::snprintf(camoBuf, sizeof(camoBuf), "%u",
-                static_cast<unsigned>(def.camoBonusType));
+                static_cast<unsigned>(slot->camoBonusType));
 
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
             "playerType=%u partsType=0x%02X selector=0x%02X "
@@ -581,6 +642,28 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (e.used && e.developId == developId)
+            {
+                if (outEntry) *outEntry = &e;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
+                                     const OutfitEntry** outEntry)
+    {
+        // Bounds-check up front so callers can pass arbitrary uint8 from
+        // the GetCamoufValue hook without an extra range check there.
+        if (virtualId < kCamoVirtualIdStart || virtualId > kCamoVirtualIdEnd)
+            return false;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const auto& e : g_Entries)
+        {
+            if (e.used
+                && e.hasCamoBonusValues
+                && e.camoBonusType == virtualId)
             {
                 if (outEntry) *outEntry = &e;
                 return true;

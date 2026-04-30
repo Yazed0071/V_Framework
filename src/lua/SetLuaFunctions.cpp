@@ -1702,6 +1702,136 @@ namespace
         return 0;
     }
 
+    // -------- MaterialType name → index lookup --------------------
+    // Mirror of IH's player2_camouf_param.lua materialTypeNames array
+    // (and our V_TppPlayer.lua k_MaterialByName). Used by
+    // ReadCamoBonusValuesField to resolve named keys like "MTR_LEAF"
+    // → 60 when populating per-outfit camo bonus rows. The order MUST
+    // match the orig engine's MaterialType enum (matches IH because
+    // IH's list is itself derived from RecoilMaterialTable.lua).
+    struct MaterialNameEntry
+    {
+        const char*     name;
+        std::int32_t    index;
+    };
+    static constexpr MaterialNameEntry k_MaterialNames[] = {
+        {"MTR_IRON_A", 0},  {"MTR_IRON_B", 1},  {"MTR_IRON_C", 2},  {"MTR_IRON_D", 3},
+        {"MTR_IRON_E", 4},  {"MTR_IRON_F", 5},  {"MTR_IRON_G", 6},  {"MTR_IRON_M", 7},
+        {"MTR_IRON_N", 8},  {"MTR_IRON_W", 9},
+        {"MTR_PIPE_A", 10}, {"MTR_PIPE_B", 11}, {"MTR_PIPE_S", 12},
+        {"MTR_TIN_A",  13},
+        {"MTR_FENC_A", 14}, {"MTR_FENC_B", 15}, {"MTR_FENC_F", 16},
+        {"MTR_CONC_A", 17}, {"MTR_CONC_B", 18},
+        {"MTR_BRIC_A", 19},
+        {"MTR_PLAS_A", 20}, {"MTR_PLAS_B", 21}, {"MTR_PLAS_W", 22},
+        {"MTR_PAPE_A", 23}, {"MTR_PAPE_B", 24}, {"MTR_PAPE_C", 25}, {"MTR_PAPE_D", 26},
+        {"MTR_RUBB_A", 27}, {"MTR_RUBB_B", 28},
+        {"MTR_CLOT_A", 29}, {"MTR_CLOT_B", 30}, {"MTR_CLOT_C", 31}, {"MTR_CLOT_D", 32},
+        {"MTR_CLOT_E", 33},
+        {"MTR_GLAS_A", 34}, {"MTR_GLAS_B", 35}, {"MTR_GLAS_C", 36},
+        {"MTR_VINL_A", 37}, {"MTR_VINL_W", 38},
+        {"MTR_TILE_A", 39},
+        {"MTR_TLRF_A", 40},
+        {"MTR_ALRM_A", 41},
+        {"MTR_COPS_A", 42}, {"MTR_COPS_B", 43},
+        {"MTR_BRIR_A", 44},
+        {"MTR_BLOD_A", 45},
+        {"MTR_SOIL_A", 46}, {"MTR_SOIL_B", 47}, {"MTR_SOIL_C", 48}, {"MTR_SOIL_D", 49},
+        {"MTR_SOIL_E", 50}, {"MTR_SOIL_F", 51}, {"MTR_SOIL_G", 52}, {"MTR_SOIL_H", 53},
+        {"MTR_SOIL_R", 54}, {"MTR_SOIL_W", 55},
+        {"MTR_GRAV_A", 56},
+        {"MTR_SAND_A", 57}, {"MTR_SAND_B", 58}, {"MTR_SAND_C", 59},
+        {"MTR_LEAF",   60}, {"MTR_RLEF",   61}, {"MTR_RLEF_B", 62},
+        {"MTR_WOOD_A", 63}, {"MTR_WOOD_B", 64}, {"MTR_WOOD_C", 65}, {"MTR_WOOD_D", 66},
+        {"MTR_WOOD_G", 67}, {"MTR_WOOD_M", 68}, {"MTR_WOOD_W", 69},
+        {"MTR_FWOD_A", 70},
+        {"MTR_PLNT_A", 71},
+        {"MTR_ROCK_A", 72}, {"MTR_ROCK_B", 73}, {"MTR_ROCK_P", 74},
+        {"MTR_MOSS_A", 75},
+        {"MTR_TURF_A", 76},
+        {"MTR_WATE_A", 77}, {"MTR_WATE_B", 78}, {"MTR_WATE_C", 79},
+        {"MTR_AIR_A",  80},
+        {"MTR_NONE_A", 81},
+    };
+    static_assert(sizeof(k_MaterialNames) / sizeof(k_MaterialNames[0])
+                  == outfit::kCamoMaterialCount,
+                  "k_MaterialNames must list all 82 MaterialType entries");
+
+    static std::int32_t ResolveMaterialNameToIndex(const char* name)
+    {
+        if (!name) return -1;
+        for (const auto& e : k_MaterialNames)
+        {
+            if (std::strcmp(e.name, name) == 0) return e.index;
+        }
+        return -1;
+    }
+
+    // Read def.camoBonusValues = { MTR_LEAF=50, MTR_RLEF=50, [n]=v, ... }
+    // into the OutfitDefinition. Sparse: any material not listed stays
+    // at 0. Sets def.hasCamoBonusValues = true if at least one valid
+    // (key, value) pair was read.
+    //
+    // Accepted key forms:
+    //   - String: a MaterialType name like "MTR_LEAF" → resolved via
+    //     k_MaterialNames table to index 0..81
+    //   - Number: a 1-based Lua index 1..82, mapped to MaterialType
+    //     index 0..81 (Lua convention; this matches how IH lists rows)
+    static void ReadCamoBonusValuesField(
+        lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
+    {
+        LuaGetField(L, tableIndex, "camoBonusValues");
+        if (LuaType(L, -1) != LUA_TTABLE)
+        {
+            SetLuaTop(L, -2);   // pop the non-table
+            return;
+        }
+
+        const int valuesTbl = GetLuaTop(L);
+        std::size_t writeCount = 0;
+
+        // Iterate (key, value) pairs via lua_next. After the call,
+        // the value is at -1 and the key at -2; we pop the value to
+        // resume iteration with the key at -1.
+        LuaPushNil(L);
+        while (LuaNext(L, valuesTbl) != 0)
+        {
+            std::int32_t materialIdx = -1;
+
+            const int keyType = LuaType(L, -2);
+            if (keyType == LUA_TSTRING)
+            {
+                const char* keyName = GetLuaString(L, -2);
+                materialIdx = ResolveMaterialNameToIndex(keyName);
+            }
+            else if (keyType == LUA_TNUMBER)
+            {
+                // Lua 1-based → MaterialType 0-based
+                const int keyIdx = GetLuaInt(L, -2);
+                if (keyIdx >= 1
+                    && keyIdx <= static_cast<int>(outfit::kCamoMaterialCount))
+                {
+                    materialIdx = keyIdx - 1;
+                }
+            }
+
+            if (materialIdx >= 0
+                && materialIdx < static_cast<std::int32_t>(outfit::kCamoMaterialCount))
+            {
+                def.camoBonusValues[materialIdx] = GetLuaInt(L, -1);
+                ++writeCount;
+            }
+
+            // Pop the value; key stays for the next lua_next call.
+            SetLuaTop(L, -2);
+        }
+
+        if (writeCount > 0)
+            def.hasCamoBonusValues = true;
+
+        SetLuaTop(L, -2);   // pop the camoBonusValues table itself
+    }
+
     // Read def.headOptions = { equipId1, equipId2, ... } into the
     // OutfitDefinition. Caller already verified the table at tableIndex.
     void ReadHeadOptionsArray(
@@ -2093,6 +2223,25 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
             def.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
         }
     }
+
+    // camoBonusValues — sparse table of per-material overrides giving
+    // this outfit a UNIQUE camo bonus row. Accepts named-key form (the
+    // ergonomic case) and/or numeric-key form (1-based, 1..82):
+    //
+    //   camoBonusValues = {
+    //       MTR_LEAF   = 50,    -- named keys → resolved via the
+    //       MTR_RLEF   = 50,    --   k_MaterialByName mirror below
+    //       [60+1]     = 50,    -- numeric keys (Lua is 1-based, so
+    //                           --   index 61 = MaterialType 60)
+    //   }
+    //
+    // Anything not listed defaults to 0 (no bonus on that surface).
+    // When this table is non-empty the framework allocates a virtual
+    // PlayerCamoType id for the outfit and routes the engine's
+    // GetCamoufValue lookup through our hook to this row instead of
+    // the vanilla 117-row table. If both camoBonusType and
+    // camoBonusValues are passed, values wins (more specific).
+    ReadCamoBonusValuesField(L, 1, def);
 
     // Top-level cycle-button label for variant 0 (the BASE appearance).
     // Counterpart to per-variant `displayName` inside the `variants`
@@ -2511,7 +2660,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
     { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
     { "RegisterCustomTapes",                    l_RegisterCustomTapes },
-    //{ "ClearCustomTapes",                     l_ClearCustomTapes }, automated
     { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
     { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
     { "RegisterConstantEquipId",                RegisterConstantEquipId::Lua_RegisterConstantEquipId },

@@ -107,11 +107,21 @@ namespace
         if (!outfit::TryGetOutfitByPartsType(livePT, &entry) || !entry)
             return nullptr;
 
-        // Skip if no pin is set. 0xFF = unset sentinel; values > 116
-        // are out of PlayerCamoType range. Note that 0 (OLIVEDRAB) IS
-        // a valid pin and must NOT be skipped.
+        // Skip if no pin is set. Two valid ranges:
+        //   - Vanilla:  0..116                  (PlayerCamoType row in orig table)
+        //   - Virtual:  kCamoVirtualIdStart..End (200..254, framework-allocated for
+        //              outfits with hasCamoBonusValues; our GetCamoufValue hook
+        //              intercepts these and returns from the per-outfit array)
+        // Anything else — including 0xFF (unset sentinel) or 117..199 — is
+        // not a valid pin and we leave Info+0x50[slot] alone.
+        // Note that 0 (OLIVEDRAB) IS a valid vanilla pin.
         const std::uint8_t pin = entry->camoBonusType;
-        if (pin == 0xFF || pin > 116)
+        const bool isVanillaPin =
+            (pin <= outfit::kVanillaCamoTypeMax);
+        const bool isVirtualPin =
+            (pin >= outfit::kCamoVirtualIdStart
+             && pin <= outfit::kCamoVirtualIdEnd);
+        if (!isVanillaPin && !isVirtualPin)
             return nullptr;
 
         // 2) SEH-guarded deref of orig structures, then save+write the

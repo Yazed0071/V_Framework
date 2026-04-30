@@ -33,6 +33,23 @@ namespace outfit
     constexpr std::uint8_t kPlayerType_DDFemale  = 2;
     constexpr std::uint8_t kPlayerType_Avatar    = 3;
 
+    // Camo bonus table dimensions and reserved virtual-id range.
+    //
+    // The vanilla 117x82 camo table is indexed by PlayerCamoType (0..116)
+    // and material type (0..81 — PlayerCamoType is the row,
+    // MaterialType is the column). For per-outfit unique camo bonus
+    // rows (`camoBonusValues` field), the framework allocates a virtual
+    // PlayerCamoType id in the reserved range below; the GetCamoufValue
+    // hook intercepts those virtual ids and returns values from the
+    // outfit's inline `camoBonusValues[]` array instead of reading the
+    // vanilla table (which only has 117 rows). Vanilla pin ids
+    // (camoBonusType in 0..116) bypass the hook and read the orig table.
+    constexpr std::size_t  kCamoMaterialCount       = 82;
+    constexpr std::uint8_t kVanillaCamoTypeMax      = 116;     // QUIET = highest vanilla
+    constexpr std::uint8_t kCamoVirtualIdStart      = 200;     // first virtual id we hand out
+    constexpr std::uint8_t kCamoVirtualIdEnd        = 254;     // last (255 = sentinel guard)
+    constexpr std::uint8_t kCamoBonusTypeUnset      = 0xFF;    // "no pin" sentinel
+
     // Registry capacity. Phase 2 supports up to 128 outfits across
     // all playerTypes — well above any realistic mod load.
     constexpr std::size_t  kMaxOutfits = 128;
@@ -236,7 +253,28 @@ namespace outfit
         //
         // Lua: pass `camoBonusType = PlayerCamoType.BATTLEDRESS` (or
         // numeric value 0..116). Omit / nil means "no pin".
-        std::uint8_t   camoBonusType                  = 0xFF;
+        std::uint8_t   camoBonusType                  = kCamoBonusTypeUnset;
+
+        // Per-outfit unique camo bonus row (UNUSED when camoBonusType
+        // alone is set to a vanilla PlayerCamoType). When the modder
+        // wants their outfit to have its OWN bonus profile rather than
+        // inheriting a vanilla row, they pass `camoBonusValues = {
+        //   MTR_LEAF = 50, MTR_RLEF = 50, ... }` — the lua bridge
+        // resolves named keys to material indices and writes here.
+        // hasCamoBonusValues is set to true.
+        //
+        // At registration the framework allocates a virtual camo-type
+        // id from kCamoVirtualIdStart..kCamoVirtualIdEnd (200..254)
+        // and stores it back in `camoBonusType` so the runtime path
+        // (ExecSuitCorrect → vtable[0x18] → GetCamoufValue) lands at
+        // a value our GetCamoufValue hook recognizes. The hook then
+        // returns this[materialType] instead of reading the vanilla
+        // table (which only goes 0..116).
+        //
+        // If BOTH camoBonusType and camoBonusValues are passed,
+        // values wins (more specific intent).
+        std::int32_t   camoBonusValues[kCamoMaterialCount] = {};
+        bool           hasCamoBonusValues                  = false;
     };
 
     // ---------------------------------------------------------------
@@ -321,7 +359,18 @@ namespace outfit
         // 0xFF = unset / no pin (engine reads whatever the iDroid camo
         // picker last wrote to Info+0x50[playerSlot]). 0 = OLIVEDRAB IS
         // a valid pin — don't conflate with "unset".
-        std::uint8_t   camoBonusType                              = 0xFF;
+        //
+        // When hasCamoBonusValues is true, this field holds the framework-
+        // allocated VIRTUAL id (kCamoVirtualIdStart..kCamoVirtualIdEnd)
+        // that our GetCamoufValue hook intercepts to return values from
+        // the inline `camoBonusValues[]` array below.
+        std::uint8_t   camoBonusType                              = kCamoBonusTypeUnset;
+
+        // See OutfitDefinition::camoBonusValues — per-outfit unique
+        // 82-cell bonus row. Only meaningful when hasCamoBonusValues
+        // is true (else the array is all zeros and ignored).
+        std::int32_t   camoBonusValues[kCamoMaterialCount]        = {};
+        bool           hasCamoBonusValues                          = false;
 
         bool IsCamoCustom()      const { return camoFpk     > kSubAssetUseVanilla; }
         bool IsCamoFv2Custom()   const { return camoFv2     > kSubAssetUseVanilla; }
@@ -394,6 +443,14 @@ namespace outfit
             std::uint16_t developId,
             std::uint8_t  playerType,
             const OutfitEntry** outEntry);
+
+    // Look up an outfit by its allocated virtual camo-type id (the
+    // framework-allocated value in kCamoVirtualIdStart..kCamoVirtualIdEnd
+    // that lives in OutfitEntry::camoBonusType when the outfit has
+    // hasCamoBonusValues=true). Used by the GetCamoufValue hook to
+    // route reads of virtual ids to the outfit's inline values array.
+    bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
+                                     const OutfitEntry** outEntry);
 
     std::size_t GetAllOutfits(const OutfitEntry** outEntries,
                               std::size_t maxEntries);

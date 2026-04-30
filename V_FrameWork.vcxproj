@@ -199,6 +199,7 @@
     <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
     <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
     <ClInclude Include="src\hooks\outfit\OutfitCamoBonus.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitGetCamoufValue.h" />
     <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
     <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
     <ClInclude Include="src\hooks\outfit\OutfitFv2Paths.h" />
@@ -279,6 +280,7 @@
     <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitCamoBonus.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitGetCamoufValue.cpp" />
     <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
     <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitFv2Paths.cpp" />

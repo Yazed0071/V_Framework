@@ -151,9 +151,11 @@ MODULE: V_TppPlayer
 
       camoBonusType       number   optional — PlayerCamoType (0..116) pinned
                                     for SURFACE-BONUS lookup while this
-                                    outfit is equipped. Same enum the
-                                    vanilla iDroid camo picker uses
-                                    (OLIVEDRAB=0, BATTLEDRESS=16, etc.).
+                                    outfit is equipped. INHERIT a
+                                    vanilla camo's bonus profile.
+                                      Pass `PlayerCamoType.BATTLEDRESS`
+                                      (vanilla MGSV lua enum) or a raw
+                                      number 0..116.
                                     The framework hooks
                                     CamouflageControllerImpl::ExecSuitCorrect
                                     and overrides the per-slot byte at
@@ -166,10 +168,39 @@ MODULE: V_TppPlayer
                                     specific suits. Without this, custom
                                     outfits inherit whatever camo the
                                     player last selected via the iDroid.
-                                      Pass `PlayerCamoType.BATTLEDRESS`
-                                      (the vanilla MGSV lua enum value)
-                                      or a raw number 0..116.
                                     Default: nil = no pin.
+
+      camoBonusValues     table    optional — UNIQUE per-outfit bonus row
+                                    (use INSTEAD of camoBonusType when you
+                                    want a custom profile not matching any
+                                    vanilla camo). Sparse table keyed by
+                                    material name (or 1-based numeric
+                                    index 1..82). Anything not listed
+                                    defaults to 0:
+                                      camoBonusValues = {
+                                        MTR_LEAF   = 50,
+                                        MTR_RLEF   = 50,
+                                        MTR_PLNT_A = 50,
+                                        MTR_GRAV_A = 25,
+                                        -- everything else = 0
+                                      }
+                                    The framework allocates a virtual
+                                    PlayerCamoType id (200..254 range)
+                                    for the outfit and routes the
+                                    engine's bonus-table read through
+                                    our GetCamoufValue hook to this
+                                    row. Vanilla rows (0..116) stay
+                                    untouched. Up to 55 mod outfits
+                                    can have unique rows simultaneously
+                                    (pool size).
+                                    If both camoBonusType and
+                                    camoBonusValues are passed, values
+                                    wins (more specific intent).
+                                    Default: nil = no unique row.
+
+                                    See APPENDIX E for the full list of
+                                    MaterialType names (MTR_IRON_A
+                                    through MTR_NONE_A).
 
       develop              table    optional R&D table entry (cost, time, lang
                                     strings, icon, etc.). The wrapper auto-

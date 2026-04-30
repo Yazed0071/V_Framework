@@ -78,7 +78,8 @@ Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamo
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `camoBonusType` | int | nil (no pin) | `PlayerCamoType` (0..116) used for surface-bonus lookup while this outfit is equipped. Pass `PlayerCamoType.BATTLEDRESS` (the vanilla MGSV lua enum) or a raw 0..116 int. The framework hooks `CamouflageControllerImpl::ExecSuitCorrect` so the engine's `GetCamoufValue` indexes the chosen row of the 117×82 table — same mechanism vanilla uses to pin BATTLEDRESS / FOXTROT / etc. to specific suits. Without this, custom outfits inherit whatever camo the player last picked via the iDroid camo menu. |
+| `camoBonusType` | int | nil (no pin) | INHERIT a vanilla camo's bonus profile. `PlayerCamoType` value 0..116. Pass `PlayerCamoType.BATTLEDRESS` (the vanilla MGSV lua enum) or a raw 0..116 int. The framework hooks `CamouflageControllerImpl::ExecSuitCorrect` so the engine's `GetCamoufValue` indexes the chosen row of the 117×82 table — same mechanism vanilla uses to pin BATTLEDRESS / FOXTROT / etc. to specific suits. Without this, custom outfits inherit whatever camo the player last picked via the iDroid camo menu. |
+| `camoBonusValues` | table | nil (no unique row) | UNIQUE per-outfit bonus row. Sparse table keyed by material name (e.g. `MTR_LEAF = 50`) or 1-based numeric index 1..82. Anything not listed defaults to 0. The framework allocates a virtual `PlayerCamoType` id (range 200..254 — pool of 55 slots) and routes the engine's bonus-table read through a `GetCamoufValue` hook to this inline row. Vanilla 117 rows are never touched. If both `camoBonusType` and `camoBonusValues` are passed, **values wins** (more specific intent). |
 
 ### R&D table entry (V_TppPlayer.AddOutfit only)
 

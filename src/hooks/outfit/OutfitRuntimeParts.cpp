@@ -648,11 +648,27 @@ namespace
                 // are sane before the orig dispatches the per-asset
                 // virtual loaders. Phase 2 conservative defaults:
                 //   - If outfit doesn't enable arm: zero playerArmType
+                //   - If outfit DOES enable arm AND it's currently zero
+                //     (typical for custom partsType on Snake, since the
+                //     orig SUIT→ARM lookup table only knows vanilla
+                //     partsTypes): force to 1 (BIONIC ARM). Otherwise
+                //     the orig spoof-to-NORMAL path makes orig think
+                //     Snake-NORMAL is equipped — Snake-NORMAL has the
+                //     arm integrated into the body parts file, so no
+                //     separate arm FPK is dispatched. Result on
+                //     SSD-port "armless" body geometry: invisible arms.
+                //     Forcing 1 makes orig dispatch the arm load.
                 //   - If outfit doesn't enable face: zero playerFaceEquipId
                 //   - Camo type is left as-is; our hkLoadPlayerCamoFpk
                 //     handles the path.
                 if (!entry->IsArmEnabled())
+                {
                     info->playerArmType = 0;
+                }
+                else if (info->playerArmType == 0)
+                {
+                    info->playerArmType = 1;
+                }
 
                 if (!entry->IsFaceEnabled())
                 {
@@ -802,7 +818,48 @@ namespace
             if (spoofPartsType)
             {
                 tl_SpoofedRealPartsType = origPartsType;  // stash real
-                info->playerPartsType   = 0x00;           // spoof to NORMAL
+
+                // playerType-conditional spoof target.
+                //
+                // The orig BlockControllerImpl::LoadPartsNew has THREE
+                // face/head load branches keyed on partsType (verified
+                // retail mgsvtpp.exe.c:2714901-2714974):
+                //   (a) partsType in {1, 2}      → Soldier2FaceSystem
+                //                                  face load (Snake-style:
+                //                                  separate face/hair/
+                //                                  hairDeco/faceDeco
+                //                                  paths via vtable[0x20])
+                //   (b) partsType == 3           → Avatar face load
+                //   (c) anything else            → ResourceTable::
+                //                                  GetFaceFpkPath generic
+                //                                  (DDMale-style; works
+                //                                  for DDMale-NORMAL)
+                //
+                // Spoofing to 0x00 lands in branch (c). For DDMale (FROGS
+                // style) GetFaceFpkPath returns a real path → face/head
+                // appears. For Snake-PT custom outfits the same generic
+                // path returns nothing for our custom selectorCode →
+                // head + arm don't render even though the .parts file
+                // has the geometry.
+                //
+                // Fix: when entry->playerType == Snake, spoof to 0x01
+                // (Snake's first variant in the {1,2} range) so the
+                // Soldier2FaceSystem branch fires and writes the head/
+                // hair paths to the BlockShell. The hand path is also
+                // partsType-keyed (GetHandFpkPath at line 2714895), so
+                // partsType=0x01 routes through Snake's hand pipeline
+                // too instead of the empty NORMAL slot.
+                //
+                // Per-asset hooks (LoadPlayerPartsParts/Fpk/CamoFpk) use
+                // EffectivePartsType to recover the REAL custom partsType
+                // from the thread-local, so our outfit's custom paths
+                // still resolve correctly regardless of the spoof value.
+                std::uint8_t spoofTarget = 0x00;  // default for DDMale/F
+                if (entry->playerType == outfit::kPlayerType_Snake)
+                {
+                    spoofTarget = 0x01;
+                }
+                info->playerPartsType   = spoofTarget;
 
                 // PRE-ORIG SHELL CLOBBER (added 2026-04-28).
                 //
@@ -859,9 +916,10 @@ namespace
                 }
 
                 Log("[OutfitRuntimeParts] hkLoadPartsNew: spoofing partsType "
-                    "0x%02X -> 0x00 (camo=0x%02X soldierFace=%d, "
+                    "0x%02X -> 0x%02X (camo=0x%02X soldierFace=%d, "
                     "shellPre=0x%02X -> 0xFE [%s]) — calling orig...\n",
                     static_cast<unsigned>(origPartsType),
+                    static_cast<unsigned>(info->playerPartsType),
                     static_cast<unsigned>(info->playerCamoType),
                     static_cast<int>(info->playerFaceId),
                     static_cast<unsigned>(prevShellPartsType),
@@ -1048,7 +1106,20 @@ namespace outfit
         if (spoofPartsType)
         {
             tl_SpoofedRealPartsType = origPartsType;
-            info.playerPartsType    = 0x00;
+
+            // playerType-conditional spoof target. See the long comment
+            // in hkLoadPartsNew about the three orig face-load branches
+            // (partsType {1,2} → Soldier2FaceSystem; partsType 3 →
+            // Avatar; else → generic GetFaceFpkPath). Snake (PT=0)
+            // needs the {1,2} branch to fire for head/hand to load
+            // properly; spoofing to 0x00 falls into the generic branch
+            // which returns empty paths for our custom selectorCode.
+            std::uint8_t spoofTarget = 0x00;
+            if (entry->playerType == outfit::kPlayerType_Snake)
+            {
+                spoofTarget = 0x01;
+            }
+            info.playerPartsType    = spoofTarget;
 
             __try
             {
@@ -1081,10 +1152,11 @@ namespace outfit
             }
 
             Log("[OutfitRuntimeParts] ForcePartsReload: spoofing partsType "
-                "0x%02X -> 0x00 for orig recognition "
+                "0x%02X -> 0x%02X for orig recognition "
                 "(custom outfit, enableHead=%d, selector=0x%02X, "
                 "shellPre=[0x%02X,0x%02X] -> 0xFE)\n",
                 static_cast<unsigned>(origPartsType),
+                static_cast<unsigned>(info.playerPartsType),
                 entry && entry->IsHeadEnabled() ? 1 : 0,
                 static_cast<unsigned>(selectorCode),
                 static_cast<unsigned>(prevShellPartsType0),

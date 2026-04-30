@@ -107,11 +107,24 @@ function this.AddOutfit(opts)
 
         variants            = buildVariantArray(opts.variants),
 
-        -- camoBonusType — pin a PlayerCamoType (0..116) for surface-
-        -- bonus lookup while this outfit is equipped. Pass a number
-        -- (most easily `PlayerCamoType.BATTLEDRESS` etc., which is
-        -- just the vanilla MGSV lua enum). Default nil = no pin.
+        -- camoBonusType — pin a vanilla PlayerCamoType (0..116) for
+        -- surface-bonus lookup while this outfit is equipped. Pass a
+        -- number (typically `PlayerCamoType.BATTLEDRESS` etc., which
+        -- is just the vanilla MGSV lua enum). Default nil = no pin.
         camoBonusType      = opts.camoBonusType,
+
+        -- camoBonusValues — give the outfit its OWN unique surface-
+        -- bonus row instead of inheriting a vanilla one. Sparse table
+        -- keyed by material name OR 1-based numeric index:
+        --   camoBonusValues = {
+        --       MTR_LEAF = 50, MTR_RLEF = 50, MTR_PLNT_A = 50,
+        --       -- everything not listed defaults to 0
+        --   }
+        -- The framework allocates a virtual PlayerCamoType id and
+        -- routes the engine's bonus-table lookup through our
+        -- GetCamoufValue hook. If both camoBonusType and
+        -- camoBonusValues are set, values wins (more specific).
+        camoBonusValues    = opts.camoBonusValues,
 
         -- langEquipName forwarded from develop.const (if present) so the
         -- framework can hash it via FoxStrHash and use it to override the

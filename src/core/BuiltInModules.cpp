@@ -10,6 +10,7 @@
 #include "../hooks/outfit/OutfitCommit.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitCamoBonus.h"
+#include "../hooks/outfit/OutfitGetCamoufValue.h"
 #include "../hooks/outfit/OutfitListInject.h"
 #include "../hooks/outfit/OutfitFv2Paths.h"
 #include "../hooks/outfit/OutfitHeadOption.h"
@@ -703,11 +704,18 @@ namespace
             const bool camoBonus = outfit::Install_OutfitCamoBonus_Hook();
             (void)camoBonus;
 
+            // Per-outfit unique camo bonus row (camoBonusValues).
+            // Companion to camoBonus — intercepts virtual camo-type ids
+            // in GetCamoufValue. Optional same as above.
+            const bool camoVal = outfit::Install_OutfitGetCamoufValue_Hook();
+            (void)camoVal;
+
             return eq && commit && runtime;
         }
 
         void Uninstall() override
         {
+            outfit::Uninstall_OutfitGetCamoufValue_Hook();
             outfit::Uninstall_OutfitCamoBonus_Hook();
             outfit::Uninstall_OutfitRuntimeParts_Hooks();
             outfit::Uninstall_OutfitCommit_Hook();
