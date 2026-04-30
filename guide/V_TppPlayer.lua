@@ -80,11 +80,12 @@ function this.AddOutfit(opts)
 
         camoFpk             = opts.camoFpk,
         faceFpk             = opts.faceFpk,
-        armFpk              = opts.armFpk,
         skinFv2             = opts.skinFv2,
         diamondFpk          = opts.diamondFpk,
         camoFv2             = opts.camoFv2,
         diamondFv2          = opts.diamondFv2,
+
+        enableArm           = opts.enableArm,
 
         -- enableHead forces the framework to load a default DD head FPK
         -- on top of the body for outfits whose body parts file has no
@@ -100,17 +101,11 @@ function this.AddOutfit(opts)
         -- doesn't load (1..899). Leave nil to keep playerFaceId at 0.
         defaultSoldierFaceId = opts.defaultSoldierFaceId,
 
-        -- supportsHeadOptions auto-implies true on the C++ side when
-        -- headOptions is non-empty, so we pass through nil-when-missing
-        -- (rather than `or false`) to let the C++ default kick in.
-        -- Explicit user value still wins.
-        supportsHeadOptions = opts.supportsHeadOptions,
+        -- The C++ auto-enables the HEAD OPTION submenu whenever
+        -- `headOptions` is non-empty, so just pass the array through.
         headOptions         = opts.headOptions,
 
         variants            = buildVariantArray(opts.variants),
-
-        partsTypeHint       = opts.partsTypeHint,
-        selectorCodeHint    = opts.selectorCodeHint,
 
         -- langEquipName forwarded from develop.const (if present) so the
         -- framework can hash it via FoxStrHash and use it to override the
@@ -154,6 +149,96 @@ end
 -- developId is not registered.
 function this.GetOutfitInfo(developId)
     return V_FrameWork.GetOutfitInfo(developId)
+end
+
+-- ============================================================
+-- Custom HEAD OPTION submenu entries (Tier-3-A)
+-- ============================================================
+--
+-- High-level wrapper around V_FrameWork.RegisterHeadOption that ALSO
+-- handles the paired V_TppEquip.AddToEquipDevelopTable call, so a mod
+-- can add a new HEAD OPTION row in one shot:
+--
+--   V_TppPlayer.AddHeadOption{
+--       name           = "MyMod:CoolHelmet",
+--       TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
+--       langEquipName  = "name_my_helmet",
+--       iconFtexPath   = "/Assets/mod/.../ui_helmet_alp",
+--       develop = {
+--           const = { ... },   -- optional const overrides (p06/p08 default
+--                              -- to langEquipName / iconFtexPath above)
+--           flow  = {          -- optional R&D cost / availability
+--               grade            = 2,
+--               developGmpCost   = 50000,
+--               initialAvailable = 0,    -- 1 to start researched
+--           },
+--       },
+--   }
+--
+-- Then reference the head by name in any outfit's headOptions:
+--   headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" }
+--
+-- Returns the assigned equipId on success, false on failure (logged).
+--
+-- The wrapper enforces the call order (AddToEquipDevelopTable first,
+-- then RegisterHeadOption) — required because RegisterHeadOption looks
+-- up the row index assigned to the shared `name` key.
+--
+-- Visual: chooses a vanilla balaclava via TppEnemyFaceId. Distinct
+-- custom-mesh heads aren't yet supported (Tier-3-B); see
+-- guide/examples/OutfitWithCustomHead.lua for the design rationale.
+
+function this.AddHeadOption(opts)
+    if type(opts) ~= "table" then return false end
+    if type(opts.name) ~= "string" or opts.name == "" then
+        V_FrameWork.Log("[V_TppPlayer] AddHeadOption: 'name' is required")
+        return false
+    end
+
+    -- 1) Paired AddToEquipDevelopTable — drives iDroid label/icon AND
+    --    the R&D develop-gate. The wrapper builds a sane default const
+    --    block from langEquipName / iconFtexPath; modder overrides via
+    --    `develop.const = { ... }` win.
+    local const = (opts.develop and opts.develop.const) or {}
+    local flow  = (opts.develop and opts.develop.flow)  or {}
+
+    -- Default const block — minimal viable EquipDevelopConstSetting row
+    -- for a head-option entry. The values mirror the BALACLAVA vanilla
+    -- row's shape (suit-type, no skill/blueprint, default group).
+    if const.p01 == nil then const.p01 = TppEquip.EQP_None end
+    if const.p02 == nil then const.p02 = TppMbDev.EQP_DEV_TYPE_Suit end
+    if const.p03 == nil then const.p03 = 0     end
+    if const.p04 == nil then const.p04 = 0     end
+    if const.p05 == nil then const.p05 = 65535 end
+    if const.p09 == nil then const.p09 = 0 end
+    if const.p36 == nil then const.p36 = 1 end
+
+    -- p06 (langEquipName) / p07 (langEquipInfo) / p08 (iconFtexPath) /
+    -- p30 (langEquipRealName) take user shortcuts when not explicitly set.
+    if const.p06 == nil then const.p06 = opts.langEquipName end
+    if const.p07 == nil then const.p07 = opts.langEquipInfo or opts.langEquipName end
+    if const.p08 == nil then const.p08 = opts.iconFtexPath  end
+    if const.p30 == nil then const.p30 = opts.langEquipName end
+
+    -- Default flow block — develop-gated by default (initialAvailable=0)
+    -- so the player has to research the head in R&D before it appears.
+    -- Pass `flow.initialAvailable = 1` to skip the gate.
+    if flow.grade            == nil then flow.grade            = 1 end
+    if flow.developGmpCost   == nil then flow.developGmpCost   = 0 end
+    if flow.initialAvailable == nil then flow.initialAvailable = 0 end
+
+    V_TppEquip.AddToEquipDevelopTable(opts.name, { const = const, flow = flow })
+
+    -- 2) Register the head visual + slot allocation. Same `name` key, so
+    --    the developId from step 1 is reused. iDroid label/icon are
+    --    driven by step 1's const block (p06 / p08), so we don't pass
+    --    `langName` / `iconFtex` here — those are RegisterHeadOption
+    --    fallbacks for the no-AddToEquipDevelopTable path that this
+    --    wrapper never takes.
+    return V_FrameWork.RegisterHeadOption{
+        name           = opts.name,
+        TppEnemyFaceId = opts.TppEnemyFaceId,
+    }
 end
 
 -- ============================================================

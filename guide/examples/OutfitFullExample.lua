@@ -38,15 +38,20 @@ function this.OnAllocate()
         diamondFpk = "/Assets/tpp/pack/player/parts/neon_full_diamond.fpk",
         diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_full_diamond.fv2",
         faceFpk    = true,                  -- vanilla face
-        armFpk     = true,                  -- vanilla arm
         skinFv2    = false,                 -- disable skin tone override
+        enableArm  = true,                  -- vanilla bionic arm (set false for non-Snake)
 
         --
-        -- Head options
+        -- Head options — name aliases for vanilla heads. Custom head
+        -- entries (registered via V_FrameWork.RegisterHeadOption) can
+        -- be mixed in by their `name` string. supportsHeadOptions
+        -- auto-implies true when this array is non-empty.
         --
-        supportsHeadOptions = true,
         headOptions = {
-            0x17CA, 0x17CB, 0x17CC, 0x17CD,
+            "NONE",
+            "BALACLAVA",
+            "SP-HEADGEAR",
+            "HP-HEADGEAR",
         },
 
         --

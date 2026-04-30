@@ -45,7 +45,7 @@ namespace outfit
     // outfit; slots 1..14 hold up to 14 explicit Lua override entries.
     constexpr std::size_t  kMaxVariantsPerOutfit    = 15;
     constexpr std::uint16_t kHeadOption_None        = 0x400;  // game-native NONE sentinel
-    constexpr std::uint16_t kHeadOption_VanillaSP   = 0x17CA; // BALACLAVA equipId (vanilla SP base)
+    constexpr std::uint16_t kHeadOption_Balaclava   = 0x210;  // BALACLAVA equipId (vanilla SP base) — verified 2026-04-29 via runtime buffer dump of vanilla suit's HEAD OPTION submenu
 
     // ---------------------------------------------------------------
     // OutfitVariant — one variant of a registered outfit.
@@ -99,9 +99,14 @@ namespace outfit
         // Sub-asset paths (Phase 2 fields).
         std::uint64_t  camoFpk          = kSubAssetDisabled;
         std::uint64_t  faceFpk          = kSubAssetUseVanilla;
-        std::uint64_t  armFpk           = kSubAssetUseVanilla;
         std::uint64_t  skinFv2          = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk       = kSubAssetDisabled;
+
+        // Arm visibility — true = vanilla bionic prosthetic arm loads,
+        // false = arm suppressed (info->playerArmType zeroed before orig
+        // dispatches the arm loader). Most non-Snake characters
+        // (Quiet, female DD soldiers, FROG ports etc.) need this off.
+        bool           enableArm        = true;
 
         // Phase 3 — FV2 (face variant 2) sub-asset paths.
         std::uint64_t  camoFv2          = kSubAssetUseVanilla;
@@ -233,9 +238,11 @@ namespace outfit
 
         std::uint64_t  camoFpk           = kSubAssetDisabled;
         std::uint64_t  faceFpk           = kSubAssetUseVanilla;
-        std::uint64_t  armFpk            = kSubAssetUseVanilla;
         std::uint64_t  skinFv2           = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk        = kSubAssetDisabled;
+
+        // Arm visibility — see OutfitDefinition::enableArm.
+        bool           enableArm         = true;
 
         // Phase 3 fields.
         std::uint64_t  camoFv2           = kSubAssetUseVanilla;
@@ -292,7 +299,7 @@ namespace outfit
         bool IsCamoCustom()      const { return camoFpk     > kSubAssetUseVanilla; }
         bool IsCamoFv2Custom()   const { return camoFv2     > kSubAssetUseVanilla; }
         bool IsFaceEnabled()     const { return faceFpk     != kSubAssetDisabled; }
-        bool IsArmEnabled()      const { return armFpk      != kSubAssetDisabled; }
+        bool IsArmEnabled()      const { return enableArm; }
         bool IsDiamondEnabled()  const { return diamondFpk  != kSubAssetDisabled; }
         bool IsDiamondCustom()   const { return diamondFpk  > kSubAssetUseVanilla; }
         bool IsDiamondFv2Custom()const { return diamondFv2  > kSubAssetUseVanilla; }

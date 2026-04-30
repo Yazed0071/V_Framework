@@ -3,6 +3,7 @@
 #include "OutfitListInject.h"
 #include "OutfitRegistry.h"
 #include "OutfitEquippedState.h"
+#include "CustomHeadRegistry.h"
 
 #include <array>
 #include <atomic>
@@ -792,221 +793,9 @@ namespace
                                                   void* dst2,
                                                   void* text);
 
-    // Diagnostic state for head-option row dump (limit log volume).
-    static std::atomic<std::uint32_t> g_HeadRowDumpCount{ 0 };
-    static std::atomic<bool>          g_HeadRowFirstDumped{ false };
-
-    // Post-orig HEAD OPTION row render override. UpdateRecords' "else"
-    // branch (this[0x230] != 0, retail mgsvtpp.exe.c:2959168+) renders
-    // each row's name/icon by calling vtable[0x128]/[0x130]/[0x720]/[0x770]
-    // on this+0x50 (record-func's reference to a develop-controller-like
-    // sub-system). For custom-suit context the lookups return 0 (the
-    // head option isn't recognized as compatible-with-current-suit) so
-    // the orig writes empty strings to the row's text/icon fields.
-    //
-    // We post-orig re-call the same vtable chain — if it returns valid
-    // results (because the develop record DOES exist by equipId, just
-    // wasn't reached by orig's gate path), we overwrite the empty
-    // labels.
-    static void HeadOptionRowOverride(void* thisPtr,
-                                       std::uint16_t equipId,
-                                       std::uint32_t row,
-                                       std::uint8_t variantIdx)
-    {
-        auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
-
-        void* lookupSystem = nullptr;
-        void* manager      = nullptr;
-        void* writeTarget1 = nullptr;  // this[0x88] (name)
-        void* writeTarget2 = nullptr;  // this[0x80]
-        void* iconTarget1  = nullptr;  // this[0xa8] (icon)
-        void* iconTarget2  = nullptr;  // this[0xb0] (icon shadow)
-        void* labelExtra   = nullptr;  // this[0x180]
-
-        __try
-        {
-            lookupSystem = *reinterpret_cast<void**>(base + 0x50);
-            manager      = *reinterpret_cast<void**>(base + 0x38);
-            writeTarget1 = *reinterpret_cast<void**>(base + 0x88);
-            writeTarget2 = *reinterpret_cast<void**>(base + 0x80);
-            iconTarget1  = *reinterpret_cast<void**>(base + 0xa8);
-            iconTarget2  = *reinterpret_cast<void**>(base + 0xb0);
-            labelExtra   = *reinterpret_cast<void**>(base + 0x180);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return;
-        }
-
-        if (!lookupSystem || !manager) return;
-
-        // Diagnostic: dump the per-row state on first few fires so we
-        // can see what's actually happening at runtime.
-        const std::uint32_t fireIdx =
-            g_HeadRowDumpCount.fetch_add(1);
-        const bool shouldLog = fireIdx < 8;
-
-        __try
-        {
-            void** lookupVtable  = *reinterpret_cast<void***>(lookupSystem);
-            void** managerVtable = *reinterpret_cast<void***>(manager);
-
-            if (!lookupVtable || !managerVtable) return;
-
-            // vtable[0x130] -> develop-level ('grade'?) for equipId
-            // vtable[0x128] -> equipId translation (slot index, etc.)
-            // vtable[0x720] -> get name string ID by translation
-            // vtable[0x770] -> get icon path by equipId
-            // vtable[0x750] -> resolve hash to text on the manager
-            // vtable[0x708] -> render text to UI element
-            // vtable[0x518] -> render texture to UI element
-            using V128_t = std::uint32_t (__fastcall*)(void*, std::uint16_t);
-            using V130_t = std::uint32_t (__fastcall*)(void*, std::uint16_t);
-            using V720_t = std::uint64_t* (__fastcall*)(void*, std::uint64_t*, std::uint32_t);
-            using V770_t = std::uint64_t* (__fastcall*)(void*, std::uint64_t*, std::uint16_t);
-            using V750_t = void* (__fastcall*)(void*, std::uint64_t);
-            using V708_t = void  (__fastcall*)(void*, void*, void*, void*);
-            using V518_t = void  (__fastcall*)(void*, void*, std::uint64_t, std::uint64_t);
-
-            auto v128 = reinterpret_cast<V128_t>(lookupVtable[0x128 / 8]);
-            auto v130 = reinterpret_cast<V130_t>(lookupVtable[0x130 / 8]);
-            auto v720 = reinterpret_cast<V720_t>(lookupVtable[0x720 / 8]);
-            auto v770 = reinterpret_cast<V770_t>(lookupVtable[0x770 / 8]);
-            auto v750 = reinterpret_cast<V750_t>(managerVtable[0x750 / 8]);
-            auto v708 = reinterpret_cast<V708_t>(managerVtable[0x708 / 8]);
-            auto v518 = reinterpret_cast<V518_t>(managerVtable[0x518 / 8]);
-
-            std::uint64_t local_c8 = 0;
-            std::uint32_t developLvl = 0;
-            std::uint32_t translatedId = 0;
-            std::uint64_t* nameStringIdPtr = nullptr;
-            std::uint64_t nameStringId = 0;
-            std::uint64_t* iconPathPtr = nullptr;
-            std::uint64_t iconPath = 0;
-
-            // Seed the develop controller's "current suit context" to
-            // a vanilla head-option-supporting suit (0x4A60 = SP base).
-            // The orig case 0x201 path calls vtable[0x178] with the
-            // CURRENT suit equipId at retail line 2956104; for our
-            // custom outfit that's 0x400 (NONE) which leaves the
-            // controller with no compatible-head-option context. By
-            // re-calling vtable[0x178] with 0x4A60 we (hopefully)
-            // re-seed the cache so the subsequent vtable[0x128/0x130/
-            // 0x720/0x770] lookups return valid data for BALACLAVA.
-            using V178_t = std::uint16_t (__fastcall*)(void*, std::uint16_t);
-            auto v178 = reinterpret_cast<V178_t>(lookupVtable[0x178 / 8]);
-            const std::uint16_t seedSuitEquipId = 0x4A60;  // vanilla SP base
-            std::uint16_t seedResult = 0;
-            if (v178)
-            {
-                seedResult = v178(lookupSystem, seedSuitEquipId);
-            }
-
-            developLvl   = v130(lookupSystem, equipId);
-            translatedId = v128(lookupSystem, equipId);
-            nameStringIdPtr = v720(lookupSystem, &local_c8, translatedId);
-            iconPathPtr     = v770(lookupSystem, &local_c8, equipId);
-
-            if (nameStringIdPtr) nameStringId = *nameStringIdPtr;
-            if (iconPathPtr)     iconPath     = *iconPathPtr;
-
-            if (shouldLog)
-            {
-                Log("[OutfitListInject:HeadRow] post-seed: "
-                    "v178(0x%X)=0x%X (cache seed result; if non-zero, "
-                    "controller now thinks current suit is 0x%X)\n",
-                    static_cast<unsigned>(seedSuitEquipId),
-                    static_cast<unsigned>(seedResult),
-                    static_cast<unsigned>(seedSuitEquipId));
-            }
-
-            if (shouldLog)
-            {
-                Log("[OutfitListInject:HeadRow] dump fire #%u: row=%u "
-                    "variantIdx=%u equipId=0x%X | "
-                    "lookupSystem=%p manager=%p | "
-                    "v130(developLvl)=%u v128(translatedId)=0x%X | "
-                    "v720(nameStringId)=0x%016llX v770(iconPath)=0x%016llX | "
-                    "this[0x88]=%p this[0xa8]=%p this[0x180]=%p\n",
-                    fireIdx, row,
-                    static_cast<unsigned>(variantIdx),
-                    static_cast<unsigned>(equipId),
-                    lookupSystem, manager,
-                    developLvl, translatedId,
-                    static_cast<unsigned long long>(nameStringId),
-                    static_cast<unsigned long long>(iconPath),
-                    writeTarget1, iconTarget1, labelExtra);
-            }
-
-            // If the lookups returned valid IDs, force-render. This
-            // overwrites whatever orig wrote (potentially empty).
-            if (nameStringId != 0 && writeTarget1 && writeTarget2)
-            {
-                void* nameText = v750(manager, nameStringId);
-                if (nameText)
-                {
-                    v708(manager, writeTarget1, writeTarget2, nameText);
-                    if (shouldLog)
-                    {
-                        Log("[OutfitListInject:HeadRow] rendered name "
-                            "(equipId=0x%X stringId=0x%016llX)\n",
-                            static_cast<unsigned>(equipId),
-                            static_cast<unsigned long long>(nameStringId));
-                    }
-                }
-            }
-
-            if (iconPath != 0 && iconTarget1)
-            {
-                v518(manager, iconTarget1, iconPath,
-                     0xC940220FE54Aull);  // Base_Texture-StrCode64 (vanilla constant)
-                if (iconTarget2)
-                {
-                    v518(manager, iconTarget2, iconPath,
-                         0xC940220FE54Aull);
-                }
-                if (shouldLog)
-                {
-                    Log("[OutfitListInject:HeadRow] rendered icon "
-                        "(equipId=0x%X iconPath=0x%016llX)\n",
-                        static_cast<unsigned>(equipId),
-                        static_cast<unsigned long long>(iconPath));
-                }
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            if (shouldLog)
-            {
-                Log("[OutfitListInject:HeadRow] SEH in row override "
-                    "(equipId=0x%X row=%u)\n",
-                    static_cast<unsigned>(equipId), row);
-            }
-        }
-    }
-
     static void __fastcall hkUpdateRecords(void* thisPtr)
     {
         if (g_OrigUpdateRecords) g_OrigUpdateRecords(thisPtr);
-
-        // The earlier `HeadOptionRowOverride` post-orig render override
-        // is REMOVED 2026-04-29. It was a workaround for when our
-        // injected equipId (the wrong `0x17CA` from a misnamed Lua
-        // constant) couldn't be resolved by the develop controller.
-        // With the correct `0x210` equipId in the modder's lua, the
-        // orig's render path resolves BALACLAVA's name/icon from its
-        // own develop record without our help.
-        //
-        // The override's `vtable[0x178](controller, 0x4A60)` seed call
-        // had a global side effect: it mutated the develop controller's
-        // "current suit context" cache to SP-suit (`0x4A60`), which
-        // persisted after closing the HEAD OPTION submenu and broke
-        // name/icon resolution for the UNIFORMS panel ("ruined langId").
-        //
-        // The function `HeadOptionRowOverride` itself is kept (above)
-        // for potential future use if a modder declares a head equipId
-        // outside the orig's recognized range — but it is no longer
-        // called from this hook.
 
         if (!thisPtr) return;
 
@@ -1252,6 +1041,24 @@ namespace
                     continue;
                 if (count >= 32) break;  // safety bound
 
+                // Develop-gate for custom heads: hide modder-registered
+                // heads from the submenu until the player has researched
+                // them in MotherBase R&D. Vanilla head equipIds (BANDANA,
+                // BALACLAVA, SP-/HP-HEADGEAR) fall through to the orig
+                // pipeline, which gates them via its own R&D bit-array.
+                // Our custom heads were never in that pipeline, so we
+                // gate them here using the orig's IsEquipDeveloped on
+                // the head's flowIndex.
+                if (const auto* head =
+                        outfit::TryGetCustomHeadByEquipId(equipId))
+                {
+                    if (head->flowIndex != 0
+                        && !outfit::IsFlowIndexDevelopedByOrig(head->flowIndex))
+                    {
+                        continue;   // not yet researched — hide
+                    }
+                }
+
                 const std::uint32_t addedIdx = count;  // AddListBandana writes to this index then increments
                 g_AddListBandana(thisPtr, &count, equipId);
 
@@ -1343,66 +1150,6 @@ namespace
         }
     }
 
-    // Diagnostic: dump the equipId buffer state post-orig for HEAD
-    // OPTION submenu builds, regardless of which suit is worn. Lets us
-    // see what equipIds vanilla's case 0x201 path actually adds (the
-    // user's lua's `0x17CA` BALACLAVA constant might be wrong — orig
-    // probably uses suit-specific variants in the 0x4A6X range from
-    // vtable[0x3f8/0x400/0x408](this+0x70)).
-    static std::atomic<std::uint32_t> g_HeadBufferDumpCount{ 0 };
-
-    static void DumpHeadOptionBufferPostOrig(void* thisPtr)
-    {
-        if (!thisPtr) return;
-        const auto base = reinterpret_cast<std::uintptr_t>(thisPtr);
-
-        std::uint32_t equipKind = 0;
-        std::uint32_t count     = 0;
-        __try
-        {
-            equipKind = *reinterpret_cast<std::uint32_t*>(base + 0x4434);
-            count     = *reinterpret_cast<std::uint32_t*>(base + 0x442c);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return;
-        }
-
-        if (equipKind != 0x201) return;
-
-        const std::uint32_t fireIdx = g_HeadBufferDumpCount.fetch_add(1);
-        if (fireIdx >= 4) return;  // limit log volume
-
-        const std::uint8_t pt = outfit::ReadLivePartsType();
-        const bool isCustom =
-            (pt >= outfit::kCustomPartsTypeStart
-             && pt <= outfit::kCustomPartsTypeEnd);
-
-        Log("[OutfitListInject:HeadDump] fire #%u: equipKind=0x%X "
-            "livePartsType=0x%02X custom=%d origCount=%u — dumping "
-            "post-orig equipId buffer at this[0x4440] (stride 0x1e per "
-            "row, cell 0)\n",
-            fireIdx, equipKind, static_cast<unsigned>(pt),
-            isCustom ? 1 : 0, count);
-
-        __try
-        {
-            for (std::uint32_t row = 0; row < count && row < 16; ++row)
-            {
-                const std::uint16_t equipId =
-                    *reinterpret_cast<std::uint16_t*>(
-                        base + 0x4440 + row * 0x1e);
-                Log("[OutfitListInject:HeadDump]   row=%u equipId=0x%X (%u)\n",
-                    row, static_cast<unsigned>(equipId),
-                    static_cast<unsigned>(equipId));
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:HeadDump] SEH dumping buffer\n");
-        }
-    }
-
     static void __fastcall hkSetupPrefabListElement(void* thisPtr)
     {
         // Try to install deep hooks if we haven't already. Each panel
@@ -1429,12 +1176,6 @@ namespace
 
         if (!prev)
         {
-            // Diagnostic: dump equipId buffer right after orig finishes
-            // and BEFORE our injection runs. For vanilla suits opening
-            // HEAD OPTION submenu, this captures the suit-bundled
-            // equipIds (e.g., what variant of BALACLAVA the orig uses).
-            DumpHeadOptionBufferPostOrig(thisPtr);
-
             // Inject head-option entries when equipKind=0x201 and the
             // live outfit is a registered custom with HasHeadOptions().
             TryInjectHeadOptionList(thisPtr);

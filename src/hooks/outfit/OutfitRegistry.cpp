@@ -346,9 +346,9 @@ namespace outfit
         slot->fpkPathCode64   = def.fpkPathCode64;
         slot->camoFpk         = def.camoFpk;
         slot->faceFpk         = def.faceFpk;
-        slot->armFpk          = def.armFpk;
         slot->skinFv2         = def.skinFv2;
         slot->diamondFpk      = def.diamondFpk;
+        slot->enableArm       = def.enableArm;
 
         // Phase 3 fields.
         slot->camoFv2             = def.camoFv2;

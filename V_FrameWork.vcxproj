@@ -194,6 +194,7 @@
     <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
     <!-- Hooks: Outfit (Phase 2 outfit core — new clean rebuild) -->
     <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\CustomHeadRegistry.h" />
     <ClInclude Include="src\hooks\outfit\OutfitEquippedState.h" />
     <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
     <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
@@ -272,6 +273,7 @@
     <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
     <!-- Hooks: Outfit (Phase 2 outfit core — new clean rebuild) -->
     <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\CustomHeadRegistry.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitEquippedState.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />

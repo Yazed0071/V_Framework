@@ -50,6 +50,7 @@ extern "C" {
 #include "V_FrameWorkModLoader.h"
 #include "V_FrameWorkState.h"
 #include "InitCamoufTable.h"
+#include "../hooks/outfit/CustomHeadRegistry.h"
 #include "../hooks/outfit/OutfitRegistry.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitSuitConditionApply.h"
@@ -1598,6 +1599,51 @@ namespace
         return result;
     }
 
+    // Vanilla EquipDevelopConstSetting row indices for the standard
+    // head options. Modders can reference these by name in headOptions
+    // (case-insensitive; '-', '_' and ' ' are interchangeable).
+    struct HeadAlias
+    {
+        const char*    name;
+        std::uint16_t  equipId;
+    };
+    static constexpr HeadAlias k_HeadAliases[] = {
+        { "none",             0x400 },
+        { "bandana",          0x20E },
+        { "infinitebandana",  0x20F },
+        { "balaclava",        0x210 },
+        { "spheadgear",       0x211 },
+        { "hpheadgear",       0x212 },
+    };
+
+    // Lower-case + strip '-', '_', ' '. Output buffer must be at least
+    // 64 bytes; truncates silently if input exceeds capacity.
+    static void NormalizeHeadAlias(const char* in, char* out, std::size_t cap)
+    {
+        std::size_t j = 0;
+        if (cap == 0) return;
+        for (std::size_t i = 0; in && in[i] && j + 1 < cap; ++i)
+        {
+            const char c = in[i];
+            if (c == '-' || c == '_' || c == ' ') continue;
+            out[j++] = (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
+        }
+        out[j] = '\0';
+    }
+
+    static std::uint16_t TryResolveHeadAlias(const char* name)
+    {
+        if (!name || !name[0]) return 0;
+        char norm[64];
+        NormalizeHeadAlias(name, norm, sizeof(norm));
+        for (const HeadAlias& a : k_HeadAliases)
+        {
+            if (std::strcmp(norm, a.name) == 0)
+                return a.equipId;
+        }
+        return 0;
+    }
+
     // Read def.headOptions = { equipId1, equipId2, ... } into the
     // OutfitDefinition. Caller already verified the table at tableIndex.
     void ReadHeadOptionsArray(
@@ -1617,11 +1663,40 @@ namespace
                 LuaRawGetI(L, -1, static_cast<int>(i));
                 if (LuaIsNumber(L, -1))
                 {
+                    // Numeric entry — vanilla EquipDevelopConstSetting row
+                    // index (e.g. 0x210 BALACLAVA) or a custom-head equipId
+                    // returned from a previous V_FrameWork.RegisterCustomHead
+                    // call.
                     const int v = GetLuaInt(L, -1);
                     if (v > 0 && v <= 0xFFFF)
                     {
                         def.headOptionEquipIds[def.headOptionCount++] =
                             static_cast<std::uint16_t>(v);
+                    }
+                }
+                else if (LuaIsString(L, -1))
+                {
+                    // String entry — try the vanilla alias table first
+                    // ("BALACLAVA" / "SP-HEADGEAR" / etc.), then fall back
+                    // to a previously-registered custom-head name.
+                    const char* name = GetLuaString(L, -1);
+                    if (const std::uint16_t alias = TryResolveHeadAlias(name);
+                        alias != 0)
+                    {
+                        def.headOptionEquipIds[def.headOptionCount++] = alias;
+                    }
+                    else if (const auto* head =
+                             outfit::TryGetCustomHeadByName(name))
+                    {
+                        def.headOptionEquipIds[def.headOptionCount++] =
+                            head->equipId;
+                    }
+                    else
+                    {
+                        Log("[OutfitLua] headOptions: unknown name '%s' "
+                            "(not a vanilla alias and not registered via "
+                            "V_FrameWork.RegisterCustomHead); skipping\n",
+                            name ? name : "(null)");
                     }
                 }
                 LuaPop(L, 1);
@@ -1753,11 +1828,18 @@ namespace
 //
 //   camoFpk              string|true|false|nil     — default disabled
 //   faceFpk              string|true|false|nil     — default vanilla
-//   armFpk               string|true|false|nil     — default vanilla
 //   skinFv2              string|true|false|nil     — default vanilla
 //   diamondFpk           string|true|false|nil     — default disabled
 //   camoFv2              string|true|false|nil     — default vanilla (Phase 3)
 //   diamondFv2           string|true|false|nil     — default vanilla (Phase 3)
+//
+//   enableArm            bool (default true)         — load vanilla bionic
+//                                                       prosthetic arm. Set
+//                                                       false for non-Snake
+//                                                       characters that don't
+//                                                       have the arm (Quiet,
+//                                                       Female DD soldiers,
+//                                                       FROG ports, etc.).
 //
 //   enableHead           bool (default false)        — load default DD head
 //                                                       FPK on top of the body
@@ -1777,8 +1859,10 @@ namespace
 //                                                       boolean explicitly).
 //   variants             { { partsPath=..., fpkPath=..., ... }, ... }
 //
-//   partsTypeHint        int (optional)            — request specific partsType
-//   selectorCodeHint     int (optional)            — request specific selector
+// Note: partsType / selectorCode are ALWAYS auto-allocated from the
+// session-only custom pools (0x40..0x7F and 0x80..0xFE). The lua API
+// no longer exposes a hint — the C++ struct fields default to 0xFF
+// ("auto") and stay that way.
 static int __cdecl l_RegisterOutfit(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
@@ -1880,9 +1964,10 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     // Sub-asset slots — defaults match common use case.
     def.camoFpk    = ReadSubAssetField(L, 1, "camoFpk",    outfit::kSubAssetDisabled);
     def.faceFpk    = ReadSubAssetField(L, 1, "faceFpk",    outfit::kSubAssetUseVanilla);
-    def.armFpk     = ReadSubAssetField(L, 1, "armFpk",     outfit::kSubAssetUseVanilla);
     def.skinFv2    = ReadSubAssetField(L, 1, "skinFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFpk = ReadSubAssetField(L, 1, "diamondFpk", outfit::kSubAssetDisabled);
+
+    def.enableArm  = TryReadTableBoolField(L, 1, "enableArm", true);
 
     def.camoFv2    = ReadSubAssetField(L, 1, "camoFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFv2 = ReadSubAssetField(L, 1, "diamondFv2", outfit::kSubAssetUseVanilla);
@@ -1976,12 +2061,10 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     // Variants.
     ReadVariantsArray(L, 1, def);
 
-    // Allocation hints.
-    int hint = 0xFF;
-    if (TryReadTableIntField(L, 1, "partsTypeHint", hint))
-        def.partsTypeHint = static_cast<std::uint8_t>(hint & 0xFF);
-    if (TryReadTableIntField(L, 1, "selectorCodeHint", hint))
-        def.selectorCodeHint = static_cast<std::uint8_t>(hint & 0xFF);
+    // partsType / selectorCode are always auto-allocated. The struct
+    // fields default to 0xFF ("auto") in OutfitDefinition's ctor; we
+    // intentionally leave them untouched so the allocator picks from
+    // the session pools.
 
     std::uint8_t allocatedPartsType = 0xFF;
     const bool ok = outfit::RegisterOutfit(def, &allocatedPartsType);
@@ -1998,6 +2081,78 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     PushLuaNumber(L, static_cast<float>(def.developId));
     PushLuaNumber(L, static_cast<float>(def.flowIndex));
     return 3;
+}
+
+// V_FrameWork.RegisterHeadOption{ name=..., TppEnemyFaceId=... }
+// — registers a custom head option and returns its assigned equipId.
+// The returned equipId can be listed in any outfit's `headOptions`
+// array (numeric form), or the registered `name` can be listed instead
+// (string form — the framework resolves it during outfit registration).
+//
+// Tier-3-A architecture: the head's visual is a vanilla balaclava
+// chosen by `TppEnemyFaceId`. Custom-mesh heads aren't yet supported —
+// custom face id sentinels hang the orig asset loader (verified
+// 2026-04-30: bookkeeping requires a real FaceUnit-table entry). The
+// framework still owns:
+//   - name → equipId mapping (so headOptions can reference it)
+//   - slot byte allocation and orig translation routing
+//   - link to V_TppEquip.AddToEquipDevelopTable for iDroid label / icon
+//     (via shared developId key)
+//
+// Idempotent on `name`: re-registering the same name returns the same
+// equipId. lang / icon / TppEnemyFaceId ARE refreshed.
+//
+// def fields:
+//   name           string (required)   stable mod-side identifier
+//   TppEnemyFaceId number (optional)   visual face id; default 0x22D
+//                                      (DDFemale BALACLAVA). Use the
+//                                      vanilla MGSV lua `TppEnemyFaceId`
+//                                      table values, e.g.
+//                                        TppEnemyFaceId.dds_balaclava0..5
+//                                        TppEnemyFaceId.svs_balaclava
+//   langName       string (optional)   iDroid label override (StrCode64)
+//   iconFtex       string (optional)   iDroid icon override
+//
+// Returns the equipId on success, 0 on failure (logged).
+static int __cdecl l_RegisterHeadOption(lua_State* L)
+{
+    if (LuaType(L, 1) != LUA_TTABLE)
+    {
+        Log("[CustomHead] RegisterHeadOption: arg 1 must be a table\n");
+        PushLuaNumber(L, 0);
+        return 1;
+    }
+
+    const char* name = nullptr;
+    TryReadTableStringField(L, 1, "name", name);
+    if (!name || !name[0])
+    {
+        Log("[CustomHead] RegisterHeadOption: missing 'name'\n");
+        PushLuaNumber(L, 0);
+        return 1;
+    }
+
+    int rawFaceId = 0;
+    std::uint16_t TppEnemyFaceId = 0;
+    if (TryReadTableIntField(L, 1, "TppEnemyFaceId", rawFaceId)
+        && rawFaceId > 0 && rawFaceId <= 0xFFFF)
+    {
+        TppEnemyFaceId = static_cast<std::uint16_t>(rawFaceId);
+    }
+
+    const char* langName = nullptr;
+    TryReadTableStringField(L, 1, "langName", langName);
+    const std::uint64_t langNameHash =
+        (langName && langName[0]) ? FoxHashes::StrCode64(langName) : 0;
+
+    const std::uint64_t iconFtexCode =
+        ReadRequiredPathField(L, 1, "iconFtex");
+
+    const std::uint16_t equipId = outfit::RegisterHeadOption(
+        name, TppEnemyFaceId, langNameHash, iconFtexCode);
+
+    PushLuaNumber(L, static_cast<float>(equipId));
+    return 1;
 }
 
 // V_FrameWork.SetCurrentOutfit(developId) — tells the framework which
@@ -2306,6 +2461,7 @@ static luaL_Reg g_VFrameWorkLib[] =
 
     // Player custom-outfit API (Phase 4).
     { "RegisterOutfit",                         l_RegisterOutfit },
+    { "RegisterHeadOption",                     l_RegisterHeadOption },
     { "SetCurrentOutfit",                       l_SetCurrentOutfit },
     { "SetOutfitVariant",                       l_SetOutfitVariant },
     { "GetOutfitInfo",                          l_GetOutfitInfo },

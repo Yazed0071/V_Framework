@@ -34,8 +34,8 @@ GETTING STARTED
 ================================================================================
 
   V_FrameWork is a DLL hook framework for MGSV:TPP. It intercepts game
-  functions at runtime and exposes them to Lua, letting mods add new content
-  (weapons, cassette tapes, etc.) without replacing game files.
+  functions at runtime and exposes them to Lua, letting mooders add new content
+  (weapons, cassette tapes, outfits, etc.) without replacing game files.
 
   WRAPPER MODULES vs RAW API
   --------------------------
@@ -51,7 +51,7 @@ GETTING STARTED
     local this = {}
 
     function this.Init(missionTable)
-        -- Called when the mission starts. Register VIPs, equipment, etc.
+        -- Called when the mission starts. Register VIPs, etc.
     end
 
     function this.LoadLibraries()
@@ -111,15 +111,37 @@ MODULE: V_TppPlayer
 
       camoFpk              string|true|false  default false (disabled)
       faceFpk              string|true|false  default true  (vanilla)
-      armFpk               string|true|false  default true  (vanilla)
       skinFv2              string|true|false  default true  (vanilla)
       diamondFpk           string|true|false  default false (disabled)
       camoFv2              string|true|false  default true  (vanilla)
       diamondFv2           string|true|false  default true  (vanilla)
 
-      supportsHeadOptions  boolean  default false — enable HEAD OPTION submenu
-      headOptions          array    optional — list of head-option equipIds
-                                    (vanilla 0x17CA..0x17CE; up to 8 entries)
+      enableArm            boolean            default true
+                                    Vanilla bionic prosthetic arm visibility.
+                                    Set to false for Snake/Avatar to disable the arm.
+
+      headOptions          array    optional — list of head-option entries
+                                    (up to 8). The HEAD OPTION submenu is
+                                    auto-enabled when this array is
+                                    non-empty (no separate boolean to set).
+                                    Each entry can be:
+                                      • vanilla alias (string) — case- and
+                                        separator-insensitive:
+                                          "NONE"                  → 0x400
+                                          "BANDANA"               → 0x20E
+                                          "INFINITE BANDANA"      → 0x20F
+                                          "BALACLAVA"             → 0x210
+                                          "SP-HEADGEAR"           → 0x211
+                                          "HP-HEADGEAR"           → 0x212
+                                        (BANDANA pair only renders on
+                                        playerType 0/3 — see below)
+                                      • vanilla equipId (number) — same
+                                        values as above; raw form
+                                      • custom-head name (string) — resolved
+                                        against V_FrameWork.RegisterHeadOption's
+                                        registry
+                                      • custom-head equipId (number) — value
+                                        returned from RegisterHeadOption
 
       variants             array    optional — multi-variant outfit
                                     Each entry is a sub-table with
@@ -137,9 +159,6 @@ MODULE: V_TppPlayer
       developId            number   optional — bypass auto-allocation
                                     (use the explicit value verbatim)
       flowIndex            number   optional — bypass auto-allocation
-
-      partsTypeHint        number   optional — request specific 0x40..0x7F slot
-      selectorCodeHint     number   optional — request specific 0x80..0xFE slot
 
     RETURNS: partsType, developId, flowIndex on success, or false on failure
              (always logged).
@@ -172,6 +191,120 @@ MODULE: V_TppPlayer
 
     EXAMPLE:
       V_TppPlayer.SetOutfitVariant(51012, 2)
+
+  --------------------------------------------------------------------------
+  V_TppPlayer.AddHeadOption(opts)        — RECOMMENDED wrapper
+  V_FrameWork.RegisterHeadOption(opts)   — low-level call
+  --------------------------------------------------------------------------
+
+    Registers a custom head asset. Returns the equipId — which is the
+    EquipDevelopConstSetting row index assigned when the row was
+    appended (NOT the developId).
+
+    The high-level wrapper `V_TppPlayer.AddHeadOption{...}` handles
+    BOTH halves of the registration in one call: the
+    AddToEquipDevelopTable row (drives iDroid label/icon AND R&D entry)
+    AND the RegisterHeadOption call (slot byte + visual face id).
+    Use the wrapper unless you need to customize the develop row's
+    fields directly, in which case fall back to the call pair.
+
+    LOW-LEVEL CALL ORDER (only needed if you skip the wrapper):
+      V_TppEquip.AddToEquipDevelopTable("Mod:Head", { const = {...},
+                                                       flow = {...} })
+      V_FrameWork.RegisterHeadOption{ name = "Mod:Head", ... }
+
+    AddToEquipDevelopTable injects the const-setting row (driving the
+    iDroid label/icon and providing the row index). RegisterHeadOption
+    looks up the row index assigned to that `name` and binds the visual.
+    Calling RegisterHeadOption first or without an AddToEquipDevelopTable
+    pair returns 0 (logged) — the row index isn't known.
+
+    Idempotent on `name` — re-registering the same name returns the
+    same equipId without re-allocating.
+
+    Tier-3-A architecture (current): the head's visual is one of the
+    vanilla balaclava styles (modder picks via `TppEnemyFaceId`).
+    Distinct custom-mesh heads aren't yet supported — sentinel face id
+    values outside the FaceUnit table hang the orig asset loader
+    (verified 2026-04-30; bookkeeping requires a real FaceUnit row).
+    The framework still owns name/equipId/slot allocation and links to
+    the iDroid label/icon via shared developId.
+
+    DEVELOP-GATED (both forms): the registered head only appears in
+    the iDroid HEAD OPTION submenu after the player researches it in
+    MotherBase R&D — same gate as vanilla heads. Set
+    `develop.flow.initialAvailable = 1` (wrapper) or `flow.initialAvailable = 1`
+    on the AddToEquipDevelopTable row (low-level) to start the head
+    pre-researched.
+
+    PARAMETERS (V_TppPlayer.AddHeadOption — wrapper):
+      name            string  REQUIRED   stable mod-side identifier
+                                         (convention: "ModName:HeadName")
+      TppEnemyFaceId  number  optional   visual face id; default 0x22D
+                                         (DDFemale BALACLAVA). Use the
+                                         vanilla MGSV lua `TppEnemyFaceId`
+                                         table values, e.g.
+                                           TppEnemyFaceId.dds_balaclava0..5
+                                           TppEnemyFaceId.svs_balaclava
+      langEquipName   string  optional   iDroid label string id (defaults
+                                         the const-block p06/p30/p07
+                                         when `develop.const` doesn't
+                                         set them explicitly)
+      iconFtexPath    string  optional   iDroid icon path (defaults the
+                                         const-block p08 when not set
+                                         explicitly)
+      develop         table   optional   { const = { ... },  -- p01..p36 overrides
+                                          flow  = { ... } }  -- R&D fields
+                                         Anything you set here wins over
+                                         the wrapper's defaults. Common:
+                                           develop.flow.developGmpCost
+                                           develop.flow.initialAvailable
+                                           develop.flow.grade
+
+    PARAMETERS (V_FrameWork.RegisterHeadOption — low-level):
+      name            string  REQUIRED   same as wrapper
+      TppEnemyFaceId  number  optional   same as wrapper
+      langName        string  optional   StrCode64 iDroid label override
+                                         (only used if no AddToEquipDevelopTable
+                                         row exists for this name)
+      iconFtex        string  optional   iDroid icon override (same caveat)
+
+    RETURNS: equipId on success, 0 / false on failure (logged).
+
+    EXAMPLE — recommended (wrapper):
+      V_TppPlayer.AddHeadOption{
+          name           = "MyMod:CoolHelmet",
+          TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
+          langEquipName  = "name_my_helmet",
+          iconFtexPath   = "/Assets/.../ui_helmet_alp",
+          develop = { flow = { developGmpCost = 50000 } },
+      }
+      V_TppPlayer.AddOutfit{
+          ...,
+          headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" },
+      }
+
+    EXAMPLE — low-level (only if you need full control of the const block):
+      V_TppEquip.AddToEquipDevelopTable("MyMod:CoolHelmet", {
+          const = { p01=TppEquip.EQP_None, p02=TppMbDev.EQP_DEV_TYPE_Suit,
+                    p06="name_my_helmet", p07="info_my_helmet",
+                    p08="/Assets/.../ui_helmet_alp", ... },
+          flow  = { grade=2, ... },
+      })
+      V_FrameWork.RegisterHeadOption{
+          name           = "MyMod:CoolHelmet",
+          TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
+      }
+      V_TppPlayer.AddOutfit{
+          ...,
+          headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" },
+      }
+
+    NOTES:
+      - Custom mesh assets are blocked behind FaceUnit-table registration
+        (future work). For now the visual is one of the vanilla
+        balaclava styles; pick via TppEnemyFaceId.
+      - See guide/examples/OutfitWithCustomHead.lua for a full example.
 
   --------------------------------------------------------------------------
   GetOutfitInfo(developId)
@@ -333,8 +466,12 @@ MODULE: V_TppPlayer
     }
 
 
-  EXAMPLE 4 — outfit with HEAD OPTION submenu (vanilla balaclava range).
+  EXAMPLE 4 — outfit with HEAD OPTION submenu (vanilla heads only).
 
+    -- Use the case-insensitive name aliases (recommended) instead of
+    -- raw equipIds. The names are the same ones that appear on the
+    -- vanilla R&D screen. supportsHeadOptions auto-implies true when
+    -- headOptions is non-empty, so you can omit it.
     V_TppPlayer.AddOutfit{
         name       = "MyMod:DDF_NeonHeads",
         playerType = "DDFemale",
@@ -342,17 +479,21 @@ MODULE: V_TppPlayer
         partsPath  = "/Assets/mod/chara/ddf/ddf_neon.parts",
         fpkPath    = "/Assets/mod/pack/chara/ddf/ddf_neon.fpk",
 
-        supportsHeadOptions = true,
         headOptions = {
-            0x17CA,   -- BALACLAVA
-            0x17CB,   -- HEADGEAR_A
-            0x17CC,   -- HEADGEAR_B
-            0x17CD,   -- HEADGEAR_C
+            "NONE",
+            "BALACLAVA",
+            "SP-HEADGEAR",
+            "HP-HEADGEAR",
         },
 
-        faceFpk = true,   -- vanilla face — head options swap it at runtime
-        armFpk  = true,
+        enableHead = true,  -- body parts file does NOT ship an integrated head
+                            -- (head options swap it at runtime)
+        enableArm  = true,  -- bionic prosthetic arm on (false to suppress)
     }
+
+    -- Want a CUSTOM head in the submenu? See EXAMPLE 4b in the
+    -- RegisterHeadOption section above (paired AddToEquipDevelopTable
+    -- + RegisterHeadOption + headOptions = { "MyMod:CoolHelmet" }).
 
 
   EXAMPLE 5 — programmatic variant switch.

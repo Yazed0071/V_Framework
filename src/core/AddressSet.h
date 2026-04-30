@@ -392,16 +392,6 @@ namespace AddressSetRuntime
         uintptr_t MissionPrep_GetSelectionNum       = 0;
         uintptr_t MissionPrep_IsEnableCurrentHeadOption = 0;
         uintptr_t MissionPrep_UpdateLoadMark        = 0;
-        // DecideActTargetSelWindow — caller of IsEnableCurrentHeadOption.
-        // Used as a Phase-5 recon probe target: lets us see which UI
-        // selections produce phase 0x1c / 0x0a (the gates the head-option
-        // submenu hangs off of). The retail body at 0x1416BAB00 calls
-        // GetNextPhaseFromSelectionTarget(this, param_2) to compute the
-        // next phase, then dispatches into the head-option submenu only
-        // for phases 0x1c and 0x0a. If the user's UI navigation never
-        // produces those phases, IsEnableCurrentHeadOption is never
-        // reached.
-        uintptr_t MissionPrep_DecideActTargetSelWindow = 0;
         // MissionPreparationSystemImpl::IsEnableHeadOptionSuit
         // (vtable slot 134 on the inner system at MissionPrep+0x48 — the
         // class is MissionPreparationSystemImpl, NOT
@@ -418,59 +408,22 @@ namespace AddressSetRuntime
         // matches a registered custom outfit declaring HasHeadOptions(),
         // unblocking the orig UI's head-option button surfacing.
         uintptr_t MissionPrepSystem_IsEnableHeadOptionSuit = 0;
-        // HEAD_OPTION top-level icon visibility gate — vtable[0x4A0]
-        // on MissionPreparationSystemImpl. The vtable slot is a thunk
-        // (0x1409578F0) JMP'ing to retail FUN_1460BC6D0. Body:
-        //   CMP EDX, 0x1F9
-        //   SETZ AL
-        //   RET
-        // i.e., returns 1 only when EDX == 0x1F9 (the flowIndex of
-        // a specific vanilla head-option-supporting suit). At the call
-        // site in SetupTargetSelectPrefabListElement, EDX is implicitly
-        // the current selected suit's flowIndex.
-        //
-        // The gate decides whether slot 7 is included in the top-level
-        // cursor list (slot 7 → cursor value 6 → phase 0x11 → opens
-        // the head-option item selector with equipKind=0x201).
-        //
-        // For custom outfits with flowIndex != 0x1F9, the function
-        // returns 0 → slot 7 hidden → HEAD_OPTION icon doesn't show.
-        // Hook overrides to return 1 when live partsType is in our
-        // custom range AND the registered outfit declares
-        // HasHeadOptions(), unconditionally surfacing the icon.
-        //
-        // UPDATE 2026-04-29: this turned out to be part of
-        // `IsAutoLevelSettingEquip`, NOT head-options. Kept for now
-        // because it's still installed; will remove once the actual
-        // head-option gate is identified.
-        uintptr_t MissionPrepSystem_HeadOptionGate = 0;
-        // SetupCharacterSlotSelectPrefabListElement (retail 0x1416BF490).
-        // Sets up display for the currently-active slot in the
-        // CHARACTER SLOT SELECT sub-panel (opened after clicking the
-        // top-level CHARACTER icon, cursor=8 phase=0xF). Branches on
-        // `*(this+0x3CA0)` (slot index): 0=chara, 2=head-option,
-        // 4=?, 6=?, 7=?, 8=?. For slot 2, calls vtable[0x668] on
-        // +0x68 to get current head equipId; if 0x400 (NONE), writes
-        // blank icon.
-        //
-        // Used as a recon probe target — by capturing which slot
-        // indices fire for vanilla vs custom outfits, we may identify
-        // the visibility filter that hides HEAD_OPTION for our
-        // outfits.
-        uintptr_t MissionPrep_SetupCharaSlotSelectPrefabListElement = 0;
-        // SetupTargetSelectPrefabListElement (retail 0x1416C2790).
-        // Builds the TOP-LEVEL cursor item list for SORTIE PREP >
-        // SELECT CHARACTER. Iterates slots 0..8, each conditionally
-        // included based on per-slot vtable checks on
-        // MissionPreparationSystemImpl. Final cursor list is at
-        // `MissionPrep + 0x2980`, count at `+0x29A4`. Per-cursor data
-        // is read from `MissionPrep + (cursorVal + 0x22) * 0x20` =
-        // `+0x440..+0x540` range.
-        //
-        // Used as a "log everything" recon probe — dump the cursor
-        // list and per-cursor data POST-call to compare vanilla vs
-        // custom-outfit panel state and find the visibility delta.
-        uintptr_t MissionPrep_SetupTargetSelectPrefabListElement = 0;
+
+        // tpp::gm::player::impl::`anonymous_namespace'::
+        // ConverFaceIdWithFaceEquipId (retail 0x14622A3B0). Translates the
+        // 1-byte playerFaceEquipId slot (info[3]) -> 2-byte face-fv2 index
+        // (TppEnemyFaceId.dds_balaclava{0..5}) per playerType. Only slots
+        // 3/4/5 produce vanilla overrides; others fall through. Hooked to:
+        //   - probe (diagnostic, verify slot mapping)
+        //   - return CustomHeadRegistry sentinel for slot bytes >= 6 owned
+        //     by registered custom heads (Tier 3 head support)
+        uintptr_t Player_ConverFaceIdWithFaceEquipId = 0;
+
+        // (Removed 2026-04-30 — Soldier2FaceSystemImpl_GetFaceFovaPathIdArrayAtFaceId
+        // and Soldier2FaceSystemImpl_GetFaceFovaPathIdAtFaceId. The Tier-3-A
+        // approach routes custom heads to real vanilla face-fv2 indices via
+        // ConverFaceIdWithFaceEquipId, so we no longer need to intercept the
+        // PathId resolver. Future custom-mesh support would re-add these.)
 
         // UI list / panel setup. SetupCharacterSlotSelectPrefabListElement
         // is unused. AddListSuit is the call target invoked from
@@ -759,11 +712,8 @@ namespace AddressSetRuntime
             0x1416BC2C0ull, // MissionPrep_GetSelectionNum
             0x14A56BA20ull, // MissionPrep_IsEnableCurrentHeadOption
             0x14A5795C0ull, // MissionPrep_UpdateLoadMark
-            0x1416BAB00ull, // MissionPrep_DecideActTargetSelWindow (Phase-5 head-option recon probe; calls IsEnableCurrentHeadOption when iVar6==0x1c or 0x0a)
-            0x1460B9FA0ull, // MissionPrepSystem_IsEnableHeadOptionSuit (real body, NOT the JMP thunk at 0x1409575D0). Earlier we hooked 0x140957D30 (= retail vtable[0x430]) thinking it was this gate; that was a NAMED-BUILD vtable-offset shift — named-build [0x430] == retail [0x460], and retail vtable[0x460] = 0x1409575D0 which is a JMP -> 0x1460B9FA0. This function is what GetSelectionNum (retail 0x1416BC2C0) calls in mode 0/2 (HEAD OPTION) to decide 2 vs 3 sub-panel rows: returns 1 if the current suit equipId belongs to ANY of 7 head-option-supporting categories (vtable[0x410/418/420/428/440/448/450] on the equip-development controller). For our custom-outfit flowIndices, all 7 return 0 -> function returns 0 -> sub-panel hides the HEAD OPTION row entirely. Override to 1 when param_2 (flowIndex) matches a registered custom outfit declaring HasHeadOptions().
-            0x1460BC6D0ull, // MissionPrepSystem_HeadOptionGate (top-level HEAD_OPTION icon visibility — CMP EDX,0x1F9 / SETZ AL)
-            0x1416BF490ull, // MissionPrep_SetupCharaSlotSelectPrefabListElement (per-slot display setup; slot index in this+0x3CA0)
-            0x1416C2790ull, // MissionPrep_SetupTargetSelectPrefabListElement (top-level cursor list builder)
+            0x1460B9FA0ull, // MissionPrepSystem_IsEnableHeadOptionSuit (real body, NOT the JMP thunk at 0x1409575D0). retail vtable[0x460] = 0x1409575D0 which JMPs to 0x1460B9FA0. GetSelectionNum (retail 0x1416BC2C0) calls this in mode 0/2 to decide 2 vs 3 sub-panel rows. We override to 1 when live partsType is a registered custom outfit declaring HasHeadOptions().
+            0x14622A3B0ull, // Player_ConverFaceIdWithFaceEquipId (slot byte → vanilla face-fv2 router for Tier-3-A custom heads)
             0x1416BF490ull, // SetupCharacterSlotSelectPrefabListElement
             0x1416A1AA0ull, // AddListSuit
             0x14A56BFA0ull, // IsEnableCurrentSuit
@@ -941,11 +891,8 @@ namespace AddressSetRuntime
             0x0ull, // MissionPrep_GetSelectionNum
             0x0ull, // MissionPrep_IsEnableCurrentHeadOption
             0x0ull, // MissionPrep_UpdateLoadMark
-            0x0ull, // MissionPrep_DecideActTargetSelWindow (JP TBD)
             0x0ull, // MissionPrepSystem_IsEnableHeadOptionSuit (JP TBD)
-            0x0ull, // MissionPrepSystem_HeadOptionGate (JP TBD)
-            0x0ull, // MissionPrep_SetupCharaSlotSelectPrefabListElement (JP TBD)
-            0x0ull, // MissionPrep_SetupTargetSelectPrefabListElement (JP TBD)
+            0x0ull, // Player_ConverFaceIdWithFaceEquipId (JP TBD)
             0x0ull, // SetupCharacterSlotSelectPrefabListElement
             0x0ull, // AddListSuit
             0x0ull, // IsEnableCurrentSuit

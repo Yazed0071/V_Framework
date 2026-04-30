@@ -2,6 +2,7 @@
 
 #include "OutfitSuitConditionApply.h"
 #include "OutfitRegistry.h"
+#include "CustomHeadRegistry.h"
 
 #include <cstdint>
 
@@ -214,27 +215,50 @@ namespace
                             }
                             else if (pendingHead == 0x210)
                             {
-                                // BALACLAVA, vanilla SP base — orig
-                                // translates this to face slot 3.
-                                slot = 3;
+                                slot = 3;  // BALACLAVA
+                            }
+                            else if (pendingHead == 0x211)
+                            {
+                                slot = 4;  // SP-HEADGEAR (best guess —
+                                           // verify via probe before
+                                           // shipping)
+                            }
+                            else if (pendingHead == 0x212)
+                            {
+                                slot = 5;  // HP-HEADGEAR (same caveat)
+                            }
+                            else if (outfit::IsCustomHeadEquipId(pendingHead))
+                            {
+                                // Tier-3 custom head registered via
+                                // V_FrameWork.RegisterCustomHead. Look
+                                // up the slot byte assigned at register
+                                // time.
+                                if (const auto* head =
+                                    outfit::TryGetCustomHeadByEquipId(
+                                        pendingHead))
+                                {
+                                    slot = head->slotByte;
+                                }
+                                else
+                                {
+                                    slot = 0;
+                                    Log("[OutfitSuitConditionApply:%s] "
+                                        "pending custom head equipId 0x%X "
+                                        "in framework range but not "
+                                        "registered — falling back to "
+                                        "NONE\n",
+                                        tag,
+                                        static_cast<unsigned>(pendingHead));
+                                }
                             }
                             else if (pendingHead < 0x100)
                             {
-                                // Modder supplied a slot byte directly
-                                // (e.g., raw face slot index 0..0xFF).
+                                // Modder supplied a raw slot byte directly.
                                 slot = static_cast<std::uint8_t>(
                                     pendingHead & 0xFF);
                             }
                             else
                             {
-                                // Unknown head equipId. Fall back to 0
-                                // (NONE) so we don't write garbage to
-                                // info[3]. Until we have a runtime
-                                // probe of vtable[0x128] on the develop
-                                // controller for the full equipId ->
-                                // slot table, modders should use either
-                                // 0x400 (NONE), 0x210 (BALACLAVA), or
-                                // a raw slot byte < 0x100.
                                 slot = 0;
                             }
 

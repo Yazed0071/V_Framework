@@ -39,8 +39,6 @@ The recommended modder API. `opts` is a single Lua table.
 |---|---|---|---|
 | `developId` | int | auto | Auto-allocated from the persistent pool keyed by `name`. Pass an explicit value only for migration or fixed-id mods. |
 | `flowIndex` | int | auto | Auto-allocated from the persistent pool keyed by `name`. |
-| `partsTypeHint` | int | auto | Request a specific 0x40..0x7F partsType. Default = auto from session pool. |
-| `selectorCodeHint` | int | auto | Request a specific 0x80..0xFE selectorCode. Default = auto from session pool. |
 
 ### Sub-asset paths
 
@@ -51,17 +49,22 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 | `camoFpk` | disabled | Custom camo pattern .fpk |
 | `camoFv2` | vanilla | Custom camo FV2 |
 | `faceFpk` | vanilla | Custom head/face .fpk |
-| `armFpk` | vanilla | Custom arm .fpk |
 | `skinFv2` | vanilla | Custom skin tone FV2 |
 | `diamondFpk` | disabled | Diamond filter .fpk |
 | `diamondFv2` | vanilla | Diamond filter FV2 |
+| `enableArm` | `true` | `false` suppresses Snake's bionic prosthetic arm (set for non-Snake characters) |
 
 ### Head options
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `supportsHeadOptions` | bool | `false` | Whether the HEAD OPTION submenu is enabled. |
-| `headOptions` | int[] | empty | Array of head equipIds (vanilla `0x17CA..0x17CE`). Up to 8 entries. |
+| `headOptions` | array | empty | Up to 8 head entries. The HEAD OPTION submenu auto-enables when this array is non-empty. Each entry can be a vanilla alias string (`"NONE"`, `"BANDANA"`, `"INFINITE BANDANA"`, `"BALACLAVA"`, `"SP-HEADGEAR"`, `"HP-HEADGEAR"` — case- and separator-insensitive), a vanilla equipId number (`0x400` / `0x20E..0x212`), a custom-head name registered via `V_FrameWork.RegisterHeadOption` / `V_TppPlayer.AddHeadOption`, or the equipId returned by that call. |
+
+> Custom heads (registered via `V_TppPlayer.AddHeadOption`) are
+> develop-gated — they only appear in the submenu after the player
+> researches them in MotherBase R&D. Set `flow.initialAvailable = 1`
+> on the develop block to start them pre-researched. See
+> `OutfitWithCustomHead.lua` for the full pattern.
 
 ### Variants
 

@@ -25,8 +25,8 @@ function this.OnAllocate()
         diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_diamond_v00.fv2",
 
         -- Use vanilla face/arm (default behavior anyway, shown for clarity):
-        faceFpk = true,                  -- true = use vanilla
-        armFpk  = true,
+        faceFpk    = true,               -- true = use vanilla
+        enableArm  = true,               -- bionic arm on (false to suppress)
 
         -- No skin tone override:
         skinFv2 = true,                  -- (default)
