@@ -991,6 +991,23 @@ MODULE: V_TppEquip
                                  / inventory / ammo machinery knows what
                                  your throwable's capacity is.
 
+      chaffEffect table          (optional) per-category radar / sensor
+                               disruption that fires at projectile detonation
+                               — independent of `behavior`. When present, the
+                               framework hooks UpdateActionGrenade /
+                               UpdateActionSmoke and calls
+                               RangeAttackSystemImpl::RequestToChaff at the
+                               projectile's landing position on first
+                               detonation tick. Engine-side cameras / radio
+                               control / visual chaff cloud all consume the
+                               request automatically (same pipeline as
+                               Mother Base helicopter CHAFF support call).
+                                 radius    number  meters (default 15)
+                                 duration  number  seconds (default 20)
+                               Engine pending-chaff queue holds 4 slots; if
+                               full when a new request arrives, the new one
+                               is dropped (no error).
+
     RETURNS:
       number  the new category id (>= 0x80) on success, -1 on failure
 
@@ -1062,6 +1079,40 @@ MODULE: V_TppEquip
       number  custom swpType (vanilla 0..0x16 OR registered category 0x80+),
               or 0x17 if there's no custom mapping and the orig fallback
               wasn't reached
+
+  --------------------------------------------------------------------------
+  RequestChaffAt(x, y, z [, radius=15] [, duration=20])
+  --------------------------------------------------------------------------
+
+    Fires the engine's real chaff disruption effect at world-space
+    (x, y, z). This is the same effect Mother Base's helicopter CHAFF
+    support call uses — security cameras switch to State_Chaff,
+    command-post radio gets InterruptRadioByChaff, soldier radio actions
+    take the chaff-blocked branches, and a visual chaff cloud spawns at
+    the position.
+
+    Useful as a Lua-side primitive for triggering chaff from any context
+    (a damage callback, a mission script, a debug bind). For "throw a
+    chaff grenade and have it deploy on landing", prefer the
+    `chaffEffect = { ... }` field on RegisterSupportWeaponCategory which
+    automates the position read and detonation timing.
+
+    PARAMETERS:
+      x, y, z   number  world-space coordinates
+      radius    number  (optional, default 15)  meters; vanilla helicopter
+                        CHAFF uses ~15m
+      duration  number  (optional, default 20)  seconds; vanilla helicopter
+                        CHAFF lasts ~20s
+
+    RETURNS:
+      number  1 on success (engine accepted the request), 0 on failure
+              (pending-chaff queue is full — engine holds 4 simultaneous
+              chaff regions max — or RangeAttackSystemImpl singleton not
+              yet initialized).
+
+    EXAMPLE — drop a chaff cloud at the player's feet:
+      local px, py, pz = TppPlayer.GetPlayerPosition()
+      V_FrameWork.RequestChaffAt(px, py, pz, 20, 30)
 
   --------------------------------------------------------------------------
   AddToEquipIdTable(equipTable)
@@ -1594,6 +1645,7 @@ RAW API: V_FrameWork.*
     ClearSupportWeaponTypes()                       -> nothing
     RegisterSupportWeaponCategory(spec)             -> number
     GetSupportWeaponCategory(equipId)               -> number
+    RequestChaffAt(x, y, z [, radius] [, duration]) -> 1/0
     SetEquipParameters(params)                      -> nothing
     SetEquipIdIconFtexPath(equipId, path)            -> nothing
     ClearIconFtexPath(equipId)                      -> nothing

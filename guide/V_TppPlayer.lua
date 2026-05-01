@@ -82,10 +82,29 @@ function this.AddOutfit(opts)
         faceFpk             = opts.faceFpk,
         skinFv2             = opts.skinFv2,
         diamondFpk          = opts.diamondFpk,
+        armFpk              = opts.armFpk,
         camoFv2             = opts.camoFv2,
         diamondFv2          = opts.diamondFv2,
 
         enableArm           = opts.enableArm,
+
+        -- Explicit playerArmType pin (Snake/Avatar bodies only).
+        -- Default: framework auto-forces armType=1 if enableArm=true and
+        -- info.armType=0 — meant for SSD-port bodies that need a bionic
+        -- arm overlay because their parts file lacks integrated hands.
+        --
+        -- If you're using a body parts file that ALREADY has integrated
+        -- hands (e.g. vanilla NORMAL Snake .parts, or any custom .parts
+        -- with hand geometry baked in), set `armType = 0` here to OPT
+        -- OUT of the auto-force — otherwise the bionic arm fpk gets
+        -- loaded ON TOP of the integrated hands and renders incorrectly.
+        --
+        -- Values: 0 = no arm overlay; 1..0xFE = specific armType (1 is
+        -- vanilla bionic arm, 2 is bionic-with-decoration, etc.); nil =
+        -- auto (legacy behavior). Only consulted for PT=0 (Snake) and
+        -- PT=3 (Avatar) outfits — the DDMale/DDFemale arm pipeline is
+        -- different and usually doesn't need this.
+        armType             = opts.armType,
 
         -- enableHead forces the framework to load a default DD head FPK
         -- on top of the body for outfits whose body parts file has no

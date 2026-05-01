@@ -53,6 +53,8 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 | `diamondFpk` | disabled | Diamond filter .fpk |
 | `diamondFv2` | vanilla | Diamond filter FV2 |
 | `enableArm` | `true` | `false` suppresses Snake's bionic prosthetic arm (set for non-Snake characters) |
+| `armType` | `nil` | **(Snake/Avatar only)** Explicit `playerArmType` pin (0..0xFE). Default `nil` means "auto-force armType=1 if `enableArm=true` and incoming armType=0" (legacy behavior — meant for SSD-port bodies that need a separate bionic-arm overlay). Set to `0` explicitly when your body parts file already has integrated hand geometry (e.g. vanilla `sna4_main0_def_v00.parts`) so the framework does NOT load a bionic arm fpk on top. Set to `1..N` to pin a specific arm variant. |
+| `armFpk` | vanilla | Direct override of the arm fpk path written to `BlockShell+0x08` post-orig. Pass a path string to ship your own Snake-skeleton-bound arm fpk; pass `false` to force the slot to null (overrides whatever orig populated). Default `true`/vanilla means "let orig's `LoadPlayerBionicArmFpk(playerType, partsType, armType)` populate the slot" — works for vanilla bionic arms when `armType > 0`. |
 
 ### Head options
 
@@ -81,6 +83,69 @@ Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamo
 |---|---|---|---|
 | `camoBonusType` | int | nil (no pin) | INHERIT a vanilla camo's bonus profile. `PlayerCamoType` value 0..116. Pass `PlayerCamoType.BATTLEDRESS` (the vanilla MGSV lua enum) or a raw 0..116 int. The framework hooks `CamouflageControllerImpl::ExecSuitCorrect` so the engine's `GetCamoufValue` indexes the chosen row of the 117×82 table — same mechanism vanilla uses to pin BATTLEDRESS / FOXTROT / etc. to specific suits. Without this, custom outfits inherit whatever camo the player last picked via the iDroid camo menu. |
 | `camoBonusValues` | table | nil (no unique row) | UNIQUE per-outfit bonus row. Sparse table keyed by material name (e.g. `MTR_LEAF = 50`) or 1-based numeric index 1..82. Anything not listed defaults to 0. The framework allocates a virtual `PlayerCamoType` id (range 200..254 — pool of 55 slots) and routes the engine's bonus-table read through a `GetCamoufValue` hook to this inline row. Vanilla 117 rows are never touched. If both `camoBonusType` and `camoBonusValues` are passed, **values wins** (more specific intent). |
+
+### Snake / Avatar (PT=0/3) recipes
+
+The Snake and Avatar pipelines differ from DDMale/DDFemale: orig only writes ONE face slot (`BlockShell+0x10` via `LoadPlayerSnakeFaceFpk`) and ONE arm slot (`BlockShell+0x08` via `LoadPlayerBionicArmFpk`). DDMale/DDFemale go through the four-slot Soldier2FaceSystem path. Pick the recipe that matches your body parts file.
+
+**Recipe A — body parts file already has integrated head + hands** (e.g. vanilla NORMAL Snake `sna4_main0_def_v00.parts`, or any `.parts` file the modder baked everything into):
+
+```lua
+V_TppPlayer.AddOutfit{
+    name       = "MyMod:Snake_Recolor",
+    playerType = "Snake",  -- or "Avatar"
+    partsPath  = "/Assets/tpp/parts/chara/sna/sna4_main0_def_v00.parts",
+    fpkPath    = "/Assets/mod/recolor/recolor_overlay.fpk",
+
+    -- CRITICAL: opt out of the bionic-arm overlay so it doesn't render
+    -- on top of the integrated hands.
+    armType    = 0,
+
+    -- CRITICAL: suppress the vanilla face fpk overlay so it doesn't
+    -- render on top of the integrated head. The framework hooks
+    -- LoadPlayerSnakeFaceFpk and writes 0 to BlockShell+0x10 when
+    -- enableHead=false on a registered outfit.
+    enableHead = false,
+
+    develop = { const = { ... }, flow = { ... } },
+}
+```
+
+**Recipe B — body parts file has NO integrated head/hands** (e.g. SSD-port FROGS-style, where the `.parts` file expects separate face/arm fpk overlays):
+
+```lua
+V_TppPlayer.AddOutfit{
+    name       = "MyMod:Snake_FROGS",
+    playerType = "Snake",
+    partsPath  = "/Assets/mod/chara/sna/frogs.parts",
+    fpkPath    = "/Assets/mod/pack/chara/sna/frogs.fpk",
+
+    armType    = 1,                  -- 1 = vanilla bionic; or use armFpk for a custom arm
+    enableHead = true,
+    defaultSoldierFaceId = 1,        -- pick a populated FaceUnit row
+
+    develop = { const = { ... }, flow = { ... } },
+}
+```
+
+**Recipe C — modder ships a custom Snake-skeleton-bound arm fpk**:
+
+```lua
+V_TppPlayer.AddOutfit{
+    name       = "MyMod:Snake_CustomArm",
+    playerType = "Snake",
+    partsPath  = "/Assets/mod/chara/sna/custom.parts",
+    fpkPath    = "/Assets/mod/pack/chara/sna/custom.fpk",
+
+    armType    = 1,  -- non-zero so orig dispatches the arm-load call
+    armFpk     = "/Assets/mod/chara/sna/custom_arm.fpk",  -- direct override of BlockShell+0x08
+
+    enableHead = true,
+    develop = { const = { ... }, flow = { ... } },
+}
+```
+
+`armFpk` is written to BlockShell+0x08 post-orig, so it overrides whatever vanilla `LoadPlayerBionicArmFpk` resolved for `(playerType, partsType, armType)`. Pass `false` to force the slot to null even if orig wrote something.
 
 ### R&D table entry (V_TppPlayer.AddOutfit only)
 

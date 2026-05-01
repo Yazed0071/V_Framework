@@ -115,6 +115,9 @@ namespace AddressSetRuntime
         uintptr_t EquipParameterTablesImpl_GetSupportWeaponParameterBlock = 0;
         uintptr_t EquipParameterTablesImpl_GetAttackIdByEquipId = 0;
         uintptr_t fox_GetQuarkSystemTable = 0;
+        uintptr_t RangeAttackSystemImpl_RequestToChaff = 0;
+        uintptr_t ThrowingImpl_UpdateActionGrenade = 0;
+        uintptr_t ThrowingImpl_UpdateActionSmoke = 0;
         uintptr_t DeclareAMs = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
@@ -245,6 +248,8 @@ namespace AddressSetRuntime
 
         uintptr_t LoadPlayerCamoFv2                = 0;
         uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;
+        uintptr_t LoadPlayerBionicArmFv2           = 0;
+        uintptr_t LoadPlayerSnakeFaceFv2           = 0;
 
 
         uintptr_t GetCurrentSuitFlowIndex           = 0;
@@ -263,8 +268,10 @@ namespace AddressSetRuntime
         uintptr_t TornadoDualPatch                  = 0;
 
 
-        uintptr_t AnnounceLogView                   = 0;
-        uintptr_t HudCommonDataManager_Instance     = 0;
+        uintptr_t UiCommonDataManager_Instance      = 0;
+        uintptr_t MbCommonPopupAct_SetupOnce        = 0;
+        uintptr_t MbCommonPopupAct_OpenPopupHelper  = 0;
+        uintptr_t TppUi_GetLangText                 = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -377,6 +384,9 @@ namespace AddressSetRuntime
             0x140A3C980ull, // EquipParameterTablesImpl_GetSupportWeaponParameterBlock
             0x140A3B5E0ull, // EquipParameterTablesImpl_GetAttackIdByEquipId
             0x140BFF3F0ull, // fox_GetQuarkSystemTable
+            0x1412E0930ull, // RangeAttackSystemImpl_RequestToChaff (JMP wrapper -> .text:149d3b110)
+            0x1415DA720ull, // ThrowingImpl_UpdateActionGrenade
+            0x1415DAF50ull, // ThrowingImpl_UpdateActionSmoke
             0x1464AE4F0ull, // DeclareAMs
             0x145E62540ull, // GetIconFtexPath
             0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
@@ -446,6 +456,8 @@ namespace AddressSetRuntime
             0x1416AF270ull, // ItemSelectorRecordCallFunc_UpdateRecords (variant cycle-button label resolver)
             0x146863F80ull, // LoadPlayerCamoFv2
             0x146864C80ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x140AE9040ull, // LoadPlayerBionicArmFv2 (returns NULL for partsType not in valid set — must substitute partsType=0x00 for custom outfits to load arm Fv2; without it, render slot empty)
+            0x140AE8CE0ull, // LoadPlayerSnakeFaceFv2 (same — partsType-validated; substitute for Snake custom outfits)
             0x140955C70ull, // GetCurrentSuitFlowIndex
             0x1416BB9C0ull, // GetEquipIdFromLoadoutInfo
             0x14951F860ull, // IsEquipDeveloped
@@ -454,8 +466,10 @@ namespace AddressSetRuntime
             0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
             0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo (R&D MotherBase dev-menu "Request Supply Drop" handler — fires per click, takes flowIndex)
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
-            0x140863050ull, // AnnounceLogView (tpp::ui::hud::CommonDataManager::AnnounceLogView — free-text iDroid HUD toast)
-            0x142BF18F8ull, // HudCommonDataManager_Instance (DAT_142bf18f8 — global singleton ptr returned by GetInstance)
+            0x142BF1508ull, // UiCommonDataManager_Instance (DAT_142bf1508 — global singleton ptr returned by tpp::ui::menu::UiCommonDataManager::GetInstance)
+            0x140870B70ull, // MbCommonPopupAct_SetupOnce (mgsvtpp.exe.c:1169299 — virtual void SetupOnce(MbCommonPopupAct* this, Window* popup) — first 3 bytes are TEST RDX,RDX which gates on popup non-null; stores popup at this+0x98)
+            0x145C3B320ull, // MbCommonPopupAct_OpenPopupHelper (FUN_145c3b320 — 7-arg free-text popup driver: (Window*, ulonglong closeAction, char* text, ulonglong popupType, ulonglong translation, uint button, uint disableCancel); stashes text via UiCommonDataManager+0x868 then PostMessages MbCommonPopupAct triggers SET_POPUP_TYPE, SET_MESSAGE_TEXT_PTR, SET_SELECTED_BUTTON, SET_DISABLE_CANCEL, OPEN)
+            0x1409122D0ull, // TppUi_GetLangText (tpp::ui::utility::GetLangText — char*(__fastcall*)(uint64_t hash) — resolves FoxStrCode64 lang hash to localized text; ~398 callsites in retail; we hijack this to return mod text for the "mbtutorial_exit_1_b" hash so MbDvc announce popup displays free text)
         };
 
         return value;
@@ -560,6 +574,9 @@ namespace AddressSetRuntime
 			0x0ull, // EquipParameterTablesImpl_GetSupportWeaponParameterBlock
 			0x0ull, // EquipParameterTablesImpl_GetAttackIdByEquipId
 			0x0ull, // fox_GetQuarkSystemTable
+            0x0ull, // RangeAttackSystemImpl_RequestToChaff
+            0x0ull, // ThrowingImpl_UpdateActionGrenade
+            0x0ull, // ThrowingImpl_UpdateActionSmoke
             0x1480EE6F0ull, // DeclareAMs
 			0x147A6BD40ull, // GetIconFtexPath
             0x0ull, // LoadingTipsEv_UpdateActPhase
@@ -629,6 +646,8 @@ namespace AddressSetRuntime
             0x0ull, // ItemSelectorRecordCallFunc_UpdateRecords (JP unknown; hook silently no-ops if unresolved)
             0x0ull, // LoadPlayerCamoFv2
             0x0ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x0ull, // LoadPlayerBionicArmFv2 (JP TBD)
+            0x0ull, // LoadPlayerSnakeFaceFv2 (JP TBD)
             0x0ull, // GetCurrentSuitFlowIndex
             0x0ull, // GetEquipIdFromLoadoutInfo
             0x0ull, // IsEquipDeveloped
@@ -637,8 +656,10 @@ namespace AddressSetRuntime
             0x0ull, // IsEquipSuit
             0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
             0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
-            0x0ull, // AnnounceLogView (JP TBD)
-            0x0ull, // HudCommonDataManager_Instance (JP TBD)
+            0x0ull, // UiCommonDataManager_Instance (JP TBD)
+            0x0ull, // MbCommonPopupAct_SetupOnce (JP TBD)
+            0x0ull, // MbCommonPopupAct_OpenPopupHelper (JP TBD)
+            0x0ull, // TppUi_GetLangText (JP TBD)
         };
 
         return value;

@@ -29,6 +29,12 @@ bool Uninstall_SetLuaFunctions_Hook();
 bool Install_UiTextureOverrides_Hook();
 bool Uninstall_UiTextureOverrides_Hook();
 
+bool Install_MbCommonPopupHook();
+bool Uninstall_MbCommonPopupHook();
+
+bool Install_MbDvcAnnouncePopupHook();
+bool Uninstall_MbDvcAnnouncePopupHook();
+
 bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame);
 bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
 
@@ -106,6 +112,26 @@ namespace SupportWeaponType
 {
     bool Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
     bool Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+
+    bool Install_ThrowingImpl_GetBlastParamByEquipId_Hook();
+    bool Uninstall_ThrowingImpl_GetBlastParamByEquipId_Hook();
+
+    bool Install_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+    bool Uninstall_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+
+    bool Install_EquipParameterTablesImpl_GetAttackIdByEquipId_Hook();
+    bool Uninstall_EquipParameterTablesImpl_GetAttackIdByEquipId_Hook();
+
+    bool LazyInstall_DamageParameterTable_GetDamageParameter_Hook();
+    bool Uninstall_DamageParameterTable_GetDamageParameter_Hook();
+}
+
+namespace RangeAttackEffects
+{
+    bool Install_ThrowingImpl_UpdateActionGrenade_Hook();
+    bool Uninstall_ThrowingImpl_UpdateActionGrenade_Hook();
+    bool Install_ThrowingImpl_UpdateActionSmoke_Hook();
+    bool Uninstall_ThrowingImpl_UpdateActionSmoke_Hook();
 }
 
 namespace DeclareAMs
@@ -163,6 +189,46 @@ namespace
         void Uninstall() override
         {
             Uninstall_UiTextureOverrides_Hook();
+        }
+    };
+
+    class MbCommonPopupModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MbCommonPopup";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MbCommonPopupHook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MbCommonPopupHook();
+        }
+    };
+
+    class MbDvcAnnouncePopupModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MbDvcAnnouncePopup";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MbDvcAnnouncePopupHook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MbDvcAnnouncePopupHook();
         }
     };
 
@@ -608,13 +674,63 @@ namespace
         bool Install(HMODULE hGame) override
         {
             UNREFERENCED_PARAMETER(hGame);
-            return SupportWeaponType::Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+            // Four cooperating hooks for the full custom-support-weapon
+            // pipeline:
+            //   1. GetSupportWeaponTypeId        — SWP_TYPE_* category routing.
+            //   2. GetBlastParamByEquipId        — custom/linked BlastParameter.
+            //   3. GetSupportWeaponParameterBlock — custom ammo/p1/p2/grade row.
+            //   4. GetAttackIdByEquipId          — DamageParameter row redirection.
+            //
+            // The DamageParameterTable::GetDamageParameter hook for inline
+            // damage is installed lazily on first use (see
+            // LazyInstall_DamageParameterTable_GetDamageParameter_Hook),
+            // because its target is fetched from the singleton's vtable
+            // and the singleton may not exist before engine init.
+            //
+            // Treat the module as a single feature — failure of any one
+            // hook leaves the framework partially functional but loading.
+            const bool typeOk    = SupportWeaponType::Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+            const bool blastOk   = SupportWeaponType::Install_ThrowingImpl_GetBlastParamByEquipId_Hook();
+            const bool swpRowOk  = SupportWeaponType::Install_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+            const bool atkIdOk   = SupportWeaponType::Install_EquipParameterTablesImpl_GetAttackIdByEquipId_Hook();
+            return typeOk && blastOk && swpRowOk && atkIdOk;
         }
         void Uninstall() override
         {
+            SupportWeaponType::Uninstall_DamageParameterTable_GetDamageParameter_Hook();
+            SupportWeaponType::Uninstall_EquipParameterTablesImpl_GetAttackIdByEquipId_Hook();
+            SupportWeaponType::Uninstall_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+            SupportWeaponType::Uninstall_ThrowingImpl_GetBlastParamByEquipId_Hook();
             SupportWeaponType::Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
         }
     };
+
+    class RangeAttackEffectsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "RangeAttackEffects";
+        }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            // The Lua primitive V_FrameWork.RequestChaffAt works without
+            // these hooks; they only enable the chaffEffect auto-trigger
+            // for registered support-weapon categories. Install both
+            // (grenade + smoke behavior templates) so either behavior
+            // alias picks up auto-firing — failure of one is non-fatal.
+            const bool grenadeOk = RangeAttackEffects::Install_ThrowingImpl_UpdateActionGrenade_Hook();
+            const bool smokeOk   = RangeAttackEffects::Install_ThrowingImpl_UpdateActionSmoke_Hook();
+            return grenadeOk || smokeOk;
+        }
+        void Uninstall() override
+        {
+            RangeAttackEffects::Uninstall_ThrowingImpl_UpdateActionSmoke_Hook();
+            RangeAttackEffects::Uninstall_ThrowingImpl_UpdateActionGrenade_Hook();
+        }
+    };
+
     class DeclareAMsModule final : public IFeatureModule
     {
     public:
@@ -748,8 +864,11 @@ void RegisterBuiltInFeatureModules()
     static EquipParameterTablesReloadModule s_EquipParameterTablesReloadModule;
     static EquipIdTableReloadModule s_EquipIdTableReloadModule;
     static SetSupportWeaponTypeModule s_SetSupportWeaponTypeModule;
+    static RangeAttackEffectsModule s_RangeAttackEffectsModule;
     static EquipDevelopReloadModule s_EquipDevelopReloadModule;
     static UiTextureOverridesModule s_UiTextureOverridesModule;
+    static MbCommonPopupModule s_MbCommonPopupModule;
+    static MbDvcAnnouncePopupModule s_MbDvcAnnouncePopupModule;
     static DeclareAMsModule s_DeclareAMsModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
@@ -787,7 +906,10 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EquipIdTableReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_DeclareAMsModule);
             FeatureModuleRegistry::Instance().Register(&s_SetSupportWeaponTypeModule);
+            FeatureModuleRegistry::Instance().Register(&s_RangeAttackEffectsModule);
             FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
+            FeatureModuleRegistry::Instance().Register(&s_MbCommonPopupModule);
+            FeatureModuleRegistry::Instance().Register(&s_MbDvcAnnouncePopupModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);

@@ -75,9 +75,12 @@ namespace outfit
         std::uint64_t  faceFpk          = kSubAssetUseVanilla;
         std::uint64_t  skinFv2          = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk       = kSubAssetDisabled;
+        std::uint64_t  armFpk           = kSubAssetUseVanilla;
 
 
         bool           enableArm        = true;
+
+        std::uint8_t   armType          = 0xFF;
 
 
         std::uint64_t  camoFv2          = kSubAssetUseVanilla;
@@ -130,9 +133,12 @@ namespace outfit
         std::uint64_t  faceFpk           = kSubAssetUseVanilla;
         std::uint64_t  skinFv2           = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk        = kSubAssetDisabled;
+        std::uint64_t  armFpk            = kSubAssetUseVanilla;
 
 
         bool           enableArm         = true;
+
+        std::uint8_t   armType           = 0xFF;
 
 
         std::uint64_t  camoFv2           = kSubAssetUseVanilla;

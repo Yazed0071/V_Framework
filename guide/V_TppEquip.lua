@@ -27,6 +27,14 @@ function this.SetSupportWeaponType(supportWeaponId, swpType)
     V_FrameWork.SetSupportWeaponType(supportWeaponId, swpType)
 end
 
+function this.RegisterSupportWeaponCategory(spec)
+    return V_FrameWork.RegisterSupportWeaponCategory(spec)
+end
+
+function this.GetSupportWeaponCategory(equipId)
+    return V_FrameWork.GetSupportWeaponCategory(equipId)
+end
+
 function this.AddToEquipIdTable(equipTable)
     return V_FrameWork.AddToEquipIdTable(equipTable)
 end

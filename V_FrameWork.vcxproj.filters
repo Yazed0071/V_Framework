@@ -75,6 +75,7 @@
     <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\SetEquipParameters.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h"><Filter>Hooks\Equip</Filter></ClInclude>
+    <ClInclude Include="src\hooks\equip\RangeAttackEffects.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <!-- Player headers -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h"><Filter>Hooks\Player</Filter></ClInclude>
     <ClInclude Include="src\hooks\player\CustomSuitRegistry.h"><Filter>Hooks\Player</Filter></ClInclude>
@@ -101,6 +102,8 @@
     <!-- UI headers -->
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h"><Filter>Hooks\UI</Filter></ClInclude>
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h"><Filter>Hooks\UI</Filter></ClInclude>
+    <ClInclude Include="src\hooks\ui\MbCommonPopupHook.h"><Filter>Hooks\UI</Filter></ClInclude>
+    <ClInclude Include="src\hooks\ui\MbDvcAnnouncePopupHook.h"><Filter>Hooks\UI</Filter></ClInclude>
     <!-- Pickable headers -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h"><Filter>Hooks\Pickable</Filter></ClInclude>
   </ItemGroup>
@@ -145,6 +148,7 @@
     <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
+    <ClCompile Include="src\hooks\equip\RangeAttackEffects.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <!-- Player sources -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <ClCompile Include="src\hooks\player\CustomSuitRegistry.cpp"><Filter>Hooks\Player</Filter></ClCompile>
@@ -171,6 +175,8 @@
     <!-- UI sources -->
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp"><Filter>Hooks\UI</Filter></ClCompile>
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp"><Filter>Hooks\UI</Filter></ClCompile>
+    <ClCompile Include="src\hooks\ui\MbCommonPopupHook.cpp"><Filter>Hooks\UI</Filter></ClCompile>
+    <ClCompile Include="src\hooks\ui\MbDvcAnnouncePopupHook.cpp"><Filter>Hooks\UI</Filter></ClCompile>
     <!-- Pickable sources -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp"><Filter>Hooks\Pickable</Filter></ClCompile>
   </ItemGroup>
