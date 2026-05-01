@@ -113,12 +113,40 @@ MODULE: V_TppPlayer
       faceFpk              string|true|false  default true  (vanilla)
       skinFv2              string|true|false  default true  (vanilla)
       diamondFpk           string|true|false  default false (disabled)
+      armFpk               string|true|false  default true  (vanilla — let
+                                    orig populate the BlockShell+0x08 arm
+                                    slot with the BIONIC arm fpk for the
+                                    chosen armType, or write nothing when
+                                    armType=0). Pass `false` for an
+                                    explicit "no arm overlay" override
+                                    (writes 0 to the arm slot post-orig
+                                    even if orig wrote something). Pass
+                                    a string path when shipping a custom
+                                    Snake-skeleton-bound arm fpk —
+                                    framework writes the hashed path to
+                                    BlockShell+0x08 post-orig, replacing
+                                    whatever vanilla resolved.
       camoFv2              string|true|false  default true  (vanilla)
       diamondFv2           string|true|false  default true  (vanilla)
 
       enableArm            boolean            default true
                                     Vanilla bionic prosthetic arm visibility.
                                     Set to false for Snake/Avatar to disable the arm.
+
+      armType              number   optional — explicit playerArmType pin for
+                                    Snake (PT=0) / Avatar (PT=3) outfits.
+                                    Range: 0..0xFE. Default: nil (legacy
+                                    auto-force armType=1 when enableArm=true
+                                    and the info struct came in with
+                                    armType=0 — useful for SSD-port bodies).
+                                    Set to 0 explicitly to OPT OUT of the
+                                    auto-force when your body parts file
+                                    already has integrated hand geometry
+                                    (e.g. vanilla NORMAL Snake .parts) —
+                                    otherwise the bionic arm fpk overlays
+                                    on top of the integrated hands and
+                                    they render incorrectly. Set to 1..N
+                                    to pin a specific BIONIC variant.
 
       headOptions          array    optional — list of head-option entries
                                     (up to 8). The HEAD OPTION submenu is
@@ -621,6 +649,83 @@ MODULE: V_TppPlayer
     }
 
 
+  EXAMPLE 6b — Snake / Avatar (PT=0/3) custom outfits.
+
+    Snake's and Avatar's body-asset pipeline is different from
+    DDMale/DDFemale. They go through orig's `LoadPlayerSnakeFaceFpk`
+    (single-slot face load) and `LoadPlayerBionicArmFpk` (one arm fpk
+    overlay), not the four-slot Soldier2FaceSystem path. Because of
+    this, the framework needs explicit guidance from you about whether
+    the body parts file ships INTEGRATED head/hands or expects SEPARATE
+    fpk overlays loaded on top.
+
+    --------------------------------------------------------------
+    CASE A — body parts file with INTEGRATED head + hands
+    (e.g. vanilla NORMAL Snake `sna4_main0_def_v00.parts`, or any
+    custom `.parts` where the modder baked everything into one mesh).
+    --------------------------------------------------------------
+
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_Recolor",
+        playerType = "Snake",        -- or "Avatar"
+
+        -- Body parts file already has full geometry baked in:
+        partsPath  = "/Assets/tpp/parts/chara/sna/sna4_main0_def_v00.parts",
+        fpkPath    = "/Assets/mod/recolor/recolor_overlay.fpk",  -- texture overlay
+
+        -- CRITICAL: opt OUT of the bionic-arm overlay so it doesn't
+        -- render on top of the integrated hands.
+        armType    = 0,
+
+        -- CRITICAL: suppress the vanilla face fpk overlay so it doesn't
+        -- render on top of the integrated head. The framework hooks
+        -- LoadPlayerSnakeFaceFpk and writes 0 to BlockShell+0x10 when
+        -- enableHead=false on a registered outfit.
+        enableHead = false,
+
+        develop = { const = { ... }, flow = { ... } },
+    }
+
+    --------------------------------------------------------------
+    CASE B — body parts file with NO integrated head/hands
+    (e.g. SSD-port FROGS-style — the .parts file references separate
+    head/arm fpks that need to be loaded into BlockShell+0x10/+0x08).
+    --------------------------------------------------------------
+
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_FROGS",
+        playerType = "Snake",
+
+        partsPath  = "/Assets/mod/chara/sna/frogs.parts",
+        fpkPath    = "/Assets/mod/pack/chara/sna/frogs.fpk",
+
+        -- Need a bionic arm overlay (or your own custom arm fpk).
+        armType    = 1,                 -- 1 = vanilla bionic
+        -- OR
+        -- armFpk  = "/Assets/mod/.../my_snake_arm.fpk",
+
+        -- Need a face fpk overlay.
+        enableHead = true,
+        defaultSoldierFaceId = 1,       -- pick a populated FaceUnit
+
+        develop = { const = { ... }, flow = { ... } },
+    }
+
+    Notes:
+      • `armType = 0` is the OPT-OUT for integrated-hand bodies; this
+        also disables the legacy auto-force-armType=1 behavior.
+      • `armFpk` (string) overrides whatever orig wrote to BlockShell+0x08
+        post-orig with your hash. Use when shipping a Snake-skeleton-bound
+        custom arm fpk.
+      • `armFpk = false` writes 0 to BlockShell+0x08 post-orig (explicit
+        no-overlay). Useful when the arm slot needs to be force-cleared
+        even after orig populated something.
+      • For DDMale/DDFemale (PT=1/2) outfits the auto-force-armType=1
+        legacy behavior remains — those bodies generally need the arm
+        overlay. `armType` is consulted there too if you need to pin
+        a specific value.
+
+
   EXAMPLE 7 — camo parameter tweaks.
 
     -- Boost OLIVEDRAB's visibility against leaves
@@ -690,17 +795,273 @@ MODULE: V_TppEquip
     RETURNS: number (swpId)
 
     EXAMPLE:
-      V_TppEquip.DeclareSWPs("EQP_SWP_ChaffGrenade")
+      V_TppEquip.DeclareSWPs("SWP_ChaffGrenade")
 
   --------------------------------------------------------------------------
-  SetSupportWeaponType(supportWeaponId, swpType)
+  SetSupportWeaponType(equipId, swpType)
   --------------------------------------------------------------------------
 
-    Assigns a type to a support weapon.
+    Overrides the swpType returned by EquipIdTableImpl::GetSupportWeaponTypeId
+    for a specific equipId. The returned value drives every native consumer
+    that branches on support-weapon category — the throwing impl's blast
+    velocity precomputation, ThrowingImpl::GetBlastParamByEquipId (chooses
+    which BlastParameter row applies), decoy / mine / C4 detection helpers,
+    HUD routing, tutorial guides.
+
+    Pass a vanilla TppEquip.SWP_TYPE_* value (0..0x16) to make a custom equipId
+    behave like one of the existing categories (StunGrenade, C4, Decoy, etc.).
+    Pass an id returned by RegisterSupportWeaponCategory to bind the equipId to
+    a brand-new category — the framework still feeds the registered category's
+    inheritsFrom value to native consumers, so they keep working.
 
     PARAMETERS:
-      supportWeaponId  number
-      swpType          number
+      equipId  number  the equip id to override (vanilla or custom)
+      swpType  number  TppEquip.SWP_TYPE_* (0..0x16) OR a brand-new category id
+                       returned by RegisterSupportWeaponCategory
+
+    EXAMPLE:
+      local id = V_TppEquip.RegisterConstantEquipId("EQP_SWP_MyStunClone")
+      V_TppEquip.SetSupportWeaponType(id, TppEquip.SWP_TYPE_StunGrenade)
+
+  --------------------------------------------------------------------------
+  RemoveSupportWeaponType(equipId)
+  --------------------------------------------------------------------------
+
+    Removes a custom equipId -> swpType mapping previously installed via
+    SetSupportWeaponType. The native GetSupportWeaponTypeId lookup falls back
+    to its hardcoded vanilla switch.
+
+    PARAMETERS:
+      equipId  number
+
+  --------------------------------------------------------------------------
+  ClearSupportWeaponTypes()
+  --------------------------------------------------------------------------
+
+    Removes all custom equipId -> swpType mappings. Registered categories
+    themselves stay intact — only the per-equipId bindings are cleared.
+
+  --------------------------------------------------------------------------
+  RegisterSupportWeaponCategory{ name, blast = {...}, behavior = "..." }
+  --------------------------------------------------------------------------
+
+    Mints a brand-new SWP_TYPE id (>= 0x80) for a custom support-weapon
+    category. Writes TppEquip.SWP_TYPE_<name> = newId so Lua scripts can
+    reference it directly. Use SetSupportWeaponType(equipId, newId) to bind
+    one or more equipIds to the new category.
+
+    A custom category has three parts:
+
+      1. A FRESH IDENTITY — your `name` and a unique TppEquip.SWP_TYPE_<name>
+         id. Scripts branch on this with V_FrameWork.GetSupportWeaponCategory.
+
+      2. A NATIVE BEHAVIOR TEMPLATE — `behavior` picks which of the 5 native
+         throwable behaviors the engine dispatches your throwable through:
+         per-frame physics, animations, sound effects, detonation trigger.
+         The engine implements ONLY these 5 throwable behaviors, so a
+         category must pick one. Defaults to "grenade" when omitted.
+
+      3. CUSTOM BLAST PARAMETERS (optional) — `blast = { flag, maxRange,
+         optRange }` overrides the per-equipId BlastParameter the engine
+         returns for your category. Omit to use the behavior template's
+         default blast.
+
+    PARAMETERS:
+      name      string         short identifier; appended to "SWP_TYPE_" for
+                               the TppEquip table key (e.g. name="MyChaff"
+                               yields TppEquip.SWP_TYPE_MyChaff)
+
+      behavior  string|number  (optional, default "grenade") which native
+                               throw template runs when an equipId bound to
+                               this category is thrown:
+
+                                 "grenade"   - frag-style explosive
+                                 "smoke"     - smoke / stun / flares (alias: "stun")
+                                 "molotov"   - fire / incendiary       (alias: "fire")
+                                 "decoy"     - sound decoy
+                                 "kibidango" - animal lure              (alias: "lure")
+
+                               You can also pass a vanilla TppEquip.SWP_TYPE_*
+                               number (0..0x16) for direct selection.
+
+      blast     table | number (optional) per-category BlastParameter override.
+                               Two forms accepted:
+
+                               INLINE FORM — table:
+                                 flag       number  0..4 — same convention as
+                                                    vanilla EquipParameterTables.lua
+                                                    BlastParameter row[2]:
+                                                      0 = ground burst
+                                                      1 = smoke
+                                                      2 = stun-style
+                                                      3 = fire / molotov
+                                                      4 = flash-bang
+                                                      anything else = none
+                                 maxRange   number  meters (e.g. 10 = 10m)
+                                 optRange   number  meters (e.g. 8 = 8m)
+
+                               LINKED FORM — number (BLA_* id):
+                                 Pass any TppEquip.BLA_* value to point your
+                                 category at an existing BlastParameter row.
+                                 The framework returns a pointer into the
+                                 live EquipParameterTables.BlastParameter
+                                 table at hook time, so values reflect
+                                 whatever the table loader (or any
+                                 SetEquipParameters edit) wrote there.
+
+                                 This is the easiest way to reuse vanilla
+                                 blast curves (BLA_StunGrenade, BLA_C4,
+                                 BLA_SmokeGrenade, etc.) or to point at a
+                                 row your own mod populated via
+                                 V_TppEquip.SetEquipParameters.
+
+      damage    table | number  (optional) per-category DamageParameter override.
+                               Two forms:
+
+                               INLINE FORM — table (26-byte native struct).
+                               Field names match IH/muffins canonical
+                               DamageParameterTables.lua row layout:
+
+                                 lethalDamage     number  col 30 — primary lethal damage
+                                 staminaDamage    number  col 31 — non-lethal / stamina damage
+                                 impactForce      number  col 32 — impact force
+                                 lethalDamageUI   number  col 2  (×0.1 internally) — UI display value
+                                 unk3, unk4       number  cols 3, 4 (×0.1 internally)
+                                 unk5..unk8       number  cols 5..8 (raw int16)
+                                 unk11            number  col 11 (raw int8)
+                                 unk12            number  col 12 (×2 internally)
+                                 injureType       number  col 9   (e.g. TppDamage.INJ_TYPE_BULLET)
+                                 injurePart       number  col 10  (e.g. TppDamage.INJ_PART_ALL)
+                                 damageSource     number  col 29  (e.g. TppDamage.DAM_SOURCE_Handgun)
+                                 hitNPC           bool    col 13 (bit  0)
+                                 isTranq          bool    col 16 (bit  3) — needs non-lethal value
+                                 isStun           bool    col 17 (bit  4) — needs non-lethal value
+                                 isFire           bool    col 21 (bit  8)
+                                 isGas            bool    col 23 (bit 12)
+                                 isElectric       bool    col 26 (bit 10)
+                                 unk14, unk15, unk18, unk19, unk20,
+                                 unk22, unk24, unk25, unk27, unk28
+                                                  bool    remaining cols 14..28
+
+                               POSITIONAL row[] form (alternative to / combined
+                               with named fields). Paste a vanilla
+                               DamageParameterTables.lua row literally, omit
+                               column 1 (AttackId) — the framework
+                               auto-allocates a synthetic AttackId. 31
+                               entries covering cols 2..32, in order:
+
+                                 row = {
+                                     lethalDamageUI, unk3, unk4,
+                                     unk5, unk6, unk7, unk8,
+                                     injureType, injurePart, unk11, unk12,
+                                     hitNPC, unk14, unk15,
+                                     isTranq, isStun, unk18, unk19, unk20,
+                                     isFire, unk22, isGas, unk24, unk25,
+                                     isElectric, unk27, unk28,
+                                     damageSource,
+                                     lethalDamage, staminaDamage, impactForce,
+                                 }
+
+                               When both row[] and named keys are given,
+                               named keys override the row[] values. The
+                               framework allocates a synthetic AttackId in
+                               the 0x8000..0xFFFE range and plumbs it
+                               through:
+                                 - GetAttackIdByEquipId (returns synthetic id)
+                                 - DamageParameterTable::GetDamageParameter
+                                   (returns framework-owned struct for that id)
+
+                               LINKED FORM — number (existing AttackId):
+                                 damage = TppEquip.ATK_StunGrenade
+                                 Framework hooks GetAttackIdByEquipId to
+                                 return the chosen AttackId for your equipId;
+                                 the orig DamageParameterTable lookup picks
+                                 up the right vanilla row.
+
+      swpRow    table            (optional, but USUALLY REQUIRED for custom
+                               support weapons since the vanilla
+                               SupportWeaponParameter table has no row for
+                               your custom swpId).
+                                 ammo   number  capacity (clamped: <1 -> 0x3FFF)
+                                 p1     number  parameter 1 (×10 internally)
+                                 p2     number  parameter 2 (×10 internally)
+                                 grade  number  grade level (int8)
+                                 Returned by the
+                                 GetSupportWeaponParameterBlock hook so HUD
+                                 / inventory / ammo machinery knows what
+                                 your throwable's capacity is.
+
+    RETURNS:
+      number  the new category id (>= 0x80) on success, -1 on failure
+
+    EXAMPLE — minimal:
+
+      local id = V_TppEquip.RegisterSupportWeaponCategory{ name = "MyThing" }
+
+    EXAMPLE — link to an existing BlastParameter row:
+
+      local mySwpType = V_TppEquip.RegisterSupportWeaponCategory{
+          name     = "MyChaffClone",
+          behavior = "smoke",
+          blast    = TppEquip.BLA_StunGrenade,
+      }
+
+    EXAMPLE — fully self-contained "create, don't reuse" recipe:
+
+      local mySwpType = V_TppEquip.RegisterSupportWeaponCategory{
+          name     = "PlasmaCharge",
+          behavior = "grenade",
+
+          blast = {
+              flag = 0, maxRange = 18, optRange = 12,
+          },
+
+          damage = {
+              lethalDamage    = 4500,
+              staminaDamage   = 0,
+              impactForce     = 2000,
+              lethalDamageUI  = 4500,
+              injureType      = TppDamage.INJ_TYPE_DISLOCATED,
+              injurePart      = TppDamage.INJ_PART_ALL,
+              damageSource    = TppDamage.DAM_SOURCE_Throwing,
+              hitNPC          = 1,
+          },
+
+          swpRow = {
+              ammo = 6, p1 = 4, p2 = 0, grade = 5,
+          },
+      }
+      local equipId = V_TppEquip.RegisterConstantEquipId("EQP_SWP_PlasmaCharge")
+      local swpId   = V_TppEquip.DeclareSWPs("SWP_PlasmaCharge")
+      V_TppEquip.SetSupportWeaponType(equipId, mySwpType)
+      V_TppEquip.AddToEquipIdTable({
+          { equipId, TppEquip.EQP_TYPE_Throwing, swpId,
+            TppEquip.EQP_BLOCK_COMMON, partsPath, fpkPath },
+      })
+
+      See guide/examples/SupportWeaponSimple.lua and
+      guide/examples/SupportWeaponFull.lua for full working examples.
+
+  --------------------------------------------------------------------------
+  GetSupportWeaponCategory(equipId)
+  --------------------------------------------------------------------------
+
+    Returns the custom or registered category id for an equipId, including
+    brand-new categories above the vanilla 0..0x16 range. If the equipId has
+    no custom mapping, falls back to the vanilla GetSupportWeaponTypeId
+    result (0..0x17).
+
+    Use this in Lua scripts that need to recognize a brand-new category. The
+    standard TppEquip.GetSupportWeaponTypeId returns the inherited vanilla
+    swpType (so vanilla branching keeps working) and won't reveal the new id.
+
+    PARAMETERS:
+      equipId  number
+
+    RETURNS:
+      number  custom swpType (vanilla 0..0x16 OR registered category 0x80+),
+              or 0x17 if there's no custom mapping and the orig fallback
+              wasn't reached
 
   --------------------------------------------------------------------------
   AddToEquipIdTable(equipTable)
@@ -935,6 +1296,39 @@ MODULE: V_TppUI
 
     V_TppUI.SetMissionTelopBgTexturePath(
         "/Assets/tpp/ui/texture/my_telop_bg.ftex")
+
+  IDROID / MOTHER BASE DEVICE MESSAGES
+  ------------------------------------
+  V_FrameWork.ShowIDroidMessage(text [, flags])
+
+    Pushes a free-text message into the iDroid HUD announce-log.
+    Renders as the small fading toast at the top-left of the screen,
+    same channel as vanilla messages like "Tape Acquired" or
+    "Combat Unit Dispatched". The message also lands in the iDroid
+    Mission Log and survives sortie pause/resume.
+
+    text   — string. The literal text to display. Empty/nil silently
+             rejected (returns false).
+    flags  — number, optional. Lower 4 bits select the message
+             priority/category used by the HUD filter. 0 (default)
+             behaves like a normal info-priority message. Values 6,
+             8, 9, 10 are reserved for special HUD states. Bit 4
+             (0x10) marks the message as important. When in doubt,
+             pass 0 or omit.
+
+    Returns true if the message was accepted by the HUD, false if
+    the address bridge isn't available (unsupported build) or if
+    the HUD CommonDataManager isn't initialized yet (e.g. during the
+    title screen before any save is loaded).
+
+    The HUD silently drops messages while the game is loading,
+    paused, in cutscenes, or on game-over screens. This is vanilla
+    behavior — your call returns true but the toast won't appear
+    until gameplay resumes.
+
+  EXAMPLE:
+    V_FrameWork.ShowIDroidMessage("Mod loaded: hello world")
+    V_FrameWork.ShowIDroidMessage("Important alert", 0x10)
 
 
 ================================================================================
@@ -1195,13 +1589,22 @@ RAW API: V_FrameWork.*
     SetGunBasic(gunBasicTable)                      -> nothing
     AddToEquipIdTable(equipTable)                   -> nothing
     AddToEquipDevelopTable(key, developData)         -> number
-    SetSupportWeaponType(id, type)                  -> nothing
-    RemoveSupportWeaponType(id)                     -> nothing
+    SetSupportWeaponType(equipId, swpType)          -> nothing
+    RemoveSupportWeaponType(equipId)                -> nothing
     ClearSupportWeaponTypes()                       -> nothing
+    RegisterSupportWeaponCategory(spec)             -> number
+    GetSupportWeaponCategory(equipId)               -> number
     SetEquipParameters(params)                      -> nothing
     SetEquipIdIconFtexPath(equipId, path)            -> nothing
     ClearIconFtexPath(equipId)                      -> nothing
     ClearAllIconFtexPaths()                         -> nothing
+
+  IDROID / MBDVC MESSAGES
+    ShowIDroidMessage(text [, flags])               -> boolean
+        Pushes free-text into the iDroid HUD announce-log toast (same
+        channel as "Tape Acquired" / "Combat Unit Dispatched"). flags
+        lower 4 bits = message category; bit 0x10 = important. Returns
+        false if the build is unsupported or HUD isn't ready yet.
 
   MOD SYSTEM
     GetModFiles()                                   -> table
@@ -1256,7 +1659,7 @@ APPENDIX B: Develop Flow Field Names
   Raw  | Readable Name             | Description
   -----|---------------------------|----------------------------------
   p51  | sideGrade                 | Side-grade level
-  p52  | grade                     | Equipment grade/tier
+  p52  | grade                     | Equipment grade
   p53  | developGmpCost            | GMP cost to develop
   p54  | usageGmpCost              | GMP cost per use/deployment
   p55  | sectionLvForDevelop       | Required section level
