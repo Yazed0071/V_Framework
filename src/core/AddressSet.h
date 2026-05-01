@@ -111,6 +111,10 @@ namespace AddressSetRuntime
         uintptr_t TppMotherBaseManagement_RegCstDev = 0;
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
+        uintptr_t ThrowingImpl_GetBlastParamByEquipId = 0;
+        uintptr_t EquipParameterTablesImpl_GetSupportWeaponParameterBlock = 0;
+        uintptr_t EquipParameterTablesImpl_GetAttackIdByEquipId = 0;
+        uintptr_t fox_GetQuarkSystemTable = 0;
         uintptr_t DeclareAMs = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
@@ -132,7 +136,11 @@ namespace AddressSetRuntime
         uintptr_t LoadPlayerPartsFpk                = 0;
         uintptr_t LoadPlayerCamoFpk                 = 0;
         uintptr_t LoadPlayerSnakeBlackDiamondFpk    = 0;
+        uintptr_t LoadPlayerBionicArmFpk            = 0;
+        uintptr_t LoadPlayerSnakeFaceFpk            = 0;
+        uintptr_t InitLoadPlayerPartsParts          = 0;
         uintptr_t Player2BlockController_LoadPartsNew = 0;
+        uintptr_t Player2Impl_SetUpParts            = 0;
         uintptr_t UpdatePartsStatus                 = 0;
 
 
@@ -253,6 +261,10 @@ namespace AddressSetRuntime
 
 
         uintptr_t TornadoDualPatch                  = 0;
+
+
+        uintptr_t AnnounceLogView                   = 0;
+        uintptr_t HudCommonDataManager_Instance     = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -361,6 +373,10 @@ namespace AddressSetRuntime
             0x1466F3B10ull, // TppMotherBaseManagement_RegCstDev
             0x1466F4600ull, // TppMotherBaseManagement_RegFlwDev
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
+            0x1415D6D20ull, // ThrowingImpl_GetBlastParamByEquipId
+            0x140A3C980ull, // EquipParameterTablesImpl_GetSupportWeaponParameterBlock
+            0x140A3B5E0ull, // EquipParameterTablesImpl_GetAttackIdByEquipId
+            0x140BFF3F0ull, // fox_GetQuarkSystemTable
             0x1464AE4F0ull, // DeclareAMs
             0x145E62540ull, // GetIconFtexPath
             0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
@@ -375,7 +391,11 @@ namespace AddressSetRuntime
             0x146866C80ull, // LoadPlayerPartsFpk
             0x146864180ull, // LoadPlayerCamoFpk
             0x146864E30ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x140AE90F0ull, // LoadPlayerBionicArmFpk
+            0x140AE8DF0ull, // LoadPlayerSnakeFaceFpk
+            0x146235670ull, // InitLoadPlayerPartsParts (body geometry load — separate from LoadPartsNew FPK overlay path; bypasses bounds check `< 0x1C` in callers)
             0x1409B3B60ull, // Player2BlockController_LoadPartsNew
+            0x1409CA560ull, // Player2Impl_SetUpParts (state-machine state-1 caller; returns bool — false = vtable[0x4f8] bailed → body not bound, state stuck at 1)
             0x1409CC380ull, // UpdatePartsStatus
             0x141E02930ull, // ResolveSuitToPartsType
             0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
@@ -434,6 +454,8 @@ namespace AddressSetRuntime
             0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
             0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo (R&D MotherBase dev-menu "Request Supply Drop" handler — fires per click, takes flowIndex)
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
+            0x140863050ull, // AnnounceLogView (tpp::ui::hud::CommonDataManager::AnnounceLogView — free-text iDroid HUD toast)
+            0x142BF18F8ull, // HudCommonDataManager_Instance (DAT_142bf18f8 — global singleton ptr returned by GetInstance)
         };
 
         return value;
@@ -534,6 +556,10 @@ namespace AddressSetRuntime
 			0x0ull, // TppMotherBaseManagement_RegCstDev
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
+			0x0ull, // ThrowingImpl_GetBlastParamByEquipId
+			0x0ull, // EquipParameterTablesImpl_GetSupportWeaponParameterBlock
+			0x0ull, // EquipParameterTablesImpl_GetAttackIdByEquipId
+			0x0ull, // fox_GetQuarkSystemTable
             0x1480EE6F0ull, // DeclareAMs
 			0x147A6BD40ull, // GetIconFtexPath
             0x0ull, // LoadingTipsEv_UpdateActPhase
@@ -548,7 +574,11 @@ namespace AddressSetRuntime
             0x14844DE90ull, // LoadPlayerPartsFpk
             0x14844B070ull, // LoadPlayerCamoFpk
             0x14844CDE0ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x0ull, // LoadPlayerBionicArmFpk (JP TBD)
+            0x0ull, // LoadPlayerSnakeFaceFpk (JP TBD)
+            0x0ull, // InitLoadPlayerPartsParts (JP TBD)
             0x0ull, // Player2BlockController_LoadPartsNew
+            0x0ull, // Player2Impl_SetUpParts (JP TBD)
             0x0ull, // UpdatePartsStatus
             0x0ull, // ResolveSuitToPartsType
             0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
@@ -607,6 +637,8 @@ namespace AddressSetRuntime
             0x0ull, // IsEquipSuit
             0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
             0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
+            0x0ull, // AnnounceLogView (JP TBD)
+            0x0ull, // HudCommonDataManager_Instance (JP TBD)
         };
 
         return value;
