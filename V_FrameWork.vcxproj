@@ -19,7 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>17.0</VCProjectVersion>
+    <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{7de278a4-5c40-4bfb-a6bf-b74a0cd6d472}</ProjectGuid>
     <RootNamespace>Zozoverhaul</RootNamespace>
@@ -30,26 +30,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -190,6 +190,7 @@
     <ClInclude Include="src\hooks\equip\SetEquipParameters.h" />
     <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h" />
     <ClInclude Include="src\hooks\equip\RangeAttackEffects.h" />
+    <ClInclude Include="src\hooks\equip\EquipMotionData.h" />
     <!-- Hooks: Player -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
     <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
@@ -274,6 +275,7 @@
     <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp" />
     <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp" />
     <ClCompile Include="src\hooks\equip\RangeAttackEffects.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipMotionData.cpp" />
     <!-- Hooks: Player -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
     <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
