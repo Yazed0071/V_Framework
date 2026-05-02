@@ -41,7 +41,6 @@ extern "C" {
 #include "EquipDevelop_AddToEquipDevelopTable.h"
 #include "DeclareSWPs.h"
 #include "SetSupportWeaponTypeId.h"
-#include "RangeAttackEffects.h"
 #include "DeclareRCs.h"
 #include "DeclareAMs.h"
 #include "SetEquipParameters.h"
@@ -55,8 +54,6 @@ extern "C" {
 #include "../hooks/outfit/OutfitRegistry.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitSuitConditionApply.h"
-#include "../hooks/ui/MbCommonPopupHook.h"
-#include "../hooks/ui/MbDvcAnnouncePopupHook.h"
 
 
 namespace
@@ -1924,18 +1921,8 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     def.faceFpk    = ReadSubAssetField(L, 1, "faceFpk",    outfit::kSubAssetUseVanilla);
     def.skinFv2    = ReadSubAssetField(L, 1, "skinFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFpk = ReadSubAssetField(L, 1, "diamondFpk", outfit::kSubAssetDisabled);
-    def.armFpk     = ReadSubAssetField(L, 1, "armFpk",     outfit::kSubAssetUseVanilla);
 
     def.enableArm  = TryReadTableBoolField(L, 1, "enableArm", true);
-
-    {
-        int rawArmType = 0;
-        if (TryReadTableIntField(L, 1, "armType", rawArmType)
-            && rawArmType >= 0 && rawArmType <= 0xFE)
-        {
-            def.armType = static_cast<std::uint8_t>(rawArmType);
-        }
-    }
 
     def.camoFv2    = ReadSubAssetField(L, 1, "camoFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFv2 = ReadSubAssetField(L, 1, "diamondFv2", outfit::kSubAssetUseVanilla);
@@ -2207,38 +2194,6 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
 }
 
 
-static int __cdecl l_ShowIDroidPopup(lua_State* L)
-{
-    const char* text = GetLuaString(L, 1);
-    if (!text || !*text)
-    {
-        Log("[V_FrameWork] ShowIDroidPopup: empty or missing text\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    std::uint8_t reserveId = 0x01;
-    if (LuaIsNumber(L, 2))
-    {
-        const int requested = GetLuaInt(L, 2);
-        if (requested < 0 || requested > 0xFF || requested == 0x0E)
-        {
-            Log("[V_FrameWork] ShowIDroidPopup: reserveId %d invalid (range 0..0xFF, excluding 0x0E sentinel) — defaulting to 0x01\n", requested);
-        }
-        else
-        {
-            reserveId = static_cast<std::uint8_t>(requested);
-        }
-    }
-
-    const char* langKey = LuaIsString(L, 3) ? GetLuaString(L, 3) : nullptr;
-
-    const bool ok = MbDvcAnnouncePopup::ShowPopup(text, reserveId, langKey);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
 static int __cdecl l_EnableTornadoDual(lua_State* L)
 {
     static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
@@ -2349,9 +2304,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
     { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
-    { "RegisterSupportWeaponCategory",          SupportWeaponType::Lua_RegisterSupportWeaponCategory },
-    { "GetSupportWeaponCategory",               SupportWeaponType::Lua_GetSupportWeaponCategory },
-    { "RequestChaffAt",                         RangeAttackEffects::Lua_RequestChaffAt },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
     { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
     { "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
@@ -2377,9 +2329,6 @@ static luaL_Reg g_VFrameWorkLib[] =
 
 
     { "EnableTornadoDual",                      l_EnableTornadoDual },
-
-
-    { "ShowIDroidPopup",                        l_ShowIDroidPopup },
 
     { nullptr, nullptr }
 };
@@ -2523,25 +2472,7 @@ bool Install_SetLuaFunctions_Hook()
     supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
     supportWeaponTypeDeps.LuaType = &LuaType;
     supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
-    supportWeaponTypeDeps.GetLuaTop = &GetLuaTop;
-    supportWeaponTypeDeps.LuaGetField = &LuaGetField;
-    supportWeaponTypeDeps.LuaPop = &LuaPop;
-    supportWeaponTypeDeps.GetLuaString = &GetLuaString;
-    supportWeaponTypeDeps.PushLuaNumber = &PushLuaNumber;
-    supportWeaponTypeDeps.LuaPushString = &LuaPushString;
-    supportWeaponTypeDeps.LuaCreateTable = &LuaCreateTable;
-    supportWeaponTypeDeps.LuaRawSet = &LuaRawSet;
-    supportWeaponTypeDeps.LuaSetTable = &LuaSetTable;
-    supportWeaponTypeDeps.LuaRawGetI = &LuaRawGetI;
-    supportWeaponTypeDeps.LuaObjLen = &LuaObjLen;
     SupportWeaponType::Bind(supportWeaponTypeDeps);
-
-    RangeAttackEffects::Deps rangeAttackEffectsDeps{};
-    rangeAttackEffectsDeps.ResolveLuaApi = &ResolveLuaApi;
-    rangeAttackEffectsDeps.LuaType       = &LuaType;
-    rangeAttackEffectsDeps.GetLuaNumber  = &GetLuaNumber;
-    rangeAttackEffectsDeps.PushLuaNumber = &PushLuaNumber;
-    RangeAttackEffects::Bind(rangeAttackEffectsDeps);
 
     DeclareRCs::Deps declareRcDeps{};
     declareRcDeps.ResolveLuaApi = &ResolveLuaApi;

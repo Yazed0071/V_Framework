@@ -106,15 +106,6 @@ namespace
         return kMinimumCustomEquipId;
     }
 
-    static std::int32_t ComputeMinimumEquipIdForName(const std::string& eqpName)
-    {
-        if (eqpName.compare(0, 8, "EQP_SWP_") == 0)
-        {
-            return 0xEC;
-        }
-        return kMinimumCustomEquipId;
-    }
-
     bool IsCustomEquipIdInSafeRange(const std::int32_t equipId)
     {
 
@@ -212,7 +203,7 @@ namespace RegisterConstantEquipId
 
         g_Deps.LuaPop(L, 1);
 
-        const std::int32_t minimumEquipId = ComputeMinimumEquipIdForName(eqpName);
+        const std::int32_t minimumEquipId = ComputeMinimumCustomEquipId(L, tppEquipIndex);
 
         std::int32_t resolvedEquipId = 0;
         if (!CustomEquipIdState::ResolveOrCreatePersistentEquipId(

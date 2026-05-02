@@ -7,177 +7,217 @@
     <Filter Include="Lua">
       <UniqueIdentifier>{A1B2C3D4-1111-2222-3333-444455556666}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Hooks\Soldier">
-      <UniqueIdentifier>{A1B2C3D4-2222-3333-4444-555566667777}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Hooks\Equip">
-      <UniqueIdentifier>{A1B2C3D4-3333-4444-5555-666677778888}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Hooks\Player">
-      <UniqueIdentifier>{A1B2C3D4-4444-5555-6666-777788889999}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Hooks\Sound">
-      <UniqueIdentifier>{A1B2C3D4-5555-6666-7777-88889999AAAA}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Hooks\UI">
-      <UniqueIdentifier>{A1B2C3D4-6666-7777-8888-9999AAAABBBB}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Hooks\Pickable">
-      <UniqueIdentifier>{A1B2C3D4-7777-8888-9999-AAAABBBBCCCC}</UniqueIdentifier>
-    </Filter>
     <Filter Include="ThirdParty">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <!-- Core headers -->
-    <ClInclude Include="src\core\framework.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\pch.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\AddressSet.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\HookUtils.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\FeatureModule.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\BuiltInModules.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\MissionCodeGuard.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\V_FrameWorkState.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\V_FrameWorkModLoader.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\FoxHashes.h"><Filter>Core</Filter></ClInclude>
-    <ClInclude Include="src\core\log.h"><Filter>Core</Filter></ClInclude>
+    <ClInclude Include="src\core\framework.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\pch.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\AddressSet.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\HookUtils.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\FeatureModule.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\BuiltInModules.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\MissionCodeGuard.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\V_FrameWorkState.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\V_FrameWorkModLoader.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\FoxHashes.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\log.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <!-- Third-party headers -->
-    <ClInclude Include="include\lauxlib.h"><Filter>ThirdParty</Filter></ClInclude>
-    <ClInclude Include="include\lua.h"><Filter>ThirdParty</Filter></ClInclude>
-    <ClInclude Include="include\luaconf.h"><Filter>ThirdParty</Filter></ClInclude>
-    <ClInclude Include="include\lualib.h"><Filter>ThirdParty</Filter></ClInclude>
-    <ClInclude Include="include\MinHook.h"><Filter>ThirdParty</Filter></ClInclude>
+    <ClInclude Include="include\lauxlib.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lua.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="include\luaconf.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lualib.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="include\MinHook.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
     <!-- Soldier headers -->
-    <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\LostHostageHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\VIPRadioHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\VIPSoundRecoveryHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h"><Filter>Hooks\Soldier</Filter></ClInclude>
-    <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h"><Filter>Hooks\Soldier</Filter></ClInclude>
     <!-- Equip headers -->
-    <ClInclude Include="src\hooks\equip\CustomEquipIdState.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\DeclareAMs.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\DeclareRCs.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\DeclareSWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\DeclareWPs.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\EquipIdCompression.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\SetEquipParameters.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h"><Filter>Hooks\Equip</Filter></ClInclude>
-    <ClInclude Include="src\hooks\equip\RangeAttackEffects.h"><Filter>Hooks\Equip</Filter></ClInclude>
     <!-- Player headers -->
-    <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\CustomSuitRegistry.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerPartsPathHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerSuitResolverHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\ItemSelectorSuitCommitHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\MissionPrepCommitHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerFaceFovaGateHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\PlayerFaceEquipRepairHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\CharacterSelectorPreserveHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\CurrentSuitQueryHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\SuitVariantHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\MissionPrepUpdateLoadMarkHook.h"><Filter>Hooks\Player</Filter></ClInclude>
-    <ClInclude Include="src\hooks\player\InitCamoufTable.h"><Filter>Hooks\Player</Filter></ClInclude>
     <!-- Sound headers -->
-    <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h"><Filter>Hooks\Sound</Filter></ClInclude>
-    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.h"><Filter>Hooks\Sound</Filter></ClInclude>
     <!-- UI headers -->
-    <ClInclude Include="src\hooks\ui\UiTextureOverrides.h"><Filter>Hooks\UI</Filter></ClInclude>
-    <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h"><Filter>Hooks\UI</Filter></ClInclude>
-    <ClInclude Include="src\hooks\ui\MbCommonPopupHook.h"><Filter>Hooks\UI</Filter></ClInclude>
-    <ClInclude Include="src\hooks\ui\MbDvcAnnouncePopupHook.h"><Filter>Hooks\UI</Filter></ClInclude>
     <!-- Pickable headers -->
-    <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h"><Filter>Hooks\Pickable</Filter></ClInclude>
+    <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h" />
+    <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />
+    <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h" />
+    <ClInclude Include="src\hooks\soldier\LostHostageHook.h" />
+    <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h" />
+    <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h" />
+    <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h" />
+    <ClInclude Include="src\hooks\soldier\VIPRadioHook.h" />
+    <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h" />
+    <ClInclude Include="src\hooks\soldier\VIPSoundRecoveryHook.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h" />
+    <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h" />
+    <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
+    <ClInclude Include="src\hooks\equip\CustomEquipIdState.h" />
+    <ClInclude Include="src\hooks\equip\DeclareAMs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareRCs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareSWPs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareWPs.h" />
+    <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
+    <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
+    <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h" />
+    <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h" />
+    <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h" />
+    <ClInclude Include="src\hooks\equip\SetEquipParameters.h" />
+    <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h" />
+    <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
+    <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\CustomHeadRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitEquippedState.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitCamoBonus.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitGetCamoufValue.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitFv2Paths.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitHeadOption.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitItemSelector.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropSetup.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSuitConditionApply.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropPickup.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitUniformsRow.h" />
+    <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
+    <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
+    <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.h" />
+    <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
+    <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
+    <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
-    <ClCompile Include="src\core\dllmain.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\pch.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\BuiltInModules.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\FeatureModule.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\MissionCodeGuard.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\V_FrameWorkState.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\V_FrameWorkModLoader.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\FoxHashes.cpp"><Filter>Core</Filter></ClCompile>
-    <ClCompile Include="src\core\log.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="src\core\dllmain.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\pch.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\BuiltInModules.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\FeatureModule.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\MissionCodeGuard.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\V_FrameWorkState.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\V_FrameWorkModLoader.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\FoxHashes.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\log.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <!-- Lua sources -->
-    <ClCompile Include="src\lua\SetLuaFunctions.cpp"><Filter>Lua</Filter></ClCompile>
+    <ClCompile Include="src\lua\SetLuaFunctions.cpp">
+      <Filter>Lua</Filter>
+    </ClCompile>
     <!-- Soldier sources -->
-    <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\State_StandHoldupCancelLookToPlayer.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\VIPSoundRecoveryHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
-    <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp"><Filter>Hooks\Soldier</Filter></ClCompile>
     <!-- Equip sources -->
-    <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\DeclareAMs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\DeclareRCs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\DeclareWPs.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
-    <ClCompile Include="src\hooks\equip\RangeAttackEffects.cpp"><Filter>Hooks\Equip</Filter></ClCompile>
     <!-- Player sources -->
-    <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\CustomSuitRegistry.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerPartsPathHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerSuitResolverHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\ItemSelectorSuitCommitHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\MissionPrepCommitHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerFaceFovaGateHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\PlayerFaceEquipRepairHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\CharacterSelectorPreserveHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\CurrentSuitQueryHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\SuitVariantHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\MissionPrepUpdateLoadMarkHook.cpp"><Filter>Hooks\Player</Filter></ClCompile>
-    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp"><Filter>Hooks\Player</Filter></ClCompile>
     <!-- Sound sources -->
-    <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
-    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.cpp"><Filter>Hooks\Sound</Filter></ClCompile>
     <!-- UI sources -->
-    <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp"><Filter>Hooks\UI</Filter></ClCompile>
-    <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp"><Filter>Hooks\UI</Filter></ClCompile>
-    <ClCompile Include="src\hooks\ui\MbCommonPopupHook.cpp"><Filter>Hooks\UI</Filter></ClCompile>
-    <ClCompile Include="src\hooks\ui\MbDvcAnnouncePopupHook.cpp"><Filter>Hooks\UI</Filter></ClCompile>
     <!-- Pickable sources -->
-    <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp"><Filter>Hooks\Pickable</Filter></ClCompile>
+    <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp" />
+    <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp" />
+    <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp" />
+    <ClCompile Include="src\hooks\soldier\State_StandHoldupCancelLookToPlayer.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPSoundRecoveryHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp" />
+    <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
+    <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareAMs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareRCs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareWPs.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp" />
+    <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp" />
+    <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp" />
+    <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp" />
+    <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
+    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\CustomHeadRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitEquippedState.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitCamoBonus.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitGetCamoufValue.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitFv2Paths.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitHeadOption.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitItemSelector.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropSetup.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSuitConditionApply.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropPickup.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitUniformsRow.cpp" />
+    <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
+    <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />
+    <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
+    <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
+    <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
+    <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="lib\libMinHook.x64.lib" />
+    <Library Include="lib\libMinHook.x86.lib" />
   </ItemGroup>
 </Project>

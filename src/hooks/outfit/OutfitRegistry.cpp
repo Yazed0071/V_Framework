@@ -298,8 +298,6 @@ namespace outfit
         slot->skinFv2         = def.skinFv2;
         slot->diamondFpk      = def.diamondFpk;
         slot->enableArm       = def.enableArm;
-        slot->armType         = def.armType;
-        slot->armFpk          = def.armFpk;
 
 
         slot->camoFv2             = def.camoFv2;
@@ -437,8 +435,7 @@ namespace outfit
 
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
             "playerType=%u partsType=0x%02X selector=0x%02X "
-            "enableHead=%d enableArm=%d armType=0x%02X "
-            "defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
+            "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
             "langEquipNameHash=0x%016llX camoBonusType=%s "
             "variantCount=%u variantSelectors=[%s] "
             "variantDisplayNameHashes=[%s] "
@@ -450,8 +447,6 @@ namespace outfit
             static_cast<unsigned>(partsType),
             static_cast<unsigned>(selector),
             def.enableHead ? 1 : 0,
-            def.enableArm ? 1 : 0,
-            static_cast<unsigned>(def.armType),
             static_cast<unsigned>(def.defaultSoldierFaceId),
             static_cast<unsigned>(def.headOptionCount),
             def.supportsHeadOptions ? 1 : 0,

@@ -77,10 +77,4 @@ function this.ClearMissionTelopBgTexture()
     V_FrameWork.ClearLoadingSplashTextures()
 end
 
-
-function this.ShowIDroidPopup(text, popupType)
-    return V_FrameWork.ShowIDroidPopup(text, popupType or 1)
-end
-
-
 return this
