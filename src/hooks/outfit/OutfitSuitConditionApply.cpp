@@ -42,12 +42,12 @@ namespace
     static bool                                 g_InstalledSetInitial = false;
 
 
-    constexpr std::size_t kInfoOff_PartsType  = 0x00;  // u8
-    constexpr std::size_t kInfoOff_CamoType   = 0x01;  // u8
-    constexpr std::size_t kInfoOff_Variant    = 0x02;  // u8 (matches OutfitCommit::kBlobOff_Variant)
-    constexpr std::size_t kInfoOff_FaceId     = 0x03;  // u16
-    constexpr std::size_t kInfoOff_Flags      = 0xBC;  // u32
-    constexpr std::size_t kInfoOff_PlayerType = 0xC0;  // u8
+    constexpr std::size_t kInfoOff_PartsType  = 0x00;
+    constexpr std::size_t kInfoOff_CamoType   = 0x01;
+    constexpr std::size_t kInfoOff_Variant    = 0x02;
+    constexpr std::size_t kInfoOff_FaceId     = 0x03;
+    constexpr std::size_t kInfoOff_Flags      = 0xBC;
+    constexpr std::size_t kInfoOff_PlayerType = 0xC0;
 
 
     static bool InspectAndRewriteLoadout(void* info, const char* tag)
@@ -274,8 +274,11 @@ namespace
             const std::uint8_t effectivePT =
                 playerTypeValid ? playerType : livePT;
             const bool canCheckPT = playerTypeValid || (livePT != 0xFF);
+            // Snake↔Avatar bridging: a Snake-registered outfit is acceptable
+            // on the Avatar slot and vice versa, so don't scrub on that pair.
             const bool clearMismatch = canCheckPT
-                                    && (effectivePT != chosen->playerType);
+                                    && !outfit::IsPlayerTypeCompatible(
+                                            chosen->playerType, effectivePT);
 
 
             if (clearMismatch)

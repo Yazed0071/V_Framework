@@ -83,7 +83,7 @@ namespace outfit
                 auto getIdx = reinterpret_cast<GetIdx_t>(vt[0xE0 / 8]);
                 if (!getIdx) return -1;
                 const std::uint16_t row = getIdx(edc, static_cast<std::uint16_t>(developId));
-                if (row == 0 || row == 0xFFFF) return -1;   // sentinel
+                if (row == 0 || row == 0xFFFF) return -1;
                 return static_cast<std::int32_t>(row);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)

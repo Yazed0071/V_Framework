@@ -132,6 +132,8 @@ namespace AddressSetRuntime
         uintptr_t LoadPlayerPartsFpk                = 0;
         uintptr_t LoadPlayerCamoFpk                 = 0;
         uintptr_t LoadPlayerSnakeBlackDiamondFpk    = 0;
+        uintptr_t LoadPlayerBionicArmFpk            = 0;
+        uintptr_t LoadPlayerSnakeFaceFpk            = 0;
         uintptr_t Player2BlockController_LoadPartsNew = 0;
         uintptr_t UpdatePartsStatus                 = 0;
 
@@ -237,6 +239,8 @@ namespace AddressSetRuntime
 
         uintptr_t LoadPlayerCamoFv2                = 0;
         uintptr_t LoadPlayerSnakeBlackDiamondFv2   = 0;
+        uintptr_t LoadPlayerBionicArmFv2           = 0;
+        uintptr_t LoadPlayerSnakeFaceFv2           = 0;
 
 
         uintptr_t GetCurrentSuitFlowIndex           = 0;
@@ -375,6 +379,8 @@ namespace AddressSetRuntime
             0x146866C80ull, // LoadPlayerPartsFpk
             0x146864180ull, // LoadPlayerCamoFpk
             0x146864E30ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x140AE90F0ull, // LoadPlayerBionicArmFpk (leaf w/ hardcoded partsType whitelist 0..0x19; custom range 0x40+ rejected, hook substitutes 0x01)
+            0x140AE8DF0ull, // LoadPlayerSnakeFaceFpk (leaf w/ hardcoded partsType whitelist; same fix shape as BionicArm)
             0x1409B3B60ull, // Player2BlockController_LoadPartsNew
             0x1409CC380ull, // UpdatePartsStatus
             0x141E02930ull, // ResolveSuitToPartsType
@@ -426,6 +432,8 @@ namespace AddressSetRuntime
             0x1416AF270ull, // ItemSelectorRecordCallFunc_UpdateRecords (variant cycle-button label resolver)
             0x146863F80ull, // LoadPlayerCamoFv2
             0x146864C80ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x140AE9040ull, // LoadPlayerBionicArmFv2 (leaf w/ hardcoded partsType whitelist 0..0x19; custom range 0x40+ rejected, hook substitutes 0x01)
+            0x140AE8CE0ull, // LoadPlayerSnakeFaceFv2 (leaf w/ hardcoded partsType whitelist; same fix shape as BionicArm)
             0x140955C70ull, // GetCurrentSuitFlowIndex
             0x1416BB9C0ull, // GetEquipIdFromLoadoutInfo
             0x14951F860ull, // IsEquipDeveloped
@@ -548,6 +556,8 @@ namespace AddressSetRuntime
             0x14844DE90ull, // LoadPlayerPartsFpk
             0x14844B070ull, // LoadPlayerCamoFpk
             0x14844CDE0ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x0ull, // LoadPlayerBionicArmFpk (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // LoadPlayerSnakeFaceFpk (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // Player2BlockController_LoadPartsNew
             0x0ull, // UpdatePartsStatus
             0x0ull, // ResolveSuitToPartsType
@@ -599,6 +609,8 @@ namespace AddressSetRuntime
             0x0ull, // ItemSelectorRecordCallFunc_UpdateRecords (JP unknown; hook silently no-ops if unresolved)
             0x0ull, // LoadPlayerCamoFv2
             0x0ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x0ull, // LoadPlayerBionicArmFv2 (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // LoadPlayerSnakeFaceFv2 (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // GetCurrentSuitFlowIndex
             0x0ull, // GetEquipIdFromLoadoutInfo
             0x0ull, // IsEquipDeveloped

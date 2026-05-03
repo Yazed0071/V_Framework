@@ -28,14 +28,14 @@ namespace
 
 
     constexpr std::size_t kOff_ChildObject       = 0x38;
-    constexpr std::size_t kOff_PartsTypeArray    = 0x9C70;  // [index*4] byte
+    constexpr std::size_t kOff_PartsTypeArray    = 0x9C70;
     constexpr std::size_t kOff_QuarkWindowHandle = 0x9FE0;
     constexpr std::size_t kOff_HashOutBuffer     = 0xA0D0;
 
 
-    constexpr std::size_t kOff_PanelRowCount    = 0x94;  // u32
-    constexpr std::size_t kOff_PanelCursor      = 0x9C;  // i32
-    constexpr std::size_t kOff_PanelScrollPage  = 0xA0;  // i32
+    constexpr std::size_t kOff_PanelRowCount    = 0x94;
+    constexpr std::size_t kOff_PanelCursor      = 0x9C;
+    constexpr std::size_t kOff_PanelScrollPage  = 0xA0;
 
 
     constexpr std::size_t kOff_ChildToUiSetter   = 0x20;

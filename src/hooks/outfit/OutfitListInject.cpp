@@ -95,8 +95,8 @@ namespace
     constexpr std::size_t kSuitInfoEntrySize = 0x68;
 
 
-    constexpr std::size_t kProxyTableEntries = 0x400;  // 1024
-    constexpr std::size_t kVanillaCopyEntries = 0x300; // 768
+    constexpr std::size_t kProxyTableEntries = 0x400;
+    constexpr std::size_t kVanillaCopyEntries = 0x300;
     constexpr std::size_t kProxyTableBytes   = kProxyTableEntries * kSuitInfoEntrySize;
 
 
@@ -107,7 +107,10 @@ namespace
     static bool ShouldInjectOutfit(const outfit::OutfitEntry* e, std::uint8_t livePT)
     {
         if (!e) return false;
-        if (e->playerType != livePT) return false;
+        // Snake↔Avatar bridging: include outfits registered for the bridged
+        // twin in the live player's UNIFORMS list (so a Snake outfit appears
+        // when playing Avatar and vice versa).
+        if (!outfit::IsPlayerTypeCompatible(e->playerType, livePT)) return false;
         if (e->flowIndex == 0 || e->flowIndex >= kProxyTableEntries) return false;
         if (!outfit::IsFlowIndexDevelopedByOrig(e->flowIndex)) return false;
         return true;
@@ -163,8 +166,8 @@ namespace
 
             if (fi < kVanillaCopyEntries
              && g_ExtendedTable[off + 0x36] != 0) continue;
-            g_ExtendedTable[off + 0x36] = 0x14; // suit category
-            g_ExtendedTable[off + 0x37] = 0;    // not stub-row marker
+            g_ExtendedTable[off + 0x36] = 0x14;
+            g_ExtendedTable[off + 0x37] = 0;
         }
     }
 
@@ -231,7 +234,8 @@ namespace
             if (outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry)
             {
                 const std::uint8_t livePT = outfit::ReadLivePlayerType();
-                if (livePT != 0xFF && entry->playerType != livePT)
+                if (livePT != 0xFF
+                    && !outfit::IsPlayerTypeCompatible(entry->playerType, livePT))
                 {
 
 
@@ -272,7 +276,7 @@ namespace
             return;
         }
         const std::uint32_t row = rowPost - 1;
-        if (row > 0x3F) return;  // panel max ~64 rows
+        if (row > 0x3F) return;
 
         const outfit::OutfitEntry* entry = nullptr;
         if (!outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) || !entry)
@@ -356,8 +360,8 @@ namespace
     {
         const std::uintptr_t v = reinterpret_cast<std::uintptr_t>(p);
         if (v == 0) return false;
-        if (v < 0x10000) return false;          // null page region
-        if ((v & 0x7) != 0) return false;        // qword-aligned
+        if (v < 0x10000) return false;
+        if ((v & 0x7) != 0) return false;
 
         if (v >= 0x800000000000ull) return false;
         return true;
@@ -551,7 +555,7 @@ namespace
             auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
 
             const std::uint32_t row = *reinterpret_cast<std::uint32_t*>(base + 0x008);
-            if (row > 0x3F) return;  // sanity, panel max ~64 rows
+            if (row > 0x3F) return;
 
             const auto variantTable =
                 *reinterpret_cast<std::uint8_t* const*>(base + 0x1F0);
@@ -764,7 +768,7 @@ namespace
                     *reinterpret_cast<std::uint8_t*>(base + 0x548 + addedIdx * 0xf) = 1;
 
 
-                    const std::uint64_t cellOff = addedIdx * 0xb4;  // row*0xb4 + col*0xc with col=0
+                    const std::uint64_t cellOff = addedIdx * 0xb4;
                     *reinterpret_cast<std::uint32_t*>(base + 0xcc40 + cellOff) = 0;
                     *reinterpret_cast<std::uint32_t*>(base + 0xcc44 + cellOff) = 0xff;
                 }

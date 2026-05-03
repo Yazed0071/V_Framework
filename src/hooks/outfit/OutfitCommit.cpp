@@ -27,7 +27,7 @@ namespace
     constexpr std::size_t kBlobOff_Selector     = 0x01;
     constexpr std::size_t kBlobOff_Variant      = 0x02;
     constexpr std::size_t kBlobOff_HeadOption   = 0x03;
-    constexpr std::size_t kBlobOff_ApplyFlag    = 0xBC;  // u32, observed = 0x81
+    constexpr std::size_t kBlobOff_ApplyFlag    = 0xBC;
     constexpr std::size_t kBlobOff_PlayerType   = 0xC0;
     constexpr std::size_t kBlobLogSpan          = 0xC4;
 
@@ -132,7 +132,10 @@ namespace
                 for (std::size_t i = 0; i < n; ++i)
                 {
                     if (!all[i]) continue;
-                    if (all[i]->playerType != livePT) continue;
+                    // Snake↔Avatar bridging: count Snake outfits as live-PT
+                    // candidates when the live player is Avatar, and vice versa.
+                    if (!outfit::IsPlayerTypeCompatible(all[i]->playerType, livePT))
+                        continue;
                     ++livePtCount;
                     if (livePtCount == 1) livePtUnique = all[i];
                 }
@@ -150,14 +153,19 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                blob[kBlobOff_PlayerType] = entry->playerType;
+                // Write the LIVE playerType (when known) so the engine processes
+                // the outfit for the actual character on screen, even when the
+                // outfit was registered for the bridged twin (Snake↔Avatar).
+                blob[kBlobOff_PlayerType] =
+                    (livePT != 0xFF) ? livePT : entry->playerType;
 
                 Log("[OutfitCommit] rewrote BROKEN-custom blob: "
-                    "developId=%u partsType=0x%02X selector=0x%02X variant=%u playerType=%u\n",
+                    "developId=%u partsType=0x%02X selector=0x%02X variant=%u playerType=%u (registered=%u)\n",
                     static_cast<unsigned>(entry->developId),
                     static_cast<unsigned>(entry->partsType),
                     static_cast<unsigned>(entry->selectorCode),
                     static_cast<unsigned>(variantIdx),
+                    static_cast<unsigned>(blob[kBlobOff_PlayerType]),
                     static_cast<unsigned>(entry->playerType));
 
                 outfit::ClearPendingOutfitDevelopId();
@@ -174,7 +182,9 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                blob[kBlobOff_PlayerType] = livePtUnique->playerType;
+                // Live player type wins over registered (Snake↔Avatar bridging).
+                blob[kBlobOff_PlayerType] =
+                    (livePT != 0xFF) ? livePT : livePtUnique->playerType;
 
                 Log("[OutfitCommit] rewrote BROKEN-custom blob via "
                     "live-PT fallback: livePT=%u developId=%u "

@@ -57,7 +57,8 @@ namespace
 
         const outfit::OutfitEntry* entry = nullptr;
         if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry) return nullptr;
-        if (entry->playerType != ply) return nullptr;
+        // Snake↔Avatar bridging: outfit registered for one applies on the other.
+        if (!outfit::IsPlayerTypeCompatible(entry->playerType, ply)) return nullptr;
         return entry;
     }
 

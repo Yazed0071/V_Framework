@@ -42,7 +42,7 @@ namespace
     constexpr std::uint32_t kStockGunBasicMaxWeaponId = 0x202;
     constexpr std::size_t kGunBasicEntrySize = 0x0C;
     constexpr std::ptrdiff_t kEquipParameterTablesImpl_GunBasicPtr_Offset = 0x08;
-    constexpr std::size_t kStockGunBasicByteSize = 0x1818;  // 0x202 rows × 12 bytes
+    constexpr std::size_t kStockGunBasicByteSize = 0x1818;
 
     std::vector<GunBasicEntry> g_CustomGunBasicEntries;
     std::mutex g_CustomGunBasicMutex;

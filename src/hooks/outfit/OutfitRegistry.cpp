@@ -72,7 +72,7 @@ namespace
             for (const auto& e : g_Entries)
             {
                 if (e.used && e.partsType == hint)
-                    return 0xFF;  // collision
+                    return 0xFF;
             }
             return hint;
         }
@@ -599,6 +599,18 @@ namespace outfit
         return false;
     }
 
+    bool IsPlayerTypeCompatible(std::uint8_t entryPlayerType,
+                                std::uint8_t queriedPlayerType)
+    {
+        if (entryPlayerType == queriedPlayerType) return true;
+        if ((entryPlayerType == kPlayerType_Snake
+                && queriedPlayerType == kPlayerType_Avatar)
+         || (entryPlayerType == kPlayerType_Avatar
+                && queriedPlayerType == kPlayerType_Snake))
+            return true;
+        return false;
+    }
+
     bool TryGetOutfitByFlowIndexForPlayerType(
             std::uint16_t flowIndex, std::uint8_t playerType,
             const OutfitEntry** outEntry)
@@ -606,7 +618,8 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
-            if (e.used && e.flowIndex == flowIndex && e.playerType == playerType)
+            if (e.used && e.flowIndex == flowIndex
+                && IsPlayerTypeCompatible(e.playerType, playerType))
             {
                 if (outEntry) *outEntry = &e;
                 return true;
@@ -622,7 +635,8 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
-            if (e.used && e.developId == developId && e.playerType == playerType)
+            if (e.used && e.developId == developId
+                && IsPlayerTypeCompatible(e.playerType, playerType))
             {
                 if (outEntry) *outEntry = &e;
                 return true;
@@ -711,9 +725,9 @@ namespace outfit
 
         __try
         {
-            state[0xF8] = partsType;     // playerPartsType
-            state[0xF9] = selectorCode;  // playerCamoType
-            state[0xFB] = playerType;    // playerType
+            state[0xF8] = partsType;
+            state[0xF9] = selectorCode;
+            state[0xFB] = playerType;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

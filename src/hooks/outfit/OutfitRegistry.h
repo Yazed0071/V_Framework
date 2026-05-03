@@ -27,7 +27,7 @@ namespace outfit
     constexpr std::uint8_t kVanillaCamoTypeMax      = 116;
     constexpr std::uint8_t kCamoVirtualIdStart      = 200;
     constexpr std::uint8_t kCamoVirtualIdEnd        = 254;
-    constexpr std::uint8_t kCamoBonusTypeUnset      = 0xFF;    // "no pin" sentinel
+    constexpr std::uint8_t kCamoBonusTypeUnset      = 0xFF;
 
 
     constexpr std::size_t  kMaxOutfits = 128;
@@ -37,8 +37,8 @@ namespace outfit
 
 
     constexpr std::size_t  kMaxVariantsPerOutfit    = 15;
-    constexpr std::uint16_t kHeadOption_None        = 0x400;  // game-native NONE sentinel
-    constexpr std::uint16_t kHeadOption_Balaclava   = 0x210;  // BALACLAVA equipId (vanilla SP base) — verified 2026-04-29 via runtime buffer dump of vanilla suit's HEAD OPTION submenu
+    constexpr std::uint16_t kHeadOption_None        = 0x400;
+    constexpr std::uint16_t kHeadOption_Balaclava   = 0x210;
 
 
     struct OutfitVariant
@@ -227,6 +227,16 @@ namespace outfit
 
     bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
                                      const OutfitEntry** outEntry);
+
+
+    // Returns true when an outfit registered for `entryPlayerType` should be
+    // accepted as a match for the live player whose type is `queriedPlayerType`.
+    // Exact matches always pass. Snake (kPlayerType_Snake=0) and Avatar
+    // (kPlayerType_Avatar=3) share skeleton + proportions, so outfits authored
+    // for one render correctly on the other and are bridged bidirectionally.
+    // DDMale (1) and DDFemale (2) are NOT bridged (different skeletons).
+    bool IsPlayerTypeCompatible(std::uint8_t entryPlayerType,
+                                std::uint8_t queriedPlayerType);
 
     std::size_t GetAllOutfits(const OutfitEntry** outEntries,
                               std::size_t maxEntries);

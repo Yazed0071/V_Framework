@@ -90,20 +90,29 @@ namespace
 
         outfit::SetActiveVariant(entry->partsType, variantIdx);
 
+        // Snake↔Avatar bridging: drive the reload for the LIVE player when
+        // known, so a Snake-registered outfit applies to the visible Avatar
+        // (and vice versa). Fall back to the registered playerType when the
+        // live state isn't reachable.
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
+        const std::uint8_t reloadPT =
+            (livePT != 0xFF) ? livePT : entry->playerType;
+
         Log("[OutfitSupplyDropPickup:%s] forcing equip of stashed "
             "developId=%u partsType=0x%02X selector=0x%02X variantIdx=%u "
-            "(baseSelector=0x%02X) playerType=%u\n",
+            "(baseSelector=0x%02X) reloadPT=%u (registered=%u)\n",
             tag,
             static_cast<unsigned>(entry->developId),
             static_cast<unsigned>(entry->partsType),
             static_cast<unsigned>(variantSelector),
             static_cast<unsigned>(variantIdx),
             static_cast<unsigned>(entry->selectorCode),
+            static_cast<unsigned>(reloadPT),
             static_cast<unsigned>(entry->playerType));
 
         __try
         {
-            outfit::ForcePartsReload(entry->playerType,
+            outfit::ForcePartsReload(reloadPT,
                                       entry->partsType,
                                       variantSelector);
         }
@@ -216,7 +225,7 @@ namespace
             *flags124 = (*flags124 & ~(0x80u | 0x10u | 0x200u)) | 0x40u;
 
 
-            *flags124 |= 0x28u;     // bits 0x20 + 0x08
+            *flags124 |= 0x28u;
             *mode      = 8u;
 
             Log("[OutfitSupplyDropPickup:SettledHandler] override for "

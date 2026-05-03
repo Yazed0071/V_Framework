@@ -33,6 +33,15 @@ namespace
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t applyBlackDiamond);
 
+    using LoadPlayerBionicArm_t = std::uint64_t* (__fastcall*)(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerHandType);
+
+    using LoadPlayerSnakeFace_t = std::uint64_t* (__fastcall*)(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerFaceId,
+        char playerFaceEquipId);
+
 
     struct LoadPartsPlayerInfo
     {
@@ -43,7 +52,7 @@ namespace
         std::int16_t  playerFaceId;
         std::uint8_t  playerFaceEquipId;
         std::uint8_t  reserved07;
-        std::uint8_t  reserved08[0x4C];    // +0x08..+0x53
+        std::uint8_t  reserved08[0x4C];
         std::uint8_t  reserved54;
         std::uint8_t  reserved55;
         std::uint8_t  playerFaceEquipUnk;
@@ -64,15 +73,25 @@ namespace
     static LoadPlayerPartsFpk_t             g_OrigLoadPartsFpk                   = nullptr;
     static LoadPlayerCamoFpk_t              g_OrigLoadCamoFpk                    = nullptr;
     static LoadPlayerSnakeBlackDiamondFpk_t g_OrigLoadDiamondFpk                 = nullptr;
+    static LoadPlayerBionicArm_t            g_OrigLoadBionicArmFv2               = nullptr;
+    static LoadPlayerBionicArm_t            g_OrigLoadBionicArmFpk               = nullptr;
+    static LoadPlayerSnakeFace_t            g_OrigLoadSnakeFaceFv2               = nullptr;
+    static LoadPlayerSnakeFace_t            g_OrigLoadSnakeFaceFpk               = nullptr;
     static LoadPartsNew_t                   g_OrigLoadPartsNew                   = nullptr;
     static DoesNeedFaceFova_t               g_OrigDoesNeedFaceFova               = nullptr;
+    static DoesNeedFaceFova_t               g_OrigDoesNeedFaceFovaForAvatar      = nullptr;
 
     static bool g_InstalledParts          = false;
     static bool g_InstalledFpk            = false;
     static bool g_InstalledCamo           = false;
     static bool g_InstalledDiamond        = false;
-    static bool g_InstalledLpn            = false;
-    static bool g_InstalledDoesNeedFace   = false;
+    static bool g_InstalledBionicArmFv2   = false;
+    static bool g_InstalledBionicArmFpk   = false;
+    static bool g_InstalledSnakeFaceFv2   = false;
+    static bool g_InstalledSnakeFaceFpk   = false;
+    static bool g_InstalledLpn                  = false;
+    static bool g_InstalledDoesNeedFace         = false;
+    static bool g_InstalledDoesNeedFaceForAvatar = false;
 
 
     static void* g_CapturedBlockController = nullptr;
@@ -84,11 +103,17 @@ namespace
     static std::atomic<std::uint16_t> g_RecentForcePartsReloadDevId{0};
 
 
-    static std::int16_t  g_LastInfoFaceId      = 0;
-    static std::uint16_t g_LastInfoFaceEquipId = 0;
-    static std::uint8_t  g_LastInfoFaceUnk     = 0;
-    static std::uint8_t  g_LastInfoArmType     = 0;
-    static bool          g_LastInfoCaptured    = false;
+    static std::int16_t  g_LastInfoFaceId        = 0;
+    static std::uint16_t g_LastInfoFaceEquipId   = 0;
+    static std::uint8_t  g_LastInfoFaceUnk       = 0;
+    static std::uint8_t  g_LastInfoArmType       = 0;
+    static bool          g_LastInfoCaptured      = false;
+    // Separate capture flag for arm tier — face captures gate on
+    // playerFaceId!=0 which doesn't fire for users whose soldierFace is 0
+    // (default Snake face). Arm capture is independent: any natural
+    // LoadPartsNew that arrives with armType > 0 is a valid sample of the
+    // player's developed prosthetic tier.
+    static bool          g_LastInfoArmCaptured   = false;
 
 
     static std::uint32_t EffectivePartsType(std::uint32_t paramPartsType)
@@ -130,7 +155,9 @@ namespace
 
         const outfit::OutfitEntry* entry = nullptr;
         if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry) return false;
-        if (entry->playerType != ply) return false;
+        // Snake-registered outfits accept Avatar live (and vice versa) so the
+        // same registration covers both story and FOB/online characters.
+        if (!outfit::IsPlayerTypeCompatible(entry->playerType, ply)) return false;
 
         if (outEntry) *outEntry = entry;
         return true;
@@ -247,6 +274,159 @@ namespace
     }
 
 
+    // Vanilla partsType used as the substitute when calling orig
+    // LoadPlayerBionicArm{Fv2,Fpk} for any custom outfit. The leaf functions
+    // hardcode a partsType whitelist (case 0,1,2,7,8,9,A,B,C,D,F,10,11,12,17,
+    // 18,19) and reject anything else with a null FoxPath. The arm asset path
+    // itself is selected by `playerHandType * 2`, NOT by partsType, so the
+    // whitelist case we route through is irrelevant — pick a stable, always-
+    // present vanilla value (0x01 = STANDARD Snake suit).
+    constexpr std::uint32_t kBionicArmVanillaPartsTypeSubstitute = 0x01;
+
+    // Detours for the bionic-arm leaf loaders.
+    //
+    // Why this exists: the engine's leaf functions reject any partsType outside
+    // the hardcoded whitelist {0,1,2,7..0xD except 0xE,0xF..0x12,0x17..0x19}
+    // — V_FrameWork's custom partsType range (`outfit::kCustomPartsTypeStart`..
+    // `kCustomPartsTypeEnd`) has zero overlap with that whitelist, so for every
+    // custom outfit the leaf returns a null FoxPath and the arm Fv2/Fpk slot
+    // ends up empty. The Fpk path is also called from inside LoadPartsNew
+    // while the framework's spoof window is active (info->playerPartsType=0x01)
+    // so it would already work, but hooking both for symmetry is defensive.
+    //
+    // Both detours: scale O(1) per call, lookup is by partsType through the
+    // existing registry — works for any number of registered outfits.
+    static std::uint64_t* __fastcall hkLoadPlayerBionicArmFv2(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerHandType)
+    {
+        const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
+
+        if (effectivePartsType >= outfit::kCustomPartsTypeStart
+         && effectivePartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const auto pt = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const auto ply = static_cast<std::uint8_t>(playerType & 0xFF);
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, ply))
+            {
+                if (!entry->IsArmEnabled())
+                {
+                    return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+                }
+                return g_OrigLoadBionicArmFv2(
+                    outPath, playerType,
+                    kBionicArmVanillaPartsTypeSubstitute,
+                    playerHandType);
+            }
+        }
+        return g_OrigLoadBionicArmFv2(outPath, playerType,
+                                      playerPartsType, playerHandType);
+    }
+
+    static std::uint64_t* __fastcall hkLoadPlayerBionicArmFpk(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerHandType)
+    {
+        const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
+
+        if (effectivePartsType >= outfit::kCustomPartsTypeStart
+         && effectivePartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const auto pt = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const auto ply = static_cast<std::uint8_t>(playerType & 0xFF);
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, ply))
+            {
+                if (!entry->IsArmEnabled())
+                {
+                    return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+                }
+                return g_OrigLoadBionicArmFpk(
+                    outPath, playerType,
+                    kBionicArmVanillaPartsTypeSubstitute,
+                    playerHandType);
+            }
+        }
+        return g_OrigLoadBionicArmFpk(outPath, playerType,
+                                      playerPartsType, playerHandType);
+    }
+
+    // Snake face FOVA leaves — same shape as bionic arm. Both
+    // LoadPlayerSnakeFaceFv2 and LoadPlayerSnakeFaceFpk are gated by
+    // `if (playerType == 0)` (Snake only) followed by a hardcoded partsType
+    // whitelist {0..2, 7..9, 0xB..0xE, 0xF..0x16, 0x17..0x19}. Custom range
+    // 0x40..0x7F falls into `default: snakeFaceFv2Path = 0;` → null FoxPath
+    // → invisible head. We substitute partsType=0x01 (Snake STANDARD) when
+    // the registered outfit has `enableHead = true`, so the engine returns
+    // the vanilla Snake face path. When enableHead is false, write null
+    // (head not loaded — same effect the framework already enforces via
+    // hkDoesNeedFaceFova).
+    static std::uint64_t* __fastcall hkLoadPlayerSnakeFaceFv2(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerFaceId,
+        char playerFaceEquipId)
+    {
+        const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
+
+        if (effectivePartsType >= outfit::kCustomPartsTypeStart
+         && effectivePartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const auto pt  = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const auto ply = static_cast<std::uint8_t>(playerType & 0xFF);
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, ply))
+            {
+                if (!entry->IsHeadEnabled())
+                {
+                    return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+                }
+                return g_OrigLoadSnakeFaceFv2(
+                    outPath, playerType,
+                    kBionicArmVanillaPartsTypeSubstitute,
+                    playerFaceId, playerFaceEquipId);
+            }
+        }
+        return g_OrigLoadSnakeFaceFv2(outPath, playerType,
+                                      playerPartsType, playerFaceId,
+                                      playerFaceEquipId);
+    }
+
+    static std::uint64_t* __fastcall hkLoadPlayerSnakeFaceFpk(
+        std::uint64_t* outPath, std::uint32_t playerType,
+        std::uint32_t playerPartsType, std::uint32_t playerFaceId,
+        char playerFaceEquipId)
+    {
+        const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
+
+        if (effectivePartsType >= outfit::kCustomPartsTypeStart
+         && effectivePartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const auto pt  = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const auto ply = static_cast<std::uint8_t>(playerType & 0xFF);
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, ply))
+            {
+                if (!entry->IsHeadEnabled())
+                {
+                    return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+                }
+                return g_OrigLoadSnakeFaceFpk(
+                    outPath, playerType,
+                    kBionicArmVanillaPartsTypeSubstitute,
+                    playerFaceId, playerFaceEquipId);
+            }
+        }
+        return g_OrigLoadSnakeFaceFpk(outPath, playerType,
+                                      playerPartsType, playerFaceId,
+                                      playerFaceEquipId);
+    }
+
+
     static std::uint8_t __fastcall hkDoesNeedFaceFova(std::uint32_t playerPartsType)
     {
 
@@ -304,6 +484,67 @@ namespace
              : 0;
     }
 
+    // Avatar variant of the face-needed gate. Vanilla
+    // ResourceTable::DoesNeedFaceFovaForAvatar @ 0x140AE8500 has the same
+    // hardcoded partsType whitelist as the Snake/DD variant, so it returns
+    // false for any custom partsType — preventing the engine from loading
+    // the Avatar's procedural face when Snake↔Avatar bridging puts a custom
+    // outfit's partsType into the Avatar slot. Mirror the Snake/DD hook:
+    // when a registered outfit with `enableHead = true` is the live one,
+    // force-return 1 so the engine proceeds with the Avatar face load
+    // (which uses BlockShell+0xF7/+0xF8 customization indices, not partsType,
+    // so no further whitelist substitution is needed).
+    static std::uint8_t __fastcall hkDoesNeedFaceFovaForAvatar(
+        std::uint32_t playerPartsType)
+    {
+        const std::uint32_t effective = EffectivePartsType(playerPartsType);
+
+        if (effective >= outfit::kCustomPartsTypeStart
+         && effective <= outfit::kCustomPartsTypeEnd)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            const auto pt = static_cast<std::uint8_t>(effective & 0xFF);
+            const bool found = outfit::TryGetOutfitByPartsType(pt, &entry)
+                            && entry;
+            const bool enabled = found && entry->IsHeadEnabled();
+
+
+            const bool spoofActive = (effective != playerPartsType);
+            static std::uint32_t s_lastPartsType = 0xFFFFFFFFu;
+            static int           s_lastFound    = -1;
+            static int           s_lastEnabled  = -1;
+            static int           s_lastSpoof    = -1;
+            if (s_lastPartsType != effective
+                || s_lastFound  != (found       ? 1 : 0)
+                || s_lastEnabled!= (enabled     ? 1 : 0)
+                || s_lastSpoof  != (spoofActive ? 1 : 0))
+            {
+                Log("[OutfitRuntimeParts] hkDoesNeedFaceFovaForAvatar: "
+                    "partsType=0x%X (effective=0x%X) found=%d enableHead=%d "
+                    "spoof=%d -> %s\n",
+                    playerPartsType, effective,
+                    found       ? 1 : 0,
+                    enabled     ? 1 : 0,
+                    spoofActive ? 1 : 0,
+                    found
+                        ? "registered outfit -> proceed with Avatar face load"
+                        : "fall-through to orig");
+                s_lastPartsType = effective;
+                s_lastFound     = found   ? 1 : 0;
+                s_lastEnabled   = enabled ? 1 : 0;
+                s_lastSpoof     = spoofActive ? 1 : 0;
+            }
+
+            if (found)
+            {
+                return enabled ? std::uint8_t{1} : std::uint8_t{0};
+            }
+        }
+        return g_OrigDoesNeedFaceFovaForAvatar
+             ? g_OrigDoesNeedFaceFovaForAvatar(playerPartsType)
+             : 0;
+    }
+
     static void __fastcall hkLoadPartsNew(
         void* self, std::uint32_t playerIndex,
         LoadPartsPlayerInfo* info, std::uint32_t flags)
@@ -335,8 +576,18 @@ namespace
                 g_LastInfoFaceId      = info->playerFaceId;
                 g_LastInfoFaceEquipId = info->playerFaceEquipId;
                 g_LastInfoFaceUnk     = info->playerFaceEquipUnk;
-                g_LastInfoArmType     = info->playerArmType;
                 g_LastInfoCaptured    = true;
+            }
+
+
+            // Capture arm tier independently of face — gate on armType > 0 so
+            // we only sample valid developed tiers (the engine's commit-blob
+            // expansion zeroes armType for new-outfit applies; we only want to
+            // remember the values from natural pre-outfit-change calls).
+            if (info->playerArmType != 0)
+            {
+                g_LastInfoArmType     = info->playerArmType;
+                g_LastInfoArmCaptured = true;
             }
 
 
@@ -351,7 +602,8 @@ namespace
                 const outfit::OutfitEntry* bySel = nullptr;
                 if (outfit::TryGetOutfitBySelectorCode(info->playerCamoType, &bySel)
                     && bySel
-                    && bySel->playerType == info->playerType)
+                    && outfit::IsPlayerTypeCompatible(bySel->playerType,
+                                                       info->playerType))
                 {
                     Log("[OutfitRuntimeParts] LoadPartsNew: partial-custom "
                         "(partsType=0,camo=0x%02X) for playerType=%u -> "
@@ -389,7 +641,8 @@ namespace
                 if (pendingDevId != 0
                     && outfit::TryGetOutfitByDevelopId(pendingDevId, &byPending)
                     && byPending
-                    && byPending->playerType == info->playerType)
+                    && outfit::IsPlayerTypeCompatible(byPending->playerType,
+                                                       info->playerType))
                 {
                     chosen = byPending;
                     via = "pendingDevId";
@@ -439,7 +692,28 @@ namespace
                 }
                 else if (info->playerArmType == 0)
                 {
-                    info->playerArmType = 1;
+                    // The engine zeroes playerArmType when expanding the new
+                    // commit blob into LoadPartsPlayerInfo, which would lose
+                    // the player's developed prosthetic upgrade tier on every
+                    // outfit swap. Restore from the cached tier captured by
+                    // the previous natural LoadPartsNew (when armType was > 0).
+                    // Fall back to 1 (basic prosthetic) if no prior natural
+                    // call has been observed yet (first-load / cold-start).
+                    //
+                    // NOTE: a previous version of this code read directly from
+                    // the BlockShell pointer at self+0x1100+idx*8 (offset +3),
+                    // but that pointer's layout beyond [1] is not stable —
+                    // returned values like 10 and 66 that crashed the bionic
+                    // arm leaf when used as playerHandType. Cache-based
+                    // recovery is the safe path.
+                    info->playerArmType = g_LastInfoArmCaptured
+                        ? g_LastInfoArmType
+                        : std::uint8_t{1};
+                    Log("[OutfitRuntimeParts] enableArm restored armType=%u "
+                        "(via cache, captured=%d) for partsType=0x%02X\n",
+                        static_cast<unsigned>(info->playerArmType),
+                        g_LastInfoArmCaptured ? 1 : 0,
+                        static_cast<unsigned>(info->playerPartsType));
                 }
 
                 if (!entry->IsFaceEnabled())
@@ -494,8 +768,12 @@ namespace
                 tl_SpoofedRealPartsType = origPartsType;
 
 
-                std::uint8_t spoofTarget = 0x00;  // default for DDMale/F
-                if (entry->playerType == outfit::kPlayerType_Snake)
+                // Spoof target = the live player's vanilla STANDARD partsType.
+                // Snake STANDARD = 0x01, Avatar/DD STANDARD = 0x00. Using the
+                // LIVE playerType (not the entry's) keeps the spoof valid when
+                // a Snake outfit is applied on the Avatar slot or vice versa.
+                std::uint8_t spoofTarget = 0x00;
+                if (info->playerType == outfit::kPlayerType_Snake)
                 {
                     spoofTarget = 0x01;
                 }
@@ -511,7 +789,7 @@ namespace
                     if (shellTypeInfoPtr)
                     {
                         prevShellPartsType    = shellTypeInfoPtr[1];
-                        shellTypeInfoPtr[1]   = 0xFE;  // sentinel
+                        shellTypeInfoPtr[1]   = 0xFE;
                         shellSentinelWritten  = true;
                     }
                 }
@@ -576,12 +854,17 @@ namespace outfit
     {
         ResolveFoxPathApi();
 
-        void* tParts    = ResolveGameAddress(gAddr.LoadPlayerPartsParts);
-        void* tFpk      = ResolveGameAddress(gAddr.LoadPlayerPartsFpk);
-        void* tCamo     = ResolveGameAddress(gAddr.LoadPlayerCamoFpk);
-        void* tDiamond  = ResolveGameAddress(gAddr.LoadPlayerSnakeBlackDiamondFpk);
-        void* tLpn      = ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew);
-        void* tFaceFova = ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova);
+        void* tParts        = ResolveGameAddress(gAddr.LoadPlayerPartsParts);
+        void* tFpk          = ResolveGameAddress(gAddr.LoadPlayerPartsFpk);
+        void* tCamo         = ResolveGameAddress(gAddr.LoadPlayerCamoFpk);
+        void* tDiamond      = ResolveGameAddress(gAddr.LoadPlayerSnakeBlackDiamondFpk);
+        void* tBionicArmFv2 = ResolveGameAddress(gAddr.LoadPlayerBionicArmFv2);
+        void* tBionicArmFpk = ResolveGameAddress(gAddr.LoadPlayerBionicArmFpk);
+        void* tSnakeFaceFv2 = ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFv2);
+        void* tSnakeFaceFpk = ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFpk);
+        void* tLpn          = ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew);
+        void* tFaceFova     = ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova);
+        void* tFaceFovaAvatar = ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFovaForAvatar);
 
         if (tParts)
             g_InstalledParts = CreateAndEnableHook(
@@ -599,6 +882,22 @@ namespace outfit
             g_InstalledDiamond = CreateAndEnableHook(
                 tDiamond, reinterpret_cast<void*>(&hkLoadPlayerSnakeBlackDiamondFpk),
                 reinterpret_cast<void**>(&g_OrigLoadDiamondFpk));
+        if (tBionicArmFv2)
+            g_InstalledBionicArmFv2 = CreateAndEnableHook(
+                tBionicArmFv2, reinterpret_cast<void*>(&hkLoadPlayerBionicArmFv2),
+                reinterpret_cast<void**>(&g_OrigLoadBionicArmFv2));
+        if (tBionicArmFpk)
+            g_InstalledBionicArmFpk = CreateAndEnableHook(
+                tBionicArmFpk, reinterpret_cast<void*>(&hkLoadPlayerBionicArmFpk),
+                reinterpret_cast<void**>(&g_OrigLoadBionicArmFpk));
+        if (tSnakeFaceFv2)
+            g_InstalledSnakeFaceFv2 = CreateAndEnableHook(
+                tSnakeFaceFv2, reinterpret_cast<void*>(&hkLoadPlayerSnakeFaceFv2),
+                reinterpret_cast<void**>(&g_OrigLoadSnakeFaceFv2));
+        if (tSnakeFaceFpk)
+            g_InstalledSnakeFaceFpk = CreateAndEnableHook(
+                tSnakeFaceFpk, reinterpret_cast<void*>(&hkLoadPlayerSnakeFaceFpk),
+                reinterpret_cast<void**>(&g_OrigLoadSnakeFaceFpk));
         if (tLpn)
             g_InstalledLpn = CreateAndEnableHook(
                 tLpn, reinterpret_cast<void*>(&hkLoadPartsNew),
@@ -607,15 +906,25 @@ namespace outfit
             g_InstalledDoesNeedFace = CreateAndEnableHook(
                 tFaceFova, reinterpret_cast<void*>(&hkDoesNeedFaceFova),
                 reinterpret_cast<void**>(&g_OrigDoesNeedFaceFova));
+        if (tFaceFovaAvatar)
+            g_InstalledDoesNeedFaceForAvatar = CreateAndEnableHook(
+                tFaceFovaAvatar, reinterpret_cast<void*>(&hkDoesNeedFaceFovaForAvatar),
+                reinterpret_cast<void**>(&g_OrigDoesNeedFaceFovaForAvatar));
 
         Log("[OutfitRuntimeParts] installed: parts=%s fpk=%s camo=%s diamond=%s "
-            "lpn=%s doesNeedFace=%s\n",
-            g_InstalledParts        ? "OK" : "skip",
-            g_InstalledFpk          ? "OK" : "skip",
-            g_InstalledCamo         ? "OK" : "skip",
-            g_InstalledDiamond      ? "OK" : "skip",
-            g_InstalledLpn          ? "OK" : "skip",
-            g_InstalledDoesNeedFace ? "OK" : "skip");
+            "bionicArmFv2=%s bionicArmFpk=%s snakeFaceFv2=%s snakeFaceFpk=%s "
+            "lpn=%s doesNeedFace=%s doesNeedFaceAvatar=%s\n",
+            g_InstalledParts                  ? "OK" : "skip",
+            g_InstalledFpk                    ? "OK" : "skip",
+            g_InstalledCamo                   ? "OK" : "skip",
+            g_InstalledDiamond                ? "OK" : "skip",
+            g_InstalledBionicArmFv2           ? "OK" : "skip",
+            g_InstalledBionicArmFpk           ? "OK" : "skip",
+            g_InstalledSnakeFaceFv2           ? "OK" : "skip",
+            g_InstalledSnakeFaceFpk           ? "OK" : "skip",
+            g_InstalledLpn                    ? "OK" : "skip",
+            g_InstalledDoesNeedFace           ? "OK" : "skip",
+            g_InstalledDoesNeedFaceForAvatar  ? "OK" : "skip");
 
         return g_InstalledParts && g_InstalledFpk && g_InstalledLpn;
     }
@@ -637,10 +946,12 @@ namespace outfit
         info.playerType         = playerType;
         info.playerPartsType    = partsType;
         info.playerCamoType     = selectorCode;
-        info.playerArmType      = g_LastInfoCaptured ? g_LastInfoArmType     : std::uint8_t{0};
-        info.playerFaceId       = g_LastInfoCaptured ? g_LastInfoFaceId      : std::int16_t{0};
-        info.playerFaceEquipId  = g_LastInfoCaptured ? g_LastInfoFaceEquipId : std::uint16_t{0};
-        info.playerFaceEquipUnk = g_LastInfoCaptured ? g_LastInfoFaceUnk     : std::uint8_t{0};
+        // Arm uses its own capture flag (gated on armType>0 instead of faceId>0)
+        // so it survives setups where the user's soldierFace is 0 (default Snake).
+        info.playerArmType      = g_LastInfoArmCaptured ? g_LastInfoArmType     : std::uint8_t{0};
+        info.playerFaceId       = g_LastInfoCaptured    ? g_LastInfoFaceId      : std::int16_t{0};
+        info.playerFaceEquipId  = g_LastInfoCaptured    ? g_LastInfoFaceEquipId : std::uint16_t{0};
+        info.playerFaceEquipUnk = g_LastInfoCaptured    ? g_LastInfoFaceUnk     : std::uint8_t{0};
 
 
         constexpr std::uint32_t kFlagsP0 = 0x15F640;
@@ -668,8 +979,11 @@ namespace outfit
             tl_SpoofedRealPartsType = origPartsType;
 
 
+            // Spoof target = live player's vanilla STANDARD partsType (see
+            // hkLoadPartsNew comment). Use the caller-supplied live `playerType`
+            // so Snake↔Avatar bridging works in ForcePartsReload too.
             std::uint8_t spoofTarget = 0x00;
-            if (entry->playerType == outfit::kPlayerType_Snake)
+            if (playerType == outfit::kPlayerType_Snake)
             {
                 spoofTarget = 0x01;
             }
@@ -791,25 +1105,45 @@ namespace outfit
             DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerCamoFpk));
         if (g_InstalledDiamond)
             DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerSnakeBlackDiamondFpk));
+        if (g_InstalledBionicArmFv2)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerBionicArmFv2));
+        if (g_InstalledBionicArmFpk)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerBionicArmFpk));
+        if (g_InstalledSnakeFaceFv2)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFv2));
+        if (g_InstalledSnakeFaceFpk)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFpk));
         if (g_InstalledLpn)
             DisableAndRemoveHook(ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew));
         if (g_InstalledDoesNeedFace)
             DisableAndRemoveHook(ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova));
+        if (g_InstalledDoesNeedFaceForAvatar)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFovaForAvatar));
 
         g_OrigLoadPartsParts   = nullptr;
         g_OrigLoadPartsFpk     = nullptr;
         g_OrigLoadCamoFpk      = nullptr;
         g_OrigLoadDiamondFpk   = nullptr;
-        g_OrigLoadPartsNew     = nullptr;
-        g_OrigDoesNeedFaceFova = nullptr;
+        g_OrigLoadBionicArmFv2 = nullptr;
+        g_OrigLoadBionicArmFpk = nullptr;
+        g_OrigLoadSnakeFaceFv2 = nullptr;
+        g_OrigLoadSnakeFaceFpk = nullptr;
+        g_OrigLoadPartsNew              = nullptr;
+        g_OrigDoesNeedFaceFova          = nullptr;
+        g_OrigDoesNeedFaceFovaForAvatar = nullptr;
         g_FoxPath_Path         = nullptr;
 
         g_InstalledParts        = false;
         g_InstalledFpk          = false;
         g_InstalledCamo         = false;
         g_InstalledDiamond      = false;
-        g_InstalledLpn          = false;
-        g_InstalledDoesNeedFace = false;
+        g_InstalledBionicArmFv2 = false;
+        g_InstalledBionicArmFpk = false;
+        g_InstalledSnakeFaceFv2 = false;
+        g_InstalledSnakeFaceFpk = false;
+        g_InstalledLpn                   = false;
+        g_InstalledDoesNeedFace          = false;
+        g_InstalledDoesNeedFaceForAvatar = false;
 
         g_CapturedBlockController = nullptr;
 
