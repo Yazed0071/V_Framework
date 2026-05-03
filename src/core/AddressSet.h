@@ -139,6 +139,8 @@ namespace AddressSetRuntime
         uintptr_t EquipController_SetHandSlotEnabled = 0;
         uintptr_t Sys_IsArtificialHandEnabled       = 0;
         uintptr_t Sys_IsArtificialHandEnabledForCurrentPlayerType = 0;
+        uintptr_t Player2GameObjectImpl_ProcessSignal = 0;
+        uintptr_t Player2Impl_SetUpParts = 0;
 
 
         uintptr_t ResolveSuitToPartsType            = 0;
@@ -389,6 +391,8 @@ namespace AddressSetRuntime
             0x1411B0D10ull, // EquipController_SetHandSlotEnabled (gameplay arm input gate; overridden when custom outfit has enableArm=true)
             0x1409C45C0ull, // Sys_IsArtificialHandEnabled (gates the per-frame arm-render dispatch in FUN_1412a2f80; same partsType whitelist as the leaf loaders, hook overrides to 1 for custom outfits with enableArm=true)
             0x141E02D80ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType (live-state variant; reads QuarkSystemTable+0x98+0x10+0xfb/+0xf8; same whitelist; many callers across the codebase consult this for the live player's arm state)
+            0x1409C5D00ull, // Player2GameObjectImpl_ProcessSignal (huge per-player signal dispatcher; we hook to spoof partsType for signal 0x8483a342fa61 which gates InitLoadPlayerFv2s on partsType<0x1C — without this, custom outfits never get the Fv2 attachments wired into the visible scene → arm asset loads but never renders)
+            0x1409CA560ull, // Player2Impl_SetUpParts (named EXE: tpp::gm::player::impl::Player2Impl::SetUpParts(this, slot, playerType, partsType, camo, armType, faceId, AvatarInfo*); called from UpdatePartsStatus's cVar13==1 branch with armType read from byte_arrays+0x58+slot. Our UpdatePartsStatus pre-orig zeroing for cascade prevention causes that byte to be 0 at function entry, so SetUpParts→RegisterFilesForArm registers Tier 0 (no arm assets). Hook overrides armType=0 → cached liveTier when slot has custom partsType + enableArm.)
             0x141E02930ull, // ResolveSuitToPartsType
             0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
             0x1462B6590ull, // Player2UtilityImpl_CommitWrapper (3-arg)
@@ -569,6 +573,8 @@ namespace AddressSetRuntime
             0x0ull, // EquipController_SetHandSlotEnabled (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // Sys_IsArtificialHandEnabled (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // Player2GameObjectImpl_ProcessSignal (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // Player2Impl_SetUpParts (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // ResolveSuitToPartsType
             0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
             0x0ull, // Player2UtilityImpl_CommitWrapper
