@@ -68,6 +68,60 @@ namespace
 
     using DoesNeedFaceFova_t = std::uint8_t (__fastcall*)(std::uint32_t playerPartsType);
 
+    // EquipControllerImpl::SetHandSlotEnabled(this, slot, enabled) — the leaf
+    // function the partsType-translator inside Player2GameObjectImpl::
+    // UpdatePartsStatus calls to enable/disable the bionic arm input slot
+    // (mgsvtpp.exe.c:2263824, address 0x1411B0D10). For any custom partsType
+    // the translator's outer switch falls through to caseD_3 which forces
+    // `enabled=0`, disabling the arm button. We override the disable when the
+    // live player is wearing a registered custom outfit with enableArm=true.
+    using SetHandSlotEnabled_t = void (__fastcall*)(void* self, std::uint32_t slot, std::uint8_t enabled);
+
+    // tpp::sys::IsArtificialHandEnabled(uint playerType, uint playerPartsType)
+    // — mgsvtpp.exe.c:1321783, address 0x1409C45C0. A simple whitelist:
+    //   if ((playerType == 0 || playerType == 3)
+    //    && partsType in {0,1,2,7..D,F..12,17..19}) return 1; else return 0;
+    // Two callers in the per-frame player-update loop FUN_1412a2f80 at
+    // mgsvtpp.exe.c:2396152 and 2396298 each wrap their entire arm-equip-
+    // render dispatch in `if (uVar12 & 2 && cVar5 != '\0')`. When this
+    // returns 0 (custom partsType), the engine NEVER tells the renderer the
+    // arm slot is active — vtable+0x100 (per-equip dispatch), vtable+0x118
+    // (slot activation), vtable+0x2f0 (per-bullet-id dispatch), and
+    // vtable+0x2d8 (per-frame finalize) all get skipped. Result: assets are
+    // loaded but never rendered. The fix: override to 1 for custom partsType
+    // with a registered outfit that has enableArm=true.
+    using IsArtificialHandEnabled_t = std::uint8_t (__fastcall*)(std::uint32_t playerType, std::uint32_t playerPartsType);
+
+    // tpp::sys::PlayerInfoService::IsArtificialHandEnabledForCurrentPlayerType()
+    // — mgsvtpp.exe.c:3945377, address 0x141E02D80. Independent function with
+    // the SAME hardcoded whitelist as the explicit-args variant above, but
+    // reads playerType/partsType from QuarkSystemTable -> +0x98 -> +0x10 ->
+    // [+0xfb]/[+0xf8] (the live player state) instead of from arguments. Many
+    // callers across the engine consult this for "does the live player have
+    // an artificial hand?" — including UI greying logic. Without this hook,
+    // even with the explicit-args variant overridden, callers asking the
+    // live-state variant get 0 for custom partsType and the arm-related
+    // dispatch they gate stays disabled.
+    using IsArtificialHandEnabledForCurrent_t = std::uint8_t (__fastcall*)();
+
+    // NOTE: Player2GameObjectImpl::UpdatePartsStatus is the per-tick state
+    // syncer that contains a partsType-whitelist gate which both disables the
+    // bionic arm input slot and zeros the arm asset-index byte at
+    // pIVar3+0x58+slot for any custom partsType. The input-gate side-effect is
+    // covered by hkSetHandSlotEnabled below. The asset-index zero CANNOT be
+    // safely overridden post-orig — every byte in pIVar3+0x40..0x68 is part
+    // of UpdatePartsStatus's state-changed check, so writing a non-zero value
+    // post-orig forces state-changed=true on the next tick, fires another
+    // Player2BlockController::LoadPartsNew, and the framework's 0xFE BlockShell
+    // clobber inside hkLoadPartsNew makes orig's dedupe at
+    // mgsvtpp.exe.c:1312714 fail every time → asset reload every UPS tick →
+    // character never settles → "Character does not load." Verified at
+    // 04:30:11..04:30:19 in the test session log. The iDroid loadout UI's
+    // greying of HAND OF JEHUTY on custom partsType is a cosmetic
+    // consequence we accept rather than thrash the asset pipeline; a separate
+    // surgical hook on whichever UI compatibility check reads from there is
+    // the proper fix for that.
+
     static FoxPath_Path_t                   g_FoxPath_Path                       = nullptr;
     static LoadPlayerPartsParts_t           g_OrigLoadPartsParts                 = nullptr;
     static LoadPlayerPartsFpk_t             g_OrigLoadPartsFpk                   = nullptr;
@@ -80,6 +134,9 @@ namespace
     static LoadPartsNew_t                   g_OrigLoadPartsNew                   = nullptr;
     static DoesNeedFaceFova_t               g_OrigDoesNeedFaceFova               = nullptr;
     static DoesNeedFaceFova_t               g_OrigDoesNeedFaceFovaForAvatar      = nullptr;
+    static SetHandSlotEnabled_t             g_OrigSetHandSlotEnabled             = nullptr;
+    static IsArtificialHandEnabled_t        g_OrigIsArtificialHandEnabled        = nullptr;
+    static IsArtificialHandEnabledForCurrent_t g_OrigIsArtificialHandForCurrent  = nullptr;
 
     static bool g_InstalledParts          = false;
     static bool g_InstalledFpk            = false;
@@ -92,6 +149,9 @@ namespace
     static bool g_InstalledLpn                  = false;
     static bool g_InstalledDoesNeedFace         = false;
     static bool g_InstalledDoesNeedFaceForAvatar = false;
+    static bool g_InstalledSetHandSlotEnabled   = false;
+    static bool g_InstalledIsArtificialHand     = false;
+    static bool g_InstalledIsArtHandForCurrent  = false;
 
 
     static void* g_CapturedBlockController = nullptr;
@@ -545,6 +605,192 @@ namespace
              : 0;
     }
 
+    // EquipControllerImpl::SetHandSlotEnabled is the leaf the partsType
+    // translator inside UpdatePartsStatus calls. For custom partsType the
+    // translator's outer switch falls into caseD_3 (uVar26=0) and calls this
+    // with `enabled=0`, disabling the bionic arm input slot. We override the
+    // disable in that specific case (custom outfit registered with
+    // enableArm=true). Vanilla DD slots (which legitimately have no arm) are
+    // left alone — we only act when the live player is Snake/Avatar AND
+    // wearing a registered custom outfit AND that outfit's enableArm is true.
+    //
+    // PREVIOUS APPROACH (reverted): we hooked Player2GameObjectImpl::
+    // UpdatePartsStatus and spoofed the partsType byte array to 0x01 before
+    // orig ran. That CASCADED into the orig's internal LoadPartsNew call
+    // (mgsvtpp.exe.c:1324794) which builds playerInfo from the same byte
+    // arrays — LoadPartsNew received partsType=0x01 instead of the real
+    // custom value, so our LoadPartsNew leaf hook saw it as vanilla and the
+    // custom body assets never loaded. The spoof was ABI-toxic at that layer.
+    //
+    // CURRENT APPROACH (this hook): leave the byte arrays untouched so
+    // LoadPartsNew receives the real custom partsType and our existing
+    // LoadPartsNew leaf hook substitutes the custom asset paths correctly.
+    // Address only the SetHandSlotEnabled side-effect by overriding its
+    // `enabled` argument — purely a gameplay-input fix, no asset-load impact.
+    static void __fastcall hkSetHandSlotEnabled(
+        void* self_equipController,
+        std::uint32_t slot,
+        std::uint8_t  enabled)
+    {
+        if (enabled != 0)
+        {
+            // Engine wants enabled=1; nothing to override. Pass through.
+            if (g_OrigSetHandSlotEnabled)
+                g_OrigSetHandSlotEnabled(self_equipController, slot, enabled);
+            return;
+        }
+
+        // Engine is calling with enabled=0. This is either a legitimate
+        // disable (DD slot, dead player, demo state, etc.) or the custom-
+        // partsType translator miss we want to override. Distinguish by
+        // checking the live player's outfit state.
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
+        const std::uint8_t livePartsType = outfit::ReadLivePartsType();
+
+        const bool liveIsSnakeOrAvatar =
+               (livePT == outfit::kPlayerType_Snake)
+            || (livePT == outfit::kPlayerType_Avatar);
+        const bool liveIsCustomPartsType =
+               (livePartsType >= outfit::kCustomPartsTypeStart
+             && livePartsType <= outfit::kCustomPartsTypeEnd);
+
+        if (liveIsSnakeOrAvatar && liveIsCustomPartsType)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(livePartsType, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, livePT)
+                && entry->IsArmEnabled())
+            {
+                // State-change-gated log to avoid every-frame spam. We log on
+                // first override per (slot, partsType) transition only.
+                static std::uint32_t s_lastSlot       = 0xFFFFFFFFu;
+                static std::uint8_t  s_lastPartsType  = 0xFFu;
+                if (s_lastSlot != slot || s_lastPartsType != livePartsType)
+                {
+                    Log("[OutfitRuntimeParts:SetHandSlot] slot=%u partsType=0x%02X "
+                        "(livePT=%u developId=%u) enabled=0 -> 1 [custom outfit "
+                        "with enableArm=true; overriding translator's "
+                        "whitelist-miss disable]\n",
+                        slot,
+                        static_cast<unsigned>(livePartsType),
+                        static_cast<unsigned>(livePT),
+                        static_cast<unsigned>(entry->developId));
+                    s_lastSlot      = slot;
+                    s_lastPartsType = livePartsType;
+                }
+
+                if (g_OrigSetHandSlotEnabled)
+                    g_OrigSetHandSlotEnabled(self_equipController, slot, 1);
+                return;
+            }
+        }
+
+        // Legitimate disable — pass through.
+        if (g_OrigSetHandSlotEnabled)
+            g_OrigSetHandSlotEnabled(self_equipController, slot, enabled);
+    }
+
+    // Override the engine's per-frame "should the artificial hand be active?"
+    // gate. Vanilla returns 1 only for the hardcoded vanilla partsType
+    // whitelist; for custom partsType (0x40+) it returns 0 and the per-player
+    // update loop FUN_1412a2f80 at mgsvtpp.exe.c:2396151-2396188 and
+    // 2396297-2396324 skips the entire arm-equip-render dispatch (vtable
+    // calls +0x100, +0x118, +0x2f0, +0x2d8 are gated by `cVar5 != '\0'`).
+    // Even though our leaf hooks load the correct arm Fpk/Fv2 paths, this
+    // gate prevents the renderer from being told the arm slot is active,
+    // resulting in a visually-invisible bionic arm despite all asset loads
+    // succeeding. Override to 1 when the live partsType is a registered
+    // custom outfit with enableArm=true. Pass through everything else
+    // (vanilla partsTypes, DD player types, custom outfits with enableArm
+    // intentionally false).
+    static std::uint8_t __fastcall hkIsArtificialHandEnabled(
+        std::uint32_t playerType,
+        std::uint32_t playerPartsType)
+    {
+        // Only consider Snake (0) or Avatar (3) — same restriction the engine
+        // applies. DD player types never have a bionic arm, vanilla or custom.
+        if ((playerType == outfit::kPlayerType_Snake
+              || playerType == outfit::kPlayerType_Avatar)
+         && playerPartsType >= outfit::kCustomPartsTypeStart
+         && playerPartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const auto pt  = static_cast<std::uint8_t>(playerPartsType & 0xFF);
+            const auto ply = static_cast<std::uint8_t>(playerType & 0xFF);
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, ply)
+                && entry->IsArmEnabled())
+            {
+                // State-change-gated log per (playerType, partsType) pair.
+                static std::uint32_t s_lastPlayerType = 0xFFFFFFFFu;
+                static std::uint32_t s_lastPartsType  = 0xFFFFFFFFu;
+                if (s_lastPlayerType != playerType
+                 || s_lastPartsType  != playerPartsType)
+                {
+                    Log("[OutfitRuntimeParts:IsArtHand] playerType=%u "
+                        "partsType=0x%02X developId=%u — overriding to 1 "
+                        "[unblocks per-frame arm-equip dispatch in "
+                        "FUN_1412a2f80, makes the bionic arm actually render]\n",
+                        static_cast<unsigned>(playerType),
+                        static_cast<unsigned>(playerPartsType),
+                        static_cast<unsigned>(entry->developId));
+                    s_lastPlayerType = playerType;
+                    s_lastPartsType  = playerPartsType;
+                }
+                return 1;
+            }
+        }
+
+        // Pass through to orig for anything we don't override.
+        return g_OrigIsArtificialHandEnabled
+             ? g_OrigIsArtificialHandEnabled(playerType, playerPartsType)
+             : 0;
+    }
+
+    // The "ForCurrentPlayerType" variant — reads live state from
+    // QuarkSystemTable instead of accepting explicit args. Same whitelist,
+    // separate function, separate set of callers. We use the framework's
+    // existing live-state readers (which read the same QuarkSystemTable
+    // path) to decide whether to override.
+    static std::uint8_t __fastcall hkIsArtificialHandEnabledForCurrentPlayerType()
+    {
+        const std::uint8_t livePT        = outfit::ReadLivePlayerType();
+        const std::uint8_t livePartsType = outfit::ReadLivePartsType();
+
+        if ((livePT == outfit::kPlayerType_Snake
+              || livePT == outfit::kPlayerType_Avatar)
+         && livePartsType >= outfit::kCustomPartsTypeStart
+         && livePartsType <= outfit::kCustomPartsTypeEnd)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(livePartsType, &entry) && entry
+                && outfit::IsPlayerTypeCompatible(entry->playerType, livePT)
+                && entry->IsArmEnabled())
+            {
+                static std::uint8_t s_lastLivePT       = 0xFFu;
+                static std::uint8_t s_lastLivePartsT   = 0xFFu;
+                if (s_lastLivePT != livePT || s_lastLivePartsT != livePartsType)
+                {
+                    Log("[OutfitRuntimeParts:IsArtHandLive] livePT=%u "
+                        "livePartsType=0x%02X developId=%u — overriding "
+                        "ForCurrentPlayerType to 1 [unblocks live-state "
+                        "callers throughout engine, including iDroid UI's "
+                        "arm-module compatibility check]\n",
+                        static_cast<unsigned>(livePT),
+                        static_cast<unsigned>(livePartsType),
+                        static_cast<unsigned>(entry->developId));
+                    s_lastLivePT     = livePT;
+                    s_lastLivePartsT = livePartsType;
+                }
+                return 1;
+            }
+        }
+
+        return g_OrigIsArtificialHandForCurrent
+             ? g_OrigIsArtificialHandForCurrent()
+             : 0;
+    }
+
     static void __fastcall hkLoadPartsNew(
         void* self, std::uint32_t playerIndex,
         LoadPartsPlayerInfo* info, std::uint32_t flags)
@@ -865,6 +1111,9 @@ namespace outfit
         void* tLpn          = ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew);
         void* tFaceFova     = ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova);
         void* tFaceFovaAvatar = ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFovaForAvatar);
+        void* tSetHandSlot  = ResolveGameAddress(gAddr.EquipController_SetHandSlotEnabled);
+        void* tIsArtHand    = ResolveGameAddress(gAddr.Sys_IsArtificialHandEnabled);
+        void* tIsArtHandLive = ResolveGameAddress(gAddr.Sys_IsArtificialHandEnabledForCurrentPlayerType);
 
         if (tParts)
             g_InstalledParts = CreateAndEnableHook(
@@ -910,10 +1159,24 @@ namespace outfit
             g_InstalledDoesNeedFaceForAvatar = CreateAndEnableHook(
                 tFaceFovaAvatar, reinterpret_cast<void*>(&hkDoesNeedFaceFovaForAvatar),
                 reinterpret_cast<void**>(&g_OrigDoesNeedFaceFovaForAvatar));
+        if (tSetHandSlot)
+            g_InstalledSetHandSlotEnabled = CreateAndEnableHook(
+                tSetHandSlot, reinterpret_cast<void*>(&hkSetHandSlotEnabled),
+                reinterpret_cast<void**>(&g_OrigSetHandSlotEnabled));
+        if (tIsArtHand)
+            g_InstalledIsArtificialHand = CreateAndEnableHook(
+                tIsArtHand, reinterpret_cast<void*>(&hkIsArtificialHandEnabled),
+                reinterpret_cast<void**>(&g_OrigIsArtificialHandEnabled));
+        if (tIsArtHandLive)
+            g_InstalledIsArtHandForCurrent = CreateAndEnableHook(
+                tIsArtHandLive,
+                reinterpret_cast<void*>(&hkIsArtificialHandEnabledForCurrentPlayerType),
+                reinterpret_cast<void**>(&g_OrigIsArtificialHandForCurrent));
 
         Log("[OutfitRuntimeParts] installed: parts=%s fpk=%s camo=%s diamond=%s "
             "bionicArmFv2=%s bionicArmFpk=%s snakeFaceFv2=%s snakeFaceFpk=%s "
-            "lpn=%s doesNeedFace=%s doesNeedFaceAvatar=%s\n",
+            "lpn=%s doesNeedFace=%s doesNeedFaceAvatar=%s setHandSlotEnabled=%s "
+            "isArtificialHandEnabled=%s isArtHandForCurrent=%s\n",
             g_InstalledParts                  ? "OK" : "skip",
             g_InstalledFpk                    ? "OK" : "skip",
             g_InstalledCamo                   ? "OK" : "skip",
@@ -924,7 +1187,10 @@ namespace outfit
             g_InstalledSnakeFaceFpk           ? "OK" : "skip",
             g_InstalledLpn                    ? "OK" : "skip",
             g_InstalledDoesNeedFace           ? "OK" : "skip",
-            g_InstalledDoesNeedFaceForAvatar  ? "OK" : "skip");
+            g_InstalledDoesNeedFaceForAvatar  ? "OK" : "skip",
+            g_InstalledSetHandSlotEnabled     ? "OK" : "skip",
+            g_InstalledIsArtificialHand       ? "OK" : "skip",
+            g_InstalledIsArtHandForCurrent    ? "OK" : "skip");
 
         return g_InstalledParts && g_InstalledFpk && g_InstalledLpn;
     }
@@ -1119,6 +1385,12 @@ namespace outfit
             DisableAndRemoveHook(ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova));
         if (g_InstalledDoesNeedFaceForAvatar)
             DisableAndRemoveHook(ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFovaForAvatar));
+        if (g_InstalledSetHandSlotEnabled)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipController_SetHandSlotEnabled));
+        if (g_InstalledIsArtificialHand)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.Sys_IsArtificialHandEnabled));
+        if (g_InstalledIsArtHandForCurrent)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.Sys_IsArtificialHandEnabledForCurrentPlayerType));
 
         g_OrigLoadPartsParts   = nullptr;
         g_OrigLoadPartsFpk     = nullptr;
@@ -1131,6 +1403,9 @@ namespace outfit
         g_OrigLoadPartsNew              = nullptr;
         g_OrigDoesNeedFaceFova          = nullptr;
         g_OrigDoesNeedFaceFovaForAvatar = nullptr;
+        g_OrigSetHandSlotEnabled        = nullptr;
+        g_OrigIsArtificialHandEnabled   = nullptr;
+        g_OrigIsArtificialHandForCurrent = nullptr;
         g_FoxPath_Path         = nullptr;
 
         g_InstalledParts        = false;
@@ -1144,6 +1419,9 @@ namespace outfit
         g_InstalledLpn                   = false;
         g_InstalledDoesNeedFace          = false;
         g_InstalledDoesNeedFaceForAvatar = false;
+        g_InstalledSetHandSlotEnabled    = false;
+        g_InstalledIsArtificialHand      = false;
+        g_InstalledIsArtHandForCurrent   = false;
 
         g_CapturedBlockController = nullptr;
 

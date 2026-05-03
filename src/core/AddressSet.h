@@ -136,6 +136,9 @@ namespace AddressSetRuntime
         uintptr_t LoadPlayerSnakeFaceFpk            = 0;
         uintptr_t Player2BlockController_LoadPartsNew = 0;
         uintptr_t UpdatePartsStatus                 = 0;
+        uintptr_t EquipController_SetHandSlotEnabled = 0;
+        uintptr_t Sys_IsArtificialHandEnabled       = 0;
+        uintptr_t Sys_IsArtificialHandEnabledForCurrentPlayerType = 0;
 
 
         uintptr_t ResolveSuitToPartsType            = 0;
@@ -383,6 +386,9 @@ namespace AddressSetRuntime
             0x140AE8DF0ull, // LoadPlayerSnakeFaceFpk (leaf w/ hardcoded partsType whitelist; same fix shape as BionicArm)
             0x1409B3B60ull, // Player2BlockController_LoadPartsNew
             0x1409CC380ull, // UpdatePartsStatus
+            0x1411B0D10ull, // EquipController_SetHandSlotEnabled (gameplay arm input gate; overridden when custom outfit has enableArm=true)
+            0x1409C45C0ull, // Sys_IsArtificialHandEnabled (gates the per-frame arm-render dispatch in FUN_1412a2f80; same partsType whitelist as the leaf loaders, hook overrides to 1 for custom outfits with enableArm=true)
+            0x141E02D80ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType (live-state variant; reads QuarkSystemTable+0x98+0x10+0xfb/+0xf8; same whitelist; many callers across the codebase consult this for the live player's arm state)
             0x141E02930ull, // ResolveSuitToPartsType
             0x14973DA60ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
             0x1462B6590ull, // Player2UtilityImpl_CommitWrapper (3-arg)
@@ -560,6 +566,9 @@ namespace AddressSetRuntime
             0x0ull, // LoadPlayerSnakeFaceFpk (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // Player2BlockController_LoadPartsNew
             0x0ull, // UpdatePartsStatus
+            0x0ull, // EquipController_SetHandSlotEnabled (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // Sys_IsArtificialHandEnabled (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // ResolveSuitToPartsType
             0x0ull, // MissionPrep_RequestToChangePlayerPartsInMissionPreparationMode
             0x0ull, // Player2UtilityImpl_CommitWrapper
