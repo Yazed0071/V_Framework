@@ -68,140 +68,28 @@ namespace
 
     using DoesNeedFaceFova_t = std::uint8_t (__fastcall*)(std::uint32_t playerPartsType);
 
-    // EquipControllerImpl::SetHandSlotEnabled(this, slot, enabled) — the leaf
-    // function the partsType-translator inside Player2GameObjectImpl::
-    // UpdatePartsStatus calls to enable/disable the bionic arm input slot
-    // (mgsvtpp.exe.c:2263824, address 0x1411B0D10). For any custom partsType
-    // the translator's outer switch falls through to caseD_3 which forces
-    // `enabled=0`, disabling the arm button. We override the disable when the
-    // live player is wearing a registered custom outfit with enableArm=true.
     using SetHandSlotEnabled_t = void (__fastcall*)(void* self, std::uint32_t slot, std::uint8_t enabled);
 
-    // tpp::sys::IsArtificialHandEnabled(uint playerType, uint playerPartsType)
-    // — mgsvtpp.exe.c:1321783, address 0x1409C45C0. A simple whitelist:
-    //   if ((playerType == 0 || playerType == 3)
-    //    && partsType in {0,1,2,7..D,F..12,17..19}) return 1; else return 0;
-    // Two callers in the per-frame player-update loop FUN_1412a2f80 at
-    // mgsvtpp.exe.c:2396152 and 2396298 each wrap their entire arm-equip-
-    // render dispatch in `if (uVar12 & 2 && cVar5 != '\0')`. When this
-    // returns 0 (custom partsType), the engine NEVER tells the renderer the
-    // arm slot is active — vtable+0x100 (per-equip dispatch), vtable+0x118
-    // (slot activation), vtable+0x2f0 (per-bullet-id dispatch), and
-    // vtable+0x2d8 (per-frame finalize) all get skipped. Result: assets are
-    // loaded but never rendered. The fix: override to 1 for custom partsType
-    // with a registered outfit that has enableArm=true.
     using IsArtificialHandEnabled_t = std::uint8_t (__fastcall*)(std::uint32_t playerType, std::uint32_t playerPartsType);
 
-    // tpp::sys::PlayerInfoService::IsArtificialHandEnabledForCurrentPlayerType()
-    // — mgsvtpp.exe.c:3945377, address 0x141E02D80. Independent function with
-    // the SAME hardcoded whitelist as the explicit-args variant above, but
-    // reads playerType/partsType from QuarkSystemTable -> +0x98 -> +0x10 ->
-    // [+0xfb]/[+0xf8] (the live player state) instead of from arguments. Many
-    // callers across the engine consult this for "does the live player have
-    // an artificial hand?" — including UI greying logic. Without this hook,
-    // even with the explicit-args variant overridden, callers asking the
-    // live-state variant get 0 for custom partsType and the arm-related
-    // dispatch they gate stays disabled.
     using IsArtificialHandEnabledForCurrent_t = std::uint8_t (__fastcall*)();
 
-    // Player2GameObjectImpl::ProcessSignal at mgsvtpp.exe.c:1322204, address
-    // 0x1409C5D00. Big per-player signal dispatcher with a switch over signal
-    // IDs. ONE specific signal — 0x8483a342fa61 — runs the Fv2 attachment
-    // refresh:
-    //   if (uVar33 < 0x1c) {                          // mgsvtpp.exe.c:1322328
-    //       Fv2Info::Fv2Info(&local_188);
-    //       InitLoadPlayerPartsParts(...);
-    //       InitLoadPlayerFv2s(...);                  // wires Fv2 into scene
-    //       signalPtr[1..6] = ... ;                   // populates output struct
-    //       return;
-    //   }
-    //   goto LAB_1409c60a6;                           // failure path
-    // For custom partsType (≥ 0x1C) the gate fails, the Fv2 attach never
-    // happens, the renderer never gets the Fv2 wired into the visible scene,
-    // and the arm/face assets we loaded via the leaf hooks just sit in memory
-    // unused. We hook ProcessSignal entry, detect signal 0x8483a342fa61 with a
-    // custom partsType in the slot, temporarily spoof the partsType byte at
-    // *(this+0x80)+0x48+slot to 0x01 (vanilla Snake STANDARD — passes the
-    // gate), set the framework's TLS so the leaf hooks called from inside
-    // InitLoadPlayerPartsParts/Fv2s recover the real custom partsType, call
-    // orig, then restore the byte. The byte is restored before this hook
-    // returns so UpdatePartsStatus's state-changed cycling never sees the
-    // spoofed value.
-    //
-    // KEY EXE FINDING: every sender of 0x8483a342fa61 in the binary lives in
-    // the demo/cutscene namespace (tpp::gk::DemoCallback at
-    // mgsvtpp.exe.c:859262 / 859631 / 5250030, tpp::gk::demo::GameObjectSendString
-    // at 8381875). NONE of the senders fire during normal mission preparation
-    // outfit-change flow. So while this signal IS the Fv2 refresh trigger
-    // during cutscenes, the in-mission-prep Fv2 attach goes through a
-    // SEPARATE non-signal path: Block::Activate callbacks dispatched via
-    // ExecBlockControllerCallbacks (mgsvtpp.exe.c:5881811), one of which
-    // ultimately calls Fova2ControllerImpl::Realize (sets bit 0x2 of the
-    // per-slot field at +0x152) and FUN_146877140 / FUN_140aeca60 (the
-    // actual Fv2 wire-up that sets bit 0x1 of +0x152). Both bits must be set
-    // for Fova2ControllerImpl::PostUpdate (mgsvtpp.exe.c:1427853) to run the
-    // mesh-visibility processing per-tick. Since the leaf hooks for arm Fv2/
-    // Fpk are called UNCONDITIONALLY from LoadPlayerFv2s and
-    // LoadPlayerFv2sSubsetUnk (no partsType gate at the parent), if the
-    // user's diagnostic logs show our [BionicArmFv2] entry firing, the leaf
-    // is being requested correctly and the issue is downstream of the leaf
-    // (Block resolution, Fv2 file lookup, or mesh attach). If the diagnostic
-    // logs don't fire, the parent function isn't being invoked — pointing
-    // upstream to the Block activation pipeline.
     using ProcessSignal_t = void (__fastcall*)(void* p1, void* p2, std::uint32_t slot, std::uint64_t* signalPtr);
 
     constexpr std::uint64_t kSignalRefreshFv2s = 0x8483a342fa61ull;
     constexpr std::size_t kP2GO_OffPerPlayerStruct = 0x80;
-    // Player2GameObjectImpl + 0xb0 = pointer to per-slot state-machine byte
-    // array. Each byte is the cVar9 state (0=needs-LoadPartsNew, 1=loading,
-    // 2=loaded steady, 3=unload pending, 4=waiting empty). Used by
-    // UpdatePartsStatus's `cVar9 = *(char *)(uVar27 + lVar23)` at named EXE
-    // line 2728697 (mgsvtpp.exe.c:1324659). Forcing state→3 here is what
-    // wakes the state==3 ClearParts + UnloadPartsNew → state==4 → state==0
-    // → LoadPartsNew cascade for arm-only changes that would otherwise stay
-    // in steady-state==2 forever for custom partsType (the gate at
-    // mgsvtpp:1325085 only runs when state ∉ {1,2}, so custom never trips
-    // it and never reloads).
     constexpr std::size_t kP2GO_OffStateMachinePtr = 0xb0;
     constexpr std::size_t kPP_OffPlayerTypeArr = 0x40;
     constexpr std::size_t kPP_OffPartsTypeArr = 0x48;
     constexpr std::size_t kPP_OffCamoTypeArr  = 0x50;
     constexpr std::size_t kPP_OffArmTypeArr   = 0x58;
-    // perPlayer + 0x180: 32-bit "state-changed/needHead" bitfield. Bit S set
-    // means slot S needs a re-evaluation pass. State==3 branch reads
-    // `needHead = (*(this+0x180) & uVar13) != 0` to gate the
-    // ClearParts+UnloadPartsNew transition (named EXE line 2728693
-    // / mgsvtpp.exe.c:1324642).
     constexpr std::size_t kPP_OffStateChangedBits = 0x180;
-    // perPlayer + 0x184: 32-bit alternate-trigger bitfield (bVar31 source).
-    // Set alongside +0x180 so the state==3 branch's `bVar31 || needHead`
-    // disjunction fires regardless of which half of the engine's state-track
-    // logic clears first.
     constexpr std::size_t kPP_OffAltStateBits = 0x184;
     constexpr std::size_t kPP_OffLoadoutReq   = 0xc0;
     constexpr std::size_t kPP_LoadoutReqStride = 0x3a;
     constexpr std::size_t kPP_LoadoutReqEquipHashOff = 0x8;
     constexpr std::uint8_t kProcessSignalSpoofPartsType = 0x01;
-    // State machine value to force when arm tier changes for a custom slot.
-    // The state==3 branch in UpdatePartsStatus reads `bVar31 || needHead`
-    // (both bits set by us above) and runs Player2Impl::ClearParts +
-    // Player2BlockController::UnloadPartsNew, then transitions to 4. State
-    // 4 polls IsPartsBlockEmptyNew, transitions to 0 when empty. State 0
-    // calls LoadPartsNew with the latest LoadoutRequest values. Our
-    // hkLoadPartsNew handles the partsType + armType for custom outfits
-    // (restoring armType from cache when it arrives as 0).
-    constexpr std::uint8_t kForceCascadeState = 3;
 
-    // Mirror of the engine's hardcoded equipHash → armTier translation, used
-    // by every place in the binary that gates arm behavior on the partsType
-    // whitelist (UpdatePartsStatus@1325105, EquipControllerImpl::
-    // InitializePlayerAtIndex@2262691, SynchronizerImpl::GetSpawnCondition
-    // @2397283, UnrealUpdaterImpl::ReceiveSyncState@2415985). The equipHash
-    // values 0x203..0x209 correspond to the player's developed arm tier in
-    // ascending order: 0x203=Tier 2, 0x204=Tier 3, 0x205=Tier 4, 0x206=Tier 5,
-    // 0x208=Tier 6 (Hand of Jehuty), 0x209=Tier 7 (HoJ Camo). Anything else
-    // (including 0x207 which is HoJ-base or 0 for unequipped) maps to Tier 1
-    // (basic prosthetic).
     static std::uint8_t TranslateEquipHashToArmTier(std::uint16_t equipHash)
     {
         switch (equipHash)
@@ -216,16 +104,6 @@ namespace
         }
     }
 
-    // Read the live equipped-arm hash for the given slot from the per-player
-    // LoadoutRequest array at *(p2go+0x80)+0xc0+slot*0x3a+8, and translate it
-    // to the engine's arm-tier byte. Returns 0 if the read can't be resolved
-    // (caller falls back to its own default).
-    //
-    // This lets us seed `g_LastInfoArmType` even when the user loads directly
-    // into a save with a custom outfit already equipped (no prior natural
-    // LoadPartsNew with armType > 0 to sample from). Without this seeding,
-    // hkLoadPlayerBionicArmFv2 substitutes handType=1 and the arm renders as
-    // basic prosthetic regardless of the user's actual developed tier.
     static std::uint8_t ReadLiveArmTierFromLoadoutRequest(void* p2go, std::size_t slot)
     {
         if (!p2go) return 0;
@@ -254,91 +132,8 @@ namespace
         return result;
     }
 
-    // Player2GameObjectImpl::UpdatePartsStatus at mgsvtpp.exe.c:1324531, address
-    // 0x1409CC380. The per-tick state syncer. For each player slot it reads
-    // OLD bytes from byte_arrays at pIVar3+0x40..0x68 into locals at function
-    // entry, computes NEW values, compares NEW vs OLD, and writes NEW back if
-    // anything changed (also setting the reload-flag bit at pIVar3+0x180).
-    //
-    // Inside the function (mgsvtpp.exe.c:1325087) is THE partsType whitelist
-    // that controls the arm-tier byte at byte_arrays+0x58+slot:
-    //   if ((playerType == 0 || playerType == 3)) {
-    //       switch (playerPartsType) {
-    //       case 0..2,7..D,F..12,17..19:                          // vanilla
-    //           switch (loadoutRequest[slot].equipHash at +0x8) {
-    //               case 0x203: local_1a8 = 2; break;             // Bionic Arm Tier 2
-    //               case 0x204: local_1a8 = 3; break;             // Tier 3
-    //               case 0x205: local_1a8 = 4; break;             // Tier 4
-    //               case 0x206: local_1a8 = 5; break;             // Tier 5
-    //               case 0x208: local_1a8 = 6; break;             // Hand of Jehuty
-    //               case 0x209: local_1a8 = 7; break;             // HoJ Camo
-    //               default:    local_1a8 = 1; break;             // Tier 1 basic
-    //           }
-    //           break;
-    //       default: goto caseD_3;                                 // <-- custom lands here
-    //       }
-    //   }
-    //   else {
-    //   caseD_3: uVar26 = 0;                                       // local_1a8 stays 0
-    //   }
-    //   ...later writes byte_arrays+0x58+slot = local_1a8;
-    //
-    // The byte at byte_arrays+0x58+slot is the SINGLE SOURCE OF TRUTH every
-    // gameplay arm-effect consults — KnockActionPluginImpl::StateKnock at
-    // FUN_1411e7c40 (mgsvtpp.exe.c:2293557) reads it directly to choose
-    // arm-knock vs body-knock sound; the per-frame arm-equip dispatch
-    // (FUN_1412a2f80) and many other systems do likewise. For custom
-    // partsType the engine writes 0 → every arm-effect plays the no-arm
-    // version regardless of the live arm being equipped and visually
-    // rendered.
-    //
-    // STRAIGHTFORWARD POST-ORIG WRITES CASCADE — DON'T DO IT. A previous
-    // attempt wrote byte=cachedTier post-orig. Next tick, orig reads OLD=
-    // cachedTier into the local but recomputes NEW=0 (custom falls through
-    // the same switch), state-changed triggers (NEW≠OLD), the reload-flag
-    // bit at pIVar3+0x180 gets set. On the subsequent tick, the cVar9==3
-    // branch sees the bit and runs Player2Impl::ClearParts +
-    // UnloadPartsNew → cVar9=4 → cVar9=0 → LoadPartsNew. Combined with the
-    // unconditional 0xFE BlockShell clobber in hkLoadPartsNew defeating
-    // orig's dedupe at mgsvtpp.exe.c:1312714, custom assets reloaded every
-    // tick → "Character does not load."
-    //
-    // CURRENT APPROACH (hkUpdatePartsStatus below): pre-orig write the byte
-    // to 0 for slots that are custom-partsType + enableArm. Orig now reads
-    // OLD=0 and computes NEW=0 — they match, no state-change, no reload-flag
-    // bit, no cascade. Post-orig, write the byte back to the cached arm tier.
-    // The byte is non-zero only OUTSIDE orig's run; since UpdatePartsStatus
-    // is single-threaded with all gameplay queries, every consumer sees
-    // byte=cachedTier whenever they read it. Vanilla slots are untouched.
     using UpdatePartsStatus_t = void (__fastcall*)(void* self);
 
-    // Player2Impl::SetUpParts at named EXE Tpp_main_win64.exe.c:2727306 (live
-    // address 0x1409CA560 per mgsvtpp_Addresses.exe.txt:7909319). Signature:
-    //   bool __thiscall SetUpParts(Player2Impl* this, uint slot,
-    //                              uint playerType, uint partsType,
-    //                              uint camo, uint armType,
-    //                              uint faceId, AvatarInfo* avatarInfo);
-    //
-    // Called from UpdatePartsStatus's cVar13==1 branch (named EXE line
-    // 2728965) AFTER LoadPartsNew completes, to actually wire up the arm
-    // assets for the slot via RegisterFilesForArm(this, slot, armType).
-    // RegisterFilesForArm uses armType to index `g_armEffectInfos[armType]`
-    // — armType=0 means "no arm files registered", so the visual stays at
-    // whatever was last set (or empty).
-    //
-    // The armType arg here comes from byte_arrays+0x58+slot read at the
-    // start of UpdatePartsStatus. Our hkUpdatePartsStatus zeros that byte
-    // pre-orig to suppress the state-changed cascade — so when SetUpParts
-    // runs INSIDE orig, it sees armType=0 and registers nothing for the
-    // arm slot. That's why the arm visual doesn't update on tier swap
-    // even though our tier-change detection correctly fires the asset
-    // reload chain.
-    //
-    // Fix: hook SetUpParts and override armType=0 → g_LastInfoArmType (the
-    // cached live tier kept fresh by hkUpdatePartsStatus's ReadLiveArmTier
-    // FromLoadoutRequest seeding) when the slot has a custom partsType + a
-    // registered outfit with enableArm=true. Vanilla slots and non-arm-
-    // enabled custom outfits pass through untouched.
     using Player2ImplSetUpParts_t = bool (__fastcall*)(
         void* self,
         std::uint32_t slot,
@@ -401,23 +196,12 @@ namespace
     static std::uint8_t  g_LastInfoFaceUnk       = 0;
     static bool          g_LastInfoCaptured      = false;
 
-    // Per-playerType cache for the live arm tier. Indexed by playerType
-    // (0=Snake, 1=DD_M, 2=DD_F, 3=Avatar). MUST be per-playerType, not
-    // global — UpdatePartsStatus iterates slots, and slot 0 (Snake) and
-    // slot 1 (Avatar) each have their own LoadoutRequest equip hash. A
-    // global cache gets clobbered by whichever slot is iterated last,
-    // making the OTHER slot's SetUpParts override use the wrong tier.
-    // (Observed regression: Snake's HoJ tier 3 visual reverted to tier 1
-    // because slot 1's "tier 1 default Avatar arm" iteration overwrote
-    // the cache.)
-    //
-    // For backward compat, accessor helpers wrap the array.
+    // Per-playerType cache (must NOT be global — slot 0 / slot 1 iteration
+    // in UpdatePartsStatus would clobber each other otherwise).
     static constexpr std::size_t kArmTierByPlayerTypeMax = 4;
     static std::uint8_t  g_LastInfoArmType_byPT[kArmTierByPlayerTypeMax]      = {0,0,0,0};
     static bool          g_LastInfoArmCaptured_byPT[kArmTierByPlayerTypeMax]  = {false,false,false,false};
 
-    // Look up the cached arm tier for a given playerType. Returns
-    // {tier, captured} pair via out-params. Bounds-checks playerType.
     static void GetCachedArmTierForPlayerType(
         std::uint32_t playerType, std::uint8_t* outTier, bool* outCaptured)
     {
@@ -604,60 +388,16 @@ namespace
     }
 
 
-    // Vanilla partsType used as the substitute when calling orig
-    // LoadPlayerBionicArm{Fv2,Fpk} for any custom outfit. The leaf functions
-    // hardcode a partsType whitelist (case 0,1,2,7,8,9,A,B,C,D,F,10,11,12,17,
-    // 18,19) and reject anything else with a null FoxPath. The arm asset path
-    // itself is selected by `playerHandType * 2`, NOT by partsType, so the
-    // whitelist case we route through is irrelevant — pick a stable, always-
-    // present vanilla value (0x01 = STANDARD Snake suit).
+    // The leaf rejects any partsType outside its hardcoded whitelist with a
+    // null FoxPath; route custom outfits through 0x01 (STANDARD Snake) since
+    // the arm asset is selected by handType*2, not partsType.
     constexpr std::uint32_t kBionicArmVanillaPartsTypeSubstitute = 0x01;
 
-    // Detours for the bionic-arm leaf loaders.
-    //
-    // Why this exists: the engine's leaf functions reject any partsType outside
-    // the hardcoded whitelist {0,1,2,7..0xD except 0xE,0xF..0x12,0x17..0x19}
-    // — V_FrameWork's custom partsType range (`outfit::kCustomPartsTypeStart`..
-    // `kCustomPartsTypeEnd`) has zero overlap with that whitelist, so for every
-    // custom outfit the leaf returns a null FoxPath and the arm Fv2/Fpk slot
-    // ends up empty. The Fpk path is also called from inside LoadPartsNew
-    // while the framework's spoof window is active (info->playerPartsType=0x01)
-    // so it would already work, but hooking both for symmetry is defensive.
-    //
-    // Both detours: scale O(1) per call, lookup is by partsType through the
-    // existing registry — works for any number of registered outfits.
     static std::uint64_t* __fastcall hkLoadPlayerBionicArmFv2(
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerHandType)
     {
         const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
-
-        // Diagnostic: state-change-gated log per (playerType, partsType, handType)
-        // tuple. Confirms whether the engine is actually requesting the arm Fv2
-        // path for the live player. If we never see this fire after a custom-
-        // outfit equip, the Fv2 attach pipeline isn't even being invoked — the
-        // bug is upstream of the leaf (state machine, signal dispatch, or Block
-        // activation never reaches this layer).
-        {
-            static std::uint32_t s_lastPT = 0xFFFFFFFFu;
-            static std::uint32_t s_lastPartsType = 0xFFFFFFFFu;
-            static std::uint32_t s_lastEffective = 0xFFFFFFFFu;
-            static std::uint32_t s_lastHand = 0xFFFFFFFFu;
-            if (s_lastPT != playerType || s_lastPartsType != playerPartsType
-                || s_lastEffective != effectivePartsType || s_lastHand != playerHandType)
-            {
-                Log("[OutfitRuntimeParts:BionicArmFv2] entry: playerType=%u "
-                    "partsType=0x%02X (effective=0x%02X) handType=%u\n",
-                    playerType,
-                    static_cast<unsigned>(playerPartsType & 0xFF),
-                    static_cast<unsigned>(effectivePartsType & 0xFF),
-                    playerHandType);
-                s_lastPT = playerType;
-                s_lastPartsType = playerPartsType;
-                s_lastEffective = effectivePartsType;
-                s_lastHand = playerHandType;
-            }
-        }
 
         if (effectivePartsType >= outfit::kCustomPartsTypeStart
          && effectivePartsType <= outfit::kCustomPartsTypeEnd)
@@ -670,27 +410,10 @@ namespace
             {
                 if (!entry->IsArmEnabled())
                 {
-                    Log("[OutfitRuntimeParts:BionicArmFv2] partsType=0x%02X "
-                        "developId=%u IsArmEnabled=false -> kSubAssetDisabled\n",
-                        static_cast<unsigned>(pt),
-                        static_cast<unsigned>(entry->developId));
                     return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
                 }
-                // CRITICAL: handType comes from the live byte arrays at
-                // *(Player2GameObjectImpl+0x80)+0x58+slot, which the engine
-                // populates as 0 for custom partsType (the engine doesn't
-                // track arm tier for outfit slots outside its own whitelist).
-                // BionicArmFv2Array[handType*2] uses handType to index — for
-                // handType=0 the entry is a NULL FoxPath, which is exactly
-                // what produces the invisible-arm symptom even with our
-                // partsType substitute. Fall back to the cached real arm
-                // tier (captured by hkLoadPartsNew on natural pre-outfit-
-                // change calls) when the leaf is invoked with handType=0.
-                // If no cache yet (cold-start with custom outfit already
-                // equipped from save), use 1 (basic prosthetic) — the
-                // user's developed tier may be higher but visually 1 is
-                // a non-empty path so the arm renders, and SetActiveVariant/
-                // outfit reload will re-cache the real tier later.
+                // Engine zeroes handType for custom partsType (the leaf
+                // would then load NULL); recover from per-PT cache.
                 std::uint32_t effectiveHandType = playerHandType;
                 if (effectiveHandType == 0)
                 {
@@ -701,24 +424,10 @@ namespace
                         ? static_cast<std::uint32_t>(cachedTier)
                         : 1u;
                 }
-                std::uint64_t* result = g_OrigLoadBionicArmFv2(
+                return g_OrigLoadBionicArmFv2(
                     outPath, playerType,
                     kBionicArmVanillaPartsTypeSubstitute,
                     effectiveHandType);
-                Log("[OutfitRuntimeParts:BionicArmFv2] partsType=0x%02X "
-                    "developId=%u IsArmEnabled=true -> orig(playerType=%u, "
-                    "partsType=0x%02X[substitute], handType=%u%s) returned "
-                    "path=0x%016llX\n",
-                    static_cast<unsigned>(pt),
-                    static_cast<unsigned>(entry->developId),
-                    playerType,
-                    static_cast<unsigned>(kBionicArmVanillaPartsTypeSubstitute),
-                    effectiveHandType,
-                    (effectiveHandType != playerHandType)
-                        ? " [substituted from 0; engine zeroes armType for custom partsType]"
-                        : "",
-                    result ? static_cast<unsigned long long>(*result) : 0ull);
-                return result;
             }
         }
         return g_OrigLoadBionicArmFv2(outPath, playerType,
@@ -731,28 +440,6 @@ namespace
     {
         const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
 
-        // Diagnostic: state-change-gated log to confirm Fpk leaf is requested.
-        {
-            static std::uint32_t s_lastPT = 0xFFFFFFFFu;
-            static std::uint32_t s_lastPartsType = 0xFFFFFFFFu;
-            static std::uint32_t s_lastEffective = 0xFFFFFFFFu;
-            static std::uint32_t s_lastHand = 0xFFFFFFFFu;
-            if (s_lastPT != playerType || s_lastPartsType != playerPartsType
-                || s_lastEffective != effectivePartsType || s_lastHand != playerHandType)
-            {
-                Log("[OutfitRuntimeParts:BionicArmFpk] entry: playerType=%u "
-                    "partsType=0x%02X (effective=0x%02X) handType=%u\n",
-                    playerType,
-                    static_cast<unsigned>(playerPartsType & 0xFF),
-                    static_cast<unsigned>(effectivePartsType & 0xFF),
-                    playerHandType);
-                s_lastPT = playerType;
-                s_lastPartsType = playerPartsType;
-                s_lastEffective = effectivePartsType;
-                s_lastHand = playerHandType;
-            }
-        }
-
         if (effectivePartsType >= outfit::kCustomPartsTypeStart
          && effectivePartsType <= outfit::kCustomPartsTypeEnd)
         {
@@ -764,17 +451,8 @@ namespace
             {
                 if (!entry->IsArmEnabled())
                 {
-                    Log("[OutfitRuntimeParts:BionicArmFpk] partsType=0x%02X "
-                        "developId=%u IsArmEnabled=false -> kSubAssetDisabled\n",
-                        static_cast<unsigned>(pt),
-                        static_cast<unsigned>(entry->developId));
                     return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
                 }
-                // Mirror the Fv2 leaf's handType=0 fallback: the FPK leaf is
-                // called from the same call sites as the Fv2 leaf, with the
-                // same handType source. If handType is 0 here we'd load an
-                // empty FPK path and the Fv2 file the Fv2 leaf returns won't
-                // be findable later.
                 std::uint32_t effectiveHandType = playerHandType;
                 if (effectiveHandType == 0)
                 {
@@ -939,16 +617,6 @@ namespace
              : 0;
     }
 
-    // Avatar variant of the face-needed gate. Vanilla
-    // ResourceTable::DoesNeedFaceFovaForAvatar @ 0x140AE8500 has the same
-    // hardcoded partsType whitelist as the Snake/DD variant, so it returns
-    // false for any custom partsType — preventing the engine from loading
-    // the Avatar's procedural face when Snake↔Avatar bridging puts a custom
-    // outfit's partsType into the Avatar slot. Mirror the Snake/DD hook:
-    // when a registered outfit with `enableHead = true` is the live one,
-    // force-return 1 so the engine proceeds with the Avatar face load
-    // (which uses BlockShell+0xF7/+0xF8 customization indices, not partsType,
-    // so no further whitelist substitution is needed).
     static std::uint8_t __fastcall hkDoesNeedFaceFovaForAvatar(
         std::uint32_t playerPartsType)
     {
@@ -1000,28 +668,6 @@ namespace
              : 0;
     }
 
-    // EquipControllerImpl::SetHandSlotEnabled is the leaf the partsType
-    // translator inside UpdatePartsStatus calls. For custom partsType the
-    // translator's outer switch falls into caseD_3 (uVar26=0) and calls this
-    // with `enabled=0`, disabling the bionic arm input slot. We override the
-    // disable in that specific case (custom outfit registered with
-    // enableArm=true). Vanilla DD slots (which legitimately have no arm) are
-    // left alone — we only act when the live player is Snake/Avatar AND
-    // wearing a registered custom outfit AND that outfit's enableArm is true.
-    //
-    // PREVIOUS APPROACH (reverted): we hooked Player2GameObjectImpl::
-    // UpdatePartsStatus and spoofed the partsType byte array to 0x01 before
-    // orig ran. That CASCADED into the orig's internal LoadPartsNew call
-    // (mgsvtpp.exe.c:1324794) which builds playerInfo from the same byte
-    // arrays — LoadPartsNew received partsType=0x01 instead of the real
-    // custom value, so our LoadPartsNew leaf hook saw it as vanilla and the
-    // custom body assets never loaded. The spoof was ABI-toxic at that layer.
-    //
-    // CURRENT APPROACH (this hook): leave the byte arrays untouched so
-    // LoadPartsNew receives the real custom partsType and our existing
-    // LoadPartsNew leaf hook substitutes the custom asset paths correctly.
-    // Address only the SetHandSlotEnabled side-effect by overriding its
-    // `enabled` argument — purely a gameplay-input fix, no asset-load impact.
     static void __fastcall hkSetHandSlotEnabled(
         void* self_equipController,
         std::uint32_t slot,
@@ -1029,16 +675,11 @@ namespace
     {
         if (enabled != 0)
         {
-            // Engine wants enabled=1; nothing to override. Pass through.
             if (g_OrigSetHandSlotEnabled)
                 g_OrigSetHandSlotEnabled(self_equipController, slot, enabled);
             return;
         }
 
-        // Engine is calling with enabled=0. This is either a legitimate
-        // disable (DD slot, dead player, demo state, etc.) or the custom-
-        // partsType translator miss we want to override. Distinguish by
-        // checking the live player's outfit state.
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
         const std::uint8_t livePartsType = outfit::ReadLivePartsType();
 
@@ -1056,48 +697,16 @@ namespace
                 && outfit::IsPlayerTypeCompatible(entry->playerType, livePT)
                 && entry->IsArmEnabled())
             {
-                // State-change-gated log to avoid every-frame spam. We log on
-                // first override per (slot, partsType) transition only.
-                static std::uint32_t s_lastSlot       = 0xFFFFFFFFu;
-                static std::uint8_t  s_lastPartsType  = 0xFFu;
-                if (s_lastSlot != slot || s_lastPartsType != livePartsType)
-                {
-                    Log("[OutfitRuntimeParts:SetHandSlot] slot=%u partsType=0x%02X "
-                        "(livePT=%u developId=%u) enabled=0 -> 1 [custom outfit "
-                        "with enableArm=true; overriding translator's "
-                        "whitelist-miss disable]\n",
-                        slot,
-                        static_cast<unsigned>(livePartsType),
-                        static_cast<unsigned>(livePT),
-                        static_cast<unsigned>(entry->developId));
-                    s_lastSlot      = slot;
-                    s_lastPartsType = livePartsType;
-                }
-
                 if (g_OrigSetHandSlotEnabled)
                     g_OrigSetHandSlotEnabled(self_equipController, slot, 1);
                 return;
             }
         }
 
-        // Legitimate disable — pass through.
         if (g_OrigSetHandSlotEnabled)
             g_OrigSetHandSlotEnabled(self_equipController, slot, enabled);
     }
 
-    // Override the engine's per-frame "should the artificial hand be active?"
-    // gate. Vanilla returns 1 only for the hardcoded vanilla partsType
-    // whitelist; for custom partsType (0x40+) it returns 0 and the per-player
-    // update loop FUN_1412a2f80 at mgsvtpp.exe.c:2396151-2396188 and
-    // 2396297-2396324 skips the entire arm-equip-render dispatch (vtable
-    // calls +0x100, +0x118, +0x2f0, +0x2d8 are gated by `cVar5 != '\0'`).
-    // Even though our leaf hooks load the correct arm Fpk/Fv2 paths, this
-    // gate prevents the renderer from being told the arm slot is active,
-    // resulting in a visually-invisible bionic arm despite all asset loads
-    // succeeding. Override to 1 when the live partsType is a registered
-    // custom outfit with enableArm=true. Pass through everything else
-    // (vanilla partsTypes, DD player types, custom outfits with enableArm
-    // intentionally false).
     static std::uint8_t __fastcall hkIsArtificialHandEnabled(
         std::uint32_t playerType,
         std::uint32_t playerPartsType)
