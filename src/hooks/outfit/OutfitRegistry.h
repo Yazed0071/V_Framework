@@ -7,6 +7,27 @@ namespace outfit
 {
 
 
+    // Custom partsType byte range. Upper bound is fixed at 0x7F because the
+    // engine treats bytes with the high bit set (0x80+) as selector codes.
+    // Lower bound is 0x40, which is the safe boundary above all vanilla
+    // partsType references in the player/parts/outfit code paths.
+    // Vanilla partsType collisions:
+    //   0x00-0x19  vanilla outfit whitelist (Player2GameObjectImpl::Update-
+    //              PartsStatus arm-tier gate at mgsvtpp:1325085)
+    //   0x0E       Player2Impl::SetUpParts:2727478 — thermal model gate
+    //              (excluded from `1 < param_4 - 0xE && param_4 != 0x14`)
+    //   0x14       same gate, explicit exclusion
+    //   0x15-0x16  ResourceTable::DoesNeedFaceFovaForAvatar switch entries
+    //   0x17-0x19  same
+    //   0x1A-0x1B  UpdatePartsStatus writes for playerType==5/6 (DDFemale/
+    //              Avatar) — would clobber custom-outfit identity
+    //   0x80+      reserved for selector codes
+    // Safe contiguous range: [0x40..0x7F] = 64 slots.
+    //
+    // History: extended down to 0x1C (giving 100 slots) on 2026-05-04 to
+    // support more custom outfits, but the dev-menu integration for
+    // outfits past index 63 never converged to a working state. Reverted
+    // to the original 0x40 lower bound on 2026-05-04 round 18.
     constexpr std::uint8_t kCustomPartsTypeStart = 0x40;
     constexpr std::uint8_t kCustomPartsTypeEnd   = 0x7F;
     constexpr std::uint8_t kCustomSelectorStart  = 0x80;
@@ -30,6 +51,9 @@ namespace outfit
     constexpr std::uint8_t kCamoBonusTypeUnset      = 0xFF;
 
 
+    // Hard cap on registered outfit entries. The partsType range
+    // [0x40..0x7F] = 64 slots is the actual limiter; 128 here leaves
+    // slack for future range tweaks without resizing the entry table.
     constexpr std::size_t  kMaxOutfits = 128;
 
 
@@ -49,6 +73,7 @@ namespace outfit
         std::uint64_t  camoFpk            = kSubAssetUseVanilla;
         std::uint64_t  camoFv2            = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk         = kSubAssetDisabled;
+        std::uint64_t  voiceFpk           = kSubAssetUseVanilla;
 
 
         std::uint64_t  displayNameHash    = 0;
@@ -75,6 +100,7 @@ namespace outfit
         std::uint64_t  faceFpk          = kSubAssetUseVanilla;
         std::uint64_t  skinFv2          = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk       = kSubAssetDisabled;
+        std::uint64_t  voiceFpk         = kSubAssetUseVanilla;
 
 
         bool           enableArm        = true;
@@ -130,6 +156,7 @@ namespace outfit
         std::uint64_t  faceFpk           = kSubAssetUseVanilla;
         std::uint64_t  skinFv2           = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk        = kSubAssetDisabled;
+        std::uint64_t  voiceFpk          = kSubAssetUseVanilla;
 
 
         bool           enableArm         = true;
@@ -174,6 +201,7 @@ namespace outfit
         bool IsDiamondEnabled()  const { return diamondFpk  != kSubAssetDisabled; }
         bool IsDiamondCustom()   const { return diamondFpk  > kSubAssetUseVanilla; }
         bool IsDiamondFv2Custom()const { return diamondFv2  > kSubAssetUseVanilla; }
+        bool IsVoiceCustom()     const { return voiceFpk    > kSubAssetUseVanilla; }
         bool HasVariants()       const { return variantCount > 0; }
         bool HasHeadOptions()    const { return supportsHeadOptions && headOptionCount > 0; }
         bool IsHeadEnabled()     const { return enableHead; }
@@ -184,6 +212,7 @@ namespace outfit
         std::uint64_t GetVariantCamoFpk(std::uint8_t idx) const;
         std::uint64_t GetVariantCamoFv2(std::uint8_t idx) const;
         std::uint64_t GetVariantDiamondFpk(std::uint8_t idx) const;
+        std::uint64_t GetVariantVoiceFpk(std::uint8_t idx) const;
     };
 
 

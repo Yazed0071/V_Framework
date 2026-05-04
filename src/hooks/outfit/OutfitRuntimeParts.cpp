@@ -165,6 +165,7 @@ namespace
     constexpr std::size_t kP2GO_OffStateMachinePtr = 0xb0;
     constexpr std::size_t kPP_OffPlayerTypeArr = 0x40;
     constexpr std::size_t kPP_OffPartsTypeArr = 0x48;
+    constexpr std::size_t kPP_OffCamoTypeArr  = 0x50;
     constexpr std::size_t kPP_OffArmTypeArr   = 0x58;
     // perPlayer + 0x180: 32-bit "state-changed/needHead" bitfield. Bit S set
     // means slot S needs a re-evaluation pass. State==3 branch reads
@@ -1361,13 +1362,21 @@ namespace
             bool         active;
             std::uint8_t restoreValue;
             // True on the tick where resolvedTier differs from the previous
-            // tick's value. Drives the post-orig force-cascade for custom
-            // outfits in iDroid mission-prep, where steady-state==2 would
-            // otherwise never reach the partsType gate at mgsvtpp:1325085
-            // and the state machine never transitions out of 2 for arm-only
-            // changes. Setting state→3 + the +0x180/+0x184 bits forces the
-            // cascade to fire next tick.
+            // tick's value (INCLUDES first encounter, where last=0xFF differs
+            // from any real tier). Drives the pre-orig "leave byte alone"
+            // behavior so orig's state-changed compare can detect the change.
             bool         tierJustChanged;
+
+            // True ONLY when we have a previously-seen tier value AND the
+            // current resolvedTier differs from it. Excludes first-encounter
+            // ticks (where s_lastSeenTier[i] is still 0xFF baseline). This
+            // is what gates the post-orig direct LoadPartsNew bypass — we
+            // must NOT fire on first encounter because that's the initial
+            // outfit-equip cascade (which the engine handles naturally),
+            // and firing direct LoadPartsNew at state==4 mid-unload breaks
+            // the engine's state==4→0 transition and leaves the character
+            // unloaded.
+            bool         genuineTierChange;
         };
         SlotOverride overrides[kMaxSlots] = {};
         std::uint8_t* armTypeArr = nullptr;
@@ -1376,6 +1385,14 @@ namespace
         {
             void* perPlayer = *reinterpret_cast<void**>(
                 reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffPerPlayerStruct);
+            // State machine byte array (1 byte per slot at perPlayer-relative
+            // offset kP2GO_OffStateMachinePtr = 0xb0, accessed via the parent
+            // self pointer per the existing offset constant). Used to read /
+            // force per-slot state machine state in the tier-change driver
+            // below.
+            std::uint8_t* stateMachineArr =
+                *reinterpret_cast<std::uint8_t**>(
+                    reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffStateMachinePtr);
             if (perPlayer)
             {
                 std::uint8_t* partsTypeArr =
@@ -1387,6 +1404,12 @@ namespace
                 armTypeArr =
                     *reinterpret_cast<std::uint8_t**>(
                         reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffArmTypeArr);
+                std::uint32_t* stateChangedBits =
+                    reinterpret_cast<std::uint32_t*>(
+                        reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffStateChangedBits);
+                std::uint32_t* altStateBits =
+                    reinterpret_cast<std::uint32_t*>(
+                        reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffAltStateBits);
 
                 if (partsTypeArr && playerTypeArr && armTypeArr)
                 {
@@ -1481,9 +1504,13 @@ namespace
                         //   steady-state path → cascade stays suppressed.
                         static std::uint8_t s_lastSeenTier[kMaxSlots] =
                             {0xFFu, 0xFFu, 0xFFu, 0xFFu};
+                        const bool firstEncounter =
+                            (s_lastSeenTier[i] == 0xFFu);
                         const bool tierChanged =
                             (s_lastSeenTier[i] != resolvedTier);
-                        overrides[i].tierJustChanged = tierChanged;
+                        overrides[i].tierJustChanged   = tierChanged;
+                        overrides[i].genuineTierChange =
+                            !firstEncounter && tierChanged;
                         if (!tierChanged)
                         {
                             // Steady state: zero pre-orig to suppress cascade.
@@ -1524,6 +1551,220 @@ namespace
                                       "suppresses cascade]");
                             s_lastPartsType[i] = pt;
                             s_lastTier[i]      = overrides[i].restoreValue;
+                        }
+
+                        // DIAGNOSTIC ONLY — no behavior change. On a genuine
+                        // tier-change tick for a custom slot, capture the
+                        // engine's per-slot state machine values and the
+                        // +0x180 / +0x184 dirty-bit registers so we can
+                        // diff vanilla-vs-custom and pre-vs-post-orig flow.
+                        // Goal: identify why orig's state machine doesn't
+                        // fire the natural reload cascade for custom arm-
+                        // cycle in prep, even though the framework's tier-
+                        // change detection has flagged the change correctly.
+                        if (overrides[i].genuineTierChange
+                         && stateMachineArr
+                         && stateChangedBits
+                         && altStateBits)
+                        {
+                            const std::uint8_t  st0 =
+                                stateMachineArr[0];
+                            const std::uint8_t  st1 =
+                                stateMachineArr[1];
+                            const std::uint8_t  stI =
+                                stateMachineArr[i];
+                            const std::uint32_t bits180 =
+                                *stateChangedBits;
+                            const std::uint32_t bits184 =
+                                *altStateBits;
+                            const std::uint32_t actionState =
+                                *reinterpret_cast<std::uint32_t*>(
+                                    reinterpret_cast<std::uint8_t*>(self) + 0x204);
+                            const std::uint32_t slotBit =
+                                1u << static_cast<std::uint32_t>(i);
+
+                            // The orig outer-if at mgsvtpp.exe.c:1324636 gates
+                            // the entire state machine + change-detection on:
+                            //   1. ushort at *(self+0x90)+slot*2 != 0xffff
+                            //   2. byte   at *(self+0x98)+slot   != 0xff
+                            //   3. plVar21 (derived from byte+0x98 * 0x6a8 +
+                            //      *(self+1+0x11b)) != null
+                            // If any fails, orig's per-slot processing is
+                            // skipped → state stays unchanged, +0x180 bit
+                            // doesn't get set. The diagnostic-data observed
+                            // (state preserved, bits=0) is consistent with
+                            // this gate failing for custom slots in prep.
+                            std::uint16_t outerGate_0x90 = 0xFFFF;
+                            std::uint8_t  outerGate_0x98 = 0xFF;
+                            std::uintptr_t base_0x398 = 0;
+                            std::uintptr_t plVar21_computed = 0;
+                            std::uint8_t  pp40 = 0xFF;
+                            std::uint8_t  pp48 = 0xFF;
+                            std::uint8_t  pp50 = 0xFF;
+                            std::uint8_t  pp68 = 0xFF;
+                            __try
+                            {
+                                std::uint16_t* arr90 =
+                                    *reinterpret_cast<std::uint16_t**>(
+                                        reinterpret_cast<std::uint8_t*>(self) + 0x90);
+                                if (arr90)
+                                    outerGate_0x90 = arr90[i];
+
+                                std::uint8_t* arr98 =
+                                    *reinterpret_cast<std::uint8_t**>(
+                                        reinterpret_cast<std::uint8_t*>(self) + 0x98);
+                                if (arr98)
+                                    outerGate_0x98 = arr98[i];
+
+                                // The orig disassembly at mgsvtpp_Addresses.exe.txt
+                                // (0x1409CC4DD): `ADD RBX, qword ptr [RSI + 0x398]`
+                                // where RSI = self. So `param_1[1].field_0x11b` in
+                                // the C decomp is actually `*(self + 0x398)`. plVar21
+                                // = (byte_0x98 * 0x6a8) + *(self+0x398). If plVar21
+                                // is null, outer-if at line 1324640's third condition
+                                // fails → entire slot processing skipped.
+                                base_0x398 = *reinterpret_cast<std::uintptr_t*>(
+                                    reinterpret_cast<std::uint8_t*>(self) + 0x398);
+                                plVar21_computed =
+                                    static_cast<std::uintptr_t>(outerGate_0x98) * 0x6a8
+                                    + base_0x398;
+
+                                std::uint8_t* pp40Arr =
+                                    *reinterpret_cast<std::uint8_t**>(
+                                        reinterpret_cast<std::uint8_t*>(perPlayer)
+                                        + kPP_OffPlayerTypeArr);
+                                if (pp40Arr) pp40 = pp40Arr[i];
+
+                                std::uint8_t* pp48Arr =
+                                    *reinterpret_cast<std::uint8_t**>(
+                                        reinterpret_cast<std::uint8_t*>(perPlayer)
+                                        + kPP_OffPartsTypeArr);
+                                if (pp48Arr) pp48 = pp48Arr[i];
+
+                                std::uint8_t* pp50Arr =
+                                    *reinterpret_cast<std::uint8_t**>(
+                                        reinterpret_cast<std::uint8_t*>(perPlayer)
+                                        + kPP_OffCamoTypeArr);
+                                if (pp50Arr) pp50 = pp50Arr[i];
+
+                                std::uint8_t* pp68Arr =
+                                    *reinterpret_cast<std::uint8_t**>(
+                                        reinterpret_cast<std::uint8_t*>(perPlayer)
+                                        + 0x68);
+                                if (pp68Arr) pp68 = pp68Arr[i];
+                            }
+                            __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+                            Log("[OutfitRuntimeParts:UpdatePartsStatus:Diag] "
+                                "PRE-orig slot=%zu (genuine tier change, restoredTier=%u) | "
+                                "state[0]=%u state[1]=%u state[i]=%u | "
+                                "+0x180=0x%08X (slotBit=0x%X, set=%d) | "
+                                "+0x184=0x%08X (slotBit=0x%X, set=%d) | "
+                                "actionState[+0x204]=0x%08X (bit0xd=%d, bit0xe=%d, bit0x8=%d, bit0x12=%d) | "
+                                "armTypeArr[i] (after pre-orig leave-alone)=%u\n",
+                                i,
+                                static_cast<unsigned>(overrides[i].restoreValue),
+                                static_cast<unsigned>(st0),
+                                static_cast<unsigned>(st1),
+                                static_cast<unsigned>(stI),
+                                static_cast<unsigned>(bits180),
+                                static_cast<unsigned>(slotBit),
+                                (bits180 & slotBit) ? 1 : 0,
+                                static_cast<unsigned>(bits184),
+                                static_cast<unsigned>(slotBit),
+                                (bits184 & slotBit) ? 1 : 0,
+                                static_cast<unsigned>(actionState),
+                                static_cast<int>((actionState >> 0xd) & 1),
+                                static_cast<int>((actionState >> 0xe) & 1),
+                                static_cast<int>((actionState >> 8) & 1),
+                                static_cast<int>((actionState >> 0x12) & 1),
+                                static_cast<unsigned>(armTypeArr[i]));
+
+                            Log("[OutfitRuntimeParts:UpdatePartsStatus:Diag] "
+                                "PRE-orig slot=%zu (cont'd) | "
+                                "*(self+0x90)[i*2]=0x%04X (outer-if cond1: !=0xffff -> %s) | "
+                                "*(self+0x98)[i]=0x%02X (outer-if cond2: !=0xff -> %s) | "
+                                "*(self+0x398)=0x%016llX | "
+                                "plVar21=0x%016llX (outer-if cond3: !=0 -> %s) | "
+                                "pp+0x40[i] playerType=%u | "
+                                "pp+0x48[i] partsType=0x%02X | "
+                                "pp+0x50[i] camo=0x%02X | "
+                                "pp+0x68[i] faceUnk=0x%02X\n",
+                                i,
+                                static_cast<unsigned>(outerGate_0x90),
+                                outerGate_0x90 != 0xFFFF ? "PASS" : "FAIL",
+                                static_cast<unsigned>(outerGate_0x98),
+                                outerGate_0x98 != 0xFF ? "PASS" : "FAIL",
+                                static_cast<unsigned long long>(base_0x398),
+                                static_cast<unsigned long long>(plVar21_computed),
+                                plVar21_computed != 0 ? "PASS" : "FAIL",
+                                static_cast<unsigned>(pp40),
+                                static_cast<unsigned>(pp48),
+                                static_cast<unsigned>(pp50),
+                                static_cast<unsigned>(pp68));
+
+                            // FIX for iDroid mission-prep arm cycling for
+                            // custom partsType. Diagnostic data (PRE-orig
+                            // state[i]=3, +0x180=0; POST-orig state[i]=3,
+                            // +0x180=0) proves orig's natural change-detection
+                            // at mgsvtpp.exe.c:1325172 isn't setting the bit
+                            // for custom slots even though the user just
+                            // changed arm tier. Set it ourselves so the next-
+                            // tick state==3 branch (mgsvtpp.exe.c:1324935-
+                            // 1324941) reads needHead = (bit & uVar13) != 0,
+                            // fires Player2Impl::ClearParts + Player2Block-
+                            // Controller::UnloadPartsNew, transitions state
+                            // → 4. State==4 polls IsPartsBlockEmptyNew
+                            // (mgsvtpp.exe.c:1312534) which short-circuits
+                            // TRUE in non-zero _g_blockControlModeValue (prep
+                            // is paused gameplay, blockControlModeValue !=0
+                            // there) → state→0 → Player2BlockController::
+                            // LoadPartsNew with the byte_arrays+0x58 our
+                            // post-orig restore wrote (= new tier) →
+                            // playerInfo.playerArmType = new tier propagated
+                            // through to BlockShell+0xf3, then LoadPlayer-
+                            // Fv2sSubsetUnk reads the new tier and visual
+                            // refreshes.
+                            //
+                            // SAFETY: only set the bit when state[i] is
+                            // ALREADY 3 (steady-waiting). If we set it during
+                            // state ∈ {0, 1, 2, 4} the bit lingers until orig
+                            // eventually transitions to state==3, and the
+                            // state machine may misbehave (e.g., state==4
+                            // mid-unload + extra ClearParts on next state==3
+                            // entry could double-unload). Restricting to
+                            // state==3 means we ONLY drive a transition that
+                            // would naturally happen for vanilla outfits via
+                            // orig's bit-set at line 1325172.
+                            //
+                            // GATE: genuineTierChange is true only on the
+                            // tick where the user actually swapped arm tier
+                            // (excludes first-encounter ticks during initial
+                            // outfit equip — those go through the natural
+                            // state==0 cascade and don't need help). Each
+                            // user arm cycle fires this exactly once, then
+                            // s_lastSeenTier[i] updates and steady-state
+                            // suppression resumes.
+                            if (stateMachineArr[i] == 3)
+                            {
+                                *stateChangedBits |= slotBit;
+                                Log("[OutfitRuntimeParts:UpdatePartsStatus] "
+                                    "slot=%zu DRIVE CASCADE: state==3 + "
+                                    "genuine tier change -> setting +0x180 "
+                                    "slotBit=0x%X (orig's natural mechanism "
+                                    "didn't fire for custom partsType)\n",
+                                    i,
+                                    static_cast<unsigned>(slotBit));
+                            }
+                            else
+                            {
+                                Log("[OutfitRuntimeParts:UpdatePartsStatus] "
+                                    "slot=%zu SKIP cascade-drive: state[i]=%u "
+                                    "(needs to be 3) — bit-set deferred until "
+                                    "next tier change at steady state\n",
+                                    i,
+                                    static_cast<unsigned>(stI));
+                            }
                         }
                     }
                 }
@@ -1583,77 +1824,80 @@ namespace
             }
         }
 
-        // Force-cascade for custom slots whose arm tier changed this tick.
-        // Done OUTSIDE the armTypeArr block so SEH around pointer derefs is
-        // independent — even if perPlayer/stateMachine pointers are
-        // momentarily NULL at game-load shutdown, we don't lose the byte
-        // restore for other slots.
+        // DIAGNOSTIC ONLY (post-orig) — same data shape as pre-orig log above,
+        // captured AFTER orig ran. Diff between PRE and POST tells us:
+        //  • Did orig change the state machine state? (e.g., 2→3 or 3→4)
+        //  • Did orig set the +0x180 bit (via change-detection block at
+        //    mgsvtpp.exe.c:1325172)?
+        //  • Did orig clear +0x184 (it's unconditionally cleared at line
+        //    1324657 if it was set)?
+        // Combined with the next tick's PRE log we can see whether orig's
+        // state==3 branch consumed the bit and fired ClearParts (state→4)
+        // or whether something is preventing the cascade from kicking off.
         __try
         {
-            void* perPlayer = *reinterpret_cast<void**>(
+            void* perPlayerPost = *reinterpret_cast<void**>(
                 reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffPerPlayerStruct);
-            std::uint8_t* stateMachineArr =
+            std::uint8_t* stateMachineArrPost =
                 *reinterpret_cast<std::uint8_t**>(
                     reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffStateMachinePtr);
 
-            if (perPlayer && stateMachineArr)
+            if (perPlayerPost && stateMachineArrPost)
             {
-                std::uint32_t* stateChangedBits =
+                std::uint32_t* bits180Post =
                     reinterpret_cast<std::uint32_t*>(
-                        reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffStateChangedBits);
-                std::uint32_t* altStateBits =
+                        reinterpret_cast<std::uint8_t*>(perPlayerPost) + kPP_OffStateChangedBits);
+                std::uint32_t* bits184Post =
                     reinterpret_cast<std::uint32_t*>(
-                        reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffAltStateBits);
+                        reinterpret_cast<std::uint8_t*>(perPlayerPost) + kPP_OffAltStateBits);
 
-                // FORCE-CASCADE DISABLED 2026-05-04
-                //
-                // Original idea (kept for reference): on tier-change tick
-                // for state==2 or state==3, set state→3 + +0x180/+0x184 bits
-                // to trigger ClearParts → UnloadPartsNew → IsPartsBlockEmpty
-                // → state→0 → LoadPartsNew, picking up the new arm tier.
-                //
-                // Problem observed in iDroid mission-prep test:
-                // ClearParts + UnloadPartsNew DOES fire (character vanishes),
-                // but the cascade never completes the reload — no
-                // LoadPartsNew follows. The engine's load infrastructure
-                // appears to be gated on gameplay services that are paused
-                // during prep mode, so the request gets dropped after
-                // unload. Net effect: character permanently invisible.
-                //
-                // The actual iDroid arm preview must go through a different
-                // pipeline — likely TppModelViewerManager or
-                // EquipPreviewSystem, NOT Player2Impl::UpdatePartsStatus.
-                // This needs further investigation. Until that's traced,
-                // keep the rest of the hook (cache, post-orig restore) but
-                // DON'T force the cascade — that way custom outfits still
-                // load correctly at gameplay-time, and mission-prep arm
-                // cycling has no visual effect (matches pre-fix behavior),
-                // but the character stays loaded.
                 for (std::size_t i = 0; i < kMaxSlots; ++i)
                 {
-                    if (!overrides[i].active || !overrides[i].tierJustChanged)
+                    if (!overrides[i].active || !overrides[i].genuineTierChange)
                         continue;
 
-                    const std::uint8_t prevState = stateMachineArr[i];
-                    Log("[OutfitRuntimeParts:UpdatePartsStatus] slot=%zu "
-                        "TIER CHANGE detected, state=%u, restoredTier=%u "
-                        "(force-cascade DISABLED — pending iDroid prep "
-                        "pipeline investigation; gameplay-time arm changes "
-                        "still work via natural state machine flow)\n",
+                    const std::uint8_t  st0 = stateMachineArrPost[0];
+                    const std::uint8_t  st1 = stateMachineArrPost[1];
+                    const std::uint8_t  stI = stateMachineArrPost[i];
+                    const std::uint32_t b180 = *bits180Post;
+                    const std::uint32_t b184 = *bits184Post;
+                    const std::uint32_t actionStatePost =
+                        *reinterpret_cast<std::uint32_t*>(
+                            reinterpret_cast<std::uint8_t*>(self) + 0x204);
+                    const std::uint32_t slotBit =
+                        1u << static_cast<std::uint32_t>(i);
+
+                    Log("[OutfitRuntimeParts:UpdatePartsStatus:Diag] "
+                        "POST-orig slot=%zu (genuine tier change, restoredTier=%u) | "
+                        "state[0]=%u state[1]=%u state[i]=%u | "
+                        "+0x180=0x%08X (slotBit=0x%X, set=%d) | "
+                        "+0x184=0x%08X (slotBit=0x%X, set=%d) | "
+                        "actionState[+0x204]=0x%08X (bit0xd=%d, bit0xe=%d, bit0x8=%d, bit0x12=%d) | "
+                        "armTypeArr[i] (now restored to cached)=%u\n",
                         i,
-                        static_cast<unsigned>(prevState),
-                        static_cast<unsigned>(overrides[i].restoreValue));
+                        static_cast<unsigned>(overrides[i].restoreValue),
+                        static_cast<unsigned>(st0),
+                        static_cast<unsigned>(st1),
+                        static_cast<unsigned>(stI),
+                        static_cast<unsigned>(b180),
+                        static_cast<unsigned>(slotBit),
+                        (b180 & slotBit) ? 1 : 0,
+                        static_cast<unsigned>(b184),
+                        static_cast<unsigned>(slotBit),
+                        (b184 & slotBit) ? 1 : 0,
+                        static_cast<unsigned>(actionStatePost),
+                        static_cast<int>((actionStatePost >> 0xd) & 1),
+                        static_cast<int>((actionStatePost >> 0xe) & 1),
+                        static_cast<int>((actionStatePost >> 8) & 1),
+                        static_cast<int>((actionStatePost >> 0x12) & 1),
+                        armTypeArr ? static_cast<unsigned>(armTypeArr[i]) : 0xFFu);
                 }
-                (void)stateMachineArr;
-                (void)stateChangedBits;
-                (void)altStateBits;
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            Log("[OutfitRuntimeParts:UpdatePartsStatus] SEH during post-orig "
-                "force-cascade — model may not reflect arm tier change this "
-                "tick (will retry next tick if tier difference persists)\n");
+            Log("[OutfitRuntimeParts:UpdatePartsStatus:Diag] SEH during post-orig "
+                "diagnostic capture — skipping\n");
         }
     }
 

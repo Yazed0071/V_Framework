@@ -152,8 +152,8 @@ namespace
         std::string ownerKey;
         std::int32_t ammoId = 0;
         std::int32_t eqpAmmoId = 0;
-        std::int32_t rank = 0;
-        std::int32_t magSize = 0;
+        std::int32_t magCapacity = 0;
+        std::int32_t totalCarryCapacity = 0;
         std::int32_t bulletId = 0;
     };
 
@@ -767,8 +767,8 @@ namespace
             return false;
 
         ReadFieldInt(L, idx, "eqpAmmoId", out.eqpAmmoId);
-        ReadFieldInt(L, idx, "magCapacity", out.rank);
-        ReadFieldInt(L, idx, "totalCarryCapacity", out.magSize);
+        ReadFieldInt(L, idx, "magCapacity", out.magCapacity);
+        ReadFieldInt(L, idx, "totalCarryCapacity", out.totalCarryCapacity);
         ReadFieldInt(L, idx, "bulletId", out.bulletId);
 
         return true;
@@ -1210,11 +1210,11 @@ namespace
             static_cast<std::uint16_t>(def.eqpAmmoId & 0xFFFF);
 
         const std::int32_t magCapClamped =
-            (def.rank < 0) ? 0 : (def.rank > 0x3FF ? 0x3FF : def.rank);
+            (def.magCapacity < 0) ? 0 : (def.magCapacity > 0x3FF ? 0x3FF : def.magCapacity);
         const std::uint16_t magCap = static_cast<std::uint16_t>(magCapClamped);
 
         const std::int32_t totalClamped =
-            (def.magSize < 0) ? 0 : (def.magSize > 0x3FFF ? 0x3FFF : def.magSize);
+            (def.totalCarryCapacity < 0) ? 0 : (def.totalCarryCapacity > 0x3FFF ? 0x3FFF : def.totalCarryCapacity);
         const std::uint16_t totalCarry = static_cast<std::uint16_t>(totalClamped);
 
         const std::uint16_t bulletId =
@@ -1849,11 +1849,11 @@ namespace EquipParams
 
                 WriteRowIntField(rowIndex, 1, def.ammoId);
                 WriteRowIntField(rowIndex, 2, def.eqpAmmoId);
-                WriteRowIntField(rowIndex, 3, def.rank);
-                WriteRowIntField(rowIndex, 4, def.magSize);
+                WriteRowIntField(rowIndex, 3, def.magCapacity);
+                WriteRowIntField(rowIndex, 4, def.totalCarryCapacity);
                 WriteRowIntField(rowIndex, 5, def.bulletId);
 
-                Log("[EquipParams] Applied magazine ammoId=0x%X magSize=%d\n", def.ammoId, def.magSize);
+                Log("[EquipParams] Applied magazine ammoId=0x%X totalCarryCapacity=%d\n", def.ammoId, def.totalCarryCapacity);
                 PopOne(L);
             }
 

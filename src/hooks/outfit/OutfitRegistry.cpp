@@ -28,7 +28,16 @@ namespace
     static GetQuarkSystemTable_t                 g_GetQuarkSystemTable = nullptr;
 
 
-    static std::uint8_t g_ActiveVariant[0x40] = {};
+    // Active variant per custom-partsType slot. Indexed by
+    // `partsType - kCustomPartsTypeStart`, so size must cover the full
+    // extended range [kCustomPartsTypeStart..kCustomPartsTypeEnd].
+    // Was hardcoded to 0x40 (64 slots) when range was [0x40..0x7F]; now
+    // sized symbolically so range extensions don't silently corrupt
+    // memory past the array end.
+    static constexpr std::size_t kActiveVariantSize =
+        static_cast<std::size_t>(kCustomPartsTypeEnd) -
+        static_cast<std::size_t>(kCustomPartsTypeStart) + 1;
+    static std::uint8_t g_ActiveVariant[kActiveVariantSize] = {};
 
 
     static std::uint16_t g_PendingDevelopId = 0;
@@ -297,6 +306,7 @@ namespace outfit
         slot->faceFpk         = def.faceFpk;
         slot->skinFv2         = def.skinFv2;
         slot->diamondFpk      = def.diamondFpk;
+        slot->voiceFpk        = def.voiceFpk;
         slot->enableArm       = def.enableArm;
 
 
@@ -696,6 +706,13 @@ namespace outfit
         return variants[idx].diamondFpk != kSubAssetDisabled
              ? variants[idx].diamondFpk
              : diamondFpk;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantVoiceFpk(std::uint8_t idx) const
+    {
+        if (idx == 0 || idx >= variantCount || !variants[idx].used) return voiceFpk;
+        const auto v = variants[idx].voiceFpk;
+        return v == kSubAssetUseVanilla ? voiceFpk : v;
     }
 
     std::uint8_t ReadLivePartsType()

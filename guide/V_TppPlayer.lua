@@ -48,6 +48,7 @@ local function buildVariantArray(srcVariants)
                 camoFpk       = v.camoFpk,
                 camoFv2       = v.camoFv2,
                 diamondFpk    = v.diamondFpk,
+                voiceFpk      = v.voiceFpk,
                 displayName = v.displayName,
             }
         end
@@ -84,6 +85,7 @@ function this.AddOutfit(opts)
         diamondFpk          = opts.diamondFpk,
         camoFv2             = opts.camoFv2,
         diamondFv2          = opts.diamondFv2,
+        voiceFpk            = opts.voiceFpk,
 
         enableArm           = opts.enableArm,
 

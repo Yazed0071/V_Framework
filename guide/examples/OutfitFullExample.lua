@@ -5,6 +5,7 @@
 --   * Custom body (parts + fpk)
 --   * Custom camo + camo FV2
 --   * Custom diamond + diamond FV2
+--   * Custom voice (.fpk routed through LoadPlayerVoiceFpk)
 --   * Vanilla face + arm (passes through to vanilla face/arm system)
 --   * Disabled skin tone override
 --   * HEAD OPTION submenu enabled with 4 vanilla head equipIds
@@ -37,6 +38,7 @@ function this.OnAllocate()
         camoFv2    = "/Assets/tpp/fova/chara/neon/neon_full_camo.fv2",
         diamondFpk = "/Assets/tpp/pack/player/parts/neon_full_diamond.fpk",
         diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_full_diamond.fv2",
+        voiceFpk   = "/Assets/tpp/pack/player/parts/neon_full_voice.fpk",   -- custom voice
         faceFpk    = true,                  -- vanilla face
         skinFv2    = false,                 -- disable skin tone override
         enableArm  = true,                  -- vanilla bionic arm (set false for non-Snake)
@@ -64,9 +66,13 @@ function this.OnAllocate()
             { fpkPath = "/Assets/tpp/pack/player/parts/neon_full_red.fpk",
               camoFpk = "/Assets/tpp/pack/player/parts/neon_full_red_camo.fpk" },
 
+            -- Per-variant voiceFpk override — the v01 variant uses a
+            -- different voice bank. Other variants inherit the base
+            -- voiceFpk above (or vanilla if base voiceFpk is unset).
             { partsPath = "/Assets/tpp/parts/chara/neon/neon_full_v01.parts",
               fpkPath   = "/Assets/tpp/pack/player/parts/neon_full_v01.fpk",
-              camoFpk   = "/Assets/tpp/pack/player/parts/neon_full_v01_camo.fpk" },
+              camoFpk   = "/Assets/tpp/pack/player/parts/neon_full_v01_camo.fpk",
+              voiceFpk  = "/Assets/tpp/pack/player/parts/neon_full_v01_voice.fpk" },
         },
 
         --

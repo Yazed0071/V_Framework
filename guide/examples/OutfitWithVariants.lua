@@ -7,7 +7,7 @@
 --
 -- A variant inherits any field it doesn't explicitly set:
 --   - partsPath / fpkPath: nil → inherit base
---   - camoFpk / camoFv2 / diamondFpk: kSubAssetUseVanilla → inherit base
+--   - camoFpk / camoFv2 / diamondFpk / voiceFpk: kSubAssetUseVanilla → inherit base
 --
 -- Active variant is published when the user commits a variant via the
 -- mission-prep UI (the cycle button writes the variant index into the

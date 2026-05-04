@@ -11,6 +11,7 @@
 #include "PlayerVoiceFpkHook.h"
 #include "MissionCodeGuard.h"
 #include "AddressSet.h"
+#include "../outfit/OutfitRegistry.h"
 
 namespace
 {
@@ -83,6 +84,50 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
     {
         return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);
     }
+
+
+    // Per-outfit override (outfit::OutfitDefinition::voiceFpk + variants).
+    // Highest priority — runs before the per-playerType slot system below
+    // so an outfit with its own voice asset is always honored when worn.
+    // Resolves the active outfit by reading the live partsType byte and
+    // looking it up in OutfitRegistry. Variants are respected via
+    // GetVariantVoiceFpk(activeVariantIdx). Falls through to the per-type
+    // override path on miss / sentinel.
+    {
+        const std::uint8_t livePT = outfit::ReadLivePartsType();
+        if (livePT >= outfit::kCustomPartsTypeStart
+            && livePT <= outfit::kCustomPartsTypeEnd)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            if (outfit::TryGetOutfitByPartsType(livePT, &entry) && entry)
+            {
+                const std::uint8_t v = entry->HasVariants()
+                    ? outfit::GetActiveVariant(entry->partsType)
+                    : 0;
+                const std::uint64_t outfitVoice = entry->GetVariantVoiceFpk(v);
+
+                if (outfitVoice > outfit::kSubAssetUseVanilla)
+                {
+                    Log(
+                        "[PlayerVoiceFpk] Outfit override: partsType=0x%02X "
+                        "playerType=%u faceId=%u variant=%u path=0x%016llX\n",
+                        static_cast<unsigned>(livePT),
+                        playerType, playerFaceId,
+                        static_cast<unsigned>(v),
+                        static_cast<unsigned long long>(outfitVoice)
+                    );
+
+                    WritePlayerVoicePath(fileSlotPath, outfitVoice);
+                    return fileSlotPath;
+                }
+                // outfitVoice == kSubAssetUseVanilla: fall through to the
+                // per-type override + orig chain so we don't lose the
+                // existing per-type behavior when an outfit is registered
+                // but doesn't define its own voiceFpk.
+            }
+        }
+    }
+
 
     const VoiceOverrideSlot slot = GetEffectiveOverrideForType(playerType);
     if (!slot.enabled || slot.pathCode64Ext == 0)

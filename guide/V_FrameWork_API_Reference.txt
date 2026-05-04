@@ -115,6 +115,21 @@ MODULE: V_TppPlayer
       diamondFpk           string|true|false  default false (disabled)
       camoFv2              string|true|false  default true  (vanilla)
       diamondFv2           string|true|false  default true  (vanilla)
+      voiceFpk             string|true|false  default true  (vanilla)
+                                    Voice .fpk asset path. When this outfit
+                                    is equipped, the engine's
+                                    LoadPlayerVoiceFpk call is intercepted
+                                    and the asset at this path is used in
+                                    place of the vanilla voice bank (so the
+                                    soldier speaks lines from your own
+                                    .fpk). Outfit override beats the
+                                    PlayerVoiceFpk per-playerType slot
+                                    system; both fall back to vanilla on
+                                    miss. `true` = use vanilla (no
+                                    override). `false` is also accepted
+                                    and treated the same as `true` for
+                                    voice (no "disabled" state — voice
+                                    can't be removed).
 
       enableArm            boolean            default true
                                     Vanilla bionic prosthetic arm visibility.
@@ -155,10 +170,11 @@ MODULE: V_TppPlayer
       variants             array    optional — multi-variant outfit
                                     Each entry is a sub-table with
                                     partsPath / fpkPath / camoFpk / camoFv2 /
-                                    diamondFpk / displayName fields.
-                                    `displayName` per-variant uses the same
-                                    LangId-string form as the top-level
-                                    field. Any field omitted inherits the base.
+                                    diamondFpk / voiceFpk / displayName
+                                    fields. `displayName` per-variant uses
+                                    the same LangId-string form as the
+                                    top-level field. Any field omitted
+                                    inherits the base.
 
       camoBonusType       number   optional — PlayerCamoType (0..116) pinned
                                     for SURFACE-BONUS lookup while this
@@ -469,7 +485,10 @@ MODULE: V_TppPlayer
   SetPlayerVoiceFpkPathForType(playerType, path)
   --------------------------------------------------------------------------
 
-    Overrides the voice FPK for a player character type.
+    Overrides the voice FPK for a player character type. Per-type override.
+    Lower priority than the per-outfit `voiceFpk` field — when an outfit
+    with its own `voiceFpk` is equipped that takes precedence; this slot
+    only fires when no outfit-level voice override is set.
 
     PARAMETERS:
       playerType  number  0-3 (see APPENDIX A)
@@ -597,6 +616,22 @@ MODULE: V_TppPlayer
     -- + RegisterHeadOption + headOptions = { "MyMod:CoolHelmet" }).
 
 
+  EXAMPLE 4c — outfit with custom voice .fpk.
+
+    -- voiceFpk routes through LoadPlayerVoiceFpk: while this outfit is
+    -- equipped, the engine plays voice lines from your .fpk instead of
+    -- the vanilla one. Per-variant voiceFpk is supported (any variant
+    -- omitting it inherits the base path). Outfit override beats the
+    -- per-playerType slot system; both fall back to vanilla on miss.
+    V_TppPlayer.AddOutfit{
+        name       = "MyMod:Snake_AltVoice",
+        playerType = "Snake",
+        partsPath  = "/Assets/mod/chara/snake/sna_alt.parts",
+        fpkPath    = "/Assets/mod/pack/chara/snake/sna_alt.fpk",
+        voiceFpk   = "/Assets/mod/pack/chara/snake/sna_alt_voice.fpk",
+    }
+
+
   EXAMPLE 5 — programmatic variant switch.
 
     local _, developId = V_TppPlayer.AddOutfit{ ... }   -- from EXAMPLE 3
@@ -693,6 +728,122 @@ MODULE: V_TppEquip
       V_TppEquip.DeclareSWPs("EQP_SWP_ChaffGrenade")
 
   --------------------------------------------------------------------------
+  DeclareRCs(receiverName)
+  --------------------------------------------------------------------------
+
+    Declares a receiver constant in TppEquip. Receiver IDs feed
+    SetGunBasic.receiverId. Custom IDs auto-allocate above the highest
+    stock RC_* in TppEquip (floor 0xEA).
+
+    PARAMETERS:
+      receiverName  string  e.g. "RC_MyMod_AK12"
+
+    RETURNS: number (rcId)
+
+    EXAMPLE:
+      local rcId = V_TppEquip.DeclareRCs("RC_MyMod_AK12")
+
+  --------------------------------------------------------------------------
+  DeclareAMs(ammoName)  /  DeclareAMs({names...})
+  --------------------------------------------------------------------------
+
+    Declares one or more ammo constants in TppEquip. Ammo IDs feed
+    SetGunBasic.ammoId. Unlike the other declarators, DeclareAMs ALSO
+    installs a hook on the game's internal DeclareAMs so vanilla reloads
+    re-inject the queued ammo IDs. Custom IDs start at 0xC0.
+
+    PARAMETERS:
+      ammoName  string  OR  table of strings  (each must start with "AM_")
+
+    RETURNS: nothing  (the ID is written into TppEquip[name] directly)
+
+    EXAMPLE:
+      V_TppEquip.DeclareAMs("AM_MyMod_762x39")
+      V_TppEquip.DeclareAMs({ "AM_MyMod_A", "AM_MyMod_B" })
+
+  --------------------------------------------------------------------------
+  DeclareBAs(barrelName)
+  --------------------------------------------------------------------------
+
+    Declares a barrel-assembly constant in TppEquip. Barrel IDs feed
+    SetGunBasic.barrelId. Stock has 115 entries (BA_None .. BA_*); custom
+    IDs auto-allocate above the highest stock BA_* (floor 0x80).
+
+    PARAMETERS:
+      barrelName  string  e.g. "BA_MyMod_AK12_Long"
+
+    RETURNS: number (baId)
+
+    EXAMPLE:
+      local baId = V_TppEquip.DeclareBAs("BA_MyMod_AK12_Long")
+
+  --------------------------------------------------------------------------
+  DeclareSTs(stockName)
+  --------------------------------------------------------------------------
+
+    Declares a stock constant in TppEquip. Stock IDs feed
+    SetGunBasic.stockId. Stock has 25 entries (ST_None .. ST_80303);
+    custom IDs auto-allocate above stock max (floor 0x20).
+
+    PARAMETERS:
+      stockName  string  e.g. "ST_MyMod_AK12_Folding"
+
+    RETURNS: number (stId)
+
+    EXAMPLE:
+      local stId = V_TppEquip.DeclareSTs("ST_MyMod_AK12_Folding")
+
+  --------------------------------------------------------------------------
+  DeclareMZs(muzzleName)
+  --------------------------------------------------------------------------
+
+    Declares a muzzle constant (suppressors / compensators) in TppEquip.
+    Muzzle IDs feed SetGunBasic.muzzleId. Stock has 29 entries
+    (MZ_None .. MZ_70207); custom IDs auto-allocate above stock max
+    (floor 0x20).
+
+    PARAMETERS:
+      muzzleName  string  e.g. "MZ_MyMod_AK12_Suppressor"
+
+    RETURNS: number (mzId)
+
+    EXAMPLE:
+      local mzId = V_TppEquip.DeclareMZs("MZ_MyMod_AK12_Suppressor")
+
+  --------------------------------------------------------------------------
+  DeclareSKs(sightName)
+  --------------------------------------------------------------------------
+
+    Declares a sight/scope constant in TppEquip. Sight IDs are referenced
+    by gun-basic / equip-parameter sight slots. Stock has 43 entries
+    (SK_None .. SK_70203); custom IDs auto-allocate above stock max
+    (floor 0x40).
+
+    PARAMETERS:
+      sightName  string  e.g. "SK_MyMod_RedDot"
+
+    RETURNS: number (skId)
+
+    EXAMPLE:
+      local skId = V_TppEquip.DeclareSKs("SK_MyMod_RedDot")
+
+  --------------------------------------------------------------------------
+  DeclareUBs(underbarrelName)
+  --------------------------------------------------------------------------
+
+    Declares an underbarrel constant in TppEquip (grenade launchers,
+    masterkey shotguns, etc.). Stock has 23 entries (UB_None .. UB_*);
+    custom IDs auto-allocate above stock max (floor 0x20).
+
+    PARAMETERS:
+      underbarrelName  string  e.g. "UB_MyMod_M203"
+
+    RETURNS: number (ubId)
+
+    EXAMPLE:
+      local ubId = V_TppEquip.DeclareUBs("UB_MyMod_M203")
+
+  --------------------------------------------------------------------------
   SetSupportWeaponType(supportWeaponId, swpType)
   --------------------------------------------------------------------------
 
@@ -777,13 +928,39 @@ MODULE: V_TppEquip
       })
 
   --------------------------------------------------------------------------
-  AddEquipMotionDataTable(motionDataTable)
+  AddToEquipMotionDataTable(motionDataTable)
   --------------------------------------------------------------------------
 
-    Adds motion data entries for weapon animations.
+    Registers {equipId, mtarPath} pairs that bind a weapon assembly motion
+    archive to an equip slot. Pairs are queued in C++; the framework hooks
+    the engine's ReloadEquipMotionData (0x1463b2bf0) and splices the queue
+    into the caller's arg.MotionDataTable before forwarding to orig. Result:
+    vanilla entries + your additions both populate the engine buffer on
+    every reload, no manual reload trigger needed.
+
+    Same equipId queued twice => latest mtarPath wins (dedup by id).
 
     PARAMETERS:
-      motionDataTable  table
+      motionDataTable  table  Array of 2-tuples. Each entry:
+                              { equipId, mtarPath }
+        equipId   number  REQUIRED (compressed if >= 0x400)
+        mtarPath  string  REQUIRED (.mtar asset path)
+
+    RETURNS: nothing
+
+    EXAMPLE:
+      V_TppEquip.AddToEquipMotionDataTable({
+          { equipId,
+            "/Assets/tpp/motion/mtar/equip/chimera/assemble/foo.mtar" },
+          { otherEquipId,
+            "/Assets/tpp/motion/mtar/equip/chimera/assemble/bar.mtar" },
+      })
+
+    NOTE: Per-bone motions / poses / receiver-assignment rows use a
+          DIFFERENT engine entry point — TppEquip.ReloadEquipMotionData2(t)
+          — with a richer schema (motions/poses/mtars/assignments
+          sub-arrays). The framework does not wrap that; mods using it
+          call it directly.
 
   --------------------------------------------------------------------------
   SetEquipIdIconFtexPath(equipId, path) / ClearIconFtexPath(equipId)
@@ -1191,10 +1368,16 @@ RAW API: V_FrameWork.*
     DeclareWPs(weaponName)                          -> number
     DeclareSWPs(supportWeaponName)                  -> number
     DeclareRCs(receiverName)                        -> number
-    DeclareAMs(ammoName)                            -> number
+    DeclareAMs(ammoName | {names...})               -> nothing
+    DeclareBAs(barrelName)                          -> number
+    DeclareSTs(stockName)                           -> number
+    DeclareMZs(muzzleName)                          -> number
+    DeclareSKs(sightName)                           -> number
+    DeclareUBs(underbarrelName)                     -> number
     SetGunBasic(gunBasicTable)                      -> nothing
     AddToEquipIdTable(equipTable)                   -> nothing
     AddToEquipDevelopTable(key, developData)         -> number
+    AddToEquipMotionDataTable(motionDataTable)        -> nothing
     SetSupportWeaponType(id, type)                  -> nothing
     RemoveSupportWeaponType(id)                     -> nothing
     ClearSupportWeaponTypes()                       -> nothing

@@ -52,6 +52,7 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 | `skinFv2` | vanilla | Custom skin tone FV2 |
 | `diamondFpk` | disabled | Diamond filter .fpk |
 | `diamondFv2` | vanilla | Diamond filter FV2 |
+| `voiceFpk` | vanilla | Voice .fpk — soldier speaks lines from this asset while the outfit is equipped. Per-outfit override beats the per-playerType `SetPlayerVoiceFpkPathForType` slot; both fall back to vanilla on miss. (No "disabled" state — `false` is treated the same as `true`/vanilla.) |
 | `enableArm` | `true` | `false` suppresses Snake's bionic prosthetic arm (set for non-Snake characters) |
 
 ### Head options
@@ -73,7 +74,7 @@ Each accepts: a path string (custom), `true` (vanilla), `false` (disabled), or `
 | `displayName` | string | nil | LangId for the cycle-button label of variant 0 (the BASE appearance). Pass an `<Entry LangId=...>` value from a vanilla or modded LangId XML; the framework hashes it via StrCode64 and overrides the UNIFORMS-row label that the orig translator returns blank for our custom partsType range. Without it, the base cycle button shows whatever orig falls back to (typically blank, or one of vanilla's hardcoded STANDARD/SCARF/NAKED labels). |
 | `variants` | table[] | empty | Up to 8 variant tables. Variant 0 is implicit (base outfit's paths + the top-level `displayName`); explicit entries fill variants 1..N with their own `displayName`. |
 
-Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamondFpk`, `displayName`. Any unset field inherits from the base outfit. The `displayName` field is the LangId string (same form as the top-level field) — the framework hashes it per-variant.
+Each variant table accepts: `partsPath`, `fpkPath`, `camoFpk`, `camoFv2`, `diamondFpk`, `voiceFpk`, `displayName`. Any unset field inherits from the base outfit. The `displayName` field is the LangId string (same form as the top-level field) — the framework hashes it per-variant.
 
 ### Surface-bonus camo pin
 

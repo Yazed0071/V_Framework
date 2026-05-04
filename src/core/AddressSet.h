@@ -112,6 +112,7 @@ namespace AddressSetRuntime
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipIdTableImpl_GetSupportWeaponTypeId = 0;
         uintptr_t DeclareAMs = 0;
+        uintptr_t ReloadEquipMotionData = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
 
@@ -254,6 +255,19 @@ namespace AddressSetRuntime
         uintptr_t SetItemDetail                     = 0;
         uintptr_t SendTrigger                       = 0;
 
+        // Tiny one-line accessor:
+        //   byte FUN_14951ed70(longlong tableBase, ushort flowIndex)
+        //   { return *(byte*)(tableBase + flowIndex*0x68 + 0x15) >> 4 & 1; }
+        // Reads bit 4 of byte +0x15 in a 0x68-stride suit info entry. Used
+        // by the develop menu's list-build callback. Crashes when called
+        // with flowIndex >> 0x400 (observed param_2 = 0x4000 = 16384). We
+        // hook it with a bounds check so the bad iteration becomes a safe
+        // no-op (returns 0 for out-of-range indices) instead of crashing.
+        // Root cause of the bad index is unidentified — likely a vanilla
+        // overflow when total develop entries (vanilla + custom) exceed
+        // some internal threshold.
+        uintptr_t SuitInfoBitFlag_AccessorPlus15Bit4 = 0;
+
 
         uintptr_t IsEquipSuit                       = 0;
 
@@ -262,6 +276,16 @@ namespace AddressSetRuntime
 
 
         uintptr_t TornadoDualPatch                  = 0;
+
+
+        // Diagnostic-only logging hooks for the iDroid mission-prep arm-cycle
+        // visual-swap investigation. Both fire on every Fv2 swap / arm-tier
+        // wire and log inputs; no behavior change. Installed by
+        // Install_OutfitPrepDiagnostic_Hooks(); remove once the prep-time
+        // path is identified.
+        uintptr_t Diag_ApplyFormVariationWithFile   = 0;
+        uintptr_t Diag_RegisterFilesForArm          = 0;
+        uintptr_t Diag_LoadPlayerFv2sSubsetUnk      = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -371,6 +395,7 @@ namespace AddressSetRuntime
             0x1466F4600ull, // TppMotherBaseManagement_RegFlwDev
             0x140A29FE0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x1464AE4F0ull, // DeclareAMs
+            0x1463B2BF0ull, // ReloadEquipMotionData (FUN_1463b2bf0; reads arg.MotionDataTable into +0x142a6b408 buffer)
             0x145E62540ull, // GetIconFtexPath
             0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
@@ -449,9 +474,18 @@ namespace AddressSetRuntime
             0x14951F860ull, // IsEquipDeveloped
             0x14A56E7F0ull, // SetItemDetail
             0x144B05380ull, // SendTrigger
+            0x14951ED70ull, // SuitInfoBitFlag_AccessorPlus15Bit4 (FUN_14951ed70: returns *(byte*)(tableBase+flowIndex*0x68+0x15)>>4&1; crashes on flowIndex >= 0x400 in dev menu when many custom outfits registered — we hook to bounds-check)
             0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
             0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo (R&D MotherBase dev-menu "Request Supply Drop" handler — fires per click, takes flowIndex)
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
+
+
+            // Diagnostic-only logging hooks (prep-time arm-swap investigation).
+            // Verified via mgsvtpp_Addresses.exe.txt:8866750 (wrapper) and
+            // mgsvtpp.exe.c:5892417 / FUN_1462701b0 (RegisterFilesForArm).
+            0x140AED510ull, // Diag_ApplyFormVariationWithFile (Fova2ControllerImpl::ApplyFormVariationWithFile virtual wrapper at mgsvtpp.exe.c:1427752; calls thunk_FUN_146231f10 then JMPs vtable+0xb0; every Fv2 swap funnels through it)
+            0x1462701B0ull, // Diag_RegisterFilesForArm (Player2Impl::RegisterFilesForArm at mgsvtpp.exe.c:5892417 / FUN_1462701b0; wires arm-tier files into per-slot anim/mtar; named EXE Tpp_main_win64.exe.c:2725716)
+            0x1409B2B00ull, // Diag_LoadPlayerFv2sSubsetUnk (player::appearance::LoadPlayerFv2sSubsetUnk at mgsvtpp.exe.c:1312150; secondary Fv2 path builder that reads partsType/armType/faceId from the BlockShell at +0xf0..+0xf6 instead of byte_arrays; called via vtable offset 0x38 from 0x142292F50/0x142CBF57C — diagnostic to confirm whether this is the prep-time arm-refresh path that fires for vanilla but not custom)
         };
 
         return value;
@@ -553,6 +587,7 @@ namespace AddressSetRuntime
 			0x0ull, // TppMotherBaseManagement_RegFlwDev
 			0x0ull, // EquipIdTableImpl_GetSupportWeaponTypeId
             0x1480EE6F0ull, // DeclareAMs
+            0x0ull,         // ReloadEquipMotionData (JP TBD; hook silently no-ops if unresolved)
 			0x147A6BD40ull, // GetIconFtexPath
             0x0ull, // LoadingTipsEv_UpdateActPhase
             0x0ull, // AK_SoundEngine_SetRTPCValue
@@ -631,9 +666,16 @@ namespace AddressSetRuntime
             0x0ull, // IsEquipDeveloped
             0x0ull, // SetItemDetail
             0x0ull, // SendTrigger
+            0x0ull, // SuitInfoBitFlag_AccessorPlus15Bit4 (JP not yet identified; EN-only fix)
             0x0ull, // IsEquipSuit
             0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
             0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
+
+
+            // Diagnostic-only hooks (JP TBD; installer silently skips when 0).
+            0x0ull,         // Diag_ApplyFormVariationWithFile
+            0x0ull,         // Diag_RegisterFilesForArm
+            0x0ull,         // Diag_LoadPlayerFv2sSubsetUnk
         };
 
         return value;
