@@ -36,20 +36,20 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -206,7 +206,6 @@
     <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
     <ClInclude Include="src\hooks\outfit\OutfitCamoBonus.h" />
     <ClInclude Include="src\hooks\outfit\OutfitGetCamoufValue.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitPrepDiagnostic.h" />
     <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
     <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
     <ClInclude Include="src\hooks\outfit\OutfitFv2Paths.h" />
@@ -294,7 +293,6 @@
     <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitCamoBonus.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitGetCamoufValue.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitPrepDiagnostic.cpp" />
     <!-- Hooks: Outfit (Phase 3 — list-inject + FV2 + head-option gate) -->
     <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitFv2Paths.cpp" />
