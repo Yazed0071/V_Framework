@@ -83,9 +83,15 @@
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <ClInclude Include="src\hooks\equip\CustomEquipIdState.h" />
     <ClInclude Include="src\hooks\equip\DeclareAMs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareBAs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareMZs.h" />
     <ClInclude Include="src\hooks\equip\DeclareRCs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareSKs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareSTs.h" />
     <ClInclude Include="src\hooks\equip\DeclareSWPs.h" />
+    <ClInclude Include="src\hooks\equip\DeclareUBs.h" />
     <ClInclude Include="src\hooks\equip\DeclareWPs.h" />
+    <ClInclude Include="src\hooks\equip\EquipMotionData.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
     <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
     <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h" />
@@ -100,6 +106,7 @@
     <ClInclude Include="src\hooks\outfit\OutfitEquippedState.h" />
     <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
     <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
+    <ClInclude Include="src\hooks\outfit\OutfitPrepDiagnostic.h" />
     <ClInclude Include="src\hooks\outfit\OutfitCamoBonus.h" />
     <ClInclude Include="src\hooks\outfit\OutfitGetCamoufValue.h" />
     <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
@@ -177,9 +184,15 @@
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp" />
     <ClCompile Include="src\hooks\equip\DeclareAMs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareBAs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareMZs.cpp" />
     <ClCompile Include="src\hooks\equip\DeclareRCs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareSKs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareSTs.cpp" />
     <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp" />
+    <ClCompile Include="src\hooks\equip\DeclareUBs.cpp" />
     <ClCompile Include="src\hooks\equip\DeclareWPs.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipMotionData.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp" />
@@ -194,6 +207,7 @@
     <ClCompile Include="src\hooks\outfit\OutfitEquippedState.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitPrepDiagnostic.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitCamoBonus.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitGetCamoufValue.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />

@@ -43,6 +43,12 @@ extern "C" {
 #include "SetSupportWeaponTypeId.h"
 #include "DeclareRCs.h"
 #include "DeclareAMs.h"
+#include "DeclareBAs.h"
+#include "DeclareSTs.h"
+#include "DeclareMZs.h"
+#include "DeclareSKs.h"
+#include "DeclareUBs.h"
+#include "EquipMotionData.h"
 #include "SetEquipParameters.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
@@ -1783,6 +1789,8 @@ namespace
                                             outfit::kSubAssetUseVanilla);
                     v.diamondFpk      = ReadSubAssetField(L, -1, "diamondFpk",
                                             outfit::kSubAssetDisabled);
+                    v.voiceFpk        = ReadSubAssetField(L, -1, "voiceFpk",
+                                            outfit::kSubAssetUseVanilla);
 
 
                     LuaGetField(L, -1, "displayName");
@@ -1921,6 +1929,7 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     def.faceFpk    = ReadSubAssetField(L, 1, "faceFpk",    outfit::kSubAssetUseVanilla);
     def.skinFv2    = ReadSubAssetField(L, 1, "skinFv2",    outfit::kSubAssetUseVanilla);
     def.diamondFpk = ReadSubAssetField(L, 1, "diamondFpk", outfit::kSubAssetDisabled);
+    def.voiceFpk   = ReadSubAssetField(L, 1, "voiceFpk",   outfit::kSubAssetUseVanilla);
 
     def.enableArm  = TryReadTableBoolField(L, 1, "enableArm", true);
 
@@ -2306,6 +2315,12 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
     { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
     { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
+    { "DeclareBAs",                             DeclareBAs::Lua_DeclareBAs },
+    { "DeclareSTs",                             DeclareSTs::Lua_DeclareSTs },
+    { "DeclareMZs",                             DeclareMZs::Lua_DeclareMZs },
+    { "DeclareSKs",                             DeclareSKs::Lua_DeclareSKs },
+    { "DeclareUBs",                             DeclareUBs::Lua_DeclareUBs },
+    { "AddToEquipMotionDataTable",                EquipMotionData::Lua_AddToEquipMotionDataTable },
     { "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
@@ -2513,6 +2528,122 @@ bool Install_SetLuaFunctions_Hook()
     declareAmDeps.LuaNext = &LuaNext;
     declareAmDeps.LuaRawSet = &LuaRawSet;
     DeclareAMs::Bind(declareAmDeps);
+
+    {
+        DeclareBAs::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaType         = &LuaType;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaRawSet       = &LuaRawSet;
+        d.LuaSetTable     = &LuaSetTable;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        DeclareBAs::Bind(d);
+    }
+
+    {
+        DeclareSTs::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaType         = &LuaType;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaRawSet       = &LuaRawSet;
+        d.LuaSetTable     = &LuaSetTable;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        DeclareSTs::Bind(d);
+    }
+
+    {
+        DeclareMZs::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaType         = &LuaType;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaRawSet       = &LuaRawSet;
+        d.LuaSetTable     = &LuaSetTable;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        DeclareMZs::Bind(d);
+    }
+
+    {
+        DeclareSKs::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaType         = &LuaType;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaRawSet       = &LuaRawSet;
+        d.LuaSetTable     = &LuaSetTable;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        DeclareSKs::Bind(d);
+    }
+
+    {
+        DeclareUBs::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaType         = &LuaType;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaRawSet       = &LuaRawSet;
+        d.LuaSetTable     = &LuaSetTable;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        DeclareUBs::Bind(d);
+    }
+
+    {
+        EquipMotionData::Deps d{};
+        d.ResolveLuaApi   = &ResolveLuaApi;
+        d.GetLuaTop       = &GetLuaTop;
+        d.LuaType         = &LuaType;
+        d.LuaObjLen       = &LuaObjLen;
+        d.LuaPop          = &LuaPop;
+        d.GetLuaString    = &GetLuaString;
+        d.GetLuaInt       = &GetLuaInt;
+        d.LuaGetField     = &LuaGetField;
+        d.LuaGetTable     = &LuaGetTable;
+        d.LuaPushString   = &LuaPushString;
+        d.LuaCreateTable  = &LuaCreateTable;
+        d.LuaSetTable     = &LuaSetTable;
+        d.PushLuaNumber   = &PushLuaNumber;
+        d.LuaPushValue    = &LuaPushValue;
+        d.LuaPushNil      = &LuaPushNil;
+        d.LuaNext         = &LuaNext;
+        EquipMotionData::Bind(d);
+    }
 
     EquipParams::Deps equipParamsDeps{};
     equipParamsDeps.ResolveLuaApi = &ResolveLuaApi;

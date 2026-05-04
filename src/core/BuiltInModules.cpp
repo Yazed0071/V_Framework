@@ -6,11 +6,13 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "EquipIdTable_AddToEquipIdTable.h"
+#include "../hooks/equip/EquipMotionData.h"
 #include "../hooks/outfit/OutfitEquippedState.h"
 #include "../hooks/outfit/OutfitCommit.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitCamoBonus.h"
 #include "../hooks/outfit/OutfitGetCamoufValue.h"
+#include "../hooks/outfit/OutfitPrepDiagnostic.h"
 #include "../hooks/outfit/OutfitListInject.h"
 #include "../hooks/outfit/OutfitFv2Paths.h"
 #include "../hooks/outfit/OutfitHeadOption.h"
@@ -653,6 +655,23 @@ namespace
             EquipParams::Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl2_Hook();
         }
     };
+    class EquipMotionDataReloadModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "EquipMotionDataReload";
+        }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return EquipMotionData::Install_ReloadEquipMotionData_Hook();
+        }
+        void Uninstall() override
+        {
+            EquipMotionData::Uninstall_ReloadEquipMotionData_Hook();
+        }
+    };
     class EquipIconFtexPathModule final : public IFeatureModule
     {
     public:
@@ -691,11 +710,22 @@ namespace
             const bool camoVal = outfit::Install_OutfitGetCamoufValue_Hook();
             (void)camoVal;
 
+
+            // Diagnostic-only logging hooks for the iDroid mission-prep
+            // arm-cycle visual-swap investigation. Logs every Fv2 swap +
+            // arm-tier wire so vanilla vs custom prep behavior can be
+            // diff'd from the log. Optional — module disables itself
+            // silently on non-EN builds. Remove once the prep-time path
+            // is identified.
+            const bool prepDiag = outfit::Install_OutfitPrepDiagnostic_Hooks();
+            (void)prepDiag;
+
             return eq && commit && runtime;
         }
 
         void Uninstall() override
         {
+            outfit::Uninstall_OutfitPrepDiagnostic_Hooks();
             outfit::Uninstall_OutfitGetCamoufValue_Hook();
             outfit::Uninstall_OutfitCamoBonus_Hook();
             outfit::Uninstall_OutfitRuntimeParts_Hooks();
@@ -770,6 +800,7 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static TppPickableModule s_TppPickableModule;
+    static EquipMotionDataReloadModule s_EquipMotionDataReloadModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
 
 
@@ -806,6 +837,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipMotionDataReloadModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
 
 
