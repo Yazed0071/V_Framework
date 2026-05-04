@@ -107,9 +107,6 @@ namespace
     static bool ShouldInjectOutfit(const outfit::OutfitEntry* e, std::uint8_t livePT)
     {
         if (!e) return false;
-        // Snake↔Avatar bridging: include outfits registered for the bridged
-        // twin in the live player's UNIFORMS list (so a Snake outfit appears
-        // when playing Avatar and vice versa).
         if (!outfit::IsPlayerTypeCompatible(e->playerType, livePT)) return false;
         if (e->flowIndex == 0 || e->flowIndex >= kProxyTableEntries) return false;
         if (!outfit::IsFlowIndexDevelopedByOrig(e->flowIndex)) return false;

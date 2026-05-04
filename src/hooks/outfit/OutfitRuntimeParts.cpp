@@ -196,8 +196,8 @@ namespace
     static std::uint8_t  g_LastInfoFaceUnk       = 0;
     static bool          g_LastInfoCaptured      = false;
 
-    // Per-playerType cache (must NOT be global — slot 0 / slot 1 iteration
-    // in UpdatePartsStatus would clobber each other otherwise).
+    // Per-playerType (must NOT be global — slot 0 / slot 1 iteration in
+    // UpdatePartsStatus would clobber each other otherwise).
     static constexpr std::size_t kArmTierByPlayerTypeMax = 4;
     static std::uint8_t  g_LastInfoArmType_byPT[kArmTierByPlayerTypeMax]      = {0,0,0,0};
     static bool          g_LastInfoArmCaptured_byPT[kArmTierByPlayerTypeMax]  = {false,false,false,false};
@@ -269,8 +269,6 @@ namespace
 
         const outfit::OutfitEntry* entry = nullptr;
         if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry) return false;
-        // Snake-registered outfits accept Avatar live (and vice versa) so the
-        // same registration covers both story and FOB/online characters.
         if (!outfit::IsPlayerTypeCompatible(entry->playerType, ply)) return false;
 
         if (outEntry) *outEntry = entry;
@@ -388,9 +386,9 @@ namespace
     }
 
 
-    // The leaf rejects any partsType outside its hardcoded whitelist with a
-    // null FoxPath; route custom outfits through 0x01 (STANDARD Snake) since
-    // the arm asset is selected by handType*2, not partsType.
+    // Route custom outfits through 0x01 (STANDARD Snake) since the leaf
+    // rejects partsType outside its whitelist; arm asset is selected by
+    // handType*2, not partsType.
     constexpr std::uint32_t kBionicArmVanillaPartsTypeSubstitute = 0x01;
 
     static std::uint64_t* __fastcall hkLoadPlayerBionicArmFv2(
@@ -487,16 +485,6 @@ namespace
                                       playerPartsType, playerHandType);
     }
 
-    // Snake face FOVA leaves — same shape as bionic arm. Both
-    // LoadPlayerSnakeFaceFv2 and LoadPlayerSnakeFaceFpk are gated by
-    // `if (playerType == 0)` (Snake only) followed by a hardcoded partsType
-    // whitelist {0..2, 7..9, 0xB..0xE, 0xF..0x16, 0x17..0x19}. Custom range
-    // 0x40..0x7F falls into `default: snakeFaceFv2Path = 0;` → null FoxPath
-    // → invisible head. We substitute partsType=0x01 (Snake STANDARD) when
-    // the registered outfit has `enableHead = true`, so the engine returns
-    // the vanilla Snake face path. When enableHead is false, write null
-    // (head not loaded — same effect the framework already enforces via
-    // hkDoesNeedFaceFova).
     static std::uint64_t* __fastcall hkLoadPlayerSnakeFaceFv2(
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerFaceId,
@@ -711,8 +699,6 @@ namespace
         std::uint32_t playerType,
         std::uint32_t playerPartsType)
     {
-        // Only consider Snake (0) or Avatar (3) — same restriction the engine
-        // applies. DD player types never have a bionic arm, vanilla or custom.
         if ((playerType == outfit::kPlayerType_Snake
               || playerType == outfit::kPlayerType_Avatar)
          && playerPartsType >= outfit::kCustomPartsTypeStart
@@ -725,7 +711,6 @@ namespace
                 && outfit::IsPlayerTypeCompatible(entry->playerType, ply)
                 && entry->IsArmEnabled())
             {
-                // State-change-gated log per (playerType, partsType) pair.
                 static std::uint32_t s_lastPlayerType = 0xFFFFFFFFu;
                 static std::uint32_t s_lastPartsType  = 0xFFFFFFFFu;
                 if (s_lastPlayerType != playerType
@@ -745,17 +730,11 @@ namespace
             }
         }
 
-        // Pass through to orig for anything we don't override.
         return g_OrigIsArtificialHandEnabled
              ? g_OrigIsArtificialHandEnabled(playerType, playerPartsType)
              : 0;
     }
 
-    // The "ForCurrentPlayerType" variant — reads live state from
-    // QuarkSystemTable instead of accepting explicit args. Same whitelist,
-    // separate function, separate set of callers. We use the framework's
-    // existing live-state readers (which read the same QuarkSystemTable
-    // path) to decide whether to override.
     static std::uint8_t __fastcall hkIsArtificialHandEnabledForCurrentPlayerType()
     {
         const std::uint8_t livePT        = outfit::ReadLivePlayerType();
@@ -795,13 +774,6 @@ namespace
              : 0;
     }
 
-    // ProcessSignal hook — surgical: only intervenes for signal
-    // 0x8483a342fa61 (the Fv2 refresh signal) and only when the slot's
-    // partsType is in the custom range with a registered outfit. Pass-through
-    // for all other signals (and there are dozens — corpse, vehicle, gimmick
-    // signals etc.). The spoof window is bounded to a single orig call, with
-    // a try/finally pattern via __try/__except to guarantee byte restoration
-    // even if orig faults.
     static void __fastcall hkProcessSignal(
         void* param_1,
         void* param_2,
@@ -811,18 +783,9 @@ namespace
         if (!g_OrigProcessSignal)
             return;
 
-        // Diagnostic: log the FIRST occurrence of each (slot, signalId) tuple
-        // so we can confirm the hook is firing and identify the actual set of
-        // signals dispatched in the user's scenario. If signal 0x8483a342fa61
-        // never appears here even after a custom-outfit equip, the engine
-        // isn't using that signal in their flow — we need to find a different
-        // Fv2 refresh trigger.
         if (signalPtr)
         {
             const std::uint64_t sig = *signalPtr;
-            // Tiny dedupe table: the per-frame dispatch goes through a small
-            // set of well-known signal IDs. Log each unique (slot, sig) pair
-            // once; ignore subsequent repeats. Size 32 is plenty.
             static struct { std::uint32_t slot; std::uint64_t sig; } seen[32] = {};
             static std::size_t seenCount = 0;
             bool already = false;
@@ -845,8 +808,6 @@ namespace
             }
         }
 
-        // Fast-path: only consider intervention if the signal is the one we
-        // care about and the params look sane.
         if (!signalPtr || !param_1 || *signalPtr != kSignalRefreshFv2s)
         {
             g_OrigProcessSignal(param_1, param_2, slot, signalPtr);
@@ -875,16 +836,13 @@ namespace
                         if (outfit::TryGetOutfitByPartsType(origPartsType, &entry)
                             && entry)
                         {
-                            // Set TLS so leaf hooks called from inside
-                            // InitLoadPlayerPartsParts and InitLoadPlayerFv2s
-                            // can recover the real custom partsType (otherwise
-                            // they'd see the spoofed 0x01 and load vanilla
-                            // assets instead of the outfit's custom paths).
+                            // Set TLS so leaf hooks invoked inside orig recover
+                            // the real custom partsType (otherwise they'd see
+                            // the spoofed 0x01 and load vanilla assets).
                             tl_SpoofedRealPartsType = origPartsType;
                             partsTypeArr[slot] = kProcessSignalSpoofPartsType;
                             spoofed = true;
 
-                            // State-change-gated log per (slot, partsType).
                             static std::uint32_t s_lastSlot      = 0xFFFFFFFFu;
                             static std::uint8_t  s_lastPartsType = 0xFFu;
                             if (s_lastSlot != slot
@@ -916,12 +874,8 @@ namespace
             spoofed = false;
         }
 
-        // Always call orig, with or without spoof in place.
         g_OrigProcessSignal(param_1, param_2, slot, signalPtr);
 
-        // Restore the byte and clear TLS, even if orig faulted (we won't
-        // reach here if it did, but if SEH was caught above we still need
-        // to restore).
         if (spoofed)
         {
             __try
@@ -938,25 +892,6 @@ namespace
         }
     }
 
-    // Player2GameObjectImpl::UpdatePartsStatus hook. Bypasses the partsType
-    // whitelist's zero-write of byte_arrays+0x58+slot for slots wearing a
-    // registered custom outfit with enableArm=true. See the long comment at
-    // `using UpdatePartsStatus_t = ...` above for the full mechanism. Short
-    // version:
-    //   - pre-orig: zero byte_arrays+0x58+slot so orig's state-changed compare
-    //     sees OLD=0, NEW=0 (whitelist forces NEW=0 for custom partsType) →
-    //     no state change → no reload-flag bit set → no cascade
-    //   - post-orig: write byte_arrays+0x58+slot = cachedArmTier so every
-    //     gameplay arm-effect (StateKnock at FUN_1411e7c40, per-frame arm-equip
-    //     dispatch at FUN_1412a2f80, etc.) reads non-zero and treats the
-    //     player as having the bionic arm
-    //
-    // Slot count is bounded by the engine's player2 controller — typically
-    // 2 (Snake + buddy) but we iterate up to a small max defensively. We
-    // intervene only when the slot's playerType is Snake/Avatar AND the slot's
-    // partsType is in the custom range AND a registered outfit exists with
-    // enableArm=true. Vanilla DD slots and non-arm-enabled custom outfits are
-    // untouched, so vanilla behavior is preserved exactly.
     static void __fastcall hkUpdatePartsStatus(void* self)
     {
         if (!g_OrigUpdatePartsStatus) return;
@@ -970,21 +905,10 @@ namespace
         {
             bool         active;
             std::uint8_t restoreValue;
-            // True on the tick where resolvedTier differs from the previous
-            // tick's value (INCLUDES first encounter, where last=0xFF differs
-            // from any real tier). Drives the pre-orig "leave byte alone"
-            // behavior so orig's state-changed compare can detect the change.
+            // INCLUDES first-encounter (last=0xFF differs from any real tier).
             bool         tierJustChanged;
-
-            // True ONLY when we have a previously-seen tier value AND the
-            // current resolvedTier differs from it. Excludes first-encounter
-            // ticks (where s_lastSeenTier[i] is still 0xFF baseline). This
-            // is what gates the post-orig direct LoadPartsNew bypass — we
-            // must NOT fire on first encounter because that's the initial
-            // outfit-equip cascade (which the engine handles naturally),
-            // and firing direct LoadPartsNew at state==4 mid-unload breaks
-            // the engine's state==4→0 transition and leaves the character
-            // unloaded.
+            // EXCLUDES first-encounter: gates the cascade-drive that must
+            // not fire during the initial outfit-equip pass.
             bool         genuineTierChange;
         };
         SlotOverride overrides[kMaxSlots] = {};
@@ -994,11 +918,6 @@ namespace
         {
             void* perPlayer = *reinterpret_cast<void**>(
                 reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffPerPlayerStruct);
-            // State machine byte array (1 byte per slot at perPlayer-relative
-            // offset kP2GO_OffStateMachinePtr = 0xb0, accessed via the parent
-            // self pointer per the existing offset constant). Used to read /
-            // force per-slot state machine state in the tier-change driver
-            // below.
             std::uint8_t* stateMachineArr =
                 *reinterpret_cast<std::uint8_t**>(
                     reinterpret_cast<std::uint8_t*>(self) + kP2GO_OffStateMachinePtr);
@@ -1042,21 +961,9 @@ namespace
                         if (!entry->IsArmEnabled())
                             continue;
 
-                        // Determine the right arm-tier byte for this slot.
-                        // Priority:
-                        //   1. Live equip hash translated through the engine's
-                        //      own hash→tier map (matches what UpdatePartsStatus
-                        //      computes for vanilla partsType). This is the
-                        //      "ground truth" — what the engine WOULD write if
-                        //      partsType were in its whitelist.
-                        //   2. The cached g_LastInfoArmType captured by
-                        //      hkLoadPartsNew during a prior natural call.
-                        //   3. Fallback to 1 (basic prosthetic) so the slot is
-                        //      at least active.
-                        // The live equipHash read also seeds the cache so other
-                        // framework subsystems (LoadPartsNew restoration,
-                        // ForcePartsReload) get the correct tier on cold-start
-                        // saves without needing a vanilla→custom round trip.
+                        // Tier resolution: live equipHash → cached → fallback 1.
+                        // Live read also seeds the cache so cold-start saves
+                        // get the right tier without a vanilla→custom round trip.
                         std::uint8_t liveTier =
                             ReadLiveArmTierFromLoadoutRequest(self, i);
                         std::uint8_t cachedTierForPT = 0;
@@ -1067,16 +974,9 @@ namespace
                             (liveTier > 0) ? liveTier
                           : (cachedFlagForPT ? cachedTierForPT
                                              : std::uint8_t{1});
-                        // Keep the cache live PER PLAYERTYPE. Each slot in
-                        // UpdatePartsStatus may have a different playerType
-                        // (typically slot 0 = Snake/0 and slot 1 = Avatar/3
-                        // in single-player). Storing into a single global
-                        // cache made the second iteration overwrite the
-                        // first — when SetUpParts later fired for slot 0,
-                        // the cache had been clobbered by slot 1's "default
-                        // basic prosthetic" tier 1, so Snake's HoJ tier 3
-                        // visual reverted to tier 1. Per-playerType keeps
-                        // each character's tier independently.
+                        // PER playerType: a global cache would let slot 1's
+                        // default tier 1 clobber Snake's developed tier when
+                        // SetUpParts later fires for slot 0.
                         if (liveTier > 0)
                         {
                             SetCachedArmTierForPlayerType(ply, liveTier);
@@ -1085,32 +985,8 @@ namespace
                         overrides[i].active = true;
                         overrides[i].restoreValue = resolvedTier;
 
-                        // Per-slot persistent "last seen tier". We let orig's
-                        // state-changed detection fire EXACTLY ONCE on the tick
-                        // when the user actually swaps to a different arm tier,
-                        // so the engine reloads the arm asset; on every other
-                        // tick we suppress the comparison by pre-zeroing the
-                        // byte.
-                        //
-                        // Mechanism:
-                        //  - Steady state (resolvedTier == lastSeen):
-                        //      pre-orig zero  -> orig reads OLD=0, NEW=0
-                        //      compare passes -> no reload-flag bit -> no
-                        //      cVar9 state machine cascade. Post-orig restores
-                        //      byte = resolvedTier.
-                        //  - Tier-change tick (resolvedTier != lastSeen):
-                        //      DON'T pre-orig zero. byte still holds last
-                        //      tick's restored value (= old resolvedTier =
-                        //      lastSeen). Orig reads OLD=lastSeen, NEW=0.
-                        //      0 != lastSeen -> state-changed=true -> orig
-                        //      writes byte=0 and sets pIVar3+0x180 bit.
-                        //      That bit drives ONE pass of UnloadPartsNew →
-                        //      LoadPartsNew (proper arm asset reload). Post-
-                        //      orig restores byte = new resolvedTier.
-                        //
-                        //   After the tier-change tick, lastSeen is updated to
-                        //   the new tier. Subsequent ticks see equality →
-                        //   steady-state path → cascade stays suppressed.
+                        // Tier-change tick: don't pre-zero so orig's compare
+                        // sees the change and fires exactly one reload.
                         static std::uint8_t s_lastSeenTier[kMaxSlots] =
                             {0xFFu, 0xFFu, 0xFFu, 0xFFu};
                         const bool firstEncounter =
@@ -1122,19 +998,10 @@ namespace
                             !firstEncounter && tierChanged;
                         if (!tierChanged)
                         {
-                            // Steady state: zero pre-orig to suppress cascade.
                             armTypeArr[i] = 0;
                         }
-                        // else: leave armTypeArr[i] alone — it currently holds
-                        // the last-tick restored value (old tier), so orig's
-                        // state-changed compare detects the mismatch and
-                        // schedules ONE clean asset reload.
                         s_lastSeenTier[i] = resolvedTier;
 
-                        // State-change-gated log per slot — log when the
-                        // (partsType, tier) tuple for this slot changes from
-                        // the prior tick. Keeps the log signal-rich without
-                        // every-tick spam.
                         static std::uint8_t s_lastPartsType[kMaxSlots] = {0xFFu, 0xFFu, 0xFFu, 0xFFu};
                         static std::uint8_t s_lastTier     [kMaxSlots] = {0xFFu, 0xFFu, 0xFFu, 0xFFu};
                         if (s_lastPartsType[i] != pt
@@ -1162,15 +1029,6 @@ namespace
                             s_lastTier[i]      = overrides[i].restoreValue;
                         }
 
-                        // DIAGNOSTIC ONLY — no behavior change. On a genuine
-                        // tier-change tick for a custom slot, capture the
-                        // engine's per-slot state machine values and the
-                        // +0x180 / +0x184 dirty-bit registers so we can
-                        // diff vanilla-vs-custom and pre-vs-post-orig flow.
-                        // Goal: identify why orig's state machine doesn't
-                        // fire the natural reload cascade for custom arm-
-                        // cycle in prep, even though the framework's tier-
-                        // change detection has flagged the change correctly.
                         if (overrides[i].genuineTierChange
                          && stateMachineArr
                          && stateChangedBits
@@ -1192,17 +1050,6 @@ namespace
                             const std::uint32_t slotBit =
                                 1u << static_cast<std::uint32_t>(i);
 
-                            // The orig outer-if at mgsvtpp.exe.c:1324636 gates
-                            // the entire state machine + change-detection on:
-                            //   1. ushort at *(self+0x90)+slot*2 != 0xffff
-                            //   2. byte   at *(self+0x98)+slot   != 0xff
-                            //   3. plVar21 (derived from byte+0x98 * 0x6a8 +
-                            //      *(self+1+0x11b)) != null
-                            // If any fails, orig's per-slot processing is
-                            // skipped → state stays unchanged, +0x180 bit
-                            // doesn't get set. The diagnostic-data observed
-                            // (state preserved, bits=0) is consistent with
-                            // this gate failing for custom slots in prep.
                             std::uint16_t outerGate_0x90 = 0xFFFF;
                             std::uint8_t  outerGate_0x98 = 0xFF;
                             std::uintptr_t base_0x398 = 0;
@@ -1225,13 +1072,6 @@ namespace
                                 if (arr98)
                                     outerGate_0x98 = arr98[i];
 
-                                // The orig disassembly at mgsvtpp_Addresses.exe.txt
-                                // (0x1409CC4DD): `ADD RBX, qword ptr [RSI + 0x398]`
-                                // where RSI = self. So `param_1[1].field_0x11b` in
-                                // the C decomp is actually `*(self + 0x398)`. plVar21
-                                // = (byte_0x98 * 0x6a8) + *(self+0x398). If plVar21
-                                // is null, outer-if at line 1324640's third condition
-                                // fails → entire slot processing skipped.
                                 base_0x398 = *reinterpret_cast<std::uintptr_t*>(
                                     reinterpret_cast<std::uint8_t*>(self) + 0x398);
                                 plVar21_computed =
@@ -1312,48 +1152,9 @@ namespace
                                 static_cast<unsigned>(pp50),
                                 static_cast<unsigned>(pp68));
 
-                            // FIX for iDroid mission-prep arm cycling for
-                            // custom partsType. Diagnostic data (PRE-orig
-                            // state[i]=3, +0x180=0; POST-orig state[i]=3,
-                            // +0x180=0) proves orig's natural change-detection
-                            // at mgsvtpp.exe.c:1325172 isn't setting the bit
-                            // for custom slots even though the user just
-                            // changed arm tier. Set it ourselves so the next-
-                            // tick state==3 branch (mgsvtpp.exe.c:1324935-
-                            // 1324941) reads needHead = (bit & uVar13) != 0,
-                            // fires Player2Impl::ClearParts + Player2Block-
-                            // Controller::UnloadPartsNew, transitions state
-                            // → 4. State==4 polls IsPartsBlockEmptyNew
-                            // (mgsvtpp.exe.c:1312534) which short-circuits
-                            // TRUE in non-zero _g_blockControlModeValue (prep
-                            // is paused gameplay, blockControlModeValue !=0
-                            // there) → state→0 → Player2BlockController::
-                            // LoadPartsNew with the byte_arrays+0x58 our
-                            // post-orig restore wrote (= new tier) →
-                            // playerInfo.playerArmType = new tier propagated
-                            // through to BlockShell+0xf3, then LoadPlayer-
-                            // Fv2sSubsetUnk reads the new tier and visual
-                            // refreshes.
-                            //
-                            // SAFETY: only set the bit when state[i] is
-                            // ALREADY 3 (steady-waiting). If we set it during
-                            // state ∈ {0, 1, 2, 4} the bit lingers until orig
-                            // eventually transitions to state==3, and the
-                            // state machine may misbehave (e.g., state==4
-                            // mid-unload + extra ClearParts on next state==3
-                            // entry could double-unload). Restricting to
-                            // state==3 means we ONLY drive a transition that
-                            // would naturally happen for vanilla outfits via
-                            // orig's bit-set at line 1325172.
-                            //
-                            // GATE: genuineTierChange is true only on the
-                            // tick where the user actually swapped arm tier
-                            // (excludes first-encounter ticks during initial
-                            // outfit equip — those go through the natural
-                            // state==0 cascade and don't need help). Each
-                            // user arm cycle fires this exactly once, then
-                            // s_lastSeenTier[i] updates and steady-state
-                            // suppression resumes.
+                            // SAFETY: only set when state==3 — setting during
+                            // states {0,1,2,4} can double-unload as the bit
+                            // lingers into the next state==3 entry.
                             if (stateMachineArr[i] == 3)
                             {
                                 *stateChangedBits |= slotBit;
@@ -1389,33 +1190,6 @@ namespace
 
         g_OrigUpdatePartsStatus(self);
 
-        // Post-orig: write back the cached arm tier for each overridden slot.
-        // Orig's state-changed compare already finished against the zeroed
-        // value, so writing here doesn't trigger a cascade. The byte stays
-        // non-zero until the next UpdatePartsStatus tick (where we zero it
-        // again pre-orig). Gameplay queries reading the byte at any other
-        // time observe the cached tier.
-        //
-        // Additionally on tier-change ticks: force the state machine to 3
-        // and set the +0x180/+0x184 state-changed bits for custom slots.
-        // This is the FIX for iDroid mission-prep arm cycling: the engine's
-        // gate (mgsvtpp.exe.c:1325085) that recomputes arm tier from
-        // LoadoutRequest equipHash and triggers the state cascade only runs
-        // when state ∉ {1, 2}. For vanilla outfits in iDroid prep,
-        // SetUpDirtyEffects (or the action-state-bit-8 path) transitions
-        // state 2→3 by some side effect, which lets the gate fire on the
-        // next tick (state==3 → gate runs → bit set → ClearParts). For
-        // custom partsType, none of those side effects fire, so the engine
-        // sits in state==2 forever after an arm cycle, and the model never
-        // reloads. By setting state→3 + the +0x180/+0x184 bits ourselves,
-        // we kick the state==3 branch's `bVar31 || needHead` disjunction
-        // true on the very next tick. That triggers Player2Impl::ClearParts
-        // + Player2BlockController::UnloadPartsNew → state→4 → IsPartsBlock-
-        // EmptyNew → state→0 → Player2BlockController::LoadPartsNew (with
-        // the new arm tier from byte_arrays+0x58, which we just restored
-        // post-orig to resolvedTier). Our hkLoadPartsNew picks up the
-        // armType=0 case (zeroed by orig's gate when it eventually does run
-        // in state 0/3/4) and restores from the per-PT cache.
         if (armTypeArr)
         {
             __try
@@ -1433,16 +1207,6 @@ namespace
             }
         }
 
-        // DIAGNOSTIC ONLY (post-orig) — same data shape as pre-orig log above,
-        // captured AFTER orig ran. Diff between PRE and POST tells us:
-        //  • Did orig change the state machine state? (e.g., 2→3 or 3→4)
-        //  • Did orig set the +0x180 bit (via change-detection block at
-        //    mgsvtpp.exe.c:1325172)?
-        //  • Did orig clear +0x184 (it's unconditionally cleared at line
-        //    1324657 if it was set)?
-        // Combined with the next tick's PRE log we can see whether orig's
-        // state==3 branch consumed the bit and fired ClearParts (state→4)
-        // or whether something is preventing the cascade from kicking off.
         __try
         {
             void* perPlayerPost = *reinterpret_cast<void**>(
@@ -1510,23 +1274,8 @@ namespace
         }
     }
 
-    // Player2Impl::SetUpParts hook. Surgical override of the armType arg when
-    // it arrives as 0 for a slot wearing a custom partsType + enableArm.
-    //
-    // Why armType arrives as 0: hkUpdatePartsStatus zeros byte_arrays+0x58+slot
-    // pre-orig (cascade prevention), and orig UpdatePartsStatus reads bVar1 =
-    // byte_arrays+0x58+slot at function entry — so it captures 0. That bVar1 is
-    // then passed verbatim to SetUpParts in the cVar13==1 branch (named EXE
-    // line 2728965). Inside SetUpParts, RegisterFilesForArm(this, slot,
-    // armType=0) indexes g_armEffectInfos[0] which is null → no arm files
-    // registered → arm visual stays empty/old.
-    //
-    // Fix: when SetUpParts is called and our state shows a custom-outfit slot
-    // with enableArm but armType was zeroed by our own hook, substitute the
-    // cached live tier (g_LastInfoArmType, kept fresh by hkUpdatePartsStatus's
-    // ReadLiveArmTierFromLoadoutRequest seeding) so RegisterFilesForArm
-    // registers the right tier's effect files. Vanilla outfits and non-arm
-    // custom outfits pass through unchanged.
+    // armType arrives as 0 (zeroed by our UpdatePartsStatus cascade-prevention)
+    // → restore from cache so RegisterFilesForArm picks the right tier files.
     static bool __fastcall hkPlayer2ImplSetUpParts(
         void* self,
         std::uint32_t slot,
@@ -1567,9 +1316,6 @@ namespace
                     ? static_cast<std::uint32_t>(cachedTierForPT)
                     : 1u;
 
-                // State-change-gated log per (slot, partsType, tier) tuple to
-                // avoid every-tick spam when SetUpParts re-fires on tier
-                // changes.
                 static std::uint32_t s_lastSlot[4]      = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
                 static std::uint8_t  s_lastPartsType[4] = {0xFFu, 0xFFu, 0xFFu, 0xFFu};
                 static std::uint8_t  s_lastTier[4]      = {0xFFu, 0xFFu, 0xFFu, 0xFFu};
@@ -1638,13 +1384,8 @@ namespace
             }
 
 
-            // Capture arm tier per-playerType — gate on armType > 0 so we only
-            // sample valid developed tiers (the engine's commit-blob expansion
-            // zeroes armType for new-outfit applies; we only want to remember
-            // the values from natural pre-outfit-change calls). Indexed by
-            // info->playerType so Snake (0) and Avatar (3) each get their own
-            // tier cached; without this split, slot 1's "default tier 1" arm
-            // would clobber Snake's actual developed tier.
+            // Gate on armType > 0 — engine's commit-blob expansion zeroes it
+            // for new-outfit applies; only remember values from natural calls.
             if (info->playerArmType != 0)
             {
                 SetCachedArmTierForPlayerType(
@@ -1753,13 +1494,8 @@ namespace
                 }
                 else if (info->playerArmType == 0)
                 {
-                    // The engine zeroes playerArmType when expanding the new
-                    // commit blob into LoadPartsPlayerInfo, which would lose
-                    // the player's developed prosthetic upgrade tier on every
-                    // outfit swap. Restore from the cached tier captured per-
-                    // playerType (Snake's HoJ tier 3 stays separate from
-                    // Avatar's tier 1 default — without per-PT split they'd
-                    // overwrite each other across slots).
+                    // Engine zeroes playerArmType when expanding new commit
+                    // blob → restore developed tier from per-PT cache.
                     std::uint8_t cachedTierForPT = 0;
                     bool         cachedFlagForPT = false;
                     GetCachedArmTierForPlayerType(
@@ -1826,11 +1562,8 @@ namespace
             {
                 tl_SpoofedRealPartsType = origPartsType;
 
-
-                // Spoof target = the live player's vanilla STANDARD partsType.
-                // Snake STANDARD = 0x01, Avatar/DD STANDARD = 0x00. Using the
-                // LIVE playerType (not the entry's) keeps the spoof valid when
-                // a Snake outfit is applied on the Avatar slot or vice versa.
+                // Use LIVE playerType (not entry's) so Snake↔Avatar bridging
+                // still gets the right STANDARD partsType (Snake=0x01, else 0).
                 std::uint8_t spoofTarget = 0x00;
                 if (info->playerType == outfit::kPlayerType_Snake)
                 {
@@ -2044,9 +1777,6 @@ namespace outfit
         info.playerType         = playerType;
         info.playerPartsType    = partsType;
         info.playerCamoType     = selectorCode;
-        // Arm tier comes from the per-playerType cache (Snake/Avatar each
-        // hold their own developed tier independently). Caller-supplied
-        // playerType selects which slot of the cache to read.
         {
             std::uint8_t cachedTierForPT = 0;
             bool         cachedFlagForPT = false;
@@ -2083,10 +1813,6 @@ namespace outfit
         {
             tl_SpoofedRealPartsType = origPartsType;
 
-
-            // Spoof target = live player's vanilla STANDARD partsType (see
-            // hkLoadPartsNew comment). Use the caller-supplied live `playerType`
-            // so Snake↔Avatar bridging works in ForcePartsReload too.
             std::uint8_t spoofTarget = 0x00;
             if (playerType == outfit::kPlayerType_Snake)
             {

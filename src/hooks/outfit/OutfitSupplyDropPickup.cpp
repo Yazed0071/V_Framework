@@ -90,10 +90,8 @@ namespace
 
         outfit::SetActiveVariant(entry->partsType, variantIdx);
 
-        // Snake↔Avatar bridging: drive the reload for the LIVE player when
-        // known, so a Snake-registered outfit applies to the visible Avatar
-        // (and vice versa). Fall back to the registered playerType when the
-        // live state isn't reachable.
+        // Snake↔Avatar bridging: prefer LIVE playerType so Snake outfits apply
+        // on visible Avatar slot; fall back to registered when live unknown.
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
         const std::uint8_t reloadPT =
             (livePT != 0xFF) ? livePT : entry->playerType;

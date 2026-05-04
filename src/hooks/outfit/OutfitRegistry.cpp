@@ -28,12 +28,6 @@ namespace
     static GetQuarkSystemTable_t                 g_GetQuarkSystemTable = nullptr;
 
 
-    // Active variant per custom-partsType slot. Indexed by
-    // `partsType - kCustomPartsTypeStart`, so size must cover the full
-    // extended range [kCustomPartsTypeStart..kCustomPartsTypeEnd].
-    // Was hardcoded to 0x40 (64 slots) when range was [0x40..0x7F]; now
-    // sized symbolically so range extensions don't silently corrupt
-    // memory past the array end.
     static constexpr std::size_t kActiveVariantSize =
         static_cast<std::size_t>(kCustomPartsTypeEnd) -
         static_cast<std::size_t>(kCustomPartsTypeStart) + 1;

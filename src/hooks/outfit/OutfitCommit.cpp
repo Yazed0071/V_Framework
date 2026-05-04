@@ -132,8 +132,6 @@ namespace
                 for (std::size_t i = 0; i < n; ++i)
                 {
                     if (!all[i]) continue;
-                    // Snake↔Avatar bridging: count Snake outfits as live-PT
-                    // candidates when the live player is Avatar, and vice versa.
                     if (!outfit::IsPlayerTypeCompatible(all[i]->playerType, livePT))
                         continue;
                     ++livePtCount;
@@ -153,9 +151,6 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                // Write the LIVE playerType (when known) so the engine processes
-                // the outfit for the actual character on screen, even when the
-                // outfit was registered for the bridged twin (Snake↔Avatar).
                 blob[kBlobOff_PlayerType] =
                     (livePT != 0xFF) ? livePT : entry->playerType;
 
@@ -182,7 +177,6 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                // Live player type wins over registered (Snake↔Avatar bridging).
                 blob[kBlobOff_PlayerType] =
                     (livePT != 0xFF) ? livePT : livePtUnique->playerType;
 

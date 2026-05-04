@@ -12,7 +12,6 @@
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitCamoBonus.h"
 #include "../hooks/outfit/OutfitGetCamoufValue.h"
-#include "../hooks/outfit/OutfitPrepDiagnostic.h"
 #include "../hooks/outfit/OutfitListInject.h"
 #include "../hooks/outfit/OutfitFv2Paths.h"
 #include "../hooks/outfit/OutfitHeadOption.h"
@@ -711,21 +710,11 @@ namespace
             (void)camoVal;
 
 
-            // Diagnostic-only logging hooks for the iDroid mission-prep
-            // arm-cycle visual-swap investigation. Logs every Fv2 swap +
-            // arm-tier wire so vanilla vs custom prep behavior can be
-            // diff'd from the log. Optional — module disables itself
-            // silently on non-EN builds. Remove once the prep-time path
-            // is identified.
-            const bool prepDiag = outfit::Install_OutfitPrepDiagnostic_Hooks();
-            (void)prepDiag;
-
             return eq && commit && runtime;
         }
 
         void Uninstall() override
         {
-            outfit::Uninstall_OutfitPrepDiagnostic_Hooks();
             outfit::Uninstall_OutfitGetCamoufValue_Hook();
             outfit::Uninstall_OutfitCamoBonus_Hook();
             outfit::Uninstall_OutfitRuntimeParts_Hooks();

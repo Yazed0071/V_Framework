@@ -274,8 +274,6 @@ namespace
             const std::uint8_t effectivePT =
                 playerTypeValid ? playerType : livePT;
             const bool canCheckPT = playerTypeValid || (livePT != 0xFF);
-            // Snake↔Avatar bridging: a Snake-registered outfit is acceptable
-            // on the Avatar slot and vice versa, so don't scrub on that pair.
             const bool clearMismatch = canCheckPT
                                     && !outfit::IsPlayerTypeCompatible(
                                             chosen->playerType, effectivePT);
