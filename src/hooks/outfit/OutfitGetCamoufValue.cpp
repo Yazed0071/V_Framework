@@ -37,9 +37,10 @@ namespace
 
 
         const outfit::OutfitEntry* entry = nullptr;
+        std::uint8_t                ownerPT = 0;
         if (!outfit::TryGetOutfitByCamoVirtualId(
-                static_cast<std::uint8_t>(camoType), &entry)
-            || !entry || !entry->hasCamoBonusValues)
+                static_cast<std::uint8_t>(camoType), &entry, &ownerPT)
+            || !entry)
         {
             return 0;
         }
@@ -47,16 +48,20 @@ namespace
         if (materialType >= outfit::kCamoMaterialCount)
             return 0;
 
-        const std::int32_t v = entry->camoBonusValues[materialType];
+        const std::int32_t* row = entry->GetCamoBonusValuesFor(ownerPT);
+        if (!row) return 0;
+
+        const std::int32_t v = row[materialType];
 
         if (!g_FirstVirtualHitLogged.exchange(true))
         {
             Log("[OutfitGetCamoufValue] FIRST VIRTUAL HIT: "
-                "virtualId=%u materialType=%u value=%d "
+                "virtualId=%u materialType=%u value=%d ownerPT=%u "
                 "(developId=%u flowIndex=%u)\n",
                 static_cast<unsigned>(camoType),
                 static_cast<unsigned>(materialType),
                 static_cast<int>(v),
+                static_cast<unsigned>(ownerPT),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(entry->flowIndex));
         }

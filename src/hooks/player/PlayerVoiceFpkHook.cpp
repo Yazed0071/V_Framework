@@ -99,12 +99,14 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
             && livePT <= outfit::kCustomPartsTypeEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
-            if (outfit::TryGetOutfitByPartsType(livePT, &entry) && entry)
+            if (outfit::TryGetOutfitByPartsType(livePT, &entry) && entry
+                && entry->IsPlayerTypeSupported(static_cast<std::uint8_t>(playerType & 0xFF)))
             {
+                const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
                 const std::uint8_t v = entry->HasVariants()
                     ? outfit::GetActiveVariant(entry->partsType)
                     : 0;
-                const std::uint64_t outfitVoice = entry->GetVariantVoiceFpk(v);
+                const std::uint64_t outfitVoice = entry->GetVariantVoiceFpk(pt, v);
 
                 if (outfitVoice > outfit::kSubAssetUseVanilla)
                 {

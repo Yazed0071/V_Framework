@@ -107,7 +107,7 @@ namespace
     static bool ShouldInjectOutfit(const outfit::OutfitEntry* e, std::uint8_t livePT)
     {
         if (!e) return false;
-        if (!outfit::IsPlayerTypeCompatible(e->playerType, livePT)) return false;
+        if (!e->IsPlayerTypeSupported(livePT)) return false;
         if (e->flowIndex == 0 || e->flowIndex >= kProxyTableEntries) return false;
         if (!outfit::IsFlowIndexDevelopedByOrig(e->flowIndex)) return false;
         return true;
@@ -232,15 +232,13 @@ namespace
             {
                 const std::uint8_t livePT = outfit::ReadLivePlayerType();
                 if (livePT != 0xFF
-                    && !outfit::IsPlayerTypeCompatible(entry->playerType, livePT))
+                    && !entry->IsPlayerTypeSupported(livePT))
                 {
 
 
-                    Log("[OutfitListInject:AddListSuit] suppressed PT-mismatch "
-                        "flowIndex=%u outfit-PT=%u live-PT=%u "
-                        "(developId=%u partsType=0x%02X)\n",
+                    Log("[OutfitListInject:AddListSuit] suppressed PT-unsupported "
+                        "flowIndex=%u live-PT=%u (developId=%u partsType=0x%02X)\n",
                         static_cast<unsigned>(flowIndex),
-                        static_cast<unsigned>(entry->playerType),
                         static_cast<unsigned>(livePT),
                         static_cast<unsigned>(entry->developId),
                         static_cast<unsigned>(entry->partsType));
@@ -279,14 +277,23 @@ namespace
         if (!outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) || !entry)
             return;
 
-        if (entry->variantCount < 2) return;
+
+        // Per-PT variant count: each playerType branch can have its own count.
+        // The cycle button stops at the active branch's variantCount, even
+        // though the outfit-level entry->variantCount may be higher.
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
+        const std::uint8_t variantsForPT = (livePT != 0xFF)
+            ? entry->GetVariantCountFor(livePT)
+            : entry->variantCount;
+
+        if (variantsForPT < 2) return;
 
         __try
         {
             auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
 
 
-            for (std::uint8_t var = 0; var < entry->variantCount; ++var)
+            for (std::uint8_t var = 0; var < variantsForPT; ++var)
             {
                 const std::size_t cellIndex =
                     static_cast<std::size_t>(row) * 15 + var;
@@ -309,14 +316,13 @@ namespace
             }
 
 
-            *(base + 0xBC40 + row) =
-                static_cast<std::uint8_t>(entry->variantCount);
+            *(base + 0xBC40 + row) = variantsForPT;
 
 
             std::uint8_t activeVar =
                 outfit::GetActiveVariant(entry->partsType);
-            if (activeVar >= entry->variantCount)
-                activeVar = static_cast<std::uint8_t>(entry->variantCount - 1);
+            if (activeVar >= variantsForPT)
+                activeVar = static_cast<std::uint8_t>(variantsForPT - 1);
             *(base + 0xC040 + row) = activeVar;
 
 
@@ -324,7 +330,7 @@ namespace
             {
                 std::size_t pos = 0;
                 for (std::size_t i = 0;
-                     i < outfit::kMaxVariantsPerOutfit && pos + 4 < sizeof(variantBuf);
+                     i < variantsForPT && pos + 4 < sizeof(variantBuf);
                      ++i)
                 {
                     pos += static_cast<std::size_t>(std::snprintf(
@@ -335,12 +341,13 @@ namespace
             }
 
             Log("[OutfitListInject:AddListSuit] post-orig variant cell "
-                "injection: flowIndex=%u developId=%u row=%u "
-                "variantCount=%u selectors=[%s]\n",
+                "injection: flowIndex=%u developId=%u row=%u livePT=%u "
+                "variantsForPT=%u selectors=[%s]\n",
                 static_cast<unsigned>(flowIndex),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(row),
-                static_cast<unsigned>(entry->variantCount),
+                static_cast<unsigned>(livePT),
+                static_cast<unsigned>(variantsForPT),
                 variantBuf);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -576,7 +583,12 @@ namespace
                 return;
 
 
-            variantHash = entry->variantDisplayNameHashes[variantIdx];
+            const std::uint8_t livePT = outfit::ReadLivePlayerType();
+            const std::uint8_t labelPT =
+                (livePT != 0xFF && entry->IsPlayerTypeSupported(livePT))
+                    ? livePT
+                    : outfit::kPlayerType_Snake;
+            variantHash = entry->GetVariantDisplayNameHash(labelPT, variantIdx);
 
 
             {
@@ -686,8 +698,17 @@ namespace
             return;
 
         const outfit::OutfitEntry* entry = nullptr;
-        if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry
-            || !entry->HasHeadOptions())
+        if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry)
+            return;
+
+
+        // Resolve the head-option list for the LIVE playerType, with per-PT
+        // override → outfit-level fallback inside GetHeadOptionsFor.
+        const std::uint8_t      livePT  = outfit::ReadLivePlayerType();
+        const std::uint16_t*    headIds = nullptr;
+        std::uint8_t            headCount = 0;
+        if (!entry->GetHeadOptionsFor(livePT, &headIds, &headCount)
+            || headCount == 0 || !headIds)
             return;
 
 
@@ -724,25 +745,59 @@ namespace
             count = origCount;
 
 
-            const std::uint16_t firstSlotEquip =
-                (count > 0)
-                    ? *reinterpret_cast<std::uint16_t*>(base + 0x4440)
-                    : 0;
-            const bool origAddedNone =
-                (count > 0 && firstSlotEquip == outfit::kHeadOption_None);
-
             const std::uint32_t startCount = count;
 
+            // Dynamically scan what orig already added to slots [0..count-1] —
+            // this is exactly the right "vanilla skip set" for the LIVE PT,
+            // covering Snake's BANDANA / INFINITE BANDANA, anyone's NONE, and
+            // whatever BALACLAVA-family / SP-HEADGEAR / HP-HEADGEAR rows orig
+            // populated based on R&D state. Hardcoding equipIds breaks the
+            // moment a PT doesn't get them by default (e.g. DDFemale where
+            // orig only adds NONE — a hardcoded skip of 0x210/0x211/0x212
+            // would silently drop the user's whole list).
+            std::uint16_t origAdded[32] = {};
+            std::uint8_t  origAddedCount = 0;
+            for (std::uint32_t i = 0; i < startCount && origAddedCount < 32; ++i)
+            {
+                origAdded[origAddedCount++] =
+                    *reinterpret_cast<std::uint16_t*>(base + 0x4440 + i * 2);
+            }
+
+            auto isAlreadyInList = [&](std::uint16_t equipId) -> bool {
+                for (std::uint8_t k = 0; k < origAddedCount; ++k)
+                    if (origAdded[k] == equipId) return true;
+                return false;
+            };
+
+            // Snake and Avatar branches: orig adds BANDANA (0x20E) and
+            // INFINITY BANDANA (0x20F) for these PTs through a code path
+            // that runs after our hook returns, so the dynamic scan above
+            // can't see them yet. Skip them preemptively in the user's
+            // list — otherwise we'd produce visible duplicates because
+            // orig adds its copies on top of ours after we've finished.
+            // NONE (0x400) is added by orig in SetupPrefabListElement
+            // before we run, so it shows up in origAdded[] correctly and
+            // doesn't need a preemptive skip.
+            const bool livePT_IsSnakeOrAvatar =
+                   (livePT == outfit::kPlayerType_Snake)
+                || (livePT == outfit::kPlayerType_Avatar);
+
+            auto isOrigLateBandana = [&](std::uint16_t equipId) -> bool {
+                if (!livePT_IsSnakeOrAvatar) return false;
+                return equipId == 0x20Eu     // BANDANA
+                    || equipId == 0x20Fu;    // INFINITY BANDANA
+            };
+
             for (std::uint8_t i = 0;
-                 i < entry->headOptionCount
+                 i < headCount
                  && i < outfit::kMaxHeadOptionsPerOutfit;
                  ++i)
             {
-                const std::uint16_t equipId = entry->headOptionEquipIds[i];
+                const std::uint16_t equipId = headIds[i];
                 if (equipId == 0) continue;
-                if (equipId == outfit::kHeadOption_None && origAddedNone)
-                    continue;
                 if (count >= 32) break;
+                if (isAlreadyInList(equipId)) continue;
+                if (isOrigLateBandana(equipId)) continue;
 
 
                 if (const auto* head =
@@ -758,6 +813,11 @@ namespace
                 const std::uint32_t addedIdx = count;
                 g_AddListBandana(thisPtr, &count, equipId);
 
+
+                // Track the just-added equipId in our scan set so a later
+                // duplicate inside the same modder list is also skipped.
+                if (origAddedCount < 32)
+                    origAdded[origAddedCount++] = equipId;
 
                 if (addedIdx < 32)
                 {
@@ -781,15 +841,15 @@ namespace
             if (!g_HeadOptionInjectFirstFire.exchange(true))
             {
                 Log("[OutfitListInject:HeadOption] FIRST INJECT: "
-                    "partsType=0x%02X developId=%u declaredCount=%u "
-                    "origCount=%u finalCount=%u (origHadNone=%d) — "
+                    "partsType=0x%02X livePT=%u developId=%u declaredCount=%u "
+                    "origCount=%u finalCount=%u — "
                     "committed to this[0x442c] and this[0x104]\n",
                     static_cast<unsigned>(pt),
+                    static_cast<unsigned>(livePT),
                     static_cast<unsigned>(entry->developId),
-                    static_cast<unsigned>(entry->headOptionCount),
+                    static_cast<unsigned>(headCount),
                     static_cast<unsigned>(startCount),
-                    static_cast<unsigned>(count),
-                    origAddedNone ? 1 : 0);
+                    static_cast<unsigned>(count));
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

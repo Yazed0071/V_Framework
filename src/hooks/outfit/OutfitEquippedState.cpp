@@ -69,7 +69,7 @@ namespace
 
         const std::uint8_t livePlayer = outfit::ReadLivePlayerType();
         if (livePlayer != 0xFF
-            && !outfit::IsPlayerTypeCompatible(entry->playerType, livePlayer))
+            && !entry->IsPlayerTypeSupported(livePlayer))
             return orig;
 
         return static_cast<std::uint64_t>(entry->flowIndex);
@@ -87,7 +87,7 @@ namespace
 
 
             const std::uint8_t askPT = static_cast<std::uint8_t>(pt & 0xFFu);
-            const bool match = outfit::IsPlayerTypeCompatible(entry->playerType, askPT);
+            const bool match = entry->IsPlayerTypeSupported(askPT);
             return match ? std::uint8_t{1} : std::uint8_t{0};
         }
 

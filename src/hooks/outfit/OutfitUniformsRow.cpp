@@ -75,16 +75,19 @@ namespace
             if (!outfit::TryGetOutfitByPartsType(partsType, &entry) || !entry)
                 return;
 
-            if (entry->langEquipNameHash == 0)
-            {
 
+            // Per-PT lang-equip name: use the live PT's branch hash, with the
+            // Snake↔Avatar bridge applied inside GetLangEquipNameHashFor.
+            const std::uint8_t  livePT     = outfit::ReadLivePlayerType();
+            const std::uint64_t nameHash   = entry->GetLangEquipNameHashFor(livePT);
+            if (nameHash == 0)
+            {
 
                 return;
             }
 
 
-            *reinterpret_cast<std::uint64_t*>(base + kOff_HashOutBuffer) =
-                entry->langEquipNameHash;
+            *reinterpret_cast<std::uint64_t*>(base + kOff_HashOutBuffer) = nameHash;
 
             auto* childObj =
                 *reinterpret_cast<std::uint8_t**>(base + kOff_ChildObject);
@@ -112,12 +115,13 @@ namespace
                    reinterpret_cast<std::uint64_t>(base + kOff_HashOutBuffer));
 
             Log("[OutfitUniformsRow:%s] overrode UNIFORMS hash for "
-                "partsType=0x%02X developId=%u slot=%u -> 0x%016llX\n",
+                "partsType=0x%02X developId=%u slot=%u livePT=%u -> 0x%016llX\n",
                 siteTag,
                 static_cast<unsigned>(partsType),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(slotIdx),
-                static_cast<unsigned long long>(entry->langEquipNameHash));
+                static_cast<unsigned>(livePT),
+                static_cast<unsigned long long>(nameHash));
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {

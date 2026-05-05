@@ -23,16 +23,28 @@ end
 -- Custom player outfits
 -- ============================================================
 --
--- High-level wrapper around V_FrameWork.RegisterOutfit. developId and
--- flowIndex are AUTO-ALLOCATED and persisted in V_FrameWork_State.lua
--- under the supplied `name` key — same mechanism weapons use. Repeated
--- calls with the same `name` get the SAME ids back across sessions.
+-- An outfit is identified by a `name` (string key); its developId / flowIndex
+-- are auto-allocated under that name and persisted in V_FrameWork_State.lua,
+-- so repeated calls with the same name get the same ids back across sessions.
 --
--- The only required modder fields are: name, playerType, partsPath, fpkPath.
--- developId/flowIndex may still be passed explicitly if a mod needs to
--- pin them, but for normal use you should let auto-allocate handle it.
+-- Each playerType (snake / ddMale / ddFemale / avatar) is a sub-table with
+-- its OWN paths, sub-asset overrides, variants, head options, behavior flags,
+-- iDroid lang name, and camo bonus profile. The ONLY fields shared across
+-- playerTypes are `name` and `develop`. Snake↔Avatar bridging is automatic:
+-- if you only fill `snake`, the outfit also appears for Avatar (and vice
+-- versa) using the same data. Provide both branches explicitly to give them
+-- different paths or different settings.
 --
--- Returns (partsType, developId, flowIndex) on success, or false on failure.
+-- Returns (partsType, developId, flowIndex) on success, false on failure.
+--
+-- Sub-asset value forms (camoFpk / camoFv2 / faceFpk / skinFv2 / diamondFpk /
+-- diamondFv2 / voiceFpk):
+--   string  → custom asset path (hashed to FoxPath code64ext)
+--   true    → use vanilla asset (engine's default for this PT/partsType)
+--   false   → disable: load nothing for this slot
+--   nil     → per-field default (see API reference)
+
+local k_PtBranchKeys = { "snake", "ddMale", "ddFemale", "avatar" }
 
 local function buildVariantArray(srcVariants)
     if type(srcVariants) ~= "table" or #srcVariants == 0 then
@@ -43,115 +55,117 @@ local function buildVariantArray(srcVariants)
     for i, v in ipairs(srcVariants) do
         if type(v) == "table" then
             out[i] = {
-                partsPath     = v.partsPath,
-                fpkPath       = v.fpkPath,
-                camoFpk       = v.camoFpk,
-                camoFv2       = v.camoFv2,
-                diamondFpk    = v.diamondFpk,
-                voiceFpk      = v.voiceFpk,
-                displayName = v.displayName,
+                partsPath       = v.partsPath,
+                fpkPath         = v.fpkPath,
+                camoFpk         = v.camoFpk,
+                camoFv2         = v.camoFv2,
+                diamondFpk      = v.diamondFpk,
+                diamondFv2      = v.diamondFv2,
+                voiceFpk        = v.voiceFpk,
+                displayName     = v.displayName,
+                displayNameHash = v.displayNameHash,
             }
         end
     end
     return out
 end
 
+-- Pass through every per-PT field: paths, sub-assets, variants, head options,
+-- behavior flags, lang name, camo bonus.
+local function buildBranch(srcBranch)
+    if type(srcBranch) ~= "table" then return nil end
+    return {
+        -- Required body asset paths.
+        partsPath       = srcBranch.partsPath,
+        fpkPath         = srcBranch.fpkPath,
+
+        -- Optional sub-asset overrides (string | true | false | nil).
+        camoFpk         = srcBranch.camoFpk,
+        camoFv2         = srcBranch.camoFv2,
+        faceFpk         = srcBranch.faceFpk,
+        skinFv2         = srcBranch.skinFv2,
+        diamondFpk      = srcBranch.diamondFpk,
+        diamondFv2      = srcBranch.diamondFv2,
+        voiceFpk        = srcBranch.voiceFpk,
+
+        -- Variant 0 cycle-button label and the alternates array.
+        displayName     = srcBranch.displayName,
+        displayNameHash = srcBranch.displayNameHash,
+        variants        = buildVariantArray(srcBranch.variants),
+
+        -- Per-PT behavior flags.
+        enableArm            = srcBranch.enableArm,
+        enableHead           = srcBranch.enableHead,
+        defaultSoldierFaceId = srcBranch.defaultSoldierFaceId,
+
+        -- Per-PT iDroid suit-name lookup hash.
+        langEquipName        = srcBranch.langEquipName,
+
+        -- Per-PT HEAD OPTION submenu.
+        headOptions          = srcBranch.headOptions,
+        supportsHeadOptions  = srcBranch.supportsHeadOptions,
+
+        -- Per-PT camo bonus.
+        camoBonusType        = srcBranch.camoBonusType,
+        camoBonusValues      = srcBranch.camoBonusValues,
+    }
+end
+
 function this.AddOutfit(opts)
     if type(opts) ~= "table" then return false end
 
-    -- `name` is required when developId / flowIndex are auto-allocated
-    -- (it's the persistence key in V_FrameWork_State.lua). Direct
-    -- developId / flowIndex pinning is supported for migration cases
-    -- but discouraged for new mods.
-    if (opts.developId == nil or opts.flowIndex == nil)
-        and (type(opts.name) ~= "string" or opts.name == "")
-    then
-        V_FrameWork.Log("[V_TppPlayer] AddOutfit: 'name' is required when developId/flowIndex are not provided")
+
+    -- `name` is REQUIRED. developId / flowIndex are owned by the framework
+    -- and auto-allocated through V_FrameWork_State.lua. They CANNOT be
+    -- pinned by the user.
+    if type(opts.name) ~= "string" or opts.name == "" then
+        V_FrameWork.Log("[V_TppPlayer] AddOutfit: 'name' is required")
+        return false
+    end
+    if opts.developId ~= nil or opts.flowIndex ~= nil then
+        V_FrameWork.Log(
+            "[V_TppPlayer] AddOutfit: 'developId' / 'flowIndex' cannot be set "
+            .. "manually — they are auto-allocated under `name` and persisted "
+            .. "in V_FrameWork_State.lua. Remove these fields from your call.")
         return false
     end
 
-    local partsType, developId, flowIndex = V_FrameWork.RegisterOutfit({
-        key                 = opts.name,
-        developId           = opts.developId,    -- nil = auto from state file
-        flowIndex           = opts.flowIndex,    -- nil = auto from state file
-        playerType          = opts.playerType or 0,
 
-        partsPath           = opts.partsPath,
-        fpkPath             = opts.fpkPath,
+    -- At least one branch is required. Each branch is an independent set
+    -- of per-PT params; only `name` and `develop` are shared across them.
+    local branchesOut = {}
+    local branchCount = 0
+    for _, k in ipairs(k_PtBranchKeys) do
+        local b = buildBranch(opts[k])
+        if b ~= nil then
+            branchesOut[k] = b
+            branchCount = branchCount + 1
+        end
+    end
+    if branchCount == 0 then
+        V_FrameWork.Log(
+            "[V_TppPlayer] AddOutfit: at least one of {snake, ddMale, "
+            .. "ddFemale, avatar} sub-tables must be supplied with "
+            .. "partsPath/fpkPath. (name='" .. opts.name .. "')")
+        return false
+    end
 
-        camoFpk             = opts.camoFpk,
-        faceFpk             = opts.faceFpk,
-        skinFv2             = opts.skinFv2,
-        diamondFpk          = opts.diamondFpk,
-        camoFv2             = opts.camoFv2,
-        diamondFv2          = opts.diamondFv2,
-        voiceFpk            = opts.voiceFpk,
 
-        enableArm           = opts.enableArm,
+    local registerArg = {
+        key      = opts.name,
 
-        -- enableHead forces the framework to load a default DD head FPK
-        -- on top of the body for outfits whose body parts file has no
-        -- integrated head mesh (FROG / SSD ports etc.). Default false
-        -- so Quiet-style integrated-head outfits (e.g. Jill BattleSuit)
-        -- aren't disturbed.
-        enableHead           = opts.enableHead,
+        snake    = branchesOut.snake,
+        ddMale   = branchesOut.ddMale,
+        ddFemale = branchesOut.ddFemale,
+        avatar   = branchesOut.avatar,
+    }
 
-        -- Optional override for the soldier face index (info+0x04).
-        -- When enableHead=true AND the player slot has 0 (no manual
-        -- face chosen), the framework writes this value before orig
-        -- reads the face FPK. Use a populated FaceUnit index if 0
-        -- doesn't load (1..899). Leave nil to keep playerFaceId at 0.
-        defaultSoldierFaceId = opts.defaultSoldierFaceId,
-
-        -- The C++ auto-enables the HEAD OPTION submenu whenever
-        -- `headOptions` is non-empty, so just pass the array through.
-        headOptions         = opts.headOptions,
-
-        -- Top-level cycle-button label for variant 0 (the base appearance
-        -- shown in SORTIE PREP > UNIFORMS before the user cycles to a
-        -- variant). Per-variant `displayName` lives inside each entry of
-        -- the `variants` array (handled by buildVariantArray above).
-        -- The bridge accepts either a LangId string (`displayName`) and
-        -- computes StrCode64, or a precomputed `displayNameHash` number.
-        displayName         = opts.displayName,
-        displayNameHash     = opts.displayNameHash,
-
-        variants            = buildVariantArray(opts.variants),
-
-        -- camoBonusType — pin a vanilla PlayerCamoType (0..116) for
-        -- surface-bonus lookup while this outfit is equipped. Pass a
-        -- number (typically `PlayerCamoType.BATTLEDRESS` etc., which
-        -- is just the vanilla MGSV lua enum). Default nil = no pin.
-        camoBonusType      = opts.camoBonusType,
-
-        -- camoBonusValues — give the outfit its OWN unique surface-
-        -- bonus row instead of inheriting a vanilla one. Sparse table
-        -- keyed by material name OR 1-based numeric index:
-        --   camoBonusValues = {
-        --       MTR_LEAF = 50, MTR_RLEF = 50, MTR_PLNT_A = 50,
-        --       -- everything not listed defaults to 0
-        --   }
-        -- The framework allocates a virtual PlayerCamoType id and
-        -- routes the engine's bonus-table lookup through our
-        -- GetCamoufValue hook. If both camoBonusType and
-        -- camoBonusValues are set, values wins (more specific).
-        camoBonusValues    = opts.camoBonusValues,
-
-        -- langEquipName forwarded from develop.const (if present) so the
-        -- framework can hash it via FoxStrHash and use it to override the
-        -- vanilla suit-name UI lookup that returns blank for our custom
-        -- partsType range. Without this, SORTIE PREP > SELECT CHARACTER >
-        -- UNIFORMS row shows blank text when wearing our custom suits.
-        -- The user can still override by setting `langEquipName` directly
-        -- on the AddOutfit call (rare).
-        langEquipName       = opts.langEquipName
-                              or (opts.develop and opts.develop.const
-                                  and opts.develop.const.langEquipName),
-    })
+    local partsType, developId, flowIndex = V_FrameWork.RegisterOutfit(registerArg)
 
     if partsType == false or partsType == nil then
         return false
     end
+
 
     -- If the mod also wants R&D table entries (cost, time, lang strings,
     -- icon, etc.) — register them here with the auto-allocated ids,
@@ -167,16 +181,14 @@ function this.AddOutfit(opts)
     return partsType, developId, flowIndex
 end
 
--- Programmatic variant switch. Equivalent to V_FrameWork.SetOutfitVariant
--- but namespaced under V_TppPlayer for consistency with the rest of the
--- guide files.
+-- Programmatic variant switch.
 function this.SetOutfitVariant(developId, variantIndex)
     return V_FrameWork.SetOutfitVariant(developId, variantIndex)
 end
 
--- Returns a table { partsType, selectorCode, flowIndex, playerType,
--- variantCount, activeVariant, supportsHeadOptions } or nil if the
--- developId is not registered.
+-- Returns a table { partsType, selectorCode, flowIndex, supportsSnake,
+-- supportsDDMale, supportsDDFemale, supportsAvatar, variantCount,
+-- activeVariant, supportsHeadOptions } or nil if developId is not registered.
 function this.GetOutfitInfo(developId)
     return V_FrameWork.GetOutfitInfo(developId)
 end
@@ -186,37 +198,8 @@ end
 -- ============================================================
 --
 -- High-level wrapper around V_FrameWork.RegisterHeadOption that ALSO
--- handles the paired V_TppEquip.AddToEquipDevelopTable call, so a mod
--- can add a new HEAD OPTION row in one shot:
---
---   V_TppPlayer.AddHeadOption{
---       name           = "MyMod:CoolHelmet",
---       TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
---       langEquipName  = "name_my_helmet",
---       iconFtexPath   = "/Assets/mod/.../ui_helmet_alp",
---       develop = {
---           const = { ... },   -- optional const overrides (p06/p08 default
---                              -- to langEquipName / iconFtexPath above)
---           flow  = {          -- optional R&D cost / availability
---               grade            = 2,
---               developGmpCost   = 50000,
---               initialAvailable = 0,    -- 1 to start researched
---           },
---       },
---   }
---
--- Then reference the head by name in any outfit's headOptions:
---   headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" }
---
--- Returns the assigned equipId on success, false on failure (logged).
---
--- The wrapper enforces the call order (AddToEquipDevelopTable first,
--- then RegisterHeadOption) — required because RegisterHeadOption looks
--- up the row index assigned to the shared `name` key.
---
--- Visual: chooses a vanilla balaclava via TppEnemyFaceId. Distinct
--- custom-mesh heads aren't yet supported (Tier-3-B); see
--- guide/examples/OutfitWithCustomHead.lua for the design rationale.
+-- handles the paired V_TppEquip.AddToEquipDevelopTable call. See
+-- guide/examples/OutfitWithCustomHead.lua for the full pattern.
 
 function this.AddHeadOption(opts)
     if type(opts) ~= "table" then return false end
@@ -225,16 +208,10 @@ function this.AddHeadOption(opts)
         return false
     end
 
-    -- 1) Paired AddToEquipDevelopTable — drives iDroid label/icon AND
-    --    the R&D develop-gate. The wrapper builds a sane default const
-    --    block from langEquipName / iconFtexPath; modder overrides via
-    --    `develop.const = { ... }` win.
+
     local const = (opts.develop and opts.develop.const) or {}
     local flow  = (opts.develop and opts.develop.flow)  or {}
 
-    -- Default const block — minimal viable EquipDevelopConstSetting row
-    -- for a head-option entry. The values mirror the BALACLAVA vanilla
-    -- row's shape (suit-type, no skill/blueprint, default group).
     if const.p01 == nil then const.p01 = TppEquip.EQP_None end
     if const.p02 == nil then const.p02 = TppMbDev.EQP_DEV_TYPE_Suit end
     if const.p03 == nil then const.p03 = 0     end
@@ -243,28 +220,18 @@ function this.AddHeadOption(opts)
     if const.p09 == nil then const.p09 = 0 end
     if const.p36 == nil then const.p36 = 1 end
 
-    -- p06 (langEquipName) / p07 (langEquipInfo) / p08 (iconFtexPath) /
-    -- p30 (langEquipRealName) take user shortcuts when not explicitly set.
     if const.p06 == nil then const.p06 = opts.langEquipName end
     if const.p07 == nil then const.p07 = opts.langEquipInfo or opts.langEquipName end
     if const.p08 == nil then const.p08 = opts.iconFtexPath  end
     if const.p30 == nil then const.p30 = opts.langEquipName end
 
-    -- Default flow block — develop-gated by default (initialAvailable=0)
-    -- so the player has to research the head in R&D before it appears.
-    -- Pass `flow.initialAvailable = 1` to skip the gate.
-    if flow.grade            == nil then flow.grade            = 1 end
+
+    if flow.grade            == nil then flow.grade            = 0 end
     if flow.developGmpCost   == nil then flow.developGmpCost   = 0 end
     if flow.initialAvailable == nil then flow.initialAvailable = 0 end
 
     V_TppEquip.AddToEquipDevelopTable(opts.name, { const = const, flow = flow })
 
-    -- 2) Register the head visual + slot allocation. Same `name` key, so
-    --    the developId from step 1 is reused. iDroid label/icon are
-    --    driven by step 1's const block (p06 / p08), so we don't pass
-    --    `langName` / `iconFtex` here — those are RegisterHeadOption
-    --    fallbacks for the no-AddToEquipDevelopTable path that this
-    --    wrapper never takes.
     return V_FrameWork.RegisterHeadOption{
         name           = opts.name,
         TppEnemyFaceId = opts.TppEnemyFaceId,
@@ -274,10 +241,6 @@ end
 -- ============================================================
 -- Camo table editing  (117 camo types x 82 materials)
 -- ============================================================
---
--- Names below are authoritative from the retail binary's
--- PlayerCamoType enum (all 117) and camo-parameter MaterialType
--- table (all 82). Numeric indices are equally accepted.
 
 local k_CamoByName = {
     OLIVEDRAB         = 0,    SPLITTER          = 1,    SQUARE            = 2,
@@ -400,18 +363,6 @@ function this.ImportCamoRow(camoType, values)
     return V_FrameWork.ImportCamoRow(c, values)
 end
 
--- Bulk import the entire 117x82 camo table in one shot. Equivalent to the
--- vanilla `Player.InitCamoufTable(table)` call that mods like Infinite
--- Heaven use to ship a full default table — replaces every row, pushes
--- to the engine ONCE.
---
--- `tbl` is a 1-based 2D Lua array:
---   tbl[1]      = { v1, v2, ..., v82 }   -- camoType 0 (OLIVEDRAB), 82 material weights
---   tbl[2]      = { ... }                -- camoType 1 (SPLITTER)
---   ...
---   tbl[117]    = { ... }                -- camoType 116 (QUIET)
---
--- Rows past 117 / cells past 82 are ignored. Missing cells become 0.
 function this.ImportCamoTable(tbl)
     if type(tbl) ~= "table" then return false end
     return V_FrameWork.ImportCamoTable(tbl)

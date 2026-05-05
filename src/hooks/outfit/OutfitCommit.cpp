@@ -2,6 +2,7 @@
 
 #include "OutfitCommit.h"
 #include "OutfitRegistry.h"
+#include "ShadowState.h"
 
 #include <cstdint>
 
@@ -95,23 +96,49 @@ namespace
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitBySelectorCode(blob[kBlobOff_Selector], &entry) && entry)
             {
-
-
                 const std::uint8_t variantIdx = blob[kBlobOff_Variant];
                 outfit::SetActiveVariant(entry->partsType, variantIdx);
 
+                // realPlayerType: prefer the blob's playerType byte (set by
+                // mission-prep earlier); fall back to live PT, then to first
+                // supported branch.
+                const std::uint8_t blobPT  = blob[kBlobOff_PlayerType];
+                const std::uint8_t livePT  = outfit::ReadLivePlayerType();
+                std::uint8_t       realPT  = blobPT;
+                if (realPT == 0xFF || !entry->IsPlayerTypeSupported(realPT))
+                    realPT = livePT;
+                if (realPT == 0xFF || !entry->IsPlayerTypeSupported(realPT))
+                {
+                    for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+                    {
+                        if (entry->IsPlayerTypeSupported(pt)) { realPT = pt; break; }
+                    }
+                }
+
+                // Feed ShadowState early so leaf hooks see correct slot data
+                // before any LoadPartsNew arrives.
+                outfit::shadow::Slot ss{};
+                ss.realPartsType  = entry->partsType;
+                ss.realCamoType   = entry->selectorCode;
+                ss.realArmType    = 0;
+                ss.realPlayerType = realPT;
+                ss.developId      = entry->developId;
+                ss.variantIdx     = variantIdx;
+                outfit::shadow::Set(0, ss);
+                outfit::shadow::Set(1, ss);
+
                 Log("[OutfitCommit] resolved-custom commit: developId=%u "
-                    "partsType=0x%02X selector=0x%02X variant=%u head=%u\n",
+                    "partsType=0x%02X selector=0x%02X variant=%u head=%u "
+                    "realPlayerType=%u\n",
                     static_cast<unsigned>(entry->developId),
                     static_cast<unsigned>(entry->partsType),
                     static_cast<unsigned>(entry->selectorCode),
                     static_cast<unsigned>(variantIdx),
-                    static_cast<unsigned>(blob[kBlobOff_HeadOption]));
+                    static_cast<unsigned>(blob[kBlobOff_HeadOption]),
+                    static_cast<unsigned>(realPT));
             }
 
-            Log("[OutfitCommit] calling orig (resolved path)...\n");
             g_OrigRequestCommit(self, param2, blob, apply);
-            Log("[OutfitCommit] orig returned\n");
             return;
         }
 
@@ -132,12 +159,42 @@ namespace
                 for (std::size_t i = 0; i < n; ++i)
                 {
                     if (!all[i]) continue;
-                    if (!outfit::IsPlayerTypeCompatible(all[i]->playerType, livePT))
-                        continue;
+                    if (!all[i]->IsPlayerTypeSupported(livePT)) continue;
                     ++livePtCount;
                     if (livePtCount == 1) livePtUnique = all[i];
                 }
             }
+
+            auto feedShadow = [&](const outfit::OutfitEntry* e, std::uint8_t variantIdx) {
+                std::uint8_t realPT = livePT;
+                if (realPT == 0xFF || !e->IsPlayerTypeSupported(realPT))
+                {
+                    for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+                    {
+                        if (e->IsPlayerTypeSupported(pt)) { realPT = pt; break; }
+                    }
+                }
+                outfit::shadow::Slot ss{};
+                ss.realPartsType  = e->partsType;
+                ss.realCamoType   = e->selectorCode;
+                ss.realArmType    = 0;
+                ss.realPlayerType = realPT;
+                ss.developId      = e->developId;
+                ss.variantIdx     = variantIdx;
+                outfit::shadow::Set(0, ss);
+                outfit::shadow::Set(1, ss);
+            };
+
+            // For broken-custom blob[0xC0] (playerType byte): prefer live PT,
+            // else first supported branch.
+            auto resolveBlobPlayerType = [&](const outfit::OutfitEntry* e) -> std::uint8_t {
+                if (livePT != 0xFF && e->IsPlayerTypeSupported(livePT)) return livePT;
+                for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+                {
+                    if (e->IsPlayerTypeSupported(pt)) return pt;
+                }
+                return 0;
+            };
 
             if (pendingDevId != 0
                 && outfit::TryGetOutfitByDevelopId(pendingDevId, &entry)
@@ -151,24 +208,13 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                blob[kBlobOff_PlayerType] =
-                    (livePT != 0xFF) ? livePT : entry->playerType;
+                blob[kBlobOff_PlayerType] = resolveBlobPlayerType(entry);
 
-                Log("[OutfitCommit] rewrote BROKEN-custom blob: "
-                    "developId=%u partsType=0x%02X selector=0x%02X variant=%u playerType=%u (registered=%u)\n",
-                    static_cast<unsigned>(entry->developId),
-                    static_cast<unsigned>(entry->partsType),
-                    static_cast<unsigned>(entry->selectorCode),
-                    static_cast<unsigned>(variantIdx),
-                    static_cast<unsigned>(blob[kBlobOff_PlayerType]),
-                    static_cast<unsigned>(entry->playerType));
-
+                feedShadow(entry, variantIdx);
                 outfit::ClearPendingOutfitDevelopId();
             }
             else if (livePtCount == 1 && livePtUnique)
             {
-
-
                 const std::uint8_t variantIdx =
                     outfit::GetActiveVariant(livePtUnique->partsType);
 
@@ -177,17 +223,9 @@ namespace
                 blob[kBlobOff_Variant]    = variantIdx;
 
                 *reinterpret_cast<std::uint32_t*>(blob + kBlobOff_ApplyFlag) = 0x81;
-                blob[kBlobOff_PlayerType] =
-                    (livePT != 0xFF) ? livePT : livePtUnique->playerType;
+                blob[kBlobOff_PlayerType] = resolveBlobPlayerType(livePtUnique);
 
-                Log("[OutfitCommit] rewrote BROKEN-custom blob via "
-                    "live-PT fallback: livePT=%u developId=%u "
-                    "partsType=0x%02X selector=0x%02X variant=%u\n",
-                    static_cast<unsigned>(livePT),
-                    static_cast<unsigned>(livePtUnique->developId),
-                    static_cast<unsigned>(livePtUnique->partsType),
-                    static_cast<unsigned>(livePtUnique->selectorCode),
-                    static_cast<unsigned>(variantIdx));
+                feedShadow(livePtUnique, variantIdx);
             }
             else
             {

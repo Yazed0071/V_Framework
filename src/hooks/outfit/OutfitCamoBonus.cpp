@@ -31,17 +31,20 @@ namespace
         if (!self || !info || !outSaved) return nullptr;
 
 
-        const std::uint8_t livePT = outfit::ReadLivePartsType();
-        if (livePT < outfit::kCustomPartsTypeStart
-            || livePT > outfit::kCustomPartsTypeEnd)
+        const std::uint8_t liveParts  = outfit::ReadLivePartsType();
+        const std::uint8_t livePlayer = outfit::ReadLivePlayerType();
+        if (liveParts < outfit::kCustomPartsTypeStart
+            || liveParts > outfit::kCustomPartsTypeEnd)
             return nullptr;
 
         const outfit::OutfitEntry* entry = nullptr;
-        if (!outfit::TryGetOutfitByPartsType(livePT, &entry) || !entry)
+        if (!outfit::TryGetOutfitByPartsType(liveParts, &entry) || !entry)
             return nullptr;
 
 
-        const std::uint8_t pin = entry->camoBonusType;
+        // The pin (vanilla camoType or framework virtual id) lives on the
+        // live PT's branch — each playerType can pin to a different camo.
+        const std::uint8_t pin = entry->GetCamoBonusType(livePlayer);
         const bool isVanillaPin =
             (pin <= outfit::kVanillaCamoTypeMax);
         const bool isVirtualPin =
@@ -73,10 +76,11 @@ namespace
 
                 if (!g_FirstOverrideLogged.exchange(true))
                 {
-                    Log("[OutfitCamoBonus] FIRST OVERRIDE: livePT=0x%02X "
-                        "slot=%u byteBuf=%p saved=%u pinned=%u "
+                    Log("[OutfitCamoBonus] FIRST OVERRIDE: liveParts=0x%02X "
+                        "livePlayer=%u slot=%u byteBuf=%p saved=%u pinned=%u "
                         "(developId=%u flowIndex=%u)\n",
-                        static_cast<unsigned>(livePT),
+                        static_cast<unsigned>(liveParts),
+                        static_cast<unsigned>(livePlayer),
                         static_cast<unsigned>(slotIdx),
                         byteBuf,
                         static_cast<unsigned>(*outSaved),

@@ -265,14 +265,13 @@ namespace
             outfit::SetPendingSupplyDropVariantIdx(0);
             Log("[OutfitItemSelector:devmenu] R&D request for custom outfit "
                 "flowIndex=%u developId=%u partsType=0x%02X selector=0x%02X "
-                "playerType=%u — stashed both pendingOutfitDevelopId AND "
+                "— stashed both pendingOutfitDevelopId AND "
                 "pendingSupplyDropDevelopId (variantIdx=0) for crate-pickup "
                 "recovery\n",
                 static_cast<unsigned>(flowIndex),
                 static_cast<unsigned>(entry->developId),
                 static_cast<unsigned>(entry->partsType),
-                static_cast<unsigned>(entry->selectorCode),
-                static_cast<unsigned>(entry->playerType));
+                static_cast<unsigned>(entry->selectorCode));
         }
 
         if (g_OrigSetSupplyCBoxInfo)

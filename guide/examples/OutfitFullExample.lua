@@ -1,167 +1,196 @@
 --==============================================================================
 -- V_FrameWork outfit example — FULL FEATURE COMBINATION
 --==============================================================================
--- Single registration that uses every Phase-2/Phase-3 feature:
---   * Custom body (parts + fpk)
---   * Custom camo + camo FV2
---   * Custom diamond + diamond FV2
---   * Custom voice (.fpk routed through LoadPlayerVoiceFpk)
---   * Vanilla face + arm (passes through to vanilla face/arm system)
---   * Disabled skin tone override
---   * HEAD OPTION submenu enabled with 4 vanilla head equipIds
---   * 3 variants (cycle in mission prep with the variant button)
---   * R&D table entry (cost, time, lang strings, icon)
+-- Single registration that exercises every feature. Important to know:
+-- only `name` and `develop` are shared across playerType branches. EVERYTHING
+-- else (paths, sub-assets, variants, head options, behavior flags, lang
+-- name, camo bonus) lives INSIDE each per-PT branch and is independent.
+--
+-- Sub-asset value forms (camoFpk / camoFv2 / faceFpk / skinFv2 / diamondFpk /
+-- diamondFv2 / voiceFpk):
+--   string  → custom asset path (e.g. "/Assets/.../my_face.fpk")
+--   true    → use vanilla asset (load whatever the engine would normally use
+--             for this PT/partsType). Default for face / skin / voice / *Fv2.
+--   false   → disable: load nothing for this slot. Use to strip out the
+--             vanilla face on a no-head body, the skin tone override, etc.
+--   nil     → per-field default (camoFpk / diamondFpk default to disabled;
+--             face / skin / voice / *Fv2 default to vanilla).
 --==============================================================================
 
-function this.OnAllocate()
-    -- developId and flowIndex auto-allocated under the `name`.
-    -- The wrapper auto-fills develop.const.p00 / .p50 with the allocated
-    -- ids before forwarding to V_FrameWork.AddToEquipDevelopTable, so the
-    -- R&D table entry stays in sync with the outfit registration.
+function this.LoadLibraries()
     local partsType, devId, flowIndex = V_TppPlayer.AddOutfit{
         --
-        -- Identity
+        -- Identity (the only outfit-level required field).
         --
-        name       = "MyMod:NeonSuitFull",
-        playerType = "DDFemale",
+        name = "MyMod:NeonSuitFull",                                             -- Required
 
         --
-        -- Required body
+        -- DDFemale branch.
         --
-        partsPath = "/Assets/tpp/parts/chara/neon/neon_full_v00.parts",
-        fpkPath   = "/Assets/tpp/pack/player/parts/neon_full_v00.fpk",
+        ddFemale = {
+            partsPath  = "/Assets/tpp/parts/chara/neon/neon_full_v00.parts",      -- Required
+            fpkPath    = "/Assets/tpp/pack/player/parts/neon_full_v00.fpk",       -- Required
 
-        --
-        -- Sub-assets
-        --
-        camoFpk    = "/Assets/tpp/pack/player/parts/neon_full_camo.fpk",
-        camoFv2    = "/Assets/tpp/fova/chara/neon/neon_full_camo.fv2",
-        diamondFpk = "/Assets/tpp/pack/player/parts/neon_full_diamond.fpk",
-        diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_full_diamond.fv2",
-        voiceFpk   = "/Assets/tpp/pack/player/parts/neon_full_voice.fpk",   -- custom voice
-        faceFpk    = true,                  -- vanilla face
-        skinFv2    = false,                 -- disable skin tone override
-        enableArm  = true,                  -- vanilla bionic arm (set false for non-Snake)
+            camoFpk    = "/Assets/tpp/pack/player/parts/neon_full_camo.fpk",      -- Optional
+            camoFv2    = "/Assets/tpp/fova/chara/neon/neon_full_camo.fv2",        -- Optional
 
-        --
-        -- Head options — name aliases for vanilla heads. Custom head
-        -- entries (registered via V_FrameWork.RegisterHeadOption) can
-        -- be mixed in by their `name` string. supportsHeadOptions
-        -- auto-implies true when this array is non-empty.
-        --
-        headOptions = {
-            "NONE",
-            "BALACLAVA",
-            "SP-HEADGEAR",
-            "HP-HEADGEAR",
-        },
+            diamondFpk = "/Assets/tpp/pack/player/parts/neon_full_diamond.fpk",   -- Optional
+            diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_full_diamond.fv2",     -- Optional
 
-        --
-        -- Variants (cycle button in mission prep)
-        --
-        variants = {
-            { fpkPath = "/Assets/tpp/pack/player/parts/neon_full_dark.fpk",
-              camoFpk = "/Assets/tpp/pack/player/parts/neon_full_dark_camo.fpk" },
+            voiceFpk   = "/Assets/tpp/pack/player/parts/neon_full_voice.fpk",     -- Optional
 
-            { fpkPath = "/Assets/tpp/pack/player/parts/neon_full_red.fpk",
-              camoFpk = "/Assets/tpp/pack/player/parts/neon_full_red_camo.fpk" },
+            faceFpk    = "/Assets/tpp/pack/player/parts/neon_face.fpk",           -- Optional
+            skinFv2    = "/Assets/tpp/fova/chara/neon/neon_skin.fv2",             -- Optional
 
-            -- Per-variant voiceFpk override — the v01 variant uses a
-            -- different voice bank. Other variants inherit the base
-            -- voiceFpk above (or vanilla if base voiceFpk is unset).
-            { partsPath = "/Assets/tpp/parts/chara/neon/neon_full_v01.parts",
-              fpkPath   = "/Assets/tpp/pack/player/parts/neon_full_v01.fpk",
-              camoFpk   = "/Assets/tpp/pack/player/parts/neon_full_v01_camo.fpk",
-              voiceFpk  = "/Assets/tpp/pack/player/parts/neon_full_v01_voice.fpk" },
-        },
+            enableArm  = true,                                                    -- Optional
+            enableHead = false,                                                   -- Optional
 
-        --
-        -- R&D table entry — full set of const + flow params. The wrapper
-        -- auto-fills const.p00 (developId) and const.p50 (flowIndex) from
-        -- the values it allocated above, so don't set those manually.
-        --
-        -- Every field is OPTIONAL — you only need the ones that affect
-        -- the behavior you want. Unset fields default to 0 / nil. Both
-        -- the readable name (e.g. `langEquipName`) and the raw alias
-        -- (e.g. `p06`) are accepted.
-        --
-        develop = {
-            -- ----------------------------------------------------------
-            -- const block (p01..p36) — equipment identity, lang, icon
-            -- ----------------------------------------------------------
-            const = {
-                -- p00 = developId   (auto-filled by wrapper)
-                equipID              = TppEquip.EQP_SUIT,                              -- p01: bound equipId
-                equipDevelopTypeID   = TppMbDev.EQP_DEV_TYPE_Suit,     -- p02: develop type bucket
-                baseEquipDevelopId   = 0,                              -- p03: prerequisite developId
-                skill                = 0,                              -- p04: required skill id
-                bluePrintId          = 0,                              -- p05: blueprint id (if any)
-                langEquipName        = "staff_hideo_kojima",            -- p06: name string
-                langEquipInfo        = "staff_hideo_kojima",            -- p07: description string
-                iconFtexPath         = "/Assets/tpp/ui/texture/EquipIcon/buddy/ui_qwp_suit_qui0_alp",  -- p08
-                equipDevelopGroupID  = 0,                              -- p09: develop UI group
+            langEquipName = "name_neon_suit_ddf",                                 -- Optional
 
-                -- p10..p21: power-up info string ids (12 slots, one per
-                -- visible "power-up" line on the R&D info panel). Set
-                -- only the ones you actually populate.
-                langPowerUpInfo0     = nil,
-                langPowerUpInfo1     = nil,
-                langPowerUpInfo2     = nil,
-                langPowerUpInfo3     = nil,
-                langPowerUpInfo4     = nil,
-                langPowerUpInfo5     = nil,
-                langPowerUpInfo6     = nil,
-                langPowerUpInfo7     = nil,
-                langPowerUpInfo8     = nil,
-                langPowerUpInfo9     = nil,
-                langPowerUpInfo10    = nil,
-                langPowerUpInfo11    = nil,
-
-                -- p30..p36: flags + secondary lang
-                langEquipRealName    = "staff_hideo_kojima",                 -- p30
-                isResultRankLimited  = 0,                              -- p31
-                isCustomEnable       = 0,                              -- p32
-                isColorChangeEnable  = 0,                              -- p33
-                unk34                = 0,                              -- p34
-                isSecurityStaffEquip = 0,                              -- p35: 1 = staff-uniform-style
-                unk36                = 0,                              -- p36
-
-                -- p50 = flowIndex   (auto-filled by wrapper)
+            headOptions = {                                                       -- Optional
+                "NONE",
+                "BALACLAVA",
+                "SP-HEADGEAR",
+                "HP-HEADGEAR",
             },
 
-            -- ----------------------------------------------------------
-            -- flow block (p51..p74) — cost, time, requirements
-            -- ----------------------------------------------------------
+            camoBonusValues = {                                                   -- Optional (per-PT custom 82-material row, OR use camoBonusType)
+                MTR_IRON_A = 80, MTR_IRON_B = 80,
+                MTR_PIPE_A = 70, MTR_PIPE_B = 70,
+                MTR_CONC_A = 65, MTR_CONC_B = 65,
+                MTR_LEAF   = -20, MTR_RLEF = -20,
+                MTR_PLNT_A = -15,
+            },
+
+            variants = {                                                          -- Optional (cycle button alternates 1..N)
+                {
+                    fpkPath     = "/Assets/tpp/pack/player/parts/neon_full_dark.fpk",         -- Optional in variant
+                    camoFpk     = "/Assets/tpp/pack/player/parts/neon_full_dark_camo.fpk",    -- Optional
+                    displayName = "name_neon_dark",                                            -- Optional
+                },
+                {
+                    fpkPath     = "/Assets/tpp/pack/player/parts/neon_full_red.fpk",          -- Optional
+                    camoFpk     = "/Assets/tpp/pack/player/parts/neon_full_red_camo.fpk",     -- Optional
+                    displayName = "name_neon_red",                                             -- Optional
+                },
+                {
+                    partsPath   = "/Assets/tpp/parts/chara/neon/neon_full_v01.parts",         -- Optional
+                    fpkPath     = "/Assets/tpp/pack/player/parts/neon_full_v01.fpk",          -- Optional
+                    camoFpk     = "/Assets/tpp/pack/player/parts/neon_full_v01_camo.fpk",     -- Optional
+                    voiceFpk    = "/Assets/tpp/pack/player/parts/neon_full_v01_voice.fpk",    -- Optional
+                    displayName = "name_neon_alt",                                             -- Optional
+                },
+            },
+        },
+
+        --
+        -- Snake branch — totally independent params. Different paths,
+        -- different head options (BANDANA family), different camo bonus
+        -- (vanilla BATTLEDRESS camo's profile this time), different variant set.
+        --
+        snake = {
+            partsPath = "/Assets/tpp/parts/chara/neon/neon_snake_v00.parts",      -- Required
+            fpkPath   = "/Assets/tpp/pack/player/parts/neon_snake_v00.fpk",       -- Required
+
+            camoFpk   = "/Assets/tpp/pack/player/parts/neon_snake_camo.fpk",      -- Optional
+            voiceFpk  = "/Assets/tpp/pack/player/parts/neon_snake_voice.fpk",     -- Optional
+
+            enableArm  = true,                                                    -- Optional
+            enableHead = false,                                                   -- Optional
+
+            langEquipName = "name_neon_suit_snake",                               -- Optional
+
+            headOptions = {                                                       -- Optional
+                "NONE",
+                "BANDANA",
+                "INFINITE BANDANA",
+            },
+
+            camoBonusType = PlayerCamoType.BATTLEDRESS,                           -- Optional
+
+            variants = {                                                          -- Optional
+                {
+                    fpkPath     = "/Assets/tpp/pack/player/parts/neon_snake_v00_dark.fpk",  -- Optional
+                    displayName = "name_neon_dark",                                          -- Optional
+                },
+            },
+        },
+
+        -- Avatar omitted — bridges to Snake automatically.
+        -- DDMale omitted — outfit unavailable for that PT.
+
+        --
+        -- R&D table entry (the second of the two cross-PT shared fields).
+        -- The wrapper auto-fills const.p00 / const.p50 with the allocated
+        -- developId / flowIndex.
+        --
+        develop = {                                                               -- Optional (R&D table entry)
+            const = {
+                -- p00 = developId   (auto-filled by wrapper)
+                equipID              = TppEquip.EQP_SUIT,                                          -- Optional (p01: bound equipId)
+                equipDevelopTypeID   = TppMbDev.EQP_DEV_TYPE_Suit,                                 -- Optional (p02: develop-type bucket)
+                baseEquipDevelopId   = 0,                                                          -- Optional (p03: prerequisite developId)
+                skill                = 0,                                                          -- Optional (p04: required skill id)
+                bluePrintId          = 0,                                                          -- Optional (p05: blueprint id)
+                langEquipName        = "name_neon_suit",                                           -- Optional (p06: name LangId)
+                langEquipInfo        = "info_neon_suit",                                           -- Optional (p07: description LangId)
+                iconFtexPath         = "/Assets/mod/ui/icon/neon.ftex",                            -- Optional (p08: icon ftex path)
+                equipDevelopGroupID  = 0,                                                          -- Optional (p09: develop UI group)
+
+                -- p10..p21: 12 power-up info-line LangIds shown on the R&D info panel.
+                langPowerUpInfo0     = nil,                                                        -- Optional (p10)
+                langPowerUpInfo1     = nil,                                                        -- Optional (p11)
+                langPowerUpInfo2     = nil,                                                        -- Optional (p12)
+                langPowerUpInfo3     = nil,                                                        -- Optional (p13)
+                langPowerUpInfo4     = nil,                                                        -- Optional (p14)
+                langPowerUpInfo5     = nil,                                                        -- Optional (p15)
+                langPowerUpInfo6     = nil,                                                        -- Optional (p16)
+                langPowerUpInfo7     = nil,                                                        -- Optional (p17)
+                langPowerUpInfo8     = nil,                                                        -- Optional (p18)
+                langPowerUpInfo9     = nil,                                                        -- Optional (p19)
+                langPowerUpInfo10    = nil,                                                        -- Optional (p20)
+                langPowerUpInfo11    = nil,                                                        -- Optional (p21)
+
+                -- p30..p36: secondary lang + flags
+                langEquipRealName    = "name_neon_suit",                                           -- Optional (p30: short LangId)
+                isResultRankLimited  = 0,                                                          -- Optional (p31: 1 = rank-locked)
+                isCustomEnable       = 0,                                                          -- Optional (p32)
+                isColorChangeEnable  = 0,                                                          -- Optional (p33)
+                unk34                = 0,                                                          -- Optional (p34)
+                isSecurityStaffEquip = 0,                                                          -- Optional (p35: 1 = staff-uniform style)
+                unk36                = 0,                                                          -- Optional (p36)
+                -- p50 = flowIndex   (auto-filled by wrapper)
+            },
             flow = {
-                sideGrade               = 0,                           -- p51: side-grade level
-                grade                   = 1,                           -- p52: equipment grade/tier
-                developGmpCost          = 50000,                       -- p53: GMP to develop
-                usageGmpCost            = 0,                           -- p54: GMP per deploy
+                sideGrade               = 0,                                                       -- Optional (p51: side-grade level)
+                grade                   = 1,                                                       -- Optional (p52: equipment grade/tier)
+                developGmpCost          = 50000,                                                   -- Optional (p53: GMP to develop)
+                usageGmpCost            = 0,                                                       -- Optional (p54: GMP per deploy)
 
-                sectionLvForDevelop     = 0,                           -- p55: required section level
-                sectionID2ForDevelop    = 0,                           -- p56: secondary section id
-                sectionLv2ForDevelop    = 0,                           -- p57: secondary section level
+                sectionLvForDevelop     = 0,                                                       -- Optional (p55: required section level)
+                sectionID2ForDevelop    = 0,                                                       -- Optional (p56: secondary section id)
+                sectionLv2ForDevelop    = 0,                                                       -- Optional (p57: secondary section level)
 
-                resourceType1           = "",                    -- p58: primary resource id (string)
-                resourceType1Count      = 0,                          -- p59: primary resource amount
-                resourceType2           = "",                         -- p60: secondary resource id
-                resourceType2Count      = 0,                           -- p61: secondary resource amount
+                resourceType1           = "COMMON",                                                -- Optional (p58: primary resource id)
+                resourceType1Count      = 10,                                                      -- Optional (p59: primary resource amount)
+                resourceType2           = "",                                                      -- Optional (p60: secondary resource id)
+                resourceType2Count      = 0,                                                       -- Optional (p61: secondary resource amount)
 
-                initialAvailable        = 0,                           -- p62: 0 = locked until researched
-                sectionIDForDevelop     = 0,                           -- p63: primary section id
-                developSectionLv        = 0,                           -- p64: develop section level
+                initialAvailable        = 0,                                                       -- Optional (p62: 0 = locked until researched)
+                sectionIDForDevelop     = 0,                                                       -- Optional (p63: primary section id)
+                developSectionLv        = 0,                                                       -- Optional (p64: develop section level)
 
-                resourceUsageType1      = nil,                         -- p65: per-use resource id 1
-                resourceUsageType1Count = 0,                           -- p66: per-use resource amount 1
-                resourceUsageType2      = nil,                         -- p67: per-use resource id 2
-                resourceUsageType2Count = 0,                           -- p68: per-use resource amount 2
+                resourceUsageType1      = nil,                                                     -- Optional (p65: per-use resource id 1)
+                resourceUsageType1Count = 0,                                                       -- Optional (p66: per-use resource amount 1)
+                resourceUsageType2      = nil,                                                     -- Optional (p67: per-use resource id 2)
+                resourceUsageType2Count = 0,                                                       -- Optional (p68: per-use resource amount 2)
 
-                displayInfo             = 0,                           -- p69: display flag bits
-                unk70                   = 0,                           -- p70: unknown
-                developTimeMinute       = 0,                          -- p71: minutes to complete
-                isValidMbCoin           = 0,                           -- p72: 1 = MB Coin payable
-                intimacyPoint           = 0,                           -- p73: buddy intimacy requirement
-                isFobAvailable          = 0,                           -- p74: 1 = available in FOB
+                displayInfo             = 0,                                                       -- Optional (p69: display flag bits)
+                unk70                   = 0,                                                       -- Optional (p70)
+                developTimeMinute       = 20,                                                      -- Optional (p71: minutes to complete)
+                isValidMbCoin           = 0,                                                       -- Optional (p72: 1 = MB Coin payable)
+                intimacyPoint           = 0,                                                       -- Optional (p73: buddy intimacy req.)
+                isFobAvailable          = 0,                                                       -- Optional (p74: 1 = available in FOB)
             },
         },
     }
@@ -174,17 +203,8 @@ function this.OnAllocate()
     V_FrameWork.Log(string.format(
         "OutfitFullExample: registered partsType=0x%02X devId=%d flowIndex=%d",
         partsType, devId, flowIndex))
-
-    -- Verify allocated values via the query API.
-    local info = V_TppPlayer.GetOutfitInfo(devId)
-    if info then
-        V_FrameWork.Log(string.format(
-            "  flowIndex=%d  playerType=%d  selector=0x%02X  variantCount=%d  hasHeadOpts=%s",
-            info.flowIndex, info.playerType, info.selectorCode,
-            info.variantCount, tostring(info.supportsHeadOptions)))
-    end
 end
 
 -- Optional: switch to variant 1 (dark) programmatically. Capture
--- `devId` from the AddOutfit return above and pass it here.
+-- `devId` from the AddOutfit return above.
 -- V_TppPlayer.SetOutfitVariant(devId, 1)

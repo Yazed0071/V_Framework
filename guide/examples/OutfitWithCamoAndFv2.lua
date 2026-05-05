@@ -1,34 +1,40 @@
 --==============================================================================
 -- V_FrameWork outfit example — CAMO + FV2 + DIAMOND
 --==============================================================================
--- Outfit with custom camo pattern (.fpk + .fv2), and a custom diamond mark.
--- Demonstrates the per-sub-asset cascade: each asset can be a string path,
--- the literal `true` (use vanilla), the literal `false` (disable), or omitted
--- entirely (default — see V_FrameWork_API_Reference for per-field defaults).
+-- Outfit with custom camo pattern (.fpk + .fv2) and a custom diamond mark.
+-- Sub-asset fields live INSIDE the per-playerType branch.
+--
+-- Each sub-asset accepts FOUR forms:
+--   string  → custom asset path (hashed to FoxPath code64ext)
+--   true    → use vanilla asset (load whatever the engine would normally
+--             use for this PT/partsType). This is the DEFAULT for face /
+--             skin / voice / *Fv2.
+--   false   → disable: load nothing for this slot. Use this to strip out
+--             the vanilla face on a no-head body, suppress a skin tone
+--             override, etc.
+--   nil     → per-field default (camoFpk / diamondFpk default to disabled;
+--             face / skin / voice / *Fv2 default to vanilla).
 --==============================================================================
 
 function this.OnAllocate()
-    -- developId and flowIndex auto-allocated under the `name`.
     V_TppPlayer.AddOutfit{
-        name       = "MyMod:NeonSuitCamo",
-        playerType = "DDFemale",
+        name = "MyMod:NeonSuitCamo",                                             -- Required
 
-        partsPath = "/Assets/tpp/parts/chara/neon/neon_v00.parts",
-        fpkPath   = "/Assets/tpp/pack/player/parts/neon_v00.fpk",
+        ddFemale = {
+            partsPath  = "/Assets/tpp/parts/chara/neon/neon_v00.parts",           -- Required
+            fpkPath    = "/Assets/tpp/pack/player/parts/neon_v00.fpk",            -- Required
 
-        -- Custom camo pattern (.fpk + .fv2 paired):
-        camoFpk   = "/Assets/tpp/pack/player/parts/neon_camo_v00.fpk",
-        camoFv2   = "/Assets/tpp/fova/chara/neon/neon_camo_v00.fv2",
+            camoFpk    = "/Assets/tpp/pack/player/parts/neon_camo_v00.fpk",       -- Optional
+            camoFv2    = "/Assets/tpp/fova/chara/neon/neon_camo_v00.fv2",         -- Optional
 
-        -- Custom diamond filter override:
-        diamondFpk = "/Assets/tpp/pack/player/parts/neon_diamond_v00.fpk",
-        diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_diamond_v00.fv2",
+            diamondFpk = "/Assets/tpp/pack/player/parts/neon_diamond_v00.fpk",    -- Optional
+            diamondFv2 = "/Assets/tpp/fova/chara/neon/neon_diamond_v00.fv2",      -- Optional
 
-        -- Use vanilla face/arm (default behavior anyway, shown for clarity):
-        faceFpk    = true,               -- true = use vanilla
-        enableArm  = true,               -- bionic arm on (false to suppress)
+            faceFpk    = "/Assets/tpp/pack/player/parts/neon_face_v00.fpk",       -- Optional (string=custom, true=vanilla, false=disabled)
+            skinFv2    = "/Assets/tpp/fova/chara/neon/neon_skin_v00.fv2",         -- Optional (string=custom, true=vanilla, false=disabled)
 
-        -- No skin tone override:
-        skinFv2 = true,                  -- (default)
+            enableArm  = true,                                                    -- Optional (default true)
+            enableHead = false,                                                   -- Optional (default false)
+        },
     }
 end

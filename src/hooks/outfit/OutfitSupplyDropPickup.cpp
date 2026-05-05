@@ -90,23 +90,29 @@ namespace
 
         outfit::SetActiveVariant(entry->partsType, variantIdx);
 
-        // Snake↔Avatar bridging: prefer LIVE playerType so Snake outfits apply
-        // on visible Avatar slot; fall back to registered when live unknown.
+        // Prefer LIVE playerType. Fall back to first supported branch when live
+        // unknown.
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
-        const std::uint8_t reloadPT =
-            (livePT != 0xFF) ? livePT : entry->playerType;
+        std::uint8_t reloadPT = livePT;
+        if (reloadPT == 0xFF || !entry->IsPlayerTypeSupported(reloadPT))
+        {
+            reloadPT = 0;
+            for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+            {
+                if (entry->IsPlayerTypeSupported(pt)) { reloadPT = pt; break; }
+            }
+        }
 
         Log("[OutfitSupplyDropPickup:%s] forcing equip of stashed "
             "developId=%u partsType=0x%02X selector=0x%02X variantIdx=%u "
-            "(baseSelector=0x%02X) reloadPT=%u (registered=%u)\n",
+            "(baseSelector=0x%02X) reloadPT=%u\n",
             tag,
             static_cast<unsigned>(entry->developId),
             static_cast<unsigned>(entry->partsType),
             static_cast<unsigned>(variantSelector),
             static_cast<unsigned>(variantIdx),
             static_cast<unsigned>(entry->selectorCode),
-            static_cast<unsigned>(reloadPT),
-            static_cast<unsigned>(entry->playerType));
+            static_cast<unsigned>(reloadPT));
 
         __try
         {

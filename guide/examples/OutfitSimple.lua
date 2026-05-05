@@ -13,17 +13,13 @@ local outfit_registered = false
 function this.OnAllocate()
     if outfit_registered then return end
 
-    -- developId and flowIndex are AUTO-ALLOCATED and persisted in
-    -- mod/V_FrameWork/V_FrameWork_State.lua under the `name` you supply.
-    -- The same name returns the same ids across sessions — same mechanism
-    -- weapons use, so no two mods ever conflict.
     local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
-        name       = "MyMod:NeonSuit",      -- persistence key (REQUIRED)
-        playerType = "DDFemale",            -- "Snake" / "DDMale" / "DDFemale" / "Avatar"
+        name = "MyMod:NeonSuit",                                                  -- Required (persistence key)
 
-        -- Required asset paths (framework hashes them to FoxPath code64ext)
-        partsPath  = "/Assets/tpp/parts/chara/jill/jill_def_v00.parts",
-        fpkPath    = "/Assets/tpp/pack/player/parts/jill_def_v00.fpk",
+        ddFemale = {
+            partsPath = "/Assets/tpp/parts/chara/jill/jill_def_v00.parts",         -- Required
+            fpkPath   = "/Assets/tpp/pack/player/parts/jill_def_v00.fpk",          -- Required
+        },
     }
 
     if partsType then

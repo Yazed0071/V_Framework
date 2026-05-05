@@ -57,8 +57,8 @@ namespace
 
         const outfit::OutfitEntry* entry = nullptr;
         if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry) return nullptr;
-        // Snake↔Avatar bridging: outfit registered for one applies on the other.
-        if (!outfit::IsPlayerTypeCompatible(entry->playerType, ply)) return nullptr;
+        // Snake↔Avatar bridge applied inside IsPlayerTypeSupported.
+        if (!entry->IsPlayerTypeSupported(ply)) return nullptr;
         return entry;
     }
 
@@ -69,12 +69,15 @@ namespace
         const auto* entry = FindCustomEntry(playerType, playerPartsType);
         if (entry)
         {
+            const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
+            const std::uint8_t v = entry->HasVariants()
+                ? outfit::GetActiveVariant(entry->partsType) : 0;
+            const std::uint64_t camo = entry->GetVariantCamoFv2(pt, v);
 
-            if (entry->IsCamoFv2Custom())
-                return WriteFoxPath(outPath, entry->camoFv2);
+            if (camo > outfit::kSubAssetUseVanilla)
+                return WriteFoxPath(outPath, camo);
 
-
-            if (entry->camoFv2 == outfit::kSubAssetDisabled)
+            if (camo == outfit::kSubAssetDisabled)
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
         return g_OrigCamoFv2(outPath, playerType, playerPartsType, playerCamoType);
@@ -87,9 +90,14 @@ namespace
         const auto* entry = FindCustomEntry(playerType, playerPartsType);
         if (entry)
         {
-            if (entry->IsDiamondFv2Custom())
-                return WriteFoxPath(outPath, entry->diamondFv2);
-            if (entry->diamondFv2 == outfit::kSubAssetDisabled)
+            const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
+            const std::uint8_t v = entry->HasVariants()
+                ? outfit::GetActiveVariant(entry->partsType) : 0;
+            const std::uint64_t diamond = entry->GetVariantDiamondFv2(pt, v);
+
+            if (diamond > outfit::kSubAssetUseVanilla)
+                return WriteFoxPath(outPath, diamond);
+            if (diamond == outfit::kSubAssetDisabled)
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
         return g_OrigDiamondFv2(outPath, playerType, playerPartsType, applyBlackDiamond);

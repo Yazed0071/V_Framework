@@ -1472,33 +1472,19 @@ namespace
 {
 
 
-    std::uint8_t ParseOutfitPlayerType(lua_State* L, int tableIndex)
+    // Per-PT branch keys. The Lua table is expected to expose any subset of
+    // these as nested sub-tables.
+    struct PlayerTypeBranchKey
     {
-        LuaGetField(L, tableIndex, "playerType");
-        const int type = LuaType(L, -1);
-
-        std::uint8_t result = 0xFF;
-
-        if (type == 4)
-        {
-            const char* s = GetLuaString(L, -1);
-            if (s)
-            {
-                if      (_stricmp(s, "Snake")    == 0) result = outfit::kPlayerType_Snake;
-                else if (_stricmp(s, "DDMale")   == 0) result = outfit::kPlayerType_DDMale;
-                else if (_stricmp(s, "DDFemale") == 0) result = outfit::kPlayerType_DDFemale;
-                else if (_stricmp(s, "Avatar")   == 0) result = outfit::kPlayerType_Avatar;
-            }
-        }
-        else if (type == 3)
-        {
-            const int v = GetLuaInt(L, -1);
-            if (v >= 0 && v <= 3) result = static_cast<std::uint8_t>(v);
-        }
-
-        SetLuaTop(L, -2);
-        return result;
-    }
+        const char*  key;
+        std::uint8_t playerType;
+    };
+    static constexpr PlayerTypeBranchKey k_PtBranchKeys[] = {
+        { "snake",    outfit::kPlayerType_Snake    },
+        { "ddMale",   outfit::kPlayerType_DDMale   },
+        { "ddFemale", outfit::kPlayerType_DDFemale },
+        { "avatar",   outfit::kPlayerType_Avatar   },
+    };
 
 
     std::uint64_t ReadSubAssetField(
@@ -1648,69 +1634,20 @@ namespace
     }
 
 
-    static void ReadCamoBonusValuesField(
-        lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
+    // Reads the `headOptions` array from the table at `tableIndex` into
+    // `outIds`/`outCount`. Returns true if the field was present (even if
+    // empty), so callers can distinguish "no field" from "explicit empty".
+    bool ReadHeadOptionsArrayInto(
+        lua_State* L, int tableIndex,
+        std::uint16_t* outIds, std::uint8_t& outCount)
     {
-        LuaGetField(L, tableIndex, "camoBonusValues");
-        if (LuaType(L, -1) != LUA_TTABLE)
-        {
-            SetLuaTop(L, -2);
-            return;
-        }
-
-        const int valuesTbl = GetLuaTop(L);
-        std::size_t writeCount = 0;
-
-
-        LuaPushNil(L);
-        while (LuaNext(L, valuesTbl) != 0)
-        {
-            std::int32_t materialIdx = -1;
-
-            const int keyType = LuaType(L, -2);
-            if (keyType == LUA_TSTRING)
-            {
-                const char* keyName = GetLuaString(L, -2);
-                materialIdx = ResolveMaterialNameToIndex(keyName);
-            }
-            else if (keyType == LUA_TNUMBER)
-            {
-
-                const int keyIdx = GetLuaInt(L, -2);
-                if (keyIdx >= 1
-                    && keyIdx <= static_cast<int>(outfit::kCamoMaterialCount))
-                {
-                    materialIdx = keyIdx - 1;
-                }
-            }
-
-            if (materialIdx >= 0
-                && materialIdx < static_cast<std::int32_t>(outfit::kCamoMaterialCount))
-            {
-                def.camoBonusValues[materialIdx] = GetLuaInt(L, -1);
-                ++writeCount;
-            }
-
-
-            SetLuaTop(L, -2);
-        }
-
-        if (writeCount > 0)
-            def.hasCamoBonusValues = true;
-
-        SetLuaTop(L, -2);
-    }
-
-
-    void ReadHeadOptionsArray(
-        lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
-    {
-        def.headOptionCount = 0;
+        outCount = 0;
 
         LuaGetField(L, tableIndex, "headOptions");
-        if (LuaType(L, -1) == LUA_TTABLE)
+        const bool present = (LuaType(L, -1) == LUA_TTABLE);
+        if (present)
         {
-            const std::size_t n = LuaObjLen(L, -1);
+            const std::size_t n   = LuaObjLen(L, -1);
             const std::size_t cap = outfit::kMaxHeadOptionsPerOutfit;
             const std::size_t lim = (n < cap) ? n : cap;
 
@@ -1719,30 +1656,24 @@ namespace
                 LuaRawGetI(L, -1, static_cast<int>(i));
                 if (LuaIsNumber(L, -1))
                 {
-
-
                     const int v = GetLuaInt(L, -1);
                     if (v > 0 && v <= 0xFFFF)
                     {
-                        def.headOptionEquipIds[def.headOptionCount++] =
-                            static_cast<std::uint16_t>(v);
+                        outIds[outCount++] = static_cast<std::uint16_t>(v);
                     }
                 }
                 else if (LuaIsString(L, -1))
                 {
-
-
                     const char* name = GetLuaString(L, -1);
                     if (const std::uint16_t alias = TryResolveHeadAlias(name);
                         alias != 0)
                     {
-                        def.headOptionEquipIds[def.headOptionCount++] = alias;
+                        outIds[outCount++] = alias;
                     }
                     else if (const auto* head =
                              outfit::TryGetCustomHeadByName(name))
                     {
-                        def.headOptionEquipIds[def.headOptionCount++] =
-                            head->equipId;
+                        outIds[outCount++] = head->equipId;
                     }
                     else
                     {
@@ -1756,15 +1687,20 @@ namespace
             }
         }
         LuaPop(L, 1);
+        return present;
     }
 
 
-    void ReadVariantsArray(
-        lua_State* L, int tableIndex, outfit::OutfitDefinition& def)
+    // Read the `variants` sub-array out of `branchTblIdx` into `branch`.
+    // Variant index 0 is reserved for the branch's base appearance (paths /
+    // displayName at the branch level), so Lua array entries [1..N] map to
+    // C++ branch.variants[1..N]. branch.variantCount becomes N+1 on success.
+    void ReadVariantsArrayInto(
+        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
     {
-        def.variantCount = 0;
+        branch.variantCount = 0;
 
-        LuaGetField(L, tableIndex, "variants");
+        LuaGetField(L, branchTblIdx, "variants");
         if (LuaType(L, -1) == LUA_TTABLE)
         {
             const std::size_t n = LuaObjLen(L, -1);
@@ -1789,6 +1725,8 @@ namespace
                                             outfit::kSubAssetUseVanilla);
                     v.diamondFpk      = ReadSubAssetField(L, -1, "diamondFpk",
                                             outfit::kSubAssetDisabled);
+                    v.diamondFv2      = ReadSubAssetField(L, -1, "diamondFv2",
+                                            outfit::kSubAssetUseVanilla);
                     v.voiceFpk        = ReadSubAssetField(L, -1, "voiceFpk",
                                             outfit::kSubAssetUseVanilla);
 
@@ -1816,8 +1754,8 @@ namespace
                     }
 
 
-                    def.variants[i] = v;
-                    maxFilledSlot   = static_cast<std::uint8_t>(i);
+                    branch.variants[i] = v;
+                    maxFilledSlot      = static_cast<std::uint8_t>(i);
                 }
                 LuaPop(L, 1);
             }
@@ -1826,10 +1764,182 @@ namespace
             {
 
 
-                def.variantCount = static_cast<std::uint8_t>(maxFilledSlot + 1);
+                branch.variantCount = static_cast<std::uint8_t>(maxFilledSlot + 1);
             }
         }
         LuaPop(L, 1);
+    }
+
+
+    // Read a `camoBonusValues` table on the table at `tableIndex` into the
+    // given branch. Sparse, keyed by material name (or 1-based index).
+    void ReadBranchCamoBonusValues(
+        lua_State* L, int tableIndex, outfit::OutfitPlayerTypeData& branch)
+    {
+        LuaGetField(L, tableIndex, "camoBonusValues");
+        if (LuaType(L, -1) != LUA_TTABLE)
+        {
+            SetLuaTop(L, -2);
+            return;
+        }
+
+        const int valuesTbl = GetLuaTop(L);
+        std::size_t writeCount = 0;
+
+        LuaPushNil(L);
+        while (LuaNext(L, valuesTbl) != 0)
+        {
+            std::int32_t materialIdx = -1;
+            const int keyType = LuaType(L, -2);
+            if (keyType == LUA_TSTRING)
+            {
+                const char* keyName = GetLuaString(L, -2);
+                materialIdx = ResolveMaterialNameToIndex(keyName);
+            }
+            else if (keyType == LUA_TNUMBER)
+            {
+                const int keyIdx = GetLuaInt(L, -2);
+                if (keyIdx >= 1
+                    && keyIdx <= static_cast<int>(outfit::kCamoMaterialCount))
+                {
+                    materialIdx = keyIdx - 1;
+                }
+            }
+
+            if (materialIdx >= 0
+                && materialIdx < static_cast<std::int32_t>(outfit::kCamoMaterialCount))
+            {
+                branch.camoBonusValues[materialIdx] = GetLuaInt(L, -1);
+                ++writeCount;
+            }
+
+            SetLuaTop(L, -2);
+        }
+
+        if (writeCount > 0)
+            branch.hasCamoBonusValues = true;
+
+        SetLuaTop(L, -2);
+    }
+
+
+    // Read a single per-PT branch sub-table at the given Lua stack index into
+    // `branch`. Each branch carries every PT-specific field — paths, sub-
+    // assets, variants, head options, behavior flags, lang name, camo bonus.
+    // Returns true if the branch was populated (partsPath/fpkPath both present).
+    bool ReadPlayerTypeBranchTable(
+        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
+    {
+        if (LuaType(L, branchTblIdx) != LUA_TTABLE) return false;
+
+        branch                 = outfit::OutfitPlayerTypeData{};
+        branch.partsPathCode64 = ReadRequiredPathField(L, branchTblIdx, "partsPath");
+        branch.fpkPathCode64   = ReadRequiredPathField(L, branchTblIdx, "fpkPath");
+
+        if (branch.partsPathCode64 == 0 || branch.fpkPathCode64 == 0)
+            return false;
+
+
+        // Sub-asset overrides. Each accepts: a path string (custom asset),
+        // `true` (use vanilla), `false` (disable load), or nil (per-field
+        // default). The defaults mirror what most outfits want: camo /
+        // diamond default to disabled (no override); face / skin / voice /
+        // camoFv2 / diamondFv2 default to vanilla.
+        branch.camoFpk    = ReadSubAssetField(L, branchTblIdx, "camoFpk",
+                                outfit::kSubAssetDisabled);
+        branch.faceFpk    = ReadSubAssetField(L, branchTblIdx, "faceFpk",
+                                outfit::kSubAssetUseVanilla);
+        branch.skinFv2    = ReadSubAssetField(L, branchTblIdx, "skinFv2",
+                                outfit::kSubAssetUseVanilla);
+        branch.diamondFpk = ReadSubAssetField(L, branchTblIdx, "diamondFpk",
+                                outfit::kSubAssetDisabled);
+        branch.voiceFpk   = ReadSubAssetField(L, branchTblIdx, "voiceFpk",
+                                outfit::kSubAssetUseVanilla);
+        branch.camoFv2    = ReadSubAssetField(L, branchTblIdx, "camoFv2",
+                                outfit::kSubAssetUseVanilla);
+        branch.diamondFv2 = ReadSubAssetField(L, branchTblIdx, "diamondFv2",
+                                outfit::kSubAssetUseVanilla);
+
+
+        // Per-PT behavior flags.
+        branch.enableArm  = TryReadTableBoolField(L, branchTblIdx, "enableArm",  true);
+        branch.enableHead = TryReadTableBoolField(L, branchTblIdx, "enableHead", false);
+
+        int defaultSoldierFaceId = 0;
+        if (TryReadTableIntField(L, branchTblIdx, "defaultSoldierFaceId",
+                                 defaultSoldierFaceId)
+            && defaultSoldierFaceId > 0 && defaultSoldierFaceId < 900)
+        {
+            branch.defaultSoldierFaceId =
+                static_cast<std::uint16_t>(defaultSoldierFaceId);
+        }
+
+
+        // Per-PT iDroid suit-name lookup hash.
+        {
+            const char* langEquipName = nullptr;
+            if (TryReadTableStringField(L, branchTblIdx, "langEquipName",
+                                        langEquipName)
+                && langEquipName && langEquipName[0] != '\0')
+            {
+                branch.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
+            }
+        }
+
+
+        // Per-PT base display name (variant 0 cycle-button label).
+        LuaGetField(L, branchTblIdx, "displayName");
+        if (LuaType(L, -1) == LUA_TSTRING)
+        {
+            if (const char* s = GetLuaString(L, -1); s && *s)
+                branch.baseDisplayNameHash = FoxHashes::StrCode64(s);
+        }
+        LuaPop(L, 1);
+
+        if (branch.baseDisplayNameHash == 0)
+        {
+            int displayHashRaw = 0;
+            if (TryReadTableIntField(L, branchTblIdx, "displayNameHash", displayHashRaw)
+                && displayHashRaw != 0)
+            {
+                branch.baseDisplayNameHash =
+                    static_cast<std::uint64_t>(displayHashRaw);
+            }
+        }
+
+
+        ReadVariantsArrayInto(L, branchTblIdx, branch);
+
+
+        // Per-PT head options.
+        std::uint8_t branchHeadCount = 0;
+        if (ReadHeadOptionsArrayInto(L, branchTblIdx,
+                branch.headOptionEquipIds, branchHeadCount))
+        {
+            branch.headOptionCount      = branchHeadCount;
+            branch.supportsHeadOptions  = (branchHeadCount > 0);
+        }
+        // Optional explicit override (rare — e.g. force-disable submenu while
+        // keeping the array populated for future use).
+        branch.supportsHeadOptions = TryReadTableBoolField(
+            L, branchTblIdx, "supportsHeadOptions", branch.supportsHeadOptions);
+
+
+        // Per-PT camo bonus pin (vanilla camoType 0..116).
+        {
+            int rawBonusType = 0;
+            if (TryReadTableIntField(L, branchTblIdx, "camoBonusType", rawBonusType)
+                && rawBonusType >= 0 && rawBonusType <= 116)
+            {
+                branch.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
+            }
+        }
+        // Per-PT custom camo bonus values (sparse 82-material row).
+        ReadBranchCamoBonusValues(L, branchTblIdx, branch);
+
+
+        branch.used = true;
+        return true;
     }
 }
 
@@ -1850,14 +1960,16 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
     TryReadTableStringField(L, 1, "key", key);
     def.key = key;
 
-    int v = 0;
-
-
-    if (TryReadTableIntField(L, 1, "developId", v) && v > 0 && v <= 0xFFFF)
+    if (!key || !key[0])
     {
-        def.developId = static_cast<std::uint16_t>(v);
+        Log("[OutfitLua] RegisterOutfit: 'key' (string, non-empty) is required. "
+            "developId/flowIndex are auto-allocated and persisted under this "
+            "key in V_FrameWork_State.lua.\n");
+        PushLuaBool(L, false);
+        return 1;
     }
-    else if (key && key[0])
+
+
     {
         std::int32_t newId = 0;
         if (V_FrameWorkState::ResolveOrCreateDevelopId(key, 0, newId)
@@ -1866,30 +1978,17 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
             def.developId = static_cast<std::uint16_t>(newId);
         }
     }
-
     if (def.developId == 0)
     {
-        Log("[OutfitLua] RegisterOutfit: missing 'developId' AND no 'key' "
-            "for auto-allocate\n");
+        Log("[OutfitLua] RegisterOutfit: failed to allocate developId for "
+            "key='%s'\n", key);
         PushLuaBool(L, false);
         return 1;
     }
 
 
     constexpr std::int32_t kEdcRowCapacity = 0x400;
-
-    if (TryReadTableIntField(L, 1, "flowIndex", v) && v > 0 && v < kEdcRowCapacity)
     {
-        def.flowIndex = static_cast<std::uint16_t>(v);
-    }
-    else if (key && key[0])
-    {
-        if (v != 0 && (v < 0 || v >= kEdcRowCapacity))
-        {
-            Log("[OutfitLua] RegisterOutfit: explicit flowIndex=%d is "
-                "out of EDC range (1..%d), auto-allocating instead "
-                "(key=%s)\n", v, kEdcRowCapacity - 1, key);
-        }
         std::int32_t newIdx = 0;
         if (V_FrameWorkState::ResolveOrCreateFlowIndex(key, 0, newIdx)
             && newIdx > 0 && newIdx < kEdcRowCapacity)
@@ -1897,108 +1996,52 @@ static int __cdecl l_RegisterOutfit(lua_State* L)
             def.flowIndex = static_cast<std::uint16_t>(newIdx);
         }
     }
-
     if (def.flowIndex == 0)
     {
-        Log("[OutfitLua] RegisterOutfit: missing 'flowIndex' AND no 'key' "
-            "for auto-allocate\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    def.playerType = ParseOutfitPlayerType(L, 1);
-    if (def.playerType == 0xFF)
-    {
-        Log("[OutfitLua] RegisterOutfit: missing or invalid 'playerType' "
-            "(expect 'Snake'/'DDMale'/'DDFemale'/'Avatar' or 0..3)\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    def.partsPathCode64 = ReadRequiredPathField(L, 1, "partsPath");
-    def.fpkPathCode64   = ReadRequiredPathField(L, 1, "fpkPath");
-    if (def.partsPathCode64 == 0 || def.fpkPathCode64 == 0)
-    {
-        Log("[OutfitLua] RegisterOutfit: missing 'partsPath' or 'fpkPath'\n");
+        Log("[OutfitLua] RegisterOutfit: failed to allocate flowIndex for "
+            "key='%s'\n", key);
         PushLuaBool(L, false);
         return 1;
     }
 
 
-    def.camoFpk    = ReadSubAssetField(L, 1, "camoFpk",    outfit::kSubAssetDisabled);
-    def.faceFpk    = ReadSubAssetField(L, 1, "faceFpk",    outfit::kSubAssetUseVanilla);
-    def.skinFv2    = ReadSubAssetField(L, 1, "skinFv2",    outfit::kSubAssetUseVanilla);
-    def.diamondFpk = ReadSubAssetField(L, 1, "diamondFpk", outfit::kSubAssetDisabled);
-    def.voiceFpk   = ReadSubAssetField(L, 1, "voiceFpk",   outfit::kSubAssetUseVanilla);
-
-    def.enableArm  = TryReadTableBoolField(L, 1, "enableArm", true);
-
-    def.camoFv2    = ReadSubAssetField(L, 1, "camoFv2",    outfit::kSubAssetUseVanilla);
-    def.diamondFv2 = ReadSubAssetField(L, 1, "diamondFv2", outfit::kSubAssetUseVanilla);
-
-
-    def.enableHead = TryReadTableBoolField(L, 1, "enableHead", false);
-
-
-    int defaultSoldierFaceId = 0;
-    if (TryReadTableIntField(L, 1, "defaultSoldierFaceId", defaultSoldierFaceId)
-        && defaultSoldierFaceId > 0 && defaultSoldierFaceId < 900)
+    // Read per-playerType branches. At least one of {snake, ddMale, ddFemale,
+    // avatar} must be a populated sub-table with partsPath + fpkPath. Each
+    // branch carries every PT-specific field (paths, sub-assets, variants,
+    // head options, behavior flags, lang name, camo bonus). The only fields
+    // shared across branches are `key` (this outfit's persistence id) and
+    // the develop-table block (handled by the V_TppPlayer.AddOutfit wrapper).
+    std::uint8_t branchCount = 0;
+    for (const auto& bk : k_PtBranchKeys)
     {
-        def.defaultSoldierFaceId =
-            static_cast<std::uint16_t>(defaultSoldierFaceId);
-    }
-
-
-    {
-        const char* langEquipName = nullptr;
-        if (TryReadTableStringField(L, 1, "langEquipName", langEquipName)
-            && langEquipName && langEquipName[0] != '\0')
+        LuaGetField(L, 1, bk.key);
+        if (LuaType(L, -1) == LUA_TTABLE)
         {
-            def.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
-        }
-    }
-
-
-    {
-        int rawBonusType = 0;
-        if (TryReadTableIntField(L, 1, "camoBonusType", rawBonusType)
-            && rawBonusType >= 0 && rawBonusType <= 116)
-        {
-            def.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
-        }
-    }
-
-
-    ReadCamoBonusValuesField(L, 1, def);
-
-
-    {
-        const char* baseDisplayName = nullptr;
-        if (TryReadTableStringField(L, 1, "displayName", baseDisplayName)
-            && baseDisplayName && baseDisplayName[0] != '\0')
-        {
-            def.baseDisplayNameHash = FoxHashes::StrCode64(baseDisplayName);
-        }
-        else
-        {
-            int displayHashRaw = 0;
-            if (TryReadTableIntField(L, 1, "displayNameHash", displayHashRaw)
-                && displayHashRaw != 0)
+            outfit::OutfitPlayerTypeData branch{};
+            const int branchIdx = GetLuaTop(L);
+            if (ReadPlayerTypeBranchTable(L, branchIdx, branch))
             {
-                def.baseDisplayNameHash =
-                    static_cast<std::uint64_t>(displayHashRaw);
+                def.perPlayerType[bk.playerType] = branch;
+                ++branchCount;
+            }
+            else
+            {
+                Log("[OutfitLua] RegisterOutfit: branch '%s' present but "
+                    "missing required partsPath/fpkPath — skipping (key=%s)\n",
+                    bk.key, key);
             }
         }
+        LuaPop(L, 1);
     }
 
-
-    ReadHeadOptionsArray(L, 1, def);
-    const bool autoImpliedSupports = (def.headOptionCount > 0);
-    def.supportsHeadOptions = TryReadTableBoolField(
-        L, 1, "supportsHeadOptions", autoImpliedSupports);
-
-
-    ReadVariantsArray(L, 1, def);
+    if (branchCount == 0)
+    {
+        Log("[OutfitLua] RegisterOutfit: at least one playerType branch is "
+            "required (snake / ddMale / ddFemale / avatar). Each must be a "
+            "sub-table with partsPath and fpkPath. (key=%s)\n", key);
+        PushLuaBool(L, false);
+        return 1;
+    }
 
 
     std::uint8_t allocatedPartsType = 0xFF;
@@ -2090,11 +2133,10 @@ static int __cdecl l_SetCurrentOutfit(lua_State* L)
 
     outfit::SetPendingOutfitDevelopId(static_cast<std::uint16_t>(developIdRaw));
     Log("[OutfitLua] SetCurrentOutfit: pending developId=%d "
-        "(partsType=0x%02X selector=0x%02X playerType=%u)\n",
+        "(partsType=0x%02X selector=0x%02X)\n",
         developIdRaw,
         static_cast<unsigned>(entry->partsType),
-        static_cast<unsigned>(entry->selectorCode),
-        static_cast<unsigned>(entry->playerType));
+        static_cast<unsigned>(entry->selectorCode));
 
     PushLuaBool(L, true);
     return 1;
@@ -2133,8 +2175,18 @@ static int __cdecl l_SetOutfitVariant(lua_State* L)
     bool reloaded = false;
     if (isLiveOutfit)
     {
+
+        std::uint8_t reloadPT = outfit::ReadLivePlayerType();
+        if (reloadPT == 0xFF || !entry->IsPlayerTypeSupported(reloadPT))
+        {
+            reloadPT = 0;
+            for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+            {
+                if (entry->IsPlayerTypeSupported(pt)) { reloadPT = pt; break; }
+            }
+        }
         reloaded = outfit::ForceLiveSuitReload(
-            entry->playerType,
+            reloadPT,
             entry->partsType,
             entry->selectorCode,
             v);
@@ -2182,8 +2234,24 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
     g_lua_pushnumber(L, static_cast<float>(entry->flowIndex));
     g_lua_settable(L, -3);
 
-    g_lua_pushstring(L, const_cast<char*>("playerType"));
-    g_lua_pushnumber(L, static_cast<float>(entry->playerType));
+
+    // Per-PT support flags so Lua can tell which playerTypes this outfit was
+    // registered for. Snake↔Avatar bridge is reflected (asking for Avatar on
+    // a Snake-only outfit returns true).
+    g_lua_pushstring(L, const_cast<char*>("supportsSnake"));
+    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Snake) ? 1 : 0);
+    g_lua_settable(L, -3);
+
+    g_lua_pushstring(L, const_cast<char*>("supportsDDMale"));
+    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDMale) ? 1 : 0);
+    g_lua_settable(L, -3);
+
+    g_lua_pushstring(L, const_cast<char*>("supportsDDFemale"));
+    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDFemale) ? 1 : 0);
+    g_lua_settable(L, -3);
+
+    g_lua_pushstring(L, const_cast<char*>("supportsAvatar"));
+    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Avatar) ? 1 : 0);
     g_lua_settable(L, -3);
 
     g_lua_pushstring(L, const_cast<char*>("variantCount"));
@@ -2196,7 +2264,7 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
     g_lua_settable(L, -3);
 
     g_lua_pushstring(L, const_cast<char*>("supportsHeadOptions"));
-    g_lua_pushboolean(L, entry->supportsHeadOptions ? 1 : 0);
+    g_lua_pushboolean(L, entry->HasAnyHeadOptions() ? 1 : 0);
     g_lua_settable(L, -3);
 
     return 1;

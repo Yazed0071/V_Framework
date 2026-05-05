@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "OutfitRegistry.h"
+#include "ShadowState.h"
 
 #include <array>
 #include <cstdio>
@@ -18,8 +19,10 @@ namespace
     using outfit::kCustomSelectorStart;
     using outfit::kCustomSelectorEnd;
     using outfit::kMaxOutfits;
+    using outfit::kPlayerTypeMax;
     using outfit::OutfitEntry;
     using outfit::OutfitDefinition;
+    using outfit::OutfitPlayerTypeData;
 
     using GetQuarkSystemTable_t = void* (__fastcall*)();
 
@@ -34,8 +37,11 @@ namespace
     static std::uint8_t g_ActiveVariant[kActiveVariantSize] = {};
 
 
-    static std::uint16_t g_PendingDevelopId = 0;
-    static std::uint16_t g_PendingHeadOptionEquipId = 0;
+    static std::uint16_t g_PendingDevelopId            = 0;
+    static std::uint16_t g_PendingHeadOptionEquipId    = 0;
+    static bool          g_SupplyDropClickLatch        = false;
+    static std::uint16_t g_PendingSupplyDropDevelopId  = 0;
+    static std::uint8_t  g_PendingSupplyDropVariantIdx = 0;
 
     static bool ResolveQuarkApi()
     {
@@ -125,27 +131,348 @@ namespace
         }
         return 0xFF;
     }
+
+
+    // True if `virtualId` is currently assigned to ANY branch of ANY existing
+    // entry. Used when allocating fresh virtual ids during registration.
+    static bool IsVirtualIdTaken_NoLock(std::uint8_t virtualId)
+    {
+        for (const auto& e : g_Entries)
+        {
+            if (!e.used) continue;
+            for (const auto& b : e.perPlayerType)
+            {
+                if (b.used && b.hasCamoBonusValues
+                    && b.camoBonusType == virtualId)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+
+    static std::uint8_t AllocateVirtualId_NoLock()
+    {
+        for (std::uint16_t v = outfit::kCamoVirtualIdStart;
+             v <= outfit::kCamoVirtualIdEnd; ++v)
+        {
+            const auto cand = static_cast<std::uint8_t>(v);
+            if (!IsVirtualIdTaken_NoLock(cand)) return cand;
+        }
+        return 0xFF;
+    }
+
+
+    static void SummarizeBranches(const OutfitDefinition& def,
+                                  std::uint8_t& outBranchCount,
+                                  std::uint8_t& outMaxVariants)
+    {
+        outBranchCount = 0;
+        outMaxVariants = 0;
+        for (const auto& b : def.perPlayerType)
+        {
+            if (!b.used) continue;
+            ++outBranchCount;
+            if (b.variantCount > outMaxVariants) outMaxVariants = b.variantCount;
+        }
+    }
 }
 
 namespace outfit
 {
+
+    bool IsSnakeAvatarBridge(std::uint8_t a, std::uint8_t b)
+    {
+        return (a == kPlayerType_Snake && b == kPlayerType_Avatar)
+            || (a == kPlayerType_Avatar && b == kPlayerType_Snake);
+    }
+
+
+    const OutfitPlayerTypeData* OutfitEntry::GetPTData(std::uint8_t playerType) const
+    {
+        if (playerType >= kPlayerTypeMax) return nullptr;
+        if (perPlayerType[playerType].used)
+            return &perPlayerType[playerType];
+
+        if (playerType == kPlayerType_Snake
+            && perPlayerType[kPlayerType_Avatar].used)
+            return &perPlayerType[kPlayerType_Avatar];
+        if (playerType == kPlayerType_Avatar
+            && perPlayerType[kPlayerType_Snake].used)
+            return &perPlayerType[kPlayerType_Snake];
+
+        return nullptr;
+    }
+
+    bool OutfitEntry::IsPlayerTypeSupported(std::uint8_t playerType) const
+    {
+        return GetPTData(playerType) != nullptr;
+    }
+
+
+    bool OutfitEntry::IsArmEnabled(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->enableArm : false;
+    }
+
+    bool OutfitEntry::IsHeadEnabled(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->enableHead : false;
+    }
+
+    bool OutfitEntry::IsCamoCustom(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->camoFpk > kSubAssetUseVanilla;
+    }
+
+    bool OutfitEntry::IsCamoFv2Custom(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->camoFv2 > kSubAssetUseVanilla;
+    }
+
+    bool OutfitEntry::IsFaceEnabled(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->faceFpk != kSubAssetDisabled;
+    }
+
+    bool OutfitEntry::IsDiamondEnabled(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->diamondFpk != kSubAssetDisabled;
+    }
+
+    bool OutfitEntry::IsDiamondCustom(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->diamondFpk > kSubAssetUseVanilla;
+    }
+
+    bool OutfitEntry::IsDiamondFv2Custom(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->diamondFv2 > kSubAssetUseVanilla;
+    }
+
+    bool OutfitEntry::IsVoiceCustom(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->voiceFpk > kSubAssetUseVanilla;
+    }
+
+
+    bool OutfitEntry::HasHeadOptions(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->supportsHeadOptions && d->headOptionCount > 0;
+    }
+
+    bool OutfitEntry::HasAnyHeadOptions() const
+    {
+        for (const auto& b : perPlayerType)
+        {
+            if (b.used && b.supportsHeadOptions && b.headOptionCount > 0)
+                return true;
+        }
+        return false;
+    }
+
+    bool OutfitEntry::GetHeadOptionsFor(std::uint8_t playerType,
+                                        const std::uint16_t** outEquipIds,
+                                        std::uint8_t* outCount) const
+    {
+        if (const auto* d = GetPTData(playerType);
+            d && d->supportsHeadOptions && d->headOptionCount > 0)
+        {
+            if (outEquipIds) *outEquipIds = d->headOptionEquipIds;
+            if (outCount)    *outCount    = d->headOptionCount;
+            return true;
+        }
+        if (outEquipIds) *outEquipIds = nullptr;
+        if (outCount)    *outCount    = 0;
+        return false;
+    }
+
+
+    std::uint8_t OutfitEntry::GetVariantCountFor(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->variantCount : std::uint8_t{0};
+    }
+
+
+    std::uint64_t OutfitEntry::GetLangEquipNameHashFor(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->langEquipNameHash : std::uint64_t{0};
+    }
+
+    std::uint16_t OutfitEntry::GetDefaultSoldierFaceIdFor(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->defaultSoldierFaceId : std::uint16_t{0};
+    }
+
+
+    std::uint8_t OutfitEntry::GetCamoBonusType(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d ? d->camoBonusType : kCamoBonusTypeUnset;
+    }
+
+    bool OutfitEntry::HasCamoBonusValuesFor(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return d && d->hasCamoBonusValues;
+    }
+
+    const std::int32_t* OutfitEntry::GetCamoBonusValuesFor(std::uint8_t playerType) const
+    {
+        const auto* d = GetPTData(playerType);
+        return (d && d->hasCamoBonusValues) ? d->camoBonusValues : nullptr;
+    }
+
+
+    std::uint64_t OutfitEntry::GetVariantPartsPath(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return 0;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->partsPathCode64;
+        return d->variants[variantIdx].partsPathCode64 != 0
+             ? d->variants[variantIdx].partsPathCode64
+             : d->partsPathCode64;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantFpkPath(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return 0;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->fpkPathCode64;
+        return d->variants[variantIdx].fpkPathCode64 != 0
+             ? d->variants[variantIdx].fpkPathCode64
+             : d->fpkPathCode64;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantCamoFpk(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetUseVanilla;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->camoFpk;
+        const auto v = d->variants[variantIdx].camoFpk;
+        return v == kSubAssetUseVanilla ? d->camoFpk : v;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantCamoFv2(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetUseVanilla;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->camoFv2;
+        const auto v = d->variants[variantIdx].camoFv2;
+        return v == kSubAssetUseVanilla ? d->camoFv2 : v;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantDiamondFpk(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetDisabled;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->diamondFpk;
+        return d->variants[variantIdx].diamondFpk != kSubAssetDisabled
+             ? d->variants[variantIdx].diamondFpk
+             : d->diamondFpk;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantDiamondFv2(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetUseVanilla;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->diamondFv2;
+        const auto v = d->variants[variantIdx].diamondFv2;
+        return v == kSubAssetUseVanilla ? d->diamondFv2 : v;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantVoiceFpk(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetUseVanilla;
+        if (variantIdx == 0 || variantIdx >= d->variantCount
+            || !d->variants[variantIdx].used)
+            return d->voiceFpk;
+        const auto v = d->variants[variantIdx].voiceFpk;
+        return v == kSubAssetUseVanilla ? d->voiceFpk : v;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantDisplayNameHash(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return 0;
+        if (variantIdx == 0) return d->baseDisplayNameHash;
+        if (variantIdx >= d->variantCount) return 0;
+        return d->variants[variantIdx].displayNameHash;
+    }
+
+
     bool RegisterOutfit(const OutfitDefinition& def, std::uint8_t* outAllocatedPartsType)
     {
-        if (def.partsPathCode64 == 0 || def.fpkPathCode64 == 0)
+
+        std::uint8_t branchCount  = 0;
+        std::uint8_t maxVariants  = 0;
+        SummarizeBranches(def, branchCount, maxVariants);
+
+        if (branchCount == 0)
         {
-            Log("[OutfitRegistry] reject: missing required parts/fpk path "
-                "(developId=%u flowIndex=%u)\n",
-                static_cast<unsigned>(def.developId),
-                static_cast<unsigned>(def.flowIndex));
+            Log("[OutfitRegistry] reject: no playerType branches populated. "
+                "At least one of {snake, ddMale, ddFemale, avatar} must "
+                "supply partsPath/fpkPath. (key=%s)\n",
+                def.key ? def.key : "(unkeyed)");
             return false;
+        }
+
+
+        for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+        {
+            const auto& b = def.perPlayerType[pt];
+            if (!b.used) continue;
+            if (b.partsPathCode64 == 0 || b.fpkPathCode64 == 0)
+            {
+                Log("[OutfitRegistry] reject: playerType=%u branch is missing "
+                    "required partsPath or fpkPath (key=%s)\n",
+                    static_cast<unsigned>(pt),
+                    def.key ? def.key : "(unkeyed)");
+                return false;
+            }
         }
 
         if (def.developId == 0 || def.flowIndex == 0)
         {
             Log("[OutfitRegistry] reject: developId/flowIndex must be non-zero "
-                "(developId=%u flowIndex=%u)\n",
+                "(developId=%u flowIndex=%u key=%s)\n",
                 static_cast<unsigned>(def.developId),
-                static_cast<unsigned>(def.flowIndex));
+                static_cast<unsigned>(def.flowIndex),
+                def.key ? def.key : "(unkeyed)");
             return false;
         }
 
@@ -153,13 +480,9 @@ namespace outfit
         constexpr std::uint16_t kEdcRowCapacity = 0x400;
         if (def.flowIndex >= kEdcRowCapacity)
         {
-            Log("[OutfitRegistry] reject: flowIndex=%u is out of EDC row "
-                "capacity (max 0x3FF = 1023). Custom outfits must use "
-                "flowIndex in 922..1023. Either omit flowIndex (the "
-                "framework auto-allocates from 922+) or pass a value "
-                "in range. (developId=%u key=%s)\n",
+            Log("[OutfitRegistry] reject: flowIndex=%u out of EDC capacity "
+                "(max 0x3FF). (key=%s)\n",
                 static_cast<unsigned>(def.flowIndex),
-                static_cast<unsigned>(def.developId),
                 def.key ? def.key : "(unkeyed)");
             return false;
         }
@@ -175,23 +498,14 @@ namespace outfit
             const bool sameFlowIndex = (e.flowIndex == def.flowIndex);
             if (!sameDevelopId && !sameFlowIndex) continue;
 
-            const bool sameOutfit =
-                sameDevelopId
-             && sameFlowIndex
-             && e.playerType      == def.playerType
-             && e.partsPathCode64 == def.partsPathCode64
-             && e.fpkPathCode64   == def.fpkPathCode64;
-
-            if (sameOutfit)
+            if (sameDevelopId && sameFlowIndex)
             {
                 Log("[OutfitRegistry] re-registration of same outfit "
-                    "developId=%u flowIndex=%u partsType=0x%02X "
-                    "selector=0x%02X — returning existing entry "
-                    "(idempotent)\n",
+                    "developId=%u flowIndex=%u partsType=0x%02X — "
+                    "returning existing entry (idempotent)\n",
                     static_cast<unsigned>(e.developId),
                     static_cast<unsigned>(e.flowIndex),
-                    static_cast<unsigned>(e.partsType),
-                    static_cast<unsigned>(e.selectorCode));
+                    static_cast<unsigned>(e.partsType));
                 if (outAllocatedPartsType) *outAllocatedPartsType = e.partsType;
                 return true;
             }
@@ -199,21 +513,16 @@ namespace outfit
 
             if (sameDevelopId)
             {
-                Log("[OutfitRegistry] reject: developId %u already registered "
-                    "by a DIFFERENT outfit (existing partsType=0x%02X "
-                    "playerType=%u, attempted playerType=%u)\n",
+                Log("[OutfitRegistry] reject: developId %u already taken "
+                    "(existing partsType=0x%02X)\n",
                     static_cast<unsigned>(def.developId),
-                    static_cast<unsigned>(e.partsType),
-                    static_cast<unsigned>(e.playerType),
-                    static_cast<unsigned>(def.playerType));
+                    static_cast<unsigned>(e.partsType));
             }
             else
             {
-                Log("[OutfitRegistry] reject: flowIndex %u already registered "
-                    "by a DIFFERENT outfit (existing partsType=0x%02X "
-                    "developId=%u, attempted developId=%u)\n",
+                Log("[OutfitRegistry] reject: flowIndex %u already taken "
+                    "(existing developId=%u, attempted developId=%u)\n",
                     static_cast<unsigned>(def.flowIndex),
-                    static_cast<unsigned>(e.partsType),
                     static_cast<unsigned>(e.developId),
                     static_cast<unsigned>(def.developId));
             }
@@ -236,24 +545,21 @@ namespace outfit
 
 
         const std::uint8_t variantSlots =
-            (def.variantCount > outfit::kMaxVariantsPerOutfit)
+            (maxVariants > outfit::kMaxVariantsPerOutfit)
                 ? static_cast<std::uint8_t>(outfit::kMaxVariantsPerOutfit)
-                : def.variantCount;
+                : maxVariants;
 
         std::uint8_t variantSelectors[outfit::kMaxVariantsPerOutfit] = {};
         for (auto& v : variantSelectors) v = 0xFF;
         variantSelectors[0] = selector;
         for (std::uint8_t vi = 1; vi < variantSlots; ++vi)
         {
-
-
             std::uint8_t alloc = 0xFF;
             for (std::uint16_t cand = kCustomSelectorStart;
                  cand <= kCustomSelectorEnd; ++cand)
             {
                 const auto c = static_cast<std::uint8_t>(cand);
                 if (IsSelectorTaken_NoLock(c)) continue;
-
 
                 bool taken = false;
                 for (std::uint8_t k = 0; k < vi; ++k)
@@ -264,11 +570,10 @@ namespace outfit
             }
             if (alloc == 0xFF)
             {
-                Log("[OutfitRegistry] reject: ran out of selector codes "
-                    "while reserving variant %u of %u (variantCount=%u)\n",
+                Log("[OutfitRegistry] reject: ran out of selectors while "
+                    "reserving variant %u of %u\n",
                     static_cast<unsigned>(vi),
-                    static_cast<unsigned>(variantSlots),
-                    static_cast<unsigned>(def.variantCount));
+                    static_cast<unsigned>(variantSlots));
                 return false;
             }
             variantSelectors[vi] = alloc;
@@ -282,109 +587,90 @@ namespace outfit
         }
         if (!slot)
         {
-            Log("[OutfitRegistry] reject: registry is full (kMaxOutfits=%zu)\n",
+            Log("[OutfitRegistry] reject: registry full (kMaxOutfits=%zu)\n",
                 kMaxOutfits);
             return false;
         }
 
         *slot = OutfitEntry{};
-        slot->used            = true;
-        slot->developId       = def.developId;
-        slot->flowIndex       = def.flowIndex;
-        slot->playerType      = def.playerType;
-        slot->partsType       = partsType;
-        slot->selectorCode    = selector;
-        slot->partsPathCode64 = def.partsPathCode64;
-        slot->fpkPathCode64   = def.fpkPathCode64;
-        slot->camoFpk         = def.camoFpk;
-        slot->faceFpk         = def.faceFpk;
-        slot->skinFv2         = def.skinFv2;
-        slot->diamondFpk      = def.diamondFpk;
-        slot->voiceFpk        = def.voiceFpk;
-        slot->enableArm       = def.enableArm;
+        slot->used         = true;
+        slot->developId    = def.developId;
+        slot->flowIndex    = def.flowIndex;
+        slot->partsType    = partsType;
+        slot->selectorCode = selector;
 
 
-        slot->camoFv2             = def.camoFv2;
-        slot->diamondFv2          = def.diamondFv2;
-        slot->supportsHeadOptions = def.supportsHeadOptions;
-        slot->headOptionCount     =
-            def.headOptionCount > outfit::kMaxHeadOptionsPerOutfit
-                ? static_cast<std::uint8_t>(outfit::kMaxHeadOptionsPerOutfit)
-                : def.headOptionCount;
-        for (std::size_t i = 0; i < slot->headOptionCount; ++i)
-            slot->headOptionEquipIds[i] = def.headOptionEquipIds[i];
-
-        slot->variantCount =
-            def.variantCount > outfit::kMaxVariantsPerOutfit
-                ? static_cast<std::uint8_t>(outfit::kMaxVariantsPerOutfit)
-                : def.variantCount;
-        for (std::size_t i = 0; i < slot->variantCount; ++i)
-            slot->variants[i] = def.variants[i];
+        for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+            slot->perPlayerType[pt] = def.perPlayerType[pt];
 
 
+        slot->variantCount = variantSlots;
         for (std::size_t i = 0; i < outfit::kMaxVariantsPerOutfit; ++i)
             slot->variantSelectorCodes[i] = variantSelectors[i];
 
 
-        slot->variantDisplayNameHashes[0] = def.baseDisplayNameHash;
-        for (std::uint8_t vi = 1; vi < slot->variantCount; ++vi)
+        // For each branch declaring hasCamoBonusValues=true, allocate a
+        // virtual id from the 200..254 pool. Each PT gets its own id; the
+        // GetCamoufValue hook routes the row lookup based on the PT that
+        // owns the matched virtual id.
+        for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
         {
-            slot->variantDisplayNameHashes[vi] = def.variants[vi].displayNameHash;
-        }
+            auto& b = slot->perPlayerType[pt];
+            if (!b.used || !b.hasCamoBonusValues) continue;
 
-        slot->enableHead           = def.enableHead;
-        slot->defaultSoldierFaceId = def.defaultSoldierFaceId;
-        slot->langEquipNameHash    = def.langEquipNameHash;
-        slot->camoBonusType        = def.camoBonusType;
-
-
-        if (def.hasCamoBonusValues)
-        {
-
-
-            std::uint8_t virtualId = 0xFF;
-            for (std::uint16_t v = kCamoVirtualIdStart;
-                 v <= kCamoVirtualIdEnd; ++v)
+            const std::uint8_t vid = AllocateVirtualId_NoLock();
+            if (vid == 0xFF)
             {
-                bool taken = false;
-                for (const auto& e : g_Entries)
-                {
-                    if (!e.used) continue;
-                    if (e.hasCamoBonusValues
-                        && e.camoBonusType == static_cast<std::uint8_t>(v))
-                    {
-                        taken = true;
-                        break;
-                    }
-                }
-                if (!taken)
-                {
-                    virtualId = static_cast<std::uint8_t>(v);
-                    break;
-                }
-            }
-
-            if (virtualId == 0xFF)
-            {
-                Log("[OutfitRegistry] camo-virtual-id pool exhausted "
-                    "(range 0x%02X..0x%02X full); outfit '%s' will run "
-                    "without per-outfit camo values\n",
-                    static_cast<unsigned>(kCamoVirtualIdStart),
-                    static_cast<unsigned>(kCamoVirtualIdEnd),
+                Log("[OutfitRegistry] camo virtual-id pool exhausted while "
+                    "registering PT=%u of '%s' — branch will run without a "
+                    "unique bonus row\n",
+                    static_cast<unsigned>(pt),
                     def.key ? def.key : "(unkeyed)");
-                slot->hasCamoBonusValues = false;
+                b.hasCamoBonusValues = false;
+                if (b.camoBonusType == kCamoBonusTypeUnset)
+                    b.camoBonusType = kCamoBonusTypeUnset;
             }
             else
             {
-                slot->camoBonusType = virtualId;
-                slot->hasCamoBonusValues = true;
-                std::memcpy(slot->camoBonusValues,
-                            def.camoBonusValues,
-                            sizeof(slot->camoBonusValues));
+                b.camoBonusType = vid;
             }
         }
 
         if (outAllocatedPartsType) *outAllocatedPartsType = partsType;
+
+
+        char branchBuf[160] = {};
+        {
+            std::size_t pos = 0;
+            const char* names[kPlayerTypeMax] =
+                { "Snake", "DDMale", "DDFemale", "Avatar" };
+            for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+            {
+                if (!slot->perPlayerType[pt].used) continue;
+                const auto& b = slot->perPlayerType[pt];
+
+                char camoBuf[24] = {};
+                if (b.hasCamoBonusValues)
+                    std::snprintf(camoBuf, sizeof(camoBuf),
+                        "vid=%u", static_cast<unsigned>(b.camoBonusType));
+                else if (b.camoBonusType != kCamoBonusTypeUnset)
+                    std::snprintf(camoBuf, sizeof(camoBuf),
+                        "pin=%u", static_cast<unsigned>(b.camoBonusType));
+                else
+                    std::snprintf(camoBuf, sizeof(camoBuf), "no-camo");
+
+                pos += static_cast<std::size_t>(std::snprintf(
+                    branchBuf + pos, sizeof(branchBuf) - pos,
+                    (pos == 0) ? "%s(v=%u,h=%u,arm=%d,head=%d,%s)"
+                               : ",%s(v=%u,h=%u,arm=%d,head=%d,%s)",
+                    names[pt],
+                    static_cast<unsigned>(b.variantCount),
+                    static_cast<unsigned>(b.headOptionCount),
+                    b.enableArm ? 1 : 0,
+                    b.enableHead ? 1 : 0,
+                    camoBuf));
+            }
+        }
 
 
         char variantBuf[16 * 5 + 1] = {};
@@ -401,74 +687,35 @@ namespace outfit
             }
         }
 
-
-        char dispNameBuf[16 * 12 + 1] = {};
-        {
-            std::size_t pos = 0;
-            for (std::size_t i = 0;
-                 i < outfit::kMaxVariantsPerOutfit && pos + 12 < sizeof(dispNameBuf);
-                 ++i)
-            {
-                const std::uint64_t h = slot->variantDisplayNameHashes[i];
-                if (h == 0)
-                {
-                    pos += static_cast<std::size_t>(std::snprintf(
-                        dispNameBuf + pos, sizeof(dispNameBuf) - pos,
-                        (i == 0) ? "(none)" : ",(none)"));
-                }
-                else
-                {
-                    pos += static_cast<std::size_t>(std::snprintf(
-                        dispNameBuf + pos, sizeof(dispNameBuf) - pos,
-                        (i == 0) ? "0x%llX" : ",0x%llX",
-                        static_cast<unsigned long long>(h)));
-                }
-            }
-        }
-
-
-        char camoBuf[32] = {};
-        if (slot->camoBonusType == 0xFF)
-            std::snprintf(camoBuf, sizeof(camoBuf), "(unset)");
-        else if (slot->hasCamoBonusValues)
-            std::snprintf(camoBuf, sizeof(camoBuf), "%u[values]",
-                static_cast<unsigned>(slot->camoBonusType));
-        else
-            std::snprintf(camoBuf, sizeof(camoBuf), "%u",
-                static_cast<unsigned>(slot->camoBonusType));
-
         Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
-            "playerType=%u partsType=0x%02X selector=0x%02X "
-            "enableHead=%d defaultSoldierFaceId=%u headOptions=%u(supports=%d) "
-            "langEquipNameHash=0x%016llX camoBonusType=%s "
-            "variantCount=%u variantSelectors=[%s] "
-            "variantDisplayNameHashes=[%s] "
-            "parts=0x%016llX fpk=0x%016llX\n",
+            "partsType=0x%02X selector=0x%02X branches=[%s] "
+            "variantCount=%u variantSelectors=[%s]\n",
             def.key ? def.key : "(unkeyed)",
             static_cast<unsigned>(def.developId),
             static_cast<unsigned>(def.flowIndex),
-            static_cast<unsigned>(def.playerType),
             static_cast<unsigned>(partsType),
             static_cast<unsigned>(selector),
-            def.enableHead ? 1 : 0,
-            static_cast<unsigned>(def.defaultSoldierFaceId),
-            static_cast<unsigned>(def.headOptionCount),
-            def.supportsHeadOptions ? 1 : 0,
-            static_cast<unsigned long long>(def.langEquipNameHash),
-            camoBuf,
+            branchBuf,
             static_cast<unsigned>(slot->variantCount),
-            variantBuf,
-            dispNameBuf,
-            static_cast<unsigned long long>(def.partsPathCode64),
-            static_cast<unsigned long long>(def.fpkPathCode64));
+            variantBuf);
 
         return true;
     }
 
     void ClearAllOutfits()
     {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        for (auto& e : g_Entries) e = OutfitEntry{};
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            for (auto& e : g_Entries)        e = OutfitEntry{};
+            for (auto& v : g_ActiveVariant)  v = 0;
+            g_PendingDevelopId            = 0;
+            g_PendingHeadOptionEquipId    = 0;
+            g_SupplyDropClickLatch        = false;
+            g_PendingSupplyDropDevelopId  = 0;
+            g_PendingSupplyDropVariantIdx = 0;
+        }
+        outfit::shadow::ResetAll("ClearAllOutfits");
+        outfit::shadow::ResetArmTierCache();
     }
 
     bool TryGetOutfitByPartsType(std::uint8_t partsType, const OutfitEntry** outEntry)
@@ -491,8 +738,6 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (!e.used) continue;
-
-
             if (e.selectorCode == selectorCode)
             {
                 if (outEntry) *outEntry = &e;
@@ -540,7 +785,6 @@ namespace outfit
                 return true;
             }
 
-
             for (std::uint8_t vi = 1; vi < e.variantCount; ++vi)
             {
                 if (e.variantSelectorCodes[vi] == selectorCode)
@@ -555,6 +799,7 @@ namespace outfit
     }
 
     std::uint64_t GetVariantDisplayNameHash(std::uint8_t partsType,
+                                            std::uint8_t playerType,
                                             std::uint8_t variantIndex)
     {
         if (variantIndex >= outfit::kMaxVariantsPerOutfit) return 0;
@@ -562,7 +807,7 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (e.used && e.partsType == partsType)
-                return e.variantDisplayNameHashes[variantIndex];
+                return e.GetVariantDisplayNameHash(playerType, variantIndex);
         }
         return 0;
     }
@@ -582,36 +827,28 @@ namespace outfit
     }
 
     bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
-                                     const OutfitEntry** outEntry)
+                                     const OutfitEntry** outEntry,
+                                     std::uint8_t* outPlayerType)
     {
-
-
         if (virtualId < kCamoVirtualIdStart || virtualId > kCamoVirtualIdEnd)
             return false;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
-            if (e.used
-                && e.hasCamoBonusValues
-                && e.camoBonusType == virtualId)
+            if (!e.used) continue;
+            for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
             {
-                if (outEntry) *outEntry = &e;
-                return true;
+                const auto& b = e.perPlayerType[pt];
+                if (b.used && b.hasCamoBonusValues
+                    && b.camoBonusType == virtualId)
+                {
+                    if (outEntry)      *outEntry      = &e;
+                    if (outPlayerType) *outPlayerType = pt;
+                    return true;
+                }
             }
         }
-        return false;
-    }
-
-    bool IsPlayerTypeCompatible(std::uint8_t entryPlayerType,
-                                std::uint8_t queriedPlayerType)
-    {
-        if (entryPlayerType == queriedPlayerType) return true;
-        if ((entryPlayerType == kPlayerType_Snake
-                && queriedPlayerType == kPlayerType_Avatar)
-         || (entryPlayerType == kPlayerType_Avatar
-                && queriedPlayerType == kPlayerType_Snake))
-            return true;
         return false;
     }
 
@@ -623,7 +860,7 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (e.used && e.flowIndex == flowIndex
-                && IsPlayerTypeCompatible(e.playerType, playerType))
+                && e.IsPlayerTypeSupported(playerType))
             {
                 if (outEntry) *outEntry = &e;
                 return true;
@@ -640,7 +877,7 @@ namespace outfit
         for (const auto& e : g_Entries)
         {
             if (e.used && e.developId == developId
-                && IsPlayerTypeCompatible(e.playerType, playerType))
+                && e.IsPlayerTypeSupported(playerType))
             {
                 if (outEntry) *outEntry = &e;
                 return true;
@@ -661,52 +898,6 @@ namespace outfit
             if (e.used) outEntries[count++] = &e;
         }
         return count;
-    }
-
-
-    std::uint64_t OutfitEntry::GetVariantPartsPath(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return partsPathCode64;
-        return variants[idx].partsPathCode64 != 0
-             ? variants[idx].partsPathCode64
-             : partsPathCode64;
-    }
-
-    std::uint64_t OutfitEntry::GetVariantFpkPath(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return fpkPathCode64;
-        return variants[idx].fpkPathCode64 != 0
-             ? variants[idx].fpkPathCode64
-             : fpkPathCode64;
-    }
-
-    std::uint64_t OutfitEntry::GetVariantCamoFpk(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return camoFpk;
-        const auto v = variants[idx].camoFpk;
-        return v == kSubAssetUseVanilla ? camoFpk : v;
-    }
-
-    std::uint64_t OutfitEntry::GetVariantCamoFv2(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return camoFv2;
-        const auto v = variants[idx].camoFv2;
-        return v == kSubAssetUseVanilla ? camoFv2 : v;
-    }
-
-    std::uint64_t OutfitEntry::GetVariantDiamondFpk(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return diamondFpk;
-        return variants[idx].diamondFpk != kSubAssetDisabled
-             ? variants[idx].diamondFpk
-             : diamondFpk;
-    }
-
-    std::uint64_t OutfitEntry::GetVariantVoiceFpk(std::uint8_t idx) const
-    {
-        if (idx == 0 || idx >= variantCount || !variants[idx].used) return voiceFpk;
-        const auto v = variants[idx].voiceFpk;
-        return v == kSubAssetUseVanilla ? voiceFpk : v;
     }
 
     std::uint8_t ReadLivePartsType()
@@ -754,7 +945,6 @@ namespace outfit
             return;
 
         std::uint8_t clamped = variantIndex;
-
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
@@ -823,8 +1013,6 @@ namespace outfit
         g_PendingHeadOptionEquipId = 0;
     }
 
-    static bool g_SupplyDropClickLatch = false;
-
     void SetSupplyDropClickLatch()
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
@@ -838,8 +1026,6 @@ namespace outfit
         g_SupplyDropClickLatch = false;
         return was;
     }
-
-    static std::uint16_t g_PendingSupplyDropDevelopId = 0;
 
     void SetPendingSupplyDropDevelopId(std::uint16_t developId)
     {
@@ -860,8 +1046,6 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         return g_PendingSupplyDropDevelopId;
     }
-
-    static std::uint8_t g_PendingSupplyDropVariantIdx = 0;
 
     void SetPendingSupplyDropVariantIdx(std::uint8_t variantIndex)
     {

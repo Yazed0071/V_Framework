@@ -275,8 +275,7 @@ namespace
                 playerTypeValid ? playerType : livePT;
             const bool canCheckPT = playerTypeValid || (livePT != 0xFF);
             const bool clearMismatch = canCheckPT
-                                    && !outfit::IsPlayerTypeCompatible(
-                                            chosen->playerType, effectivePT);
+                                    && !chosen->IsPlayerTypeSupported(effectivePT);
 
 
             if (clearMismatch)
@@ -286,15 +285,13 @@ namespace
                 base[kInfoOff_PartsType] = 0x00;
                 base[kInfoOff_CamoType]  = 0x00;
 
-                Log("[OutfitSuitConditionApply:%s] playerType mismatch "
-                    "(effective=%u via=%s outfit-playerType=%u "
-                    "developId=%u; livePT=%u info[0xC0]=%u "
-                    "flags=0x%X 0x100=%s) — applied vanilla NORMAL "
-                    "upfront\n",
+                Log("[OutfitSuitConditionApply:%s] playerType not supported "
+                    "(effective=%u via=%s developId=%u; "
+                    "livePT=%u info[0xC0]=%u flags=0x%X 0x100=%s) — applied "
+                    "vanilla NORMAL upfront\n",
                     tag,
                     static_cast<unsigned>(effectivePT),
                     via,
-                    static_cast<unsigned>(chosen->playerType),
                     static_cast<unsigned>(chosen->developId),
                     static_cast<unsigned>(livePT),
                     static_cast<unsigned>(playerType),
@@ -315,15 +312,14 @@ namespace
 
             Log("[OutfitSuitConditionApply:%s] rewrote loadout (via %s) "
                 "-> developId=%u partsType=0x%02X selector=0x%02X "
-                "variant=%u (effective=%u outfit-playerType=%u; livePT=%u "
-                "info[0xC0]=%u flags=0x%X 0x100=%s)\n",
+                "variant=%u (effective=%u; livePT=%u info[0xC0]=%u "
+                "flags=0x%X 0x100=%s)\n",
                 tag, via,
                 static_cast<unsigned>(chosen->developId),
                 static_cast<unsigned>(chosen->partsType),
                 static_cast<unsigned>(chosen->selectorCode),
                 static_cast<unsigned>(base[kInfoOff_Variant]),
                 static_cast<unsigned>(effectivePT),
-                static_cast<unsigned>(chosen->playerType),
                 static_cast<unsigned>(livePT),
                 static_cast<unsigned>(playerType),
                 flags,

@@ -75,8 +75,8 @@ MODULE: V_TppPlayer
 
   Outfit registration goes through V_TppPlayer.AddOutfit (a high-level
   wrapper) or V_FrameWork.RegisterOutfit (the low-level native bridge).
-  The wrapper handles R&D table integration; the bridge expects you to
-  supply developId and flowIndex directly.
+  The wrapper handles R&D table integration; the bridge accepts the same
+  per-PT branch shape but doesn't auto-create develop-table rows.
 
   --------------------------------------------------------------------------
   AddOutfit(opts)
@@ -92,53 +92,73 @@ MODULE: V_TppPlayer
       flowIndex    — auto-allocated AND PERSISTED in V_FrameWork_State.lua
                      under your `name` key.
 
-    The auto-allocation pools are global to the framework — weapons,
-    outfits, and any other custom equip share the developId namespace
-    so two mods can never end up with the same id.
+    developId/flowIndex are FRAMEWORK-OWNED and cannot be set by the user.
+    Passing either field is rejected with a log message.
+
+    PER-PLAYERTYPE BRANCHES:
+
+    The outfit table contains a sub-table for each playerType you want to
+    support (snake / ddMale / ddFemale / avatar). Each branch is independent
+    and supplies its own paths, sub-asset overrides, and variant set. At
+    least one branch must be provided.
+
+    Snake↔Avatar bridge: omitting `avatar` while filling `snake` (or vice
+    versa) makes the outfit appear for BOTH using the same data. DDMale and
+    DDFemale do NOT bridge — each must be supplied separately.
 
     PARAMETERS (table `opts`):
-      name                 string   REQUIRED for auto-allocation
-                                    Stable mod-side identifier — used as
-                                    the persistence key in V_FrameWork_State.lua.
+      name                 string   REQUIRED — persistence key for auto-allocation.
                                     Convention: "ModName:OutfitName".
 
-      playerType           number|string  REQUIRED
-                                    Numeric: 0=Snake, 1=DDMale, 2=DDFemale, 3=Avatar
-                                    String:  "Snake" / "DDMale" / "DDFemale" / "Avatar"
+      snake                table    OPTIONAL — Snake (playerType 0) branch
+      ddMale               table    OPTIONAL — DDMale (playerType 1) branch
+      ddFemale             table    OPTIONAL — DDFemale (playerType 2) branch
+      avatar               table    OPTIONAL — Avatar (playerType 3) branch
 
-      partsPath            string   REQUIRED  — body .parts asset path
-      fpkPath              string   REQUIRED  — body .fpk   asset path
+      (At least ONE branch table is required.)
+
+    EACH BRANCH TABLE SUPPORTS:
+      partsPath            string   REQUIRED — body .parts asset path
+      fpkPath              string   REQUIRED — body .fpk   asset path
 
       camoFpk              string|true|false  default false (disabled)
       faceFpk              string|true|false  default true  (vanilla)
       skinFv2              string|true|false  default true  (vanilla)
       diamondFpk           string|true|false  default false (disabled)
-      camoFv2              string|true|false  default true  (vanilla)
       diamondFv2           string|true|false  default true  (vanilla)
+      camoFv2              string|true|false  default true  (vanilla)
       voiceFpk             string|true|false  default true  (vanilla)
-                                    Voice .fpk asset path. When this outfit
-                                    is equipped, the engine's
-                                    LoadPlayerVoiceFpk call is intercepted
-                                    and the asset at this path is used in
-                                    place of the vanilla voice bank (so the
-                                    soldier speaks lines from your own
-                                    .fpk). Outfit override beats the
-                                    PlayerVoiceFpk per-playerType slot
-                                    system; both fall back to vanilla on
-                                    miss. `true` = use vanilla (no
-                                    override). `false` is also accepted
-                                    and treated the same as `true` for
-                                    voice (no "disabled" state — voice
-                                    can't be removed).
 
+      displayName          string   optional — LangId for this branch's
+                                    variant 0 (BASE) cycle-button label
+      displayNameHash      number   optional — pre-hashed StrCode64 (used if
+                                    displayName not set)
+
+      variants             array    optional — variants 1..N for THIS branch.
+                                    Each entry is a table with
+                                    partsPath / fpkPath / camoFpk / camoFv2 /
+                                    diamondFpk / diamondFv2 / voiceFpk /
+                                    displayName / displayNameHash.
+                                    Each PT branch can have a different
+                                    variant set.
+
+    OUTFIT-LEVEL FIELDS (apply across all branches):
       enableArm            boolean            default true
                                     Vanilla bionic prosthetic arm visibility.
-                                    Set to false for Snake/Avatar to disable the arm.
+
+      enableHead           boolean            default false
+                                    Set true when the body has no integrated
+                                    head, so the orig face/head FPK pipeline
+                                    runs (HEAD OPTION can swap heads).
+
+      defaultSoldierFaceId number             optional
+                                    When enableHead=true and the player slot
+                                    has 0, the framework writes this value
+                                    before orig reads the face FPK.
 
       headOptions          array    optional — list of head-option entries
                                     (up to 8). The HEAD OPTION submenu is
-                                    auto-enabled when this array is
-                                    non-empty (no separate boolean to set).
+                                    auto-enabled when this array is non-empty.
                                     Each entry can be:
                                       • vanilla alias (string) — case- and
                                         separator-insensitive:
@@ -149,107 +169,58 @@ MODULE: V_TppPlayer
                                           "SP-HEADGEAR"           → 0x211
                                           "HP-HEADGEAR"           → 0x212
                                         (BANDANA pair only renders on
-                                        playerType 0/3 — see below)
-                                      • vanilla equipId (number) — same
-                                        values as above; raw form
+                                        playerType 0/3.)
+                                      • vanilla equipId (number)
                                       • custom-head name (string) — resolved
-                                        against V_FrameWork.RegisterHeadOption's
-                                        registry
-                                      • custom-head equipId (number) — value
-                                        returned from RegisterHeadOption
+                                        against V_FrameWork.RegisterHeadOption
+                                      • custom-head equipId (number)
 
-      displayName         string   optional — LangId for variant 0 (the BASE
-                                    appearance) cycle-button label in the
-                                    UNIFORMS panel. Without it, the cycle
-                                    button shows whatever orig falls back to
-                                    (typically blank for our custom partsType
-                                    range, or one of vanilla's hardcoded
-                                    STANDARD/SCARF/NAKED labels). The
-                                    framework hashes this via StrCode64.
-
-      variants             array    optional — multi-variant outfit
-                                    Each entry is a sub-table with
-                                    partsPath / fpkPath / camoFpk / camoFv2 /
-                                    diamondFpk / voiceFpk / displayName
-                                    fields. `displayName` per-variant uses
-                                    the same LangId-string form as the
-                                    top-level field. Any field omitted
-                                    inherits the base.
+      langEquipName        string   optional — LangId for the outfit's
+                                    iDroid suit-name (overrides the orig
+                                    translator's blank return for our custom
+                                    partsType range).
 
       camoBonusType       number   optional — PlayerCamoType (0..116) pinned
                                     for SURFACE-BONUS lookup while this
                                     outfit is equipped. INHERIT a
                                     vanilla camo's bonus profile.
-                                      Pass `PlayerCamoType.BATTLEDRESS`
-                                      (vanilla MGSV lua enum) or a raw
-                                      number 0..116.
-                                    The framework hooks
-                                    CamouflageControllerImpl::ExecSuitCorrect
-                                    and overrides the per-slot byte at
-                                    Info+0x50[playerSlot] each update,
-                                    so the engine's GetCamoufValue lookup
-                                    indexes the modder's chosen row of
-                                    the 117×82 camo table — same
-                                    mechanism vanilla uses to pin
-                                    BATTLEDRESS / FOXTROT / etc. to
-                                    specific suits. Without this, custom
-                                    outfits inherit whatever camo the
-                                    player last selected via the iDroid.
-                                    Default: nil = no pin.
 
-      camoBonusValues     table    optional — UNIQUE per-outfit bonus row
-                                    (use INSTEAD of camoBonusType when you
-                                    want a custom profile not matching any
-                                    vanilla camo). Sparse table keyed by
-                                    material name (or 1-based numeric
-                                    index 1..82). Anything not listed
-                                    defaults to 0:
-                                      camoBonusValues = {
-                                        MTR_LEAF   = 50,
-                                        MTR_RLEF   = 50,
-                                        MTR_PLNT_A = 50,
-                                        MTR_GRAV_A = 25,
-                                        -- everything else = 0
-                                      }
-                                    The framework allocates a virtual
-                                    PlayerCamoType id (200..254 range)
-                                    for the outfit and routes the
-                                    engine's bonus-table read through
-                                    our GetCamoufValue hook to this
-                                    row. Vanilla rows (0..116) stay
-                                    untouched. Up to 55 mod outfits
-                                    can have unique rows simultaneously
-                                    (pool size).
-                                    If both camoBonusType and
-                                    camoBonusValues are passed, values
-                                    wins (more specific intent).
-                                    Default: nil = no unique row.
+      camoBonusValues     table    optional — UNIQUE per-outfit bonus row.
+                                    Sparse table keyed by material name
+                                    (e.g. MTR_LEAF = 50) or 1-based numeric
+                                    index 1..82. Anything not listed defaults
+                                    to 0. The framework allocates a virtual
+                                    PlayerCamoType id (200..254 range; pool
+                                    of 55 slots).
+                                    If both camoBonusType and camoBonusValues
+                                    are passed, values wins.
 
                                     See APPENDIX E for the full list of
                                     MaterialType names (MTR_IRON_A
                                     through MTR_NONE_A).
 
-      develop              table    optional R&D table entry (cost, time, lang
-                                    strings, icon, etc.). The wrapper auto-
-                                    fills `develop.const.p00` and `.p50` with
-                                    the auto-allocated developId/flowIndex
-                                    before forwarding to AddToEquipDevelopTable.
-                                    Field reference: APPENDIX B.
-
-      developId            number   optional — bypass auto-allocation
-                                    (use the explicit value verbatim)
-      flowIndex            number   optional — bypass auto-allocation
+      develop              table    optional R&D table entry (cost, time,
+                                    lang strings, icon, etc.). The wrapper
+                                    auto-fills `develop.const.p00` and `.p50`
+                                    with the auto-allocated developId/
+                                    flowIndex. Field reference: APPENDIX B.
 
     RETURNS: partsType, developId, flowIndex on success, or false on failure
              (always logged).
 
     EXAMPLE:
       local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
-          name       = "MyMod:Snake_NeonSuit",
-          playerType = "Snake",
-          partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
-          fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
-          develop    = {
+          name = "MyMod:Snake_NeonSuit",
+
+          snake = {
+              partsPath = "/Assets/mod/chara/snake/sna_neon.parts",
+              fpkPath   = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
+          },
+
+          -- Avatar omitted — auto-bridges to Snake.
+          -- DDMale / DDFemale omitted — outfit not available for them.
+
+          develop = {
               const = { langEquipName = "NeonSuit", iconFtexPath = "..." },
               flow  = { developGmpCost = 50000, initialAvailable = 0 },
           },
@@ -395,8 +366,14 @@ MODULE: V_TppPlayer
       { partsType            = number,    -- 0x40..0x7F
         selectorCode         = number,    -- 0x80..0xFE
         flowIndex            = number,
-        playerType           = number,    -- 0..3
-        variantCount         = number,
+
+        -- Per-PT support flags (Snake↔Avatar bridge reflected here).
+        supportsSnake        = boolean,
+        supportsDDMale       = boolean,
+        supportsDDFemale     = boolean,
+        supportsAvatar       = boolean,
+
+        variantCount         = number,    -- max across populated branches
         activeVariant        = number,
         supportsHeadOptions  = boolean }
 
@@ -536,11 +513,14 @@ MODULE: V_TppPlayer
   EXAMPLE 2 — outfit with R&D table entry (cost, time, lang strings).
 
     V_TppPlayer.AddOutfit{
-        name       = "MyMod:Snake_NeonSuit_RD",
-        playerType = "Snake",
-        partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
-        fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
-        camoFpk    = "/Assets/mod/chara/snake/sna_neon_camo.fpk",
+        name = "MyMod:Snake_NeonSuit_RD",
+
+        snake = {
+            partsPath = "/Assets/mod/chara/snake/sna_neon.parts",
+            fpkPath   = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
+            camoFpk   = "/Assets/mod/chara/snake/sna_neon_camo.fpk",
+        },
+
         develop = {
             const = {
                 langEquipName     = "NeonSuit_Name",
@@ -561,43 +541,56 @@ MODULE: V_TppPlayer
     -- allocated developId/flowIndex before forwarding to the R&D table.
 
 
-  EXAMPLE 3 — multi-variant outfit (cycle through 3 looks in mission prep).
+  EXAMPLE 3 — outfit with PER-PT VARIANTS.
+              Each playerType branch can have its own variant set.
 
     V_TppPlayer.AddOutfit{
-        name       = "MyMod:Snake_Tactical",
-        playerType = "Snake",
+        name = "MyMod:Tactical",
 
-        -- Base (variant 0)
-        partsPath  = "/Assets/mod/.../tactical_base.parts",
-        fpkPath    = "/Assets/mod/.../tactical_base.fpk",
-        camoFpk    = "/Assets/mod/.../tactical_base_camo.fpk",
+        snake = {
+            partsPath = "/Assets/mod/.../tactical_snake.parts",
+            fpkPath   = "/Assets/mod/.../tactical_snake.fpk",
+            camoFpk   = "/Assets/mod/.../tactical_snake_camo.fpk",
 
-        -- Variants 1..3 (any field omitted inherits the base)
-        variants = {
-            { fpkPath = "/Assets/mod/.../tactical_urban.fpk",
-              camoFpk = "/Assets/mod/.../tactical_urban_camo.fpk" },
+            -- Snake gets 3 alternates.
+            variants = {
+                { fpkPath = "/Assets/mod/.../tactical_snake_urban.fpk",
+                  camoFpk = "/Assets/mod/.../tactical_snake_urban_camo.fpk" },
 
-            { fpkPath = "/Assets/mod/.../tactical_woodland.fpk",
-              camoFpk = "/Assets/mod/.../tactical_woodland_camo.fpk" },
+                { fpkPath = "/Assets/mod/.../tactical_snake_wood.fpk",
+                  camoFpk = "/Assets/mod/.../tactical_snake_wood_camo.fpk" },
 
-            { partsPath = "/Assets/mod/.../tactical_v2.parts",
-              fpkPath   = "/Assets/mod/.../tactical_v2.fpk" },
+                { partsPath = "/Assets/mod/.../tactical_snake_v2.parts",
+                  fpkPath   = "/Assets/mod/.../tactical_snake_v2.fpk" },
+            },
         },
+
+        ddFemale = {
+            partsPath = "/Assets/mod/.../tactical_ddf.parts",
+            fpkPath   = "/Assets/mod/.../tactical_ddf.fpk",
+
+            -- DDFemale gets only 1 alternate (different variant set).
+            variants = {
+                { fpkPath = "/Assets/mod/.../tactical_ddf_alt.fpk" },
+            },
+        },
+
+        -- Avatar omitted — auto-bridges to Snake (and Snake's variants).
     }
 
 
   EXAMPLE 4 — outfit with HEAD OPTION submenu (vanilla heads only).
 
     -- Use the case-insensitive name aliases (recommended) instead of
-    -- raw equipIds. The names are the same ones that appear on the
-    -- vanilla R&D screen. supportsHeadOptions auto-implies true when
-    -- headOptions is non-empty, so you can omit it.
+    -- raw equipIds. supportsHeadOptions auto-implies true when
+    -- headOptions is non-empty.
     V_TppPlayer.AddOutfit{
-        name       = "MyMod:DDF_NeonHeads",
-        playerType = "DDFemale",
+        name = "MyMod:DDF_NeonHeads",
 
-        partsPath  = "/Assets/mod/chara/ddf/ddf_neon.parts",
-        fpkPath    = "/Assets/mod/pack/chara/ddf/ddf_neon.fpk",
+        ddFemale = {
+            partsPath = "/Assets/mod/chara/ddf/ddf_neon.parts",
+            fpkPath   = "/Assets/mod/pack/chara/ddf/ddf_neon.fpk",
+        },
 
         headOptions = {
             "NONE",
@@ -607,28 +600,29 @@ MODULE: V_TppPlayer
         },
 
         enableHead = true,  -- body parts file does NOT ship an integrated head
-                            -- (head options swap it at runtime)
-        enableArm  = true,  -- bionic prosthetic arm on (false to suppress)
+        enableArm  = true,
     }
 
-    -- Want a CUSTOM head in the submenu? See EXAMPLE 4b in the
-    -- RegisterHeadOption section above (paired AddToEquipDevelopTable
-    -- + RegisterHeadOption + headOptions = { "MyMod:CoolHelmet" }).
 
-
-  EXAMPLE 4c — outfit with custom voice .fpk.
+  EXAMPLE 4c — outfit with custom voice .fpk on each PT branch.
 
     -- voiceFpk routes through LoadPlayerVoiceFpk: while this outfit is
-    -- equipped, the engine plays voice lines from your .fpk instead of
-    -- the vanilla one. Per-variant voiceFpk is supported (any variant
-    -- omitting it inherits the base path). Outfit override beats the
-    -- per-playerType slot system; both fall back to vanilla on miss.
+    -- equipped, the engine plays voice lines from your .fpk. Each PT
+    -- branch can specify a different voice.
     V_TppPlayer.AddOutfit{
-        name       = "MyMod:Snake_AltVoice",
-        playerType = "Snake",
-        partsPath  = "/Assets/mod/chara/snake/sna_alt.parts",
-        fpkPath    = "/Assets/mod/pack/chara/snake/sna_alt.fpk",
-        voiceFpk   = "/Assets/mod/pack/chara/snake/sna_alt_voice.fpk",
+        name = "MyMod:AltVoice",
+
+        snake = {
+            partsPath = "/Assets/mod/chara/snake/sna_alt.parts",
+            fpkPath   = "/Assets/mod/pack/chara/snake/sna_alt.fpk",
+            voiceFpk  = "/Assets/mod/pack/chara/snake/sna_alt_voice.fpk",
+        },
+
+        ddFemale = {
+            partsPath = "/Assets/mod/chara/ddf/ddf_alt.parts",
+            fpkPath   = "/Assets/mod/pack/chara/ddf/ddf_alt.fpk",
+            voiceFpk  = "/Assets/mod/pack/chara/ddf/ddf_alt_voice.fpk",
+        },
     }
 
 
@@ -638,22 +632,6 @@ MODULE: V_TppPlayer
 
     -- Later, switch to variant 2 (woodland):
     V_TppPlayer.SetOutfitVariant(developId, 2)
-
-
-  EXAMPLE 6 — pin developId/flowIndex explicitly (migration / fixed-id mods).
-
-    -- For mods that need a specific developId (e.g. interop with another
-    -- mod that hard-codes the value). Auto-allocation is bypassed; the
-    -- supplied ids are used verbatim. Make sure they don't collide with
-    -- vanilla (51000+ for developId, 922+ for flowIndex) or other mods.
-    V_TppPlayer.AddOutfit{
-        name       = "MyMod:Snake_FixedSlot",
-        developId  = 51077,
-        flowIndex  = 977,
-        playerType = "Snake",
-        partsPath  = "/Assets/mod/.../slot.parts",
-        fpkPath    = "/Assets/mod/.../slot.fpk",
-    }
 
 
   EXAMPLE 7 — camo parameter tweaks.
@@ -1398,24 +1376,25 @@ RAW API: V_FrameWork.*
 APPENDIX A: PlayerType Values
 ================================================================================
 
-  Numeric value | String name (case-insensitive, accepted by V_TppPlayer.AddOutfit
-                |              and V_FrameWork.RegisterOutfit's `playerType` field)
+  Numeric value | Branch key (V_TppPlayer.AddOutfit per-PT sub-table name)
   --------------+------------------------------------------------------------------
-  0             | "Snake"     — Venom Snake
-  1             | "DDMale"    — Diamond Dogs male soldier
-  2             | "DDFemale"  — Diamond Dogs female soldier
-  3             | "Avatar"    — custom avatar
-  4             |             — Liquid (no string alias; numeric only)
-  5             |             — Ocelot (no string alias; numeric only)
-  6             |             — Quiet  (no string alias; numeric only)
+  0             | snake     — Venom Snake (Snake↔Avatar bridges)
+  1             | ddMale    — Diamond Dogs male soldier
+  2             | ddFemale  — Diamond Dogs female soldier
+  3             | avatar    — custom avatar (Snake↔Avatar bridges)
+  4             |           — Liquid (other APIs only; not a registerable branch)
+  5             |           — Ocelot (other APIs only; not a registerable branch)
+  6             |           — Quiet  (other APIs only; not a registerable branch)
 
-  The outfit registration API accepts only 0..3 as registered playerTypes.
-  Values 4..6 are listed for reference (other framework APIs use them).
+  The outfit registration API accepts branches only for 0..3. Snake↔Avatar
+  bridge: omitting `avatar` while filling `snake` (or vice versa) makes the
+  outfit auto-mirror to the missing side. DDMale and DDFemale do NOT bridge.
 
   RESERVED ID RANGES — auto-allocated by the framework, persisted in
   V_FrameWork_State.lua. Two mods registering different `name` keys
   always receive different ids; same `name` across runs returns the
-  same id.
+  same id. developId / flowIndex are FRAMEWORK-OWNED and cannot be
+  passed manually.
 
     Field          | Vanilla range  | Mod range (auto-pool starts at)
     ---------------+----------------+----------------------------------
@@ -1423,11 +1402,6 @@ APPENDIX A: PlayerType Values
     flowIndex      | 1   .. 921     | 922+             (persisted)
     partsType      | 0x00 .. 0x3F   | 0x40 .. 0x7F     (session-only)
     selectorCode   | 0x00 .. 0x7F   | 0x80 .. 0xFE     (session-only)
-
-  All four ids are auto-allocated by V_TppPlayer.AddOutfit. Modders
-  only supply `name` (the persistence key). Pin specific ids only when
-  required (mod interop, save-game compatibility) by passing developId
-  or flowIndex explicitly to AddOutfit.
 
 
 ================================================================================

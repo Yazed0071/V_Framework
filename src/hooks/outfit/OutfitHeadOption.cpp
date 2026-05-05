@@ -60,13 +60,14 @@ namespace
     static std::uint8_t __fastcall hkIsEnableHeadOptionSuit(
         void* self, std::uint16_t param2)
     {
-        const std::uint8_t pt = outfit::ReadLivePartsType();
+        const std::uint8_t pt     = outfit::ReadLivePartsType();
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
         if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
-                && entry->HasHeadOptions())
+                && entry->HasHeadOptions(livePT))
             {
                 return 1;
             }
@@ -77,14 +78,15 @@ namespace
 
     static std::uint8_t __fastcall hkIsEnableCurrentHeadOption(void* self)
     {
-        const std::uint8_t pt = outfit::ReadLivePartsType();
+        const std::uint8_t pt     = outfit::ReadLivePartsType();
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
         if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry)
             {
-                return entry->HasHeadOptions() ? 1 : 0;
+                return entry->HasHeadOptions(livePT) ? 1 : 0;
             }
         }
 
@@ -93,13 +95,14 @@ namespace
 
     static std::uint8_t __fastcall hkIsEnableCurrentSuit(void* self)
     {
-        const std::uint8_t pt = outfit::ReadLivePartsType();
+        const std::uint8_t pt     = outfit::ReadLivePartsType();
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
         if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
         {
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry
-                && entry->HasHeadOptions())
+                && entry->HasHeadOptions(livePT))
             {
                 return 1;
             }
