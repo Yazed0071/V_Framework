@@ -838,6 +838,51 @@ namespace
                 *reinterpret_cast<std::uint32_t*>(base + 0x104)  = count;
             }
 
+            // DIAG: dump per-row state so we can identify which marker byte
+            // corresponds to the EQP chip. Open the head submenu twice — once
+            // with NONE equipped, once with BALACLAVA — and compare row state
+            // between the row that visually shows EQP and those that don't.
+            // Fires every time the head submenu opens.
+            Log("[HeadOption:DIAG] ====== dump (livePT=%u outfit_pt=0x%02X "
+                "origCount=%u finalCount=%u) ======\n",
+                static_cast<unsigned>(livePT),
+                static_cast<unsigned>(pt),
+                static_cast<unsigned>(startCount),
+                static_cast<unsigned>(count));
+            for (std::uint32_t i = 0; i < count && i < 32; ++i)
+            {
+                const std::uint16_t rowEquipId =
+                    *reinterpret_cast<std::uint16_t*>(base + 0x4440 + i * 2);
+                const std::uint8_t  bc40 =
+                    *reinterpret_cast<std::uint8_t*>(base + 0xbc40 + i);
+                const std::uint8_t  c040 =
+                    *reinterpret_cast<std::uint8_t*>(base + 0xc040 + i);
+                const std::uint8_t  c440 =
+                    *reinterpret_cast<std::uint8_t*>(base + 0xc440 + i);
+                const std::uint8_t  c840 =
+                    *reinterpret_cast<std::uint8_t*>(base + 0xc840 + i);
+                const std::uint8_t  cell548 =
+                    *reinterpret_cast<std::uint8_t*>(base + 0x548 + i * 0xf);
+                const std::uint32_t cellCC40 =
+                    *reinterpret_cast<std::uint32_t*>(base + 0xcc40 + i * 0xb4);
+                const std::uint32_t cellCC44 =
+                    *reinterpret_cast<std::uint32_t*>(base + 0xcc44 + i * 0xb4);
+                const char* origin = (i < startCount) ? "ORIG" : "OURS";
+                Log("[HeadOption:DIAG] %s row=%2u equipId=0x%04X "
+                    "bc40=0x%02X c040=0x%02X c440=0x%02X c840=0x%02X "
+                    "cell548=0x%02X cellCC40=0x%08X cellCC44=0x%08X\n",
+                    origin,
+                    static_cast<unsigned>(i),
+                    static_cast<unsigned>(rowEquipId),
+                    static_cast<unsigned>(bc40),
+                    static_cast<unsigned>(c040),
+                    static_cast<unsigned>(c440),
+                    static_cast<unsigned>(c840),
+                    static_cast<unsigned>(cell548),
+                    static_cast<unsigned>(cellCC40),
+                    static_cast<unsigned>(cellCC44));
+            }
+
             if (!g_HeadOptionInjectFirstFire.exchange(true))
             {
                 Log("[OutfitListInject:HeadOption] FIRST INJECT: "
