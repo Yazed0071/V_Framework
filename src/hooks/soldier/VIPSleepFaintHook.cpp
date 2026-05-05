@@ -538,18 +538,6 @@ static void __fastcall hkState_ComradeAction(
                     static_cast<unsigned>(chosenIndex),
                     isImportant ? "YES" : "NO",
                     (isImportant && info.isOfficer) ? "YES" : "NO");
-
-                if (isImportant)
-                {
-                    const bool queuedForRadio =
-                        Notify_VIPRadioBodyDiscoveredTarget(0, chosenIndex);
-
-                    Log("[SleepFaint] RADIO_QUEUE actor=%u chosenSleeperIndex=%u queued=%s officer=%s\n",
-                        actorId,
-                        static_cast<unsigned>(chosenIndex),
-                        queuedForRadio ? "YES" : "NO",
-                        info.isOfficer ? "YES" : "NO");
-                }
             }
         }
     }

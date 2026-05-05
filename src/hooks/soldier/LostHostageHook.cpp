@@ -487,7 +487,7 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
         }
     }
 
-    return LostHostageDiscovery_OnConvertRadioTypeToSpeechLabel(radioType, defaultLabel);
+    return defaultLabel;
 }
 
 
@@ -510,6 +510,14 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType)
     h.playerTookIt = false;
 
     std::lock_guard<std::mutex> lock(g_Mutex);
+
+    // Preserve playerTookIt across re-registration. Lua re-calls
+    // Add_LostHostageTrap on mission/buddy reload (e.g. Sahelan outfit
+    // change) and would otherwise silently undo a prior PlayerTookHostage.
+    const auto existing = g_HostagesByObjectId.find(rawId);
+    if (existing != g_HostagesByObjectId.end())
+        h.playerTookIt = existing->second.playerTookIt;
+
     g_HostagesByObjectId[rawId] = h;
     if (nameId != -1)
         g_HostagesByNameId[nameId] = h;

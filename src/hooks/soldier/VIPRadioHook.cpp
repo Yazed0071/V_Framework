@@ -5,12 +5,12 @@
 #include <deque>
 #include <mutex>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "VIPRadioHook.h"
+#include "StepRadioDiscovery.h"
 #include "AddressSet.h"
 
 namespace
@@ -32,12 +32,6 @@ namespace
         bool isOfficer = false;
     };
 
-    struct PendingBodyFoundOverride
-    {
-        bool active = false;
-        ImportantTargetInfo target{};
-    };
-
 
     using RequestCorpse_t = void(__fastcall*)(
         void* self,
@@ -49,9 +43,6 @@ namespace
         std::uint16_t originalGameObjectId,
         const void* inheritanceInfo,
         bool fromScript);
-
-
-    using StateRadio_t = void(__fastcall*)(void* self, std::uint32_t slot, int proc);
 
 
     using CallWithRadioType_t = short* (__fastcall*)(
@@ -70,7 +61,6 @@ namespace
         std::uint16_t arg5);
 
     static RequestCorpse_t g_OrigRequestCorpse = nullptr;
-    static StateRadio_t g_OrigStateRadio = nullptr;
     static CallWithRadioType_t g_OrigCallWithRadioType = nullptr;
     static CallImpl_t g_CallImpl = nullptr;
 
@@ -81,16 +71,7 @@ namespace
     static std::unordered_map<std::uint16_t, ImportantTargetInfo> g_ImportantBySoldierIndex;
 
 
-    static std::deque<ImportantTargetInfo> g_DiscoveredImportantBodyQueue;
-
-
-    static std::unordered_set<std::uint64_t> g_SeenDiscoveredImportantBodies;
-
-
     static std::deque<ImportantTargetInfo> g_RecentImportantCorpsesFromRequest;
-
-
-    static PendingBodyFoundOverride g_PendingBodyFoundOverride;
 }
 
 
@@ -116,12 +97,6 @@ static std::uint16_t NormalizeSoldierIndex(std::uint32_t gameObjectId, std::uint
         return soldierIndex;
 
     return GameObjectIdToSoldierIndex(gameObjectId);
-}
-
-
-static std::uint64_t MakeBodyKey(std::uint32_t gameObjectId, std::uint16_t soldierIndex)
-{
-    return (static_cast<std::uint64_t>(gameObjectId) << 32) | static_cast<std::uint64_t>(soldierIndex);
 }
 
 
@@ -161,80 +136,6 @@ static bool FindImportantTarget(std::uint32_t gameObjectId, ImportantTargetInfo&
         gameObjectId,
         static_cast<std::uint16_t>(gameObjectId & 0xFFFFu),
         outInfo);
-}
-
-
-static std::uint8_t ReadRadioType(void* self, std::uint32_t slot)
-{
-    const auto selfBytes = reinterpret_cast<std::uint8_t*>(self);
-    const auto entry88Base = *reinterpret_cast<std::uint8_t**>(selfBytes + 0x88);
-    if (!entry88Base)
-        return 0;
-
-    return *(entry88Base + 8 + static_cast<std::size_t>(slot) * 0x0C);
-}
-
-
-static void RemoveRecentImportantCorpse_NoLock(const ImportantTargetInfo& info)
-{
-    for (auto it = g_RecentImportantCorpsesFromRequest.begin();
-        it != g_RecentImportantCorpsesFromRequest.end();
-        ++it)
-    {
-        if (it->gameObjectId == info.gameObjectId &&
-            it->soldierIndex == info.soldierIndex)
-        {
-            g_RecentImportantCorpsesFromRequest.erase(it);
-            return;
-        }
-    }
-}
-
-
-static void ClearRuntimeRadioState_NoLock()
-{
-    g_DiscoveredImportantBodyQueue.clear();
-    g_SeenDiscoveredImportantBodies.clear();
-    g_RecentImportantCorpsesFromRequest.clear();
-    g_PendingBodyFoundOverride = {};
-}
-
-
-static bool QueueDiscoveredImportantBody(std::uint32_t foundGameObjectId, std::uint16_t foundSoldierIndex)
-{
-    ImportantTargetInfo info{};
-    if (!FindImportantTarget(foundGameObjectId, foundSoldierIndex, info))
-    {
-        Log(
-            "[Radio] The found body wasn't the VIP's: gameObjectId=0x%08X soldierIndex=0x%04X\n",
-            static_cast<unsigned int>(foundGameObjectId),
-            static_cast<unsigned int>(foundSoldierIndex));
-        return false;
-    }
-
-    const std::uint64_t bodyKey = MakeBodyKey(info.gameObjectId, info.soldierIndex);
-    if (g_SeenDiscoveredImportantBodies.find(bodyKey) != g_SeenDiscoveredImportantBodies.end())
-    {
-        Log(
-            "[Radio] Duplicate important body discovery ignored: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s\n",
-            static_cast<unsigned int>(info.gameObjectId),
-            static_cast<unsigned int>(info.soldierIndex),
-            YesNo(info.isOfficer));
-        return false;
-    }
-
-    g_SeenDiscoveredImportantBodies.insert(bodyKey);
-    g_DiscoveredImportantBodyQueue.push_back(info);
-    RemoveRecentImportantCorpse_NoLock(info);
-
-    Log(
-        "[Radio] Queued discovered important body: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s queueSize=%zu\n",
-        static_cast<unsigned int>(info.gameObjectId),
-        static_cast<unsigned int>(info.soldierIndex),
-        YesNo(info.isOfficer),
-        g_DiscoveredImportantBodyQueue.size());
-
-    return true;
 }
 
 
@@ -323,48 +224,11 @@ static void __fastcall hkRequestCorpse(
 }
 
 
-static void __fastcall hkStateRadio(void* self, std::uint32_t slot, int proc)
-{
-    if (MissionCodeGuard::ShouldBypassHooks())
-    {
-        if (g_OrigStateRadio)
-            g_OrigStateRadio(self, slot, proc);
-        return;
-    }
-
-    if (proc == 0)
-    {
-        const std::uint8_t radioType = ReadRadioType(self, slot);
-
-        std::lock_guard<std::mutex> lock(g_StateMutex);
-
-        if (radioType == kRadioTypeBodyFound)
-        {
-            if (!g_PendingBodyFoundOverride.active && !g_DiscoveredImportantBodyQueue.empty())
-            {
-                g_PendingBodyFoundOverride.active = true;
-                g_PendingBodyFoundOverride.target = g_DiscoveredImportantBodyQueue.front();
-
-                Log(
-                    "[Radio] Armed body-found override: slot=%u gameObjectId=0x%08X soldierIndex=%u officer=%s queueSize=%zu\n",
-                    static_cast<unsigned int>(slot),
-                    static_cast<unsigned int>(g_PendingBodyFoundOverride.target.gameObjectId),
-                    static_cast<unsigned int>(g_PendingBodyFoundOverride.target.soldierIndex),
-                    YesNo(g_PendingBodyFoundOverride.target.isOfficer),
-                    g_DiscoveredImportantBodyQueue.size());
-            }
-        }
-        else
-        {
-            g_PendingBodyFoundOverride = {};
-        }
-    }
-
-    if (g_OrigStateRadio)
-        g_OrigStateRadio(self, slot, proc);
-}
-
-
+// At radioType=0x0E (BodyFound), the StateRadio entry's `arg5` (entry+0x06)
+// carries the body's GameObjectId — written by Update from the AddNoticeInfo
+// blob bytes [4..5] that CheckSightNoticeSoldier emits for body sightings.
+// We look the body up directly instead of guessing from a Lua-populated FIFO
+// queue (which mismatched soldier↔body when multiple bodies were active).
 static short* __fastcall hkCallWithRadioType(
     void* self,
     short* outHandle,
@@ -380,37 +244,23 @@ static short* __fastcall hkCallWithRadioType(
         return outHandle;
     }
 
-    PendingBodyFoundOverride pending{};
-    bool shouldConsumeQueueFront = false;
-
+    // Hostage-discovery (FOUND alive) override: speaker-soldier-keyed lookup
+    // populated by NoticeHostageAi tracking in StepRadioDiscovery. The AI emit
+    // site for these radioTypes (0x0B/0x0C/0x12/0x25) doesn't pass arg5, so we
+    // can't read the target from the entry — we rely on the per-soldier pending
+    // map keyed by ownerIndex (the speaker).
     {
-        std::lock_guard<std::mutex> lock(g_StateMutex);
-        if (radioType == kRadioTypeBodyFound && g_PendingBodyFoundOverride.active)
-        {
-            pending = g_PendingBodyFoundOverride;
-            g_PendingBodyFoundOverride = {};
-            shouldConsumeQueueFront = !g_DiscoveredImportantBodyQueue.empty();
-        }
-    }
-
-    if (radioType == kRadioTypeBodyFound && pending.active)
-    {
-        if (pending.target.isOfficer)
+        std::uint32_t hostageOverrideLabel = 0u;
+        if (LostHostageDiscovery_TryOverrideForCallWithRadioType(
+                ownerIndex, radioType, hostageOverrideLabel)
+            && hostageOverrideLabel != 0u)
         {
             Log(
-                "[Radio] Officer body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u speechLabel=0x%08X\n",
+                "[Radio] Hostage-found override: owner=%u radioType=0x%02X arg5=0x%04X overrideLabel=0x%08X\n",
                 static_cast<unsigned int>(ownerIndex),
+                static_cast<unsigned int>(radioType),
                 static_cast<unsigned int>(arg5),
-                static_cast<unsigned int>(pending.target.gameObjectId),
-                static_cast<unsigned int>(pending.target.soldierIndex),
-                static_cast<unsigned int>(kOfficerBodyFoundSpeechLabel));
-
-            if (shouldConsumeQueueFront)
-            {
-                std::lock_guard<std::mutex> lock(g_StateMutex);
-                if (!g_DiscoveredImportantBodyQueue.empty())
-                    g_DiscoveredImportantBodyQueue.pop_front();
-            }
+                static_cast<unsigned int>(hostageOverrideLabel));
 
             if (g_CallImpl)
             {
@@ -418,35 +268,64 @@ static short* __fastcall hkCallWithRadioType(
                     reinterpret_cast<long long>(self) - 0x20ll,
                     outHandle,
                     static_cast<int>(ownerIndex),
-                    kOfficerBodyFoundSpeechLabel,
+                    hostageOverrideLabel,
                     arg5);
             }
         }
-        else
+    }
+
+    if (radioType == kRadioTypeBodyFound)
+    {
+        ImportantTargetInfo info{};
+        bool found = false;
+
         {
-            Log(
-                "[Radio] VIP body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u radioType=0x%02X\n",
-                static_cast<unsigned int>(ownerIndex),
-                static_cast<unsigned int>(arg5),
-                static_cast<unsigned int>(pending.target.gameObjectId),
-                static_cast<unsigned int>(pending.target.soldierIndex),
-                static_cast<unsigned int>(kRadioTypeVipBodyFound));
+            std::lock_guard<std::mutex> lock(g_StateMutex);
+            if (FindImportantTarget(static_cast<std::uint32_t>(arg5), info))
+                found = true;
+        }
 
-            if (shouldConsumeQueueFront)
+        if (found)
+        {
+            if (info.isOfficer)
             {
-                std::lock_guard<std::mutex> lock(g_StateMutex);
-                if (!g_DiscoveredImportantBodyQueue.empty())
-                    g_DiscoveredImportantBodyQueue.pop_front();
+                Log(
+                    "[Radio] Officer body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u speechLabel=0x%08X\n",
+                    static_cast<unsigned int>(ownerIndex),
+                    static_cast<unsigned int>(arg5),
+                    static_cast<unsigned int>(info.gameObjectId),
+                    static_cast<unsigned int>(info.soldierIndex),
+                    static_cast<unsigned int>(kOfficerBodyFoundSpeechLabel));
+
+                if (g_CallImpl)
+                {
+                    return g_CallImpl(
+                        reinterpret_cast<long long>(self) - 0x20ll,
+                        outHandle,
+                        static_cast<int>(ownerIndex),
+                        kOfficerBodyFoundSpeechLabel,
+                        arg5);
+                }
             }
-
-            if (g_OrigCallWithRadioType)
+            else
             {
-                return g_OrigCallWithRadioType(
-                    self,
-                    outHandle,
-                    ownerIndex,
-                    kRadioTypeVipBodyFound,
-                    arg5);
+                Log(
+                    "[Radio] VIP body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u radioType=0x%02X\n",
+                    static_cast<unsigned int>(ownerIndex),
+                    static_cast<unsigned int>(arg5),
+                    static_cast<unsigned int>(info.gameObjectId),
+                    static_cast<unsigned int>(info.soldierIndex),
+                    static_cast<unsigned int>(kRadioTypeVipBodyFound));
+
+                if (g_OrigCallWithRadioType)
+                {
+                    return g_OrigCallWithRadioType(
+                        self,
+                        outHandle,
+                        ownerIndex,
+                        kRadioTypeVipBodyFound,
+                        arg5);
+                }
             }
         }
     }
@@ -508,28 +387,6 @@ void Remove_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId)
 }
 
 
-bool Notify_VIPRadioBodyDiscovered(std::uint32_t foundGameObjectId)
-{
-    if (MissionCodeGuard::ShouldBypassHooks())
-        return false;
-
-    std::lock_guard<std::mutex> lock(g_StateMutex);
-    return QueueDiscoveredImportantBody(
-        foundGameObjectId,
-        GameObjectIdToSoldierIndex(foundGameObjectId));
-}
-
-
-bool Notify_VIPRadioBodyDiscoveredTarget(std::uint32_t foundGameObjectId, std::uint16_t foundSoldierIndex)
-{
-    if (MissionCodeGuard::ShouldBypassHooks())
-        return false;
-
-    std::lock_guard<std::mutex> lock(g_StateMutex);
-    return QueueDiscoveredImportantBody(foundGameObjectId, foundSoldierIndex);
-}
-
-
 bool Try_GetSingleRecentImportantCorpseIndex(std::uint16_t& outSoldierIndex, bool& outIsOfficer)
 {
     outSoldierIndex = 0xFFFFu;
@@ -551,9 +408,9 @@ void Clear_VIPRadioImportantGameObjectIds()
     std::lock_guard<std::mutex> lock(g_StateMutex);
     g_ImportantByGameObjectId.clear();
     g_ImportantBySoldierIndex.clear();
-    ClearRuntimeRadioState_NoLock();
+    g_RecentImportantCorpsesFromRequest.clear();
 
-    Log("[Radio] Cleared important targets, discovered-body queue, duplicate cache, and pending radio state\n");
+    Log("[Radio] Cleared important targets and recent corpse log\n");
 }
 
 
@@ -562,10 +419,9 @@ bool Install_VIPRadio_Hook()
     g_CallImpl = reinterpret_cast<CallImpl_t>(ResolveGameAddress(gAddr.CallImpl));
 
     void* requestCorpseTarget = ResolveGameAddress(gAddr.RequestCorpse);
-    void* stateRadioTarget = ResolveGameAddress(gAddr.StateRadio);
     void* callWithRadioTypeTarget = ResolveGameAddress(gAddr.CallWithRadioType);
 
-    if (!g_CallImpl || !requestCorpseTarget || !stateRadioTarget || !callWithRadioTypeTarget)
+    if (!g_CallImpl || !requestCorpseTarget || !callWithRadioTypeTarget)
     {
         Log("[Hook] VIPRadio: address resolve failed\n");
         return false;
@@ -577,11 +433,6 @@ bool Install_VIPRadio_Hook()
         requestCorpseTarget,
         reinterpret_cast<void*>(&hkRequestCorpse),
         reinterpret_cast<void**>(&g_OrigRequestCorpse));
-
-    ok = ok && CreateAndEnableHook(
-        stateRadioTarget,
-        reinterpret_cast<void*>(&hkStateRadio),
-        reinterpret_cast<void**>(&g_OrigStateRadio));
 
     ok = ok && CreateAndEnableHook(
         callWithRadioTypeTarget,
@@ -596,11 +447,9 @@ bool Install_VIPRadio_Hook()
 bool Uninstall_VIPRadio_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.RequestCorpse));
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.StateRadio));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CallWithRadioType));
 
     g_OrigRequestCorpse = nullptr;
-    g_OrigStateRadio = nullptr;
     g_OrigCallWithRadioType = nullptr;
     g_CallImpl = nullptr;
 
