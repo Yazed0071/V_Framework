@@ -277,6 +277,11 @@ namespace AddressSetRuntime
 
         uintptr_t TornadoDualPatch                  = 0;
 
+
+        uintptr_t RealizedSahelan2Impl_Realize      = 0;
+        uintptr_t RealizedSahelan2Impl_SetFovaImpl  = 0;
+        uintptr_t FormVariationFile2_ApplyOnlyMeshAndTextureVariation = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
@@ -469,6 +474,11 @@ namespace AddressSetRuntime
             0x140F6D7A0ull, // IsEquipSuit (PT/flowIndex match check used by dev-menu request gate)
             0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo (R&D MotherBase dev-menu "Request Supply Drop" handler — fires per click, takes flowIndex)
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
+
+
+            0x146acc210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
+            0x146acc650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
+            0x144a3cbd0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
         };
 
         return value;
@@ -653,6 +663,11 @@ namespace AddressSetRuntime
             0x0ull, // IsEquipSuit
             0x0ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
             0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
+
+
+            0x0ull, // RealizedSahelan2Impl_Realize (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // RealizedSahelan2Impl_SetFovaImpl (JP TBD; hook silently no-ops if unresolved)
+            0x0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (JP TBD; hook silently no-ops if unresolved)
         };
 
         return value;

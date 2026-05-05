@@ -128,6 +128,7 @@
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
+    <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -229,6 +230,7 @@
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
+    <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

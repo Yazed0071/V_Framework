@@ -7,6 +7,7 @@ extern "C" {
 
 #include <Windows.h>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 #include <mutex>
@@ -60,6 +61,7 @@ extern "C" {
 #include "../hooks/outfit/OutfitRegistry.h"
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitSuitConditionApply.h"
+#include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 
 
 namespace
@@ -2271,6 +2273,88 @@ static int __cdecl l_GetOutfitInfo(lua_State* L)
 }
 
 
+static std::uint64_t ParseSahelanFovaArg(const char* text)
+{
+    if (!text || !*text)
+        return 0;
+
+
+    const bool hasHexPrefix = (text[0] == '0') && (text[1] == 'x' || text[1] == 'X');
+
+    bool looksLikePath = false;
+    for (const char* p = text; *p; ++p)
+    {
+        const char c = *p;
+        if (c == '/' || c == '\\')
+        {
+            looksLikePath = true;
+            break;
+        }
+    }
+
+    if (!looksLikePath)
+    {
+        const char* hexStart = hasHexPrefix ? text + 2 : text;
+        bool allHex = true;
+        size_t hexLen = 0;
+        for (const char* p = hexStart; *p; ++p)
+        {
+            const char c = *p;
+            const bool isHexDigit =
+                (c >= '0' && c <= '9') ||
+                (c >= 'a' && c <= 'f') ||
+                (c >= 'A' && c <= 'F');
+            if (!isHexDigit)
+            {
+                allHex = false;
+                break;
+            }
+            ++hexLen;
+        }
+
+        if (allHex && hexLen > 0 && hexLen <= 16)
+        {
+            return std::strtoull(hexStart, nullptr, 16);
+        }
+    }
+
+
+    return FoxHashes::PathCode64Ext(text);
+}
+
+
+static int __cdecl l_SetSahelanFova(lua_State* L)
+{
+    const char* arg = GetLuaString(L, 1);
+    if (!arg || !*arg)
+    {
+        Log("[SahelanFova] SetSahelanFova: missing argument; expected hex hash like \"0x60887fe72aa5c04b\" or asset path\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const std::uint64_t hash = ParseSahelanFovaArg(arg);
+    if (hash == 0)
+    {
+        Log("[SahelanFova] SetSahelanFova: parsed hash is zero (input=\"%s\")\n", arg);
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    Set_SahelanFovaHash(hash);
+    PushLuaBool(L, true);
+    return 1;
+}
+
+
+static int __cdecl l_ClearSahelanFova(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_SahelanFovaOverride();
+    return 0;
+}
+
+
 static int __cdecl l_EnableTornadoDual(lua_State* L)
 {
     static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
@@ -2369,27 +2453,27 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "StopCassette",                           l_StopCassette },
     { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
     { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
-    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
+    //{ "RegisterCustomTapes",                    l_RegisterCustomTapes },
     { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
     { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
-    { "RegisterConstantEquipId",                RegisterConstantEquipId::Lua_RegisterConstantEquipId },
-    { "DeclareWPs",                             DeclareWPs::Lua_DeclareWPs },
-    { "SetGunBasic",                            l_SetGunBasic },
-    { "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
-    { "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
-    { "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
-    { "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
-    { "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
-    { "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
-    { "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
-    { "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
-    { "DeclareBAs",                             DeclareBAs::Lua_DeclareBAs },
-    { "DeclareSTs",                             DeclareSTs::Lua_DeclareSTs },
-    { "DeclareMZs",                             DeclareMZs::Lua_DeclareMZs },
-    { "DeclareSKs",                             DeclareSKs::Lua_DeclareSKs },
-    { "DeclareUBs",                             DeclareUBs::Lua_DeclareUBs },
-    { "AddToEquipMotionDataTable",                EquipMotionData::Lua_AddToEquipMotionDataTable },
-    { "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
+    //{ "RegisterConstantEquipId",                RegisterConstantEquipId::Lua_RegisterConstantEquipId },
+    //{ "DeclareWPs",                             DeclareWPs::Lua_DeclareWPs },
+    //{ "SetGunBasic",                            l_SetGunBasic },
+    //{ "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
+    //{ "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
+    //{ "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
+    //{ "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
+    //{ "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
+    //{ "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
+    //{ "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
+    //{ "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
+    //{ "DeclareBAs",                             DeclareBAs::Lua_DeclareBAs },
+    //{ "DeclareSTs",                             DeclareSTs::Lua_DeclareSTs },
+    //{ "DeclareMZs",                             DeclareMZs::Lua_DeclareMZs },
+    //{ "DeclareSKs",                             DeclareSKs::Lua_DeclareSKs },
+    //{ "DeclareUBs",                             DeclareUBs::Lua_DeclareUBs },
+    //{ "AddToEquipMotionDataTable",                EquipMotionData::Lua_AddToEquipMotionDataTable },
+    //{ "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
@@ -2397,21 +2481,25 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "GetModFiles",                            l_GetModFiles },
 
 
-    { "RegisterOutfit",                         l_RegisterOutfit },
-    { "RegisterHeadOption",                     l_RegisterHeadOption },
-    { "SetCurrentOutfit",                       l_SetCurrentOutfit },
-    { "SetOutfitVariant",                       l_SetOutfitVariant },
-    { "GetOutfitInfo",                          l_GetOutfitInfo },
+    //{ "RegisterOutfit",                         l_RegisterOutfit },
+    //{ "RegisterHeadOption",                     l_RegisterHeadOption },
+    //{ "SetCurrentOutfit",                       l_SetCurrentOutfit },
+    //{ "SetOutfitVariant",                       l_SetOutfitVariant },
+    //{ "GetOutfitInfo",                          l_GetOutfitInfo },
 
 
-    { "SetCamoValue",                           l_SetCamoValue },
-    { "GetCamoValue",                           l_GetCamoValue },
-    { "CloneCamoRow",                           l_CloneCamoRow },
-    { "ImportCamoRow",                          l_ImportCamoRow },
-    { "ImportCamoTable",                        l_ImportCamoTable },
+    //{ "SetCamoValue",                           l_SetCamoValue },
+    //{ "GetCamoValue",                           l_GetCamoValue },
+    //{ "CloneCamoRow",                           l_CloneCamoRow },
+    //{ "ImportCamoRow",                          l_ImportCamoRow },
+    //{ "ImportCamoTable",                        l_ImportCamoTable },
 
 
     { "EnableTornadoDual",                      l_EnableTornadoDual },
+
+
+    { "SetSahelanFova",                         l_SetSahelanFova },
+    { "ClearSahelanFova",                       l_ClearSahelanFova },
 
     { nullptr, nullptr }
 };
@@ -2461,286 +2549,286 @@ bool Install_SetLuaFunctions_Hook()
 
     ResolveLuaApi();
 
-    RegisterConstantEquipId::Deps deps{};
-    deps.ResolveLuaApi = &ResolveLuaApi;
-    deps.GetLuaTop = &GetLuaTop;
-    deps.LuaGetField = &LuaGetField;
-    deps.LuaType = &LuaType;
-    deps.LuaIsString = &LuaIsString;
-    deps.LuaIsNumber = &LuaIsNumber;
-    deps.LuaPop = &LuaPop;
-    deps.GetLuaString = &GetLuaString;
-    deps.GetLuaInt = &GetLuaInt;
-    deps.PushLuaNumber = &PushLuaNumber;
-    deps.LuaPushString = &LuaPushString;
-    deps.LuaCreateTable = &LuaCreateTable;
-    deps.LuaRawSet = &LuaRawSet;
-    deps.LuaSetTable = &LuaSetTable;
-    deps.LuaPushNil = &LuaPushNil;
-    deps.LuaNext = &LuaNext;
+    //RegisterConstantEquipId::Deps deps{};
+    //deps.ResolveLuaApi = &ResolveLuaApi;
+    //deps.GetLuaTop = &GetLuaTop;
+    //deps.LuaGetField = &LuaGetField;
+    //deps.LuaType = &LuaType;
+    //deps.LuaIsString = &LuaIsString;
+    //deps.LuaIsNumber = &LuaIsNumber;
+    //deps.LuaPop = &LuaPop;
+    //deps.GetLuaString = &GetLuaString;
+    //deps.GetLuaInt = &GetLuaInt;
+    //deps.PushLuaNumber = &PushLuaNumber;
+    //deps.LuaPushString = &LuaPushString;
+    //deps.LuaCreateTable = &LuaCreateTable;
+    //deps.LuaRawSet = &LuaRawSet;
+    //deps.LuaSetTable = &LuaSetTable;
+    //deps.LuaPushNil = &LuaPushNil;
+    //deps.LuaNext = &LuaNext;
 
-    DeclareWPs::Deps declareWpDeps{};
-    declareWpDeps.ResolveLuaApi = &ResolveLuaApi;
+    //DeclareWPs::Deps declareWpDeps{};
+    //declareWpDeps.ResolveLuaApi = &ResolveLuaApi;
+    //
+    //declareWpDeps.GetLuaTop = &GetLuaTop;
+    //declareWpDeps.LuaGetField = &LuaGetField;
+    //declareWpDeps.LuaType = &LuaType;
+    //declareWpDeps.LuaPop = &LuaPop;
+    //
+    //declareWpDeps.GetLuaString = &GetLuaString;
+    //declareWpDeps.PushLuaNumber = &PushLuaNumber;
+    //
+    //declareWpDeps.LuaPushString = &LuaPushString;
+    //declareWpDeps.LuaCreateTable = &LuaCreateTable;
+    //declareWpDeps.LuaRawSet = &LuaRawSet;
+    //declareWpDeps.LuaSetTable = &LuaSetTable;
+    //declareWpDeps.GetLuaInt = &GetLuaInt;
+    //declareWpDeps.LuaPushNil = &LuaPushNil;
+    //declareWpDeps.LuaNext = &LuaNext;
+    //RegisterConstantEquipId::Bind(deps);
+    //DeclareWPs::Bind(declareWpDeps);
 
-    declareWpDeps.GetLuaTop = &GetLuaTop;
-    declareWpDeps.LuaGetField = &LuaGetField;
-    declareWpDeps.LuaType = &LuaType;
-    declareWpDeps.LuaPop = &LuaPop;
-
-    declareWpDeps.GetLuaString = &GetLuaString;
-    declareWpDeps.PushLuaNumber = &PushLuaNumber;
-
-    declareWpDeps.LuaPushString = &LuaPushString;
-    declareWpDeps.LuaCreateTable = &LuaCreateTable;
-    declareWpDeps.LuaRawSet = &LuaRawSet;
-    declareWpDeps.LuaSetTable = &LuaSetTable;
-    declareWpDeps.GetLuaInt = &GetLuaInt;
-    declareWpDeps.LuaPushNil = &LuaPushNil;
-    declareWpDeps.LuaNext = &LuaNext;
-    RegisterConstantEquipId::Bind(deps);
-    DeclareWPs::Bind(declareWpDeps);
-
-    EquipIdTableAdd::Deps equipIdDeps{};
-    equipIdDeps.ResolveLuaApi = &ResolveLuaApi;
-    equipIdDeps.GetLuaTop = &GetLuaTop;
-    equipIdDeps.LuaType = &LuaType;
-    equipIdDeps.LuaIsNumber = &LuaIsNumber;
-    equipIdDeps.LuaIsString = &LuaIsString;
-    equipIdDeps.LuaObjLen = &LuaObjLen;
-    equipIdDeps.LuaPop = &LuaPop;
-
-    equipIdDeps.GetLuaString = &GetLuaString;
-    equipIdDeps.GetLuaInt = &GetLuaInt;
-    equipIdDeps.PushLuaNumber = &PushLuaNumber;
-
-    equipIdDeps.LuaPushString = &LuaPushString;
-    equipIdDeps.LuaCreateTable = &LuaCreateTable;
-    equipIdDeps.LuaRawSet = &LuaRawSet;
-    equipIdDeps.LuaSetTable = &LuaSetTable;
-    equipIdDeps.LuaRawGetI = &LuaRawGetI;
-    equipIdDeps.LuaPushValue = &LuaPushValue;
-    EquipIdTableAdd::Bind(equipIdDeps);
-
-
-    EquipDevelopAdd::Deps equipDevelopDeps{};
-    equipDevelopDeps.ResolveLuaApi = &ResolveLuaApi;
-    equipDevelopDeps.GetLuaTop = &GetLuaTop;
-    equipDevelopDeps.LuaType = &LuaType;
-    equipDevelopDeps.LuaSetTop = &SetLuaTop;
-    equipDevelopDeps.GetLuaString = &GetLuaString;
-    equipDevelopDeps.GetLuaInt = &GetLuaInt;
-    equipDevelopDeps.PushLuaNumber = &PushLuaNumber;
-    equipDevelopDeps.LuaPushString = &LuaPushString;
-    equipDevelopDeps.LuaCreateTable = &LuaCreateTable;
-    equipDevelopDeps.LuaGetTable = &LuaGetTable;
-    equipDevelopDeps.LuaSetTable = &LuaSetTable;
-    EquipDevelopAdd::Bind(equipDevelopDeps);
+    //EquipIdTableAdd::Deps equipIdDeps{};
+    //equipIdDeps.ResolveLuaApi = &ResolveLuaApi;
+    //equipIdDeps.GetLuaTop = &GetLuaTop;
+    //equipIdDeps.LuaType = &LuaType;
+    //equipIdDeps.LuaIsNumber = &LuaIsNumber;
+    //equipIdDeps.LuaIsString = &LuaIsString;
+    //equipIdDeps.LuaObjLen = &LuaObjLen;
+    //equipIdDeps.LuaPop = &LuaPop;
+    //
+    //equipIdDeps.GetLuaString = &GetLuaString;
+    //equipIdDeps.GetLuaInt = &GetLuaInt;
+    //equipIdDeps.PushLuaNumber = &PushLuaNumber;
+    //
+    //equipIdDeps.LuaPushString = &LuaPushString;
+    //equipIdDeps.LuaCreateTable = &LuaCreateTable;
+    //equipIdDeps.LuaRawSet = &LuaRawSet;
+    //equipIdDeps.LuaSetTable = &LuaSetTable;
+    //equipIdDeps.LuaRawGetI = &LuaRawGetI;
+    //equipIdDeps.LuaPushValue = &LuaPushValue;
+    //EquipIdTableAdd::Bind(equipIdDeps);
 
 
-    DeclareSWPs::Deps declareSwpDeps{};
-    declareSwpDeps.ResolveLuaApi = &ResolveLuaApi;
-    declareSwpDeps.GetLuaTop = &GetLuaTop;
-    declareSwpDeps.LuaGetField = &LuaGetField;
-    declareSwpDeps.LuaType = &LuaType;
-    declareSwpDeps.LuaPop = &LuaPop;
-    declareSwpDeps.GetLuaString = &GetLuaString;
-    declareSwpDeps.PushLuaNumber = &PushLuaNumber;
-    declareSwpDeps.LuaPushString = &LuaPushString;
-    declareSwpDeps.LuaCreateTable = &LuaCreateTable;
-    declareSwpDeps.LuaRawSet = &LuaRawSet;
-    declareSwpDeps.LuaSetTable = &LuaSetTable;
-    DeclareSWPs::Bind(declareSwpDeps);
-
-    SupportWeaponType::Deps supportWeaponTypeDeps{};
-    supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
-    supportWeaponTypeDeps.LuaType = &LuaType;
-    supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
-    SupportWeaponType::Bind(supportWeaponTypeDeps);
-
-    DeclareRCs::Deps declareRcDeps{};
-    declareRcDeps.ResolveLuaApi = &ResolveLuaApi;
-
-    declareRcDeps.GetLuaTop = &GetLuaTop;
-    declareRcDeps.LuaGetField = &LuaGetField;
-    declareRcDeps.LuaType = &LuaType;
-    declareRcDeps.LuaPop = &LuaPop;
-
-    declareRcDeps.GetLuaString = &GetLuaString;
-    declareRcDeps.GetLuaInt = &GetLuaInt;
-    declareRcDeps.PushLuaNumber = &PushLuaNumber;
-
-    declareRcDeps.LuaPushString = &LuaPushString;
-    declareRcDeps.LuaCreateTable = &LuaCreateTable;
-    declareRcDeps.LuaRawSet = &LuaRawSet;
-    declareRcDeps.LuaSetTable = &LuaSetTable;
-
-    declareRcDeps.LuaPushNil = &LuaPushNil;
-    declareRcDeps.LuaNext = &LuaNext;
-
-    DeclareRCs::Bind(declareRcDeps);
+    //EquipDevelopAdd::Deps equipDevelopDeps{};
+    //equipDevelopDeps.ResolveLuaApi = &ResolveLuaApi;
+    //equipDevelopDeps.GetLuaTop = &GetLuaTop;
+    //equipDevelopDeps.LuaType = &LuaType;
+    //equipDevelopDeps.LuaSetTop = &SetLuaTop;
+    //equipDevelopDeps.GetLuaString = &GetLuaString;
+    //equipDevelopDeps.GetLuaInt = &GetLuaInt;
+    //equipDevelopDeps.PushLuaNumber = &PushLuaNumber;
+    //equipDevelopDeps.LuaPushString = &LuaPushString;
+    //equipDevelopDeps.LuaCreateTable = &LuaCreateTable;
+    //equipDevelopDeps.LuaGetTable = &LuaGetTable;
+    //equipDevelopDeps.LuaSetTable = &LuaSetTable;
+    //EquipDevelopAdd::Bind(equipDevelopDeps);
 
 
-    DeclareAMs::Deps declareAmDeps{};
-    declareAmDeps.ResolveLuaApi = &ResolveLuaApi;
-    declareAmDeps.GetLuaTop = &GetLuaTop;
-    declareAmDeps.LuaType = &LuaType;
-    declareAmDeps.GetLuaString = &GetLuaString;
-    declareAmDeps.GetLuaInt = &GetLuaInt;
-    declareAmDeps.LuaSetTop = &SetLuaTop;
-    declareAmDeps.PushLuaNumber = &PushLuaNumber;
-    declareAmDeps.LuaPushString = &LuaPushString;
-    declareAmDeps.LuaCreateTable = &LuaCreateTable;
-    declareAmDeps.LuaGetField = &LuaGetField;
-    declareAmDeps.LuaSetTable = &LuaSetTable;
-    declareAmDeps.LuaPushNil = &LuaPushNil;
-    declareAmDeps.LuaNext = &LuaNext;
-    declareAmDeps.LuaRawSet = &LuaRawSet;
-    DeclareAMs::Bind(declareAmDeps);
+    //DeclareSWPs::Deps declareSwpDeps{};
+    //declareSwpDeps.ResolveLuaApi = &ResolveLuaApi;
+    //declareSwpDeps.GetLuaTop = &GetLuaTop;
+    //declareSwpDeps.LuaGetField = &LuaGetField;
+    //declareSwpDeps.LuaType = &LuaType;
+    //declareSwpDeps.LuaPop = &LuaPop;
+    //declareSwpDeps.GetLuaString = &GetLuaString;
+    //declareSwpDeps.PushLuaNumber = &PushLuaNumber;
+    //declareSwpDeps.LuaPushString = &LuaPushString;
+    //declareSwpDeps.LuaCreateTable = &LuaCreateTable;
+    //declareSwpDeps.LuaRawSet = &LuaRawSet;
+    //declareSwpDeps.LuaSetTable = &LuaSetTable;
+    //DeclareSWPs::Bind(declareSwpDeps);
 
-    {
-        DeclareBAs::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaType         = &LuaType;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaRawSet       = &LuaRawSet;
-        d.LuaSetTable     = &LuaSetTable;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        DeclareBAs::Bind(d);
-    }
+    //SupportWeaponType::Deps supportWeaponTypeDeps{};
+    //supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
+    //supportWeaponTypeDeps.LuaType = &LuaType;
+    //supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
+    //SupportWeaponType::Bind(supportWeaponTypeDeps);
 
-    {
-        DeclareSTs::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaType         = &LuaType;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaRawSet       = &LuaRawSet;
-        d.LuaSetTable     = &LuaSetTable;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        DeclareSTs::Bind(d);
-    }
-
-    {
-        DeclareMZs::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaType         = &LuaType;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaRawSet       = &LuaRawSet;
-        d.LuaSetTable     = &LuaSetTable;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        DeclareMZs::Bind(d);
-    }
-
-    {
-        DeclareSKs::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaType         = &LuaType;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaRawSet       = &LuaRawSet;
-        d.LuaSetTable     = &LuaSetTable;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        DeclareSKs::Bind(d);
-    }
-
-    {
-        DeclareUBs::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaType         = &LuaType;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaRawSet       = &LuaRawSet;
-        d.LuaSetTable     = &LuaSetTable;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        DeclareUBs::Bind(d);
-    }
-
-    {
-        EquipMotionData::Deps d{};
-        d.ResolveLuaApi   = &ResolveLuaApi;
-        d.GetLuaTop       = &GetLuaTop;
-        d.LuaType         = &LuaType;
-        d.LuaObjLen       = &LuaObjLen;
-        d.LuaPop          = &LuaPop;
-        d.GetLuaString    = &GetLuaString;
-        d.GetLuaInt       = &GetLuaInt;
-        d.LuaGetField     = &LuaGetField;
-        d.LuaGetTable     = &LuaGetTable;
-        d.LuaPushString   = &LuaPushString;
-        d.LuaCreateTable  = &LuaCreateTable;
-        d.LuaSetTable     = &LuaSetTable;
-        d.PushLuaNumber   = &PushLuaNumber;
-        d.LuaPushValue    = &LuaPushValue;
-        d.LuaPushNil      = &LuaPushNil;
-        d.LuaNext         = &LuaNext;
-        EquipMotionData::Bind(d);
-    }
-
-    EquipParams::Deps equipParamsDeps{};
-    equipParamsDeps.ResolveLuaApi = &ResolveLuaApi;
-    equipParamsDeps.GetLuaTop = &GetLuaTop;
-    equipParamsDeps.LuaType = &LuaType;
-    equipParamsDeps.GetLuaInt = &GetLuaInt;
-    equipParamsDeps.GetLuaNumber = &LuaToNumber;
-    equipParamsDeps.GetLuaString = &GetLuaString;
-    equipParamsDeps.LuaObjLen = &LuaObjLen;
-    equipParamsDeps.LuaSetTop = &SetLuaTop;
-    equipParamsDeps.PushLuaNumber = &PushLuaNumber;
-    equipParamsDeps.LuaPushString = &LuaPushString;
-    equipParamsDeps.LuaCreateTable = &LuaCreateTable;
-    equipParamsDeps.LuaGetField = &LuaGetField;
-    equipParamsDeps.LuaRawGetI = &LuaRawGetI;
-    equipParamsDeps.LuaGetTable = &LuaGetTable;
-    equipParamsDeps.LuaSetTable = &LuaSetTable;
-    equipParamsDeps.LuaPushValue = &LuaPushValue;
-    EquipParams::Bind(equipParamsDeps);
+    //DeclareRCs::Deps declareRcDeps{};
+    //declareRcDeps.ResolveLuaApi = &ResolveLuaApi;
+    //
+    //declareRcDeps.GetLuaTop = &GetLuaTop;
+    //declareRcDeps.LuaGetField = &LuaGetField;
+    //declareRcDeps.LuaType = &LuaType;
+    //declareRcDeps.LuaPop = &LuaPop;
+    //
+    //declareRcDeps.GetLuaString = &GetLuaString;
+    //declareRcDeps.GetLuaInt = &GetLuaInt;
+    //declareRcDeps.PushLuaNumber = &PushLuaNumber;
+    //
+    //declareRcDeps.LuaPushString = &LuaPushString;
+    //declareRcDeps.LuaCreateTable = &LuaCreateTable;
+    //declareRcDeps.LuaRawSet = &LuaRawSet;
+    //declareRcDeps.LuaSetTable = &LuaSetTable;
+    //
+    //declareRcDeps.LuaPushNil = &LuaPushNil;
+    //declareRcDeps.LuaNext = &LuaNext;
+    //
+    //DeclareRCs::Bind(declareRcDeps);
 
 
-    CamoufTable::Deps camoDeps{};
-    camoDeps.LuaCreateTable = &LuaCreateTable;
-    camoDeps.LuaPushString  = &LuaPushString;
-    camoDeps.LuaPushNumber  = &PushLuaNumber;
-    camoDeps.LuaSetTable    = &LuaSetTable;
-    camoDeps.LuaGetTop      = &GetLuaTop;
-    camoDeps.LuaSetTop      = &SetLuaTop;
-    CamoufTable::Bind(camoDeps);
+    //DeclareAMs::Deps declareAmDeps{};
+    //declareAmDeps.ResolveLuaApi = &ResolveLuaApi;
+    //declareAmDeps.GetLuaTop = &GetLuaTop;
+    //declareAmDeps.LuaType = &LuaType;
+    //declareAmDeps.GetLuaString = &GetLuaString;
+    //declareAmDeps.GetLuaInt = &GetLuaInt;
+    //declareAmDeps.LuaSetTop = &SetLuaTop;
+    //declareAmDeps.PushLuaNumber = &PushLuaNumber;
+    //declareAmDeps.LuaPushString = &LuaPushString;
+    //declareAmDeps.LuaCreateTable = &LuaCreateTable;
+    //declareAmDeps.LuaGetField = &LuaGetField;
+    //declareAmDeps.LuaSetTable = &LuaSetTable;
+    //declareAmDeps.LuaPushNil = &LuaPushNil;
+    //declareAmDeps.LuaNext = &LuaNext;
+    //declareAmDeps.LuaRawSet = &LuaRawSet;
+    //DeclareAMs::Bind(declareAmDeps);
+
+    //{
+    //    DeclareBAs::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaRawSet       = &LuaRawSet;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    DeclareBAs::Bind(d);
+    //}
+
+    //{
+    //    DeclareSTs::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaRawSet       = &LuaRawSet;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    DeclareSTs::Bind(d);
+    //}
+
+    //{
+    //    DeclareMZs::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaRawSet       = &LuaRawSet;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    DeclareMZs::Bind(d);
+    //}
+
+    //{
+    //    DeclareSKs::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaRawSet       = &LuaRawSet;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    DeclareSKs::Bind(d);
+    //}
+
+    //{
+    //    DeclareUBs::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaRawSet       = &LuaRawSet;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    DeclareUBs::Bind(d);
+    //}
+
+    //{
+    //    EquipMotionData::Deps d{};
+    //    d.ResolveLuaApi   = &ResolveLuaApi;
+    //    d.GetLuaTop       = &GetLuaTop;
+    //    d.LuaType         = &LuaType;
+    //    d.LuaObjLen       = &LuaObjLen;
+    //    d.LuaPop          = &LuaPop;
+    //    d.GetLuaString    = &GetLuaString;
+    //    d.GetLuaInt       = &GetLuaInt;
+    //    d.LuaGetField     = &LuaGetField;
+    //    d.LuaGetTable     = &LuaGetTable;
+    //    d.LuaPushString   = &LuaPushString;
+    //    d.LuaCreateTable  = &LuaCreateTable;
+    //    d.LuaSetTable     = &LuaSetTable;
+    //    d.PushLuaNumber   = &PushLuaNumber;
+    //    d.LuaPushValue    = &LuaPushValue;
+    //    d.LuaPushNil      = &LuaPushNil;
+    //    d.LuaNext         = &LuaNext;
+    //    EquipMotionData::Bind(d);
+    //}
+
+    //EquipParams::Deps equipParamsDeps{};
+    //equipParamsDeps.ResolveLuaApi = &ResolveLuaApi;
+    //equipParamsDeps.GetLuaTop = &GetLuaTop;
+    //equipParamsDeps.LuaType = &LuaType;
+    //equipParamsDeps.GetLuaInt = &GetLuaInt;
+    //equipParamsDeps.GetLuaNumber = &LuaToNumber;
+    //equipParamsDeps.GetLuaString = &GetLuaString;
+    //equipParamsDeps.LuaObjLen = &LuaObjLen;
+    //equipParamsDeps.LuaSetTop = &SetLuaTop;
+    //equipParamsDeps.PushLuaNumber = &PushLuaNumber;
+    //equipParamsDeps.LuaPushString = &LuaPushString;
+    //equipParamsDeps.LuaCreateTable = &LuaCreateTable;
+    //equipParamsDeps.LuaGetField = &LuaGetField;
+    //equipParamsDeps.LuaRawGetI = &LuaRawGetI;
+    //equipParamsDeps.LuaGetTable = &LuaGetTable;
+    //equipParamsDeps.LuaSetTable = &LuaSetTable;
+    //equipParamsDeps.LuaPushValue = &LuaPushValue;
+    //EquipParams::Bind(equipParamsDeps);
+
+
+    //CamoufTable::Deps camoDeps{};
+    //camoDeps.LuaCreateTable = &LuaCreateTable;
+    //camoDeps.LuaPushString  = &LuaPushString;
+    //camoDeps.LuaPushNumber  = &PushLuaNumber;
+    //camoDeps.LuaSetTable    = &LuaSetTable;
+    //camoDeps.LuaGetTop      = &GetLuaTop;
+    //camoDeps.LuaSetTop      = &SetLuaTop;
+    //CamoufTable::Bind(camoDeps);
 
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
