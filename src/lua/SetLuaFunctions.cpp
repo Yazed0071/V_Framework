@@ -62,6 +62,7 @@ extern "C" {
 #include "../hooks/outfit/OutfitRuntimeParts.h"
 #include "../hooks/outfit/OutfitSuitConditionApply.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
+#include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 
 
 namespace
@@ -2355,6 +2356,47 @@ static int __cdecl l_ClearSahelanFova(lua_State* L)
 }
 
 
+static int __cdecl l_SetSecurityCameraFova(lua_State* L)
+{
+    const int variantIndex = GetLuaInt(L, 1);
+    const char* arg = GetLuaString(L, 2);
+    if (!arg || !*arg)
+    {
+        Log("[SecCamFova] SetSecurityCameraFova: missing fova argument (variant=%d)\n", variantIndex);
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const std::uint64_t hash = ParseSahelanFovaArg(arg);
+    if (hash == 0)
+    {
+        Log("[SecCamFova] SetSecurityCameraFova: parsed hash is zero (input=\"%s\")\n", arg);
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    Set_SecurityCameraFovaHash(static_cast<std::int32_t>(variantIndex), hash);
+    PushLuaBool(L, true);
+    return 1;
+}
+
+
+static int __cdecl l_ClearSecurityCameraFova(lua_State* L)
+{
+    const int variantIndex = GetLuaInt(L, 1);
+    Clear_SecurityCameraFova(static_cast<std::int32_t>(variantIndex));
+    return 0;
+}
+
+
+static int __cdecl l_ClearAllSecurityCameraFovas(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_AllSecurityCameraFovas();
+    return 0;
+}
+
+
 static int __cdecl l_EnableTornadoDual(lua_State* L)
 {
     static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
@@ -2500,6 +2542,11 @@ static luaL_Reg g_VFrameWorkLib[] =
 
     { "SetSahelanFova",                         l_SetSahelanFova },
     { "ClearSahelanFova",                       l_ClearSahelanFova },
+
+
+    { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },
+    { "ClearSecurityCameraFova",                l_ClearSecurityCameraFova },
+    { "ClearAllSecurityCameraFovas",            l_ClearAllSecurityCameraFovas },
 
     { nullptr, nullptr }
 };

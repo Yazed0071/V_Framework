@@ -39,6 +39,9 @@ bool Uninstall_CautionStepNormalTimerHook();
 bool Install_RealizedSahelanFova_Hook();
 bool Uninstall_RealizedSahelanFova_Hook();
 
+bool Install_SecurityCameraFova_Hook();
+bool Uninstall_SecurityCameraFova_Hook();
+
 bool Install_PlayerVoiceFpk_Hook();
 bool Uninstall_PlayerVoiceFpk_Hook();
 
@@ -226,6 +229,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_RealizedSahelanFova_Hook();
+        }
+    };
+
+    class SecurityCameraFovaModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SecurityCameraFova";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SecurityCameraFova_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SecurityCameraFova_Hook();
         }
     };
 
@@ -796,6 +819,7 @@ void RegisterBuiltInFeatureModules()
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
+    static SecurityCameraFovaModule s_SecurityCameraFovaModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
     static VIPSleepFaintModule s_VIPSleepFaintModule;
@@ -835,6 +859,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
+            FeatureModuleRegistry::Instance().Register(&s_SecurityCameraFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);

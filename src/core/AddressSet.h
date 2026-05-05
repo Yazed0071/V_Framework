@@ -282,6 +282,9 @@ namespace AddressSetRuntime
         uintptr_t RealizedSahelan2Impl_SetFovaImpl  = 0;
         uintptr_t FormVariationFile2_ApplyOnlyMeshAndTextureVariation = 0;
 
+
+        uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
@@ -479,6 +482,9 @@ namespace AddressSetRuntime
             0x146acc210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
             0x146acc650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
             0x144a3cbd0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
+
+
+            0x146ab80f0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate)
         };
 
         return value;
@@ -668,6 +674,9 @@ namespace AddressSetRuntime
             0x0ull, // RealizedSahelan2Impl_Realize (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // RealizedSahelan2Impl_SetFovaImpl (JP TBD; hook silently no-ops if unresolved)
             0x0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (JP TBD; hook silently no-ops if unresolved)
+
+
+            0x0ull, // RealizedSecurityCamera2Impl_SetFova (JP TBD; hook silently no-ops if unresolved)
         };
 
         return value;
