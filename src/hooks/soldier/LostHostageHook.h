@@ -3,7 +3,10 @@
 #include <cstdint>
 
 
-void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType);
+// customLostLabel: optional StrCode32 speech-label hash. If non-zero, the
+// "prisoner gone" radio for this hostage uses this label instead of the
+// built-in MALE/FEMALE/CHILD × TAKEN/NOT_TAKEN matrix. 0 keeps the default.
+void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType, std::uint32_t customLostLabel = 0);
 
 
 void Remove_LostHostageTrap(std::uint32_t gameObjectId);

@@ -30,6 +30,8 @@ namespace
         std::uint32_t gameObjectId = 0;
         std::uint16_t soldierIndex = 0;
         bool isOfficer = false;
+        // StrCode32 hash. 0 = no override, fall back to officer/VIP defaults.
+        std::uint32_t customDeadBodyLabel = 0;
     };
 
 
@@ -274,19 +276,82 @@ static short* __fastcall hkCallWithRadioType(
         }
     }
 
-    if (radioType == kRadioTypeBodyFound)
+    if (radioType == kRadioTypeBodyFound || radioType == kRadioTypeVipBodyFound)
     {
         ImportantTargetInfo info{};
         bool found = false;
+        const char* matchSource = "miss";
 
         {
             std::lock_guard<std::mutex> lock(g_StateMutex);
+
+            // Primary: arg5 lookup. Works when the radio carries the body's
+            // registered gameObjectId directly (e.g. soldier-discovers-soldier
+            // in a down-but-alive state).
             if (FindImportantTarget(static_cast<std::uint32_t>(arg5), info))
+            {
                 found = true;
+                matchSource = "arg5";
+            }
+            // Fallback: for KILLED targets, the body-found radio uses the
+            // corpse's gameObjectId (a separate entity assigned by the game),
+            // not the original soldier's id we registered. hkRequestCorpse
+            // populates g_RecentImportantCorpsesFromRequest whenever an
+            // important target's corpse is created. Pop the front so a
+            // subsequent body-found radio doesn't double-fire on the same
+            // corpse.
+            else if (!g_RecentImportantCorpsesFromRequest.empty())
+            {
+                info = g_RecentImportantCorpsesFromRequest.front();
+                g_RecentImportantCorpsesFromRequest.pop_front();
+                found = true;
+                matchSource = "recent-corpse";
+            }
         }
 
         if (found)
         {
+            Log(
+                "[Radio] BodyFound DIAG: owner=%u radioType=0x%02X arg5=0x%04X lookup=MATCH(%s) gameObjectId=0x%08X soldierIndex=%u officer=%s\n",
+                static_cast<unsigned int>(ownerIndex),
+                static_cast<unsigned int>(radioType),
+                static_cast<unsigned int>(arg5),
+                matchSource,
+                static_cast<unsigned int>(info.gameObjectId),
+                static_cast<unsigned int>(info.soldierIndex),
+                YesNo(info.isOfficer));
+        }
+        else
+        {
+            Log(
+                "[Radio] BodyFound DIAG: owner=%u radioType=0x%02X arg5=0x%04X lookup=MISS\n",
+                static_cast<unsigned int>(ownerIndex),
+                static_cast<unsigned int>(radioType),
+                static_cast<unsigned int>(arg5));
+        }
+
+        if (radioType == kRadioTypeBodyFound && found)
+        {
+            // Caller-supplied StrCode32 label takes priority over both the
+            // officer-default and the non-officer radioType swap.
+            if (info.customDeadBodyLabel != 0 && g_CallImpl)
+            {
+                Log(
+                    "[Radio] Custom body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u customLabel=0x%08X\n",
+                    static_cast<unsigned int>(ownerIndex),
+                    static_cast<unsigned int>(arg5),
+                    static_cast<unsigned int>(info.gameObjectId),
+                    static_cast<unsigned int>(info.soldierIndex),
+                    static_cast<unsigned int>(info.customDeadBodyLabel));
+
+                return g_CallImpl(
+                    reinterpret_cast<long long>(self) - 0x20ll,
+                    outHandle,
+                    static_cast<int>(ownerIndex),
+                    info.customDeadBodyLabel,
+                    arg5);
+            }
+
             if (info.isOfficer)
             {
                 Log(
@@ -337,7 +402,7 @@ static short* __fastcall hkCallWithRadioType(
 }
 
 
-void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldierIndex, bool isOfficer)
+void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldierIndex, bool isOfficer, std::uint32_t customDeadBodyLabel)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
         return;
@@ -345,7 +410,8 @@ void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldi
     const ImportantTargetInfo info{
         gameObjectId,
         NormalizeSoldierIndex(gameObjectId, soldierIndex),
-        isOfficer
+        isOfficer,
+        customDeadBodyLabel
     };
 
     std::lock_guard<std::mutex> lock(g_StateMutex);
@@ -353,19 +419,21 @@ void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldi
     g_ImportantBySoldierIndex[info.soldierIndex] = info;
 
     Log(
-        "[Radio] Added important target: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s\n",
+        "[Radio] Added important target: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s customDeadBodyLabel=0x%08X\n",
         static_cast<unsigned int>(info.gameObjectId),
         static_cast<unsigned int>(info.soldierIndex),
-        YesNo(info.isOfficer));
+        YesNo(info.isOfficer),
+        static_cast<unsigned int>(info.customDeadBodyLabel));
 }
 
 
-void Add_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer)
+void Add_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer, std::uint32_t customDeadBodyLabel)
 {
     Add_VIPRadioImportantTarget(
         gameObjectId,
         GameObjectIdToSoldierIndex(gameObjectId),
-        isOfficer);
+        isOfficer,
+        customDeadBodyLabel);
 }
 
 

@@ -43,9 +43,9 @@ static constexpr int SOURCE_RADIO = 2;
 
 static constexpr std::uint32_t LABEL_MALE_NOT_TAKEN = 0xFA42F4E9u;
 static constexpr std::uint32_t LABEL_MALE_TAKEN = 0x43ED2D08u;
-static constexpr std::uint32_t LABEL_FEMALE_NOT_TAKEN = 0xBAE03A98u;
+static constexpr std::uint32_t LABEL_FEMALE_NOT_TAKEN = 0x91C5723Eu;
 static constexpr std::uint32_t LABEL_FEMALE_TAKEN = 0xD586CA7Bu;
-static constexpr std::uint32_t LABEL_CHILD_NOT_TAKEN = 0x2A2B54E0u;
+static constexpr std::uint32_t LABEL_CHILD_NOT_TAKEN = 0x93B18EDAu;
 static constexpr std::uint32_t LABEL_CHILD_TAKEN = 0x96902568u;
 
 
@@ -55,6 +55,8 @@ struct TrackedHostage
     int           type = HOSTAGE_MALE;
     int           nameId = -1;
     bool          playerTookIt = false;
+    // StrCode32 hash. 0 = use built-in MALE/FEMALE/CHILD × TAKEN/NOT_TAKEN matrix.
+    std::uint32_t customLostLabel = 0;
 };
 
 struct PendingReport
@@ -67,6 +69,7 @@ struct PendingReport
     int            source = SOURCE_NONE;
     int            slotIndex = -1;
     std::uint16_t  noticeObjId = 0xFFFFu;
+    std::uint32_t  customLostLabel = 0;
 };
 
 
@@ -315,6 +318,7 @@ static PendingReport BuildPendingReport(std::uint32_t soldierIndex,
     r.source = SOURCE_NOTICE;
     r.slotIndex = slotIndex;
     r.noticeObjId = noticeObjId;
+    r.customLostLabel = hostage.customLostLabel;
     return r;
 }
 
@@ -473,11 +477,17 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
         if (hasReport)
         {
-            const std::uint32_t overrideLabel = PickSpeechLabel(report.hostageType, report.playerTookIt);
+            // Caller-supplied StrCode32 label takes priority over the built-in
+            // MALE/FEMALE/CHILD × TAKEN/NOT_TAKEN matrix.
+            const std::uint32_t overrideLabel = (report.customLostLabel != 0)
+                ? report.customLostLabel
+                : PickSpeechLabel(report.hostageType, report.playerTookIt);
+
             if (overrideLabel)
             {
-                Log("[LostHostageRadio] Override radioType=0x%02X default=0x%08X override=0x%08X soldierIndex=%u source=%s hostageObjId=0x%04X type=%s slot=%d playerTook=%s\n",
+                Log("[LostHostageRadio] Override radioType=0x%02X default=0x%08X override=0x%08X source-label=%s soldierIndex=%u source=%s hostageObjId=0x%04X type=%s slot=%d playerTook=%s\n",
                     static_cast<unsigned>(radioType), static_cast<unsigned>(defaultLabel), static_cast<unsigned>(overrideLabel),
+                    (report.customLostLabel != 0) ? "custom" : "builtin",
                     static_cast<unsigned>(report.soldierIndex), SourceName(report.source),
                     static_cast<unsigned>(report.hostageObjId), HostageTypeName(report.hostageType),
                     report.slotIndex, YesNo(report.playerTookIt));
@@ -491,7 +501,7 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 }
 
 
-void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType)
+void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType, std::uint32_t customLostLabel)
 {
     if (hostageType < HOSTAGE_MALE || hostageType > HOSTAGE_CHILD)
     {
@@ -508,6 +518,7 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType)
     h.type = hostageType;
     h.nameId = nameId;
     h.playerTookIt = false;
+    h.customLostLabel = customLostLabel;
 
     std::lock_guard<std::mutex> lock(g_Mutex);
 
@@ -522,8 +533,9 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType)
     if (nameId != -1)
         g_HostagesByNameId[nameId] = h;
 
-    Log("[LostHostage] Add_LostHostage: tracking objectId=0x%04X type=%s nameId=%d\n",
-        static_cast<unsigned>(rawId), HostageTypeName(hostageType), nameId);
+    Log("[LostHostage] Add_LostHostage: tracking objectId=0x%04X type=%s nameId=%d customLostLabel=0x%08X\n",
+        static_cast<unsigned>(rawId), HostageTypeName(hostageType), nameId,
+        static_cast<unsigned>(customLostLabel));
 }
 
 void Remove_LostHostageTrap(std::uint32_t gameObjectId)
