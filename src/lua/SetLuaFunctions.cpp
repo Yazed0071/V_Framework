@@ -30,38 +30,16 @@ extern "C" {
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "GetTapeTrackDirectPlayId.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
-#include "SoundMusicPlayer_SetupMusicInfos.h"
-#include "CustomTapeOwnership.h"
 #include "TppPickableRuntime.h"
 
 #include "AddressSet.h"
-#include "RegisterConstantEquipId.h"
-#include "DeclareWPs.h"
-#include "EquipParameters_GunBasic.h"
-#include "EquipIdTable_AddToEquipIdTable.h"
-#include "EquipDevelop_AddToEquipDevelopTable.h"
-#include "DeclareSWPs.h"
-#include "SetSupportWeaponTypeId.h"
-#include "DeclareRCs.h"
-#include "DeclareAMs.h"
-#include "DeclareBAs.h"
-#include "DeclareSTs.h"
-#include "DeclareMZs.h"
-#include "DeclareSKs.h"
-#include "DeclareUBs.h"
-#include "EquipMotionData.h"
-#include "SetEquipParameters.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
 #include "SoldierRtpcHook.h"
 #include "V_FrameWorkModLoader.h"
-#include "V_FrameWorkState.h"
-#include "InitCamoufTable.h"
-#include "../hooks/outfit/CustomHeadRegistry.h"
-#include "../hooks/outfit/OutfitRegistry.h"
-#include "../hooks/outfit/OutfitRuntimeParts.h"
-#include "../hooks/outfit/OutfitSuitConditionApply.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
+#include "../hooks/sound/GameOverMusic.h"
+#include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 
 
@@ -408,6 +386,32 @@ static void PushLuaNumber(lua_State* L, float value)
         return;
 
     g_lua_pushnumber(L, static_cast<lua_Number>(value));
+}
+
+
+// Reads an optional StrCode32 hash arg at `idx`. Accepts:
+//   - missing / nil      → returns 0
+//   - string             → hashes via Fox::StrHash32 and returns the result
+//   - number             → casts to uint32_t and returns it
+// Lets Lua callers pass either "V_CPRGZ0040" (label name) or 0xC0DECAFE
+// (pre-hashed StrCode32) without the wrapper module needing to do the hash.
+static std::uint32_t GetLuaStrCode32Arg(lua_State* L, int idx)
+{
+    if (GetLuaTop(L) < idx)
+        return 0u;
+
+    if (LuaIsString(L, idx))
+    {
+        const char* s = GetLuaString(L, idx);
+        if (!s || !s[0])
+            return 0u;
+        return FoxHashes::StrCode32(s);
+    }
+
+    if (LuaIsNumber(L, idx))
+        return static_cast<std::uint32_t>(GetLuaInt64(L, idx));
+
+    return 0u;
 }
 
 
@@ -887,10 +891,14 @@ static int __cdecl l_SetVIPImportant(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const bool isOfficer = GetLuaBool(L, 2);
+    // Optional 3rd arg: voice line for the dead-body radio. Accepts either
+    // a label-name string (auto-hashed via FoxStrHash32) or a pre-hashed
+    // numeric StrCode32. 0 / omitted = built-in officer/VIP defaults.
+    const std::uint32_t customDeadBodyLabel = GetLuaStrCode32Arg(L, 3);
 
     Add_VIPSleepFaintImportantGameObjectId(gameObjectId, isOfficer);
     Add_VIPHoldupImportantGameObjectId(gameObjectId, isOfficer);
-    Add_VIPRadioImportantGameObjectId(gameObjectId, isOfficer);
+    Add_VIPRadioImportantGameObjectId(gameObjectId, isOfficer, customDeadBodyLabel);
     return 0;
 }
 
@@ -961,8 +969,13 @@ static int __cdecl l_SetLostHostage(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const int hostageType = GetLuaInt(L, 2);
+    // Optional 3rd arg: voice line for the "prisoner gone" radio. Accepts
+    // either a label-name string (auto-hashed via FoxStrHash32) or a
+    // pre-hashed numeric StrCode32. 0 / omitted = built-in male/female/
+    // child × taken matrix.
+    const std::uint32_t customLostLabel = GetLuaStrCode32Arg(L, 3);
 
-    Add_LostHostageTrap(gameObjectId, hostageType);
+    Add_LostHostageTrap(gameObjectId, hostageType, customLostLabel);
     Add_LostHostageDiscovery(gameObjectId, hostageType);
     return 0;
 }
@@ -1176,99 +1189,6 @@ static int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
 }
 
 
-static int __cdecl l_RegisterCustomTapes(lua_State* L)
-{
-    Log("[CustomTapes] l_RegisterCustomTapes entered\n");
-
-    if (LuaType(L, 1) != LUA_TTABLE)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    std::vector<CustomTapeAlbumDefinition> albums;
-    std::vector<CustomTapeTrackDefinition> tracks;
-
-    LuaGetField(L, 1, "albums");
-    if (LuaType(L, -1) == LUA_TTABLE)
-    {
-        const std::size_t albumCount = LuaObjLen(L, -1);
-
-        for (std::size_t i = 1; i <= albumCount; ++i)
-        {
-            LuaRawGetI(L, -1, static_cast<int>(i));
-            if (LuaType(L, -1) == LUA_TTABLE)
-            {
-                CustomTapeAlbumDefinition def;
-
-                const bool hasAlbumId = LuaReadRequiredStringField(L, "albumId", def.albumId);
-                const bool hasLangId = LuaReadRequiredStringField(L, "langId", def.langId);
-                const bool hasType = LuaReadRequiredStringField(L, "type", def.type);
-                def.typeValue = LuaReadOptionalIntField(L, "typeValue", -1);
-
-                if (hasAlbumId && hasLangId && (hasType || def.typeValue >= 0))
-                {
-                    albums.push_back(def);
-                }
-            }
-
-            LuaPop(L, 1);
-        }
-    }
-    LuaPop(L, 1);
-
-    LuaGetField(L, 1, "tracks");
-    if (LuaType(L, -1) == LUA_TTABLE)
-    {
-        const std::size_t trackCount = LuaObjLen(L, -1);
-
-        for (std::size_t i = 1; i <= trackCount; ++i)
-        {
-            LuaRawGetI(L, -1, static_cast<int>(i));
-            if (LuaType(L, -1) == LUA_TTABLE)
-            {
-                CustomTapeTrackDefinition def;
-
-                const bool hasAlbumId = LuaReadRequiredStringField(L, "albumId", def.albumId);
-                const bool hasLangId = LuaReadRequiredStringField(L, "langId", def.langId);
-                const bool hasFileName = LuaReadRequiredStringField(L, "fileName", def.fileName);
-
-                def.saveIndex = static_cast<std::int16_t>(LuaReadOptionalIntField(L, "saveIndex", -1));
-                def.dataTimeJp = LuaReadOptionalUIntField(L, "dataTimeJp", 0);
-                def.dataTimeEn = LuaReadOptionalUIntField(L, "dataTimeEn", 0);
-                def.important = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "important", 0));
-                def.special = static_cast<std::uint16_t>(LuaReadOptionalUIntField(L, "special", 0));
-
-
-                def.unlocked = LuaReadOptionalUIntField(L, "unlocked", 0) != 0;
-
-                if (hasAlbumId && hasLangId && hasFileName)
-                {
-                    tracks.push_back(def);
-                }
-            }
-
-            LuaPop(L, 1);
-        }
-    }
-    LuaPop(L, 1);
-
-    Log("[CustomTapes] parsed albums=%zu tracks=%zu\n", albums.size(), tracks.size());
-
-    const bool ok = Register_CustomTapes(albums, tracks);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_ClearCustomTapes(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_CustomTapes();
-    return 0;
-}
-
-
 static int __cdecl l_SetPickableCountRawByIndex(lua_State* L)
 {
     const int locatorIndex = GetLuaInt(L, 1);
@@ -1331,6 +1251,7 @@ static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
     return 0;
 }
 
+
 static int __cdecl l_GetModFiles(lua_State* L)
 {
     const auto files = V_FrameWorkModLoader::FindModFiles();
@@ -1367,911 +1288,6 @@ static int __cdecl l_Log(lua_State* L)
     return 0;
 }
 
-
-static int __cdecl l_SetCamoValue(lua_State* L)
-{
-    const int camoType     = GetLuaInt(L, 1);
-    const int materialType = GetLuaInt(L, 2);
-    const int value        = GetLuaInt(L, 3);
-
-    const bool ok = CamoufTable::Set_CamoValue(camoType, materialType, value);
-    if (ok) CamoufTable::PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_CloneCamoRow(lua_State* L)
-{
-    const int dst = GetLuaInt(L, 1);
-    const int src = GetLuaInt(L, 2);
-
-    const bool ok = CamoufTable::Clone_CamoRow(dst, src);
-    if (ok) CamoufTable::PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_ImportCamoRow(lua_State* L)
-{
-    const int camoType = GetLuaInt(L, 1);
-    if (LuaType(L, 2) != 5)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const size_t count = LuaObjLen(L, 2);
-    const size_t cap   = count < CamoufTable::kMaxMaterialTypes
-        ? count : CamoufTable::kMaxMaterialTypes;
-
-    std::int32_t buf[CamoufTable::kMaxMaterialTypes] = {};
-    for (size_t i = 0; i < cap; ++i)
-    {
-        LuaRawGetI(L, 2, static_cast<int>(i + 1));
-        buf[i] = GetLuaInt(L, -1);
-        LuaPop(L, 1);
-    }
-
-    const bool ok = CamoufTable::ImportCamoRow(camoType, buf, cap);
-    if (ok) CamoufTable::PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_ImportCamoTable(lua_State* L)
-{
-    if (LuaType(L, 1) != 5)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const size_t rowCount = LuaObjLen(L, 1);
-    const size_t rowCap   = rowCount < CamoufTable::kMaxCamoTypes
-        ? rowCount : CamoufTable::kMaxCamoTypes;
-
-    static constexpr size_t kCols  = CamoufTable::kMaxMaterialTypes;
-    static constexpr size_t kCells = CamoufTable::kMaxCamoTypes * kCols;
-    std::int32_t buf[kCells] = {};
-
-    for (size_t r = 0; r < rowCap; ++r)
-    {
-        LuaRawGetI(L, 1, static_cast<int>(r + 1));
-        if (LuaType(L, -1) == 5)
-        {
-            const size_t colCount = LuaObjLen(L, -1);
-            const size_t colCap   = colCount < kCols ? colCount : kCols;
-            for (size_t c = 0; c < colCap; ++c)
-            {
-                LuaRawGetI(L, -1, static_cast<int>(c + 1));
-                buf[r * kCols + c] = GetLuaInt(L, -1);
-                LuaPop(L, 1);
-            }
-        }
-        LuaPop(L, 1);
-    }
-
-    const bool ok = CamoufTable::ImportCamoTable(buf, rowCap, kCols);
-    if (ok) CamoufTable::PushCamoTableToGame(L);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_GetCamoValue(lua_State* L)
-{
-    const int camoType     = GetLuaInt(L, 1);
-    const int materialType = GetLuaInt(L, 2);
-    const std::int32_t v   = CamoufTable::Get_CamoValue(camoType, materialType);
-    PushLuaNumber(L, static_cast<float>(v));
-    return 1;
-}
-
-
-namespace
-{
-
-
-    // Per-PT branch keys. The Lua table is expected to expose any subset of
-    // these as nested sub-tables.
-    struct PlayerTypeBranchKey
-    {
-        const char*  key;
-        std::uint8_t playerType;
-    };
-    static constexpr PlayerTypeBranchKey k_PtBranchKeys[] = {
-        { "snake",    outfit::kPlayerType_Snake    },
-        { "ddMale",   outfit::kPlayerType_DDMale   },
-        { "ddFemale", outfit::kPlayerType_DDFemale },
-        { "avatar",   outfit::kPlayerType_Avatar   },
-    };
-
-
-    std::uint64_t ReadSubAssetField(
-        lua_State* L, int tableIndex, const char* fieldName,
-        std::uint64_t defaultValue)
-    {
-        LuaGetField(L, tableIndex, fieldName);
-        const int type = LuaType(L, -1);
-
-        std::uint64_t result = defaultValue;
-
-        if (type == 4)
-        {
-            const char* s = GetLuaString(L, -1);
-            if (s && s[0] != '\0')
-                result = FoxHashes::PathCode64Ext(s);
-        }
-        else if (type == 1)
-        {
-            const bool b = GetLuaBool(L, -1) != 0;
-            result = b ? outfit::kSubAssetUseVanilla : outfit::kSubAssetDisabled;
-        }
-
-
-        SetLuaTop(L, -2);
-        return result;
-    }
-
-
-    std::uint64_t ReadRequiredPathField(
-        lua_State* L, int tableIndex, const char* fieldName)
-    {
-        LuaGetField(L, tableIndex, fieldName);
-        const int type = LuaType(L, -1);
-
-        std::uint64_t result = 0;
-        if (type == 4)
-        {
-            const char* s = GetLuaString(L, -1);
-            if (s && s[0] != '\0')
-                result = FoxHashes::PathCode64Ext(s);
-        }
-
-        SetLuaTop(L, -2);
-        return result;
-    }
-
-
-    struct HeadAlias
-    {
-        const char*    name;
-        std::uint16_t  equipId;
-    };
-    static constexpr HeadAlias k_HeadAliases[] = {
-        { "none",             0x400 },
-        { "bandana",          0x20E },
-        { "infinitebandana",  0x20F },
-        { "balaclava",        0x210 },
-        { "spheadgear",       0x211 },
-        { "hpheadgear",       0x212 },
-    };
-
-
-    static void NormalizeHeadAlias(const char* in, char* out, std::size_t cap)
-    {
-        std::size_t j = 0;
-        if (cap == 0) return;
-        for (std::size_t i = 0; in && in[i] && j + 1 < cap; ++i)
-        {
-            const char c = in[i];
-            if (c == '-' || c == '_' || c == ' ') continue;
-            out[j++] = (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
-        }
-        out[j] = '\0';
-    }
-
-    static std::uint16_t TryResolveHeadAlias(const char* name)
-    {
-        if (!name || !name[0]) return 0;
-        char norm[64];
-        NormalizeHeadAlias(name, norm, sizeof(norm));
-        for (const HeadAlias& a : k_HeadAliases)
-        {
-            if (std::strcmp(norm, a.name) == 0)
-                return a.equipId;
-        }
-        return 0;
-    }
-
-
-    struct MaterialNameEntry
-    {
-        const char*     name;
-        std::int32_t    index;
-    };
-    static constexpr MaterialNameEntry k_MaterialNames[] = {
-        {"MTR_IRON_A", 0},  {"MTR_IRON_B", 1},  {"MTR_IRON_C", 2},  {"MTR_IRON_D", 3},
-        {"MTR_IRON_E", 4},  {"MTR_IRON_F", 5},  {"MTR_IRON_G", 6},  {"MTR_IRON_M", 7},
-        {"MTR_IRON_N", 8},  {"MTR_IRON_W", 9},
-        {"MTR_PIPE_A", 10}, {"MTR_PIPE_B", 11}, {"MTR_PIPE_S", 12},
-        {"MTR_TIN_A",  13},
-        {"MTR_FENC_A", 14}, {"MTR_FENC_B", 15}, {"MTR_FENC_F", 16},
-        {"MTR_CONC_A", 17}, {"MTR_CONC_B", 18},
-        {"MTR_BRIC_A", 19},
-        {"MTR_PLAS_A", 20}, {"MTR_PLAS_B", 21}, {"MTR_PLAS_W", 22},
-        {"MTR_PAPE_A", 23}, {"MTR_PAPE_B", 24}, {"MTR_PAPE_C", 25}, {"MTR_PAPE_D", 26},
-        {"MTR_RUBB_A", 27}, {"MTR_RUBB_B", 28},
-        {"MTR_CLOT_A", 29}, {"MTR_CLOT_B", 30}, {"MTR_CLOT_C", 31}, {"MTR_CLOT_D", 32},
-        {"MTR_CLOT_E", 33},
-        {"MTR_GLAS_A", 34}, {"MTR_GLAS_B", 35}, {"MTR_GLAS_C", 36},
-        {"MTR_VINL_A", 37}, {"MTR_VINL_W", 38},
-        {"MTR_TILE_A", 39},
-        {"MTR_TLRF_A", 40},
-        {"MTR_ALRM_A", 41},
-        {"MTR_COPS_A", 42}, {"MTR_COPS_B", 43},
-        {"MTR_BRIR_A", 44},
-        {"MTR_BLOD_A", 45},
-        {"MTR_SOIL_A", 46}, {"MTR_SOIL_B", 47}, {"MTR_SOIL_C", 48}, {"MTR_SOIL_D", 49},
-        {"MTR_SOIL_E", 50}, {"MTR_SOIL_F", 51}, {"MTR_SOIL_G", 52}, {"MTR_SOIL_H", 53},
-        {"MTR_SOIL_R", 54}, {"MTR_SOIL_W", 55},
-        {"MTR_GRAV_A", 56},
-        {"MTR_SAND_A", 57}, {"MTR_SAND_B", 58}, {"MTR_SAND_C", 59},
-        {"MTR_LEAF",   60}, {"MTR_RLEF",   61}, {"MTR_RLEF_B", 62},
-        {"MTR_WOOD_A", 63}, {"MTR_WOOD_B", 64}, {"MTR_WOOD_C", 65}, {"MTR_WOOD_D", 66},
-        {"MTR_WOOD_G", 67}, {"MTR_WOOD_M", 68}, {"MTR_WOOD_W", 69},
-        {"MTR_FWOD_A", 70},
-        {"MTR_PLNT_A", 71},
-        {"MTR_ROCK_A", 72}, {"MTR_ROCK_B", 73}, {"MTR_ROCK_P", 74},
-        {"MTR_MOSS_A", 75},
-        {"MTR_TURF_A", 76},
-        {"MTR_WATE_A", 77}, {"MTR_WATE_B", 78}, {"MTR_WATE_C", 79},
-        {"MTR_AIR_A",  80},
-        {"MTR_NONE_A", 81},
-    };
-    static_assert(sizeof(k_MaterialNames) / sizeof(k_MaterialNames[0])
-                  == outfit::kCamoMaterialCount,
-                  "k_MaterialNames must list all 82 MaterialType entries");
-
-    static std::int32_t ResolveMaterialNameToIndex(const char* name)
-    {
-        if (!name) return -1;
-        for (const auto& e : k_MaterialNames)
-        {
-            if (std::strcmp(e.name, name) == 0) return e.index;
-        }
-        return -1;
-    }
-
-
-    // Reads the `headOptions` array from the table at `tableIndex` into
-    // `outIds`/`outCount`. Returns true if the field was present (even if
-    // empty), so callers can distinguish "no field" from "explicit empty".
-    bool ReadHeadOptionsArrayInto(
-        lua_State* L, int tableIndex,
-        std::uint16_t* outIds, std::uint8_t& outCount)
-    {
-        outCount = 0;
-
-        LuaGetField(L, tableIndex, "headOptions");
-        const bool present = (LuaType(L, -1) == LUA_TTABLE);
-        if (present)
-        {
-            const std::size_t n   = LuaObjLen(L, -1);
-            const std::size_t cap = outfit::kMaxHeadOptionsPerOutfit;
-            const std::size_t lim = (n < cap) ? n : cap;
-
-            for (std::size_t i = 1; i <= lim; ++i)
-            {
-                LuaRawGetI(L, -1, static_cast<int>(i));
-                if (LuaIsNumber(L, -1))
-                {
-                    const int v = GetLuaInt(L, -1);
-                    if (v > 0 && v <= 0xFFFF)
-                    {
-                        outIds[outCount++] = static_cast<std::uint16_t>(v);
-                    }
-                }
-                else if (LuaIsString(L, -1))
-                {
-                    const char* name = GetLuaString(L, -1);
-                    if (const std::uint16_t alias = TryResolveHeadAlias(name);
-                        alias != 0)
-                    {
-                        outIds[outCount++] = alias;
-                    }
-                    else if (const auto* head =
-                             outfit::TryGetCustomHeadByName(name))
-                    {
-                        outIds[outCount++] = head->equipId;
-                    }
-                    else
-                    {
-                        Log("[OutfitLua] headOptions: unknown name '%s' "
-                            "(not a vanilla alias and not registered via "
-                            "V_FrameWork.RegisterCustomHead); skipping\n",
-                            name ? name : "(null)");
-                    }
-                }
-                LuaPop(L, 1);
-            }
-        }
-        LuaPop(L, 1);
-        return present;
-    }
-
-
-    // Read the `variants` sub-array out of `branchTblIdx` into `branch`.
-    // Variant index 0 is reserved for the branch's base appearance (paths /
-    // displayName at the branch level), so Lua array entries [1..N] map to
-    // C++ branch.variants[1..N]. branch.variantCount becomes N+1 on success.
-    void ReadVariantsArrayInto(
-        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
-    {
-        branch.variantCount = 0;
-
-        LuaGetField(L, branchTblIdx, "variants");
-        if (LuaType(L, -1) == LUA_TTABLE)
-        {
-            const std::size_t n = LuaObjLen(L, -1);
-
-
-            const std::size_t cap = outfit::kMaxVariantsPerOutfit - 1;
-            const std::size_t lim = (n < cap) ? n : cap;
-
-            std::uint8_t maxFilledSlot = 0;
-            for (std::size_t i = 1; i <= lim; ++i)
-            {
-                LuaRawGetI(L, -1, static_cast<int>(i));
-                if (LuaType(L, -1) == LUA_TTABLE)
-                {
-                    outfit::OutfitVariant v{};
-                    v.used            = true;
-                    v.partsPathCode64 = ReadRequiredPathField(L, -1, "partsPath");
-                    v.fpkPathCode64   = ReadRequiredPathField(L, -1, "fpkPath");
-                    v.camoFpk         = ReadSubAssetField(L, -1, "camoFpk",
-                                            outfit::kSubAssetUseVanilla);
-                    v.camoFv2         = ReadSubAssetField(L, -1, "camoFv2",
-                                            outfit::kSubAssetUseVanilla);
-                    v.diamondFpk      = ReadSubAssetField(L, -1, "diamondFpk",
-                                            outfit::kSubAssetDisabled);
-                    v.diamondFv2      = ReadSubAssetField(L, -1, "diamondFv2",
-                                            outfit::kSubAssetUseVanilla);
-                    v.voiceFpk        = ReadSubAssetField(L, -1, "voiceFpk",
-                                            outfit::kSubAssetUseVanilla);
-
-
-                    LuaGetField(L, -1, "displayName");
-                    if (LuaType(L, -1) == LUA_TSTRING)
-                    {
-                        if (const char* s = GetLuaString(L, -1); s && *s)
-                            v.displayNameHash = FoxHashes::StrCode64(s);
-                    }
-                    LuaPop(L, 1);
-
-                    if (v.displayNameHash == 0)
-                    {
-                        LuaGetField(L, -1, "displayNameHash");
-                        const int t = LuaType(L, -1);
-                        if (t == LUA_TNUMBER)
-                        {
-
-
-                            v.displayNameHash =
-                                static_cast<std::uint64_t>(GetLuaInt(L, -1));
-                        }
-                        LuaPop(L, 1);
-                    }
-
-
-                    branch.variants[i] = v;
-                    maxFilledSlot      = static_cast<std::uint8_t>(i);
-                }
-                LuaPop(L, 1);
-            }
-
-            if (maxFilledSlot > 0)
-            {
-
-
-                branch.variantCount = static_cast<std::uint8_t>(maxFilledSlot + 1);
-            }
-        }
-        LuaPop(L, 1);
-    }
-
-
-    // Read a `camoBonusValues` table on the table at `tableIndex` into the
-    // given branch. Sparse, keyed by material name (or 1-based index).
-    void ReadBranchCamoBonusValues(
-        lua_State* L, int tableIndex, outfit::OutfitPlayerTypeData& branch)
-    {
-        LuaGetField(L, tableIndex, "camoBonusValues");
-        if (LuaType(L, -1) != LUA_TTABLE)
-        {
-            SetLuaTop(L, -2);
-            return;
-        }
-
-        const int valuesTbl = GetLuaTop(L);
-        std::size_t writeCount = 0;
-
-        LuaPushNil(L);
-        while (LuaNext(L, valuesTbl) != 0)
-        {
-            std::int32_t materialIdx = -1;
-            const int keyType = LuaType(L, -2);
-            if (keyType == LUA_TSTRING)
-            {
-                const char* keyName = GetLuaString(L, -2);
-                materialIdx = ResolveMaterialNameToIndex(keyName);
-            }
-            else if (keyType == LUA_TNUMBER)
-            {
-                const int keyIdx = GetLuaInt(L, -2);
-                if (keyIdx >= 1
-                    && keyIdx <= static_cast<int>(outfit::kCamoMaterialCount))
-                {
-                    materialIdx = keyIdx - 1;
-                }
-            }
-
-            if (materialIdx >= 0
-                && materialIdx < static_cast<std::int32_t>(outfit::kCamoMaterialCount))
-            {
-                branch.camoBonusValues[materialIdx] = GetLuaInt(L, -1);
-                ++writeCount;
-            }
-
-            SetLuaTop(L, -2);
-        }
-
-        if (writeCount > 0)
-            branch.hasCamoBonusValues = true;
-
-        SetLuaTop(L, -2);
-    }
-
-
-    // Read a single per-PT branch sub-table at the given Lua stack index into
-    // `branch`. Each branch carries every PT-specific field — paths, sub-
-    // assets, variants, head options, behavior flags, lang name, camo bonus.
-    // Returns true if the branch was populated (partsPath/fpkPath both present).
-    bool ReadPlayerTypeBranchTable(
-        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
-    {
-        if (LuaType(L, branchTblIdx) != LUA_TTABLE) return false;
-
-        branch                 = outfit::OutfitPlayerTypeData{};
-        branch.partsPathCode64 = ReadRequiredPathField(L, branchTblIdx, "partsPath");
-        branch.fpkPathCode64   = ReadRequiredPathField(L, branchTblIdx, "fpkPath");
-
-        if (branch.partsPathCode64 == 0 || branch.fpkPathCode64 == 0)
-            return false;
-
-
-        // Sub-asset overrides. Each accepts: a path string (custom asset),
-        // `true` (use vanilla), `false` (disable load), or nil (per-field
-        // default). The defaults mirror what most outfits want: camo /
-        // diamond default to disabled (no override); face / skin / voice /
-        // camoFv2 / diamondFv2 default to vanilla.
-        branch.camoFpk    = ReadSubAssetField(L, branchTblIdx, "camoFpk",
-                                outfit::kSubAssetDisabled);
-        branch.faceFpk    = ReadSubAssetField(L, branchTblIdx, "faceFpk",
-                                outfit::kSubAssetUseVanilla);
-        branch.skinFv2    = ReadSubAssetField(L, branchTblIdx, "skinFv2",
-                                outfit::kSubAssetUseVanilla);
-        branch.diamondFpk = ReadSubAssetField(L, branchTblIdx, "diamondFpk",
-                                outfit::kSubAssetDisabled);
-        branch.voiceFpk   = ReadSubAssetField(L, branchTblIdx, "voiceFpk",
-                                outfit::kSubAssetUseVanilla);
-        branch.camoFv2    = ReadSubAssetField(L, branchTblIdx, "camoFv2",
-                                outfit::kSubAssetUseVanilla);
-        branch.diamondFv2 = ReadSubAssetField(L, branchTblIdx, "diamondFv2",
-                                outfit::kSubAssetUseVanilla);
-
-
-        // Per-PT behavior flags.
-        branch.enableArm  = TryReadTableBoolField(L, branchTblIdx, "enableArm",  true);
-        branch.enableHead = TryReadTableBoolField(L, branchTblIdx, "enableHead", false);
-
-        int defaultSoldierFaceId = 0;
-        if (TryReadTableIntField(L, branchTblIdx, "defaultSoldierFaceId",
-                                 defaultSoldierFaceId)
-            && defaultSoldierFaceId > 0 && defaultSoldierFaceId < 900)
-        {
-            branch.defaultSoldierFaceId =
-                static_cast<std::uint16_t>(defaultSoldierFaceId);
-        }
-
-
-        // Per-PT iDroid suit-name lookup hash.
-        {
-            const char* langEquipName = nullptr;
-            if (TryReadTableStringField(L, branchTblIdx, "langEquipName",
-                                        langEquipName)
-                && langEquipName && langEquipName[0] != '\0')
-            {
-                branch.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
-            }
-        }
-
-
-        // Per-PT base display name (variant 0 cycle-button label).
-        LuaGetField(L, branchTblIdx, "displayName");
-        if (LuaType(L, -1) == LUA_TSTRING)
-        {
-            if (const char* s = GetLuaString(L, -1); s && *s)
-                branch.baseDisplayNameHash = FoxHashes::StrCode64(s);
-        }
-        LuaPop(L, 1);
-
-        if (branch.baseDisplayNameHash == 0)
-        {
-            int displayHashRaw = 0;
-            if (TryReadTableIntField(L, branchTblIdx, "displayNameHash", displayHashRaw)
-                && displayHashRaw != 0)
-            {
-                branch.baseDisplayNameHash =
-                    static_cast<std::uint64_t>(displayHashRaw);
-            }
-        }
-
-
-        ReadVariantsArrayInto(L, branchTblIdx, branch);
-
-
-        // Per-PT head options.
-        std::uint8_t branchHeadCount = 0;
-        if (ReadHeadOptionsArrayInto(L, branchTblIdx,
-                branch.headOptionEquipIds, branchHeadCount))
-        {
-            branch.headOptionCount      = branchHeadCount;
-            branch.supportsHeadOptions  = (branchHeadCount > 0);
-        }
-        // Optional explicit override (rare — e.g. force-disable submenu while
-        // keeping the array populated for future use).
-        branch.supportsHeadOptions = TryReadTableBoolField(
-            L, branchTblIdx, "supportsHeadOptions", branch.supportsHeadOptions);
-
-
-        // Per-PT camo bonus pin (vanilla camoType 0..116).
-        {
-            int rawBonusType = 0;
-            if (TryReadTableIntField(L, branchTblIdx, "camoBonusType", rawBonusType)
-                && rawBonusType >= 0 && rawBonusType <= 116)
-            {
-                branch.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
-            }
-        }
-        // Per-PT custom camo bonus values (sparse 82-material row).
-        ReadBranchCamoBonusValues(L, branchTblIdx, branch);
-
-
-        branch.used = true;
-        return true;
-    }
-}
-
-
-static int __cdecl l_RegisterOutfit(lua_State* L)
-{
-    if (LuaType(L, 1) != LUA_TTABLE)
-    {
-        Log("[OutfitLua] RegisterOutfit: arg 1 must be a table\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    outfit::OutfitDefinition def{};
-
-
-    const char* key = nullptr;
-    TryReadTableStringField(L, 1, "key", key);
-    def.key = key;
-
-    if (!key || !key[0])
-    {
-        Log("[OutfitLua] RegisterOutfit: 'key' (string, non-empty) is required. "
-            "developId/flowIndex are auto-allocated and persisted under this "
-            "key in V_FrameWork_State.lua.\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    {
-        std::int32_t newId = 0;
-        if (V_FrameWorkState::ResolveOrCreateDevelopId(key, 0, newId)
-            && newId > 0 && newId <= 0xFFFF)
-        {
-            def.developId = static_cast<std::uint16_t>(newId);
-        }
-    }
-    if (def.developId == 0)
-    {
-        Log("[OutfitLua] RegisterOutfit: failed to allocate developId for "
-            "key='%s'\n", key);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    constexpr std::int32_t kEdcRowCapacity = 0x400;
-    {
-        std::int32_t newIdx = 0;
-        if (V_FrameWorkState::ResolveOrCreateFlowIndex(key, 0, newIdx)
-            && newIdx > 0 && newIdx < kEdcRowCapacity)
-        {
-            def.flowIndex = static_cast<std::uint16_t>(newIdx);
-        }
-    }
-    if (def.flowIndex == 0)
-    {
-        Log("[OutfitLua] RegisterOutfit: failed to allocate flowIndex for "
-            "key='%s'\n", key);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    // Read per-playerType branches. At least one of {snake, ddMale, ddFemale,
-    // avatar} must be a populated sub-table with partsPath + fpkPath. Each
-    // branch carries every PT-specific field (paths, sub-assets, variants,
-    // head options, behavior flags, lang name, camo bonus). The only fields
-    // shared across branches are `key` (this outfit's persistence id) and
-    // the develop-table block (handled by the V_TppPlayer.AddOutfit wrapper).
-    std::uint8_t branchCount = 0;
-    for (const auto& bk : k_PtBranchKeys)
-    {
-        LuaGetField(L, 1, bk.key);
-        if (LuaType(L, -1) == LUA_TTABLE)
-        {
-            outfit::OutfitPlayerTypeData branch{};
-            const int branchIdx = GetLuaTop(L);
-            if (ReadPlayerTypeBranchTable(L, branchIdx, branch))
-            {
-                def.perPlayerType[bk.playerType] = branch;
-                ++branchCount;
-            }
-            else
-            {
-                Log("[OutfitLua] RegisterOutfit: branch '%s' present but "
-                    "missing required partsPath/fpkPath — skipping (key=%s)\n",
-                    bk.key, key);
-            }
-        }
-        LuaPop(L, 1);
-    }
-
-    if (branchCount == 0)
-    {
-        Log("[OutfitLua] RegisterOutfit: at least one playerType branch is "
-            "required (snake / ddMale / ddFemale / avatar). Each must be a "
-            "sub-table with partsPath and fpkPath. (key=%s)\n", key);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    std::uint8_t allocatedPartsType = 0xFF;
-    const bool ok = outfit::RegisterOutfit(def, &allocatedPartsType);
-
-    if (!ok)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    PushLuaNumber(L, static_cast<float>(allocatedPartsType));
-    PushLuaNumber(L, static_cast<float>(def.developId));
-    PushLuaNumber(L, static_cast<float>(def.flowIndex));
-    return 3;
-}
-
-
-static int __cdecl l_RegisterHeadOption(lua_State* L)
-{
-    if (LuaType(L, 1) != LUA_TTABLE)
-    {
-        Log("[CustomHead] RegisterHeadOption: arg 1 must be a table\n");
-        PushLuaNumber(L, 0);
-        return 1;
-    }
-
-    const char* name = nullptr;
-    TryReadTableStringField(L, 1, "name", name);
-    if (!name || !name[0])
-    {
-        Log("[CustomHead] RegisterHeadOption: missing 'name'\n");
-        PushLuaNumber(L, 0);
-        return 1;
-    }
-
-    int rawFaceId = 0;
-    std::uint16_t TppEnemyFaceId = 0;
-    if (TryReadTableIntField(L, 1, "TppEnemyFaceId", rawFaceId)
-        && rawFaceId > 0 && rawFaceId <= 0xFFFF)
-    {
-        TppEnemyFaceId = static_cast<std::uint16_t>(rawFaceId);
-    }
-
-    const char* langName = nullptr;
-    TryReadTableStringField(L, 1, "langName", langName);
-    const std::uint64_t langNameHash =
-        (langName && langName[0]) ? FoxHashes::StrCode64(langName) : 0;
-
-    const std::uint64_t iconFtexCode =
-        ReadRequiredPathField(L, 1, "iconFtex");
-
-    const std::uint16_t equipId = outfit::RegisterHeadOption(
-        name, TppEnemyFaceId, langNameHash, iconFtexCode);
-
-    PushLuaNumber(L, static_cast<float>(equipId));
-    return 1;
-}
-
-
-static int __cdecl l_SetCurrentOutfit(lua_State* L)
-{
-    const int developIdRaw = GetLuaInt(L, 1);
-
-    if (developIdRaw == 0)
-    {
-        outfit::ClearPendingOutfitDevelopId();
-        Log("[OutfitLua] SetCurrentOutfit: cleared pending\n");
-        PushLuaBool(L, true);
-        return 1;
-    }
-
-    if (developIdRaw < 0 || developIdRaw > 0xFFFF)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const outfit::OutfitEntry* entry = nullptr;
-    if (!outfit::TryGetOutfitByDevelopId(
-            static_cast<std::uint16_t>(developIdRaw), &entry) || !entry)
-    {
-        Log("[OutfitLua] SetCurrentOutfit: developId=%d not registered\n",
-            developIdRaw);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    outfit::SetPendingOutfitDevelopId(static_cast<std::uint16_t>(developIdRaw));
-    Log("[OutfitLua] SetCurrentOutfit: pending developId=%d "
-        "(partsType=0x%02X selector=0x%02X)\n",
-        developIdRaw,
-        static_cast<unsigned>(entry->partsType),
-        static_cast<unsigned>(entry->selectorCode));
-
-    PushLuaBool(L, true);
-    return 1;
-}
-
-
-static int __cdecl l_SetOutfitVariant(lua_State* L)
-{
-    const int developIdRaw   = GetLuaInt(L, 1);
-    const int variantIdxRaw  = GetLuaInt(L, 2);
-
-    if (developIdRaw <= 0 || developIdRaw > 0xFFFF)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const outfit::OutfitEntry* entry = nullptr;
-    if (!outfit::TryGetOutfitByDevelopId(
-            static_cast<std::uint16_t>(developIdRaw), &entry) || !entry)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const std::uint8_t v = (variantIdxRaw < 0)
-        ? 0
-        : static_cast<std::uint8_t>(variantIdxRaw & 0xFF);
-
-    outfit::SetActiveVariant(entry->partsType, v);
-
-
-    const std::uint8_t livePartsType = outfit::ReadLivePartsType();
-    const bool         isLiveOutfit  = (livePartsType == entry->partsType);
-
-    bool reloaded = false;
-    if (isLiveOutfit)
-    {
-
-        std::uint8_t reloadPT = outfit::ReadLivePlayerType();
-        if (reloadPT == 0xFF || !entry->IsPlayerTypeSupported(reloadPT))
-        {
-            reloadPT = 0;
-            for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
-            {
-                if (entry->IsPlayerTypeSupported(pt)) { reloadPT = pt; break; }
-            }
-        }
-        reloaded = outfit::ForceLiveSuitReload(
-            reloadPT,
-            entry->partsType,
-            entry->selectorCode,
-            v);
-    }
-
-    Log("[OutfitLua] SetOutfitVariant: developId=%d variantIndex=%d "
-        "(live partsType=0x%02X — %s; ForceLiveSuitReload=%s)\n",
-        developIdRaw, static_cast<int>(v),
-        static_cast<unsigned>(livePartsType),
-        isLiveOutfit ? "matches, triggering live re-equip via ReqLoadout"
-                     : "different outfit equipped, change takes effect on next equip",
-        isLiveOutfit ? (reloaded ? "OK" : "skip/fail") : "n/a");
-
-    PushLuaBool(L, true);
-    return 1;
-}
-
-
-static int __cdecl l_GetOutfitInfo(lua_State* L)
-{
-    const int developIdRaw = GetLuaInt(L, 1);
-    if (developIdRaw <= 0 || developIdRaw > 0xFFFF)
-        return 0;
-
-    const outfit::OutfitEntry* entry = nullptr;
-    if (!outfit::TryGetOutfitByDevelopId(
-            static_cast<std::uint16_t>(developIdRaw), &entry) || !entry)
-        return 0;
-
-    if (!ResolveLuaApi() || !g_lua_createtable || !g_lua_settable
-        || !g_lua_pushstring || !g_lua_pushnumber || !g_lua_pushboolean)
-        return 0;
-
-    g_lua_createtable(L, 0, 7);
-
-    g_lua_pushstring(L, const_cast<char*>("partsType"));
-    g_lua_pushnumber(L, static_cast<float>(entry->partsType));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("selectorCode"));
-    g_lua_pushnumber(L, static_cast<float>(entry->selectorCode));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("flowIndex"));
-    g_lua_pushnumber(L, static_cast<float>(entry->flowIndex));
-    g_lua_settable(L, -3);
-
-
-    // Per-PT support flags so Lua can tell which playerTypes this outfit was
-    // registered for. Snake↔Avatar bridge is reflected (asking for Avatar on
-    // a Snake-only outfit returns true).
-    g_lua_pushstring(L, const_cast<char*>("supportsSnake"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Snake) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsDDMale"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDMale) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsDDFemale"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDFemale) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsAvatar"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Avatar) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("variantCount"));
-    g_lua_pushnumber(L, static_cast<float>(entry->variantCount));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("activeVariant"));
-    g_lua_pushnumber(L, static_cast<float>(
-        outfit::GetActiveVariant(entry->partsType)));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsHeadOptions"));
-    g_lua_pushboolean(L, entry->HasAnyHeadOptions() ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    return 1;
-}
 
 
 static std::uint64_t ParseSahelanFovaArg(const char* text)
@@ -2356,26 +1372,86 @@ static int __cdecl l_ClearSahelanFova(lua_State* L)
 }
 
 
+static std::int32_t ResolveSecurityCameraVariant(lua_State* L, int idx)
+{
+
+    if (LuaType(L, idx) == 3)
+        return static_cast<std::int32_t>(GetLuaInt(L, idx));
+
+
+    if (LuaType(L, idx) == 4)
+    {
+        const char* s = GetLuaString(L, idx);
+        if (!s || !*s)
+            return -1;
+
+
+        char lower[32] = {};
+        size_t n = 0;
+        while (s[n] && n + 1 < sizeof(lower))
+        {
+            char c = s[n];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            lower[n] = c;
+            ++n;
+        }
+        lower[n] = 0;
+
+        if (std::strcmp(lower, "normalcamera") == 0 || std::strcmp(lower, "normal") == 0)
+            return 0;
+        if (std::strcmp(lower, "guncamera") == 0 || std::strcmp(lower, "gun") == 0)
+            return 1;
+    }
+
+    return -1;
+}
+
+
 static int __cdecl l_SetSecurityCameraFova(lua_State* L)
 {
-    const int variantIndex = GetLuaInt(L, 1);
+    const std::int32_t variantIndex = ResolveSecurityCameraVariant(L, 1);
+    if (variantIndex < 0)
+    {
+        Log("[SecCamFova] SetSecurityCameraFova: bad variant arg (expected number 0/1 or \"NormalCamera\"/\"GunCamera\")\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
     const char* arg = GetLuaString(L, 2);
     if (!arg || !*arg)
     {
-        Log("[SecCamFova] SetSecurityCameraFova: missing fova argument (variant=%d)\n", variantIndex);
+        Log("[SecCamFova] SetSecurityCameraFova: missing fova argument (variant=%d)\n",
+            static_cast<int>(variantIndex));
         PushLuaBool(L, false);
         return 1;
     }
 
-    const std::uint64_t hash = ParseSahelanFovaArg(arg);
-    if (hash == 0)
+
+    const bool hasHexPrefix = (arg[0] == '0') && (arg[1] == 'x' || arg[1] == 'X');
+    bool hasPathSep = false;
+    for (const char* p = arg; *p; ++p)
     {
-        Log("[SecCamFova] SetSecurityCameraFova: parsed hash is zero (input=\"%s\")\n", arg);
-        PushLuaBool(L, false);
-        return 1;
+        if (*p == '/' || *p == '\\') { hasPathSep = true; break; }
     }
 
-    Set_SecurityCameraFovaHash(static_cast<std::int32_t>(variantIndex), hash);
+    if (hasHexPrefix || !hasPathSep)
+    {
+
+        const std::uint64_t hash = ParseSahelanFovaArg(arg);
+        if (hash == 0)
+        {
+            Log("[SecCamFova] SetSecurityCameraFova: parsed hash is zero (input=\"%s\")\n", arg);
+            PushLuaBool(L, false);
+            return 1;
+        }
+        Set_SecurityCameraFovaHash(variantIndex, hash);
+    }
+    else
+    {
+
+        Set_SecurityCameraFovaPath(variantIndex, arg);
+    }
+
     PushLuaBool(L, true);
     return 1;
 }
@@ -2383,9 +1459,50 @@ static int __cdecl l_SetSecurityCameraFova(lua_State* L)
 
 static int __cdecl l_ClearSecurityCameraFova(lua_State* L)
 {
-    const int variantIndex = GetLuaInt(L, 1);
-    Clear_SecurityCameraFova(static_cast<std::int32_t>(variantIndex));
+    const std::int32_t variantIndex = ResolveSecurityCameraVariant(L, 1);
+    if (variantIndex < 0)
+    {
+        Log("[SecCamFova] ClearSecurityCameraFova: bad variant arg\n");
+        return 0;
+    }
+    Clear_SecurityCameraFova(variantIndex);
     return 0;
+}
+
+
+static int __cdecl l_HashPathNoExt(lua_State* L)
+{
+    const char* path = GetLuaString(L, 1);
+    if (!path || !*path)
+    {
+        LuaPushString(L, const_cast<char*>(""));
+        return 1;
+    }
+
+    const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(hash));
+    LuaPushString(L, buf);
+    return 1;
+}
+
+
+static int __cdecl l_HashPathWithExt(lua_State* L)
+{
+    const char* path = GetLuaString(L, 1);
+    if (!path || !*path)
+    {
+        LuaPushString(L, const_cast<char*>(""));
+        return 1;
+    }
+
+    const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(hash));
+    LuaPushString(L, buf);
+    return 1;
 }
 
 
@@ -2444,6 +1561,58 @@ static int __cdecl l_EnableTornadoDual(lua_State* L)
     return 1;
 }
 
+
+static int __cdecl l_SetGameOverMusic(lua_State* L)
+{
+    const bool isEnable = GetLuaBool(L, 1);
+    const int  typeRaw  = GetLuaInt(L, 2);
+    const char* playEvt = GetLuaString(L, 3);
+    const char* stopEvt = GetLuaString(L, 4);
+
+    if (typeRaw < GAME_OVER_GENERAL || typeRaw > GAME_OVER_CYPRUS)
+    {
+        Log("[GameOverMusic] SetGameOverMusic: invalid type=%d (expected 0..3)\n", typeRaw);
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    if (isEnable && (!playEvt || !*playEvt || !stopEvt || !*stopEvt))
+    {
+        Log("[GameOverMusic] SetGameOverMusic: enable=true requires non-empty play/stop event strings\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const bool ok = SetGameOverMusic(isEnable,
+                                     static_cast<GAME_OVER_TYPE>(typeRaw),
+                                     playEvt ? playEvt : "",
+                                     stopEvt ? stopEvt : "");
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+static int __cdecl l_SetEnableHeliVoice(lua_State* L)
+{
+    const bool isEnable = GetLuaBool(L, 1);
+    const char* voiceEvt = GetLuaString(L, 2);
+    const char* radioEvt = GetLuaString(L, 3);
+
+    if (isEnable && (!voiceEvt || !*voiceEvt || !radioEvt || !*radioEvt))
+    {
+        Log("[HeliVoice] SetEnableHeliVoice: enable=true requires non-empty voice/radio event strings\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const bool ok = SetEnableHeliVoice(isEnable,
+                                       voiceEvt ? voiceEvt : "",
+                                       radioEvt ? radioEvt : "");
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -2495,46 +1664,13 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "StopCassette",                           l_StopCassette },
     { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
     { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
-    //{ "RegisterCustomTapes",                    l_RegisterCustomTapes },
     { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
     { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
-    //{ "RegisterConstantEquipId",                RegisterConstantEquipId::Lua_RegisterConstantEquipId },
-    //{ "DeclareWPs",                             DeclareWPs::Lua_DeclareWPs },
-    //{ "SetGunBasic",                            l_SetGunBasic },
-    //{ "AddToEquipIdTable",                      EquipIdTableAdd::Lua_AddToEquipIdTable },
-    //{ "AddToEquipDevelopTable",                 EquipDevelopAdd::Lua_AddToEquipDevelopTable },
-    //{ "DeclareSWPs",                            DeclareSWPs::Lua_DeclareSWPs },
-    //{ "SetSupportWeaponType",                   SupportWeaponType::Lua_SetSupportWeaponType },
-    //{ "RemoveSupportWeaponType",                SupportWeaponType::Lua_RemoveSupportWeaponType },
-    //{ "ClearSupportWeaponTypes",                SupportWeaponType::Lua_ClearSupportWeaponTypes },
-    //{ "DeclareRCs",                             DeclareRCs::Lua_DeclareRCs },
-    //{ "DeclareAMs",                             DeclareAMs::Lua_DeclareAMs },
-    //{ "DeclareBAs",                             DeclareBAs::Lua_DeclareBAs },
-    //{ "DeclareSTs",                             DeclareSTs::Lua_DeclareSTs },
-    //{ "DeclareMZs",                             DeclareMZs::Lua_DeclareMZs },
-    //{ "DeclareSKs",                             DeclareSKs::Lua_DeclareSKs },
-    //{ "DeclareUBs",                             DeclareUBs::Lua_DeclareUBs },
-    //{ "AddToEquipMotionDataTable",                EquipMotionData::Lua_AddToEquipMotionDataTable },
-    //{ "SetEquipParameters",                     EquipParams::Lua_SetEquipParameters },
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
-
-
-    //{ "RegisterOutfit",                         l_RegisterOutfit },
-    //{ "RegisterHeadOption",                     l_RegisterHeadOption },
-    //{ "SetCurrentOutfit",                       l_SetCurrentOutfit },
-    //{ "SetOutfitVariant",                       l_SetOutfitVariant },
-    //{ "GetOutfitInfo",                          l_GetOutfitInfo },
-
-
-    //{ "SetCamoValue",                           l_SetCamoValue },
-    //{ "GetCamoValue",                           l_GetCamoValue },
-    //{ "CloneCamoRow",                           l_CloneCamoRow },
-    //{ "ImportCamoRow",                          l_ImportCamoRow },
-    //{ "ImportCamoTable",                        l_ImportCamoTable },
 
 
     { "EnableTornadoDual",                      l_EnableTornadoDual },
@@ -2547,6 +1683,12 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },
     { "ClearSecurityCameraFova",                l_ClearSecurityCameraFova },
     { "ClearAllSecurityCameraFovas",            l_ClearAllSecurityCameraFovas },
+    { "HashPathNoExt",                          l_HashPathNoExt },
+    { "HashPathWithExt",                        l_HashPathWithExt },
+
+
+    { "SetGameOverMusic",                       l_SetGameOverMusic },
+    { "SetEnableHeliVoice",                     l_SetEnableHeliVoice },
 
     { nullptr, nullptr }
 };
@@ -2595,287 +1737,6 @@ bool Install_SetLuaFunctions_Hook()
     }
 
     ResolveLuaApi();
-
-    //RegisterConstantEquipId::Deps deps{};
-    //deps.ResolveLuaApi = &ResolveLuaApi;
-    //deps.GetLuaTop = &GetLuaTop;
-    //deps.LuaGetField = &LuaGetField;
-    //deps.LuaType = &LuaType;
-    //deps.LuaIsString = &LuaIsString;
-    //deps.LuaIsNumber = &LuaIsNumber;
-    //deps.LuaPop = &LuaPop;
-    //deps.GetLuaString = &GetLuaString;
-    //deps.GetLuaInt = &GetLuaInt;
-    //deps.PushLuaNumber = &PushLuaNumber;
-    //deps.LuaPushString = &LuaPushString;
-    //deps.LuaCreateTable = &LuaCreateTable;
-    //deps.LuaRawSet = &LuaRawSet;
-    //deps.LuaSetTable = &LuaSetTable;
-    //deps.LuaPushNil = &LuaPushNil;
-    //deps.LuaNext = &LuaNext;
-
-    //DeclareWPs::Deps declareWpDeps{};
-    //declareWpDeps.ResolveLuaApi = &ResolveLuaApi;
-    //
-    //declareWpDeps.GetLuaTop = &GetLuaTop;
-    //declareWpDeps.LuaGetField = &LuaGetField;
-    //declareWpDeps.LuaType = &LuaType;
-    //declareWpDeps.LuaPop = &LuaPop;
-    //
-    //declareWpDeps.GetLuaString = &GetLuaString;
-    //declareWpDeps.PushLuaNumber = &PushLuaNumber;
-    //
-    //declareWpDeps.LuaPushString = &LuaPushString;
-    //declareWpDeps.LuaCreateTable = &LuaCreateTable;
-    //declareWpDeps.LuaRawSet = &LuaRawSet;
-    //declareWpDeps.LuaSetTable = &LuaSetTable;
-    //declareWpDeps.GetLuaInt = &GetLuaInt;
-    //declareWpDeps.LuaPushNil = &LuaPushNil;
-    //declareWpDeps.LuaNext = &LuaNext;
-    //RegisterConstantEquipId::Bind(deps);
-    //DeclareWPs::Bind(declareWpDeps);
-
-    //EquipIdTableAdd::Deps equipIdDeps{};
-    //equipIdDeps.ResolveLuaApi = &ResolveLuaApi;
-    //equipIdDeps.GetLuaTop = &GetLuaTop;
-    //equipIdDeps.LuaType = &LuaType;
-    //equipIdDeps.LuaIsNumber = &LuaIsNumber;
-    //equipIdDeps.LuaIsString = &LuaIsString;
-    //equipIdDeps.LuaObjLen = &LuaObjLen;
-    //equipIdDeps.LuaPop = &LuaPop;
-    //
-    //equipIdDeps.GetLuaString = &GetLuaString;
-    //equipIdDeps.GetLuaInt = &GetLuaInt;
-    //equipIdDeps.PushLuaNumber = &PushLuaNumber;
-    //
-    //equipIdDeps.LuaPushString = &LuaPushString;
-    //equipIdDeps.LuaCreateTable = &LuaCreateTable;
-    //equipIdDeps.LuaRawSet = &LuaRawSet;
-    //equipIdDeps.LuaSetTable = &LuaSetTable;
-    //equipIdDeps.LuaRawGetI = &LuaRawGetI;
-    //equipIdDeps.LuaPushValue = &LuaPushValue;
-    //EquipIdTableAdd::Bind(equipIdDeps);
-
-
-    //EquipDevelopAdd::Deps equipDevelopDeps{};
-    //equipDevelopDeps.ResolveLuaApi = &ResolveLuaApi;
-    //equipDevelopDeps.GetLuaTop = &GetLuaTop;
-    //equipDevelopDeps.LuaType = &LuaType;
-    //equipDevelopDeps.LuaSetTop = &SetLuaTop;
-    //equipDevelopDeps.GetLuaString = &GetLuaString;
-    //equipDevelopDeps.GetLuaInt = &GetLuaInt;
-    //equipDevelopDeps.PushLuaNumber = &PushLuaNumber;
-    //equipDevelopDeps.LuaPushString = &LuaPushString;
-    //equipDevelopDeps.LuaCreateTable = &LuaCreateTable;
-    //equipDevelopDeps.LuaGetTable = &LuaGetTable;
-    //equipDevelopDeps.LuaSetTable = &LuaSetTable;
-    //EquipDevelopAdd::Bind(equipDevelopDeps);
-
-
-    //DeclareSWPs::Deps declareSwpDeps{};
-    //declareSwpDeps.ResolveLuaApi = &ResolveLuaApi;
-    //declareSwpDeps.GetLuaTop = &GetLuaTop;
-    //declareSwpDeps.LuaGetField = &LuaGetField;
-    //declareSwpDeps.LuaType = &LuaType;
-    //declareSwpDeps.LuaPop = &LuaPop;
-    //declareSwpDeps.GetLuaString = &GetLuaString;
-    //declareSwpDeps.PushLuaNumber = &PushLuaNumber;
-    //declareSwpDeps.LuaPushString = &LuaPushString;
-    //declareSwpDeps.LuaCreateTable = &LuaCreateTable;
-    //declareSwpDeps.LuaRawSet = &LuaRawSet;
-    //declareSwpDeps.LuaSetTable = &LuaSetTable;
-    //DeclareSWPs::Bind(declareSwpDeps);
-
-    //SupportWeaponType::Deps supportWeaponTypeDeps{};
-    //supportWeaponTypeDeps.ResolveLuaApi = &ResolveLuaApi;
-    //supportWeaponTypeDeps.LuaType = &LuaType;
-    //supportWeaponTypeDeps.GetLuaInt = &GetLuaInt;
-    //SupportWeaponType::Bind(supportWeaponTypeDeps);
-
-    //DeclareRCs::Deps declareRcDeps{};
-    //declareRcDeps.ResolveLuaApi = &ResolveLuaApi;
-    //
-    //declareRcDeps.GetLuaTop = &GetLuaTop;
-    //declareRcDeps.LuaGetField = &LuaGetField;
-    //declareRcDeps.LuaType = &LuaType;
-    //declareRcDeps.LuaPop = &LuaPop;
-    //
-    //declareRcDeps.GetLuaString = &GetLuaString;
-    //declareRcDeps.GetLuaInt = &GetLuaInt;
-    //declareRcDeps.PushLuaNumber = &PushLuaNumber;
-    //
-    //declareRcDeps.LuaPushString = &LuaPushString;
-    //declareRcDeps.LuaCreateTable = &LuaCreateTable;
-    //declareRcDeps.LuaRawSet = &LuaRawSet;
-    //declareRcDeps.LuaSetTable = &LuaSetTable;
-    //
-    //declareRcDeps.LuaPushNil = &LuaPushNil;
-    //declareRcDeps.LuaNext = &LuaNext;
-    //
-    //DeclareRCs::Bind(declareRcDeps);
-
-
-    //DeclareAMs::Deps declareAmDeps{};
-    //declareAmDeps.ResolveLuaApi = &ResolveLuaApi;
-    //declareAmDeps.GetLuaTop = &GetLuaTop;
-    //declareAmDeps.LuaType = &LuaType;
-    //declareAmDeps.GetLuaString = &GetLuaString;
-    //declareAmDeps.GetLuaInt = &GetLuaInt;
-    //declareAmDeps.LuaSetTop = &SetLuaTop;
-    //declareAmDeps.PushLuaNumber = &PushLuaNumber;
-    //declareAmDeps.LuaPushString = &LuaPushString;
-    //declareAmDeps.LuaCreateTable = &LuaCreateTable;
-    //declareAmDeps.LuaGetField = &LuaGetField;
-    //declareAmDeps.LuaSetTable = &LuaSetTable;
-    //declareAmDeps.LuaPushNil = &LuaPushNil;
-    //declareAmDeps.LuaNext = &LuaNext;
-    //declareAmDeps.LuaRawSet = &LuaRawSet;
-    //DeclareAMs::Bind(declareAmDeps);
-
-    //{
-    //    DeclareBAs::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaRawSet       = &LuaRawSet;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    DeclareBAs::Bind(d);
-    //}
-
-    //{
-    //    DeclareSTs::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaRawSet       = &LuaRawSet;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    DeclareSTs::Bind(d);
-    //}
-
-    //{
-    //    DeclareMZs::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaRawSet       = &LuaRawSet;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    DeclareMZs::Bind(d);
-    //}
-
-    //{
-    //    DeclareSKs::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaRawSet       = &LuaRawSet;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    DeclareSKs::Bind(d);
-    //}
-
-    //{
-    //    DeclareUBs::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaRawSet       = &LuaRawSet;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    DeclareUBs::Bind(d);
-    //}
-
-    //{
-    //    EquipMotionData::Deps d{};
-    //    d.ResolveLuaApi   = &ResolveLuaApi;
-    //    d.GetLuaTop       = &GetLuaTop;
-    //    d.LuaType         = &LuaType;
-    //    d.LuaObjLen       = &LuaObjLen;
-    //    d.LuaPop          = &LuaPop;
-    //    d.GetLuaString    = &GetLuaString;
-    //    d.GetLuaInt       = &GetLuaInt;
-    //    d.LuaGetField     = &LuaGetField;
-    //    d.LuaGetTable     = &LuaGetTable;
-    //    d.LuaPushString   = &LuaPushString;
-    //    d.LuaCreateTable  = &LuaCreateTable;
-    //    d.LuaSetTable     = &LuaSetTable;
-    //    d.PushLuaNumber   = &PushLuaNumber;
-    //    d.LuaPushValue    = &LuaPushValue;
-    //    d.LuaPushNil      = &LuaPushNil;
-    //    d.LuaNext         = &LuaNext;
-    //    EquipMotionData::Bind(d);
-    //}
-
-    //EquipParams::Deps equipParamsDeps{};
-    //equipParamsDeps.ResolveLuaApi = &ResolveLuaApi;
-    //equipParamsDeps.GetLuaTop = &GetLuaTop;
-    //equipParamsDeps.LuaType = &LuaType;
-    //equipParamsDeps.GetLuaInt = &GetLuaInt;
-    //equipParamsDeps.GetLuaNumber = &LuaToNumber;
-    //equipParamsDeps.GetLuaString = &GetLuaString;
-    //equipParamsDeps.LuaObjLen = &LuaObjLen;
-    //equipParamsDeps.LuaSetTop = &SetLuaTop;
-    //equipParamsDeps.PushLuaNumber = &PushLuaNumber;
-    //equipParamsDeps.LuaPushString = &LuaPushString;
-    //equipParamsDeps.LuaCreateTable = &LuaCreateTable;
-    //equipParamsDeps.LuaGetField = &LuaGetField;
-    //equipParamsDeps.LuaRawGetI = &LuaRawGetI;
-    //equipParamsDeps.LuaGetTable = &LuaGetTable;
-    //equipParamsDeps.LuaSetTable = &LuaSetTable;
-    //equipParamsDeps.LuaPushValue = &LuaPushValue;
-    //EquipParams::Bind(equipParamsDeps);
-
-
-    //CamoufTable::Deps camoDeps{};
-    //camoDeps.LuaCreateTable = &LuaCreateTable;
-    //camoDeps.LuaPushString  = &LuaPushString;
-    //camoDeps.LuaPushNumber  = &PushLuaNumber;
-    //camoDeps.LuaSetTable    = &LuaSetTable;
-    //camoDeps.LuaGetTop      = &GetLuaTop;
-    //camoDeps.LuaSetTop      = &SetLuaTop;
-    //CamoufTable::Bind(camoDeps);
 
 
     const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);

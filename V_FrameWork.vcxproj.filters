@@ -34,9 +34,6 @@
     <ClInclude Include="src\core\MissionCodeGuard.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\V_FrameWorkState.h">
-      <Filter>Core</Filter>
-    </ClInclude>
     <ClInclude Include="src\core\V_FrameWorkModLoader.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -63,7 +60,6 @@
       <Filter>ThirdParty</Filter>
     </ClInclude>
     <!-- Soldier headers -->
-    <!-- Equip headers -->
     <!-- Player headers -->
     <!-- Sound headers -->
     <!-- UI headers -->
@@ -81,50 +77,12 @@
     <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h" />
     <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
-    <ClInclude Include="src\hooks\equip\CustomEquipIdState.h" />
-    <ClInclude Include="src\hooks\equip\DeclareAMs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareBAs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareMZs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareRCs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareSKs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareSTs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareSWPs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareUBs.h" />
-    <ClInclude Include="src\hooks\equip\DeclareWPs.h" />
-    <ClInclude Include="src\hooks\equip\EquipMotionData.h" />
-    <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
-    <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
-    <ClInclude Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.h" />
-    <ClInclude Include="src\hooks\equip\EquipParameters_GunBasic.h" />
-    <ClInclude Include="src\hooks\equip\RegisterConstantEquipId.h" />
-    <ClInclude Include="src\hooks\equip\SetEquipParameters.h" />
-    <ClInclude Include="src\hooks\equip\SetSupportWeaponTypeId.h" />
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
-    <ClInclude Include="src\hooks\player\InitCamoufTable.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
-    <ClInclude Include="src\hooks\outfit\CustomHeadRegistry.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitEquippedState.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitCommit.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitRuntimeParts.h" />
-    <ClInclude Include="src\hooks\outfit\ShadowState.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitCamoBonus.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitGetCamoufValue.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitListInject.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitFv2Paths.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitHeadOption.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitItemSelector.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropSetup.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitSuitConditionApply.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitSupplyDropPickup.h" />
-    <ClInclude Include="src\hooks\outfit\OutfitUniformsRow.h" />
-    <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
-    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
-    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
-    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
-    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.h" />
+    <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
+    <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
@@ -148,9 +106,6 @@
     <ClCompile Include="src\core\MissionCodeGuard.cpp">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\V_FrameWorkState.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
     <ClCompile Include="src\core\V_FrameWorkModLoader.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -165,7 +120,6 @@
       <Filter>Lua</Filter>
     </ClCompile>
     <!-- Soldier sources -->
-    <!-- Equip sources -->
     <!-- Player sources -->
     <!-- Sound sources -->
     <!-- UI sources -->
@@ -184,50 +138,12 @@
     <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp" />
     <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
-    <ClCompile Include="src\hooks\equip\CustomEquipIdState.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareAMs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareBAs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareMZs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareRCs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareSKs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareSTs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareSWPs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareUBs.cpp" />
-    <ClCompile Include="src\hooks\equip\DeclareWPs.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipMotionData.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipIdTable_AddToEquipIdTable.cpp" />
-    <ClCompile Include="src\hooks\equip\EquipParameters_GunBasic.cpp" />
-    <ClCompile Include="src\hooks\equip\RegisterConstantEquipId.cpp" />
-    <ClCompile Include="src\hooks\equip\SetEquipParameters.cpp" />
-    <ClCompile Include="src\hooks\equip\SetSupportWeaponTypeId.cpp" />
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
-    <ClCompile Include="src\hooks\player\InitCamoufTable.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
-    <ClCompile Include="src\hooks\outfit\CustomHeadRegistry.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitEquippedState.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitCommit.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitRuntimeParts.cpp" />
-    <ClCompile Include="src\hooks\outfit\ShadowState.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitCamoBonus.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitGetCamoufValue.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitListInject.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitFv2Paths.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitHeadOption.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitItemSelector.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropSetup.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitSuitConditionApply.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitSupplyDropPickup.cpp" />
-    <ClCompile Include="src\hooks\outfit\OutfitUniformsRow.cpp" />
-    <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
-    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
-    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
-    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
-    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_Start.cpp" />
+    <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
+    <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
