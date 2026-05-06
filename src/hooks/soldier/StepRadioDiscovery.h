@@ -22,3 +22,11 @@ bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
     std::uint32_t ownerIndex,
     std::uint8_t radioType,
     std::uint32_t& outOverrideLabel);
+
+// Convert-label dispatch fallback. The found-hostage radios don't always
+// reach CallWithRadioType, so the most-recent OnRadioRequest also stores a
+// single-slot override here. Returns true (and writes outOverrideLabel)
+// when the slot matches the requested radio type; consumes on success.
+bool LostHostageDiscovery_TryConsumeConvertOverride(
+    std::uint8_t radioType,
+    std::uint32_t& outOverrideLabel);

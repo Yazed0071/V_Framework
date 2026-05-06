@@ -460,6 +460,24 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
     const std::uint32_t defaultLabel = g_OrigConvertLabel(radioType);
 
+    // Hostage-FOUND discovery override (radio types 0x0B/0x0C/0x12/0x25).
+    // Convert-time dispatch path: a separate hook on CallWithRadioType also
+    // tries to override, but the found-hostage radios don't always route
+    // through it. The single-slot override populated by OnRadioRequest is
+    // consumed here instead.
+    {
+        std::uint32_t discoveryLabel = 0u;
+        if (LostHostageDiscovery_TryConsumeConvertOverride(radioType, discoveryLabel)
+            && discoveryLabel != 0u)
+        {
+            Log("[LostHostageRadio] Discovery override radioType=0x%02X default=0x%08X override=0x%08X\n",
+                static_cast<unsigned>(radioType),
+                static_cast<unsigned>(defaultLabel),
+                static_cast<unsigned>(discoveryLabel));
+            return discoveryLabel;
+        }
+    }
+
     if (radioType == RADIO_PRISONER_GONE)
     {
         PendingReport report{};

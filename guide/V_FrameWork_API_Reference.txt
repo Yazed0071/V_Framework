@@ -470,6 +470,9 @@ MODULE: V_TppHostage
                                  Fox.StrCode32) or a numeric pre-hashed
                                  value. Omit / nil for the built-in behavior.
 
+  The found-hostage radio ("I see the hostage") always uses the built-in
+  male/female/child found label and is not customizable.
+
   EXAMPLE:
     V_TppHostage.SetLostHostage("hostage_0001", 1)  -- female, built-in line
     V_TppHostage.SetLostHostageFromPlayer("hostage_0001", true)
