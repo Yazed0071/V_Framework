@@ -12,20 +12,38 @@
 #include "FoxHashes.h"
 #include "SecurityCameraFovaHook.h"
 
+#include <cstring>
+#include <string>
+
 namespace
 {
-
     using SetFova_t = void(__fastcall*)(void* self, std::uint32_t param2, std::int32_t variant);
 
 
     using LoadFv2EntryByHash_t = std::int64_t(__fastcall*)(
-        void* owner, std::uint32_t partsType, std::uint32_t slotKind, std::uint64_t hash);
+        void* owner,
+        std::uint32_t partsType,
+        std::uint32_t slotKind,
+        std::uint64_t hash,
+        std::uint32_t extra);
 
 
     static SetFova_t g_OrigSetFova = nullptr;
 
 
+    // tpp::gm::securitycamera::FovaType:
+    //   0 = normal camera, 1 = gun camera
     static constexpr std::int32_t kMaxVariants = 2;
+
+    static const char* VariantLabel(std::int32_t variant)
+    {
+        switch (variant)
+        {
+        case 0: return "normal";
+        case 1: return "gun";
+        default: return "unknown";
+        }
+    }
     static constexpr std::uint32_t kFv2SlotKind = 0x10u;
     static constexpr std::uintptr_t kFovaArrayBaseOffset = 0x98ull;
     static constexpr std::uintptr_t kPartsTypeOffset = 0x34ull;
@@ -70,9 +88,16 @@ namespace
                 *reinterpret_cast<std::uint32_t*>(thisAsBytes + kPartsTypeOffset);
 
             const std::int64_t entry = loadFn(
-                reinterpret_cast<void*>(owner), partsType, kFv2SlotKind, hash);
+                reinterpret_cast<void*>(owner), partsType, kFv2SlotKind, hash, 0u);
             if (!entry)
+            {
+                Log("[SecCamFova] resolver returned null (variant=%d %s, partsType=%u, hash=0x%016llX)\n",
+                    static_cast<int>(variant),
+                    VariantLabel(variant),
+                    static_cast<unsigned>(partsType),
+                    static_cast<unsigned long long>(hash));
                 return false;
+            }
 
             const std::int64_t fv2Ptr =
                 *reinterpret_cast<std::int64_t*>(entry + kFv2EntryToFv2Offset);
@@ -98,7 +123,22 @@ namespace
     {
         MISSION_GUARD_ORIGINAL_VOID(g_OrigSetFova, self, param2, variant);
 
-        ApplyOverrideForVariant(self, variant);
+        const std::uint64_t pendingHash =
+            (variant >= 0 && variant < kMaxVariants)
+            ? g_VariantOverrides[variant].load(std::memory_order_relaxed)
+            : 0ull;
+
+        if (pendingHash != 0)
+        {
+            const bool ok = ApplyOverrideForVariant(self, variant);
+            Log("[SecCamFova] hkSetFova: self=%p param2=%u variant=%d (%s) override=0x%016llX applied=%s\n",
+                self,
+                static_cast<unsigned>(param2),
+                static_cast<int>(variant),
+                VariantLabel(variant),
+                static_cast<unsigned long long>(pendingHash),
+                ok ? "YES" : "NO");
+        }
 
         if (g_OrigSetFova)
             g_OrigSetFova(self, param2, variant);
@@ -146,8 +186,10 @@ void Set_SecurityCameraFovaHash(std::int32_t variantIndex, std::uint64_t hash)
     }
 
     g_VariantOverrides[variantIndex].store(hash, std::memory_order_relaxed);
-    Log("[SecCamFova] variant %d -> 0x%016llX\n",
-        static_cast<int>(variantIndex), static_cast<unsigned long long>(hash));
+    Log("[SecCamFova] variant %d (%s) -> 0x%016llX\n",
+        static_cast<int>(variantIndex),
+        VariantLabel(variantIndex),
+        static_cast<unsigned long long>(hash));
 }
 
 
@@ -157,8 +199,11 @@ void Set_SecurityCameraFovaPath(std::int32_t variantIndex, const char* path)
         return;
 
     const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
-    Log("[SecCamFova] hashing path \"%s\" -> 0x%016llX (variant=%d)\n",
-        path, static_cast<unsigned long long>(hash), static_cast<int>(variantIndex));
+    Log("[SecCamFova] hashing path \"%s\" -> 0x%016llX (variant=%d %s)\n",
+        path,
+        static_cast<unsigned long long>(hash),
+        static_cast<int>(variantIndex),
+        VariantLabel(variantIndex));
     Set_SecurityCameraFovaHash(variantIndex, hash);
 }
 
@@ -169,7 +214,8 @@ void Clear_SecurityCameraFova(std::int32_t variantIndex)
         return;
 
     g_VariantOverrides[variantIndex].store(0, std::memory_order_relaxed);
-    Log("[SecCamFova] variant %d cleared\n", static_cast<int>(variantIndex));
+    Log("[SecCamFova] variant %d (%s) cleared\n",
+        static_cast<int>(variantIndex), VariantLabel(variantIndex));
 }
 
 
