@@ -14,12 +14,26 @@ local NULL_ID = GameObject.NULL_ID
 
 local this = {}
 
-function this.SetVIPImportant(soldierNameOrId, isOfficer)
+-- foundDeadBodyRadioLabel (optional): voice line a soldier plays on finding
+-- this VIP's body. Accepts EITHER a label-name string (e.g. "CPR0042_KEEP",
+-- hashed here via StrCode32) OR a pre-hashed numeric StrCode32. Omit / nil
+-- for the built-in officer/VIP defaults.
+function this.SetVIPImportant(soldierNameOrId, isOfficer, foundDeadBodyRadioLabel)
     local gameObjectId = soldierNameOrId
     if IsTypeString(soldierNameOrId) then
         gameObjectId = GetGameObjectId(soldierNameOrId)
     end
-    V_FrameWork.SetVIPImportant(gameObjectId, isOfficer)
+
+    local labelHash = 0
+    if foundDeadBodyRadioLabel ~= nil then
+        if IsTypeString(foundDeadBodyRadioLabel) then
+            labelHash = StrCode32(foundDeadBodyRadioLabel)
+        else
+            labelHash = foundDeadBodyRadioLabel
+        end
+    end
+
+    V_FrameWork.SetVIPImportant(gameObjectId, isOfficer, labelHash)
 end
 
 function this.RemoveVIPImportant(soldierNameOrId)

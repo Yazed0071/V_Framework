@@ -13,20 +13,19 @@ TABLE OF CONTENTS
 ================================================================================
 
   GETTING STARTED .......................... How mods work with V_FrameWork
-  MODULE: V_TppPlayer .................... Custom outfits, camo, voice overrides
-  MODULE: V_TppEquip ..................... Weapons, equipment, develop entries
+  MODULE: V_TppPlayer .................... Voice FPK overrides
+  MODULE: V_TppEquip ..................... Equipment icon overrides
   MODULE: V_TppCassette .................. Cassette tape playback & registration
   MODULE: V_TppUI ........................ Loading screen, game over, equip BGs, telop
+  MODULE: V_TppMusicManager .............. Game-over BGM event overrides
+  MODULE: V_TppHelicopter ................ Heli pilot voice / radio event overrides
   MODULE: V_TppCommandPost ............... Caution phase duration
   MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs, RTPC
   MODULE: V_TppHostage ................... Lost hostage tracking
   MODULE: V_TppPickable .................. Pickable item count overrides
   RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
-  APPENDIX A: PlayerType values .......... 0=Snake, 1=DDMale, etc. + reserved id ranges
-  APPENDIX B: Develop flow field names ... Readable aliases for p51-p74
-  APPENDIX C: Save file format ........... V_FrameWork_State.lua structure
-  APPENDIX D: Camo type constants ........ 0..116 (OLIVEDRAB..QUIET)
-  APPENDIX E: Material type constants .... 0..81  (MTR_IRON_A..MTR_NONE_A)
+  APPENDIX A: PlayerType values .......... 0=Snake, 1=DDMale, etc.
+  APPENDIX B: Voice line labels .......... StrCode32 names for VIP/hostage radios
 
 
 ================================================================================
@@ -35,7 +34,7 @@ GETTING STARTED
 
   V_FrameWork is a DLL hook framework for MGSV:TPP. It intercepts game
   functions at runtime and exposes them to Lua, letting mooders add new content
-  (weapons, cassette tapes, outfits, etc.) without replacing game files.
+  (cassette tapes, UI texture overrides, etc.) without replacing game files.
 
   WRAPPER MODULES vs RAW API
   --------------------------
@@ -55,417 +54,23 @@ GETTING STARTED
     end
 
     function this.LoadLibraries()
-        -- Called once when modules load. Register tapes, equipment, etc.
+        -- Called once when modules load. Register tapes, etc.
     end
 
     return this
-
-  SAVE FILE
-  ---------
-  V_FrameWork persists mod data in mod/V_FrameWork/V_FrameWork_State.lua.
-  Keys are "modName:itemName" strings. Multiple mods never conflict.
-  See APPENDIX C for the file format.
 
 
 ================================================================================
 MODULE: V_TppPlayer
 ================================================================================
 
-  Custom player outfits, camo table editing, and voice overrides.
-
-  Outfit registration goes through V_TppPlayer.AddOutfit (a high-level
-  wrapper) or V_FrameWork.RegisterOutfit (the low-level native bridge).
-  The wrapper handles R&D table integration; the bridge accepts the same
-  per-PT branch shape but doesn't auto-create develop-table rows.
-
-  --------------------------------------------------------------------------
-  AddOutfit(opts)
-  --------------------------------------------------------------------------
-
-    High-level outfit registration. Allocates four ids:
-
-      partsType    — 0x40..0x7F   from a session pool (always auto)
-      selectorCode — 0x80..0xFE   from a session pool (always auto)
-      developId    — auto-allocated AND PERSISTED in V_FrameWork_State.lua
-                     under your `name` key. Same key → same id across runs.
-                     Same mechanism weapons use, so mods never collide.
-      flowIndex    — auto-allocated AND PERSISTED in V_FrameWork_State.lua
-                     under your `name` key.
-
-    developId/flowIndex are FRAMEWORK-OWNED and cannot be set by the user.
-    Passing either field is rejected with a log message.
-
-    PER-PLAYERTYPE BRANCHES:
-
-    The outfit table contains a sub-table for each playerType you want to
-    support (snake / ddMale / ddFemale / avatar). Each branch is independent
-    and supplies its own paths, sub-asset overrides, and variant set. At
-    least one branch must be provided.
-
-    Snake↔Avatar bridge: omitting `avatar` while filling `snake` (or vice
-    versa) makes the outfit appear for BOTH using the same data. DDMale and
-    DDFemale do NOT bridge — each must be supplied separately.
-
-    PARAMETERS (table `opts`):
-      name                 string   REQUIRED — persistence key for auto-allocation.
-                                    Convention: "ModName:OutfitName".
-
-      snake                table    OPTIONAL — Snake (playerType 0) branch
-      ddMale               table    OPTIONAL — DDMale (playerType 1) branch
-      ddFemale             table    OPTIONAL — DDFemale (playerType 2) branch
-      avatar               table    OPTIONAL — Avatar (playerType 3) branch
-
-      (At least ONE branch table is required.)
-
-    EACH BRANCH TABLE SUPPORTS:
-      partsPath            string   REQUIRED — body .parts asset path
-      fpkPath              string   REQUIRED — body .fpk   asset path
-
-      camoFpk              string|true|false  default false (disabled)
-      faceFpk              string|true|false  default true  (vanilla)
-      skinFv2              string|true|false  default true  (vanilla)
-      diamondFpk           string|true|false  default false (disabled)
-      diamondFv2           string|true|false  default true  (vanilla)
-      camoFv2              string|true|false  default true  (vanilla)
-      voiceFpk             string|true|false  default true  (vanilla)
-
-      displayName          string   optional — LangId for this branch's
-                                    variant 0 (BASE) cycle-button label
-      displayNameHash      number   optional — pre-hashed StrCode64 (used if
-                                    displayName not set)
-
-      variants             array    optional — variants 1..N for THIS branch.
-                                    Each entry is a table with
-                                    partsPath / fpkPath / camoFpk / camoFv2 /
-                                    diamondFpk / diamondFv2 / voiceFpk /
-                                    displayName / displayNameHash.
-                                    Each PT branch can have a different
-                                    variant set.
-
-    OUTFIT-LEVEL FIELDS (apply across all branches):
-      enableArm            boolean            default true
-                                    Vanilla bionic prosthetic arm visibility.
-
-      enableHead           boolean            default false
-                                    Set true when the body has no integrated
-                                    head, so the orig face/head FPK pipeline
-                                    runs (HEAD OPTION can swap heads).
-
-      defaultSoldierFaceId number             optional
-                                    When enableHead=true and the player slot
-                                    has 0, the framework writes this value
-                                    before orig reads the face FPK.
-
-      headOptions          array    optional — list of head-option entries
-                                    (up to 8). The HEAD OPTION submenu is
-                                    auto-enabled when this array is non-empty.
-                                    Each entry can be:
-                                      • vanilla alias (string) — case- and
-                                        separator-insensitive:
-                                          "NONE"                  → 0x400
-                                          "BANDANA"               → 0x20E
-                                          "INFINITE BANDANA"      → 0x20F
-                                          "BALACLAVA"             → 0x210
-                                          "SP-HEADGEAR"           → 0x211
-                                          "HP-HEADGEAR"           → 0x212
-                                        (BANDANA pair only renders on
-                                        playerType 0/3.)
-                                      • vanilla equipId (number)
-                                      • custom-head name (string) — resolved
-                                        against V_FrameWork.RegisterHeadOption
-                                      • custom-head equipId (number)
-
-      langEquipName        string   optional — LangId for the outfit's
-                                    iDroid suit-name (overrides the orig
-                                    translator's blank return for our custom
-                                    partsType range).
-
-      camoBonusType       number   optional — PlayerCamoType (0..116) pinned
-                                    for SURFACE-BONUS lookup while this
-                                    outfit is equipped. INHERIT a
-                                    vanilla camo's bonus profile.
-
-      camoBonusValues     table    optional — UNIQUE per-outfit bonus row.
-                                    Sparse table keyed by material name
-                                    (e.g. MTR_LEAF = 50) or 1-based numeric
-                                    index 1..82. Anything not listed defaults
-                                    to 0. The framework allocates a virtual
-                                    PlayerCamoType id (200..254 range; pool
-                                    of 55 slots).
-                                    If both camoBonusType and camoBonusValues
-                                    are passed, values wins.
-
-                                    See APPENDIX E for the full list of
-                                    MaterialType names (MTR_IRON_A
-                                    through MTR_NONE_A).
-
-      develop              table    optional R&D table entry (cost, time,
-                                    lang strings, icon, etc.). The wrapper
-                                    auto-fills `develop.const.p00` and `.p50`
-                                    with the auto-allocated developId/
-                                    flowIndex. Field reference: APPENDIX B.
-
-    RETURNS: partsType, developId, flowIndex on success, or false on failure
-             (always logged).
-
-    EXAMPLE:
-      local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
-          name = "MyMod:Snake_NeonSuit",
-
-          snake = {
-              partsPath = "/Assets/mod/chara/snake/sna_neon.parts",
-              fpkPath   = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
-          },
-
-          -- Avatar omitted — auto-bridges to Snake.
-          -- DDMale / DDFemale omitted — outfit not available for them.
-
-          develop = {
-              const = { langEquipName = "NeonSuit", iconFtexPath = "..." },
-              flow  = { developGmpCost = 50000, initialAvailable = 0 },
-          },
-      }
-      -- developId and flowIndex come back auto-allocated; persisted in
-      -- V_FrameWork_State.lua so the next session reuses the same ids.
-
-  --------------------------------------------------------------------------
-  SetOutfitVariant(developId, variantIndex)
-  --------------------------------------------------------------------------
-
-    Switches the active variant for a registered multi-variant outfit.
-    The next runtime parts load uses the named variant's paths.
-
-    `variantIndex` is clamped internally to the outfit's variantCount.
-    Variant 0 always returns the base appearance.
-
-    RETURNS: true on success, false if developId is unknown.
-
-    EXAMPLE:
-      V_TppPlayer.SetOutfitVariant(51012, 2)
-
-  --------------------------------------------------------------------------
-  V_TppPlayer.AddHeadOption(opts)        — RECOMMENDED wrapper
-  V_FrameWork.RegisterHeadOption(opts)   — low-level call
-  --------------------------------------------------------------------------
-
-    Registers a custom head asset. Returns the equipId — which is the
-    EquipDevelopConstSetting row index assigned when the row was
-    appended (NOT the developId).
-
-    The high-level wrapper `V_TppPlayer.AddHeadOption{...}` handles
-    BOTH halves of the registration in one call: the
-    AddToEquipDevelopTable row (drives iDroid label/icon AND R&D entry)
-    AND the RegisterHeadOption call (slot byte + visual face id).
-    Use the wrapper unless you need to customize the develop row's
-    fields directly, in which case fall back to the call pair.
-
-    LOW-LEVEL CALL ORDER (only needed if you skip the wrapper):
-      V_TppEquip.AddToEquipDevelopTable("Mod:Head", { const = {...},
-                                                       flow = {...} })
-      V_FrameWork.RegisterHeadOption{ name = "Mod:Head", ... }
-
-    AddToEquipDevelopTable injects the const-setting row (driving the
-    iDroid label/icon and providing the row index). RegisterHeadOption
-    looks up the row index assigned to that `name` and binds the visual.
-    Calling RegisterHeadOption first or without an AddToEquipDevelopTable
-    pair returns 0 (logged) — the row index isn't known.
-
-    Idempotent on `name` — re-registering the same name returns the
-    same equipId without re-allocating.
-
-    Tier-3-A architecture (current): the head's visual is one of the
-    vanilla balaclava styles (modder picks via `TppEnemyFaceId`).
-    Distinct custom-mesh heads aren't yet supported — sentinel face id
-    values outside the FaceUnit table hang the orig asset loader
-    (verified 2026-04-30; bookkeeping requires a real FaceUnit row).
-    The framework still owns name/equipId/slot allocation and links to
-    the iDroid label/icon via shared developId.
-
-    DEVELOP-GATED (both forms): the registered head only appears in
-    the iDroid HEAD OPTION submenu after the player researches it in
-    MotherBase R&D — same gate as vanilla heads. Set
-    `develop.flow.initialAvailable = 1` (wrapper) or `flow.initialAvailable = 1`
-    on the AddToEquipDevelopTable row (low-level) to start the head
-    pre-researched.
-
-    PARAMETERS (V_TppPlayer.AddHeadOption — wrapper):
-      name            string  REQUIRED   stable mod-side identifier
-                                         (convention: "ModName:HeadName")
-      TppEnemyFaceId  number  optional   visual face id; default 0x22D
-                                         (DDFemale BALACLAVA). Use the
-                                         vanilla MGSV lua `TppEnemyFaceId`
-                                         table values, e.g.
-                                           TppEnemyFaceId.dds_balaclava0..5
-                                           TppEnemyFaceId.svs_balaclava
-      langEquipName   string  optional   iDroid label string id (defaults
-                                         the const-block p06/p30/p07
-                                         when `develop.const` doesn't
-                                         set them explicitly)
-      iconFtexPath    string  optional   iDroid icon path (defaults the
-                                         const-block p08 when not set
-                                         explicitly)
-      develop         table   optional   { const = { ... },  -- p01..p36 overrides
-                                          flow  = { ... } }  -- R&D fields
-                                         Anything you set here wins over
-                                         the wrapper's defaults. Common:
-                                           develop.flow.developGmpCost
-                                           develop.flow.initialAvailable
-                                           develop.flow.grade
-
-    PARAMETERS (V_FrameWork.RegisterHeadOption — low-level):
-      name            string  REQUIRED   same as wrapper
-      TppEnemyFaceId  number  optional   same as wrapper
-      langName        string  optional   StrCode64 iDroid label override
-                                         (only used if no AddToEquipDevelopTable
-                                         row exists for this name)
-      iconFtex        string  optional   iDroid icon override (same caveat)
-
-    RETURNS: equipId on success, 0 / false on failure (logged).
-
-    EXAMPLE — recommended (wrapper):
-      V_TppPlayer.AddHeadOption{
-          name           = "MyMod:CoolHelmet",
-          TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
-          langEquipName  = "name_my_helmet",
-          iconFtexPath   = "/Assets/.../ui_helmet_alp",
-          develop = { flow = { developGmpCost = 50000 } },
-      }
-      V_TppPlayer.AddOutfit{
-          ...,
-          headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" },
-      }
-
-    EXAMPLE — low-level (only if you need full control of the const block):
-      V_TppEquip.AddToEquipDevelopTable("MyMod:CoolHelmet", {
-          const = { p01=TppEquip.EQP_None, p02=TppMbDev.EQP_DEV_TYPE_Suit,
-                    p06="name_my_helmet", p07="info_my_helmet",
-                    p08="/Assets/.../ui_helmet_alp", ... },
-          flow  = { grade=2, ... },
-      })
-      V_FrameWork.RegisterHeadOption{
-          name           = "MyMod:CoolHelmet",
-          TppEnemyFaceId = TppEnemyFaceId.dds_balaclava2,
-      }
-      V_TppPlayer.AddOutfit{
-          ...,
-          headOptions = { "NONE", "BALACLAVA", "MyMod:CoolHelmet" },
-      }
-
-    NOTES:
-      - Custom mesh assets are blocked behind FaceUnit-table registration
-        (future work). For now the visual is one of the vanilla
-        balaclava styles; pick via TppEnemyFaceId.
-      - See guide/examples/OutfitWithCustomHead.lua for a full example.
-
-  --------------------------------------------------------------------------
-  GetOutfitInfo(developId)
-  --------------------------------------------------------------------------
-
-    Returns a table describing a registered outfit's allocated values:
-
-      { partsType            = number,    -- 0x40..0x7F
-        selectorCode         = number,    -- 0x80..0xFE
-        flowIndex            = number,
-
-        -- Per-PT support flags (Snake↔Avatar bridge reflected here).
-        supportsSnake        = boolean,
-        supportsDDMale       = boolean,
-        supportsDDFemale     = boolean,
-        supportsAvatar       = boolean,
-
-        variantCount         = number,    -- max across populated branches
-        activeVariant        = number,
-        supportsHeadOptions  = boolean }
-
-    Returns nil if no outfit is registered for `developId`.
-
-    EXAMPLE:
-      local info = V_TppPlayer.GetOutfitInfo(51009)
-      if info then
-          print(string.format("partsType=0x%02X variants=%d",
-                              info.partsType, info.variantCount))
-      end
-
-  --------------------------------------------------------------------------
-  SetCamoValue(camoType, materialType, value)
-  --------------------------------------------------------------------------
-
-    Modifies one cell of the 117×82 camo parameter table and pushes the
-    updated table to the engine.
-
-    PARAMETERS:
-      camoType      number|string  0..116  (see APPENDIX D — name or index)
-      materialType  number|string  0..81   (see APPENDIX E — name or index)
-      value         number         int32   (typical range -100..100)
-
-    EXAMPLE:
-      V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_LEAF", 50)
-      V_TppPlayer.SetCamoValue(0,            60,         50)  -- equivalent
-
-  --------------------------------------------------------------------------
-  GetCamoValue(camoType, materialType) → int
-  --------------------------------------------------------------------------
-
-    Reads one cell of the framework-tracked camo table. Returns 0 for
-    invalid indices (and also for cells the framework hasn't touched
-    yet, since the framework's table starts zeroed and only the cells
-    you write are tracked — vanilla data lives in the engine).
-
-    EXAMPLE:
-      local v = V_TppPlayer.GetCamoValue("OLIVEDRAB", "MTR_LEAF")
-
-  --------------------------------------------------------------------------
-  CloneCamoRow(dstCamoType, srcCamoType)
-  --------------------------------------------------------------------------
-
-    Copies one camo type's entire 82-cell row onto another.
-
-    EXAMPLE:
-      V_TppPlayer.CloneCamoRow("MYCUSTOM", "WOODLAND")
-
-  --------------------------------------------------------------------------
-  ImportCamoRow(camoType, values)
-  --------------------------------------------------------------------------
-
-    Replaces the 82 cells of a camo row from a Lua array (up to 82 numbers).
-    Missing trailing cells are set to 0.
-
-    EXAMPLE:
-      V_TppPlayer.ImportCamoRow(0, { 10, 20, 30, -5, --[[ up to 82 ]] })
-
-  --------------------------------------------------------------------------
-  ImportCamoTable(tbl)
-  --------------------------------------------------------------------------
-
-    BULK loader. Replaces the entire 117×82 camo table from a 2D Lua
-    array, then pushes the result to the engine ONCE. Equivalent to the
-    vanilla `Player.InitCamoufTable(table)` call that mods like Infinite
-    Heaven use to ship a full default table.
-
-    Much cheaper than calling ImportCamoRow 117 times in a loop (which
-    would push to the engine 117 separate times).
-
-    Shape:
-      tbl[1]    = { v1, v2, ..., v82 }   -- camoType 0 (OLIVEDRAB)
-      tbl[2]    = { v1, v2, ..., v82 }   -- camoType 1 (SPLITTER)
-      ...
-      tbl[117]  = { v1, v2, ..., v82 }   -- camoType 116 (QUIET)
-
-    Rows past 117 / cells past 82 are ignored. Missing cells become 0.
-
-    EXAMPLE:
-      local myTable = { ... full 117×82 array, e.g. lifted from
-                        IH's player2_camouf_param.lua ... }
-      V_TppPlayer.ImportCamoTable(myTable)
+  Voice FPK overrides for player character types.
 
   --------------------------------------------------------------------------
   SetPlayerVoiceFpkPathForType(playerType, path)
   --------------------------------------------------------------------------
 
     Overrides the voice FPK for a player character type. Per-type override.
-    Lower priority than the per-outfit `voiceFpk` field — when an outfit
-    with its own `voiceFpk` is equipped that takes precedence; this slot
-    only fires when no outfit-level voice override is set.
 
     PARAMETERS:
       playerType  number  0-3 (see APPENDIX A)
@@ -490,166 +95,8 @@ MODULE: V_TppPlayer
     Removes all voice overrides for all player types.
 
   --------------------------------------------------------------------------
-  WORKED EXAMPLES
+  WORKED EXAMPLE
   --------------------------------------------------------------------------
-
-  EXAMPLE 1 — minimal outfit (developId/flowIndex auto-allocated).
-
-    -- The framework allocates developId and flowIndex from the shared
-    -- mod pool and persists them in V_FrameWork_State.lua under the
-    -- `name` key. Subsequent runs reuse the same ids. No vanilla
-    -- collisions, no inter-mod collisions.
-    local partsType, developId, flowIndex = V_TppPlayer.AddOutfit{
-        name       = "MyMod:Snake_NeonSuit",
-        playerType = "Snake",
-        partsPath  = "/Assets/mod/chara/snake/sna_neon.parts",
-        fpkPath    = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
-    }
-
-    -- Outfit appears in the Snake UNIFORMS panel; the Equipped badge
-    -- tracks correctly when selected.
-
-
-  EXAMPLE 2 — outfit with R&D table entry (cost, time, lang strings).
-
-    V_TppPlayer.AddOutfit{
-        name = "MyMod:Snake_NeonSuit_RD",
-
-        snake = {
-            partsPath = "/Assets/mod/chara/snake/sna_neon.parts",
-            fpkPath   = "/Assets/mod/pack/chara/snake/sna_neon.fpk",
-            camoFpk   = "/Assets/mod/chara/snake/sna_neon_camo.fpk",
-        },
-
-        develop = {
-            const = {
-                langEquipName     = "NeonSuit_Name",
-                langEquipInfo     = "NeonSuit_Info",
-                langEquipRealName = "NeonSuit",
-                iconFtexPath      = "/Assets/mod/ui/icon/neon.ftex",
-            },
-            flow = {
-                developGmpCost     = 50000,
-                developTimeMinute  = 20,
-                resourceType1      = "COMMON",
-                resourceType1Count = 10,
-                initialAvailable   = 0,  -- 0 = locked until researched
-            },
-        },
-    }
-    -- The wrapper auto-fills `develop.const.p00` and `.p50` with the
-    -- allocated developId/flowIndex before forwarding to the R&D table.
-
-
-  EXAMPLE 3 — outfit with PER-PT VARIANTS.
-              Each playerType branch can have its own variant set.
-
-    V_TppPlayer.AddOutfit{
-        name = "MyMod:Tactical",
-
-        snake = {
-            partsPath = "/Assets/mod/.../tactical_snake.parts",
-            fpkPath   = "/Assets/mod/.../tactical_snake.fpk",
-            camoFpk   = "/Assets/mod/.../tactical_snake_camo.fpk",
-
-            -- Snake gets 3 alternates.
-            variants = {
-                { fpkPath = "/Assets/mod/.../tactical_snake_urban.fpk",
-                  camoFpk = "/Assets/mod/.../tactical_snake_urban_camo.fpk" },
-
-                { fpkPath = "/Assets/mod/.../tactical_snake_wood.fpk",
-                  camoFpk = "/Assets/mod/.../tactical_snake_wood_camo.fpk" },
-
-                { partsPath = "/Assets/mod/.../tactical_snake_v2.parts",
-                  fpkPath   = "/Assets/mod/.../tactical_snake_v2.fpk" },
-            },
-        },
-
-        ddFemale = {
-            partsPath = "/Assets/mod/.../tactical_ddf.parts",
-            fpkPath   = "/Assets/mod/.../tactical_ddf.fpk",
-
-            -- DDFemale gets only 1 alternate (different variant set).
-            variants = {
-                { fpkPath = "/Assets/mod/.../tactical_ddf_alt.fpk" },
-            },
-        },
-
-        -- Avatar omitted — auto-bridges to Snake (and Snake's variants).
-    }
-
-
-  EXAMPLE 4 — outfit with HEAD OPTION submenu (vanilla heads only).
-
-    -- Use the case-insensitive name aliases (recommended) instead of
-    -- raw equipIds. supportsHeadOptions auto-implies true when
-    -- headOptions is non-empty.
-    V_TppPlayer.AddOutfit{
-        name = "MyMod:DDF_NeonHeads",
-
-        ddFemale = {
-            partsPath = "/Assets/mod/chara/ddf/ddf_neon.parts",
-            fpkPath   = "/Assets/mod/pack/chara/ddf/ddf_neon.fpk",
-        },
-
-        headOptions = {
-            "NONE",
-            "BALACLAVA",
-            "SP-HEADGEAR",
-            "HP-HEADGEAR",
-        },
-
-        enableHead = true,  -- body parts file does NOT ship an integrated head
-        enableArm  = true,
-    }
-
-
-  EXAMPLE 4c — outfit with custom voice .fpk on each PT branch.
-
-    -- voiceFpk routes through LoadPlayerVoiceFpk: while this outfit is
-    -- equipped, the engine plays voice lines from your .fpk. Each PT
-    -- branch can specify a different voice.
-    V_TppPlayer.AddOutfit{
-        name = "MyMod:AltVoice",
-
-        snake = {
-            partsPath = "/Assets/mod/chara/snake/sna_alt.parts",
-            fpkPath   = "/Assets/mod/pack/chara/snake/sna_alt.fpk",
-            voiceFpk  = "/Assets/mod/pack/chara/snake/sna_alt_voice.fpk",
-        },
-
-        ddFemale = {
-            partsPath = "/Assets/mod/chara/ddf/ddf_alt.parts",
-            fpkPath   = "/Assets/mod/pack/chara/ddf/ddf_alt.fpk",
-            voiceFpk  = "/Assets/mod/pack/chara/ddf/ddf_alt_voice.fpk",
-        },
-    }
-
-
-  EXAMPLE 5 — programmatic variant switch.
-
-    local _, developId = V_TppPlayer.AddOutfit{ ... }   -- from EXAMPLE 3
-
-    -- Later, switch to variant 2 (woodland):
-    V_TppPlayer.SetOutfitVariant(developId, 2)
-
-
-  EXAMPLE 7 — camo parameter tweaks.
-
-    -- Boost OLIVEDRAB's visibility against leaves
-    V_TppPlayer.SetCamoValue("OLIVEDRAB", "MTR_LEAF", 50)
-
-    -- Clone the whole WOODLAND row into a mod slot
-    V_TppPlayer.CloneCamoRow("SOLIDSNAKE", "WOODLAND")
-
-    -- Bulk-import a full row (up to 82 int32 values)
-    local row = {}
-    for i = 1, 82 do row[i] = 0 end
-    row[61] = 100   -- max visibility on MTR_LEAF (index 60, Lua 1-based)
-    V_TppPlayer.ImportCamoRow("TIGERSTRIPE", row)
-
-
-  EXAMPLE 8 — programmatic voice FPK override per playerType.
 
     V_TppPlayer.SetPlayerVoiceFpkPathForType(0,
         "/Assets/mod/voice/snake_custom.fpk")
@@ -661,290 +108,17 @@ MODULE: V_TppPlayer
 MODULE: V_TppEquip
 ================================================================================
 
-  Manages weapons, equipment registration, and develop table entries.
+  Equipment icon-texture overrides.
 
   --------------------------------------------------------------------------
-  RegisterConstantEquipId(equipName)
+  SetEquipIdIconFtexPath(equipId, path)
   --------------------------------------------------------------------------
 
-    Reserves a unique numeric equip ID. Stable across sessions via save file.
+    Sets the icon texture for an equip slot.
 
     PARAMETERS:
-      equipName  string  Unique name (e.g. "EQP_WP_MyMod_AK12")
-
-    RETURNS: number (equipId)
-
-    EXAMPLE:
-      local equipId = V_TppEquip.RegisterConstantEquipId("EQP_WP_MyMod_AK12")
-
-  --------------------------------------------------------------------------
-  DeclareWPs(weaponName)
-  --------------------------------------------------------------------------
-
-    Declares a weapon part constant in TppEquip.
-
-    PARAMETERS:
-      weaponName  string
-
-    RETURNS: number (wpId)
-
-    EXAMPLE:
-      local wpId = V_TppEquip.DeclareWPs("WP_MyMod_AK12_00")
-
-  --------------------------------------------------------------------------
-  DeclareSWPs(supportWeaponName)
-  --------------------------------------------------------------------------
-
-    Declares a support weapon constant.
-
-    PARAMETERS:
-      supportWeaponName  string
-
-    RETURNS: number (swpId)
-
-    EXAMPLE:
-      V_TppEquip.DeclareSWPs("EQP_SWP_ChaffGrenade")
-
-  --------------------------------------------------------------------------
-  DeclareRCs(receiverName)
-  --------------------------------------------------------------------------
-
-    Declares a receiver constant in TppEquip. Receiver IDs feed
-    SetGunBasic.receiverId. Custom IDs auto-allocate above the highest
-    stock RC_* in TppEquip (floor 0xEA).
-
-    PARAMETERS:
-      receiverName  string  e.g. "RC_MyMod_AK12"
-
-    RETURNS: number (rcId)
-
-    EXAMPLE:
-      local rcId = V_TppEquip.DeclareRCs("RC_MyMod_AK12")
-
-  --------------------------------------------------------------------------
-  DeclareAMs(ammoName)  /  DeclareAMs({names...})
-  --------------------------------------------------------------------------
-
-    Declares one or more ammo constants in TppEquip. Ammo IDs feed
-    SetGunBasic.ammoId. Unlike the other declarators, DeclareAMs ALSO
-    installs a hook on the game's internal DeclareAMs so vanilla reloads
-    re-inject the queued ammo IDs. Custom IDs start at 0xC0.
-
-    PARAMETERS:
-      ammoName  string  OR  table of strings  (each must start with "AM_")
-
-    RETURNS: nothing  (the ID is written into TppEquip[name] directly)
-
-    EXAMPLE:
-      V_TppEquip.DeclareAMs("AM_MyMod_762x39")
-      V_TppEquip.DeclareAMs({ "AM_MyMod_A", "AM_MyMod_B" })
-
-  --------------------------------------------------------------------------
-  DeclareBAs(barrelName)
-  --------------------------------------------------------------------------
-
-    Declares a barrel-assembly constant in TppEquip. Barrel IDs feed
-    SetGunBasic.barrelId. Stock has 115 entries (BA_None .. BA_*); custom
-    IDs auto-allocate above the highest stock BA_* (floor 0x80).
-
-    PARAMETERS:
-      barrelName  string  e.g. "BA_MyMod_AK12_Long"
-
-    RETURNS: number (baId)
-
-    EXAMPLE:
-      local baId = V_TppEquip.DeclareBAs("BA_MyMod_AK12_Long")
-
-  --------------------------------------------------------------------------
-  DeclareSTs(stockName)
-  --------------------------------------------------------------------------
-
-    Declares a stock constant in TppEquip. Stock IDs feed
-    SetGunBasic.stockId. Stock has 25 entries (ST_None .. ST_80303);
-    custom IDs auto-allocate above stock max (floor 0x20).
-
-    PARAMETERS:
-      stockName  string  e.g. "ST_MyMod_AK12_Folding"
-
-    RETURNS: number (stId)
-
-    EXAMPLE:
-      local stId = V_TppEquip.DeclareSTs("ST_MyMod_AK12_Folding")
-
-  --------------------------------------------------------------------------
-  DeclareMZs(muzzleName)
-  --------------------------------------------------------------------------
-
-    Declares a muzzle constant (suppressors / compensators) in TppEquip.
-    Muzzle IDs feed SetGunBasic.muzzleId. Stock has 29 entries
-    (MZ_None .. MZ_70207); custom IDs auto-allocate above stock max
-    (floor 0x20).
-
-    PARAMETERS:
-      muzzleName  string  e.g. "MZ_MyMod_AK12_Suppressor"
-
-    RETURNS: number (mzId)
-
-    EXAMPLE:
-      local mzId = V_TppEquip.DeclareMZs("MZ_MyMod_AK12_Suppressor")
-
-  --------------------------------------------------------------------------
-  DeclareSKs(sightName)
-  --------------------------------------------------------------------------
-
-    Declares a sight/scope constant in TppEquip. Sight IDs are referenced
-    by gun-basic / equip-parameter sight slots. Stock has 43 entries
-    (SK_None .. SK_70203); custom IDs auto-allocate above stock max
-    (floor 0x40).
-
-    PARAMETERS:
-      sightName  string  e.g. "SK_MyMod_RedDot"
-
-    RETURNS: number (skId)
-
-    EXAMPLE:
-      local skId = V_TppEquip.DeclareSKs("SK_MyMod_RedDot")
-
-  --------------------------------------------------------------------------
-  DeclareUBs(underbarrelName)
-  --------------------------------------------------------------------------
-
-    Declares an underbarrel constant in TppEquip (grenade launchers,
-    masterkey shotguns, etc.). Stock has 23 entries (UB_None .. UB_*);
-    custom IDs auto-allocate above stock max (floor 0x20).
-
-    PARAMETERS:
-      underbarrelName  string  e.g. "UB_MyMod_M203"
-
-    RETURNS: number (ubId)
-
-    EXAMPLE:
-      local ubId = V_TppEquip.DeclareUBs("UB_MyMod_M203")
-
-  --------------------------------------------------------------------------
-  SetSupportWeaponType(supportWeaponId, swpType)
-  --------------------------------------------------------------------------
-
-    Assigns a type to a support weapon.
-
-    PARAMETERS:
-      supportWeaponId  number
-      swpType          number
-
-  --------------------------------------------------------------------------
-  AddToEquipIdTable(equipTable)
-  --------------------------------------------------------------------------
-
-    Registers equip entries in the game's equip ID table.
-
-    PARAMETERS:
-      equipTable  table  Array of entries. Each entry:
-                         { equipId, type, baseWeapon, block, partsPath, fpkPath }
-
-    EXAMPLE:
-      V_TppEquip.AddToEquipIdTable({
-          { equipId, TppEquip.EQP_TYPE_Assault, 290,
-            TppEquip.EQP_BLOCK_MISSION,
-            "/Assets/.../my_gun.parts",
-            "/Assets/.../my_gun.fpk" },
-      })
-
-  --------------------------------------------------------------------------
-  SetGunBasic(gunBasic)
-  --------------------------------------------------------------------------
-
-    Sets gun parameters for a weapon. weaponId is REQUIRED.
-
-    PARAMETERS:
-      gunBasic  table  { weaponId (REQUIRED), receiverId, barrelId, ammoId,
-                         stockId, muzzleId, grade, ... }
-
-    EXAMPLE:
-      V_TppEquip.SetGunBasic({
-          weaponId   = wpId,
-          receiverId = 30014,
-          barrelId   = 30115,
-          ammoId     = 30034,
-          grade      = 8,
-      })
-
-  --------------------------------------------------------------------------
-  AddToEquipDevelopTable(key, developData)
-  --------------------------------------------------------------------------
-
-    Adds a develop entry (shows in Mother Base R&D). The key should be
-    "ModName:ItemName" format for stable persistence.
-
-    PARAMETERS:
-      key          string  Unique key (e.g. "MyMod:AK12")
-      developData  table   { const = {...}, flow = {...} }
-
-    RETURNS: number (developId)
-
-    NOTE: Flow fields accept both raw names (p51-p74) and readable names.
-          See APPENDIX B for the full list.
-
-    EXAMPLE:
-      local devId = V_TppEquip.AddToEquipDevelopTable("MyMod:AK12", {
-          const = {
-              equipID = equipId,
-              equipDevelopTypeID = TppMbDev.EQP_DEV_TYPE_Assault,
-              langEquipName = "my_gun_name",
-              langEquipInfo = "my_gun_desc",
-              iconFtexPath = "/Assets/.../my_gun_icon",
-              equipDevelopGroupID = TppMbDev.EQP_DEV_GROUP_WEAPON_120,
-              unk36 = 1,
-          },
-          flow = {
-              grade = 8,
-              developGmpCost = 50000,
-              resourceType1 = "CommonMetal",
-              resourceType1Count = 260,
-              resourceType2 = "PreciousMetal",
-              resourceType2Count = 50,
-          }
-      })
-
-  --------------------------------------------------------------------------
-  AddToEquipMotionDataTable(motionDataTable)
-  --------------------------------------------------------------------------
-
-    Registers {equipId, mtarPath} pairs that bind a weapon assembly motion
-    archive to an equip slot. Pairs are queued in C++; the framework hooks
-    the engine's ReloadEquipMotionData (0x1463b2bf0) and splices the queue
-    into the caller's arg.MotionDataTable before forwarding to orig. Result:
-    vanilla entries + your additions both populate the engine buffer on
-    every reload, no manual reload trigger needed.
-
-    Same equipId queued twice => latest mtarPath wins (dedup by id).
-
-    PARAMETERS:
-      motionDataTable  table  Array of 2-tuples. Each entry:
-                              { equipId, mtarPath }
-        equipId   number  REQUIRED (compressed if >= 0x400)
-        mtarPath  string  REQUIRED (.mtar asset path)
-
-    RETURNS: nothing
-
-    EXAMPLE:
-      V_TppEquip.AddToEquipMotionDataTable({
-          { equipId,
-            "/Assets/tpp/motion/mtar/equip/chimera/assemble/foo.mtar" },
-          { otherEquipId,
-            "/Assets/tpp/motion/mtar/equip/chimera/assemble/bar.mtar" },
-      })
-
-    NOTE: Per-bone motions / poses / receiver-assignment rows use a
-          DIFFERENT engine entry point — TppEquip.ReloadEquipMotionData2(t)
-          — with a richer schema (motions/poses/mtars/assignments
-          sub-arrays). The framework does not wrap that; mods using it
-          call it directly.
-
-  --------------------------------------------------------------------------
-  SetEquipIdIconFtexPath(equipId, path) / ClearIconFtexPath(equipId)
-  --------------------------------------------------------------------------
-
-    Sets or clears the icon texture for an equip slot.
+      equipId  number  Equip ID
+      path     string  FTEX asset path
 
     EXAMPLE:
       V_TppEquip.SetEquipIdIconFtexPath(equipId, "/Assets/.../my_icon")
@@ -954,46 +128,7 @@ MODULE: V_TppEquip
 MODULE: V_TppCassette
 ================================================================================
 
-  Controls cassette tape playback and registers custom albums/tracks.
-
-  --------------------------------------------------------------------------
-  RegisterCustomCassetteAlbum(albumInfo, trackList)
-  --------------------------------------------------------------------------
-
-    Registers a custom cassette album with tracks. One call does everything.
-
-    PARAMETERS:
-      albumInfo  table  Album metadata:
-        albumId    string  REQUIRED  Unique album identifier
-        langId     string  optional  Language ID for album name
-                                     (default: "sub_mission_untitle")
-        type       string  optional  Album type
-                                     (default: "PREINSTALL_BRIEFING")
-
-      trackList  table  Array of track entries:
-        fileName     string  REQUIRED  Audio file name (without extension)
-        langId       string  optional  Language ID for track name
-                                       (default: "sub_mission_untitle")
-        dataTimeJp   number  optional  Duration in ms, Japanese (default: 0)
-        dataTimeEn   number  optional  Duration in ms, English (default: 0)
-        important    number  optional  (default: 0)
-        special      number  optional  (default: 0)
-        unlocked     number  optional  (default: 0)
-        saveIndex    number  optional  Hint for save index (default: 300)
-
-    RETURNS: bool
-
-    EXAMPLE:
-      V_TppCassette.RegisterCustomCassetteAlbum(
-          { albumId = "my_album", langId = "my_album_title",
-            type = "PREINSTALL_MUSIC" },
-          {
-              { langId = "track_1", fileName = "my_song_001",
-                dataTimeJp = 180000, dataTimeEn = 180000 },
-              { langId = "track_2", fileName = "my_song_002",
-                dataTimeJp = 240000, dataTimeEn = 240000 },
-          }
-      )
+  Controls cassette tape playback (vanilla tapes only).
 
   --------------------------------------------------------------------------
   PlayCassetteTape(trackOrName, isLoop, playAll)
@@ -1093,6 +228,80 @@ MODULE: V_TppUI
 
 
 ================================================================================
+MODULE: V_TppMusicManager
+================================================================================
+
+  Patches the game-over BGM event hashes so a custom Wwise event plays
+  instead of the vanilla one. Each call targets one of four scenarios.
+
+  CONSTANTS
+  ---------
+  V_TppMusicManager.GAME_OVER_GENERAL  = 0   Standard mission failure
+  V_TppMusicManager.GAME_OVER_PARADOX  = 1   Paradox-state failure
+  V_TppMusicManager.GAME_OVER_STEALTH  = 2   Perfect-stealth break
+  V_TppMusicManager.GAME_OVER_CYPRUS   = 3   Cyprus prologue (s10010)
+
+  --------------------------------------------------------------------------
+  SetGameOverMusic(isEnable, type, playEvent, stopEvent)
+  --------------------------------------------------------------------------
+
+    PARAMETERS:
+      isEnable    bool    true to apply, false to restore vanilla
+      type        number  0..3 (use the GAME_OVER_* constants)
+      playEvent   string  custom Play event name (FNV-1 hashed at runtime)
+      stopEvent   string  custom Stop event name
+
+    RETURNS: bool (true on success)
+
+    The PARADOX scenario patches a secondary call site too, so all four
+    type values fire the engine's "stop then play" path correctly.
+
+    EXAMPLE:
+      V_TppMusicManager.SetGameOverMusic(
+          true,
+          V_TppMusicManager.GAME_OVER_GENERAL,
+          "Play_bgm_my_custom",
+          "Stop_bgm_my_custom")
+
+      -- revert later with the same event strings:
+      V_TppMusicManager.SetGameOverMusic(
+          false,
+          V_TppMusicManager.GAME_OVER_GENERAL,
+          "Play_bgm_my_custom",
+          "Stop_bgm_my_custom")
+
+
+================================================================================
+MODULE: V_TppHelicopter
+================================================================================
+
+  Overrides the heli pilot voice + radio Wwise events. The patch covers the
+  primary voice site (DD_vox_SH_voice) plus all three radio call sites
+  (DD_vox_SH_radio / radio2 / radio3) in one call.
+
+  --------------------------------------------------------------------------
+  SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)
+  --------------------------------------------------------------------------
+
+    PARAMETERS:
+      isEnable    bool    true to apply, false to restore vanilla
+      voiceEvent  string  custom voice event name (FNV-1 hashed at runtime)
+      radioEvent  string  custom radio event name (applied to all 3 sites)
+
+    RETURNS: bool (true on success — all four patch sites must succeed)
+
+    EXAMPLE:
+      V_TppHelicopter.SetEnableHeliVoice(true,
+          "DD_vox_my_pilot",
+          "DD_vox_my_pilot_radio")
+
+      -- revert
+      V_TppHelicopter.SetEnableHeliVoice(false,
+          "DD_vox_my_pilot",
+          "DD_vox_my_pilot_radio")
+
+
+================================================================================
 MODULE: V_TppCommandPost
 ================================================================================
 
@@ -1118,7 +327,8 @@ MODULE: V_TppEnemy
 
   VIP SYSTEM
   ----------
-  SetVIPImportant(soldier, isOfficer)   Mark as VIP
+  SetVIPImportant(soldier, isOfficer, foundDeadBodyRadioLabel)
+                                        Mark as VIP
   RemoveVIPImportant(soldier)           Remove VIP status
   ClearVIPImportant()                   Clear all VIPs
 
@@ -1128,9 +338,27 @@ MODULE: V_TppEnemy
   Lua handlers register once per reaction hash and fire regardless of which
   wake method was used.
 
+  When a patrolling soldier finds this VIP's body, the body-found radio is
+  overridden:
+    - Officer (isOfficer = true)  → "officer found dead" voice line
+    - Non-officer                 → "VIP found dead" voice line
+    - foundDeadBodyRadioLabel set → that voice line plays instead, taking
+                                    priority over both officer and non-officer
+                                    defaults. Accepts a label-name string
+                                    (auto-hashed via Fox.StrCode32) or a
+                                    numeric pre-hashed value. Omit / nil
+                                    for the built-in behavior.
+
   EXAMPLE:
     V_TppEnemy.SetVIPImportant("sol_vip_0000", false)
     V_TppEnemy.SetVIPImportant("sol_interrogator", true)  -- officer
+    V_TppEnemy.SetVIPImportant("sol_general", true, "V_CPR0042_KEEP")
+    -- equivalent to:
+    V_TppEnemy.SetVIPImportant("sol_general", true,
+                               Fox.StrCode32("V_CPR0042_KEEP"))
+
+  See APPENDIX B for the catalog of vanilla voice-line labels usable as
+  the foundDeadBodyRadioLabel argument.
 
   HOLDUP BEHAVIOR
   ---------------
@@ -1227,14 +455,31 @@ MODULE: V_TppHostage
   Tracks lost hostages for the radio speech override system.
   Gender: 0 = male, 1 = female, 2 = child.
 
-  SetLostHostage(hostage, gender)            Track a lost hostage
+  SetLostHostage(hostage, gender, hostageLostLabel)
+                                             Track a lost hostage
   RemoveLostHostage(hostage)                 Stop tracking
   ClearLostHostages()                        Clear all
   SetLostHostageFromPlayer(hostage, enable)  Mark player-caused escape
 
+  When a soldier reports the hostage gone, the speech label is overridden:
+    - Default                  → built-in male/female/child × taken/not-taken
+                                 voice line picked from gender + the
+                                 SetLostHostageFromPlayer flag
+    - hostageLostLabel set     → that voice line plays instead. Accepts a
+                                 label-name string (auto-hashed via
+                                 Fox.StrCode32) or a numeric pre-hashed
+                                 value. Omit / nil for the built-in behavior.
+
   EXAMPLE:
-    V_TppHostage.SetLostHostage("hostage_0001", 1)  -- female
+    V_TppHostage.SetLostHostage("hostage_0001", 1)  -- female, built-in line
     V_TppHostage.SetLostHostageFromPlayer("hostage_0001", true)
+    V_TppHostage.SetLostHostage("hos_target_0000", 2, "V_CPR0250_KEEP")
+    -- equivalent to:
+    V_TppHostage.SetLostHostage("hos_target_0000", 2,
+                                Fox.StrCode32("V_CPR0250_KEEP"))
+
+  See APPENDIX B for the catalog of vanilla voice-line labels usable as
+  the hostageLostLabel argument.
 
 
 ================================================================================
@@ -1277,6 +522,11 @@ RAW API: V_FrameWork.*
     SetMissionTelopBgTexturePath(path)
     ClearMissionTelopBgTexture()
 
+  SOUND EVENT PATCHES
+    SetGameOverMusic(isEnable, type, playEvent, stopEvent) -> bool
+        type: 0=GENERAL, 1=PARADOX, 2=STEALTH, 3=CYPRUS
+    SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)   -> bool
+
   CAUTION PHASE
     SetCautionStepNormalDurationSeconds(seconds)  -> nothing
     GetCautionStepNormalDurationSeconds()          -> number
@@ -1288,23 +538,13 @@ RAW API: V_FrameWork.*
     ClearPlayerVoiceFpkPathForType(playerType)     -> nothing
     ClearAllPlayerVoiceFpkOverrides()              -> nothing
 
-  PLAYER CUSTOM OUTFITS  (high-level wrappers in V_TppPlayer)
-    AddOutfit(opts)                                -> partsType, developId | false
-    SetOutfitVariant(developId, variantIndex)      -> boolean
-    GetOutfitInfo(developId)                       -> table | nil
-
-  PLAYER CUSTOM OUTFITS  (low-level native bridge in V_FrameWork)
-    RegisterOutfit(def)                            -> number (partsType) | false
-    SetOutfitVariant(developId, variantIndex)      -> boolean
-    GetOutfitInfo(developId)                       -> table | nil
-
-  PLAYER CAMO TABLE
-    SetCamoValue(camoType, materialType, value)    -> boolean
-    CloneCamoRow(dstCamoType, srcCamoType)         -> boolean
-    ImportCamoRow(camoType, {v0, v1, ..., v81})    -> boolean
-
   ENEMY / SOLDIER
-    SetVIPImportant(gameObjectId, isOfficer)       -> nothing
+    SetVIPImportant(gameObjectId, isOfficer, foundDeadBodyRadioLabel) -> nothing
+                                                    foundDeadBodyRadioLabel:
+                                                      optional StrCode32 hash;
+                                                      0 / omitted = use the
+                                                      built-in officer/VIP
+                                                      voice line.
     RemoveVIPImportant(gameObjectId)               -> nothing
     ClearVIPImportant()                            -> nothing
     SetUseConcernedHoldupRecovery(enable)           -> nothing
@@ -1320,7 +560,12 @@ RAW API: V_FrameWork.*
     SetGlobalRtpcById(rtpcId, value, timeMs)                  -> number (AKRESULT)
 
   HOSTAGE
-    SetLostHostage(gameObjectId, gender)            -> nothing
+    SetLostHostage(gameObjectId, gender, hostageLostLabel) -> nothing
+                                                    hostageLostLabel:
+                                                      optional StrCode32 hash;
+                                                      0 / omitted = use the
+                                                      built-in male/female/
+                                                      child × taken matrix.
     RemoveLostHostage(gameObjectId)                 -> nothing
     ClearLostHostages()                             -> nothing
     SetLostHostageFromPlayer(gameObjectId, enable)  -> nothing
@@ -1335,34 +580,13 @@ RAW API: V_FrameWork.*
     StopCassette(fadeMs, stopByUser)                -> nothing
     IsCassetteSpeakerEnabled()                      -> bool
     SetCassetteSpeakerEnabled(enable)               -> nothing
-    RegisterCustomTapes(tapeData)                   -> nothing
 
   PICKABLE ITEMS
     SetPickableCountRawByIndex(locatorIndex, countRaw) -> nothing
     GetPickableCountRawByIndex(locatorIndex)            -> number
 
   EQUIPMENT
-    RegisterConstantEquipId(equipName)              -> number
-    DeclareWPs(weaponName)                          -> number
-    DeclareSWPs(supportWeaponName)                  -> number
-    DeclareRCs(receiverName)                        -> number
-    DeclareAMs(ammoName | {names...})               -> nothing
-    DeclareBAs(barrelName)                          -> number
-    DeclareSTs(stockName)                           -> number
-    DeclareMZs(muzzleName)                          -> number
-    DeclareSKs(sightName)                           -> number
-    DeclareUBs(underbarrelName)                     -> number
-    SetGunBasic(gunBasicTable)                      -> nothing
-    AddToEquipIdTable(equipTable)                   -> nothing
-    AddToEquipDevelopTable(key, developData)         -> number
-    AddToEquipMotionDataTable(motionDataTable)        -> nothing
-    SetSupportWeaponType(id, type)                  -> nothing
-    RemoveSupportWeaponType(id)                     -> nothing
-    ClearSupportWeaponTypes()                       -> nothing
-    SetEquipParameters(params)                      -> nothing
     SetEquipIdIconFtexPath(equipId, path)            -> nothing
-    ClearIconFtexPath(equipId)                      -> nothing
-    ClearAllIconFtexPaths()                         -> nothing
 
   MOD SYSTEM
     GetModFiles()                                   -> table
@@ -1376,196 +600,87 @@ RAW API: V_FrameWork.*
 APPENDIX A: PlayerType Values
 ================================================================================
 
-  Numeric value | Branch key (V_TppPlayer.AddOutfit per-PT sub-table name)
-  --------------+------------------------------------------------------------------
-  0             | snake     — Venom Snake (Snake↔Avatar bridges)
+  Numeric value | Description
+  --------------+-------------------------------------------------
+  0             | snake     — Venom Snake
   1             | ddMale    — Diamond Dogs male soldier
   2             | ddFemale  — Diamond Dogs female soldier
-  3             | avatar    — custom avatar (Snake↔Avatar bridges)
-  4             |           — Liquid (other APIs only; not a registerable branch)
-  5             |           — Ocelot (other APIs only; not a registerable branch)
-  6             |           — Quiet  (other APIs only; not a registerable branch)
-
-  The outfit registration API accepts branches only for 0..3. Snake↔Avatar
-  bridge: omitting `avatar` while filling `snake` (or vice versa) makes the
-  outfit auto-mirror to the missing side. DDMale and DDFemale do NOT bridge.
-
-  RESERVED ID RANGES — auto-allocated by the framework, persisted in
-  V_FrameWork_State.lua. Two mods registering different `name` keys
-  always receive different ids; same `name` across runs returns the
-  same id. developId / flowIndex are FRAMEWORK-OWNED and cannot be
-  passed manually.
-
-    Field          | Vanilla range  | Mod range (auto-pool starts at)
-    ---------------+----------------+----------------------------------
-    developId      | 1   .. 50000   | 0x1000 = 4096+   (persisted)
-    flowIndex      | 1   .. 921     | 922+             (persisted)
-    partsType      | 0x00 .. 0x3F   | 0x40 .. 0x7F     (session-only)
-    selectorCode   | 0x00 .. 0x7F   | 0x80 .. 0xFE     (session-only)
+  3             | avatar    — custom avatar
+  4             | Liquid    — (read-only contexts)
+  5             | Ocelot    — (read-only contexts)
+  6             | Quiet     — (read-only contexts)
 
 
 ================================================================================
-APPENDIX B: Develop Flow Field Names
+APPENDIX B: Voice Line Labels (StrCode32)
 ================================================================================
 
-  Use either the raw name (p51) or the readable alias in flow tables.
+  These labels can be passed by name as the foundDeadBodyRadioLabel argument
+  of SetVIPImportant or the hostageLostLabel argument of SetLostHostage. The
+  V_TppEnemy / V_TppHostage wrappers hash the string via Fox.StrCode32
+  before forwarding to the C++ bridge, so either form works:
 
-  Raw  | Readable Name             | Description
-  -----|---------------------------|----------------------------------
-  p51  | sideGrade                 | Side-grade level
-  p52  | grade                     | Equipment grade/tier
-  p53  | developGmpCost            | GMP cost to develop
-  p54  | usageGmpCost              | GMP cost per use/deployment
-  p55  | sectionLvForDevelop       | Required section level
-  p56  | sectionID2ForDevelop      | Secondary section ID
-  p57  | sectionLv2ForDevelop      | Secondary section level
-  p58  | resourceType1             | Resource type 1 name (string)
-  p59  | resourceType1Count        | Resource type 1 amount
-  p60  | resourceType2             | Resource type 2 name (string)
-  p61  | resourceType2Count        | Resource type 2 amount
-  p62  | initialAvailable          | Available from start (0/1)
-  p63  | sectionIDForDevelop       | Primary section ID
-  p64  | developSectionLv          | Develop section level
-  p65  | resourceUsageType1        | Usage resource type 1 (string)
-  p66  | resourceUsageType1Count   | Usage resource type 1 amount
-  p67  | resourceUsageType2        | Usage resource type 2 (string)
-  p68  | resourceUsageType2Count   | Usage resource type 2 amount
-  p69  | displayInfo               | Display info flags
-  p70  | unk70                     | Unknown
-  p71  | developTimeMinute         | Development time in minutes
-  p72  | isValidMbCoin             | Can use MB coins (0/1)
-  p73  | intimacyPoint             | Buddy intimacy requirement (if the equipment is for buddies)
-  p74  | isFobAvailable            | Available in FOB (0/1)
+    V_TppHostage.SetLostHostage("hos_target_0000", 2, "CPR0250_KEEP")
+    V_TppHostage.SetLostHostage("hos_target_0000", 2,
+                                Fox.StrCode32("CPR0250_KEEP"))
 
+  Each label is the name of a CP radio "transmission" — a scripted sequence
+  of voice clips played back-to-back as one logical broadcast.
 
-================================================================================
-APPENDIX C: Save File Format
-================================================================================
+  Naming convention:
+    _KEEP suffix    The broadcast ends by ordering all units to stay on
+                    alert until stood down (sustained heat).
+    _UNKEEP suffix  Explicitly omits the "stay on alert" tail (transient).
+    _102 suffix     Code 102 (alert state) variant.
+    no suffix       Default ordering for the situation.
 
-  File: mod/V_FrameWork/V_FrameWork_State.lua
+  --------------------------------------------------------------------------
+  BODY / DEATH REPORTS (use as foundDeadBodyRadioLabel)
+  --------------------------------------------------------------------------
 
-  return {
-      equips = {
-          ["MyMod:AK_12"]          = { developId = 4096, },
-          ["MyMod:Snake_NeonSuit"] = { developId = 4097, flowIndex = 922, },
-          ["MyMod:DDF_Jill"]       = { developId = 4098, flowIndex = 923, },
-      },
-      tapes = {
-          ["AlbumId:FileName"] = { saveIndex = 300, owned = true, new = false },
-      },
-  }
+  V_CPR0042_KEEP        A VIP's dead. Looks like an enemy attack.
+                      Tighten security and find the intruder. All units,
+                      remain on alert until ordered to stand down.
+  V_CPRGZ0040           One of the officers inspecting the base is dead.
+                      Looks like an enemy attack. Tighten security and find
+                      the intruder. All units, remain on alert until
+                      ordered to stand down.
+                      (Ground Zeroes officer-inspection scripted variant.)
+  V_CPRGZ0040_UNKEEP    Same as V_CPRGZ0040 but no "stay on alert" tail.
+  V_CPR0231             Found the body of a prisoner. Looks like the work of
+                      an intruder. Commence a search ASAP.
 
-  - Keys are strings in "namespace:name" format. Convention: "ModName:Name".
-  - `developId` is the persistent R&D entry id (auto-allocated from
-    0x1000+ on first registration; reused on every subsequent session).
-  - `flowIndex` is the persistent UNIFORMS / R&D row id (auto-allocated
-    from 922+ for outfits). Weapons typically don't set flowIndex.
-  - `equipId` (EQP_* namespace) is NOT persisted — it's session-scoped
-    and re-allocated on every run.
-  - `owned` = player has collected this tape.
-  - `new`   = tape hasn't been listened to yet (shows "NEW" in UI).
-  - Orphaned entries (mod uninstalled) are harmless — just ignored.
+  --------------------------------------------------------------------------
+  HOSTAGE ESCAPE REPORTS (use as hostageLostLabel)
+  --------------------------------------------------------------------------
 
-  All three numeric fields are allocated through global pools, so two
-  mods registering different keys never end up with the same id even
-  if they're loaded in different orders or only on alternate runs.
+  V_CPR0250             The girl's disappeared. Looks like she's escaped.
+                      Commence a search ASAP. Do not let her get away.
+  V_CPR0250_KEEP        Same as V_CPR0250 plus the "keep up the search until
+                      stood down" tail.
+  V_CPR0270             The kid's missing. It appears he escaped. He couldn't
+                      have gotten far with his feet in that state. Commence
+                      a search ASAP.
+  V_CPR0270_KEEP        Same as V_CPR0270 with the keep-searching tail.
 
+  --------------------------------------------------------------------------
+  GENERAL CP BROADCASTS (reference; not directly tied to either parameter)
+  --------------------------------------------------------------------------
 
-================================================================================
-APPENDIX D: Camo Type Constants (0..116)
-================================================================================
+  V_CPR0037_102         Attention all units, this is CP. We have a Code 102.
+                      Maintain watch with current manpower. Out.
+  V_CPR0038_102         All units, this is CP! Code 102, code 102! All of
+                      you, hold out with available resources! Out!!
+  V_CPRGZ0010           CP, this is patrol. Lost contact in admin building.
+                      How should we proceed? — All fireteams, focus your
+                      search on the admin building.
+  V_CPRGZ0020           Supplies coming through. Open the front gate.
+                      Opening front gate.
+  V_CPRGZ0021           Patrol-prefixed version of V_CPRGZ0020.
 
-  The camo parameter table is 117 rows (one per camo type) × 82 columns (one
-  per material type). V_TppPlayer.SetCamoValue / CloneCamoRow / ImportCamoRow
-  accept either the numeric index or the string name shown below. All names
-  are taken verbatim from the retail binary's PlayerCamoType enum.
-
-    0  OLIVEDRAB             1  SPLITTER              2  SQUARE
-    3  TIGERSTRIPE           4  GOLDTIGER             5  FOXTROT
-    6  WOODLAND              7  WETWORK               8  ARBANGRAY
-    9  ARBANBLUE            10  SANDSTORM            11  REALTREE
-   12  INVISIBLE            13  BLACK                14  SNEAKING_SUIT_GZ
-   15  SNEAKING_SUIT_TPP    16  BATTLEDRESS          17  PARASITE
-   18  NAKED                19  LEATHER              20  SOLIDSNAKE
-   21  NINJA                22  RAIDEN               23  HOSPITAL
-   24  GOLD                 25  SILVER               26  PANTHER
-   27  AVATAR_EDIT_MAN      28  MGS3                 29  MGS3_NAKED
-   30  MGS3_SNEAKING        31  MGS3_TUXEDO          32  EVA_CLOSE
-   33  EVA_OPEN             34  BOSS_CLOSE           35  BOSS_OPEN
-   36  C23                  37  C24                  38  C27
-   39  C29                  40  C30                  41  C35
-   42  C38                  43  C39                  44  C42
-   45  C46                  46  C49                  47  C52
-   48  C16                  49  C17                  50  C18
-   51  C19                  52  C20                  53  C22
-   54  C25                  55  C26                  56  C28
-   57  C31                  58  C32                  59  C33
-   60  C36                  61  C37                  62  C40
-   63  C41                  64  C43                  65  C44
-   66  C45                  67  C47                  68  C48
-   69  C50                  70  C51                  71  C53
-   72  C54                  73  C55                  74  C56
-   75  C57                  76  C58                  77  C59
-   78  C60
-   79  SWIMWEAR_C00         80  SWIMWEAR_C01         81  SWIMWEAR_C02
-   82  SWIMWEAR_C03         83  SWIMWEAR_C05         84  SWIMWEAR_C06
-   85  SWIMWEAR_C38         86  SWIMWEAR_C39         87  SWIMWEAR_C44
-   88  SWIMWEAR_C46         89  SWIMWEAR_C48         90  SWIMWEAR_C53
-   91  SWIMWEAR_G_C00       92  SWIMWEAR_G_C01       93  SWIMWEAR_G_C02
-   94  SWIMWEAR_G_C03       95  SWIMWEAR_G_C05       96  SWIMWEAR_G_C06
-   97  SWIMWEAR_G_C38       98  SWIMWEAR_G_C39       99  SWIMWEAR_G_C44
-  100  SWIMWEAR_G_C46      101  SWIMWEAR_G_C48      102  SWIMWEAR_G_C53
-  103  SWIMWEAR_H_C00      104  SWIMWEAR_H_C01      105  SWIMWEAR_H_C02
-  106  SWIMWEAR_H_C03      107  SWIMWEAR_H_C05      108  SWIMWEAR_H_C06
-  109  SWIMWEAR_H_C38      110  SWIMWEAR_H_C39      111  SWIMWEAR_H_C44
-  112  SWIMWEAR_H_C46      113  SWIMWEAR_H_C48      114  SWIMWEAR_H_C53
-  115  OCELOT              116  QUIET
-
-
-================================================================================
-APPENDIX E: Material Type Constants (0..81)
-================================================================================
-
-  Each camo row is 82 cells, one per material class the camo system recognises.
-  All names are taken verbatim from the engine's MaterialType string table.
-
-    0  MTR_IRON_A     1  MTR_IRON_B     2  MTR_IRON_C     3  MTR_IRON_D
-    4  MTR_IRON_E     5  MTR_IRON_F     6  MTR_IRON_G     7  MTR_IRON_M
-    8  MTR_IRON_N     9  MTR_IRON_W
-   10  MTR_PIPE_A    11  MTR_PIPE_B    12  MTR_PIPE_S
-   13  MTR_TIN_A
-   14  MTR_FENC_A    15  MTR_FENC_B    16  MTR_FENC_F
-   17  MTR_CONC_A    18  MTR_CONC_B
-   19  MTR_BRIC_A
-   20  MTR_PLAS_A    21  MTR_PLAS_B    22  MTR_PLAS_W
-   23  MTR_PAPE_A    24  MTR_PAPE_B    25  MTR_PAPE_C    26  MTR_PAPE_D
-   27  MTR_RUBB_A    28  MTR_RUBB_B
-   29  MTR_CLOT_A    30  MTR_CLOT_B    31  MTR_CLOT_C    32  MTR_CLOT_D
-   33  MTR_CLOT_E
-   34  MTR_GLAS_A    35  MTR_GLAS_B    36  MTR_GLAS_C
-   37  MTR_VINL_A    38  MTR_VINL_W
-   39  MTR_TILE_A
-   40  MTR_TLRF_A
-   41  MTR_ALRM_A
-   42  MTR_COPS_A    43  MTR_COPS_B
-   44  MTR_BRIR_A
-   45  MTR_BLOD_A
-   46  MTR_SOIL_A    47  MTR_SOIL_B    48  MTR_SOIL_C    49  MTR_SOIL_D
-   50  MTR_SOIL_E    51  MTR_SOIL_F    52  MTR_SOIL_G    53  MTR_SOIL_H
-   54  MTR_SOIL_R    55  MTR_SOIL_W
-   56  MTR_GRAV_A
-   57  MTR_SAND_A    58  MTR_SAND_B    59  MTR_SAND_C
-   60  MTR_LEAF      61  MTR_RLEF      62  MTR_RLEF_B
-   63  MTR_WOOD_A    64  MTR_WOOD_B    65  MTR_WOOD_C    66  MTR_WOOD_D
-   67  MTR_WOOD_G    68  MTR_WOOD_M    69  MTR_WOOD_W
-   70  MTR_FWOD_A
-   71  MTR_PLNT_A
-   72  MTR_ROCK_A    73  MTR_ROCK_B    74  MTR_ROCK_P
-   75  MTR_MOSS_A
-   76  MTR_TURF_A
-   77  MTR_WATE_A    78  MTR_WATE_B    79  MTR_WATE_C
-   80  MTR_AIR_A
-   81  MTR_NONE_A
+  EXAMPLE:
+    V_TppEnemy.SetVIPImportant("sol_general", true, "V_CPR0042_KEEP")
+    V_TppHostage.SetLostHostage("hos_target_0000", 2, "V_CPR0250_KEEP")
 
 
 ################################################################################

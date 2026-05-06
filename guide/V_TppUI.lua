@@ -2,6 +2,12 @@
 -- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
 
 local this = {}
+local IsTypeString=Tpp.IsTypeString
+
+
+function this.SetEquipIdIconFtexPath(equipId, path)
+    V_FrameWork.SetEquipIdIconFtexPath(equipId, path)
+end
 
 function this.SetDefaultEquipBgTexturePath(path)
     V_FrameWork.SetDefaultEquipBgTexturePath(path)

@@ -44,27 +44,4 @@ function this.IsCassetteSpeakerEnabled()
     return V_FrameWork.IsCassetteSpeakerEnabled()
 end
 
--- The raw C++ API requires every track to carry its owning albumId —
--- this wrapper injects it automatically from albumInfo so callers don't repeat it.
-function this.RegisterCustomCassetteAlbum(albumInfo, trackList)
-    local tracks = {}
-    for i, track in ipairs(trackList or {}) do
-        local t = {}
-        for k, v in pairs(track) do t[k] = v end
-        if not t.albumId then t.albumId = albumInfo.albumId end
-        tracks[i] = t
-    end
-
-    return V_FrameWork.RegisterCustomTapes({
-        albums = {
-            {
-                albumId = albumInfo.albumId,
-                langId  = albumInfo.langId,
-                type    = albumInfo.type,
-            }
-        },
-        tracks = tracks,
-    })
-end
-
 return this

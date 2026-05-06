@@ -8,8 +8,6 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "AddressSet.h"
-#include "V_FrameWorkState.h"
-#include "../hooks/equip/EquipIdTable_AddToEquipIdTable.h"
 
 bool Install_SetLuaFunctions_Hook();
 
@@ -66,14 +64,6 @@ static DWORD WINAPI InitThread(LPVOID)
         return 0;
     }
 
-
-    const bool observerOk =
-        EquipIdTableAdd::Install_StockAddToEquipIdTable_Observer();
-    Log("[DLL] Early Install_StockAddToEquipIdTable_Observer -> %s\n",
-        observerOk ? "OK" : "FAIL");
-
-    V_FrameWorkState::Load();
-
     RegisterBuiltInFeatureModules();
 
 
@@ -103,7 +93,6 @@ static void UninstallAll(bool processTerminating)
     }
 
     FeatureModuleRegistry::Instance().UninstallAll();
-    EquipIdTableAdd::Uninstall_StockAddToEquipIdTable_Observer();
     MH_Uninitialize();
     Log("[DLL] UninstallAll done.\n");
 
