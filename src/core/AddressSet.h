@@ -232,33 +232,33 @@ namespace AddressSetRuntime
             0x14C1E87E0ull, // lua_pushvalue
 
             0x145E62540ull, // GetIconFtexPath
-            0x145ccfcc0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
+            0x145CCFCC0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
-            0x14032adf0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
+            0x14032ADF0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
 
 
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
 
 
-            0x146acc210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
-            0x146acc650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
-            0x144a3cbd0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
+            0x146ACC210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
+            0x146ACC650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
+            0x144A3CBD0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
 
 
-            0x146ab80f0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
+            0x146AB80F0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
 
 
-            0x143f33a20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
-            0x145cb70bdull, // Play_bgm_gameover (embedded FNV32 of "PlayBgm_bgm_gameover")
-            0x145cb70c4ull, // Play_bgm_gameover_paradox
-            0x145cb70b6ull, // Play_bgm_gameover_perfectstealth
-            0x145cb70cbull, // Play_bgm_s10010_gameover (Cyprus prologue)
-            0x145cb8ef5ull, // Stop_bgm_gameover
-            0x145cb8f06ull, // Stop_bgm_gameover_paradox
-            0x145cb8efaull, // Stop_bgm_gameover_perfectstealth
-            0x145cb8f0dull, // Stop_bgm_s10010_gameover
-            0x14226bfc8ull, // Play_bgm_gameover_paradox_soundId (secondary patch site)
-            0x14226bfccull, // Stop_bgm_gameover_paradox_soundId
+            0x143F33A20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
+            0x145CB70BDull, // Play_bgm_gameover (embedded FNV32 of "PlayBgm_bgm_gameover")
+            0x145CB70C4ull, // Play_bgm_gameover_paradox
+            0x145CB70B6ull, // Play_bgm_gameover_perfectstealth
+            0x145CB70CBull, // Play_bgm_s10010_gameover (Cyprus prologue)
+            0x145CB8EF5ull, // Stop_bgm_gameover
+            0x145CB8F06ull, // Stop_bgm_gameover_paradox
+            0x145CB8EFAull, // Stop_bgm_gameover_perfectstealth
+            0x145CB8F0dull, // Stop_bgm_s10010_gameover
+            0x14226bFC8ull, // Play_bgm_gameover_paradox_soundId (secondary patch site)
+            0x14226bFCCull, // Stop_bgm_gameover_paradox_soundId
 
 
             0x140e2470full, // DD_vox_SH_voice (heli pilot voice event hash)
@@ -276,59 +276,59 @@ namespace AddressSetRuntime
         {
             0x14147F210ull, // AddNoise
             0x1414DCB30ull, // AddNoticeInfo
-            0x0ull, // ArrayBaseFree
-            0x0ull, // BeginSoundSystem
-            0x0ull, // CallImpl
-            0x0ull, // CallWithRadioType
-            0x0ull, // CassettePlayerVtable
-            0x0ull, // CassetteStart
-            0x0ull, // CheckSightNoticeHostage
-            0x0ull, // ConvertRadioTypeToLabel
-            0x0ull, // CopyAndAdjustInfo
-            0x0ull, // DecrementPhaseCounter
-            0x0ull, // ExecCallback
-            0x0ull, // FoxLuaRegisterLibrary
-            0x0ull, // FoxPath_Path
-            0x0ull, // FoxStrHash32
-            0x0ull, // FoxStrHash64
-            0x0ull, // GameOverSetVisible
-            0x0ull, // GetCurrentMissionCode
-            0x0ull, // GetNameIdWithGameObjectId
-            0x0ull, // GetPlayingTime
+            0x140015EE0ull, // ArrayBaseFree
+            0x140988E20ull, // BeginSoundSystem
+            0x149531DB0ull, // CallImpl
+            0x149532190ull, // CallWithRadioType
+            0x142285700ull, // CassettePlayerVtable
+            0x149CD67B0ull, // CassetteStart
+            0x1414E1060ull, // CheckSightNoticeHostage
+            0x140D68330ull, // ConvertRadioTypeToLabel
+            0x140FB90D0ull, // CopyAndAdjustInfo
+            0x140D6E810ull, // DecrementPhaseCounter
+            0x140A18AF0ull, // ExecCallback
+            0x14006B810ull, // FoxLuaRegisterLibrary
+            0x1400856D0ull, // FoxPath_Path
+            0x142EB6C10ull, // FoxStrHash32
+            0x14C96BF00ull, // FoxStrHash64
+            0x1477CFCB0ull, // GameOverSetVisible
+            0x147A691E0ull, // GetCurrentMissionCode
+            0x148A58CB0ull, // GetNameIdWithGameObjectId
+            0x147DE8FA0ull, // GetPlayingTime
             0x147DE93E0ull, // GetPlayingTrackId
-            0x0ull, // GetQuarkSystemTable
+            0x140BFEF80ull, // GetQuarkSystemTable
             0x147DEA880ull, // GetTrackInfoByName
-            0x0ull, // GetVoiceLanguage
-            0x0ull, // GetVoiceParamWithCallSign
-            0x0ull, // KernelAllocAligned
+            0x1404D25C0ull, // GetVoiceLanguage
+            0x140DA30D0ull, // GetVoiceParamWithCallSign
+            0x140015F10ull, // KernelAllocAligned
             0x14844E550ull, // LoadPlayerVoiceFpk
             0x1477ED2F0ull, // LoadingScreenOrGameOverSplash2
-            0x0ull, // MusicManager_s_instance
-            0x0ull, // PathHashCode
+            0x142BFFAC8ull, // MusicManager_s_instance
+            0x14C96C160ull, // PathHashCode
             0x147DF6C00ull, // PauseMusicPlayer
-            0x0ull, // PlayOrPauseSelectedTrack
-            0x0ull, // RequestCorpse
+            0x140EF6D40ull, // PlayOrPauseSelectedTrack
+            0x140A68B60ull, // RequestCorpse
             0x147DFE3B0ull, // ResumeMusicPlayer
             0x147A8C170ull, // SetEquipBackgroundTexture
-            0x0ull, // SetLuaFunctions
-            0x0ull, // SetTextureName
-            0x0ull, // SoundSystemCtor
-            0x0ull, // StateRadio
-            0x0ull, // StateRadioRequest
-            0x0ull, // State_ComradeAction
-            0x0ull, // State_EnterDownHoldup
+            0x1408D72B0ull, // SetLuaFunctions
+            0x141DC7930ull, // SetTextureName
+            0x140988C00ull, // SoundSystemCtor
+            0x140D68EB0ull, // StateRadio
+            0x14ACA5E60ull, // StateRadioRequest
+            0x1414B8CF0ull, // State_ComradeAction
+            0x14AB05B80ull, // State_EnterDownHoldup
             0x14AB05D90ull, // State_EnterStandHoldup1
-            0x0ull, // State_EnterStandHoldupUnarmed
-            0x0ull, // State_RecoveryKick
-            0x0ull, // State_RecoveryTouch
-            0x0ull, // State_StandEnterRecoverySleepFaintHoldupComradeBySound
-            0x0ull, // State_StandHoldupCancelLookToPlayer
-            0x0ull, // State_StandRecoveryHoldup
-            0x0ull, // StepRadioDiscovery
-            0x0ull, // StopMusicPlayer
-            0x0ull, // SubtitleManager_Get
-            0x0ull, // UpdateOptCamo
-            0x0ull, // g_SoundSystem
+            0x14AB06770ull, // State_EnterStandHoldupUnarmed
+            0x1414BC5D0ull, // State_RecoveryKick
+            0x1414BCEC0ull, // State_RecoveryTouch
+            0x1414BC780ull, // State_StandEnterRecoverySleepFaintHoldupComradeBySound
+            0x14AB06C40ull, // State_StandHoldupCancelLookToPlayer
+            0x1414BC9E0ull, // State_StandRecoveryHoldup
+            0x14150F290ull, // StepRadioDiscovery
+            0x147DEF390ull, // StopMusicPlayer
+            0x1404D2260ull, // SubtitleManager_Get
+            0x14A96AF20ull, // UpdateOptCamo
+            0x142C009F0ull, // g_SoundSystem
             0x14C987300ull, // lua_getfield
             0x14C987CB0ull, // lua_gettop
             0x14C988960ull, // lua_isnumber
@@ -354,33 +354,33 @@ namespace AddressSetRuntime
 
 
             0x147A6BD40ull, // GetIconFtexPath
-            0x0ull, // LoadingTipsEv_UpdateActPhase
-            0x0ull, // AK_SoundEngine_SetRTPCValue
-            0x0ull, // Fox_Sd_ConvertParameterID
+            0x1477EC6F0ull, // LoadingTipsEv_UpdateActPhase
+            0x14033CFC0ull, // AK_SoundEngine_SetRTPCValue
+            0x14032A870ull, // Fox_Sd_ConvertParameterID
 
 
             0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
 
 
-            0x0ull, // RealizedSahelan2Impl_Realize (JP TBD; hook silently no-ops if unresolved)
-            0x0ull, // RealizedSahelan2Impl_SetFovaImpl (JP TBD; hook silently no-ops if unresolved)
-            0x0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (JP TBD; hook silently no-ops if unresolved)
+            0x148655E70ull, // RealizedSahelan2Impl_Realize (JP TBD; hook silently no-ops if unresolved)
+            0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl (JP TBD; hook silently no-ops if unresolved)
+            0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (JP TBD; hook silently no-ops if unresolved)
 
 
-            0x0ull, // RealizedSecurityCamera2Impl_SetFova (JP TBD; hook silently no-ops if unresolved)
+            0x1448A0190ull, // RealizedSecurityCamera2Impl_SetFova (JP TBD; hook silently no-ops if unresolved)
 
 
-            0x0ull, // FNVHash32 (JP TBD; hook silently no-ops if unresolved)
-            0x0ull, // Play_bgm_gameover (JP TBD)
-            0x0ull, // Play_bgm_gameover_paradox (JP TBD)
-            0x0ull, // Play_bgm_gameover_perfectstealth (JP TBD)
-            0x0ull, // Play_bgm_s10010_gameover (JP TBD)
-            0x0ull, // Stop_bgm_gameover (JP TBD)
-            0x0ull, // Stop_bgm_gameover_paradox (JP TBD)
-            0x0ull, // Stop_bgm_gameover_perfectstealth (JP TBD)
-            0x0ull, // Stop_bgm_s10010_gameover (JP TBD)
-            0x0ull, // Play_bgm_gameover_paradox_soundId (JP TBD)
-            0x0ull, // Stop_bgm_gameover_paradox_soundId (JP TBD)
+            0x143F6EE50ull, // FNVHash32 (JP TBD; hook silently no-ops if unresolved)
+            0x1477CD50Cull, // Play_bgm_gameover (JP TBD)
+            0x1477CD513ull, // Play_bgm_gameover_paradox (JP TBD)
+            0x1477CD505ull, // Play_bgm_gameover_perfectstealth (JP TBD)
+            0x1477CD51Aull, // Play_bgm_s10010_gameover (JP TBD)
+            0x1477D0274ull, // Stop_bgm_gameover (JP TBD)
+            0x1477D0285ull, // Stop_bgm_gameover_paradox (JP TBD)
+            0x1477D0279ull, // Stop_bgm_gameover_perfectstealth (JP TBD)
+            0x1477D028Cull, // Stop_bgm_s10010_gameover (JP TBD)
+            0x14226BF18ull, // Play_bgm_gameover_paradox_soundId (JP TBD)
+            0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId (JP TBD)
 
 
             0x140e247dfull, // DD_vox_SH_voice (JP)
