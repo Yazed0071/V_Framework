@@ -248,7 +248,7 @@ MODULE: V_TppUiCommand
   in that case.
 
   --------------------------------------------------------------------------
-  ShowMbDvcAnnouncePopup(title, body)  -> bool
+  ShowMbDvcAnnouncePopupReport(title, body)  -> bool
   --------------------------------------------------------------------------
 
     Queues a popup with literal title and body strings. Returns true if
@@ -267,19 +267,19 @@ MODULE: V_TppUiCommand
       body   string  Literal body text  (truncated to ~1023 chars).
 
     EXAMPLES:
-      V_TppUiCommand.ShowMbDvcAnnouncePopup("MOD LOADED",
+      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("MOD LOADED",
           "All systems online. Welcome back, Boss.")
 
       -- Sequential burst (all play in order as the menu cycles):
-      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 1", "Walk to the LZ.")
-      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 2", "Call the heli.")
-      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 3", "Extract.")
+      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 1", "Walk to the LZ.")
+      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 2", "Call the heli.")
+      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 3", "Extract.")
 
   --------------------------------------------------------------------------
   ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel)  -> bool
   --------------------------------------------------------------------------
 
-    Same as ShowMbDvcAnnouncePopup but title and body are LangId LABEL
+    Same as ShowMbDvcAnnouncePopupReport but title and body are LangId LABEL
     NAMES whose displayable text comes from the game's localized string
     table. The DLL hashes each label via Fox StrCode64 internally and
     resolves through the game's lang manager at popup display time, so
@@ -611,7 +611,7 @@ RAW API: V_FrameWork.*
     SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)   -> bool
 
   iDroid POPUPS (MbDvcAnnouncePopup)
-    ShowMbDvcAnnouncePopup(title, body)             -> bool
+    ShowMbDvcAnnouncePopupReport(title, body)       -> bool
         Queues a custom-text iDroid corner popup. title/body are literal
         strings (cap ~127 / ~1023 chars). Safe to call before the iDroid
         menu is opened — entries queue unreserved and the popup hook
@@ -623,6 +623,17 @@ RAW API: V_FrameWork.*
         DLL hashes each label via Fox StrCode64 and resolves through the
         game's lang manager at popup display time, so the displayed text
         follows the current locale.
+    ShowMbDvcAnnouncePopupReward(title, body) -> bool
+        Queue a Server-category popup (handled by UpdateAnnounceServer
+        rather than UpdateAnnounceNormal). Slot picked internally. The
+        framework bypasses the online-readiness gate for our own popups
+        only — vanilla Server popups still respect the game's gating.
+    ShowMbDvcAnnouncePopupRewardLangId(titleLabel, bodyLabel) -> bool
+        Same as ShowMbDvcAnnouncePopupReward but the args are LangId
+        LABEL NAMES (strings). The DLL hashes each label via Fox
+        StrCode64 and resolves through the game's lang manager at
+        popup display time, so the displayed text follows the current
+        locale.
 
   CAUTION PHASE
     SetCautionStepNormalDurationSeconds(seconds)  -> nothing

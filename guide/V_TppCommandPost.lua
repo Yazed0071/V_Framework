@@ -3,7 +3,12 @@
 
 local this = {}
 
+
 function this.SetCautionPhaseDuration(seconds)
+    if type(seconds) ~= "number" then
+        V_FrameWork.Log("V_TppCommandPost.SetCautionPhaseDuration: Value must be a number.")
+        return
+    end
     V_FrameWork.SetCautionStepNormalDurationSeconds(seconds)
 end
 

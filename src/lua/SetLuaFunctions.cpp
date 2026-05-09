@@ -1602,14 +1602,14 @@ static int __cdecl l_SetEnableHeliVoice(lua_State* L)
 
 
 // Queue popup with literal text.
-static int __cdecl l_ShowMbDvcAnnouncePopup(lua_State* L)
+static int __cdecl l_ShowMbDvcAnnouncePopupReport(lua_State* L)
 {
     const char* title = GetLuaString(L, 1);
     const char* body  = GetLuaString(L, 2);
     if (!title) title = "";
     if (!body)  body  = "";
 
-    const bool ok = Show_MbDvcAnnouncePopup(title, body);
+    const bool ok = Show_MbDvcAnnouncePopupReport(title, body);
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1624,6 +1624,34 @@ static int __cdecl l_ShowMbDvcAnnouncePopupLangId(lua_State* L)
     if (!bodyLabel)  bodyLabel  = "";
 
     const bool ok = Show_MbDvcAnnouncePopupByLangId(titleLabel, bodyLabel);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// Queue Server popup (slot picked internally).
+static int __cdecl l_ShowMbDvcAnnouncePopupReward(lua_State* L)
+{
+    const char* title = GetLuaString(L, 1);
+    const char* body  = GetLuaString(L, 2);
+    if (!title) title = "";
+    if (!body)  body  = "";
+
+    const bool ok = Show_MbDvcAnnouncePopupReward(title, body);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// Queue Server popup using LangId label names.
+static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
+{
+    const char* titleLabel = GetLuaString(L, 1);
+    const char* bodyLabel  = GetLuaString(L, 2);
+    if (!titleLabel) titleLabel = "";
+    if (!bodyLabel)  bodyLabel  = "";
+
+    const bool ok = Show_MbDvcAnnouncePopupRewardLangId(titleLabel, bodyLabel);
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1709,8 +1737,10 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEnableHeliVoice",                     l_SetEnableHeliVoice },
 
 
-    { "ShowMbDvcAnnouncePopup",                 l_ShowMbDvcAnnouncePopup },
+    { "ShowMbDvcAnnouncePopupReport",           l_ShowMbDvcAnnouncePopupReport },
     { "ShowMbDvcAnnouncePopupLangId",           l_ShowMbDvcAnnouncePopupLangId },
+    { "ShowMbDvcAnnouncePopupReward",           l_ShowMbDvcAnnouncePopupReward },
+    { "ShowMbDvcAnnouncePopupRewardLangId",     l_ShowMbDvcAnnouncePopupRewardLangId },
 
     { nullptr, nullptr }
 };

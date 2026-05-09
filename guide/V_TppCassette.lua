@@ -1,18 +1,31 @@
--- V_TppCassette — cassette tape playback + custom album/track registration.
+-- V_TppCassette — cassette tape playback.
 -- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
 
 local this = {}
+local IsTypeString = Tpp.IsTypeString
 
--- Play a tape by numeric trackId or by track name (name is resolved via
--- GetTapeTrackDirectPlayId). Album index 0 is the standard tape deck.
+
+-- trackOrName: string track name OR numeric trackId.
 function this.PlayCassetteTape(trackOrName, isLoop, playAll)
-    local trackId
-    if type(trackOrName) == "string" then
-        trackId = V_FrameWork.GetTapeTrackDirectPlayId(trackOrName)
-        if not trackId or trackId < 0 then return false end
-    else
-        trackId = trackOrName
+    if trackOrName == nil then
+        V_FrameWork.Log("V_TppCassette.PlayCassetteTape: trackOrName is nil.")
+        return false
     end
+
+    local trackId
+    if IsTypeString(trackOrName) then
+        trackId = V_FrameWork.GetTapeTrackDirectPlayId(trackOrName)
+        if not trackId or trackId < 0 then
+            V_FrameWork.Log("V_TppCassette.PlayCassetteTape: track not found: " .. tostring(trackOrName))
+            return false
+        end
+    elseif type(trackOrName) == "number" then
+        trackId = trackOrName
+    else
+        V_FrameWork.Log("V_TppCassette.PlayCassetteTape: trackOrName must be string or number.")
+        return false
+    end
+
     return V_FrameWork.PlayCassetteTapeByTrackId(0, trackId, isLoop or false, playAll or false)
 end
 
@@ -25,18 +38,34 @@ function this.GetCassettePlayingTrackId()
 end
 
 function this.PauseCassette(fadeSec)
+    if fadeSec ~= nil and type(fadeSec) ~= "number" then
+        V_FrameWork.Log("V_TppCassette.PauseCassette: fadeSec is not a number.")
+        return
+    end
     return V_FrameWork.PauseCassette(fadeSec or 0)
 end
 
 function this.ResumeCassette(fadeSec)
+    if fadeSec ~= nil and type(fadeSec) ~= "number" then
+        V_FrameWork.Log("V_TppCassette.ResumeCassette: fadeSec is not a number.")
+        return
+    end
     return V_FrameWork.ResumeCassette(fadeSec or 0)
 end
 
 function this.StopCassette(fadeSec, stopByUser)
+    if fadeSec ~= nil and type(fadeSec) ~= "number" then
+        V_FrameWork.Log("V_TppCassette.StopCassette: fadeSec is not a number.")
+        return
+    end
     return V_FrameWork.StopCassette(fadeSec or 0, stopByUser or false)
 end
 
 function this.SetCassetteSpeakerEnabled(enable)
+    if type(enable) ~= "boolean" then
+        V_FrameWork.Log("V_TppCassette.SetCassetteSpeakerEnabled: enable is not a boolean.")
+        return
+    end
     return V_FrameWork.SetCassetteSpeakerEnabled(enable)
 end
 

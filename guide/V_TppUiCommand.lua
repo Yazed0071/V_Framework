@@ -1,135 +1,235 @@
 -- V_TppUiCommand — UI texture overrides + iDroid AnnouncePopup customization.
--- Renamed from V_TppUI.lua to align with the underlying tpp::ui::UiCommand
--- layer that backs the popup helpers.
 -- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
 
 local this = {}
+local StrCode32 = Fox.StrCode32
 local IsTypeString=Tpp.IsTypeString
 
+this.registerIvars={
+	"V_FrameWork_FirstInstall",
+}
+
+this.V_FrameWork_FirstInstall={
+	save=IvarProc.CATEGORY_EXTERNAL,
+	default=0,
+	range={min=0,max=1,},
+}
 
 function this.SetEquipIdIconFtexPath(equipId, path)
+    if equipId == nil then
+        V_FrameWork.Log("V_TppUiCommand.SetEquipIdIconFtexPath: equipId is nil, cannot set texture path.")
+        return
+    end
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetEquipIdIconFtexPath: path is not a string.")
+        return
+    end
     V_FrameWork.SetEquipIdIconFtexPath(equipId, path)
 end
 
 function this.SetDefaultEquipBgTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetDefaultEquipBgTexturePath: path is not a string.")
+        return
+    end
     V_FrameWork.SetDefaultEquipBgTexturePath(path)
 end
 
 function this.ClearDefaultEquipBgTexture()
+    V_FrameWork.Log("V_TppUiCommand.ClearDefaultEquipBgTexture: Clearing default equip background texture.")
     V_FrameWork.ClearDefaultEquipBgTexture()
 end
 
 function this.SetEquipBgTexturePath(equipId, path)
+    if equipId == nil then
+        V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: equipId is nil, cannot set texture path.")
+        return
+    end
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: path is not a string.")
+        return
+    end
     V_FrameWork.SetEquipBgTexturePath(equipId, path)
 end
 
 function this.ClearEquipBgTexture(equipId)
+    if equipId == nil then
+        V_FrameWork.Log("V_TppUiCommand.ClearEquipBgTexture: equipId is nil, cannot clear texture.")
+        return
+    end
     V_FrameWork.ClearEquipBgTexture(equipId)
 end
 
 function this.SetEnemyWeaponBgTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetEnemyWeaponBgTexturePath: path is not a string.")
+        return
+    end
     V_FrameWork.SetEnemyWeaponBgTexturePath(path)
 end
 
 function this.ClearEnemyWeaponBgTexture()
+    V_FrameWork.Log("V_TppUiCommand.ClearEnemyWeaponBgTexture: Clearing enemy weapon background texture.")
     V_FrameWork.ClearEnemyWeaponBgTexture()
 end
 
 function this.SetEnemyEquipBgTexturePath(equipId, path)
+    if equipId == nil then
+        V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: equipId is nil, cannot set texture path.")
+        return
+    end
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: path is not a string.")
+        return
+    end
     V_FrameWork.SetEnemyEquipBgTexturePath(equipId, path)
 end
 
 function this.ClearEnemyEquipBgTexture(equipId)
+    if equipId == nil then
+        V_FrameWork.Log("V_TppUiCommand.ClearEnemyEquipBgTexture: equipId is nil, cannot clear texture.")
+        return
+    end
     V_FrameWork.ClearEnemyEquipBgTexture(equipId)
 end
 
 function this.ClearAllEquipBgTextures()
+    V_FrameWork.Log("V_TppUiCommand.ClearAllEquipBgTextures: Clearing all equip background textures.")
     V_FrameWork.ClearAllEquipBgTextures()
 end
 
 function this.SetLoadingSplashMainTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetLoadingSplashMainTexturePath: path is not a string." .. tostring(path))
+       return
+    end
     V_FrameWork.SetLoadingSplashMainTexturePath(path)
 end
 
 function this.SetLoadingSplashBlurTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetLoadingSplashBlurTexturePath: path is not a string." .. tostring(path))
+        return
+    end
     V_FrameWork.SetLoadingSplashBlurTexturePath(path)
 end
 
-function this.ClearLoadingSplashTextures()
-    V_FrameWork.ClearLoadingSplashTextures()
-end
-
-function this.SetGameOverSplashMainTexturePath(path)
-    V_FrameWork.SetGameOverSplashMainTexturePath(path)
-end
-
-function this.SetGameOverSplashBlurTexturePath(path)
-    V_FrameWork.SetGameOverSplashBlurTexturePath(path)
-end
-
-function this.ClearGameOverSplashTextures()
-    V_FrameWork.ClearGameOverSplashTextures()
-end
-
--- Overrides the loading splash main + blur textures used during mission
--- load transitions (LoadingScreenOrGameOverSplash2 and LoadingTipsEv). The
--- DD-emblem baked into the mission-start title card (telop) itself cannot
--- be swapped at runtime — that texture is bound inside the compiled .uilb
--- layout asset and only asset-level FPK replacement can change it.
-function this.SetMissionTelopBgTexturePath(path)
+function this.SetLoadingTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetLoadingTexturePath: path is not a string." .. tostring(path))
+        return
+    end
     V_FrameWork.SetLoadingSplashMainTexturePath(path)
     V_FrameWork.SetLoadingSplashBlurTexturePath(path)
 end
 
-function this.ClearMissionTelopBgTexture()
+function this.ClearLoadingSplashTextures()
+    V_FrameWork.Log("V_TppUiCommand.ClearLoadingSplashTextures: Clearing loading splash textures.")
     V_FrameWork.ClearLoadingSplashTextures()
 end
 
 
--- ----------------------------------------------------------------------------
--- iDroid AnnouncePopup — custom title/body for the corner notification popup.
--- ----------------------------------------------------------------------------
---
--- Queues a popup with literal title and body strings. Multiple back-to-back
--- calls fan out across the controller's 16-slot ring and play sequentially as
--- the iDroid menu state machine cycles (one fades out, the next fades in).
---
--- It is safe to call this BEFORE opening the iDroid menu for the first time
--- during the current session — entries queue unreserved and the framework
--- drains them on the first popup pipeline tick. As a result, queued popups
--- can appear on the very first iDroid open.
---
--- Game popups always take priority: if the slot ring is full and MGSV itself
--- queues an announcement, the framework evicts our oldest pending custom
--- popup to make room and our queued text is dropped.
---
--- PARAMETERS:
---   title  string  Title bar text. Truncated to ~127 chars.
---   body   string  Body text. Truncated to ~1023 chars.
---
--- RETURNS: bool — true if queued + (eventually) reserved successfully.
-function this.ShowMbDvcAnnouncePopup(title, body)
-    return V_FrameWork.ShowMbDvcAnnouncePopup(title or "", body or "")
+function this.SetGameOverSplashMainTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetGameOverSplashMainTexturePath: path is not a string." .. tostring(path))
+        return
+    end
+    V_FrameWork.SetGameOverSplashMainTexturePath(path)
+end
+
+function this.SetGameOverSplashBlurTexturePath(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetGameOverSplashBlurTexturePath: path is not a string." .. tostring(path))
+        return
+    end
+    V_FrameWork.SetGameOverSplashBlurTexturePath(path)
+end
+
+function this.ClearGameOverSplashTextures()
+    V_FrameWork.Log("V_TppUiCommand.ClearGameOverSplashTextures: Clearing game over splash textures.")
+    V_FrameWork.ClearGameOverSplashTextures()
+end
+
+function this.ShowMbDvcAnnouncePopupReport(title, body)
+    if not IsTypeString(title) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReport: title is not a string.")
+        return
+    end
+    if not IsTypeString(body) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReport: body is not a string.")
+        return
+    end
+    return V_FrameWork.ShowMbDvcAnnouncePopupReport(title or "", body or "")
+end
+
+function this.ShowMbDvcAnnouncePopupLangId(TitleLangId, BodyLangId)
+    if not IsTypeString(TitleLangId) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupLangId: TitleLangId is not a string.")
+        return
+    end
+    if not IsTypeString(BodyLangId) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupLangId: BodyLangId is not a string.")
+        return
+    end
+    return V_FrameWork.ShowMbDvcAnnouncePopupLangId(TitleLangId or "", BodyLangId or "")
+end
+
+function this.ShowMbDvcAnnouncePopupReward(title, body)
+    if not IsTypeString(title) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReward: title is not a string.")
+        return
+    end
+    if not IsTypeString(body) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReward: body is not a string.")
+        return
+    end
+    return V_FrameWork.ShowMbDvcAnnouncePopupReward(title or "", body or "")
+end
+
+function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
+    if not IsTypeString(TitleLangId) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId: TitleLangId is not a string.")
+        return
+    end
+    if not IsTypeString(BodyLangId) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId: BodyLangId is not a string.")
+        return
+    end
+    return V_FrameWork.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
 end
 
 
--- Same as ShowMbDvcAnnouncePopup but the arguments are LangId LABEL NAMES
--- whose displayable text comes from the game's localized string table. The
--- DLL hashes each label via Fox StrCode64 and resolves through the game's
--- lang manager at popup display time, so the shown text follows the current
--- locale.
---
--- Use this for built-in localized strings whose label names you know (e.g.
--- "msg_xxx" entries from the lang archive).
---
--- PARAMETERS:
---   titleLabel  string  Label name; hashed with StrCode64 inside the DLL.
---   bodyLabel   string  Label name; hashed with StrCode64 inside the DLL.
---
--- RETURNS: bool — true if queued + (eventually) reserved successfully.
-function this.ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel)
-    return V_FrameWork.ShowMbDvcAnnouncePopupLangId(titleLabel or "", bodyLabel or "")
+function this.Messages()
+	return
+	Tpp.StrCode32Table {
+		Terminal = {
+			{
+				msg = "MbDvcActOpenTop",
+				func = function()
+					V_FrameWork.Log("#### Open Terminal ####")
+                    if Ivars.V_FrameWork_FirstInstall:Get() == 0 then
+                        V_FrameWork.Log("#### First Time Install ####")
+                        Ivars.V_FrameWork_FirstInstall:Set(1)
+                        V_TppUiCommand.ShowMbDvcAnnouncePopupLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
+                    else
+                        V_FrameWork.Log("#### Not First Time Install ####")
+                    end
+				end
+			},
+		},
+	}
 end
 
+function this.Init(missionTable)
+  this.messageExecTable=Tpp.MakeMessageExecTable(this.Messages())
+end
+
+function this.OnReload(missionTable)
+  this.messageExecTable=Tpp.MakeMessageExecTable(this.Messages())
+end
+
+function this.OnMessage(sender,messageId,arg0,arg1,arg2,arg3,strLogText)
+  Tpp.DoMessage(this.messageExecTable,TppMission.CheckMessageOption,sender,messageId,arg0,arg1,arg2,arg3,strLogText)
+end
 
 return this

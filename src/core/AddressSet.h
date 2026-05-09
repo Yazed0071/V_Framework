@@ -117,12 +117,10 @@ namespace AddressSetRuntime
         uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
 
 
-        // tpp::ui::menu::impl::MbDvcAnnouncePopupCallbackImpl::UpdateAnnounceNormal
-        // — handles the iDroid AnnouncePopup state machine for slot-0 / slot-1
-        // popups. Hooked to substitute custom title / body text into the buffers
-        // at this+0x60 / this+0xa0 right after the original writes the default
-        // lang-text, when the slot was tagged with V_FrameWork's magic value.
+        // UpdateAnnounceNormal — slot 0/1 popups.
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal = 0;
+        // UpdateAnnounceServer — slot 2/3/4/7/8 popups.
+        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer = 0;
 
 
         uintptr_t FNVHash32                         = 0;
@@ -257,6 +255,7 @@ namespace AddressSetRuntime
 
 
             0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (state machine for iDroid slot-0/slot-1 popups; hooked to override default lang-text with V_FrameWork custom title/body when ReserveParam.commonValue1 == 0x56465043 magic)
+            0x0ull,         // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer (TODO: fill EN — handles slot 2/3/4/7/8 server popups)
 
 
             0x143F33A20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
@@ -382,6 +381,7 @@ namespace AddressSetRuntime
 
 
             0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (verified against JP build mgsvtpp_1_0_15_3_jp; case-8 of Update dispatches FUN_140ef3050 which contains the slot-0/slot-1 lang-text hashes 0xdf1b1fd6f40a / 0x2e2fb8df282b)
+            0x140EF3410ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer (verified JP; case-7 of Update dispatches FUN_140ef3410, handles slot 2/3/4/7/8)
 
 
             0x143F6EE50ull, // FNVHash32

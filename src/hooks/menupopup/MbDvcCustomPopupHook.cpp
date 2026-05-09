@@ -30,6 +30,7 @@ namespace
     constexpr std::uintptr_t kImpl_QuarkRootOffset      = 0x38;
     constexpr std::uintptr_t kQuarkRoot_PopupCtrlOffset = 0x80;
     constexpr std::uintptr_t kQuarkRoot_LangMgrOffset   = 0x20;
+    constexpr std::uintptr_t kQuarkRoot_GateSvcOffset   = 0x48;
 
 
     // Slot ring layout (verified JP build).
@@ -50,15 +51,29 @@ namespace
     constexpr std::size_t kLangVtableIndex_GetLangText = 0x750 / sizeof(void*);
 
 
+    // Gate svc method — vtable[+0x610].
+    constexpr std::size_t kGateVtableIndex = 0x610 / sizeof(void*);
+
+
     using UpdateAnnounceNormal_t = std::int32_t (__fastcall*)(void* self);
     using ReserveAnnouncePopup_t = void (__fastcall*)(void* ctrl, const void* param);
     using GetLangText_t          = const char* (__fastcall*)(void* langMgr, std::uint64_t hash);
+    using GateFn_t               = char (__fastcall*)(void* svc);
 
 
     static UpdateAnnounceNormal_t g_OrigUpdateAnnounceNormal = nullptr;
+    static UpdateAnnounceNormal_t g_OrigUpdateAnnounceServer = nullptr;
     static ReserveAnnouncePopup_t g_OrigReserveAnnouncePopup = nullptr;
-    static void*                  g_ReserveHookTarget = nullptr;
+    static GateFn_t               g_OrigGateFn               = nullptr;
+    static void*                  g_ReserveHookTarget        = nullptr;
+    static void*                  g_GateHookTarget           = nullptr;
     static std::once_flag         g_ReserveHookInstallFlag;
+    static std::once_flag         g_GateHookInstallFlag;
+
+
+    // Set true around our hook's call to original.
+    // Gate hook sees flag → returns 1 unconditionally.
+    static thread_local bool      g_BypassPopupGate          = false;
 
 
     // Captured at first hook fire.
@@ -82,7 +97,8 @@ namespace
     {
         PopupTextSource title;
         PopupTextSource body;
-        bool            reserved = false;
+        std::uint8_t    reserveId = kReserveId_NormalSlot0;
+        bool            reserved  = false;
     };
     static std::deque<PendingPopup> g_PendingQueue;
     static std::mutex               g_PendingMutex;
@@ -178,6 +194,40 @@ namespace
     }
 
 
+    // Any magic-tagged slot of given types?
+    static bool SafeAnyOurSlotInRing(void* ctrl,
+                                     const std::uint8_t* eligibleIds,
+                                     std::size_t numEligibleIds)
+    {
+        if (!ctrl || !eligibleIds || numEligibleIds == 0)
+            return false;
+
+        __try
+        {
+            for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
+            {
+                const std::uint8_t* slot = SlotPtr(ctrl, i);
+                const std::uint8_t  rid  = *(slot + kSlot_ReserveIdOffset);
+                bool eligible = false;
+                for (std::size_t k = 0; k < numEligibleIds; ++k)
+                {
+                    if (rid == eligibleIds[k]) { eligible = true; break; }
+                }
+                if (!eligible) continue;
+                const std::uint32_t cv1 = *reinterpret_cast<const std::uint32_t*>(
+                    slot + kSlot_CommonValue1Offset);
+                if (cv1 == kVPopupMagic)
+                    return true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return false;
+    }
+
+
     // First slot match; flag if magic-tagged.
     static bool SafeFindFirstSlotIsOurs(void* ctrl,
                                         std::uint8_t wantedReserveId,
@@ -266,6 +316,30 @@ namespace
     }
 
 
+    // Write a single byte at self+offset.
+    static void SafeWriteImplByte(void* self, std::uintptr_t off, std::uint8_t val)
+    {
+        if (!self) return;
+        __try
+        {
+            *(std::uint8_t*)((std::uintptr_t)self + off) = val;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+
+    // Write a uint32 at self+offset.
+    static void SafeWriteImplDword(void* self, std::uintptr_t off, std::uint32_t val)
+    {
+        if (!self) return;
+        __try
+        {
+            *(std::uint32_t*)((std::uintptr_t)self + off) = val;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+
     // Write title+body into impl buffers.
     static bool SafeWriteTitleBody(void* self,
                                    const char* title,
@@ -320,7 +394,7 @@ namespace
 
 
     // Verify our slot landed in ring.
-    static bool SafeVerifyOurReservationLanded(void* ctrl)
+    static bool SafeVerifyOurReservationLanded(void* ctrl, std::uint8_t reserveId)
     {
         if (!ctrl)
             return false;
@@ -330,7 +404,7 @@ namespace
             for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
             {
                 const std::uint8_t* slot = SlotPtr(ctrl, i);
-                if (*(slot + kSlot_ReserveIdOffset) == kReserveId_NormalSlot0)
+                if (*(slot + kSlot_ReserveIdOffset) == reserveId)
                 {
                     const std::uint32_t cv1 = *reinterpret_cast<const std::uint32_t*>(
                         slot + kSlot_CommonValue1Offset);
@@ -344,6 +418,29 @@ namespace
         {
             // Fault → assume success.
             return true;
+        }
+    }
+
+
+    // self -> quarkRoot -> gate service object.
+    static void* SafeReadGateSvcFromSelf(void* self)
+    {
+        if (!self)
+            return nullptr;
+
+        __try
+        {
+            const auto selfBytes = reinterpret_cast<std::uintptr_t>(self);
+            void* quarkRoot = *reinterpret_cast<void**>(selfBytes + kImpl_QuarkRootOffset);
+            if (!quarkRoot)
+                return nullptr;
+
+            return *reinterpret_cast<void**>(
+                reinterpret_cast<std::uintptr_t>(quarkRoot) + kQuarkRoot_GateSvcOffset);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
         }
     }
 
@@ -422,8 +519,8 @@ namespace
     }
 
 
-    // Reserve a slot 0 with magic.
-    static bool SafeReserveOurSlot(void* ctrl)
+    // Reserve magic-tagged slot of given type.
+    static bool SafeReserveOurSlot(void* ctrl, std::uint8_t reserveId)
     {
         if (!ctrl)
             return false;
@@ -441,10 +538,7 @@ namespace
 
             ReserveParam p{};
             p.commonValue1 = kVPopupMagic;
-            p.commonValue2 = 0;
-            p.commonValue3 = 0;
-            p.commonValue4 = 0;
-            p.reserveId    = kReserveId_NormalSlot0;
+            p.reserveId    = reserveId;
 
             reserveFn(ctrl, &p);
             return true;
@@ -452,6 +546,26 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return false;
+        }
+    }
+
+
+    // Read gate function pointer (svc vtable[+0x610]).
+    static void* SafeGetGateFnPtr(void* gateSvc)
+    {
+        if (!gateSvc)
+            return nullptr;
+
+        __try
+        {
+            void** vtbl = *reinterpret_cast<void***>(gateSvc);
+            if (!vtbl)
+                return nullptr;
+            return vtbl[kGateVtableIndex];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
         }
     }
 
@@ -633,6 +747,54 @@ namespace
     }
 
 
+    // Gate hook — bypass only when our hook set the flag.
+    static char __fastcall hk_GateFn(void* svc)
+    {
+        if (g_BypassPopupGate)
+            return 1;
+        return g_OrigGateFn ? g_OrigGateFn(svc) : 0;
+    }
+
+
+    // Lazy install of gate hook.
+    static void TryInstallGateHook(void* self)
+    {
+        if (!self)
+            return;
+
+        std::call_once(g_GateHookInstallFlag, [self]()
+        {
+            void* gateSvc = SafeReadGateSvcFromSelf(self);
+            if (!gateSvc)
+            {
+                Log("[MbDvcCustomPopup] GateHook install: gate svc not resolvable\n");
+                return;
+            }
+
+            void* fn = SafeGetGateFnPtr(gateSvc);
+            if (!fn)
+            {
+                Log("[MbDvcCustomPopup] GateHook install: vtable[+0x610] not resolvable\n");
+                return;
+            }
+
+            const bool ok = CreateAndEnableHook(
+                fn,
+                reinterpret_cast<void*>(&hk_GateFn),
+                reinterpret_cast<void**>(&g_OrigGateFn));
+            if (ok)
+            {
+                g_GateHookTarget = fn;
+                Log("[MbDvcCustomPopup] GateHook install: OK (target=%p)\n", fn);
+            }
+            else
+            {
+                Log("[MbDvcCustomPopup] GateHook install: MinHook FAILED (target=%p)\n", fn);
+            }
+        });
+    }
+
+
     // Reserve any queued unreserved entries.
     static void DrainUnreservedReservations(void* ctrl)
     {
@@ -641,8 +803,9 @@ namespace
 
         for (;;)
         {
-            // Find unreserved candidate.
-            bool haveCandidate = false;
+            // Find unreserved candidate; capture its reserveId.
+            bool         haveCandidate = false;
+            std::uint8_t candidateRid  = 0;
             {
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
                 for (auto& entry : g_PendingQueue)
@@ -650,6 +813,7 @@ namespace
                     if (!entry.reserved)
                     {
                         haveCandidate = true;
+                        candidateRid  = entry.reserveId;
                         break;
                     }
                 }
@@ -657,7 +821,7 @@ namespace
             if (!haveCandidate)
                 return;
 
-            const bool ok = SafeReserveOurSlot(ctrl);
+            const bool ok = SafeReserveOurSlot(ctrl, candidateRid);
 
             // Mark reserved or drop on failure.
             {
@@ -689,16 +853,21 @@ namespace
     }
 
 
-    static std::int32_t __fastcall hk_UpdateAnnounceNormal(void* self)
+    // Shared body for Normal/Server hooks.
+    static std::int32_t RunPopupOverrideHook(
+        void*                      self,
+        UpdateAnnounceNormal_t     origFn,
+        const std::uint8_t*        eligibleIds,
+        std::size_t                numEligibleIds)
     {
-        if (!self || !g_OrigUpdateAnnounceNormal)
+        if (!self || !origFn)
         {
-            return g_OrigUpdateAnnounceNormal ? g_OrigUpdateAnnounceNormal(self) : 0;
+            return origFn ? origFn(self) : 0;
         }
 
         const std::uint32_t prevState = SafeReadInnerState(self);
 
-        // Pre-call: capture pointers, drain queue.
+        // Capture pointers, drain queue.
         void* ctrl = SafeReadControllerFromSelf(self);
         if (ctrl)
         {
@@ -713,22 +882,41 @@ namespace
             g_LangManager.store(lang, std::memory_order_relaxed);
         }
 
-        // Peek slot only when state is not 1.
+        // Install gate hook lazily.
+        TryInstallGateHook(self);
+
+        // First-slot check (decides if THIS call's consumed slot was ours).
         bool nextSlotIsOurs = false;
         if (ctrl && prevState != 1)
         {
-            (void)SafeFindFirstSlotIsOurs(
-                ctrl, kReserveId_NormalSlot0, &nextSlotIsOurs);
+            for (std::size_t i = 0; i < numEligibleIds && !nextSlotIsOurs; ++i)
+            {
+                bool isOurs = false;
+                SafeFindFirstSlotIsOurs(ctrl, eligibleIds[i], &isOurs);
+                if (isOurs) nextSlotIsOurs = true;
+            }
         }
 
-        const std::int32_t result = g_OrigUpdateAnnounceNormal(self);
+        // Anywhere-in-ring check (decides gate bypass).
+        // Game popups in front of ours will also benefit, which is fine —
+        // the override only fires when our slot is first.
+        const bool anyOurSlotPending = SafeAnyOurSlotInRing(
+            ctrl, eligibleIds, numEligibleIds);
+
+        const bool prevBypass = g_BypassPopupGate;
+        if (anyOurSlotPending)
+            g_BypassPopupGate = true;
+
+        const std::int32_t  result    = origFn(self);
+
+        g_BypassPopupGate = prevBypass;
 
         const std::uint32_t currState = SafeReadInnerState(self);
 
         // Override on transitions into state 1.
         if (nextSlotIsOurs && prevState != 1 && currState == 1)
         {
-            // Pop first reserved; write outside lock.
+            // Pop first reserved entry of an eligible type.
             bool            havePopped = false;
             PopupTextSource title;
             PopupTextSource body;
@@ -736,7 +924,17 @@ namespace
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
                 for (auto it = g_PendingQueue.begin(); it != g_PendingQueue.end(); ++it)
                 {
-                    if (it->reserved)
+                    if (!it->reserved) continue;
+                    bool eligible = false;
+                    for (std::size_t i = 0; i < numEligibleIds; ++i)
+                    {
+                        if (eligibleIds[i] == it->reserveId)
+                        {
+                            eligible = true;
+                            break;
+                        }
+                    }
+                    if (eligible)
                     {
                         title = std::move(it->title);
                         body  = std::move(it->body);
@@ -749,7 +947,7 @@ namespace
 
             if (havePopped)
             {
-                // Resolve hashes; null fallbacks to "".
+                // Resolve hashes; null falls back to "".
                 const char* titleText = "";
                 const char* bodyText  = "";
 
@@ -781,45 +979,117 @@ namespace
 
         return result;
     }
+
+
+    // Normal — slot 0 / 1.
+    static std::int32_t __fastcall hk_UpdateAnnounceNormal(void* self)
+    {
+        static const std::uint8_t kNormalIds[] = { 0, 1 };
+        const std::int32_t result = RunPopupOverrideHook(
+            self, g_OrigUpdateAnnounceNormal, kNormalIds, sizeof(kNormalIds));
+
+        // Set Update's back-to-Server flag when ours pending.
+        // Update reads state[0x30] at param_1+0x30 (its view) which lives at
+        // self+0x50 in ours (multiple-inheritance adjustor: Update sees
+        // param_1 = self + 0x20). Direct state[0x10]=7 won't work because
+        // Update unconditionally writes state[0x10]=9 after case 8 breaks;
+        // only the case-8 conditional path (state[0x30]!=0 && !IsInvalid)
+        // transitions via goto, skipping that overwrite.
+        if (result == 2)
+        {
+            void* ctrl = g_PopupController.load(std::memory_order_relaxed);
+            static const std::uint8_t kServerIds[] = { 2, 3, 4, 7, 8 };
+            if (SafeAnyOurSlotInRing(ctrl, kServerIds, sizeof(kServerIds)))
+            {
+                SafeWriteImplByte (self, 0x50, 1);   // state[0x30] = back-to-Server flag
+                SafeWriteImplDword(self, 0x5c, 0);   // reset inner slot counter
+            }
+        }
+        return result;
+    }
+
+
+    // Server — slot 2 / 3 / 4 / 7 / 8.
+    static std::int32_t __fastcall hk_UpdateAnnounceServer(void* self)
+    {
+        static const std::uint8_t kServerIds[] = { 2, 3, 4, 7, 8 };
+        return RunPopupOverrideHook(self, g_OrigUpdateAnnounceServer,
+                                    kServerIds, sizeof(kServerIds));
+    }
 }  // namespace
 
 
 bool Install_MbDvcCustomPopup_Hook()
 {
-    void* target = ResolveGameAddress(
+    // Normal hook (slot 0/1).
+    void* targetN = ResolveGameAddress(
         gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal);
-    if (!target)
+    if (!targetN)
     {
-        Log("[Hook] MbDvcCustomPopup: target resolve failed (addr=%llX)\n",
+        Log("[Hook] MbDvcCustomPopup: Normal target resolve failed (addr=%llX)\n",
             static_cast<unsigned long long>(
                 gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal));
         return false;
     }
 
-    const bool ok = CreateAndEnableHook(
-        target,
+    const bool okN = CreateAndEnableHook(
+        targetN,
         reinterpret_cast<void*>(&hk_UpdateAnnounceNormal),
         reinterpret_cast<void**>(&g_OrigUpdateAnnounceNormal));
+    Log("[Hook] MbDvcCustomPopup Normal: %s (target=%p)\n",
+        okN ? "OK" : "FAIL", targetN);
 
-    Log("[Hook] MbDvcCustomPopup: %s (target=%p, orig=%p) "
-        "[reserve hook installs lazily on first popup pipeline tick]\n",
-        ok ? "OK" : "FAIL", target, g_OrigUpdateAnnounceNormal);
-    return ok;
+    // Server hook (slot 2/3/4/7/8). Optional — non-fatal if address is 0.
+    if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer)
+    {
+        void* targetS = ResolveGameAddress(
+            gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer);
+        if (targetS)
+        {
+            const bool okS = CreateAndEnableHook(
+                targetS,
+                reinterpret_cast<void*>(&hk_UpdateAnnounceServer),
+                reinterpret_cast<void**>(&g_OrigUpdateAnnounceServer));
+            Log("[Hook] MbDvcCustomPopup Server: %s (target=%p)\n",
+                okS ? "OK" : "FAIL", targetS);
+        }
+    }
+    else
+    {
+        Log("[Hook] MbDvcCustomPopup Server: skipped (no address for current build)\n");
+    }
+
+    return okN;
 }
 
 
 bool Uninstall_MbDvcCustomPopup_Hook()
 {
-    void* target = ResolveGameAddress(
+    void* targetN = ResolveGameAddress(
         gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal);
-    DisableAndRemoveHook(target);
+    DisableAndRemoveHook(targetN);
     g_OrigUpdateAnnounceNormal = nullptr;
+
+    if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer)
+    {
+        void* targetS = ResolveGameAddress(
+            gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer);
+        DisableAndRemoveHook(targetS);
+        g_OrigUpdateAnnounceServer = nullptr;
+    }
 
     if (g_ReserveHookTarget)
     {
         DisableAndRemoveHook(g_ReserveHookTarget);
         g_ReserveHookTarget = nullptr;
         g_OrigReserveAnnouncePopup = nullptr;
+    }
+
+    if (g_GateHookTarget)
+    {
+        DisableAndRemoveHook(g_GateHookTarget);
+        g_GateHookTarget = nullptr;
+        g_OrigGateFn = nullptr;
     }
 
     g_PopupController.store(nullptr, std::memory_order_relaxed);
@@ -830,15 +1100,16 @@ bool Uninstall_MbDvcCustomPopup_Hook()
         g_PendingQueue.clear();
     }
 
-    Log("[Hook] MbDvcCustomPopup: removed (target=%p)\n", target);
+    Log("[Hook] MbDvcCustomPopup: removed\n");
     return true;
 }
 
 
-// Internal: literal-or-hash for both fields.
-static bool Show_MbDvcAnnouncePopup_Impl(const char*  titleLiteral,
+// Internal: literal-or-hash for both fields, configurable reserveId.
+static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
+                                         const char*   titleLiteral,
                                          std::uint64_t titleHash,
-                                         const char*  bodyLiteral,
+                                         const char*   bodyLiteral,
                                          std::uint64_t bodyHash)
 {
     PopupTextSource titleSrc;
@@ -877,9 +1148,10 @@ static bool Show_MbDvcAnnouncePopup_Impl(const char*  titleLiteral,
             return false;
         }
         PendingPopup p;
-        p.title    = std::move(titleSrc);
-        p.body     = std::move(bodySrc);
-        p.reserved = false;
+        p.title     = std::move(titleSrc);
+        p.body      = std::move(bodySrc);
+        p.reserveId = reserveId;
+        p.reserved  = false;
         g_PendingQueue.push_back(std::move(p));
     }
 
@@ -890,7 +1162,7 @@ static bool Show_MbDvcAnnouncePopup_Impl(const char*  titleLiteral,
     }
 
     // Reserve immediately.
-    const bool reserveOk = SafeReserveOurSlot(ctrl);
+    const bool reserveOk = SafeReserveOurSlot(ctrl, reserveId);
     if (!reserveOk)
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
@@ -901,7 +1173,7 @@ static bool Show_MbDvcAnnouncePopup_Impl(const char*  titleLiteral,
     }
 
     // Verify reservation landed in ring.
-    const bool landed = SafeVerifyOurReservationLanded(ctrl);
+    const bool landed = SafeVerifyOurReservationLanded(ctrl, reserveId);
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         if (!g_PendingQueue.empty())
@@ -924,13 +1196,12 @@ static bool Show_MbDvcAnnouncePopup_Impl(const char*  titleLiteral,
 }
 
 
-bool Show_MbDvcAnnouncePopup(const char* title, const char* body)
+bool Show_MbDvcAnnouncePopupReport(const char* title, const char* body)
 {
     return Show_MbDvcAnnouncePopup_Impl(
-        title ? title : "",
-        0,
-        body ? body : "",
-        0);
+        kReserveId_NormalSlot0,
+        title ? title : "", 0,
+        body ? body : "",  0);
 }
 
 
@@ -940,26 +1211,59 @@ bool Show_MbDvcAnnouncePopupByLangId(const char* titleLabel, const char* bodyLab
     const char*  titleLit  = nullptr;
     std::uint64_t titleHash = 0;
     if (titleLabel && *titleLabel)
-    {
         titleHash = FoxHashes::StrCode64(titleLabel);
-    }
     else
-    {
         titleLit = "";
-    }
 
     const char*  bodyLit  = nullptr;
     std::uint64_t bodyHash = 0;
     if (bodyLabel && *bodyLabel)
-    {
         bodyHash = FoxHashes::StrCode64(bodyLabel);
-    }
     else
-    {
         bodyLit = "";
-    }
 
-    return Show_MbDvcAnnouncePopup_Impl(titleLit, titleHash, bodyLit, bodyHash);
+    return Show_MbDvcAnnouncePopup_Impl(
+        kReserveId_NormalSlot0,
+        titleLit, titleHash,
+        bodyLit,  bodyHash);
+}
+
+
+bool Show_MbDvcAnnouncePopupReward(const char* title, const char* body)
+{
+    // Slot 2 — simplest Server template, no format args.
+    constexpr std::uint8_t kServerSlot = 2;
+    return Show_MbDvcAnnouncePopup_Impl(
+        kServerSlot,
+        title ? title : "", 0,
+        body ? body : "",  0);
+}
+
+
+bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
+                                         const char* bodyLabel)
+{
+    constexpr std::uint8_t kServerSlot = 2;
+
+    // Empty labels skip lookup.
+    const char*  titleLit  = nullptr;
+    std::uint64_t titleHash = 0;
+    if (titleLabel && *titleLabel)
+        titleHash = FoxHashes::StrCode64(titleLabel);
+    else
+        titleLit = "";
+
+    const char*  bodyLit  = nullptr;
+    std::uint64_t bodyHash = 0;
+    if (bodyLabel && *bodyLabel)
+        bodyHash = FoxHashes::StrCode64(bodyLabel);
+    else
+        bodyLit = "";
+
+    return Show_MbDvcAnnouncePopup_Impl(
+        kServerSlot,
+        titleLit, titleHash,
+        bodyLit,  bodyHash);
 }
 
 
