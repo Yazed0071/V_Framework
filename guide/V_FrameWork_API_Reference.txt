@@ -16,7 +16,7 @@ TABLE OF CONTENTS
   MODULE: V_TppPlayer .................... Voice FPK overrides
   MODULE: V_TppEquip ..................... Equipment icon overrides
   MODULE: V_TppCassette .................. Cassette tape playback & registration
-  MODULE: V_TppUI ........................ Loading screen, game over, equip BGs, telop
+  MODULE: V_TppUiCommand ................. Loading screen, game over, equip BGs, telop, iDroid popups
   MODULE: V_TppMusicManager .............. Game-over BGM event overrides
   MODULE: V_TppHelicopter ................ Heli pilot voice / radio event overrides
   MODULE: V_TppCommandPost ............... Caution phase duration
@@ -185,10 +185,14 @@ MODULE: V_TppCassette
 
 
 ================================================================================
-MODULE: V_TppUI
+MODULE: V_TppUiCommand
 ================================================================================
 
-  Overrides in-game UI textures. All paths are FTEX asset paths.
+  Overrides in-game UI textures + iDroid popup customization. All texture
+  paths are FTEX asset paths.
+
+  NOTE: this module was previously named V_TppUI. The rename aligns with the
+  underlying tpp::ui::UiCommand layer that backs the new iDroid popup helpers.
 
   EQUIP BACKGROUNDS
   -----------------
@@ -220,11 +224,87 @@ MODULE: V_TppUI
   ClearMissionTelopBgTexture()                 Restore vanilla
 
   EXAMPLE:
-    V_TppUI.SetLoadingScreenBackgroundTexture(
+    V_TppUiCommand.SetLoadingScreenBackgroundTexture(
         "/Assets/tpp/ui/texture/my_loading_screen.ftex")
 
-    V_TppUI.SetMissionTelopBgTexturePath(
+    V_TppUiCommand.SetMissionTelopBgTexturePath(
         "/Assets/tpp/ui/texture/my_telop_bg.ftex")
+
+  --------------------------------------------------------------------------
+  iDroid AnnouncePopup (custom-text iDroid corner popups)
+  --------------------------------------------------------------------------
+
+  Pushes a popup with your own title and body text into MGSV's iDroid
+  AnnouncePopup pipeline. The popup uses the visual chrome of the slot-0
+  "Normal" template (default green/blue iDroid notification look).
+
+  Multiple calls fan out across the controller's 32-slot ring and play
+  sequentially as the menu state machine cycles — one fades out, the next
+  fades in.
+
+  GAME POPUPS HAVE PRIORITY: if MGSV itself wants to queue an iDroid
+  announcement and the ring is full, the framework evicts our oldest pending
+  custom popup so the game's reservation always succeeds. Our text is dropped
+  in that case.
+
+  --------------------------------------------------------------------------
+  ShowMbDvcAnnouncePopup(title, body)  -> bool
+  --------------------------------------------------------------------------
+
+    Queues a popup with literal title and body strings. Returns true if
+    queued + (eventually) reserved successfully. Returns false if:
+      - The pending queue is full (16 entries; matches the slot ring's cap).
+      - The slot ring was full and our reservation was rejected (in favor
+        of an already-pending game popup).
+
+    Safe to call BEFORE the iDroid menu is opened the first time during a
+    session. Queued entries are reserved into the slot ring as soon as the
+    popup pipeline ticks, so popups can appear on the very first iDroid
+    open without any priming.
+
+    PARAMETERS:
+      title  string  Literal title text (truncated to ~127 chars).
+      body   string  Literal body text  (truncated to ~1023 chars).
+
+    EXAMPLES:
+      V_TppUiCommand.ShowMbDvcAnnouncePopup("MOD LOADED",
+          "All systems online. Welcome back, Boss.")
+
+      -- Sequential burst (all play in order as the menu cycles):
+      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 1", "Walk to the LZ.")
+      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 2", "Call the heli.")
+      V_TppUiCommand.ShowMbDvcAnnouncePopup("Step 3", "Extract.")
+
+  --------------------------------------------------------------------------
+  ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel)  -> bool
+  --------------------------------------------------------------------------
+
+    Same as ShowMbDvcAnnouncePopup but title and body are LangId LABEL
+    NAMES whose displayable text comes from the game's localized string
+    table. The DLL hashes each label via Fox StrCode64 internally and
+    resolves through the game's lang manager at popup display time, so
+    the shown text follows the current locale.
+
+    PARAMETERS:
+      titleLabel  string  Label name (hashed with StrCode64 in the DLL).
+      bodyLabel   string  Label name (hashed with StrCode64 in the DLL).
+
+    EXAMPLE:
+      V_TppUiCommand.ShowMbDvcAnnouncePopupLangId(
+          "my_mod_title_label",
+          "my_mod_body_label")
+
+  --------------------------------------------------------------------------
+  CAVEATS
+  --------------------------------------------------------------------------
+
+  - Visual chrome (color, icon, sound) is inherited from the slot-0 "Normal"
+    iDroid template. To customize chrome you'd need additional hooks on
+    SetupAssets / StartSound — not currently exposed.
+  - The popup only renders while an iDroid menu is on screen. Calls made in
+    pure gameplay context queue silently and play once a menu opens.
+  - Strings are stored in our own buffers (no Lua-state lifetime issues).
+    Truncation uses _TRUNCATE so multi-byte sequences are clipped cleanly.
 
 
 ================================================================================
@@ -529,6 +609,20 @@ RAW API: V_FrameWork.*
     SetGameOverMusic(isEnable, type, playEvent, stopEvent) -> bool
         type: 0=GENERAL, 1=PARADOX, 2=STEALTH, 3=CYPRUS
     SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)   -> bool
+
+  iDroid POPUPS (MbDvcAnnouncePopup)
+    ShowMbDvcAnnouncePopup(title, body)             -> bool
+        Queues a custom-text iDroid corner popup. title/body are literal
+        strings (cap ~127 / ~1023 chars). Safe to call before the iDroid
+        menu is opened — entries queue unreserved and the popup hook
+        drains them on first pipeline tick. Returns false if our queue is
+        full (16) or the slot ring was full and our reservation was
+        rejected in favor of a pending game popup.
+    ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel) -> bool
+        Same as above but the args are LangId LABEL NAMES (strings). The
+        DLL hashes each label via Fox StrCode64 and resolves through the
+        game's lang manager at popup display time, so the displayed text
+        follows the current locale.
 
   CAUTION PHASE
     SetCautionStepNormalDurationSeconds(seconds)  -> nothing

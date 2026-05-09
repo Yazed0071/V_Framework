@@ -41,6 +41,7 @@ extern "C" {
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
+#include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 
 
 namespace
@@ -389,12 +390,6 @@ static void PushLuaNumber(lua_State* L, float value)
 }
 
 
-// Reads an optional StrCode32 hash arg at `idx`. Accepts:
-//   - missing / nil      → returns 0
-//   - string             → hashes via Fox::StrHash32 and returns the result
-//   - number             → casts to uint32_t and returns it
-// Lets Lua callers pass either "V_CPRGZ0040" (label name) or 0xC0DECAFE
-// (pre-hashed StrCode32) without the wrapper module needing to do the hash.
 static std::uint32_t GetLuaStrCode32Arg(lua_State* L, int idx)
 {
     if (GetLuaTop(L) < idx)
@@ -891,9 +886,6 @@ static int __cdecl l_SetVIPImportant(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const bool isOfficer = GetLuaBool(L, 2);
-    // Optional 3rd arg: voice line for the dead-body radio. Accepts either
-    // a label-name string (auto-hashed via FoxStrHash32) or a pre-hashed
-    // numeric StrCode32. 0 / omitted = built-in officer/VIP defaults.
     const std::uint32_t customDeadBodyLabel = GetLuaStrCode32Arg(L, 3);
 
     Add_VIPSleepFaintImportantGameObjectId(gameObjectId, isOfficer);
@@ -969,10 +961,6 @@ static int __cdecl l_SetLostHostage(lua_State* L)
 {
     const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
     const int hostageType = GetLuaInt(L, 2);
-    // Optional 3rd arg: voice line for the "prisoner gone" radio. Accepts
-    // either a label-name string (auto-hashed via FoxStrHash32) or a
-    // pre-hashed numeric StrCode32. 0 / omitted = built-in male/female/
-    // child × taken matrix.
     const std::uint32_t customLostLabel = GetLuaStrCode32Arg(L, 3);
 
     Add_LostHostageTrap(gameObjectId, hostageType, customLostLabel);
@@ -1613,6 +1601,36 @@ static int __cdecl l_SetEnableHeliVoice(lua_State* L)
 }
 
 
+// Queue popup with literal text.
+static int __cdecl l_ShowMbDvcAnnouncePopup(lua_State* L)
+{
+    const char* title = GetLuaString(L, 1);
+    const char* body  = GetLuaString(L, 2);
+    if (!title) title = "";
+    if (!body)  body  = "";
+
+    const bool ok = Show_MbDvcAnnouncePopup(title, body);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// Queue popup using LangId label names.
+static int __cdecl l_ShowMbDvcAnnouncePopupLangId(lua_State* L)
+{
+    const char* titleLabel = GetLuaString(L, 1);
+    const char* bodyLabel  = GetLuaString(L, 2);
+    if (!titleLabel) titleLabel = "";
+    if (!bodyLabel)  bodyLabel  = "";
+
+    const bool ok = Show_MbDvcAnnouncePopupByLangId(titleLabel, bodyLabel);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -1690,6 +1708,10 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetGameOverMusic",                       l_SetGameOverMusic },
     { "SetEnableHeliVoice",                     l_SetEnableHeliVoice },
 
+
+    { "ShowMbDvcAnnouncePopup",                 l_ShowMbDvcAnnouncePopup },
+    { "ShowMbDvcAnnouncePopupLangId",           l_ShowMbDvcAnnouncePopupLangId },
+
     { nullptr, nullptr }
 };
 
@@ -1724,7 +1746,23 @@ static void __fastcall hkSetLuaFunctions(lua_State* L)
 
 extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
 {
-    return RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib) ? 1 : 0;
+    if (!L)
+        return 0;
+
+    // Guard against double registration. The SetLuaFunctions hook may have
+    // already registered the V_FrameWork library on this state during the
+    // game's own bootstrap; a subsequent `require "V_FrameWork"` from mod
+    // Lua then routes here. Calling FoxLuaRegisterLibrary a second time
+    // trips the game's "library already registered" assertion (int 3 →
+    // EXCEPTION_BREAKPOINT).
+    if (IsLuaStateRegistered(L))
+        return 0;
+
+    if (!RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
+        return 0;
+
+    TrackLuaState(L);
+    return 1;
 }
 
 

@@ -55,8 +55,8 @@ static DWORD WINAPI InitThread(LPVOID)
     if (st != MH_OK && st != MH_ERROR_ALREADY_INITIALIZED)
         return 0;
 
-    const bool earlyLuaBridgeOk = Install_SetLuaFunctions_Hook();
-    Log("[DLL] Early Install_SetLuaFunctions_Hook -> %s\n", earlyLuaBridgeOk ? "OK" : "FAIL");
+    //const bool earlyLuaBridgeOk = Install_SetLuaFunctions_Hook();
+    //Log("[DLL] Install_SetLuaFunctions_Hook -> %s\n", earlyLuaBridgeOk ? "OK" : "FAIL");
 
     if (!ResolveAddressSet(hGame))
     {
@@ -65,7 +65,6 @@ static DWORD WINAPI InitThread(LPVOID)
     }
 
     RegisterBuiltInFeatureModules();
-
 
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
     Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
@@ -116,6 +115,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         bool expected = false;
         if (!gStarted.compare_exchange_strong(expected, true))
             return TRUE;
+
+        ResolveAddressSet(GetModuleHandleW(nullptr));
 
         HANDLE hThread = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
         if (hThread)

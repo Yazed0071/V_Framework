@@ -55,7 +55,6 @@ struct TrackedHostage
     int           type = HOSTAGE_MALE;
     int           nameId = -1;
     bool          playerTookIt = false;
-    // StrCode32 hash. 0 = use built-in MALE/FEMALE/CHILD × TAKEN/NOT_TAKEN matrix.
     std::uint32_t customLostLabel = 0;
 };
 
@@ -171,15 +170,6 @@ static bool LoadGetQuarkSystemTable()
     return g_GetQuarkSystemTable != nullptr;
 }
 
-// QuarkSystemTable[+0x98][+0x1D8] holds the game's NoticeObject pool: a fixed
-// array of 24 slots × 0x20 bytes starting at +0x24. Slot fields:
-//   +0x00 ushort OwnerId  -- the hostage GameObjectId we want
-//   +0x04 byte   Type     -- 1 = LOST/escape, 2 = ESCAPE_OBJECT
-//   +0x05 byte   Flags    -- bit0 = in-use
-// noticeObjId in the AddNoticeInfo blob = (ESCAPE_OBJECT_ID_BASE | slotIndex),
-// so reading the slot directly gives the actual hostage. The previous design
-// kept its own escape-tracking vector and indexed it by push-order, which
-// drifted from the game's pool index and produced wrong-hostage reports.
 static bool ReadNoticeObjectOwner(int slotIndex,
                                   std::uint16_t& outOwnerId,
                                   std::uint8_t& outType,
@@ -460,11 +450,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
     const std::uint32_t defaultLabel = g_OrigConvertLabel(radioType);
 
-    // Hostage-FOUND discovery override (radio types 0x0B/0x0C/0x12/0x25).
-    // Convert-time dispatch path: a separate hook on CallWithRadioType also
-    // tries to override, but the found-hostage radios don't always route
-    // through it. The single-slot override populated by OnRadioRequest is
-    // consumed here instead.
     {
         std::uint32_t discoveryLabel = 0u;
         if (LostHostageDiscovery_TryConsumeConvertOverride(radioType, discoveryLabel)
@@ -495,8 +480,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
         if (hasReport)
         {
-            // Caller-supplied StrCode32 label takes priority over the built-in
-            // MALE/FEMALE/CHILD × TAKEN/NOT_TAKEN matrix.
             const std::uint32_t overrideLabel = (report.customLostLabel != 0)
                 ? report.customLostLabel
                 : PickSpeechLabel(report.hostageType, report.playerTookIt);
@@ -540,9 +523,6 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType, std::uint3
 
     std::lock_guard<std::mutex> lock(g_Mutex);
 
-    // Preserve playerTookIt across re-registration. Lua re-calls
-    // Add_LostHostageTrap on mission/buddy reload (e.g. Sahelan outfit
-    // change) and would otherwise silently undo a prior PlayerTookHostage.
     const auto existing = g_HostagesByObjectId.find(rawId);
     if (existing != g_HostagesByObjectId.end())
         h.playerTookIt = existing->second.playerTookIt;

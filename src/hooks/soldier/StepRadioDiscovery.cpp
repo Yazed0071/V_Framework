@@ -68,15 +68,7 @@ namespace
     std::unordered_map<std::uint32_t, std::uint16_t> g_LHD_LastCandidateTargetBySoldier;
     std::unordered_map<std::uint32_t, std::uint16_t> g_LHD_LastConfirmedTargetBySoldier;
     static std::mutex g_LHD_Mutex;
-    // Per-speaker pending override keyed by soldierIndex. Used by the
-    // CallWithRadioType dispatch path (when the game routes the radio
-    // through CallWithRadioType, which carries ownerIndex).
     static std::unordered_map<std::uint32_t, LostHostageDiscoverySelectedRadio> g_LHD_PendingBySoldier;
-    // Single-slot fallback for the ConvertRadioTypeToSpeechLabel dispatch
-    // path (no soldier context). Set by OnRadioRequest, consumed by the
-    // next matching convert-label call. The found-hostage radio types
-    // 0x0B/0x0C/0x12/0x25 don't always reach CallWithRadioType, so we mirror
-    // the LostHostage selected-report pattern here.
     static LostHostageDiscoverySelectedRadio g_LHD_NextConvertOverride{};
 }
 
@@ -471,9 +463,6 @@ void LostHostageDiscovery_OnRadioRequest(void* self, int actionIndex, int stateP
     pending.overrideLabel = hostageInfo.speechLabel;
 
     g_LHD_PendingBySoldier[pending.soldierIndex] = pending;
-    // Mirror to the single-slot convert-label override. Last-write-wins; if
-    // two found radios queue back-to-back, the later one's label takes
-    // precedence at convert time.
     g_LHD_NextConvertOverride = pending;
 
     LHD_LOG(
@@ -519,8 +508,6 @@ bool LostHostageDiscovery_TryConsumeConvertOverride(
         static_cast<unsigned>(g_LHD_NextConvertOverride.targetId),
         LostHostageDiscovery_HostageTypeName(g_LHD_NextConvertOverride.hostageType));
 
-    // Also clear the per-soldier entry for this speaker so the
-    // CallWithRadioType path (if it ever fires) doesn't double-consume.
     g_LHD_PendingBySoldier.erase(g_LHD_NextConvertOverride.soldierIndex);
     g_LHD_NextConvertOverride = {};
     return true;

@@ -72,6 +72,9 @@ bool Uninstall_TppPickableHooks();
 bool Install_EquipIconFtexPath_Hook();
 bool Uninstall_EquipIconFtexPath_Hook();
 
+bool Install_MbDvcCustomPopup_Hook();
+bool Uninstall_MbDvcCustomPopup_Hook();
+
 
 namespace
 {
@@ -492,6 +495,26 @@ namespace
         }
     };
 
+    class MbDvcCustomPopupModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MbDvcCustomPopup";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MbDvcCustomPopup_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MbDvcCustomPopup_Hook();
+        }
+    };
+
 }
 
 void RegisterBuiltInFeatureModules()
@@ -517,6 +540,7 @@ void RegisterBuiltInFeatureModules()
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
+    static MbDvcCustomPopupModule s_MbDvcCustomPopupModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -542,5 +566,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
+            FeatureModuleRegistry::Instance().Register(&s_MbDvcCustomPopupModule);
         });
 }

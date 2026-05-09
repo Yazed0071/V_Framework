@@ -117,6 +117,14 @@ namespace AddressSetRuntime
         uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
 
 
+        // tpp::ui::menu::impl::MbDvcAnnouncePopupCallbackImpl::UpdateAnnounceNormal
+        // — handles the iDroid AnnouncePopup state machine for slot-0 / slot-1
+        // popups. Hooked to substitute custom title / body text into the buffers
+        // at this+0x60 / this+0xa0 right after the original writes the default
+        // lang-text, when the slot was tagged with V_FrameWork's magic value.
+        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal = 0;
+
+
         uintptr_t FNVHash32                         = 0;
         uintptr_t Play_bgm_gameover                 = 0;
         uintptr_t Play_bgm_gameover_paradox         = 0;
@@ -248,6 +256,9 @@ namespace AddressSetRuntime
             0x146AB80F0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
 
 
+            0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (state machine for iDroid slot-0/slot-1 popups; hooked to override default lang-text with V_FrameWork custom title/body when ReserveParam.commonValue1 == 0x56465043 magic)
+
+
             0x143F33A20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
             0x145CB70BDull, // Play_bgm_gameover (embedded FNV32 of "PlayBgm_bgm_gameover")
             0x145CB70C4ull, // Play_bgm_gameover_paradox
@@ -287,7 +298,7 @@ namespace AddressSetRuntime
             0x140FB90D0ull, // CopyAndAdjustInfo
             0x140D6E810ull, // DecrementPhaseCounter
             0x140A18AF0ull, // ExecCallback
-            0x14006B810ull, // FoxLuaRegisterLibrary
+            0x1431CC520ull, // FoxLuaRegisterLibrary
             0x1400856D0ull, // FoxPath_Path
             0x142EB6C10ull, // FoxStrHash32
             0x14C96BF00ull, // FoxStrHash64
@@ -359,34 +370,37 @@ namespace AddressSetRuntime
             0x14032A870ull, // Fox_Sd_ConvertParameterID
 
 
-            0x14A6C34B4ull, // TornadoDualPatch (JP 1.0.15.3 — same `74 10` JZ instruction; user-verified in Ghidra at .reloc:14a6c34b4 inside the small function block 14a6c34a5..14a6c34d5, which appears to be the JP-side equivalent of EN's PreUpdate bit-0x12 branch refactored into its own routine. Initial pattern search missed this because the JP build extracted the branch into a separate function instead of inlining it like EN.)
+            0x14A6C34B4ull, // TornadoDualPatch 
 
 
-            0x148655E70ull, // RealizedSahelan2Impl_Realize (JP TBD; hook silently no-ops if unresolved)
-            0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl (JP TBD; hook silently no-ops if unresolved)
-            0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (JP TBD; hook silently no-ops if unresolved)
+            0x148655E70ull, // RealizedSahelan2Impl_Realize 
+            0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl 
+            0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation 
 
 
-            0x1448A0190ull, // RealizedSecurityCamera2Impl_SetFova (JP TBD; hook silently no-ops if unresolved)
+            0x148644FE0ull, // RealizedSecurityCamera2Impl_SetFova
 
 
-            0x143F6EE50ull, // FNVHash32 (JP TBD; hook silently no-ops if unresolved)
-            0x1477CD50Cull, // Play_bgm_gameover (JP TBD)
-            0x1477CD513ull, // Play_bgm_gameover_paradox (JP TBD)
-            0x1477CD505ull, // Play_bgm_gameover_perfectstealth (JP TBD)
-            0x1477CD51Aull, // Play_bgm_s10010_gameover (JP TBD)
-            0x1477D0274ull, // Stop_bgm_gameover (JP TBD)
-            0x1477D0285ull, // Stop_bgm_gameover_paradox (JP TBD)
-            0x1477D0279ull, // Stop_bgm_gameover_perfectstealth (JP TBD)
-            0x1477D028Cull, // Stop_bgm_s10010_gameover (JP TBD)
-            0x14226BF18ull, // Play_bgm_gameover_paradox_soundId (JP TBD)
-            0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId (JP TBD)
+            0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (verified against JP build mgsvtpp_1_0_15_3_jp; case-8 of Update dispatches FUN_140ef3050 which contains the slot-0/slot-1 lang-text hashes 0xdf1b1fd6f40a / 0x2e2fb8df282b)
 
 
-            0x140e247dfull, // DD_vox_SH_voice (JP)
-            0x140e24752ull, // DD_vox_SH_radio (JP)
-            0x140e247cfull, // DD_vox_SH_radio2 (JP)
-            0x140e247d7ull, // DD_vox_SH_radio3 (JP)
+            0x143F6EE50ull, // FNVHash32
+            0x1477CD50Cull, // Play_bgm_gameover 
+            0x1477CD513ull, // Play_bgm_gameover_paradox 
+            0x1477CD505ull, // Play_bgm_gameover_perfectstealth 
+            0x1477CD51Aull, // Play_bgm_s10010_gameover 
+            0x1477D0274ull, // Stop_bgm_gameover 
+            0x1477D0285ull, // Stop_bgm_gameover_paradox 
+            0x1477D0279ull, // Stop_bgm_gameover_perfectstealth 
+            0x1477D028Cull, // Stop_bgm_s10010_gameover 
+            0x14226BF18ull, // Play_bgm_gameover_paradox_soundId 
+            0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId 
+
+
+            0x140E247DFull, // DD_vox_SH_voice 
+            0x140E24752ull, // DD_vox_SH_radio 
+            0x140E247CFull, // DD_vox_SH_radio2 
+            0x140E247D7ull, // DD_vox_SH_radio3 
         };
 
         return value;

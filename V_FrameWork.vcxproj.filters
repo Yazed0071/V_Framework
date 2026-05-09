@@ -88,6 +88,7 @@
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
+    <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -149,6 +150,7 @@
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
+    <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />
