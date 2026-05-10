@@ -42,6 +42,7 @@ extern "C" {
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
+#include "../hooks/hud/HudPopup.h"
 
 
 namespace
@@ -1616,7 +1617,7 @@ static int __cdecl l_ShowMbDvcAnnouncePopupReport(lua_State* L)
 
 
 // Queue popup using LangId label names.
-static int __cdecl l_ShowMbDvcAnnouncePopupLangId(lua_State* L)
+static int __cdecl l_ShowMbDvcAnnouncePopupReportLangId(lua_State* L)
 {
     const char* titleLabel = GetLuaString(L, 1);
     const char* bodyLabel  = GetLuaString(L, 2);
@@ -1652,6 +1653,59 @@ static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
     if (!bodyLabel)  bodyLabel  = "";
 
     const bool ok = Show_MbDvcAnnouncePopupRewardLangId(titleLabel, bodyLabel);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// HUD popup with title label + literal body text.
+static int __cdecl l_ShowHudPopup(lua_State* L)
+{
+    const char* titleLabel = GetLuaString(L, 1);
+    const char* body       = GetLuaString(L, 2);
+    if (!titleLabel) titleLabel = "";
+    if (!body)       body       = "";
+
+    std::uint32_t popupType = 1;
+    const int t = GetLuaInt(L, 3);
+    if (t > 0) popupType = static_cast<std::uint32_t>(t);
+
+    const bool ok = Show_HudPopup(titleLabel, body, popupType);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// HUD popup with title + body both as LangId labels.
+static int __cdecl l_ShowHudPopupLangId(lua_State* L)
+{
+    const char* titleLabel = GetLuaString(L, 1);
+    const char* bodyLabel  = GetLuaString(L, 2);
+    if (!titleLabel) titleLabel = "";
+    if (!bodyLabel)  bodyLabel  = "";
+
+    std::uint32_t popupType = 1;
+    const int t = GetLuaInt(L, 3);
+    if (t > 0) popupType = static_cast<std::uint32_t>(t);
+
+    const bool ok = Show_HudPopupLangId(titleLabel, bodyLabel, popupType);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// HUD error popup with numeric error code + popup type.
+static int __cdecl l_ShowHudErrorPopup(lua_State* L)
+{
+    std::uint32_t errorParam = 0;
+    const int e = GetLuaInt(L, 1);
+    if (e > 0) errorParam = static_cast<std::uint32_t>(e);
+
+    std::uint32_t popupType = 1;
+    const int t = GetLuaInt(L, 2);
+    if (t > 0) popupType = static_cast<std::uint32_t>(t);
+
+    const bool ok = Show_HudErrorPopup(errorParam, popupType);
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1738,9 +1792,13 @@ static luaL_Reg g_VFrameWorkLib[] =
 
 
     { "ShowMbDvcAnnouncePopupReport",           l_ShowMbDvcAnnouncePopupReport },
-    { "ShowMbDvcAnnouncePopupLangId",           l_ShowMbDvcAnnouncePopupLangId },
+    { "ShowMbDvcAnnouncePopupReportLangId",           l_ShowMbDvcAnnouncePopupReportLangId },
     { "ShowMbDvcAnnouncePopupReward",           l_ShowMbDvcAnnouncePopupReward },
     { "ShowMbDvcAnnouncePopupRewardLangId",     l_ShowMbDvcAnnouncePopupRewardLangId },
+
+    { "ShowHudPopup",                           l_ShowHudPopup },
+    { "ShowHudPopupLangId",                     l_ShowHudPopupLangId },
+    { "ShowHudErrorPopup",                      l_ShowHudErrorPopup },
 
     { nullptr, nullptr }
 };

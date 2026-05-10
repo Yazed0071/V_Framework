@@ -1267,3 +1267,13 @@ bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
 }
 
 
+// Shared resolver for other modules.
+const char* MbDvcCustom_TryResolveLangText(std::uint64_t hash)
+{
+    void* lang = g_LangManager.load(std::memory_order_relaxed);
+    if (!lang)
+        return nullptr;
+    return SafeResolveLangText(lang, hash);
+}
+
+

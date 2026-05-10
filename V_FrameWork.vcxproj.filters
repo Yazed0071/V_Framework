@@ -89,6 +89,7 @@
     <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
+    <ClInclude Include="src\hooks\hud\HudPopup.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -151,6 +152,7 @@
     <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
+    <ClCompile Include="src\hooks\hud\HudPopup.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

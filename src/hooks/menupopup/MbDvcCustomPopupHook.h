@@ -25,3 +25,8 @@ bool Show_MbDvcAnnouncePopupReward(const char* title, const char* body);
 // Queue Server popup using LangId label names.
 bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
                                          const char* bodyLabel);
+
+
+// Resolve LangId hash via cached lang manager.
+// Returns nullptr if manager not yet captured.
+const char* MbDvcCustom_TryResolveLangText(std::uint64_t hash);
