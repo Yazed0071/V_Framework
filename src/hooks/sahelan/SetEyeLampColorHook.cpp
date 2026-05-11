@@ -28,11 +28,18 @@ namespace
                                              std::uint32_t slot,
                                              std::int32_t mode);
 
+    // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateHeartLight (this, uint slot).
+    // Per-frame heart-light updater.
+    using UpdateHeartLight_t = void(__fastcall*)(void* self,
+                                                 std::uint32_t slot);
+
 
     static UpdateEyeLampColor_t g_OrigUpdateEyeLampColor = nullptr;
     static void*                g_UpdateHookTarget       = nullptr;
     static PushEyeColor_t       g_OrigPushEyeColor       = nullptr;
     static void*                g_PushHookTarget         = nullptr;
+    static UpdateHeartLight_t   g_OrigUpdateHeartLight   = nullptr;
+    static void*                g_HeartHookTarget        = nullptr;
 
 
     static constexpr int kMaxModes = 16;
@@ -45,6 +52,14 @@ namespace
 
     static std::atomic<bool>  g_DiscoEnabled{ false };
     static std::atomic<float> g_DiscoSpeed{ 2.0f };          // hue cycles / sec
+
+    // Heart-light override (single color, no per-mode — engine's natural
+    // heart color is HP-driven; override forces a fixed color).
+    static std::atomic<bool>  g_HeartEnabled{ false };
+    static std::atomic<float> g_HeartR{ 1.0f };
+    static std::atomic<float> g_HeartG{ 1.0f };
+    static std::atomic<float> g_HeartB{ 1.0f };
+    static std::atomic<float> g_HeartPulse{ 1.0f };
 
     static std::atomic<bool> g_LoggingEnabled{ false };
 
@@ -134,6 +149,71 @@ namespace
     }
 
 
+    // The vt+0xb0 slot used by both UpdateEyeLampColor and UpdateHeartLight.
+    // Signature: void(self, idx, slot, hash, color).
+    using EffectBuilderPush_t = void(__fastcall*)(void*           self,
+                                                  std::uint32_t   idx,
+                                                  std::int32_t    slot,
+                                                  std::uint64_t   hash,
+                                                  float*          color);
+
+
+    static void __fastcall hk_UpdateHeartLight(void* self, std::uint32_t slot)
+    {
+        if (g_HeartEnabled.load(std::memory_order_relaxed) && self)
+        {
+            const float r0    = g_HeartR.load(std::memory_order_relaxed);
+            const float g0    = g_HeartG.load(std::memory_order_relaxed);
+            const float b0    = g_HeartB.load(std::memory_order_relaxed);
+            const float ps    = g_HeartPulse.load(std::memory_order_relaxed);
+            const float pulse = ComputePulseMultiplier(ps);
+
+            __try
+            {
+                auto base = *reinterpret_cast<std::uint8_t**>(
+                    reinterpret_cast<std::uintptr_t>(self) + 0x48);
+                const std::int32_t baseSlot = *reinterpret_cast<std::int32_t*>(
+                    reinterpret_cast<std::uintptr_t>(self) + 0x58);
+                if (!base) return;
+
+                // Heart-light storage offset is +0x10 (NOT +0x20 like eye lamp).
+                const std::int64_t offset =
+                    static_cast<std::int64_t>(
+                        static_cast<std::uint32_t>(slot - baseSlot)) * 0x60 + 0x10;
+                auto color = reinterpret_cast<float*>(base + offset);
+                color[0] = r0 * pulse;
+                color[1] = g0 * pulse;
+                color[2] = b0 * pulse;
+                color[3] = 1.0f;
+
+                // Replicate orig's outgoing push:
+                //   plVar2 = *(*(this+0x98)+0x18)
+                //   plVar2->vt[0xb0](plVar2, slot, 0x14, 0xcff50b635575, color)
+                auto outer = *reinterpret_cast<void**>(
+                    reinterpret_cast<std::uintptr_t>(self) + 0x98);
+                if (!outer) return;
+                auto plVar2 = *reinterpret_cast<void**>(
+                    reinterpret_cast<std::uintptr_t>(outer) + 0x18);
+                if (!plVar2) return;
+                auto vt = *reinterpret_cast<void***>(plVar2);
+                if (!vt) return;
+                auto push = reinterpret_cast<EffectBuilderPush_t>(
+                    vt[0xB0 / sizeof(void*)]);
+                if (!push) return;
+                push(plVar2, slot, 0x14, 0xCFF50B635575ULL, color);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            return;  // skip orig — we did the push with our color
+        }
+
+        if (g_OrigUpdateHeartLight)
+        {
+            __try { g_OrigUpdateHeartLight(self, slot); }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+    }
+
+
     static void __fastcall hk_UpdateEyeLampColor(void* self, std::int32_t slot)
     {
         float outR = 0.0f, outG = 0.0f, outB = 0.0f;
@@ -203,22 +283,39 @@ namespace
 
 void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
 {
-    if (mode < 0 || mode >= kMaxModes) return;
-    g_PerModeR[mode].store(r, std::memory_order_relaxed);
-    g_PerModeG[mode].store(g, std::memory_order_relaxed);
-    g_PerModeB[mode].store(b, std::memory_order_relaxed);
-    g_PerModePulse[mode].store(pulseSpeed, std::memory_order_relaxed);
-    g_PerModeEnabled[mode].store(true, std::memory_order_relaxed);
+    // mode == -1 → all modes; otherwise single mode in [0, kMaxModes).
+    const bool allModes = (mode < 0);
+    if (!allModes && mode >= kMaxModes) return;
 
-    // Setting a per-mode color implies the user wants that color, not the
-    // rainbow — auto-disable disco.
+    const int start = allModes ? 0           : mode;
+    const int end   = allModes ? kMaxModes   : (mode + 1);
+    for (int m = start; m < end; ++m)
+    {
+        g_PerModeR[m].store(r, std::memory_order_relaxed);
+        g_PerModeG[m].store(g, std::memory_order_relaxed);
+        g_PerModeB[m].store(b, std::memory_order_relaxed);
+        g_PerModePulse[m].store(pulseSpeed, std::memory_order_relaxed);
+        g_PerModeEnabled[m].store(true, std::memory_order_relaxed);
+    }
+
+    // Setting a color implies the user wants that color, not the rainbow —
+    // auto-disable disco.
     const bool wasDisco = g_DiscoEnabled.exchange(false, std::memory_order_relaxed);
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
-        Log("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
-            mode, r, g, b, pulseSpeed,
-            wasDisco ? "  (disco auto-disabled)" : "");
+        if (allModes)
+        {
+            Log("[EyeLamp] SetEyeLampColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
+                r, g, b, pulseSpeed,
+                wasDisco ? "  (disco auto-disabled)" : "");
+        }
+        else
+        {
+            Log("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
+                mode, r, g, b, pulseSpeed,
+                wasDisco ? "  (disco auto-disabled)" : "");
+        }
     }
 }
 
@@ -233,6 +330,33 @@ void Clear_EyeLampColor()
     {
         Log("[EyeLamp] ClearEyeLampColor: cleared all overrides%s\n",
             wasDisco ? " (incl. disco)" : "");
+    }
+}
+
+
+void Set_HeartLightColor(float r, float g, float b, float pulseSpeed)
+{
+    g_HeartR.store(r, std::memory_order_relaxed);
+    g_HeartG.store(g, std::memory_order_relaxed);
+    g_HeartB.store(b, std::memory_order_relaxed);
+    g_HeartPulse.store(pulseSpeed, std::memory_order_relaxed);
+    g_HeartEnabled.store(true, std::memory_order_relaxed);
+
+    if (g_LoggingEnabled.load(std::memory_order_relaxed))
+    {
+        Log("[EyeLamp] SetHeartLightColor:  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f\n",
+            r, g, b, pulseSpeed);
+    }
+}
+
+
+void Clear_HeartLightColor()
+{
+    g_HeartEnabled.store(false, std::memory_order_relaxed);
+
+    if (g_LoggingEnabled.load(std::memory_order_relaxed))
+    {
+        Log("[EyeLamp] ClearHeartLightColor: HP-driven heart color resumed\n");
     }
 }
 
@@ -304,6 +428,19 @@ bool Install_SetEyeLampColor_Hook()
         }
     }
 
+    if (gAddr.Sahelan_ActionCoreImpl_UpdateHeartLight)
+    {
+        if (void* t = ResolveGameAddress(gAddr.Sahelan_ActionCoreImpl_UpdateHeartLight))
+        {
+            if (CreateAndEnableHook(t,
+                    reinterpret_cast<void*>(&hk_UpdateHeartLight),
+                    reinterpret_cast<void**>(&g_OrigUpdateHeartLight)))
+            {
+                g_HeartHookTarget = t;
+            }
+        }
+    }
+
     return g_UpdateHookTarget != nullptr;
 }
 
@@ -322,10 +459,17 @@ bool Uninstall_SetEyeLampColor_Hook()
         g_PushHookTarget = nullptr;
         g_OrigPushEyeColor = nullptr;
     }
+    if (g_HeartHookTarget)
+    {
+        DisableAndRemoveHook(g_HeartHookTarget);
+        g_HeartHookTarget = nullptr;
+        g_OrigUpdateHeartLight = nullptr;
+    }
     for (int i = 0; i < kMaxModes; ++i)
         g_PerModeEnabled[i].store(false, std::memory_order_relaxed);
     g_LastMode.store(-1, std::memory_order_relaxed);
     g_DiscoEnabled.store(false, std::memory_order_relaxed);
+    g_HeartEnabled.store(false, std::memory_order_relaxed);
     g_LoggingEnabled.store(false, std::memory_order_relaxed);
     return true;
 }

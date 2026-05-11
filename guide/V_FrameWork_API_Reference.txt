@@ -513,14 +513,16 @@ MODULE: V_TppSahelan
                            Values between lerp (0.5 = half-speed pulse).
                            Out-of-range values are clamped.
       mode         number  Engine AI state value (typically 0..5; valid
-                           range 0..15). Discover live modes via
-                           SetEyeLampColorLogging.
+                           range 0..15). Optional — omit / nil to apply
+                           the color to ALL modes at once.
 
     NOTES:
-      - One mode at a time. Modes you don't set fall through to the
-        engine's natural color for that state.
+      - Modes you don't set fall through to the engine's natural color
+        for that state.
 
     EXAMPLE:
+      -- Steady green for every mode (no `mode` arg):
+      V_TppSahelan.SetEyeLampColor(0, 1, 0, 1)
       -- Steady green during combat (state 5):
       V_TppSahelan.SetEyeLampColor(0, 1, 0, 1, 5)
       -- Normal-speed red pulse during alert (state 2):
@@ -553,11 +555,34 @@ MODULE: V_TppSahelan
       V_TppSahelan.SetEyeLampDisco(false)        -- party over
 
   --------------------------------------------------------------------------
+  SetHeartLightColor(r, g, b, pulseSpeed)
+  --------------------------------------------------------------------------
+
+    Override the chest "heart" light color. The engine's natural color is
+    driven by Sahelanthropus' HP ratio (greenish when high, red when low);
+    this forces a fixed color regardless. Single color, no per-mode.
+
+    PARAMETERS:
+      r, g, b      number  Color components in 0..1.
+      pulseSpeed   number  Same convention as SetEyeLampColor.
+                           1 = steady, 0 = normal pulse (1 Hz).
+
+    EXAMPLE:
+      V_TppSahelan.SetHeartLightColor(0, 1, 0, 1)    -- steady green heart
+      V_TppSahelan.SetHeartLightColor(0, 0, 1, 0)    -- 1 Hz pulsing blue
+
+  --------------------------------------------------------------------------
+  ClearHeartLightColor()
+  --------------------------------------------------------------------------
+
+    Resume the engine's natural HP-driven heart color.
+
+  --------------------------------------------------------------------------
   SetEyeLampColorLogging(enabled)
   --------------------------------------------------------------------------
 
-    Logs Set/Clear/Disco calls and engine mode transitions. One line per
-    event, no per-frame spam. Off by default; leave off in normal play.
+    Logs Set/Clear/Disco/Heart calls and engine mode transitions. One line
+    per event, no per-frame spam. Off by default; leave off in normal play.
 
 
 ================================================================================
@@ -813,7 +838,8 @@ RAW API: V_FrameWork.*
     SetSahelanFova(fv2Path)                         -> bool
     ClearSahelanFova()                              -> nothing
     SetEyeLampColor(r, g, b, pulseSpeed, mode)      -> nothing
-        Per-AI-mode override (mode 0..15).
+        Per-AI-mode override. mode 0..15 = single mode; mode = -1 (or
+        wrapper called with mode omitted) = apply to ALL modes.
         pulseSpeed: 1 = steady, 0 = normal pulse (1 Hz); lerp in between.
     ClearEyeLampColor()                             -> nothing
     SetEyeLampDisco(enabled, speed)                 -> nothing

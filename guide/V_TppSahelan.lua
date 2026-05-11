@@ -15,14 +15,11 @@ function this.SetSahelanFova(fv2Path)
     V_FrameWork.Log("V_Sahelan.SetSahelanFova: Setting Sahelan Fova to " .. fv2Path)
     V_FrameWork.SetSahelanFova(fv2Path)
 end
+function this.ClearSahelanFova()
+    V_FrameWork.Log("V_Sahelan.ClearSahelanFova: Clearing Sahelan Fova override.")
+    V_FrameWork.ClearSahelanFova()
+end
 
--- Override the eye-lamp color for a specific AI mode (Sahelanthropus).
---   r, g, b      : color in 0..1 floats
---   pulseSpeed   : 1 = steady (no pulsing), 0 = normal speed pulse (1 Hz).
---                  Values in between lerp (e.g. 0.5 = half-speed pulse).
---                  Out-of-range values are clamped.
---   mode         : engine AI state (typically 0..5; visible in
---                  [EyeLamp] mode=... log lines when logging is on)
 function this.SetEyeLampColor(r, g, b, pulseSpeed, mode)
     if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
         V_FrameWork.Log("V_Sahelan.SetEyeLampColor: r, g, b must be numbers.")
@@ -32,8 +29,11 @@ function this.SetEyeLampColor(r, g, b, pulseSpeed, mode)
         V_FrameWork.Log("V_Sahelan.SetEyeLampColor: pulseSpeed must be a number.")
         return
     end
-    if type(mode) ~= "number" then
-        V_FrameWork.Log("V_Sahelan.SetEyeLampColor: mode must be a number.")
+    -- mode is optional — omit / nil to apply to every AI mode.
+    if mode == nil then
+        mode = -1
+    elseif type(mode) ~= "number" then
+        V_FrameWork.Log("V_Sahelan.SetEyeLampColor: mode must be a number or nil.")
         return
     end
     V_FrameWork.SetEyeLampColor(r, g, b, pulseSpeed, mode)
@@ -43,12 +43,6 @@ function this.ClearEyeLampColor()
     V_FrameWork.ClearEyeLampColor()
 end
 
--- Disco mode! Eye lamps cycle through the full rainbow continuously,
--- overriding any per-mode color you've set. Pure mood.
---   enabled : boolean — turn the party on / off
---   speed   : (optional) hue cycles per second. Default 2.0 — one full
---             rainbow lap every half-second. Try 0.5 for chill, 6 for
---             seizure mode.
 function this.SetEyeLampDisco(enabled, speed)
     if type(enabled) ~= "boolean" then
         V_FrameWork.Log("V_Sahelan.SetEyeLampDisco: enabled must be a boolean.")
@@ -62,6 +56,23 @@ function this.SetEyeLampDisco(enabled, speed)
     V_FrameWork.SetEyeLampDisco(enabled, speed)
 end
 
+function this.SetHeartLightColor(r, g, b, pulseSpeed)
+    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+        V_FrameWork.Log("V_Sahelan.SetHeartLightColor: r, g, b must be numbers.")
+        return
+    end
+    if pulseSpeed == nil then pulseSpeed = 1.0 end
+    if type(pulseSpeed) ~= "number" then
+        V_FrameWork.Log("V_Sahelan.SetHeartLightColor: pulseSpeed must be a number or nil.")
+        return
+    end
+    V_FrameWork.SetHeartLightColor(r, g, b, pulseSpeed)
+end
+
+function this.ClearHeartLightColor()
+    V_FrameWork.ClearHeartLightColor()
+end
+
 function this.SetEyeLampColorLogging(enabled)
     if type(enabled) ~= "boolean" then
         V_FrameWork.Log("V_Sahelan.SetEyeLampColorLogging: enabled must be a boolean.")
@@ -69,7 +80,5 @@ function this.SetEyeLampColorLogging(enabled)
     end
     V_FrameWork.SetEyeLampColorLogging(enabled)
 end
-
-V_FrameWork.ClearSahelanFova()
 
 return this

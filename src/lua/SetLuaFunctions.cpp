@@ -1563,6 +1563,27 @@ static int __cdecl l_SetEyeLampDisco(lua_State* L)
 }
 
 
+// Heart light (Sahelanthropus' chest glow) — single color override.
+// Lua signature: (r, g, b, pulseSpeed).
+static int __cdecl l_SetHeartLightColor(lua_State* L)
+{
+    const float r          = GetLuaNumber(L, 1);
+    const float g          = GetLuaNumber(L, 2);
+    const float b          = GetLuaNumber(L, 3);
+    const float pulseSpeed = GetLuaNumber(L, 4);
+    ::Set_HeartLightColor(r, g, b, pulseSpeed);
+    return 0;
+}
+
+
+static int __cdecl l_ClearHeartLightColor(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    ::Clear_HeartLightColor();
+    return 0;
+}
+
+
 static std::int32_t ResolveSecurityCameraVariant(lua_State* L, int idx)
 {
 
@@ -1945,6 +1966,8 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEyeLampColor",                        l_SetEyeLampColor },
     { "ClearEyeLampColor",                      l_ClearEyeLampColor },
     { "SetEyeLampDisco",                        l_SetEyeLampDisco },
+    { "SetHeartLightColor",                     l_SetHeartLightColor },
+    { "ClearHeartLightColor",                   l_ClearHeartLightColor },
     { "SetEyeLampColorLogging",                 l_SetEyeLampColorLogging },
 
 

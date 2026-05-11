@@ -24,6 +24,14 @@ void Clear_EyeLampColor();
 void Set_EyeLampDisco(bool enabled, float speed);
 
 
+// Heart light (Sahelanthropus' chest glow). Single color, no per-mode —
+// the engine's natural color is driven by the boss's HP ratio. Overriding
+// forces this color regardless of HP.
+//   pulseSpeed: 1 = steady, 0 = normal pulse (1 Hz); lerp in between.
+void Set_HeartLightColor(float r, float g, float b, float pulseSpeed);
+void Clear_HeartLightColor();
+
+
 // Toggle hot-path logging of every SetEyeLampColor call.
 void Set_EyeLampColorLogging(bool enabled);
 bool Is_EyeLampColorLogging();
