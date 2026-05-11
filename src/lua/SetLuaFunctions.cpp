@@ -36,13 +36,15 @@ extern "C" {
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
 #include "SoldierRtpcHook.h"
+#include "SoldierVoiceTypeQuery.h"
+#include "SoldierObjectRtpc.h"
+#include "../hooks/sound/VoicePitchOverride.h"
 #include "V_FrameWorkModLoader.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
-#include "../hooks/hud/HudPopup.h"
 
 
 namespace
@@ -388,6 +390,24 @@ static void PushLuaNumber(lua_State* L, float value)
         return;
 
     g_lua_pushnumber(L, static_cast<lua_Number>(value));
+}
+
+
+static void PushLuaString(lua_State* L, const char* s)
+{
+    if (!ResolveLuaApi() || !g_lua_pushstring)
+        return;
+
+    g_lua_pushstring(L, const_cast<char*>(s ? s : ""));
+}
+
+
+static void PushLuaNil(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_pushnil)
+        return;
+
+    g_lua_pushnil(L);
 }
 
 
@@ -879,6 +899,162 @@ static int __cdecl l_SetGlobalRtpcById(lua_State* L)
 
     const int result = SoldierRtpc::SetGlobalRtpcById(rtpcId, value, timeMs);
     PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+
+// Direct passthrough — caller knows the Wwise AkObjectID.
+static int __cdecl l_SetRtpcByAkObjId(lua_State* L)
+{
+    const std::uint64_t akObjId  = GetLuaInt64(L, 1);
+    const char*         rtpcName = GetLuaString(L, 2);
+    const float         value    = GetLuaNumber(L, 3);
+    const long          timeMs   = static_cast<long>(GetLuaInt(L, 4));
+
+    const int result = SoldierRtpc::SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+
+// Direct passthrough by precomputed RTPC id.
+static int __cdecl l_SetRtpcByAkObjIdById(lua_State* L)
+{
+    const std::uint64_t akObjId = GetLuaInt64(L, 1);
+    const std::uint32_t rtpcId  = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
+    const float         value   = GetLuaNumber(L, 3);
+    const long          timeMs  = static_cast<long>(GetLuaInt(L, 4));
+
+    const int result = SoldierRtpc::SetRtpcByAkObjIdById(akObjId, rtpcId, value, timeMs);
+    PushLuaNumber(L, static_cast<float>(result));
+    return 1;
+}
+
+
+// Toggle the AK::SoundEngine::SetRTPCValue logging hook.
+static int __cdecl l_SetRtpcLoggingEnabled(lua_State* L)
+{
+    const bool enabled = GetLuaBool(L, 1);
+    const bool prev    = SoldierRtpc::SetRtpcLoggingEnabled(enabled);
+    PushLuaBool(L, prev);
+    return 1;
+}
+
+
+static int __cdecl l_IsRtpcLoggingEnabled(lua_State* L)
+{
+    PushLuaBool(L, SoldierRtpc::IsRtpcLoggingEnabled());
+    return 1;
+}
+
+
+// Per-soldier RTPC via the SoundController chain. rtpcId pre-hashed.
+static int __cdecl l_SetSoldierObjectRtpc(lua_State* L)
+{
+    const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
+    const float         value  = GetLuaNumber(L, 3);
+    const long          timeMs = static_cast<long>(GetLuaInt(L, 4));
+    const bool ok = ::Set_SoldierObjectRtpc(goId, rtpcId, value, timeMs);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// Per-soldier RTPC by name (DLL hashes via fox::sd::ConvertParameterID).
+static int __cdecl l_SetSoldierObjectRtpcByName(lua_State* L)
+{
+    const std::uint32_t goId     = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const char*         rtpcName = GetLuaString(L, 2);
+    const float         value    = GetLuaNumber(L, 3);
+    const long          timeMs   = static_cast<long>(GetLuaInt(L, 4));
+    const bool ok = ::Set_SoldierObjectRtpcByName(goId, rtpcName, value, timeMs);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+// PHASE 0 — global pitch bias on every CAkResampler::SetPitch call.
+// Affects ALL audio (voice, sfx, bgm). Use to verify the mechanism works.
+static int __cdecl l_SetGlobalVoicePitch(lua_State* L)
+{
+    const float cents = GetLuaNumber(L, 1);
+    ::Set_GlobalVoicePitchBiasCents(cents);
+    return 0;
+}
+
+
+static int __cdecl l_GetGlobalVoicePitch(lua_State* L)
+{
+    PushLuaNumber(L, ::Get_GlobalVoicePitchBiasCents());
+    return 1;
+}
+
+
+static int __cdecl l_SetVoicePitchHookLogging(lua_State* L)
+{
+    const bool enabled = GetLuaBool(L, 1);
+    ::Set_PitchHookLoggingEnabled(enabled);
+    return 0;
+}
+
+
+// PHASE 1 — per-AkObjId pitch bias.
+static int __cdecl l_SetPitchByAkObjId(lua_State* L)
+{
+    const std::uint64_t akObjId = GetLuaInt64(L, 1);
+    const float         cents   = GetLuaNumber(L, 2);
+    ::Set_PitchBiasForAkObjId(akObjId, cents);
+    return 0;
+}
+
+
+static int __cdecl l_ClearPitchByAkObjId(lua_State* L)
+{
+    const std::uint64_t akObjId = GetLuaInt64(L, 1);
+    ::Clear_PitchBiasForAkObjId(akObjId);
+    return 0;
+}
+
+
+static int __cdecl l_ClearAllPerAkObjIdPitchBiases(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    ::Clear_AllPerAkObjIdPitchBiases();
+    return 0;
+}
+
+
+// Toggle chain logging — resolves akObjId for each SetPitch call so you can
+// correlate it with [AK] log output before applying per-akObjId bias.
+static int __cdecl l_SetVoicePitchChainLogging(lua_State* L)
+{
+    const bool enabled = GetLuaBool(L, 1);
+    ::Set_PitchChainLoggingEnabled(enabled);
+    return 0;
+}
+
+
+// Translate a soldier gameObjectId to its Wwise AkGameObjectID.
+// Returns 0 if soldier not yet voice-resolved or chain failed.
+static int __cdecl l_GetSoldierAkObjId(lua_State* L)
+{
+    const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const std::uint32_t akObjId = ::Get_SoldierAkObjId(goId);
+    PushLuaNumber(L, static_cast<float>(akObjId));
+    return 1;
+}
+
+
+// Set per-soldier voice pitch — applies immediately if resolvable, else
+// queues the request and applies on the next voice-type resolution.
+// Returns true if applied immediately, false if queued.
+static int __cdecl l_SetSoldierVoicePitch(lua_State* L)
+{
+    const std::uint32_t goId  = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const float         cents = GetLuaNumber(L, 2);
+    const bool ok = ::Set_SoldierVoicePitch(goId, cents);
+    PushLuaBool(L, ok);
     return 1;
 }
 
@@ -1658,59 +1834,6 @@ static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
 }
 
 
-// HUD popup with title label + literal body text.
-static int __cdecl l_ShowHudPopup(lua_State* L)
-{
-    const char* titleLabel = GetLuaString(L, 1);
-    const char* body       = GetLuaString(L, 2);
-    if (!titleLabel) titleLabel = "";
-    if (!body)       body       = "";
-
-    std::uint32_t popupType = 1;
-    const int t = GetLuaInt(L, 3);
-    if (t > 0) popupType = static_cast<std::uint32_t>(t);
-
-    const bool ok = Show_HudPopup(titleLabel, body, popupType);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-// HUD popup with title + body both as LangId labels.
-static int __cdecl l_ShowHudPopupLangId(lua_State* L)
-{
-    const char* titleLabel = GetLuaString(L, 1);
-    const char* bodyLabel  = GetLuaString(L, 2);
-    if (!titleLabel) titleLabel = "";
-    if (!bodyLabel)  bodyLabel  = "";
-
-    std::uint32_t popupType = 1;
-    const int t = GetLuaInt(L, 3);
-    if (t > 0) popupType = static_cast<std::uint32_t>(t);
-
-    const bool ok = Show_HudPopupLangId(titleLabel, bodyLabel, popupType);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-// HUD error popup with numeric error code + popup type.
-static int __cdecl l_ShowHudErrorPopup(lua_State* L)
-{
-    std::uint32_t errorParam = 0;
-    const int e = GetLuaInt(L, 1);
-    if (e > 0) errorParam = static_cast<std::uint32_t>(e);
-
-    std::uint32_t popupType = 1;
-    const int t = GetLuaInt(L, 2);
-    if (t > 0) popupType = static_cast<std::uint32_t>(t);
-
-    const bool ok = Show_HudErrorPopup(errorParam, popupType);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
 
 
 static luaL_Reg g_VFrameWorkLib[] =
@@ -1741,6 +1864,23 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetGlobalRtpc",                          l_SetGlobalRtpc },
     { "SetSoldierRtpcById",                     l_SetSoldierRtpcById },
     { "SetGlobalRtpcById",                      l_SetGlobalRtpcById },
+    { "SetRtpcByAkObjId",                       l_SetRtpcByAkObjId },
+    { "SetRtpcByAkObjIdById",                   l_SetRtpcByAkObjIdById },
+    { "SetRtpcLoggingEnabled",                  l_SetRtpcLoggingEnabled },
+    { "IsRtpcLoggingEnabled",                   l_IsRtpcLoggingEnabled },
+
+    { "SetSoldierObjectRtpc",                   l_SetSoldierObjectRtpc },
+    { "SetSoldierObjectRtpcByName",             l_SetSoldierObjectRtpcByName },
+
+    { "SetGlobalVoicePitch",                    l_SetGlobalVoicePitch },
+    { "GetGlobalVoicePitch",                    l_GetGlobalVoicePitch },
+    { "SetVoicePitchHookLogging",               l_SetVoicePitchHookLogging },
+    { "SetPitchByAkObjId",                      l_SetPitchByAkObjId },
+    { "ClearPitchByAkObjId",                    l_ClearPitchByAkObjId },
+    { "ClearAllPerAkObjIdPitchBiases",          l_ClearAllPerAkObjIdPitchBiases },
+    { "SetVoicePitchChainLogging",              l_SetVoicePitchChainLogging },
+    { "GetSoldierAkObjId",                      l_GetSoldierAkObjId },
+    { "SetSoldierVoicePitch",                   l_SetSoldierVoicePitch },
     { "SetVIPImportant",                        l_SetVIPImportant },
     { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
     { "RemoveVIPImportant",                     l_RemoveVIPImportant },
@@ -1792,13 +1932,10 @@ static luaL_Reg g_VFrameWorkLib[] =
 
 
     { "ShowMbDvcAnnouncePopupReport",           l_ShowMbDvcAnnouncePopupReport },
-    { "ShowMbDvcAnnouncePopupReportLangId",           l_ShowMbDvcAnnouncePopupReportLangId },
+    { "ShowMbDvcAnnouncePopupReportLangId",     l_ShowMbDvcAnnouncePopupReportLangId },
     { "ShowMbDvcAnnouncePopupReward",           l_ShowMbDvcAnnouncePopupReward },
     { "ShowMbDvcAnnouncePopupRewardLangId",     l_ShowMbDvcAnnouncePopupRewardLangId },
 
-    { "ShowHudPopup",                           l_ShowHudPopup },
-    { "ShowHudPopupLangId",                     l_ShowHudPopupLangId },
-    { "ShowHudErrorPopup",                      l_ShowHudErrorPopup },
 
     { nullptr, nullptr }
 };

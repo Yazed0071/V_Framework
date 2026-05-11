@@ -105,6 +105,15 @@ namespace AddressSetRuntime
         uintptr_t AK_SoundEngine_SetRTPCValue = 0;
         uintptr_t Fox_Sd_ConvertParameterID = 0;
 
+        uintptr_t Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject = 0;
+        uintptr_t Fox_Sd_Object_Activate = 0;
+        uintptr_t Fox_Sd_Daemon_GetObject = 0;
+        uintptr_t Fox_Sd_Daemon_Singleton = 0;
+        // tpp::gm::impl::SoundControllerImpl::CallInternal
+        // Signature: void(this, voiceRequest*, uint soundSlot).
+        // soundSlot is the controller's per-controller slot index — not a goId.
+        uintptr_t SoundControllerImpl_CallInternal = 0;
+
 
         uintptr_t TornadoDualPatch                  = 0;
 
@@ -128,6 +137,22 @@ namespace AddressSetRuntime
         uintptr_t HudCommonDataManager_SetPopupText      = 0;
         uintptr_t HudCommonDataManager_SetPopupErrorType = 0;
         uintptr_t HudCommonDataManager_StartPopup        = 0;
+
+        // Soldier2SoundControllerImpl::GetVoiceTypeFromSoldierTypeImpl
+        // (this_adjusted, slot, _, currentVoiceType[, isFlag]) — returns the
+        // faction-aware ene_a/b/c/d FNV-1 (0x570C8E21..24) variant.
+        uintptr_t Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl = 0;
+
+        // Soldier2SoundControllerImpl::Activate(this, uint slot, int soundIndex).
+        // Called per-soldier when their audio component spawns (mission load).
+        // Provides a (slot, controller) pair without needing the soldier to
+        // make audible noise.
+        uintptr_t Soldier2SoundController_Activate = 0;
+
+        // CAkResampler::SetPitch (this, float cents) — Wwise's runtime
+        // pitch/SR setter. Clamped to ±2400 cents internally. Called per
+        // active voice-pipeline node every audio buffer.
+        uintptr_t CAkResampler_SetPitch = 0;
 
 
         uintptr_t FNVHash32                         = 0;
@@ -248,6 +273,11 @@ namespace AddressSetRuntime
             0x145CCFCC0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
             0x14032ADF0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
+            0x143F42540ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject
+            0x14032B040ull,         // Fox_Sd_Object_Activate 
+            0x140329C80ull,         // Fox_Sd_Daemon_GetObject 
+            0x142B9E8B0ull,         // Fox_Sd_Daemon_Singleton
+            0x1468EDD50ull,         // SoundControllerImpl_CallInternal 
 
 
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
@@ -262,13 +292,17 @@ namespace AddressSetRuntime
 
 
             0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (state machine for iDroid slot-0/slot-1 popups; hooked to override default lang-text with V_FrameWork custom title/body when ReserveParam.commonValue1 == 0x56465043 magic)
-            0x140EF32A0ull,         // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer (TODO: fill EN — handles slot 2/3/4/7/8 server popups)
+            0x140EF32A0ull,         // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
 
-            0x145C0A890ull,         // HudCommonDataManager_GetInstance       
-            0x1408679B0ull,         // HudCommonDataManager_SetPopupType      
-            0x1408678D0ull,         // HudCommonDataManager_SetPopupText      
-            0x140867570ull,         // HudCommonDataManager_SetPopupErrorType 
-            0x147732010ull,         // HudCommonDataManager_StartPopup        
+            0x145C0A890ull,         // HudCommonDataManager_GetInstance
+            0x1408679B0ull,         // HudCommonDataManager_SetPopupType
+            0x1408678D0ull,         // HudCommonDataManager_SetPopupText
+            0x140867570ull,         // HudCommonDataManager_SetPopupErrorType
+            0x147732010ull,         // HudCommonDataManager_StartPopup
+
+            0x14158C290ull,                 // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
+            0x14158B4f0ull,                         // Soldier2SoundController_Activate
+            0x1441DBB80ull,                         // CAkResampler_SetPitch
 
 
             0x143F33A20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
@@ -380,9 +414,14 @@ namespace AddressSetRuntime
             0x1477EC6F0ull, // LoadingTipsEv_UpdateActPhase
             0x14033CFC0ull, // AK_SoundEngine_SetRTPCValue
             0x14032A870ull, // Fox_Sd_ConvertParameterID
+            0x143F7BCA0ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject (JP)
+            0x14032AAC0ull, // Fox_Sd_Object_Activate (JP)
+            0x140329710ull, // Fox_Sd_Daemon_GetObject (JP)
+            0x142B9E8B0ull, // Fox_Sd_Daemon_Singleton (JP)
+            0x1484D84E0ull, // SoundControllerImpl_CallInternal (JP)
 
 
-            0x14A6C34B4ull, // TornadoDualPatch 
+            0x14A6C34B4ull, // TornadoDualPatch
 
 
             0x148655E70ull, // RealizedSahelan2Impl_Realize 
@@ -396,11 +435,15 @@ namespace AddressSetRuntime
             0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (verified against JP build mgsvtpp_1_0_15_3_jp; case-8 of Update dispatches FUN_140ef3050 which contains the slot-0/slot-1 lang-text hashes 0xdf1b1fd6f40a / 0x2e2fb8df282b)
             0x140EF3410ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer (verified JP; case-7 of Update dispatches FUN_140ef3410, handles slot 2/3/4/7/8)
 
-            0x147719930ull, // HudCommonDataManager_GetInstance       (JP; singleton)
-            0x140867630ull, // HudCommonDataManager_SetPopupType      (JP; (this, popupType, stringIdHash, isError))
-            0x140867550ull, // HudCommonDataManager_SetPopupText      (JP; (this, char* text) — direct body text)
-            0x1408671F0ull, // HudCommonDataManager_SetPopupErrorType (JP; (this, popupType, errorCode, isError))
-            0x147732010ull, // HudCommonDataManager_StartPopup        (JP; thunk, kicks the menu terminal)
+            0x147719930ull, // HudCommonDataManager_GetInstance
+            0x140867630ull, // HudCommonDataManager_SetPopupType
+            0x140867550ull, // HudCommonDataManager_SetPopupText
+            0x1408671F0ull, // HudCommonDataManager_SetPopupErrorType
+            0x147732010ull, // HudCommonDataManager_StartPopup
+
+            0x14158C270ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl (FUN_14158c270; case 0x570c8e21..24 dispatch verified at JP line 2393122)
+            0x14158B4F0ull, // Soldier2SoundController_Activate (FUN_14158b4f0; per-soldier audio component activation, fires at mission load)
+            0x14418D980ull, // CAkResampler_SetPitch (Wwise runtime pitch/SR setter; clamps ±2400 cents)
 
 
             0x143F6EE50ull, // FNVHash32

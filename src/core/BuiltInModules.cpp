@@ -75,6 +75,14 @@ bool Uninstall_EquipIconFtexPath_Hook();
 bool Install_MbDvcCustomPopup_Hook();
 bool Uninstall_MbDvcCustomPopup_Hook();
 
+bool Install_SoldierVoiceTypeQuery_Hook();
+bool Uninstall_SoldierVoiceTypeQuery_Hook();
+
+bool Install_VoicePitchOverride_Hook();
+bool Uninstall_VoicePitchOverride_Hook();
+
+namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
+
 
 namespace
 {
@@ -515,6 +523,66 @@ namespace
         }
     };
 
+    class SoldierVoiceTypeQueryModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SoldierVoiceTypeQuery";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoldierVoiceTypeQuery_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoldierVoiceTypeQuery_Hook();
+        }
+    };
+
+    class VoicePitchOverrideModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "VoicePitchOverride";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_VoicePitchOverride_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_VoicePitchOverride_Hook();
+        }
+    };
+
+    class SoldierAkObjIdMapModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SoldierAkObjIdMap";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return ::SoldierAkObjIdMap::Install();
+        }
+
+        void Uninstall() override
+        {
+            ::SoldierAkObjIdMap::Uninstall();
+        }
+    };
+
 }
 
 void RegisterBuiltInFeatureModules()
@@ -541,6 +609,9 @@ void RegisterBuiltInFeatureModules()
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
     static MbDvcCustomPopupModule s_MbDvcCustomPopupModule;
+    static SoldierVoiceTypeQueryModule s_SoldierVoiceTypeQueryModule;
+    static VoicePitchOverrideModule s_VoicePitchOverrideModule;
+    static SoldierAkObjIdMapModule s_SoldierAkObjIdMapModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -567,5 +638,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
             FeatureModuleRegistry::Instance().Register(&s_MbDvcCustomPopupModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierAkObjIdMapModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierVoiceTypeQueryModule);
+            FeatureModuleRegistry::Instance().Register(&s_VoicePitchOverrideModule);
         });
 }

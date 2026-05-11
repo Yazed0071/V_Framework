@@ -198,56 +198,6 @@ function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
     return V_FrameWork.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
 end
 
--- HUD popup with title LABEL + LITERAL body text.
--- titleLabel : LangId label (DLL hashes via Fox StrCode64).
--- body       : literal body text (passed straight to SetPopupText).
--- popupType  : optional 1..6 (TppUiCommand.Popup.TYPE_*), default 1.
-function this.ShowHudPopup(titleLabel, body, popupType)
-    if not IsTypeString(titleLabel) then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopup: titleLabel is not a string.")
-        return
-    end
-    if not IsTypeString(body) then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopup: body is not a string.")
-        return
-    end
-    if popupType ~= nil and type(popupType) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopup: popupType is not a number.")
-        return
-    end
-    return V_FrameWork.ShowHudPopup(titleLabel or "", body or "", popupType or 1)
-end
-
--- HUD popup with both title and body as LangId labels.
-function this.ShowHudPopupLangId(titleLabel, bodyLabel, popupType)
-    if not IsTypeString(titleLabel) then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopupLangId: titleLabel is not a string.")
-        return
-    end
-    if not IsTypeString(bodyLabel) then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopupLangId: bodyLabel is not a string.")
-        return
-    end
-    if popupType ~= nil and type(popupType) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudPopupLangId: popupType is not a number.")
-        return
-    end
-    return V_FrameWork.ShowHudPopupLangId(titleLabel or "", bodyLabel or "", popupType or 1)
-end
-
--- HUD error popup with a NUMERIC error code.
-function this.ShowHudErrorPopup(errorParam, popupType)
-    if type(errorParam) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudErrorPopup: errorParam is not a number.")
-        return
-    end
-    if popupType ~= nil and type(popupType) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.ShowHudErrorPopup: popupType is not a number.")
-        return
-    end
-    return V_FrameWork.ShowHudErrorPopup(errorParam, popupType or 1)
-end
-
 function this.Messages()
 	return
 	Tpp.StrCode32Table {

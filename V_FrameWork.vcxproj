@@ -173,6 +173,9 @@
     <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h" />
     <ClInclude Include="src\hooks\soldier\VIPSoundRecoveryHook.h" />
     <ClInclude Include="src\hooks\soldier\SoldierRtpcHook.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierVoiceTypeQuery.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierObjectRtpc.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierAkObjIdMap.h" />
     <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <!-- Hooks: Player -->
@@ -183,6 +186,7 @@
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
+    <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
     <!-- Hooks: UI -->
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
@@ -194,7 +198,6 @@
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <!-- Hooks: MenuPopup -->
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
-    <ClInclude Include="src\hooks\hud\HudPopup.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core -->
@@ -226,6 +229,9 @@
     <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPSoundRecoveryHook.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierRtpcHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierVoiceTypeQuery.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierObjectRtpc.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierAkObjIdMap.cpp" />
     <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <!-- Hooks: Player -->
@@ -236,6 +242,7 @@
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
+    <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />
     <!-- Hooks: UI -->
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
@@ -247,7 +254,6 @@
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <!-- Hooks: MenuPopup -->
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
-    <ClCompile Include="src\hooks\hud\HudPopup.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />
