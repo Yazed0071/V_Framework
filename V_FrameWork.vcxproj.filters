@@ -90,6 +90,7 @@
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
+    <ClInclude Include="src\hooks\sahelan\SetEyeLampColorHook.h" />
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
   </ItemGroup>
@@ -155,6 +156,7 @@
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
+    <ClCompile Include="src\hooks\sahelan\SetEyeLampColorHook.cpp" />
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
   </ItemGroup>

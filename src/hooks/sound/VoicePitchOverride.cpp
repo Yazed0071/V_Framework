@@ -35,10 +35,6 @@ namespace
     static SetPitch_t        g_OrigSetPitch       = nullptr;
     static void*             g_HookTarget         = nullptr;
     static std::atomic<float> g_PitchBiasCents   { 0.0f };
-    static std::atomic<bool>  g_LoggingEnabled   { false };
-    static std::atomic<bool>  g_ChainLoggingEnabled{ false };
-    // Throttled log counter so we don't spam.
-    static std::atomic<std::uint64_t> g_LogTickCounter{ 0 };
 
     // Per-AkObjId pitch bias map.
     static std::unordered_map<std::uint64_t, float> g_BiasByAkObjId;
@@ -115,31 +111,22 @@ namespace
         const float globalBias = g_PitchBiasCents.load(std::memory_order_relaxed);
         const bool  haveAnyPerObj =
             g_HavePerAkObjIdBias.load(std::memory_order_relaxed);
-        const bool  needChain     =
-            haveAnyPerObj || g_ChainLoggingEnabled.load(std::memory_order_relaxed);
 
         std::uint64_t akObjId = 0;
-        if (needChain && self)
+        if (haveAnyPerObj && self)
             akObjId = ResolveAkObjIdFromResampler(self);
 
         // Per-AkObjId bias overrides global when present.
         float bias = globalBias;
-        bool  perObjHit = false;
         if (haveAnyPerObj && akObjId)
         {
             const float perObjBias = LookupBiasForAkObjId(akObjId);
             if (perObjBias != 0.0f)
-            {
                 bias = perObjBias;
-                perObjHit = true;
-            }
         }
 
-        const float adjusted = pitchCents + bias;
-        (void)perObjHit;
-
         if (g_OrigSetPitch)
-            g_OrigSetPitch(self, adjusted);
+            g_OrigSetPitch(self, pitchCents + bias);
     }
 }
 
@@ -185,30 +172,6 @@ void Clear_AllPerAkObjIdPitchBiases()
 }
 
 
-void Set_PitchHookLoggingEnabled(bool enabled)
-{
-    g_LoggingEnabled.store(enabled, std::memory_order_relaxed);
-}
-
-
-bool Is_PitchHookLoggingEnabled()
-{
-    return g_LoggingEnabled.load(std::memory_order_relaxed);
-}
-
-
-void Set_PitchChainLoggingEnabled(bool enabled)
-{
-    g_ChainLoggingEnabled.store(enabled, std::memory_order_relaxed);
-}
-
-
-bool Is_PitchChainLoggingEnabled()
-{
-    return g_ChainLoggingEnabled.load(std::memory_order_relaxed);
-}
-
-
 bool Install_VoicePitchOverride_Hook()
 {
     const auto addr = gAddr.CAkResampler_SetPitch;
@@ -236,8 +199,6 @@ bool Uninstall_VoicePitchOverride_Hook()
         g_OrigSetPitch = nullptr;
     }
     g_PitchBiasCents.store(0.0f, std::memory_order_relaxed);
-    g_LoggingEnabled.store(false, std::memory_order_relaxed);
-    g_ChainLoggingEnabled.store(false, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(g_BiasMapMutex);
         g_BiasByAkObjId.clear();

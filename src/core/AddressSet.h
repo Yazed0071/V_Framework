@@ -122,6 +122,49 @@ namespace AddressSetRuntime
         uintptr_t RealizedSahelan2Impl_SetFovaImpl  = 0;
         uintptr_t FormVariationFile2_ApplyOnlyMeshAndTextureVariation = 0;
 
+        // tpp::gm::sahelan::impl::ActionCoreImpl::SetEyeLampColor
+        // Signature: void(this, ulonglong idx, float color[4]).
+        // idx is normalized via (idx - *(this+0x20)) into a per-lamp slot
+        // at *(this+0x10) + slot*0x60 + 0x20.
+        uintptr_t Sahelan_ActionCoreImpl_SetEyeLampColor = 0;
+
+        // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateEyeLampColor
+        // Signature: void(this, int slot).
+        // Per-frame updater — reads the lamp color from a *separate* storage
+        // at *(this+0x48) + (slot - *(this+0x58)) * 0x60 + 0x20 and pushes
+        // it to the renderer via vt+0xb0 on *(this+0xa0). Hooking this and
+        // overwriting the storage before orig is the rail that actually
+        // paints the visible lamp.
+        uintptr_t Sahelan_ActionCoreImpl_UpdateEyeLampColor = 0;
+
+        // tpp::gm::sahelan::impl::PhaseSneakAiImpl color-preset selector
+        // (the function that calls vtable+0x38 on the eye-effect material
+        // plugin with the chosen RGBA from the table). Signature:
+        // void(longlong this, uint slot, int mode).
+        uintptr_t Sahelan_PhaseSneakAi_PushEyeColor = 0;
+
+        // Address of 2 consecutive 64-bit FNV hashes naming the eye-lamp
+        // mesh materials. FUN_14b84dec0 calls
+        // QuarkSystemTable->plVar2->vt[+0x30](buf, hash, flag) twice with
+        // these — once per eye. Filtering by these in our vt[+0x30] hook
+        // lets us substitute the RGBA without affecting any other mesh.
+        //   [0] = DAT_142b40000 (e.g. MESH_EYES_IV)
+        //   [1] = DAT_142b40008 (e.g. MESH_REYES_IV)
+        uintptr_t Sahelan_EyeMeshHashTable = 0;
+
+        // Base of 5 consecutive RGBA float[4] presets read by
+        // PhaseSneakAiImpl::SetEyeFlare and friends to drive the visible
+        // eye-lamp emissive color through the renderer-side plugin
+        // (vtable+0x38 on the eye-effect material plugin).
+        //   [0]: A50 — primary color (sent with hash 0xCFF50B635575)
+        //   [1]: A60 — flare default preset (mode != 2 && mode != 3 fallback)
+        //   [2]: A70 — secondary color (sent with hash 0xAB6E796FF844)
+        //   [3]: A80 — flare "else" preset
+        //   [4]: A90 — flare mode=2/3 preset
+        // Overwriting all 5 with a single RGBA forces that color on every
+        // state transition.
+        uintptr_t Sahelan_PhaseSneakAi_ColorTableBase = 0;
+
 
         uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
 
@@ -286,6 +329,11 @@ namespace AddressSetRuntime
             0x146ACC210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
             0x146ACC650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
             0x144A3CBD0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
+            0x14BBC1B10ull,         // Sahelan_ActionCoreImpl_SetEyeLampColor (EN TODO)
+            0x0ull,         // Sahelan_ActionCoreImpl_UpdateEyeLampColor (EN TODO)
+            0x0ull,         // Sahelan_PhaseSneakAi_PushEyeColor (EN TODO)
+            0x0ull,         // Sahelan_EyeMeshHashTable (EN TODO)
+            0x0ull,         // Sahelan_PhaseSneakAi_ColorTableBase (EN TODO)
 
 
             0x146AB80F0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
@@ -426,7 +474,12 @@ namespace AddressSetRuntime
 
             0x148655E70ull, // RealizedSahelan2Impl_Realize 
             0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl 
-            0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation 
+            0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation
+            0x14B77E550ull, // Sahelan_ActionCoreImpl_SetEyeLampColor (JP)
+            0x14B7801D0ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor (JP: per-frame updater — reads storage at *(this+0x48)+slot*0x60+0x20)
+            0x14B84DEC0ull, // Sahelan_PhaseSneakAi_PushEyeColor (JP: FUN_14b84dec0 — picks color preset, calls vtable+0x38 on eye-effect material plugin)
+            0x142B40000ull, // Sahelan_EyeMeshHashTable (JP: 2 × uint64 FNV hashes naming the eye-lamp meshes)
+            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase (JP: 5 consecutive RGBA float[4] presets — visible-emissive rail)
 
 
             0x148644FE0ull, // RealizedSecurityCamera2Impl_SetFova

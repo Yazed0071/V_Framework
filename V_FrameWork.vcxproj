@@ -194,6 +194,7 @@
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <!-- Hooks: Sahelan -->
     <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
+    <ClInclude Include="src\hooks\sahelan\SetEyeLampColorHook.h" />
     <!-- Hooks: SecurityCamera -->
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <!-- Hooks: MenuPopup -->
@@ -250,6 +251,7 @@
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->
     <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
+    <ClCompile Include="src\hooks\sahelan\SetEyeLampColorHook.cpp" />
     <!-- Hooks: SecurityCamera -->
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <!-- Hooks: MenuPopup -->

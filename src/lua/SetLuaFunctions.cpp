@@ -41,6 +41,7 @@ extern "C" {
 #include "../hooks/sound/VoicePitchOverride.h"
 #include "V_FrameWorkModLoader.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
+#include "../hooks/sahelan/SetEyeLampColorHook.h"
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
@@ -991,15 +992,6 @@ static int __cdecl l_GetGlobalVoicePitch(lua_State* L)
 }
 
 
-static int __cdecl l_SetVoicePitchHookLogging(lua_State* L)
-{
-    const bool enabled = GetLuaBool(L, 1);
-    ::Set_PitchHookLoggingEnabled(enabled);
-    return 0;
-}
-
-
-// PHASE 1 — per-AkObjId pitch bias.
 static int __cdecl l_SetPitchByAkObjId(lua_State* L)
 {
     const std::uint64_t akObjId = GetLuaInt64(L, 1);
@@ -1021,16 +1013,6 @@ static int __cdecl l_ClearAllPerAkObjIdPitchBiases(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     ::Clear_AllPerAkObjIdPitchBiases();
-    return 0;
-}
-
-
-// Toggle chain logging — resolves akObjId for each SetPitch call so you can
-// correlate it with [AK] log output before applying per-akObjId bias.
-static int __cdecl l_SetVoicePitchChainLogging(lua_State* L)
-{
-    const bool enabled = GetLuaBool(L, 1);
-    ::Set_PitchChainLoggingEnabled(enabled);
     return 0;
 }
 
@@ -1537,6 +1519,50 @@ static int __cdecl l_ClearSahelanFova(lua_State* L)
 }
 
 
+// Sahelanthropus eye-lamp color, per AI mode.
+// Lua signature: (r, g, b, pulseSpeed, mode)
+//   r, g, b     : color in 0..1 floats
+//   pulseSpeed  : pulse rate in Hz; 0 = steady, no pulsing
+//   mode        : engine AI state value (typically 0..5)
+static int __cdecl l_SetEyeLampColor(lua_State* L)
+{
+    const float r          = GetLuaNumber(L, 1);
+    const float g          = GetLuaNumber(L, 2);
+    const float b          = GetLuaNumber(L, 3);
+    const float pulseSpeed = GetLuaNumber(L, 4);
+    const int   mode       = static_cast<int>(GetLuaInt64(L, 5));
+    ::Set_EyeLampColor(mode, r, g, b, pulseSpeed);
+    return 0;
+}
+
+
+static int __cdecl l_ClearEyeLampColor(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    ::Clear_EyeLampColor();
+    return 0;
+}
+
+
+static int __cdecl l_SetEyeLampColorLogging(lua_State* L)
+{
+    const bool enabled = GetLuaBool(L, 1);
+    ::Set_EyeLampColorLogging(enabled);
+    return 0;
+}
+
+
+// Disco mode — eye lamps cycle through the full hue rainbow at `speed`
+// cycles/sec. Overrides any per-mode SetEyeLampColor settings.
+static int __cdecl l_SetEyeLampDisco(lua_State* L)
+{
+    const bool  enabled = GetLuaBool(L, 1);
+    const float speed   = GetLuaNumber(L, 2);
+    ::Set_EyeLampDisco(enabled, speed);
+    return 0;
+}
+
+
 static std::int32_t ResolveSecurityCameraVariant(lua_State* L, int idx)
 {
 
@@ -1874,11 +1900,9 @@ static luaL_Reg g_VFrameWorkLib[] =
 
     { "SetGlobalVoicePitch",                    l_SetGlobalVoicePitch },
     { "GetGlobalVoicePitch",                    l_GetGlobalVoicePitch },
-    { "SetVoicePitchHookLogging",               l_SetVoicePitchHookLogging },
     { "SetPitchByAkObjId",                      l_SetPitchByAkObjId },
     { "ClearPitchByAkObjId",                    l_ClearPitchByAkObjId },
     { "ClearAllPerAkObjIdPitchBiases",          l_ClearAllPerAkObjIdPitchBiases },
-    { "SetVoicePitchChainLogging",              l_SetVoicePitchChainLogging },
     { "GetSoldierAkObjId",                      l_GetSoldierAkObjId },
     { "SetSoldierVoicePitch",                   l_SetSoldierVoicePitch },
     { "SetVIPImportant",                        l_SetVIPImportant },
@@ -1918,6 +1942,10 @@ static luaL_Reg g_VFrameWorkLib[] =
 
     { "SetSahelanFova",                         l_SetSahelanFova },
     { "ClearSahelanFova",                       l_ClearSahelanFova },
+    { "SetEyeLampColor",                        l_SetEyeLampColor },
+    { "ClearEyeLampColor",                      l_ClearEyeLampColor },
+    { "SetEyeLampDisco",                        l_SetEyeLampDisco },
+    { "SetEyeLampColorLogging",                 l_SetEyeLampColorLogging },
 
 
     { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },

@@ -20,7 +20,9 @@ TABLE OF CONTENTS
   MODULE: V_TppMusicManager .............. Game-over BGM event overrides
   MODULE: V_TppHelicopter ................ Heli pilot voice / radio event overrides
   MODULE: V_TppCommandPost ............... Caution phase duration
-  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs, RTPC
+  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
+  MODULE: V_TppSahelan ................... Sahelanthropus FOVA + eye-lamp color
+  MODULE: V_SoundCoreDaemon .............. Per-soldier RTPC, voice pitch, akObjId
   MODULE: V_TppHostage ................... Lost hostage tracking
   MODULE: V_TppPickable .................. Pickable item count overrides
   RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
@@ -469,99 +471,207 @@ MODULE: V_TppEnemy
         InfCore.Log(s.soldierName .. " dist=" .. s.distance)
     end
 
+  AUDIO / VOICE
+  -------------
+  RTPC, voice pitch, and Wwise akObjId helpers used to live here. They
+  moved to MODULE: V_SoundCoreDaemon (see below).
+
+
+================================================================================
+MODULE: V_TppSahelan
+================================================================================
+
+  Sahelanthropus customization — FOVA model variation and eye-lamp color.
+
+  --------------------------------------------------------------------------
+  SetSahelanFova(fv2Path)
+  --------------------------------------------------------------------------
+
+    Override the FOVA used to dress Sahelanthropus at runtime. The hook
+    also bypasses the mission gate so any mission can use the alternate
+    FOVA. The wrapper appends ".fv2" if omitted.
+
+    PARAMETERS:
+      fv2Path  string  Path to the FOVA asset.
+
+    EXAMPLE:
+      V_TppSahelan.SetSahelanFova("/Assets/tpp/fova/mecha/mgs/mgs_cv_pwup.fv2")
+
+  --------------------------------------------------------------------------
+  SetEyeLampColor(r, g, b, pulseSpeed, mode)
+  --------------------------------------------------------------------------
+
+    Override Sahelanthropus' visible eye-lamp color for a specific AI mode.
+    Implemented by hooking ActionCoreImpl::UpdateEyeLampColor and writing
+    the chosen color into the per-slot storage every frame the AI is in
+    that mode.
+
+    PARAMETERS:
+      r, g, b      number  Color components in 0..1.
+      pulseSpeed   number  1 = steady (no pulsing).
+                           0 = normal-speed pulse (1 Hz — one cycle / sec).
+                           Values between lerp (0.5 = half-speed pulse).
+                           Out-of-range values are clamped.
+      mode         number  Engine AI state value (typically 0..5; valid
+                           range 0..15). Discover live modes via
+                           SetEyeLampColorLogging.
+
+    NOTES:
+      - One mode at a time. Modes you don't set fall through to the
+        engine's natural color for that state.
+
+    EXAMPLE:
+      -- Steady green during combat (state 5):
+      V_TppSahelan.SetEyeLampColor(0, 1, 0, 1, 5)
+      -- Normal-speed red pulse during alert (state 2):
+      V_TppSahelan.SetEyeLampColor(1, 0, 0, 0, 2)
+      -- Half-speed blue pulse during caution (state 3):
+      V_TppSahelan.SetEyeLampColor(0, 0, 1, 0.5, 3)
+
+  --------------------------------------------------------------------------
+  ClearEyeLampColor()
+  --------------------------------------------------------------------------
+
+    Clear every per-mode override. The engine's natural colors resume.
+
+  --------------------------------------------------------------------------
+  SetEyeLampDisco(enabled, speed)
+  --------------------------------------------------------------------------
+
+    Disco mode — every eye lamp cycles smoothly through the full hue
+    rainbow, overriding any per-mode SetEyeLampColor settings until
+    disabled.
+
+    PARAMETERS:
+      enabled  boolean  turn the party on / off
+      speed    number   (optional, default 2.0) hue cycles per second.
+                        e.g. 0.5 = one rainbow every 2s, 6.0 = seizure.
+
+    EXAMPLE:
+      V_TppSahelan.SetEyeLampDisco(true)         -- default 2 Hz
+      V_TppSahelan.SetEyeLampDisco(true, 0.5)    -- chill
+      V_TppSahelan.SetEyeLampDisco(false)        -- party over
+
+  --------------------------------------------------------------------------
+  SetEyeLampColorLogging(enabled)
+  --------------------------------------------------------------------------
+
+    Logs Set/Clear/Disco calls and engine mode transitions. One line per
+    event, no per-frame spam. Off by default; leave off in normal play.
+
+
+================================================================================
+MODULE: V_SoundCoreDaemon
+================================================================================
+
+  Engine-level sound API — per-soldier RTPC, voice pitch overrides, and
+  Wwise AkGameObjectID helpers. (The audio surface that previously lived
+  on V_TppEnemy now lives here.)
+
   RTPC (Wwise audio parameters)
   -----------------------------
   RTPCs (Real-Time Parameter Controls) are named floats wired up in the
   audio banks to modulate pitch, volume, spatialization, filter cutoffs,
   etc. All Wwise parameter names flow through fox::sd::ConvertParameterID
-  first, so discovering valid names is a matter of reading the log.
+  first, so discover valid names by reading the log.
 
+  --------------------------------------------------------------------------
   SetRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
-      Applies an RTPC only to the soldier with that FOX gameObjectId.
-      - soldierNameOrId: string soldier name OR numeric gameObjectId.
-      - rtpcNameOrId:    string Wwise name OR numeric (pre-hashed) id.
-      - timeMs: transition duration in milliseconds. 0 = instant.
-      Returns: AKRESULT (1 = AK_Success, other = Wwise error).
+  --------------------------------------------------------------------------
+    Per-soldier RTPC via direct AK::SoundEngine::SetRTPCValue (passes the
+    engine gameObjectId as the AK object). See CAVEATS — Wwise may drop
+    this silently because the engine ID isn't its registered AkObjectID;
+    prefer SetSoldierRtpc or SetRtpcByAkObjId.
 
+      soldierNameOrId : string name OR numeric gameObjectId
+      rtpcNameOrId    : string Wwise name OR numeric (pre-hashed) id
+      timeMs          : transition duration in ms (0 = instant)
+      Returns         : AKRESULT (1 = AK_Success)
+
+  --------------------------------------------------------------------------
+  SetSoldierRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
+  --------------------------------------------------------------------------
+    Per-soldier RTPC via the SoundController chain (resolves the correct
+    AkObjectID internally). The soldier must have been audio-Activated
+    (mission load completed) so the chain is wired up. This is the
+    preferred per-soldier path.
+
+  --------------------------------------------------------------------------
+  SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs)
+  --------------------------------------------------------------------------
+    Raw RTPC on a specific Wwise AkGameObjectID. Pair with
+    SetRtpcLoggingEnabled to discover akObjIds.
+
+  --------------------------------------------------------------------------
   SetGlobalRtpc(rtpcNameOrId, value, timeMs)
-      Applies an RTPC globally (AK_INVALID_GAME_OBJECT scope). Affects
-      every listener — use for world-state changes like mission tension.
-      - rtpcNameOrId: string Wwise name OR numeric (pre-hashed) id.
-      Returns: AKRESULT.
+  --------------------------------------------------------------------------
+    Global RTPC (AK_INVALID_GAME_OBJECT scope). Affects every listener.
+
+  --------------------------------------------------------------------------
+  SetRtpcLoggingEnabled(enabled)  /  IsRtpcLoggingEnabled()
+  --------------------------------------------------------------------------
+    Toggle verbose logging on AK::SoundEngine::SetRTPCValue. Logs every
+    game-side RTPC change with its akObjId and value. Leave OFF in normal
+    play — hot path.
 
   DISCOVERING RTPC NAMES
   ----------------------
   V_FrameWork installs a diagnostic hook (ConvertParameterIdLogger) at
-  startup. As you play, every unique Wwise parameter name the game
-  resolves is written to the log exactly once, in the format:
+  startup. Every unique Wwise parameter name the game resolves is written
+  to the log exactly once, in the format:
 
       [ParamID] "<name>" -> 0x<hash>
 
-  Each line is a real name the game's audio code asked Wwise to resolve.
-  Copy the quoted name verbatim (case-sensitive) into your script.
-  Names that return AKRESULT=1 from SetRtpc are RTPCs; names that return
-  an error are usually Switches or States (the same ConvertParameterID
-  function resolves all three kinds).
+  Copy the quoted name verbatim (case-sensitive) into your script. Names
+  that return AKRESULT=1 from SetRtpc are RTPCs; names that return errors
+  are usually Switches or States (same resolver handles all three kinds).
 
-  No RTPC names are published here because we have not independently
-  verified any against the shipped banks. Get them from the log.
+  VOICE PITCH
+  -----------
+  --------------------------------------------------------------------------
+  SetSoldierVoicePitch(soldierNameOrId, cents)
+  --------------------------------------------------------------------------
+    Per-soldier voice pitch override in cents (100 = 1 semitone, negative
+    = lower). The override automatically re-applies to every fresh Wwise
+    akObjId the soldier registers — Fox's audio system uses a 256-entry
+    ring allocator for akObjIds, so the system tracks them by goId and
+    re-arms the bias on each new registration. cents = 0 cancels.
 
-  EXAMPLE (substitute a real name from your [ParamID] log, or use the id):
-    -- By name (recommended — readable, hashed by the game's own function)
-    V_TppEnemy.SetRtpc("officer_1", "<rtpc_name_from_log>", 1.0, 300)
+    EXAMPLE:
+      V_SoundCoreDaemon.SetSoldierVoicePitch("sol_vip_field", -200)
+      V_SoundCoreDaemon.SetSoldierVoicePitch("sol_vip_field", 0)  -- cancel
 
-    -- By pre-hashed id (when you already have the numeric RTPC id, e.g. from
-    -- a Wwise authoring export or captured from the [ParamID] log):
-    V_TppEnemy.SetRtpc("officer_1", 2019519634, 1.0, 300)
+  --------------------------------------------------------------------------
+  SetGlobalVoicePitch(cents)  /  GetGlobalVoicePitch()
+  --------------------------------------------------------------------------
+    Global pitch bias added to EVERY active CAkResampler call — voice,
+    footsteps, gunfire, music. Engine clamps internally to ±2400. 0 = off.
 
-    -- Global, either form:
-    V_TppEnemy.SetGlobalRtpc("<rtpc_name_from_log>", 1.0, 800)
-    V_TppEnemy.SetGlobalRtpc(2019519634, 1.0, 800)
+  --------------------------------------------------------------------------
+  SetPitchByAkObjId(akObjId, cents)
+  ClearPitchByAkObjId(akObjId)
+  ClearAllPerAkObjIdPitchBiases()
+  --------------------------------------------------------------------------
+    Direct per-Wwise-object pitch bias. SetSoldierVoicePitch uses this
+    underneath; call it yourself if you already have the akObjId.
+
+  WWISE OBJECT QUERIES
+  --------------------
+  --------------------------------------------------------------------------
+  GetSoldierAkObjId(soldierNameOrId)  -> number
+  --------------------------------------------------------------------------
+    Returns the soldier's most recently observed AkGameObjectID. 0 if the
+    soldier hasn't appeared in a voice event yet (or if the name doesn't
+    resolve to a known gameObjectId).
 
   CAVEATS
   -------
-  - Wwise clamps values to the RTPC's authored min/max range.
-  - "Per-object" only applies if the sound designer authored the RTPC at
-    GameObject scope. Globally-scoped RTPCs silently accept per-soldier
-    calls but affect every listener.
-  - SetRtpc with a Switch/State name returns AK_IDNotFound (non-1 result).
-  - **Engine gameObjectId != Wwise AkGameObjectID.** SetRtpc/SetSoldierRtpc
-    pass the engine gameObjectId straight to AK::SoundEngine::SetRTPCValue.
-    Wwise registers each audio source with an internal incrementing
-    counter (see fox::sd::ad::AudioSoundEngine::RegisterGameObject), so
-    the call returns AKRESULT=1 but Wwise has no registered object at the
-    engine gameObjectId — the change is silently dropped. Per-soldier
-    RTPC works only via the AkObjectID path below.
-
-  PER-SOLDIER RTPC WORKFLOW (reliable)
-  ------------------------------------
-  Use this when you need to scope an RTPC to ONE soldier (e.g. deepen a
-  specific officer's voice).
-
-  1. V_TppEnemy.SetRtpcLoggingEnabled(true)
-        Installs a hook on AK::SoundEngine::SetRTPCValue. Every game-side
-        SetRTPCValue call is logged as:
-            [SoldierRtpc][AK] SetRTPC akObj=0x.... rtpc=0x.... value=...
-
-  2. Trigger an audio event on the target soldier (voice line, footstep,
-     gear rattle — anything that makes a sound on JUST that one soldier
-     in isolation). Read the [AK] log lines and identify the akObjId
-     consistently used for THAT soldier.
-
-  3. V_TppEnemy.SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs)
-        Applies the RTPC directly to that Wwise object. This bypasses the
-        broken engine-id translation and reaches the real audio source.
-
-  4. Maintain a soldierName -> akObjId map in your Lua script based on
-     observation. Wwise objects keep stable IDs while the audio source
-     stays registered (i.e. while the soldier is active).
-
-  EXAMPLE
-  -------
-    V_TppEnemy.SetRtpcLoggingEnabled(true)
-    -- … play, read log, find that "officer_1" voice is akObj 0x42 …
-    V_TppEnemy.SetRtpcByAkObjId(0x42, "<voice_pitch_rtpc>", -300, 200)
-    V_TppEnemy.SetRtpcLoggingEnabled(false)
+  - Engine gameObjectId != Wwise AkGameObjectID. AK::SoundEngine::SetRTPCValue
+    only honors registered AkObjectIDs. SetSoldierRtpc and the
+    voice-pitch helpers handle the translation; SetRtpc (the direct path)
+    does not.
+  - Wwise clamps values to authored ranges.
+  - SetRtpc with a Switch/State name returns AK_IDNotFound (non-1).
 
 
 ================================================================================
@@ -698,13 +808,27 @@ RAW API: V_FrameWork.*
     ClearCallSignPatrolSoldiers()                   -> nothing
     EnableSoldierStealthCamo(actorIndex, enable)     -> nothing
     ClearSoldierStealthCamoOverrides()              -> nothing
+
+  SAHELAN (V_TppSahelan wrapper)
+    SetSahelanFova(fv2Path)                         -> bool
+    ClearSahelanFova()                              -> nothing
+    SetEyeLampColor(r, g, b, pulseSpeed, mode)      -> nothing
+        Per-AI-mode override (mode 0..15).
+        pulseSpeed: 1 = steady, 0 = normal pulse (1 Hz); lerp in between.
+    ClearEyeLampColor()                             -> nothing
+    SetEyeLampDisco(enabled, speed)                 -> nothing
+        Rainbow hue-cycle on all lamps. Overrides per-mode settings.
+    SetEyeLampColorLogging(enabled)                 -> nothing
+
+  SOUND / VOICE (V_SoundCoreDaemon wrapper)
     SetSoldierRtpc(gameObjectId, rtpcName, value, timeMs)     -> number (AKRESULT)
         NOTE: passes engine gameObjectId. Wwise drops the call silently
         because it doesn't have a registered object at that ID. Use
-        SetRtpcByAkObjId for real per-soldier RTPC.
-    SetGlobalRtpc(rtpcName, value, timeMs)                    -> number (AKRESULT)
+        SetSoldierObjectRtpc(ByName) or SetRtpcByAkObjId for real
+        per-soldier RTPC.
     SetSoldierRtpcById(gameObjectId, rtpcId, value, timeMs)   -> number (AKRESULT)
         Same caveat as SetSoldierRtpc.
+    SetGlobalRtpc(rtpcName, value, timeMs)                    -> number (AKRESULT)
     SetGlobalRtpcById(rtpcId, value, timeMs)                  -> number (AKRESULT)
     SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs)        -> number (AKRESULT)
         Reliable per-Wwise-object RTPC. Pair with SetRtpcLoggingEnabled
@@ -715,6 +839,22 @@ RAW API: V_FrameWork.*
         every game-side RTPC change so you can identify per-soldier
         AkObjectIDs. Disable when done — hot-path overhead.
     IsRtpcLoggingEnabled()                                    -> bool
+    SetSoldierObjectRtpc(gameObjectId, rtpcId, value, timeMs)         -> bool
+        Per-soldier RTPC via the SoundController chain (resolves the
+        soldier's real AkObjectID internally). Preferred per-soldier path.
+    SetSoldierObjectRtpcByName(gameObjectId, rtpcName, value, timeMs) -> bool
+        String-name variant.
+    SetGlobalVoicePitch(cents)                                -> nothing
+        Global pitch bias added to EVERY CAkResampler call.
+    GetGlobalVoicePitch()                                     -> number
+    SetPitchByAkObjId(akObjId, cents)                         -> nothing
+    ClearPitchByAkObjId(akObjId)                              -> nothing
+    ClearAllPerAkObjIdPitchBiases()                           -> nothing
+    SetSoldierVoicePitch(gameObjectId, cents)                 -> bool
+        Per-soldier pitch override; auto-tracks the soldier's akObjId
+        churn (Wwise's 256-entry ring allocator).
+    GetSoldierAkObjId(gameObjectId)                           -> number
+        Returns 0 if the soldier hasn't been observed yet.
 
   HOSTAGE
     SetLostHostage(gameObjectId, gender, hostageLostLabel) -> nothing
