@@ -6,10 +6,10 @@ local StrCode32 = Fox.StrCode32
 local IsTypeString=Tpp.IsTypeString
 
 this.registerIvars={
-	"V_FrameWork_FirstInstall",
+	"V_FrameWork_Welcome_Message",
 }
 
-this.V_FrameWork_FirstInstall={
+this.V_FrameWork_Welcome_Message={
 	save=IvarProc.CATEGORY_EXTERNAL,
 	default=0,
 	range={min=0,max=1,},
@@ -206,10 +206,10 @@ function this.Messages()
 				msg = "MbDvcActOpenTop",
 				func = function()
 					V_FrameWork.Log("#### Open Terminal ####")
-                    if Ivars.V_FrameWork_FirstInstall:Get() == 0 then
+                    if Ivars.V_FrameWork_Welcome_Message:Get() == 0 then
                         V_FrameWork.Log("#### First Time Install ####")
-                        Ivars.V_FrameWork_FirstInstall:Set(1)
-                        V_TppUiCommand.ShowMbDvcAnnouncePopupLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
+                        Ivars.V_FrameWork_Welcome_Message:Set(1)
+                        V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
                     else
                         V_FrameWork.Log("#### Not First Time Install ####")
                     end
