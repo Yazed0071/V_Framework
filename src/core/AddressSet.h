@@ -327,10 +327,10 @@ namespace AddressSetRuntime
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
             0x14032ADF0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
             0x143F42540ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject
-            0x14032B040ull,         // Fox_Sd_Object_Activate 
-            0x140329C80ull,         // Fox_Sd_Daemon_GetObject 
-            0x142B9E8B0ull,         // Fox_Sd_Daemon_Singleton
-            0x1468EDD50ull,         // SoundControllerImpl_CallInternal 
+            0x14032B040ull, // Fox_Sd_Object_Activate 
+            0x140329C80ull, // Fox_Sd_Daemon_GetObject 
+            0x142B9E8B0ull, // Fox_Sd_Daemon_Singleton
+            0x1468EDD50ull, // SoundControllerImpl_CallInternal 
 
 
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
@@ -339,29 +339,29 @@ namespace AddressSetRuntime
             0x146ACC210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
             0x146ACC650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
             0x144A3CBD0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
-            0x14BBC1B10ull,         // Sahelan_ActionCoreImpl_SetEyeLampColor (EN TODO)
-            0x14BBC3630ull,         // Sahelan_ActionCoreImpl_UpdateEyeLampColor (EN TODO)
-            0x14BBC37A0ull,         // Sahelan_ActionCoreImpl_UpdateHeartLight (EN TODO)
-            0x14BCA4b70ull,         // Sahelan_PhaseSneakAi_PushEyeColor (EN TODO)
-            0x142B40000ull,         // Sahelan_EyeMeshHashTable (EN TODO)
-            0x142C69A50ull,         // Sahelan_PhaseSneakAi_ColorTableBase (EN TODO)
+            0x14BBC1B10ull, // Sahelan_ActionCoreImpl_SetEyeLampColor 
+            0x14BBC3630ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor 
+            0x14BBC37A0ull, // Sahelan_ActionCoreImpl_UpdateHeartLight
+            0x14BCA4b70ull, // Sahelan_PhaseSneakAi_PushEyeColor
+            0x142B40000ull, // Sahelan_EyeMeshHashTable 
+            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase 
 
 
             0x146AB80F0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
 
 
             0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal (state machine for iDroid slot-0/slot-1 popups; hooked to override default lang-text with V_FrameWork custom title/body when ReserveParam.commonValue1 == 0x56465043 magic)
-            0x140EF32A0ull,         // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
+            0x140EF32A0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
 
-            0x145C0A890ull,         // HudCommonDataManager_GetInstance
-            0x1408679B0ull,         // HudCommonDataManager_SetPopupType
-            0x1408678D0ull,         // HudCommonDataManager_SetPopupText
-            0x140867570ull,         // HudCommonDataManager_SetPopupErrorType
-            0x147732010ull,         // HudCommonDataManager_StartPopup
+            0x145C0A890ull, // HudCommonDataManager_GetInstance
+            0x1408679B0ull, // HudCommonDataManager_SetPopupType
+            0x1408678D0ull, // HudCommonDataManager_SetPopupText
+            0x140867570ull, // HudCommonDataManager_SetPopupErrorType
+            0x147732010ull, // HudCommonDataManager_StartPopup
 
-            0x14158C290ull,                 // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
-            0x14158B4f0ull,                         // Soldier2SoundController_Activate
-            0x1441DBB80ull,                         // CAkResampler_SetPitch
+            0x14158C290ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
+            0x14158B4f0ull, // Soldier2SoundController_Activate
+            0x1441DBB80ull, // CAkResampler_SetPitch
 
 
             0x143F33A20ull, // FNVHash32 (FNV-1 32-bit hash function used for sound event name hashes)
@@ -372,9 +372,9 @@ namespace AddressSetRuntime
             0x145CB8EF5ull, // Stop_bgm_gameover
             0x145CB8F06ull, // Stop_bgm_gameover_paradox
             0x145CB8EFAull, // Stop_bgm_gameover_perfectstealth
-            0x145CB8F0dull, // Stop_bgm_s10010_gameover
+            0x145CB8F0Dull, // Stop_bgm_s10010_gameover
             0x14226bFC8ull, // Play_bgm_gameover_paradox_soundId (secondary patch site)
-            0x14226bFCCull, // Stop_bgm_gameover_paradox_soundId
+            0x14226BFCCull, // Stop_bgm_gameover_paradox_soundId
 
 
             0x140e2470full, // DD_vox_SH_voice (heli pilot voice event hash)
@@ -524,10 +524,10 @@ namespace AddressSetRuntime
             0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId 
 
 
-            0x140E247DFull, // DD_vox_SH_voice 
-            0x140E24752ull, // DD_vox_SH_radio 
-            0x140E247CFull, // DD_vox_SH_radio2 
-            0x140E247D7ull, // DD_vox_SH_radio3 
+            0x140E247DFull, // DD_vox_SH_voice
+            0x140E24752ull, // DD_vox_SH_radio
+            0x140E247CFull, // DD_vox_SH_radio2
+            0x140E247D7ull, // DD_vox_SH_radio3  
         };
 
         return value;
