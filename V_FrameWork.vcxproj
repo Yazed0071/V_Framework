@@ -154,6 +154,7 @@
     <ClInclude Include="src\core\MissionCodeGuard.h" />
     <ClInclude Include="src\core\V_FrameWorkModLoader.h" />
     <ClInclude Include="src\core\FoxHashes.h" />
+    <ClInclude Include="src\core\LuaBroadcaster.h" />
     <ClInclude Include="src\core\log.h" />
     <!-- Third-party -->
     <ClInclude Include="include\lauxlib.h" />
@@ -214,6 +215,7 @@
     <ClCompile Include="src\core\MissionCodeGuard.cpp" />
     <ClCompile Include="src\core\V_FrameWorkModLoader.cpp" />
     <ClCompile Include="src\core\FoxHashes.cpp" />
+    <ClCompile Include="src\core\LuaBroadcaster.cpp" />
     <ClCompile Include="src\core\log.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />

@@ -98,116 +98,37 @@ namespace AddressSetRuntime
         uintptr_t lua_next = 0;
         uintptr_t lua_gettable = 0;
         uintptr_t lua_pushvalue = 0;
-
+        uintptr_t lua_pcall = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
-
         uintptr_t AK_SoundEngine_SetRTPCValue = 0;
         uintptr_t Fox_Sd_ConvertParameterID = 0;
-
         uintptr_t Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject = 0;
         uintptr_t Fox_Sd_Object_Activate = 0;
         uintptr_t Fox_Sd_Daemon_GetObject = 0;
         uintptr_t Fox_Sd_Daemon_Singleton = 0;
-        // tpp::gm::impl::SoundControllerImpl::CallInternal
-        // Signature: void(this, voiceRequest*, uint soundSlot).
-        // soundSlot is the controller's per-controller slot index — not a goId.
         uintptr_t SoundControllerImpl_CallInternal = 0;
-
-
         uintptr_t TornadoDualPatch                  = 0;
-
-
         uintptr_t RealizedSahelan2Impl_Realize      = 0;
         uintptr_t RealizedSahelan2Impl_SetFovaImpl  = 0;
         uintptr_t FormVariationFile2_ApplyOnlyMeshAndTextureVariation = 0;
-
-        // tpp::gm::sahelan::impl::ActionCoreImpl::SetEyeLampColor
-        // Signature: void(this, ulonglong idx, float color[4]).
-        // idx is normalized via (idx - *(this+0x20)) into a per-lamp slot
-        // at *(this+0x10) + slot*0x60 + 0x20.
         uintptr_t Sahelan_ActionCoreImpl_SetEyeLampColor = 0;
-
-        // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateEyeLampColor
-        // Signature: void(this, int slot).
-        // Per-frame updater — reads the lamp color from a *separate* storage
-        // at *(this+0x48) + (slot - *(this+0x58)) * 0x60 + 0x20 and pushes
-        // it to the renderer via vt+0xb0 on *(this+0xa0). Hooking this and
-        // overwriting the storage before orig is the rail that actually
-        // paints the visible lamp.
         uintptr_t Sahelan_ActionCoreImpl_UpdateEyeLampColor = 0;
-
-        // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateHeartLight
-        // Signature: void(this, uint slot).
-        // Per-frame updater for the chest "heart" light. Computes the color
-        // from a per-actor HP ratio (R=1.0, G=0.09 + ratio*0.91, B=ratio,
-        // A=1.0), writes it to *(this+0x48) + slot*0x60 + 0x10, then pushes
-        // via vt+0xb0 on *(*(this+0x98)+0x18) with slot index 0x14 and the
-        // standard EffectBuilder color hash 0xcff50b635575.
-        // Note: storage offset is +0x10 (NOT +0x20 like the eye lamp).
         uintptr_t Sahelan_ActionCoreImpl_UpdateHeartLight = 0;
-
-        // tpp::gm::sahelan::impl::PhaseSneakAiImpl color-preset selector
-        // (the function that calls vtable+0x38 on the eye-effect material
-        // plugin with the chosen RGBA from the table). Signature:
-        // void(longlong this, uint slot, int mode).
         uintptr_t Sahelan_PhaseSneakAi_PushEyeColor = 0;
-
-        // Address of 2 consecutive 64-bit FNV hashes naming the eye-lamp
-        // mesh materials. FUN_14b84dec0 calls
-        // QuarkSystemTable->plVar2->vt[+0x30](buf, hash, flag) twice with
-        // these — once per eye. Filtering by these in our vt[+0x30] hook
-        // lets us substitute the RGBA without affecting any other mesh.
-        //   [0] = DAT_142b40000 (e.g. MESH_EYES_IV)
-        //   [1] = DAT_142b40008 (e.g. MESH_REYES_IV)
         uintptr_t Sahelan_EyeMeshHashTable = 0;
-
-        // Base of 5 consecutive RGBA float[4] presets read by
-        // PhaseSneakAiImpl::SetEyeFlare and friends to drive the visible
-        // eye-lamp emissive color through the renderer-side plugin
-        // (vtable+0x38 on the eye-effect material plugin).
-        //   [0]: A50 — primary color (sent with hash 0xCFF50B635575)
-        //   [1]: A60 — flare default preset (mode != 2 && mode != 3 fallback)
-        //   [2]: A70 — secondary color (sent with hash 0xAB6E796FF844)
-        //   [3]: A80 — flare "else" preset
-        //   [4]: A90 — flare mode=2/3 preset
-        // Overwriting all 5 with a single RGBA forces that color on every
-        // state transition.
         uintptr_t Sahelan_PhaseSneakAi_ColorTableBase = 0;
-
-
         uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
-
-
-        // UpdateAnnounceNormal — slot 0/1 popups.
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal = 0;
-        // UpdateAnnounceServer — slot 2/3/4/7/8 popups.
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer = 0;
-
-        // tpp::ui::hud::CommonDataManager — HUD popup (ShowPopup / ShowErrorPopup style).
         uintptr_t HudCommonDataManager_GetInstance       = 0;
         uintptr_t HudCommonDataManager_SetPopupType      = 0;
         uintptr_t HudCommonDataManager_SetPopupText      = 0;
         uintptr_t HudCommonDataManager_SetPopupErrorType = 0;
         uintptr_t HudCommonDataManager_StartPopup        = 0;
-
-        // Soldier2SoundControllerImpl::GetVoiceTypeFromSoldierTypeImpl
-        // (this_adjusted, slot, _, currentVoiceType[, isFlag]) — returns the
-        // faction-aware ene_a/b/c/d FNV-1 (0x570C8E21..24) variant.
         uintptr_t Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl = 0;
-
-        // Soldier2SoundControllerImpl::Activate(this, uint slot, int soundIndex).
-        // Called per-soldier when their audio component spawns (mission load).
-        // Provides a (slot, controller) pair without needing the soldier to
-        // make audible noise.
         uintptr_t Soldier2SoundController_Activate = 0;
-
-        // CAkResampler::SetPitch (this, float cents) — Wwise's runtime
-        // pitch/SR setter. Clamped to ±2400 cents internally. Called per
-        // active voice-pipeline node every audio buffer.
         uintptr_t CAkResampler_SetPitch = 0;
-
-
         uintptr_t FNVHash32                         = 0;
         uintptr_t Play_bgm_gameover                 = 0;
         uintptr_t Play_bgm_gameover_paradox         = 0;
@@ -219,8 +140,6 @@ namespace AddressSetRuntime
         uintptr_t Stop_bgm_s10010_gameover          = 0;
         uintptr_t Play_bgm_gameover_paradox_soundId = 0;
         uintptr_t Stop_bgm_gameover_paradox_soundId = 0;
-
-
         uintptr_t DD_vox_SH_voice                   = 0;
         uintptr_t DD_vox_SH_radio                   = 0;
         uintptr_t DD_vox_SH_radio2                  = 0;
@@ -321,6 +240,7 @@ namespace AddressSetRuntime
             0x14C1DA770ull, // lua_next
             0x14C1D7C10ull, // lua_gettable
             0x14C1E87E0ull, // lua_pushvalue
+            0x141A11930ull, // lua_pcall (thunk → .text:lua_pcall body at 0x14C1DAFF0)
 
             0x145E62540ull, // GetIconFtexPath
             0x145CCFCC0ull, // LoadingTipsEv_UpdateActPhase (overrides 0x9d8/0x9e0 w/ DD logo)
@@ -360,7 +280,7 @@ namespace AddressSetRuntime
             0x147732010ull, // HudCommonDataManager_StartPopup
 
             0x14158C290ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
-            0x14158B520ull, // Soldier2SoundController_Activate (was 0x14158B4F0 = padding; real entry verified at 14158b520 PUSH RBX prologue)
+            0x14158B520ull, // Soldier2SoundController_Activate
             0x1441DBB80ull, // CAkResampler_SetPitch
 
 
@@ -467,6 +387,7 @@ namespace AddressSetRuntime
             0x14C98A010ull, // lua_next
             0x14C987B90ull, // lua_gettable
             0x14C98E1D0ull, // lua_pushvalue
+            0x141A11A50ull, // lua_pcall
 
 
             0x147A6BD40ull, // GetIconFtexPath

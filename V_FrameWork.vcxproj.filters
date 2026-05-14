@@ -40,6 +40,9 @@
     <ClInclude Include="src\core\FoxHashes.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\core\LuaBroadcaster.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\core\log.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -115,6 +118,9 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\FoxHashes.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\LuaBroadcaster.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\log.cpp">

@@ -445,6 +445,13 @@ static void TrackLuaState(lua_State* L)
     g_RegisteredLuaStates.insert(L);
 }
 
+lua_State* V_FrameWork_AnyLuaState()
+{
+    std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
+    if (g_RegisteredLuaStates.empty()) return nullptr;
+    return *g_RegisteredLuaStates.begin();
+}
+
 
 static void ClearTrackedLuaStates()
 {

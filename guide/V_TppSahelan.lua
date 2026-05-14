@@ -29,7 +29,6 @@ function this.SetEyeLampColor(r, g, b, pulseSpeed, mode)
         V_FrameWork.Log("V_Sahelan.SetEyeLampColor: pulseSpeed must be a number.")
         return
     end
-    -- mode is optional — omit / nil to apply to every AI mode.
     if mode == nil then
         mode = -1
     elseif type(mode) ~= "number" then
@@ -80,5 +79,36 @@ function this.SetEyeLampColorLogging(enabled)
     end
     V_FrameWork.SetEyeLampColorLogging(enabled)
 end
+
+
+function this.Messages()
+    return Tpp.StrCode32Table {
+        V_GameObject = {
+            {
+                msg = "ChangeShalenEyeLampColor",
+                func = function(r, g, b, pulse)
+                    V_FrameWork.Log("[V_TppSahelan] ChangeShalenEyeLampColor r=" .. r
+                        .. " g=" .. g .. " b=" .. b .. " pulse=" .. pulse)
+                end,
+            },
+        },
+    }
+end
+
+
+function this.Init(missionTable)
+    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
+    V_FrameWork.RegisterListener(this)
+end
+
+function this.OnReload(missionTable)
+    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
+    V_FrameWork.RegisterListener(this)
+end
+
+function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
+    Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
+end
+
 
 return this
