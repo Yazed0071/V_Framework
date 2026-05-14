@@ -11,6 +11,7 @@
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
 #include "AddressSet.h"
+#include <LuaBroadcaster.h>
 
 namespace
 {
@@ -479,7 +480,7 @@ static void __fastcall hkMusicPlayerPlay(
 
     LogCassetteCallbackState(g_LastCassetteCallbackBase);
     LogCassetteSelectionTrace(tapeIdTable, albumIndex, selectedTrackIndex);
-
+    V_FrameWork::EmitMessage("Terminal", "CassettePlay", playMode, albumIndex, selectedTrackIndex);
     Log(
         "[CassettePlay] RealPlay"
         " player=%p"
