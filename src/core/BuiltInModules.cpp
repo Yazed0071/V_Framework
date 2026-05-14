@@ -84,6 +84,9 @@ bool Uninstall_VoicePitchOverride_Hook();
 bool Install_SetEyeLampColor_Hook();
 bool Uninstall_SetEyeLampColor_Hook();
 
+bool Install_GetGameObjectIdWithIndex();
+bool Uninstall_GetGameObjectIdWithIndex();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -605,6 +608,25 @@ namespace
             Uninstall_SetEyeLampColor_Hook();
         }
     };
+    class GetGameObjectIdWithIndex final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "GetGameObjectIdWithIndex";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_GetGameObjectIdWithIndex();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_GetGameObjectIdWithIndex();
+        }
+    };
 
 }
 
@@ -636,6 +658,7 @@ void RegisterBuiltInFeatureModules()
     static VoicePitchOverrideModule s_VoicePitchOverrideModule;
     static SoldierAkObjIdMapModule s_SoldierAkObjIdMapModule;
     static SetEyeLampColorModule s_SetEyeLampColorModule;
+    static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -666,5 +689,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SoldierVoiceTypeQueryModule);
             FeatureModuleRegistry::Instance().Register(&s_VoicePitchOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_SetEyeLampColorModule);
+            FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
         });
 }

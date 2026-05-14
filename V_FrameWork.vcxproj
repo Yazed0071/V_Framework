@@ -113,7 +113,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -132,7 +132,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -162,6 +162,7 @@
     <ClInclude Include="include\luaconf.h" />
     <ClInclude Include="include\lualib.h" />
     <ClInclude Include="include\MinHook.h" />
+    <ClInclude Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.h" />
     <!-- Hooks: Soldier -->
     <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h" />
     <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />
@@ -217,6 +218,7 @@
     <ClCompile Include="src\core\FoxHashes.cpp" />
     <ClCompile Include="src\core\LuaBroadcaster.cpp" />
     <ClCompile Include="src\core\log.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
     <!-- Hooks: Soldier -->

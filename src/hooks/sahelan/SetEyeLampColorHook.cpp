@@ -284,7 +284,7 @@ namespace
             {
                 emitPulse = g_PerModePulse[currentMode].load(std::memory_order_relaxed);
             }
-            V_FrameWork::EmitMessage("V_GameObject", "ShalenSearchModeChange", currentMode);
+            V_FrameWork::EmitMessage("GameObject", "ShalenSearchModeChange", currentMode);
         }
     }
 }

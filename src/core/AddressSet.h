@@ -41,6 +41,7 @@ namespace AddressSetRuntime
         uintptr_t GameOverSetVisible = 0;
         uintptr_t GetCurrentMissionCode = 0;
         uintptr_t GetNameIdWithGameObjectId = 0;
+        uintptr_t GetGameObjectIdWithIndex = 0;
         uintptr_t GetPlayingTime = 0;
         uintptr_t GetPlayingTrackId = 0;
         uintptr_t GetQuarkSystemTable = 0;
@@ -183,6 +184,7 @@ namespace AddressSetRuntime
             0x145CB8890ull, // GameOverSetVisible
             0x145E5EE70ull, // GetCurrentMissionCode
             0x146C98180ull, // GetNameIdWithGameObjectId
+            0x146C96520ull, // GetGameObjectIdWithIndex
             0x14614A4E0ull, // GetPlayingTime
             0x14614AA30ull, // GetPlayingTrackId
             0x140BFF3F0ull, // GetQuarkSystemTable
@@ -330,6 +332,7 @@ namespace AddressSetRuntime
             0x1477CFCB0ull, // GameOverSetVisible
             0x147A691E0ull, // GetCurrentMissionCode
             0x148A58CB0ull, // GetNameIdWithGameObjectId
+            0x148A57620ull, // GetGameObjectIdWithIndex
             0x147DE8FA0ull, // GetPlayingTime
             0x147DE93E0ull, // GetPlayingTrackId
             0x140BFEF80ull, // GetQuarkSystemTable

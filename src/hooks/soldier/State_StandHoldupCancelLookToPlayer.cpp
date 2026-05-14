@@ -8,7 +8,9 @@
 
 #include "MinHook.h"
 #include "HookUtils.h"
+#include "LuaBroadcaster.h"
 #include "AddressSet.h"
+#include "GetGameObjectIdWithIndex.h"
 
 extern void Log(const char* fmt, ...);
 
@@ -142,6 +144,21 @@ static void TrySpeak_EnterDownHoldupStyle(void* holdupThis, uint32_t id32, uint3
         Log("[Holdup] Speak vfunc EXCEPTION. this=%p id=%u line=0x%08X\n",
             holdupThis, id32, lineId);
     }
+
+
+
+    std::uint32_t gameObjectId = 0xFFFFu;
+
+    if (GetSoldierGameObjectIdWithIndex(id32, gameObjectId))
+    {
+        V_FrameWork::EmitMessage("GameObject",
+            "HoldupCancelLookToPlayer",
+            gameObjectId);
+    }
+    else
+    {
+        Log("[Holdup] failed to convert soldier index %u to GameObjectId\n", id32);
+    }
 }
 
 static std::atomic<uint64_t> gDetourHits{ 0 };
@@ -161,6 +178,9 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
     const uint8_t b3f = ReadByteNoThrow(slot + 0x3F);
     const bool alreadyPlayed = ((b3f & 0x02u) != 0);
 
+    if (alreadyPlayed)
+        return;
+
     const uint32_t lineId = ComputeLineIdFromSlot(slot);
 
     const uint32_t now = GetTickCount();
@@ -174,8 +194,7 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
 
     TrySpeak_EnterDownHoldupStyle(holdupThis, id32, lineId);
 
-    if (!alreadyPlayed)
-        WriteByteNoThrow(slot + 0x3F, static_cast<uint8_t>(b3f | 0x02u));
+    WriteByteNoThrow(slot + 0x3F, static_cast<uint8_t>(b3f | 0x02u));
 
     const uint64_t n = ++gDetourHits;
     if (n == 1 || (n % 50) == 0)
