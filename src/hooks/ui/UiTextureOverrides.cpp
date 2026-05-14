@@ -267,9 +267,6 @@ static uint8_t __fastcall hkSetEquipBackgroundTexture(int equipId, void* sortieW
     const auto it = g_PerEquipTextures.find(equipId);
     if (it != g_PerEquipTextures.end())
     {
-        Log("[EquipBg][PerEquip] equipId=%d -> 0x%llX\n",
-            equipId,
-            static_cast<unsigned long long>(it->second));
         return ApplyTexture(sortieWeaponNode, it->second);
     }
 
@@ -278,17 +275,11 @@ static uint8_t __fastcall hkSetEquipBackgroundTexture(int equipId, void* sortieW
         const auto enemyIt = g_PerEnemyEquipTextures.find(equipId);
         if (enemyIt != g_PerEnemyEquipTextures.end())
         {
-            Log("[EquipBg][EnemyPerEquip] equipId=%d -> 0x%llX\n",
-                equipId,
-                static_cast<unsigned long long>(enemyIt->second));
             return ApplyTexture(sortieWeaponNode, enemyIt->second);
         }
 
         if (g_EnemyWeaponTexture != 0)
         {
-            Log("[EquipBg][EnemyWeapon] equipId=%d -> 0x%llX\n",
-                equipId,
-                static_cast<unsigned long long>(g_EnemyWeaponTexture));
             return ApplyTexture(sortieWeaponNode, g_EnemyWeaponTexture);
         }
     }
@@ -297,9 +288,6 @@ static uint8_t __fastcall hkSetEquipBackgroundTexture(int equipId, void* sortieW
         !IsUniqueArmEquip(equipId) &&
         g_DefaultTexture != 0)
     {
-        Log("[EquipBg][Default] equipId=%d -> 0x%llX\n",
-            equipId,
-            static_cast<unsigned long long>(g_DefaultTexture));
         return ApplyTexture(sortieWeaponNode, g_DefaultTexture);
     }
 
@@ -320,17 +308,11 @@ static void __fastcall hkLoadingScreenOrGameOverSplash2(void* self)
 
     if (g_LoadingConfig.mainTexture != 0 && mainNode)
     {
-        Log("[LoadingSplash][OverrideMain] node=%p -> 0x%llX\n",
-            mainNode,
-            static_cast<unsigned long long>(g_LoadingConfig.mainTexture));
         g_SetTextureName(mainNode, g_LoadingConfig.mainTexture, SLOT_MAIN_TEXTURE, 2);
     }
 
     if (g_LoadingConfig.blurTexture != 0 && blurNode)
     {
-        Log("[LoadingSplash][OverrideBlur] node=%p -> 0x%llX\n",
-            blurNode,
-            static_cast<unsigned long long>(g_LoadingConfig.blurTexture));
         g_SetTextureName(blurNode, g_LoadingConfig.blurTexture, SLOT_MAIN_TEXTURE, 2);
     }
 }
@@ -347,36 +329,14 @@ static void __fastcall hkLoadingTipsEvUpdateActPhase(void* self)
     void* const mainNode = *reinterpret_cast<void**>(base + 0x9d8);
     void* const blurNode = *reinterpret_cast<void**>(base + 0x9e0);
 
-
-    static void* s_lastMainNode = nullptr;
-    static std::uint64_t s_lastMainHash = 0;
-    static void* s_lastBlurNode = nullptr;
-    static std::uint64_t s_lastBlurHash = 0;
-
     if (g_LoadingConfig.mainTexture != 0 && mainNode)
     {
         g_SetTextureName(mainNode, g_LoadingConfig.mainTexture, SLOT_MAIN_TEXTURE, 2);
-        if (mainNode != s_lastMainNode || g_LoadingConfig.mainTexture != s_lastMainHash)
-        {
-            Log("[LoadingTips][OverrideMain] node=%p -> 0x%llX\n",
-                mainNode,
-                static_cast<unsigned long long>(g_LoadingConfig.mainTexture));
-            s_lastMainNode = mainNode;
-            s_lastMainHash = g_LoadingConfig.mainTexture;
-        }
     }
 
     if (g_LoadingConfig.blurTexture != 0 && blurNode)
     {
         g_SetTextureName(blurNode, g_LoadingConfig.blurTexture, SLOT_MAIN_TEXTURE, 2);
-        if (blurNode != s_lastBlurNode || g_LoadingConfig.blurTexture != s_lastBlurHash)
-        {
-            Log("[LoadingTips][OverrideBlur] node=%p -> 0x%llX\n",
-                blurNode,
-                static_cast<unsigned long long>(g_LoadingConfig.blurTexture));
-            s_lastBlurNode = blurNode;
-            s_lastBlurHash = g_LoadingConfig.blurTexture;
-        }
     }
 }
 
@@ -405,9 +365,6 @@ static void __fastcall hkGameOverSetVisible(uint64_t* layout, char visible)
             g_SetTextureName(node8, g_GameOverConfig.mainTexture, SLOT_MAIN_TEXTURE, 2);
         if (node9)
             g_SetTextureName(node9, g_GameOverConfig.mainTexture, SLOT_MAIN_TEXTURE, 2);
-
-        Log("[GameOverSplash][OverrideMain] main=0x%llX\n",
-            static_cast<unsigned long long>(g_GameOverConfig.mainTexture));
     }
 
     if (g_GameOverConfig.blurTexture != 0)
@@ -420,9 +377,6 @@ static void __fastcall hkGameOverSetVisible(uint64_t* layout, char visible)
             g_SetTextureName(node10, g_GameOverConfig.blurTexture, SLOT_MAIN_TEXTURE, 2);
         if (node11)
             g_SetTextureName(node11, g_GameOverConfig.blurTexture, SLOT_MAIN_TEXTURE, 2);
-
-        Log("[GameOverSplash][OverrideBlur] blur=0x%llX\n",
-            static_cast<unsigned long long>(g_GameOverConfig.blurTexture));
     }
 }
 

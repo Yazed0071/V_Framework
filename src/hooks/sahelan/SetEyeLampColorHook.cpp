@@ -10,29 +10,17 @@
 #include "log.h"
 #include "SetEyeLampColorHook.h"
 
-
 namespace
 {
-
-
-    // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateEyeLampColor (this, int slot).
-    // Per-frame updater — reads color from *(this+0x48)+slot*0x60+0x20 and
-    // publishes it to the renderer. This is the rail that paints the lamp.
     using UpdateEyeLampColor_t = void(__fastcall*)(void* self,
                                                    std::int32_t slot);
 
-    // tpp::gm::sahelan::impl::PhaseSneakAiImpl FUN_14b84dec0 (this, slot, mode).
-    // AI state-transition pump. We hook it solely to capture `mode` so the
-    // per-frame updater knows which override preset to apply.
     using PushEyeColor_t = void(__fastcall*)(void* self,
                                              std::uint32_t slot,
                                              std::int32_t mode);
 
-    // tpp::gm::sahelan::impl::ActionCoreImpl::UpdateHeartLight (this, uint slot).
-    // Per-frame heart-light updater.
     using UpdateHeartLight_t = void(__fastcall*)(void* self,
                                                  std::uint32_t slot);
-
 
     static UpdateEyeLampColor_t g_OrigUpdateEyeLampColor = nullptr;
     static void*                g_UpdateHookTarget       = nullptr;
@@ -41,20 +29,17 @@ namespace
     static UpdateHeartLight_t   g_OrigUpdateHeartLight   = nullptr;
     static void*                g_HeartHookTarget        = nullptr;
 
-
     static constexpr int kMaxModes = 16;
     static std::atomic<bool>  g_PerModeEnabled[kMaxModes]{};
     static std::atomic<float> g_PerModeR[kMaxModes]{};
     static std::atomic<float> g_PerModeG[kMaxModes]{};
     static std::atomic<float> g_PerModeB[kMaxModes]{};
-    static std::atomic<float> g_PerModePulse[kMaxModes]{};   // Hz; 0 = steady
+    static std::atomic<float> g_PerModePulse[kMaxModes]{};
     static std::atomic<int>   g_LastMode{ -1 };
 
     static std::atomic<bool>  g_DiscoEnabled{ false };
-    static std::atomic<float> g_DiscoSpeed{ 2.0f };          // hue cycles / sec
+    static std::atomic<float> g_DiscoSpeed{ 2.0f };
 
-    // Heart-light override (single color, no per-mode — engine's natural
-    // heart color is HP-driven; override forces a fixed color).
     static std::atomic<bool>  g_HeartEnabled{ false };
     static std::atomic<float> g_HeartR{ 1.0f };
     static std::atomic<float> g_HeartG{ 1.0f };
@@ -63,7 +48,6 @@ namespace
 
     static std::atomic<bool> g_LoggingEnabled{ false };
 
-
     static float NowSeconds()
     {
         const ULONGLONG ms = GetTickCount64();
@@ -71,11 +55,6 @@ namespace
     }
 
 
-    // pulseSpeed semantics:
-    //   1.0  -> steady (no pulse, full brightness)
-    //   0.0  -> normal pulse rate (1 Hz — one full cycle per second)
-    //   any other value lerps between (e.g. 0.5 = half-rate pulse).
-    // Values outside [0, 1] are clamped.
     static float ComputePulseMultiplier(float pulseSpeed)
     {
         if (pulseSpeed >= 1.0f) return 1.0f;
@@ -90,7 +69,7 @@ namespace
 
     static void HsvToRgb(float h, float s, float v, float& r, float& g, float& b)
     {
-        h -= std::floor(h);                          // wrap into [0, 1)
+        h -= std::floor(h);
         const int   i = static_cast<int>(h * 6.0f);
         const float f = h * 6.0f - static_cast<float>(i);
         const float p = v * (1.0f - s);
@@ -103,7 +82,7 @@ namespace
             case 2:  r = p; g = v; b = t; break;
             case 3:  r = p; g = q; b = v; break;
             case 4:  r = t; g = p; b = v; break;
-            default: r = v; g = p; b = q; break;     // case 5
+            default: r = v; g = p; b = q; break;
         }
     }
 
@@ -114,7 +93,6 @@ namespace
     {
         const int prev = g_LastMode.exchange(mode, std::memory_order_relaxed);
 
-        // Log only on actual mode transitions, not every push.
         if (prev != mode && g_LoggingEnabled.load(std::memory_order_relaxed))
         {
             if (g_DiscoEnabled.load(std::memory_order_relaxed))
@@ -149,8 +127,6 @@ namespace
     }
 
 
-    // The vt+0xb0 slot used by both UpdateEyeLampColor and UpdateHeartLight.
-    // Signature: void(self, idx, slot, hash, color).
     using EffectBuilderPush_t = void(__fastcall*)(void*           self,
                                                   std::uint32_t   idx,
                                                   std::int32_t    slot,
@@ -176,7 +152,6 @@ namespace
                     reinterpret_cast<std::uintptr_t>(self) + 0x58);
                 if (!base) return;
 
-                // Heart-light storage offset is +0x10 (NOT +0x20 like eye lamp).
                 const std::int64_t offset =
                     static_cast<std::int64_t>(
                         static_cast<std::uint32_t>(slot - baseSlot)) * 0x60 + 0x10;
@@ -186,9 +161,6 @@ namespace
                 color[2] = b0 * pulse;
                 color[3] = 1.0f;
 
-                // Replicate orig's outgoing push:
-                //   plVar2 = *(*(this+0x98)+0x18)
-                //   plVar2->vt[0xb0](plVar2, slot, 0x14, 0xcff50b635575, color)
                 auto outer = *reinterpret_cast<void**>(
                     reinterpret_cast<std::uintptr_t>(self) + 0x98);
                 if (!outer) return;
@@ -203,7 +175,7 @@ namespace
                 push(plVar2, slot, 0x14, 0xCFF50B635575ULL, color);
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
-            return;  // skip orig — we did the push with our color
+            return;
         }
 
         if (g_OrigUpdateHeartLight)
@@ -219,8 +191,6 @@ namespace
         float outR = 0.0f, outG = 0.0f, outB = 0.0f;
         bool  haveColor = false;
 
-        // Disco wins over everything — every lamp cycles the full rainbow
-        // at full brightness (pulseSpeed=1 → steady).
         if (g_DiscoEnabled.load(std::memory_order_relaxed))
         {
             const float speed = g_DiscoSpeed.load(std::memory_order_relaxed);
@@ -276,14 +246,10 @@ namespace
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
     }
-
-
 }
-
 
 void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
 {
-    // mode == -1 → all modes; otherwise single mode in [0, kMaxModes).
     const bool allModes = (mode < 0);
     if (!allModes && mode >= kMaxModes) return;
 
@@ -298,8 +264,6 @@ void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
         g_PerModeEnabled[m].store(true, std::memory_order_relaxed);
     }
 
-    // Setting a color implies the user wants that color, not the rainbow —
-    // auto-disable disco.
     const bool wasDisco = g_DiscoEnabled.exchange(false, std::memory_order_relaxed);
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
@@ -367,8 +331,6 @@ void Set_EyeLampDisco(bool enabled, float speed)
     g_DiscoSpeed.store(speed, std::memory_order_relaxed);
     g_DiscoEnabled.store(enabled, std::memory_order_relaxed);
 
-    // Enabling disco implies the user wants the rainbow, not specific
-    // per-mode colors — auto-clear those.
     bool clearedPerMode = false;
     if (enabled)
     {

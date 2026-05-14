@@ -17,4 +17,11 @@ _G.V_FrameWork_Core = this
 
 this.V_FrameWork = VFW
 
+function this.AddMissionPacks(missionCode,packPaths)
+	if InfMain.IsOnlineMission(missionCode) or missionCode < 5 then return end
+
+	packPaths[#packPaths + 1] = "/Assets/tpp/pack/V_FrameWork/V_FrameWork_Common.fpk"
+end
+
+
 return this

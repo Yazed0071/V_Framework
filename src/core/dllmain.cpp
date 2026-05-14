@@ -55,9 +55,6 @@ static DWORD WINAPI InitThread(LPVOID)
     if (st != MH_OK && st != MH_ERROR_ALREADY_INITIALIZED)
         return 0;
 
-    //const bool earlyLuaBridgeOk = Install_SetLuaFunctions_Hook();
-    //Log("[DLL] Install_SetLuaFunctions_Hook -> %s\n", earlyLuaBridgeOk ? "OK" : "FAIL");
-
     if (!ResolveAddressSet(hGame))
     {
         Log("[DLL] ResolveAddressSet failed.\n");

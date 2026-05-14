@@ -14,36 +14,21 @@
 
 namespace
 {
-
-
-    // CAkResampler::SetPitch(this, float pitchCents).
-    // x64: this in RCX, pitch in XMM1 (float).
     using SetPitch_t = void(__fastcall*)(void* self, float pitchCents);
 
-
-    // Wwise pipeline-node offsets (verified against EN named build):
-    //   CAkVPLPitchNode embeds CAkResampler at offset 0x10.
-    //   CAkVPLPitchNode::Init writes CAkPBI* to offset 0xD8.
-    //   CAkPBI references CAkRegisteredObj at offset 0xA8.
-    //   CAkRegisteredObj stores akObjId at offset 0x70 (set in ctor).
     constexpr std::uintptr_t kResampler_BackToPitchNode  = 0x10;
     constexpr std::uintptr_t kPitchNode_PBI              = 0xD8;
     constexpr std::uintptr_t kPBI_RegisteredObj          = 0xA8;
     constexpr std::uintptr_t kRegisteredObj_AkObjId      = 0x70;
 
-
     static SetPitch_t        g_OrigSetPitch       = nullptr;
     static void*             g_HookTarget         = nullptr;
     static std::atomic<float> g_PitchBiasCents   { 0.0f };
 
-    // Per-AkObjId pitch bias map.
     static std::unordered_map<std::uint64_t, float> g_BiasByAkObjId;
     static std::mutex g_BiasMapMutex;
-    // Fast-path flag: skips chain walk when no per-akObjId entries exist.
     static std::atomic<bool> g_HavePerAkObjIdBias{ false };
 
-
-    // SEH-protected pointer chase. Returns 0 / nullptr on access fault.
     static void* SafeReadPtr(const void* base, std::uintptr_t off)
     {
         if (!base) return nullptr;
@@ -73,14 +58,10 @@ namespace
     }
 
 
-    // Walk: resampler -> pitchNode (-0x10) -> PBI (+0xd8) -> regObj (+0xa8)
-    //       -> akObjId (+0x70).
     static std::uint64_t ResolveAkObjIdFromResampler(void* resampler)
     {
         if (!resampler) return 0;
 
-        // Resampler is embedded at +0x10 in CAkVPLPitchNode, so backing up
-        // by 0x10 gives the pitch node base.
         const auto pitchNode = reinterpret_cast<const void*>(
             reinterpret_cast<std::uintptr_t>(resampler) - kResampler_BackToPitchNode);
 
@@ -116,7 +97,6 @@ namespace
         if (haveAnyPerObj && self)
             akObjId = ResolveAkObjIdFromResampler(self);
 
-        // Per-AkObjId bias overrides global when present.
         float bias = globalBias;
         if (haveAnyPerObj && akObjId)
         {

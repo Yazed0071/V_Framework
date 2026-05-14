@@ -13,10 +13,8 @@
 
 namespace
 {
-
     using SetFovaImpl_t = void(__fastcall*)(void* self, std::uint32_t param2);
     using Realize_t = void(__fastcall*)(void* self, std::uint32_t param2);
-
 
     using GetFvaByHash_t = std::int64_t(__fastcall*)(
         void* self, std::uint64_t hash, std::int64_t arg3);
@@ -25,19 +23,15 @@ namespace
         void* self, void* model, void* groupSettings, void* method,
         std::uint32_t flags, bool a6, bool a7);
 
-
     static SetFovaImpl_t g_OrigSetFovaImpl = nullptr;
     static Realize_t g_OrigRealize = nullptr;
-
 
     static constexpr std::uint64_t kVanillaFovaHash = 0x60887FE72AA5C04Bull;
     static constexpr std::uint16_t kVanillaMissionGate = 0x2B8Fu;
 
-
     static std::atomic<std::uint64_t> g_OverrideFovaHash{ 0 };
     static std::atomic<bool> g_HasFovaOverride{ false };
     static std::atomic<bool> g_BypassMissionCheck{ false };
-
 
     static void ApplyFovaWithHash(void* self, std::uint32_t param2, std::uint64_t hash)
     {
@@ -52,23 +46,18 @@ namespace
             if (!vtbl)
                 return;
 
-
             const auto getFva = reinterpret_cast<GetFvaByHash_t>(vtbl[0xC0 / sizeof(void*)]);
             if (!getFva)
                 return;
 
-
             const std::int64_t arg3 = thisAsQwords[0x178 / sizeof(std::int64_t)];
 
-
             const std::int64_t fv2 = getFva(self, hash, arg3);
-
 
             thisAsQwords[0x190 / sizeof(std::int64_t)] = fv2;
 
             if (fv2 == 0)
                 return;
-
 
             const std::int64_t childPtr = thisAsQwords[0x10 / sizeof(std::int64_t)];
             if (!childPtr)
@@ -85,7 +74,6 @@ namespace
 
             void* model = getModel(reinterpret_cast<void*>(childPtr), param2);
 
-
             const auto applyFn = reinterpret_cast<ApplyFv2_t>(
                 ResolveGameAddress(gAddr.FormVariationFile2_ApplyOnlyMeshAndTextureVariation));
             if (!applyFn)
@@ -99,7 +87,6 @@ namespace
                 self, param2, static_cast<unsigned long long>(hash));
         }
     }
-
 
     static void __fastcall hkSetFovaImpl(void* self, std::uint32_t param2)
     {
@@ -123,14 +110,12 @@ namespace
         ApplyFovaWithHash(self, param2, hash);
     }
 
-
     static void __fastcall hkRealize(void* self, std::uint32_t param2)
     {
         MISSION_GUARD_ORIGINAL_VOID(g_OrigRealize, self, param2);
 
         if (g_OrigRealize)
             g_OrigRealize(self, param2);
-
 
         if (!g_BypassMissionCheck.load(std::memory_order_relaxed))
             return;
@@ -139,11 +124,9 @@ namespace
         if (missionCode == kVanillaMissionGate)
             return;
 
-
         hkSetFovaImpl(self, param2);
     }
 }
-
 
 bool Install_RealizedSahelanFova_Hook()
 {
@@ -174,7 +157,6 @@ bool Install_RealizedSahelanFova_Hook()
     return okSetFova && okRealize;
 }
 
-
 bool Uninstall_RealizedSahelanFova_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.RealizedSahelan2Impl_SetFovaImpl));
@@ -186,12 +168,10 @@ bool Uninstall_RealizedSahelanFova_Hook()
     return true;
 }
 
-
 void Set_SahelanFovaHash(std::uint64_t hash)
 {
     g_OverrideFovaHash.store(hash, std::memory_order_relaxed);
     g_HasFovaOverride.store(hash != 0, std::memory_order_relaxed);
-
 
     if (hash != 0)
         g_BypassMissionCheck.store(true, std::memory_order_relaxed);
@@ -200,7 +180,6 @@ void Set_SahelanFovaHash(std::uint64_t hash)
         static_cast<unsigned long long>(hash),
         g_BypassMissionCheck.load() ? "ON" : "OFF");
 }
-
 
 void Set_SahelanFovaPath(const char* path)
 {
@@ -217,7 +196,6 @@ void Set_SahelanFovaPath(const char* path)
     Set_SahelanFovaHash(hash);
 }
 
-
 void Clear_SahelanFovaOverride()
 {
     g_OverrideFovaHash.store(0, std::memory_order_relaxed);
@@ -226,7 +204,6 @@ void Clear_SahelanFovaOverride()
 
     Log("[SahelanFova] override cleared (vanilla restored)\n");
 }
-
 
 std::uint64_t Get_SahelanFovaHash()
 {

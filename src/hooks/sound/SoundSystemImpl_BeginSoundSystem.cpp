@@ -12,28 +12,19 @@
 
 namespace
 {
-
-
     using BeginSoundSystem_t = void(__fastcall*)();
-
 
     using SoundSystemCtor_t = void* (__fastcall*)(void* thisPtr, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4);
 
-
     using GetPlayingTime_t = std::uint32_t(__fastcall*)(void* thisPtr);
-
 
     using GetPlayingTrackId_t = std::uint32_t(__fastcall*)(void* thisPtr);
 
-
     using PauseMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
-
 
     using ResumeMusicPlayer_t = int* (__fastcall*)(void* thisPtr, int* outError, std::uint32_t fadeMs);
 
-
     using StopMusicPlayer_t = std::uint32_t* (__fastcall*)(void* thisPtr, std::uint32_t* outError, std::uint32_t fadeMs, std::uint8_t stopByUser);
-
 
     static constexpr std::size_t kSoundSystemScanSize = 0x50ull;
     static constexpr std::size_t kSubObjectScanSize = 0x200ull;

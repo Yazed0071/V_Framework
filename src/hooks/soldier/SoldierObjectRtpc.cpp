@@ -184,8 +184,6 @@ namespace
     }
 
 
-
-
     static void* WalkSoldierObject(std::uint32_t gameObjectId)
     {
         const std::uint32_t slot = GetSoldierSlotFromGameObjectId(gameObjectId);
@@ -208,8 +206,6 @@ namespace
         return SafeCallGetByIndex(source,
             reinterpret_cast<GetByIndex_t>(getObjectFn), slot);
     }
-
-
 
 
     static std::unordered_map<std::uint32_t, float> g_PendingPitchByGameObjectId;

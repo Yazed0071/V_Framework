@@ -21,11 +21,6 @@ namespace
     using GetBaseVoiceParam_t = std::uint64_t(__fastcall*)(void* obj28, std::uint32_t ownerIndexLow8);
 
 
-    static constexpr bool kLogBaseMatchMisses = true;
-
-
-    static constexpr bool kLogEveryCall = false;
-
     static GetVoiceParamWithCallSign_t g_OrigGetVoiceParamWithCallSign = nullptr;
 
 
@@ -73,12 +68,6 @@ namespace
         { 0xD0553D69u, 0x41DA64A4u, "DAT_142345958_EXTRA" },
         { 0xE3166019u, 0x1E2FFD49u, "SIGNS_14_EXTRA" },
     };
-}
-
-
-static const char* YesNo(bool value)
-{
-    return value ? "YES" : "NO";
 }
 
 
@@ -223,18 +212,6 @@ static bool TryReadCallSignOwnerEntry58(
 }
 
 
-static bool TryComputeCallSignModulo12(std::uint16_t rawCallSign, std::uint32_t& outModuloIndex)
-{
-    outModuloIndex = 0;
-
-    if (rawCallSign == 0xFFFFu)
-        return false;
-
-    outModuloIndex = static_cast<std::uint32_t>(rawCallSign % 12u);
-    return true;
-}
-
-
 static bool TryReadBaseVoiceParam(void* self, std::uint32_t ownerIndex, std::uint64_t& outBaseVoiceParam)
 {
     outBaseVoiceParam = 0;
@@ -274,32 +251,6 @@ static const HardcodedCallSignExtra* FindHardcodedCallSignExtra(std::uint32_t ba
 }
 
 
-static void LogOwnerEntry58(
-    std::uint32_t ownerIndex,
-    const CallSignOwnerEntry58& entry,
-    std::uint16_t normalizedSoldierIndex,
-    bool hasModulo12,
-    std::uint32_t modulo12,
-    std::uint32_t baseVoiceParam)
-{
-    Log(
-        "[CallSignExtra][ENTRY58] ownerIndex=%u word08=0x%04X rawCallSign=0x%04X modulo12=%s%u soldierIndex0C=0x%04X normalizedSoldierIndex=%u word0E=0x%04X bytes10_13=%02X %02X %02X %02X base=0x%08X\n",
-        static_cast<unsigned>(ownerIndex),
-        static_cast<unsigned>(entry.word08),
-        static_cast<unsigned>(entry.rawCallSign0A),
-        hasModulo12 ? "" : "INVALID:",
-        static_cast<unsigned>(modulo12),
-        static_cast<unsigned>(entry.soldierIndex0C),
-        static_cast<unsigned>(normalizedSoldierIndex),
-        static_cast<unsigned>(entry.word0E),
-        static_cast<unsigned>(entry.byte10),
-        static_cast<unsigned>(entry.byte11),
-        static_cast<unsigned>(entry.byte12),
-        static_cast<unsigned>(entry.byte13),
-        static_cast<unsigned>(baseVoiceParam));
-}
-
-
 static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uint32_t ownerIndex)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -316,12 +267,6 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
 
     CallSignOwnerEntry58 entry58{};
     const bool hasEntry58 = TryReadCallSignOwnerEntry58(self, ownerIndex, entry58);
-
-    const std::uint16_t rawCallSign =
-        hasEntry58 ? entry58.rawCallSign0A : 0xFFFFu;
-
-    std::uint32_t modulo12 = 0;
-    const bool hasModulo12 = TryComputeCallSignModulo12(rawCallSign, modulo12);
 
     const std::uint16_t resolvedSoldierIndex =
         hasEntry58 ? NormalizeSoldierIndexFromOwnerEntry(entry58.soldierIndex0C) : 0xFFFFu;
@@ -342,51 +287,9 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
                 }
             }
 
-            if (hasEntry58)
+            if (isRegisteredSoldier)
             {
-                if (isRegisteredSoldier)
-                {
-                    Log(
-                        "[CallSignExtra][CUSTOM] ownerIndex=%u rawCallSign=0x%04X modulo12=%s%u resolvedSoldierIndex=%u base=0x%08X -> extraStateId=0x%08X (%s)\n",
-                        static_cast<unsigned>(ownerIndex),
-                        static_cast<unsigned>(rawCallSign),
-                        hasModulo12 ? "" : "INVALID:",
-                        static_cast<unsigned>(modulo12),
-                        static_cast<unsigned>(resolvedSoldierIndex),
-                        static_cast<unsigned>(baseVoiceParam),
-                        static_cast<unsigned>(extra->extraStateId),
-                        extra->label ? extra->label : "unnamed");
-
-                    return static_cast<std::uint64_t>(extra->extraStateId);
-                }
-
-                if (kLogBaseMatchMisses)
-                {
-                    LogOwnerEntry58(
-                        ownerIndex,
-                        entry58,
-                        resolvedSoldierIndex,
-                        hasModulo12,
-                        modulo12,
-                        baseVoiceParam);
-
-                    Log(
-                        "[CallSignExtra][MISS] ownerIndex=%u resolvedSoldierIndex=%s%u registered=%s base=0x%08X extraStateId=0x%08X\n",
-                        static_cast<unsigned>(ownerIndex),
-                        resolvedSoldierIndex == 0xFFFFu ? "INVALID:" : "",
-                        static_cast<unsigned>(resolvedSoldierIndex),
-                        YesNo(isRegisteredSoldier),
-                        static_cast<unsigned>(baseVoiceParam),
-                        static_cast<unsigned>(extra->extraStateId));
-                }
-            }
-            else if (kLogBaseMatchMisses)
-            {
-                Log(
-                    "[CallSignExtra][MISS] ownerIndex=%u entry58=READ_FAIL base=0x%08X extraStateId=0x%08X\n",
-                    static_cast<unsigned>(ownerIndex),
-                    static_cast<unsigned>(baseVoiceParam),
-                    static_cast<unsigned>(extra->extraStateId));
+                return static_cast<std::uint64_t>(extra->extraStateId);
             }
         }
     }
@@ -395,31 +298,6 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
         g_OrigGetVoiceParamWithCallSign
         ? g_OrigGetVoiceParamWithCallSign(self, ownerIndex)
         : 0;
-
-    if (kLogEveryCall)
-    {
-        if (hasEntry58)
-        {
-            Log(
-                "[CallSignExtra][VANILLA] ownerIndex=%u rawCallSign=0x%04X modulo12=%s%u resolvedSoldierIndex=%s%u base=0x%08X final=0x%08X\n",
-                static_cast<unsigned>(ownerIndex),
-                static_cast<unsigned>(rawCallSign),
-                hasModulo12 ? "" : "INVALID:",
-                static_cast<unsigned>(modulo12),
-                resolvedSoldierIndex == 0xFFFFu ? "INVALID:" : "",
-                static_cast<unsigned>(resolvedSoldierIndex),
-                static_cast<unsigned>(baseVoiceParam),
-                static_cast<unsigned>(finalVoiceParam & 0xFFFFFFFFu));
-        }
-        else
-        {
-            Log(
-                "[CallSignExtra][VANILLA] ownerIndex=%u entry58=READ_FAIL base=0x%08X final=0x%08X\n",
-                static_cast<unsigned>(ownerIndex),
-                static_cast<unsigned>(baseVoiceParam),
-                static_cast<unsigned>(finalVoiceParam & 0xFFFFFFFFu));
-        }
-    }
 
     return finalVoiceParam;
 }

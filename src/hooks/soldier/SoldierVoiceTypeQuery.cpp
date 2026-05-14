@@ -15,7 +15,6 @@ namespace
 {
 
 
-    // Soldier2SoundControllerImpl::Activate(this, uint slot, int soundIndex).
     using Activate_t = void(__fastcall*)(void* self,
                                          std::uint32_t slot,
                                          std::int32_t soundIndex);
@@ -24,10 +23,7 @@ namespace
     static Activate_t g_OrigActivate       = nullptr;
     static void*      g_ActivateHookTarget = nullptr;
 
-    // soldierIndex (slot) -> Soldier2SoundControllerImpl* (impl base).
     static std::unordered_map<std::uint16_t, void*> g_SoundCtrlBySoldierIndex;
-    // soundSlot (sound-controller's 0..N index) -> soldierIndex.
-    // Captured at Activate(soldierIndex, soundSlot) time.
     static std::unordered_map<std::uint16_t, std::uint16_t> g_SoldierIndexBySoundSlot;
     static std::mutex g_MapMutex;
 
@@ -39,7 +35,6 @@ namespace
         if (raw == 0xFFFFu)
             return 0xFFFFu;
 
-        // Soldier-class gameObjectIds have the form 0x...._04xx.
         if ((raw & 0xFE00u) != 0x0400u)
             return 0xFFFFu;
 
@@ -47,9 +42,6 @@ namespace
     }
 
 
-    // Activate fires once per soldier-audio-source at mission load — even for
-    // soldiers who never speak. Populates both maps eagerly so SetSoldierVoicePitch
-    // resolves without waiting for the soldier to make a noise.
     static void __fastcall hk_Activate(void* self, std::uint32_t slot, std::int32_t soundIndex)
     {
         if (g_OrigActivate)

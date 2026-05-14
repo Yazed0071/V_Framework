@@ -125,10 +125,6 @@ static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo
         return;
 
     ApplyCountOverride(outInfo, overrideCount);
-
-    Log("[TppPickable] Applied CountRaw override index=%u value=%u\n",
-        static_cast<unsigned>(locatorIndex),
-        static_cast<unsigned>(overrideCount));
 }
 
 

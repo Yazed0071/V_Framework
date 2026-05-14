@@ -17,11 +17,8 @@
 
 namespace
 {
-    // 'VFPC' — tags our reservations.
     constexpr std::uint32_t kVPopupMagic = 0x56465043u;
 
-
-    // MbDvcAnnouncePopupCallbackImpl layout.
     constexpr std::uintptr_t kImpl_TitleBufOffset       = 0x60;
     constexpr std::size_t    kImpl_TitleBufSize         = 0x80;
     constexpr std::uintptr_t kImpl_BodyBufOffset        = 0xe0;
@@ -32,8 +29,6 @@ namespace
     constexpr std::uintptr_t kQuarkRoot_LangMgrOffset   = 0x20;
     constexpr std::uintptr_t kQuarkRoot_GateSvcOffset   = 0x48;
 
-
-    // Slot ring layout (verified JP build).
     constexpr std::uintptr_t kCtrl_SlotsBaseOffset    = 0x08;
     constexpr std::size_t    kCtrl_SlotSize           = 0x14;
     constexpr std::size_t    kCtrl_NumSlots           = 0x10;
@@ -42,24 +37,16 @@ namespace
     constexpr std::uint8_t   kReserveId_Empty         = 0x0E;
     constexpr std::uint8_t   kReserveId_NormalSlot0   = 0x00;
 
-
-    // ReserveAnnouncePopup — controller vtable[+8].
     constexpr std::size_t kCtrlVtableIndex_ReserveAnnouncePopup = 0x08 / sizeof(void*);
 
-
-    // GetLangText — lang manager vtable[+0x750].
     constexpr std::size_t kLangVtableIndex_GetLangText = 0x750 / sizeof(void*);
 
-
-    // Gate svc method — vtable[+0x610].
     constexpr std::size_t kGateVtableIndex = 0x610 / sizeof(void*);
-
 
     using UpdateAnnounceNormal_t = std::int32_t (__fastcall*)(void* self);
     using ReserveAnnouncePopup_t = void (__fastcall*)(void* ctrl, const void* param);
     using GetLangText_t          = const char* (__fastcall*)(void* langMgr, std::uint64_t hash);
     using GateFn_t               = char (__fastcall*)(void* svc);
-
 
     static UpdateAnnounceNormal_t g_OrigUpdateAnnounceNormal = nullptr;
     static UpdateAnnounceNormal_t g_OrigUpdateAnnounceServer = nullptr;
@@ -70,22 +57,13 @@ namespace
     static std::once_flag         g_ReserveHookInstallFlag;
     static std::once_flag         g_GateHookInstallFlag;
 
-
-    // Set true around our hook's call to original.
-    // Gate hook sees flag → returns 1 unconditionally.
     static thread_local bool      g_BypassPopupGate          = false;
 
-
-    // Captured at first hook fire.
     static std::atomic<void*> g_PopupController{ nullptr };
     static std::atomic<void*> g_LangManager{ nullptr };
 
-
-    // One-shot diagnostic dump.
     static std::atomic<bool> g_DiagDumpDone{ false };
 
-
-    // Literal string or LangId hash.
     struct PopupTextSource
     {
         bool          isHash = false;
@@ -103,8 +81,6 @@ namespace
     static std::deque<PendingPopup> g_PendingQueue;
     static std::mutex               g_PendingMutex;
 
-
-    // 20-byte ReserveParam.
 #pragma pack(push, 1)
     struct ReserveParam
     {
@@ -126,10 +102,6 @@ namespace
              + i * kCtrl_SlotSize;
     }
 
-
-    // SEH leaves — POD-only for C2712.
-
-    // Read incoming ReserveParam fields.
     static bool SafeReadIncomingParam(const void* param,
                                       std::uint32_t* outCv1,
                                       std::uint8_t*  outReserveId)
@@ -152,8 +124,6 @@ namespace
         }
     }
 
-
-    // self -> quarkRoot -> popup controller.
     static void* SafeReadControllerFromSelf(void* self)
     {
         if (!self)
@@ -175,8 +145,6 @@ namespace
         }
     }
 
-
-    // Read inner state byte.
     static std::uint32_t SafeReadInnerState(void* self)
     {
         if (!self)
@@ -193,8 +161,6 @@ namespace
         }
     }
 
-
-    // Any magic-tagged slot of given types?
     static bool SafeAnyOurSlotInRing(void* ctrl,
                                      const std::uint8_t* eligibleIds,
                                      std::size_t numEligibleIds)
@@ -227,8 +193,6 @@ namespace
         return false;
     }
 
-
-    // First slot match; flag if magic-tagged.
     static bool SafeFindFirstSlotIsOurs(void* ctrl,
                                         std::uint8_t wantedReserveId,
                                         bool* outIsOurs)
@@ -258,8 +222,6 @@ namespace
         return false;
     }
 
-
-    // Count empty slots in ring.
     static std::size_t SafeCountEmptySlots(void* ctrl)
     {
         if (!ctrl)
@@ -282,8 +244,6 @@ namespace
         }
     }
 
-
-    // Free oldest tagged slot for game.
     static bool SafeEvictOldestOurSlot(void* ctrl)
     {
         if (!ctrl)
@@ -315,8 +275,6 @@ namespace
         return false;
     }
 
-
-    // Write a single byte at self+offset.
     static void SafeWriteImplByte(void* self, std::uintptr_t off, std::uint8_t val)
     {
         if (!self) return;
@@ -327,8 +285,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-
-    // Write a uint32 at self+offset.
     static void SafeWriteImplDword(void* self, std::uintptr_t off, std::uint32_t val)
     {
         if (!self) return;
@@ -339,8 +295,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-
-    // Write title+body into impl buffers.
     static bool SafeWriteTitleBody(void* self,
                                    const char* title,
                                    const char* body)
@@ -365,8 +319,6 @@ namespace
         }
     }
 
-
-    // Invoke ReserveAnnouncePopup via vtable.
     static bool SafeCallReserveAnnouncePopup(void* ctrl, const ReserveParam* p)
     {
         if (!ctrl || !p)
@@ -392,8 +344,6 @@ namespace
         }
     }
 
-
-    // Verify our slot landed in ring.
     static bool SafeVerifyOurReservationLanded(void* ctrl, std::uint8_t reserveId)
     {
         if (!ctrl)
@@ -416,13 +366,10 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            // Fault → assume success.
             return true;
         }
     }
 
-
-    // self -> quarkRoot -> gate service object.
     static void* SafeReadGateSvcFromSelf(void* self)
     {
         if (!self)
@@ -444,8 +391,6 @@ namespace
         }
     }
 
-
-    // self -> quarkRoot -> lang manager.
     static void* SafeReadLangManagerFromSelf(void* self)
     {
         if (!self)
@@ -467,8 +412,6 @@ namespace
         }
     }
 
-
-    // Resolve StringId hash to text.
     static const char* SafeResolveLangText(void* langMgr, std::uint64_t hash)
     {
         if (!langMgr)
@@ -492,8 +435,6 @@ namespace
         }
     }
 
-
-    // Read first matching slot's cv1.
     static std::uint32_t SafeReadFirstSlotCv1(void* ctrl, std::uint8_t wantedReserveId)
     {
         if (!ctrl)
@@ -518,8 +459,6 @@ namespace
         return 0;
     }
 
-
-    // Reserve magic-tagged slot of given type.
     static bool SafeReserveOurSlot(void* ctrl, std::uint8_t reserveId)
     {
         if (!ctrl)
@@ -549,8 +488,6 @@ namespace
         }
     }
 
-
-    // Read gate function pointer (svc vtable[+0x610]).
     static void* SafeGetGateFnPtr(void* gateSvc)
     {
         if (!gateSvc)
@@ -569,8 +506,6 @@ namespace
         }
     }
 
-
-    // Read ReserveAnnouncePopup function pointer.
     static void* SafeGetReserveFnPtr(void* ctrl)
     {
         if (!ctrl)
@@ -589,8 +524,6 @@ namespace
         }
     }
 
-
-    // One-shot slot-ring layout dump.
     static void SafeDiagDumpSlots(void* ctrl, const void* incomingParam)
     {
         if (!ctrl)
@@ -600,12 +533,10 @@ namespace
         {
             const auto* base = reinterpret_cast<const std::uint8_t*>(ctrl);
 
-            // Vtable pointer.
             const std::uintptr_t vtbl = *reinterpret_cast<const std::uintptr_t*>(base);
             Log("[MbDvcCustomPopup][DIAG] controller=%p vtable=0x%016llX\n",
                 ctrl, static_cast<unsigned long long>(vtbl));
 
-            // Incoming param (20 bytes).
             if (incomingParam)
             {
                 const auto* pb = reinterpret_cast<const std::uint8_t*>(incomingParam);
@@ -617,7 +548,6 @@ namespace
                     pb[16], pb[17], pb[18], pb[19]);
             }
 
-            // Dump both layouts side by side.
             Log("[MbDvcCustomPopup][DIAG] --- assuming OLD layout (stride=12, type@+0x08) ---\n");
             for (int i = 0; i < 8; ++i)
             {
@@ -648,8 +578,6 @@ namespace
         }
     }
 
-
-    // Reserve hook — game-priority eviction.
     static void __fastcall hk_ReserveAnnouncePopup(void* ctrl, const void* param)
     {
         if (!ctrl || !param || !g_OrigReserveAnnouncePopup)
@@ -659,7 +587,6 @@ namespace
             return;
         }
 
-        // One-shot layout dump.
         if (!g_DiagDumpDone.exchange(true, std::memory_order_relaxed))
         {
             SafeDiagDumpSlots(ctrl, param);
@@ -676,7 +603,6 @@ namespace
 
         const bool isOurs = (incomingCv1 == kVPopupMagic);
 
-        // Only Normal popups are eligible.
         const bool isNormalSlot = (incomingReserveId == 0x00 || incomingReserveId == 0x01);
 
         const std::size_t empty = SafeCountEmptySlots(ctrl);
@@ -685,13 +611,11 @@ namespace
         {
             if (isOurs)
             {
-                // Refuse our overflow.
                 Log("[MbDvcCustomPopup] Reserve hook: ring full + our reservation -> reject\n");
                 return;
             }
             else
             {
-                // Evict ours for game popup.
                 const bool evicted = SafeEvictOldestOurSlot(ctrl);
                 if (evicted)
                 {
@@ -714,8 +638,6 @@ namespace
         g_OrigReserveAnnouncePopup(ctrl, param);
     }
 
-
-    // Lazy install of Reserve hook.
     static void TryInstallReserveHook(void* ctrl)
     {
         if (!ctrl)
@@ -746,8 +668,6 @@ namespace
         });
     }
 
-
-    // Gate hook — bypass only when our hook set the flag.
     static char __fastcall hk_GateFn(void* svc)
     {
         if (g_BypassPopupGate)
@@ -755,8 +675,6 @@ namespace
         return g_OrigGateFn ? g_OrigGateFn(svc) : 0;
     }
 
-
-    // Lazy install of gate hook.
     static void TryInstallGateHook(void* self)
     {
         if (!self)
@@ -794,8 +712,6 @@ namespace
         });
     }
 
-
-    // Reserve any queued unreserved entries.
     static void DrainUnreservedReservations(void* ctrl)
     {
         if (!ctrl)
@@ -803,7 +719,6 @@ namespace
 
         for (;;)
         {
-            // Find unreserved candidate; capture its reserveId.
             bool         haveCandidate = false;
             std::uint8_t candidateRid  = 0;
             {
@@ -823,7 +738,6 @@ namespace
 
             const bool ok = SafeReserveOurSlot(ctrl, candidateRid);
 
-            // Mark reserved or drop on failure.
             {
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
                 for (auto it = g_PendingQueue.begin(); it != g_PendingQueue.end(); ++it)
@@ -852,8 +766,6 @@ namespace
         }
     }
 
-
-    // Shared body for Normal/Server hooks.
     static std::int32_t RunPopupOverrideHook(
         void*                      self,
         UpdateAnnounceNormal_t     origFn,
@@ -867,7 +779,6 @@ namespace
 
         const std::uint32_t prevState = SafeReadInnerState(self);
 
-        // Capture pointers, drain queue.
         void* ctrl = SafeReadControllerFromSelf(self);
         if (ctrl)
         {
@@ -882,10 +793,8 @@ namespace
             g_LangManager.store(lang, std::memory_order_relaxed);
         }
 
-        // Install gate hook lazily.
         TryInstallGateHook(self);
 
-        // First-slot check (decides if THIS call's consumed slot was ours).
         bool nextSlotIsOurs = false;
         if (ctrl && prevState != 1)
         {
@@ -897,9 +806,6 @@ namespace
             }
         }
 
-        // Anywhere-in-ring check (decides gate bypass).
-        // Game popups in front of ours will also benefit, which is fine —
-        // the override only fires when our slot is first.
         const bool anyOurSlotPending = SafeAnyOurSlotInRing(
             ctrl, eligibleIds, numEligibleIds);
 
@@ -913,10 +819,8 @@ namespace
 
         const std::uint32_t currState = SafeReadInnerState(self);
 
-        // Override on transitions into state 1.
         if (nextSlotIsOurs && prevState != 1 && currState == 1)
         {
-            // Pop first reserved entry of an eligible type.
             bool            havePopped = false;
             PopupTextSource title;
             PopupTextSource body;
@@ -947,7 +851,6 @@ namespace
 
             if (havePopped)
             {
-                // Resolve hashes; null falls back to "".
                 const char* titleText = "";
                 const char* bodyText  = "";
 
@@ -980,48 +883,36 @@ namespace
         return result;
     }
 
-
-    // Normal — slot 0 / 1.
     static std::int32_t __fastcall hk_UpdateAnnounceNormal(void* self)
     {
         static const std::uint8_t kNormalIds[] = { 0, 1 };
         const std::int32_t result = RunPopupOverrideHook(
             self, g_OrigUpdateAnnounceNormal, kNormalIds, sizeof(kNormalIds));
 
-        // Set Update's back-to-Server flag when ours pending.
-        // Update reads state[0x30] at param_1+0x30 (its view) which lives at
-        // self+0x50 in ours (multiple-inheritance adjustor: Update sees
-        // param_1 = self + 0x20). Direct state[0x10]=7 won't work because
-        // Update unconditionally writes state[0x10]=9 after case 8 breaks;
-        // only the case-8 conditional path (state[0x30]!=0 && !IsInvalid)
-        // transitions via goto, skipping that overwrite.
         if (result == 2)
         {
             void* ctrl = g_PopupController.load(std::memory_order_relaxed);
             static const std::uint8_t kServerIds[] = { 2, 3, 4, 7, 8 };
             if (SafeAnyOurSlotInRing(ctrl, kServerIds, sizeof(kServerIds)))
             {
-                SafeWriteImplByte (self, 0x50, 1);   // state[0x30] = back-to-Server flag
-                SafeWriteImplDword(self, 0x5c, 0);   // reset inner slot counter
+                SafeWriteImplByte (self, 0x50, 1);
+                SafeWriteImplDword(self, 0x5c, 0);
             }
         }
         return result;
     }
 
-
-    // Server — slot 2 / 3 / 4 / 7 / 8.
     static std::int32_t __fastcall hk_UpdateAnnounceServer(void* self)
     {
         static const std::uint8_t kServerIds[] = { 2, 3, 4, 7, 8 };
         return RunPopupOverrideHook(self, g_OrigUpdateAnnounceServer,
                                     kServerIds, sizeof(kServerIds));
     }
-}  // namespace
+}
 
 
 bool Install_MbDvcCustomPopup_Hook()
 {
-    // Normal hook (slot 0/1).
     void* targetN = ResolveGameAddress(
         gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal);
     if (!targetN)
@@ -1039,7 +930,6 @@ bool Install_MbDvcCustomPopup_Hook()
     Log("[Hook] MbDvcCustomPopup Normal: %s (target=%p)\n",
         okN ? "OK" : "FAIL", targetN);
 
-    // Server hook (slot 2/3/4/7/8). Optional — non-fatal if address is 0.
     if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer)
     {
         void* targetS = ResolveGameAddress(
@@ -1105,7 +995,6 @@ bool Uninstall_MbDvcCustomPopup_Hook()
 }
 
 
-// Internal: literal-or-hash for both fields, configurable reserveId.
 static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
                                          const char*   titleLiteral,
                                          std::uint64_t titleHash,
@@ -1138,7 +1027,6 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
 
     void* ctrl = g_PopupController.load(std::memory_order_relaxed);
 
-    // Cap at ring capacity (16).
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         if (g_PendingQueue.size() >= kCtrl_NumSlots)
@@ -1155,13 +1043,11 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
         g_PendingQueue.push_back(std::move(p));
     }
 
-    // No controller yet — defer reservation.
     if (!ctrl)
     {
         return true;
     }
 
-    // Reserve immediately.
     const bool reserveOk = SafeReserveOurSlot(ctrl, reserveId);
     if (!reserveOk)
     {
@@ -1172,7 +1058,6 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
         return false;
     }
 
-    // Verify reservation landed in ring.
     const bool landed = SafeVerifyOurReservationLanded(ctrl, reserveId);
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
@@ -1207,7 +1092,6 @@ bool Show_MbDvcAnnouncePopupReport(const char* title, const char* body)
 
 bool Show_MbDvcAnnouncePopupByLangId(const char* titleLabel, const char* bodyLabel)
 {
-    // Empty labels skip lookup.
     const char*  titleLit  = nullptr;
     std::uint64_t titleHash = 0;
     if (titleLabel && *titleLabel)
@@ -1231,7 +1115,6 @@ bool Show_MbDvcAnnouncePopupByLangId(const char* titleLabel, const char* bodyLab
 
 bool Show_MbDvcAnnouncePopupReward(const char* title, const char* body)
 {
-    // Slot 2 — simplest Server template, no format args.
     constexpr std::uint8_t kServerSlot = 2;
     return Show_MbDvcAnnouncePopup_Impl(
         kServerSlot,
@@ -1245,7 +1128,6 @@ bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
 {
     constexpr std::uint8_t kServerSlot = 2;
 
-    // Empty labels skip lookup.
     const char*  titleLit  = nullptr;
     std::uint64_t titleHash = 0;
     if (titleLabel && *titleLabel)
@@ -1267,7 +1149,6 @@ bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
 }
 
 
-// Shared resolver for other modules.
 const char* MbDvcCustom_TryResolveLangText(std::uint64_t hash)
 {
     void* lang = g_LangManager.load(std::memory_order_relaxed);

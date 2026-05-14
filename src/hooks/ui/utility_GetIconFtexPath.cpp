@@ -56,14 +56,9 @@ static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::
         if (it != g_PerEquipIconPaths.end())
         {
             *outPathId = static_cast<std::int64_t>(it->second);
-            Log("[EquipIcon] equipId=%u mode=%d -> 0x%llX\n",
-                equipId,
-                mode,
-                static_cast<unsigned long long>(it->second));
             return outPathId;
         }
     }
-
 
     return g_OrigGetIconFtexPath(outPathId, equipId, mode);
 }

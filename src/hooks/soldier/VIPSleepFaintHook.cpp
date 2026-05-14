@@ -247,41 +247,6 @@ static bool TryGetImportantTargetInfo(std::uint16_t soldierIndex, ImportantTarge
 }
 
 
-static void DumpSleepFaintEntryRange(std::uintptr_t entry, std::size_t startOffset, std::size_t endOffset)
-{
-    if (!entry || endOffset < startOffset)
-        return;
-
-    char line[1024]{};
-    int pos = 0;
-
-    pos += sprintf_s(
-        line + pos,
-        sizeof(line) - pos,
-        "[SleepFaint] entry=%p dump:",
-        reinterpret_cast<void*>(entry));
-
-    for (std::size_t off = startOffset; off <= endOffset; ++off)
-    {
-        std::uint8_t value = 0xFFu;
-        if (SafeReadByte(entry + off, value))
-        {
-            pos += sprintf_s(line + pos, sizeof(line) - pos, " +%02zX=%02X", off, value);
-        }
-        else
-        {
-            pos += sprintf_s(line + pos, sizeof(line) - pos, " +%02zX=??", off);
-        }
-
-        if (pos >= static_cast<int>(sizeof(line) - 20))
-            break;
-    }
-
-    pos += sprintf_s(line + pos, sizeof(line) - pos, "\n");
-    Log("%s", line);
-}
-
-
 static void SetPendingWake(
     std::uint32_t actorId,
     std::uint16_t sleeperIndex,
@@ -296,11 +261,6 @@ static void SetPendingWake(
         std::lock_guard<std::mutex> lock(g_SleepFaintMutex);
         g_PendingWakeByActor[actorId] = info;
     }
-
-    Log("[SleepFaint] CACHE_SET actor=%u sleeperIndex=%u sleeperGameObjectId=0x%04X\n",
-        actorId,
-        static_cast<unsigned>(sleeperIndex),
-        static_cast<unsigned>(sleeperGameObjectId));
 }
 
 
@@ -313,27 +273,16 @@ static bool TryGetPendingWake(std::uint32_t actorId, PendingWakeInfo& outInfo)
     const auto it = g_PendingWakeByActor.find(actorId);
     if (it == g_PendingWakeByActor.end())
     {
-        Log("[SleepFaint] CACHE_MISS actor=%u\n", actorId);
         return false;
     }
 
     if (!IsFreshTick(it->second.tickMs))
     {
-        Log("[SleepFaint] CACHE_EXPIRED actor=%u sleeperIndex=%u sleeperGameObjectId=0x%04X\n",
-            actorId,
-            static_cast<unsigned>(it->second.sleeperIndex),
-            static_cast<unsigned>(it->second.sleeperGameObjectId));
-
         g_PendingWakeByActor.erase(it);
         return false;
     }
 
     outInfo = it->second;
-
-    Log("[SleepFaint] CACHE_HIT actor=%u sleeperIndex=%u sleeperGameObjectId=0x%04X\n",
-        actorId,
-        static_cast<unsigned>(outInfo.sleeperIndex),
-        static_cast<unsigned>(outInfo.sleeperGameObjectId));
 
     return true;
 }
@@ -345,10 +294,6 @@ static void ErasePendingWake(std::uint32_t actorId, const char* reason)
         std::lock_guard<std::mutex> lock(g_SleepFaintMutex);
         g_PendingWakeByActor.erase(actorId);
     }
-
-    Log("[SleepFaint] CACHE_ERASE actor=%u reason=%s\n",
-        actorId,
-        reason ? reason : "unknown");
 }
 
 
@@ -367,33 +312,13 @@ static bool TryExtractSleepFaintCandidatesFromEntry(
     const std::uintptr_t entry = GetNoticeActionEntry(self, actorId);
     if (!entry)
     {
-        if (emitRawLog)
-        {
-            Log("[SleepFaint] no state entry for actor=%u\n", actorId);
-        }
         return false;
     }
 
-    std::uint8_t b50 = 0xFFu;
-    std::uint8_t b51 = 0xFFu;
-    std::uint8_t b52 = 0xFFu;
-    std::uint8_t b53 = 0xFFu;
-    std::uint8_t b57 = 0xFFu;
-    std::uint8_t b5C = 0xFFu;
     std::uint8_t b5D = 0xFFu;
-    std::uint8_t b5E = 0xFFu;
-    std::uint8_t b5F = 0xFFu;
     std::uint16_t w52 = 0xFFFFu;
 
-    SafeReadByte(entry + 0x50ull, b50);
-    SafeReadByte(entry + 0x51ull, b51);
-    SafeReadByte(entry + 0x52ull, b52);
-    SafeReadByte(entry + 0x53ull, b53);
-    SafeReadByte(entry + 0x57ull, b57);
-    SafeReadByte(entry + 0x5Cull, b5C);
     SafeReadByte(entry + 0x5Dull, b5D);
-    SafeReadByte(entry + 0x5Eull, b5E);
-    SafeReadByte(entry + 0x5Full, b5F);
     SafeReadWord(entry + 0x52ull, w52);
 
     if (b5D != 0xFFu)
@@ -405,28 +330,6 @@ static bool TryExtractSleepFaintCandidatesFromEntry(
     {
         outSleeperGameObjectIdFrom52 = w52;
         outSleeperIndexFrom52 = NormalizeSoldierIndexFromGameObjectId(w52);
-    }
-
-    if (emitRawLog)
-    {
-        Log("[SleepFaint] actor=%u entry=%p raw: "
-            "+50=0x%02X +51=0x%02X +52=0x%02X +53=0x%02X "
-            "word52=0x%04X idx52=0x%04X +57=0x%02X +5C=0x%02X +5D=0x%02X +5E=0x%02X +5F=0x%02X\n",
-            actorId,
-            reinterpret_cast<void*>(entry),
-            static_cast<unsigned>(b50),
-            static_cast<unsigned>(b51),
-            static_cast<unsigned>(b52),
-            static_cast<unsigned>(b53),
-            static_cast<unsigned>(w52),
-            static_cast<unsigned>(outSleeperIndexFrom52),
-            static_cast<unsigned>(b57),
-            static_cast<unsigned>(b5C),
-            static_cast<unsigned>(b5D),
-            static_cast<unsigned>(b5E),
-            static_cast<unsigned>(b5F));
-
-        DumpSleepFaintEntryRange(entry, 0x50, 0x60);
     }
 
     return true;
@@ -442,28 +345,6 @@ static void __fastcall hkState_ComradeAction(
     MISSION_GUARD_ORIGINAL_VOID(g_OrigState_ComradeAction, self, actorId, proc, evt);
 
     UNREFERENCED_PARAMETER(evt);
-
-    if (proc == 1 || proc == 2 || proc == 6)
-    {
-        std::uint16_t sleeperIndexFrom5D = 0xFFFFu;
-        std::uint16_t sleeperGameObjectIdFrom52 = 0xFFFFu;
-        std::uint16_t sleeperIndexFrom52 = 0xFFFFu;
-
-        TryExtractSleepFaintCandidatesFromEntry(
-            self,
-            actorId,
-            sleeperIndexFrom5D,
-            sleeperGameObjectIdFrom52,
-            sleeperIndexFrom52,
-            true);
-
-        Log("[SleepFaint] COMRADE_PROC=%u actor=%u idxFrom5D=%u gameObjectIdFrom52=0x%04X idxFrom52=%u\n",
-            proc,
-            actorId,
-            static_cast<unsigned>(sleeperIndexFrom5D),
-            static_cast<unsigned>(sleeperGameObjectIdFrom52),
-            static_cast<unsigned>(sleeperIndexFrom52));
-    }
 
     if (proc == 1)
     {
@@ -512,11 +393,6 @@ static void __fastcall hkState_ComradeAction(
                 {
                     chosenIndex = fallbackIndex;
                     isImportant = TryGetImportantTargetInfo(chosenIndex, info);
-
-                    Log("[SleepFaint] COMRADE_PREP fallback from recent RequestCorpse -> chosenSleeperIndex=%u important=%s officer=%s\n",
-                        static_cast<unsigned>(chosenIndex),
-                        isImportant ? "YES" : "NO",
-                        (isImportant && info.isOfficer) ? "YES" : "NO");
                 }
             }
 
@@ -532,12 +408,6 @@ static void __fastcall hkState_ComradeAction(
             if (chosenIndex != 0xFFFFu)
             {
                 SetPendingWake(actorId, chosenIndex, sleeperGameObjectIdFrom52);
-
-                Log("[SleepFaint] COMRADE_PREP actor=%u chosenSleeperIndex=%u important=%s officer=%s\n",
-                    actorId,
-                    static_cast<unsigned>(chosenIndex),
-                    isImportant ? "YES" : "NO",
-                    (isImportant && info.isOfficer) ? "YES" : "NO");
             }
         }
     }
@@ -554,32 +424,9 @@ static void __fastcall hkState_RecoveryTouch(
 {
     MISSION_GUARD_ORIGINAL_VOID(g_OrigState_RecoveryTouch, self, actorId, proc, evt);
 
-    if (proc == 1 || proc == 2 || proc == 6)
-    {
-        std::uint16_t sleeperIndexFrom5D = 0xFFFFu;
-        std::uint16_t sleeperGameObjectIdFrom52 = 0xFFFFu;
-        std::uint16_t sleeperIndexFrom52 = 0xFFFFu;
-
-        TryExtractSleepFaintCandidatesFromEntry(
-            self,
-            actorId,
-            sleeperIndexFrom5D,
-            sleeperGameObjectIdFrom52,
-            sleeperIndexFrom52,
-            true);
-
-        Log("[SleepFaint] TOUCH_PROC=%u actor=%u idxFrom5D=%u gameObjectIdFrom52=0x%04X idxFrom52=%u\n",
-            proc,
-            actorId,
-            static_cast<unsigned>(sleeperIndexFrom5D),
-            static_cast<unsigned>(sleeperGameObjectIdFrom52),
-            static_cast<unsigned>(sleeperIndexFrom52));
-    }
-
     if (proc == 6 && evt)
     {
         const std::uint32_t eventHash = GetEventHash(evt);
-        Log("[SleepFaint] TOUCH_PROC=6 actor=%u eventHash=0x%08X\n", actorId, eventHash);
 
         if (eventHash == HASH_EVENT_VOICE_NOTICE)
         {
@@ -622,13 +469,6 @@ static void __fastcall hkState_RecoveryTouch(
             ImportantTargetInfo info{};
             const bool isImportant = TryGetImportantTargetInfo(sleeperIndex, info);
 
-            Log("[SleepFaint] TOUCH actor=%u sleeperGameObjectId=0x%04X sleeperIndex=%u important=%s officer=%s\n",
-                actorId,
-                static_cast<unsigned>(sleeperGameObjectId),
-                static_cast<unsigned>(sleeperIndex),
-                isImportant ? "YES" : "NO",
-                (isImportant && info.isOfficer) ? "YES" : "NO");
-
             if (isImportant)
             {
                 Log("[SleepFaint] DISPATCH actor=%u sleeperGameObjectId=0x%04X sleeperIndex=%u officer=YES\n",
@@ -654,34 +494,10 @@ static bool TryInterceptRecoveryWake(
     void* evt,
     const char* tag)
 {
-    if (proc == 1 || proc == 2 || proc == 6)
-    {
-        std::uint16_t sleeperIndexFrom5D = 0xFFFFu;
-        std::uint16_t sleeperGameObjectIdFrom52 = 0xFFFFu;
-        std::uint16_t sleeperIndexFrom52 = 0xFFFFu;
-
-        TryExtractSleepFaintCandidatesFromEntry(
-            self,
-            actorId,
-            sleeperIndexFrom5D,
-            sleeperGameObjectIdFrom52,
-            sleeperIndexFrom52,
-            true);
-
-        Log("[SleepFaint] %s_PROC=%u actor=%u idxFrom5D=%u gameObjectIdFrom52=0x%04X idxFrom52=%u\n",
-            tag,
-            proc,
-            actorId,
-            static_cast<unsigned>(sleeperIndexFrom5D),
-            static_cast<unsigned>(sleeperGameObjectIdFrom52),
-            static_cast<unsigned>(sleeperIndexFrom52));
-    }
-
     if (proc != 6 || evt == nullptr)
         return false;
 
     const std::uint32_t eventHash = GetEventHash(evt);
-    Log("[SleepFaint] %s_PROC=6 actor=%u eventHash=0x%08X\n", tag, actorId, eventHash);
 
     if (eventHash != HASH_EVENT_VOICE_NOTICE)
         return false;
@@ -723,14 +539,6 @@ static bool TryInterceptRecoveryWake(
 
     ImportantTargetInfo info{};
     const bool isImportant = TryGetImportantTargetInfo(sleeperIndex, info);
-
-    Log("[SleepFaint] %s actor=%u sleeperGameObjectId=0x%04X sleeperIndex=%u important=%s officer=%s\n",
-        tag,
-        actorId,
-        static_cast<unsigned>(sleeperGameObjectId),
-        static_cast<unsigned>(sleeperIndex),
-        isImportant ? "YES" : "NO",
-        (isImportant && info.isOfficer) ? "YES" : "NO");
 
     if (!isImportant)
         return false;

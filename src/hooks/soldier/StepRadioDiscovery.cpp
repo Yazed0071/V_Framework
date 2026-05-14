@@ -72,12 +72,6 @@ namespace
     static LostHostageDiscoverySelectedRadio g_LHD_NextConvertOverride{};
 }
 
-#ifdef _DEBUG
-#define LHD_LOG(...) do { std::printf("[LostHostageDiscovery] "); std::printf(__VA_ARGS__); std::printf("\n"); } while (0)
-#else
-#define LHD_LOG(...) do {} while (0)
-#endif
-
 static const char* LostHostageDiscovery_HostageTypeName(int hostageType)
 {
     switch (hostageType)
@@ -342,26 +336,6 @@ static void __fastcall hkLostHostageDiscovery_CheckSightNoticeHostage(
 
     std::lock_guard<std::mutex> lock(g_LHD_Mutex);
 
-    const auto it = g_LHD_LastCandidateTargetBySoldier.find(soldierIndex);
-    const std::uint16_t previous =
-        (it != g_LHD_LastCandidateTargetBySoldier.end())
-        ? it->second
-        : LHD_INVALID_TARGET_ID;
-
-    if (previous != chosenCandidate)
-    {
-        LHD_LOG(
-            "CheckSightNoticeHostage soldier=%u candidate=0x%04X before=[0x%04X,0x%04X,0x%04X] after=[0x%04X,0x%04X,0x%04X]",
-            static_cast<unsigned>(soldierIndex),
-            static_cast<unsigned>(chosenCandidate),
-            static_cast<unsigned>(beforeIds[0]),
-            static_cast<unsigned>(beforeIds[1]),
-            static_cast<unsigned>(beforeIds[2]),
-            static_cast<unsigned>(afterIds[0]),
-            static_cast<unsigned>(afterIds[1]),
-            static_cast<unsigned>(afterIds[2]));
-    }
-
     g_LHD_LastCandidateTargetBySoldier[soldierIndex] = chosenCandidate;
 }
 
@@ -383,33 +357,12 @@ static void __fastcall hkLostHostageDiscovery_StepRadioDiscovery(
     if ((step == 0 || step == 4) && info != nullptr)
     {
         std::uint16_t targetId = LHD_INVALID_TARGET_ID;
-        std::uint16_t auxId = LHD_INVALID_TARGET_ID;
-        std::uint8_t flags = 0xFFu;
 
         LostHostageDiscovery_SafeReadU16(reinterpret_cast<std::uintptr_t>(info) + 0x26ull, targetId);
-        LostHostageDiscovery_SafeReadU16(reinterpret_cast<std::uintptr_t>(info) + 0x28ull, auxId);
-        LostHostageDiscovery_SafeReadU8(reinterpret_cast<std::uintptr_t>(info) + 0x32ull, flags);
 
         if (targetId != LHD_INVALID_TARGET_ID)
         {
             std::lock_guard<std::mutex> lock(g_LHD_Mutex);
-
-            const auto it = g_LHD_LastConfirmedTargetBySoldier.find(soldierIndex);
-            const std::uint16_t previous =
-                (it != g_LHD_LastConfirmedTargetBySoldier.end())
-                ? it->second
-                : LHD_INVALID_TARGET_ID;
-
-            if (previous != targetId)
-            {
-                LHD_LOG(
-                    "StepRadioDiscovery step=%d soldier=%u target=0x%04X aux=0x%04X flags=0x%02X",
-                    step,
-                    static_cast<unsigned>(soldierIndex),
-                    static_cast<unsigned>(targetId),
-                    static_cast<unsigned>(auxId),
-                    static_cast<unsigned>(flags));
-            }
 
             g_LHD_LastConfirmedTargetBySoldier[soldierIndex] = targetId;
         }
@@ -442,12 +395,6 @@ void LostHostageDiscovery_OnRadioRequest(void* self, int actionIndex, int stateP
     LostHostageDiscoveryInfo hostageInfo{};
     if (!LostHostageDiscovery_TryGetTrackedHostageInfo_NoLock(targetId, hostageInfo))
     {
-        LHD_LOG(
-            "OnRadioRequest no tracked hostage: soldier=%u radioType=0x%02X target=0x%04X stateProc=%d",
-            static_cast<unsigned>(after.speakerSoldierIndex),
-            static_cast<unsigned>(after.byte10),
-            static_cast<unsigned>(targetId),
-            stateProc);
         return;
     }
 
@@ -464,16 +411,6 @@ void LostHostageDiscovery_OnRadioRequest(void* self, int actionIndex, int stateP
 
     g_LHD_PendingBySoldier[pending.soldierIndex] = pending;
     g_LHD_NextConvertOverride = pending;
-
-    LHD_LOG(
-        "OnRadioRequest stored override: soldier=%u radioType=0x%02X target=0x%04X hostageType=%s label=0x%08X stateProc=%d pendingCount=%u",
-        static_cast<unsigned>(pending.soldierIndex),
-        static_cast<unsigned>(pending.radioType),
-        static_cast<unsigned>(pending.targetId),
-        LostHostageDiscovery_HostageTypeName(pending.hostageType),
-        static_cast<unsigned>(pending.overrideLabel),
-        stateProc,
-        static_cast<unsigned>(g_LHD_PendingBySoldier.size()));
 }
 
 bool LostHostageDiscovery_TryConsumeConvertOverride(
@@ -501,13 +438,6 @@ bool LostHostageDiscovery_TryConsumeConvertOverride(
 
     outOverrideLabel = g_LHD_NextConvertOverride.overrideLabel;
 
-    LHD_LOG(
-        "TryConsumeConvertOverride hit: radioType=0x%02X overrideLabel=0x%08X target=0x%04X hostageType=%s",
-        static_cast<unsigned>(radioType),
-        static_cast<unsigned>(g_LHD_NextConvertOverride.overrideLabel),
-        static_cast<unsigned>(g_LHD_NextConvertOverride.targetId),
-        LostHostageDiscovery_HostageTypeName(g_LHD_NextConvertOverride.hostageType));
-
     g_LHD_PendingBySoldier.erase(g_LHD_NextConvertOverride.soldierIndex);
     g_LHD_NextConvertOverride = {};
     return true;
@@ -533,15 +463,6 @@ bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
 
     if (!selected.active || selected.overrideLabel == 0u)
         return false;
-
-    LHD_LOG(
-        "TryOverride hit: speaker=%u radioType=0x%02X overrideLabel=0x%08X target=0x%04X hostageType=%s remainingPending=%u",
-        static_cast<unsigned>(ownerIndex),
-        static_cast<unsigned>(radioType),
-        static_cast<unsigned>(selected.overrideLabel),
-        static_cast<unsigned>(selected.targetId),
-        LostHostageDiscovery_HostageTypeName(selected.hostageType),
-        static_cast<unsigned>(g_LHD_PendingBySoldier.size()));
 
     outOverrideLabel = selected.overrideLabel;
     return true;

@@ -2,6 +2,9 @@
 
 #include <Windows.h>
 #include <cstdint>
+#include <mutex>
+#include <random>
+#include <unordered_map>
 
 #include "HookUtils.h"
 #include "log.h"
@@ -31,7 +34,30 @@ namespace
     static AddNoise_t    g_AddNoise = nullptr;
 
 
-    static bool g_UseHoldUpReactionCowardlyReactions = false;
+    enum class CowardlyChoice : std::uint8_t
+    {
+        Unknown = 0,
+        Custom  = 1,
+        Vanilla = 2,
+    };
+
+
+    static std::unordered_map<std::uint32_t, CowardlyChoice> g_CowardlyChoiceByActor;
+    static std::mutex                                        g_CowardlyChoiceMutex;
+
+
+    static CowardlyChoice GetOrRollCowardlyChoice(std::uint32_t actorId)
+    {
+        std::lock_guard<std::mutex> lock(g_CowardlyChoiceMutex);
+        auto& slot = g_CowardlyChoiceByActor[actorId];
+        if (slot == CowardlyChoice::Unknown)
+        {
+            static thread_local std::mt19937 rng{ std::random_device{}() };
+            std::uniform_int_distribution<int> dist(0, 1);
+            slot = (dist(rng) == 0) ? CowardlyChoice::Custom : CowardlyChoice::Vanilla;
+        }
+        return slot;
+    }
 }
 
 
@@ -181,7 +207,13 @@ static void RunCowardlyReactionOverride(
     if (!origFn)
         return;
 
-    if (!g_UseHoldUpReactionCowardlyReactions || proc != 1)
+    if (proc != 1)
+    {
+        origFn(self, actorId, proc);
+        return;
+    }
+
+    if (GetOrRollCowardlyChoice(actorId) != CowardlyChoice::Custom)
     {
         origFn(self, actorId, proc);
         return;
@@ -230,22 +262,6 @@ static void RunCowardlyReactionOverride(
 
     DispatchHoldupReaction(self, actorId, HASH_HOLDUP_REACTION_COWARDLY);
     CallHoldupAddNoise(self, actorId);
-}
-
-
-void Set_HoldUpReactionCowardlyReactions(bool enabled)
-{
-    g_UseHoldUpReactionCowardlyReactions = enabled;
-
-    Log("[HoldUpReactionCowardly] %s (hash=0x%08X)\n",
-        enabled ? "ON" : "OFF",
-        static_cast<unsigned>(HASH_HOLDUP_REACTION_COWARDLY));
-}
-
-
-bool Get_HoldUpReactionCowardlyReactions()
-{
-    return g_UseHoldUpReactionCowardlyReactions;
 }
 
 
@@ -315,6 +331,11 @@ bool Uninstall_HoldUpReactionCowardlyReactions_Hook()
     g_OrigState_EnterStandHoldup1 = nullptr;
     g_OrigState_EnterStandHoldupUnarmed = nullptr;
     g_AddNoise = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(g_CowardlyChoiceMutex);
+        g_CowardlyChoiceByActor.clear();
+    }
 
     Log("[HoldUpReactionCowardly] removed\n");
     return true;

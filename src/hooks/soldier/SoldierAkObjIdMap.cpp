@@ -164,9 +164,6 @@ namespace
     static void __fastcall hk_CallVoiceImpl(void* param_1, void* param_2,
                                             std::uint32_t slot)
     {
-        // `slot` is the sound-controller's per-controller slot index. We
-        // translate it to the soldier-index (game-side, lower 9 bits of
-        // gameObjectId) using the map populated by Activate.
         const std::uint32_t soldierIndex = GetSoldierIndexFromSoundSlot(slot);
 
         const std::uint32_t prev = t_CurrentSpeakingSlot;

@@ -272,12 +272,6 @@ static bool TryResolveHoldupRecoveredTargetIds(
     outRecoveredGameObjectId = recoveredGameObjectId;
     outRecoveredSoldierIndex = recoveredSoldierIndex;
 
-    Log("[Holdup] actor=%u entry=%p recoveredGameObjectId=0x%04X recoveredSoldierIndex=0x%04X\n",
-        actorId,
-        reinterpret_cast<void*>(entry),
-        static_cast<unsigned>(recoveredGameObjectId),
-        static_cast<unsigned>(recoveredSoldierIndex));
-
     return recoveredSoldierIndex != 0xFFFFu;
 }
 
@@ -410,7 +404,6 @@ static void __fastcall hkState_StandRecoveryHoldup(
     if (proc == 6 && evt)
     {
         const std::uint32_t eventHash = GetEventHash(evt);
-        Log("[Holdup] PROC=6 actor=%u eventHash=0x%08X\n", actorId, eventHash);
 
         std::uint16_t recoveredGameObjectId = 0xFFFFu;
         std::uint16_t recoveredSoldierIndex = 0xFFFFu;
@@ -433,33 +426,15 @@ static void __fastcall hkState_StandRecoveryHoldup(
             (eventHash == HASH_EVENT_HOLDUP_RECOVERY || eventHash == HASH_EVENT_VOICE_NOTICE) &&
             ShouldSuppressCustomNonVipRecoveryNow(recoveredGameObjectId, recoveredSoldierIndex))
         {
-            Log("[Holdup] SUPPRESS non-VIP chatter actor=%u eventHash=0x%08X recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u\n",
-                actorId,
-                static_cast<unsigned>(eventHash),
-                static_cast<unsigned>(recoveredGameObjectId),
-                static_cast<unsigned>(recoveredSoldierIndex));
             return;
         }
 
         if (eventHash == HASH_EVENT_HOLDUP_RECOVERY)
         {
-            Log("[Holdup] RECOVERY actor=%u recoveredSoldierIndex=%u important=%s officer=%s\n",
-                actorId,
-                static_cast<unsigned>(recoveredSoldierIndex),
-                isImportant ? "YES" : "NO",
-                (isImportant && info.isOfficer) ? "YES" : "NO");
-
-
             if (isImportant)
             {
                 if (ShouldDispatchHoldupRecovery(actorId, recoveredGameObjectId))
                 {
-                    Log("[Holdup] DISPATCH VIP actor=%u recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u officer=%s\n",
-                        actorId,
-                        static_cast<unsigned>(recoveredGameObjectId),
-                        static_cast<unsigned>(recoveredSoldierIndex),
-                        info.isOfficer ? "YES" : "NO");
-
                     DispatchNoticeReaction(self, actorId, HASH_HOLDUP_RECOVERY_VIP);
                 }
 
@@ -472,22 +447,11 @@ static void __fastcall hkState_StandRecoveryHoldup(
             {
                 if (ShouldDispatchCustomNonVipRecovery(recoveredGameObjectId, recoveredSoldierIndex))
                 {
-                    Log("[Holdup] REPLACE non-VIP recovery actor=%u recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u customHash=0x%08X\n",
-                        actorId,
-                        static_cast<unsigned>(recoveredGameObjectId),
-                        static_cast<unsigned>(recoveredSoldierIndex),
-                        static_cast<unsigned>(HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM));
-
                     DispatchNoticeReaction(self, actorId, HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM);
                     BeginCustomNonVipRecoverySuppressWindow(recoveredGameObjectId, recoveredSoldierIndex);
                 }
                 else
                 {
-                    Log("[Holdup] IGNORE duplicate non-VIP recovery actor=%u recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u\n",
-                        actorId,
-                        static_cast<unsigned>(recoveredGameObjectId),
-                        static_cast<unsigned>(recoveredSoldierIndex));
-
                     BeginCustomNonVipRecoverySuppressWindow(recoveredGameObjectId, recoveredSoldierIndex);
                 }
 
@@ -503,11 +467,6 @@ static void __fastcall hkState_StandRecoveryHoldup(
             {
                 if (ShouldSuppressVanillaVoiceNotice(actorId, recoveredGameObjectId))
                 {
-                    Log("[Holdup] SUPPRESS vanilla VIP voice notice actor=%u recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u officer=%s\n",
-                        actorId,
-                        static_cast<unsigned>(recoveredGameObjectId),
-                        static_cast<unsigned>(recoveredSoldierIndex),
-                        info.isOfficer ? "YES" : "NO");
                     return;
                 }
             }
@@ -517,10 +476,6 @@ static void __fastcall hkState_StandRecoveryHoldup(
                 !isImportant &&
                 ShouldSuppressCustomNonVipRecoveryNow(recoveredGameObjectId, recoveredSoldierIndex))
             {
-                Log("[Holdup] SUPPRESS vanilla non-VIP voice notice actor=%u recoveredGameObjectId=0x%04X recoveredSoldierIndex=%u\n",
-                    actorId,
-                    static_cast<unsigned>(recoveredGameObjectId),
-                    static_cast<unsigned>(recoveredSoldierIndex));
                 return;
             }
         }

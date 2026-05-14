@@ -71,8 +71,6 @@ namespace
     }
 
 
-    // Logging hook on AK::SoundEngine::SetRTPCValue.
-    // No SEH and no allocations on the hot path.
     static int __cdecl hk_SetRTPCValue(std::uint32_t rtpcId,
                                        float value,
                                        std::uint64_t akGameObjId,
@@ -101,7 +99,6 @@ namespace
     }
 
 
-    // Lazy install — only installs when logging is enabled the first time.
     static void TryInstallLoggerHook()
     {
         std::call_once(g_LoggerInstallFlag, []()
@@ -136,8 +133,6 @@ namespace
         if (!ResolveApis())
             return -2;
 
-        // Use original through trampoline if logger is installed,
-        // otherwise call the resolved direct address.
         const int result = g_OrigSetRTPCValue
             ? g_OrigSetRTPCValue(rtpcId, value, akGameObj, timeMs, kCurveLinear)
             : g_SetRTPCValue(rtpcId, value, akGameObj, timeMs, kCurveLinear);
@@ -175,7 +170,6 @@ namespace
     }
 
 
-    // One-shot warning — engine gameObjectId is NOT a Wwise AkGameObjectID.
     static void WarnEngineGoIdMisuse()
     {
         static bool s_warned = false;

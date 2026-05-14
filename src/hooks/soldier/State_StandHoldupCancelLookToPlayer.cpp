@@ -68,7 +68,7 @@ static uintptr_t GetHoldupSlot(void* holdupThis, uint32_t id32)
 
 static uint32_t ComputeLineIdFromSlot(uintptr_t slot)
 {
-    uint32_t lineId = 0x17CD9886u; // EVR071:Player has their gun on the enemy - more reaction variations. Bold reactions.
+    uint32_t lineId = 0x17CD9886u;
 
     return lineId;
 }

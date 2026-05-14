@@ -27,6 +27,14 @@ function this.SetEquipIdIconFtexPath(equipId, path)
     V_FrameWork.SetEquipIdIconFtexPath(equipId, path)
 end
 
+function this.ClearIconFtexPath(equipId)
+    V_FrameWork.ClearIconFtexPath(equipId)
+end
+
+function this.ClearAllIconFtexPaths()
+    V_FrameWork.ClearAllIconFtexPaths()
+end
+
 function this.SetDefaultEquipBgTexturePath(path)
     if not IsTypeString(path) then
         V_FrameWork.Log("V_TppUiCommand.SetDefaultEquipBgTexturePath: path is not a string.")

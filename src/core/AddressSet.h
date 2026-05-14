@@ -327,10 +327,10 @@ namespace AddressSetRuntime
             0x14033d520ull, // AK_SoundEngine_SetRTPCValue (thunk → AK::SoundEngine::SetRTPCValue)
             0x14032ADF0ull, // Fox_Sd_ConvertParameterID (thunk → fox::sd::ConvertParameterID; RTPC/Switch/State name hash)
             0x143F42540ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject
-            0x14032B040ull, // Fox_Sd_Object_Activate 
-            0x140329C80ull, // Fox_Sd_Daemon_GetObject 
+            0x14032B040ull, // Fox_Sd_Object_Activate
+            0x140329C80ull, // Fox_Sd_Daemon_GetObject
             0x142B9E8B0ull, // Fox_Sd_Daemon_Singleton
-            0x1468EDD50ull, // SoundControllerImpl_CallInternal 
+            0x1468EDD50ull, // SoundControllerImpl_CallInternal
 
 
             0x149CFBA54ull, // TornadoDualPatch (2-byte JZ inside UnrealUpdaterImpl::PreUpdate; NOP'd to enable tornado dual)
@@ -339,12 +339,12 @@ namespace AddressSetRuntime
             0x146ACC210ull, // RealizedSahelan2Impl_Realize (mission-gated FOVA dispatch; gate is 0x2b8f at +0x8d into the function)
             0x146ACC650ull, // RealizedSahelan2Impl_SetFovaImpl (loads vanilla FOVA via hardcoded hash 0x60887fe72aa5c04b at +0x16)
             0x144A3CBD0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation (7-arg FV2 apply used by SetFovaImpl)
-            0x14BBC1B10ull, // Sahelan_ActionCoreImpl_SetEyeLampColor 
-            0x14BBC3630ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor 
+            0x14BBC1B10ull, // Sahelan_ActionCoreImpl_SetEyeLampColor
+            0x14BBC3630ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor
             0x14BBC37A0ull, // Sahelan_ActionCoreImpl_UpdateHeartLight
             0x14BCA4b70ull, // Sahelan_PhaseSneakAi_PushEyeColor
-            0x142B40000ull, // Sahelan_EyeMeshHashTable 
-            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase 
+            0x142B40000ull, // Sahelan_EyeMeshHashTable
+            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase
 
 
             0x146AB80F0ull, // RealizedSecurityCamera2Impl_SetFova (3-arg variant switcher; reads FV2 ptr from this[0x98 + variant*8], no hardcoded hash, no mission gate. FovaType: 0=normal camera, 1=gun camera)
@@ -360,7 +360,7 @@ namespace AddressSetRuntime
             0x147732010ull, // HudCommonDataManager_StartPopup
 
             0x14158C290ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
-            0x14158B4f0ull, // Soldier2SoundController_Activate
+            0x14158B520ull, // Soldier2SoundController_Activate (was 0x14158B4F0 = padding; real entry verified at 14158b520 PUSH RBX prologue)
             0x1441DBB80ull, // CAkResampler_SetPitch
 
 
@@ -483,8 +483,8 @@ namespace AddressSetRuntime
             0x14A6C34B4ull, // TornadoDualPatch
 
 
-            0x148655E70ull, // RealizedSahelan2Impl_Realize 
-            0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl 
+            0x148655E70ull, // RealizedSahelan2Impl_Realize
+            0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl
             0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation
             0x14B77E550ull, // Sahelan_ActionCoreImpl_SetEyeLampColor (JP)
             0x14B7801D0ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor (JP: per-frame updater — reads storage at *(this+0x48)+slot*0x60+0x20)
@@ -512,22 +512,22 @@ namespace AddressSetRuntime
 
 
             0x143F6EE50ull, // FNVHash32
-            0x1477CD50Cull, // Play_bgm_gameover 
-            0x1477CD513ull, // Play_bgm_gameover_paradox 
-            0x1477CD505ull, // Play_bgm_gameover_perfectstealth 
-            0x1477CD51Aull, // Play_bgm_s10010_gameover 
-            0x1477D0274ull, // Stop_bgm_gameover 
-            0x1477D0285ull, // Stop_bgm_gameover_paradox 
-            0x1477D0279ull, // Stop_bgm_gameover_perfectstealth 
-            0x1477D028Cull, // Stop_bgm_s10010_gameover 
-            0x14226BF18ull, // Play_bgm_gameover_paradox_soundId 
-            0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId 
+            0x1477CD50Cull, // Play_bgm_gameover
+            0x1477CD513ull, // Play_bgm_gameover_paradox
+            0x1477CD505ull, // Play_bgm_gameover_perfectstealth
+            0x1477CD51Aull, // Play_bgm_s10010_gameover
+            0x1477D0274ull, // Stop_bgm_gameover
+            0x1477D0285ull, // Stop_bgm_gameover_paradox
+            0x1477D0279ull, // Stop_bgm_gameover_perfectstealth
+            0x1477D028Cull, // Stop_bgm_s10010_gameover
+            0x14226BF18ull, // Play_bgm_gameover_paradox_soundId
+            0x14226BF1Cull, // Stop_bgm_gameover_paradox_soundId
 
 
             0x140E247DFull, // DD_vox_SH_voice
             0x140E24752ull, // DD_vox_SH_radio
             0x140E247CFull, // DD_vox_SH_radio2
-            0x140E247D7ull, // DD_vox_SH_radio3  
+            0x140E247D7ull, // DD_vox_SH_radio3
         };
 
         return value;

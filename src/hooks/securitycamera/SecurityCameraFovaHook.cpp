@@ -31,8 +31,6 @@ namespace
     static SetFova_t g_OrigSetFova = nullptr;
 
 
-    // tpp::gm::securitycamera::FovaType:
-    //   0 = normal camera, 1 = gun camera
     static constexpr std::int32_t kMaxVariants = 2;
 
     static const char* VariantLabel(std::int32_t variant)
@@ -90,14 +88,7 @@ namespace
             const std::int64_t entry = loadFn(
                 reinterpret_cast<void*>(owner), partsType, kFv2SlotKind, hash, 0u);
             if (!entry)
-            {
-                Log("[SecCamFova] resolver returned null (variant=%d %s, partsType=%u, hash=0x%016llX)\n",
-                    static_cast<int>(variant),
-                    VariantLabel(variant),
-                    static_cast<unsigned>(partsType),
-                    static_cast<unsigned long long>(hash));
                 return false;
-            }
 
             const std::int64_t fv2Ptr =
                 *reinterpret_cast<std::int64_t*>(entry + kFv2EntryToFv2Offset);
@@ -130,14 +121,7 @@ namespace
 
         if (pendingHash != 0)
         {
-            const bool ok = ApplyOverrideForVariant(self, variant);
-            Log("[SecCamFova] hkSetFova: self=%p param2=%u variant=%d (%s) override=0x%016llX applied=%s\n",
-                self,
-                static_cast<unsigned>(param2),
-                static_cast<int>(variant),
-                VariantLabel(variant),
-                static_cast<unsigned long long>(pendingHash),
-                ok ? "YES" : "NO");
+            ApplyOverrideForVariant(self, variant);
         }
 
         if (g_OrigSetFova)

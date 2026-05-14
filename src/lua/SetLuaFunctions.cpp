@@ -417,6 +417,9 @@ static std::uint32_t GetLuaStrCode32Arg(lua_State* L, int idx)
     if (GetLuaTop(L) < idx)
         return 0u;
 
+    if (LuaIsNumber(L, idx))
+        return static_cast<std::uint32_t>(GetLuaInt64(L, idx));
+
     if (LuaIsString(L, idx))
     {
         const char* s = GetLuaString(L, idx);
@@ -424,9 +427,6 @@ static std::uint32_t GetLuaStrCode32Arg(lua_State* L, int idx)
             return 0u;
         return FoxHashes::StrCode32(s);
     }
-
-    if (LuaIsNumber(L, idx))
-        return static_cast<std::uint32_t>(GetLuaInt64(L, idx));
 
     return 0u;
 }
@@ -904,7 +904,6 @@ static int __cdecl l_SetGlobalRtpcById(lua_State* L)
 }
 
 
-// Direct passthrough — caller knows the Wwise AkObjectID.
 static int __cdecl l_SetRtpcByAkObjId(lua_State* L)
 {
     const std::uint64_t akObjId  = GetLuaInt64(L, 1);
@@ -918,7 +917,6 @@ static int __cdecl l_SetRtpcByAkObjId(lua_State* L)
 }
 
 
-// Direct passthrough by precomputed RTPC id.
 static int __cdecl l_SetRtpcByAkObjIdById(lua_State* L)
 {
     const std::uint64_t akObjId = GetLuaInt64(L, 1);
@@ -932,7 +930,6 @@ static int __cdecl l_SetRtpcByAkObjIdById(lua_State* L)
 }
 
 
-// Toggle the AK::SoundEngine::SetRTPCValue logging hook.
 static int __cdecl l_SetRtpcLoggingEnabled(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
@@ -949,7 +946,6 @@ static int __cdecl l_IsRtpcLoggingEnabled(lua_State* L)
 }
 
 
-// Per-soldier RTPC via the SoundController chain. rtpcId pre-hashed.
 static int __cdecl l_SetSoldierObjectRtpc(lua_State* L)
 {
     const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -962,7 +958,6 @@ static int __cdecl l_SetSoldierObjectRtpc(lua_State* L)
 }
 
 
-// Per-soldier RTPC by name (DLL hashes via fox::sd::ConvertParameterID).
 static int __cdecl l_SetSoldierObjectRtpcByName(lua_State* L)
 {
     const std::uint32_t goId     = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -975,8 +970,6 @@ static int __cdecl l_SetSoldierObjectRtpcByName(lua_State* L)
 }
 
 
-// PHASE 0 — global pitch bias on every CAkResampler::SetPitch call.
-// Affects ALL audio (voice, sfx, bgm). Use to verify the mechanism works.
 static int __cdecl l_SetGlobalVoicePitch(lua_State* L)
 {
     const float cents = GetLuaNumber(L, 1);
@@ -1017,8 +1010,6 @@ static int __cdecl l_ClearAllPerAkObjIdPitchBiases(lua_State* L)
 }
 
 
-// Translate a soldier gameObjectId to its Wwise AkGameObjectID.
-// Returns 0 if soldier not yet voice-resolved or chain failed.
 static int __cdecl l_GetSoldierAkObjId(lua_State* L)
 {
     const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -1028,9 +1019,6 @@ static int __cdecl l_GetSoldierAkObjId(lua_State* L)
 }
 
 
-// Set per-soldier voice pitch — applies immediately if resolvable, else
-// queues the request and applies on the next voice-type resolution.
-// Returns true if applied immediately, false if queued.
 static int __cdecl l_SetSoldierVoicePitch(lua_State* L)
 {
     const std::uint32_t goId  = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -1080,14 +1068,6 @@ static int l_SetUseConcernedHoldupRecovery(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1) != 0;
     Set_UseCustomNonVipHoldupRecovery(enabled);
-    return 0;
-}
-
-
-static int l_HoldUpReactionCowardlyReactions(lua_State* L)
-{
-    const bool enabled = GetLuaBool(L, 1);
-    Set_HoldUpReactionCowardlyReactions(enabled);
     return 0;
 }
 
@@ -1436,7 +1416,6 @@ static int __cdecl l_Log(lua_State* L)
 }
 
 
-
 static std::uint64_t ParseSahelanFovaArg(const char* text)
 {
     if (!text || !*text)
@@ -1519,11 +1498,6 @@ static int __cdecl l_ClearSahelanFova(lua_State* L)
 }
 
 
-// Sahelanthropus eye-lamp color, per AI mode.
-// Lua signature: (r, g, b, pulseSpeed, mode)
-//   r, g, b     : color in 0..1 floats
-//   pulseSpeed  : pulse rate in Hz; 0 = steady, no pulsing
-//   mode        : engine AI state value (typically 0..5)
 static int __cdecl l_SetEyeLampColor(lua_State* L)
 {
     const float r          = GetLuaNumber(L, 1);
@@ -1552,8 +1526,6 @@ static int __cdecl l_SetEyeLampColorLogging(lua_State* L)
 }
 
 
-// Disco mode — eye lamps cycle through the full hue rainbow at `speed`
-// cycles/sec. Overrides any per-mode SetEyeLampColor settings.
 static int __cdecl l_SetEyeLampDisco(lua_State* L)
 {
     const bool  enabled = GetLuaBool(L, 1);
@@ -1563,8 +1535,6 @@ static int __cdecl l_SetEyeLampDisco(lua_State* L)
 }
 
 
-// Heart light (Sahelanthropus' chest glow) — single color override.
-// Lua signature: (r, g, b, pulseSpeed).
 static int __cdecl l_SetHeartLightColor(lua_State* L)
 {
     const float r          = GetLuaNumber(L, 1);
@@ -1825,7 +1795,6 @@ static int __cdecl l_SetEnableHeliVoice(lua_State* L)
 }
 
 
-// Queue popup with literal text.
 static int __cdecl l_ShowMbDvcAnnouncePopupReport(lua_State* L)
 {
     const char* title = GetLuaString(L, 1);
@@ -1839,7 +1808,6 @@ static int __cdecl l_ShowMbDvcAnnouncePopupReport(lua_State* L)
 }
 
 
-// Queue popup using LangId label names.
 static int __cdecl l_ShowMbDvcAnnouncePopupReportLangId(lua_State* L)
 {
     const char* titleLabel = GetLuaString(L, 1);
@@ -1853,7 +1821,6 @@ static int __cdecl l_ShowMbDvcAnnouncePopupReportLangId(lua_State* L)
 }
 
 
-// Queue Server popup (slot picked internally).
 static int __cdecl l_ShowMbDvcAnnouncePopupReward(lua_State* L)
 {
     const char* title = GetLuaString(L, 1);
@@ -1867,7 +1834,6 @@ static int __cdecl l_ShowMbDvcAnnouncePopupReward(lua_State* L)
 }
 
 
-// Queue Server popup using LangId label names.
 static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
 {
     const char* titleLabel = GetLuaString(L, 1);
@@ -1879,8 +1845,6 @@ static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
     PushLuaBool(L, ok);
     return 1;
 }
-
-
 
 
 static luaL_Reg g_VFrameWorkLib[] =
@@ -1930,7 +1894,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
     { "RemoveVIPImportant",                     l_RemoveVIPImportant },
     { "ClearVIPImportant",                      l_ClearVIPImportant },
-    { "HoldUpReactionCowardlyReaction",         l_HoldUpReactionCowardlyReactions },
     { "AddCallSignPatrolSoldier",               l_AddCallSignExtraSoldier },
     { "RemoveCallSignPatrolSoldier",            l_RemoveCallSignExtraSoldier },
     { "ClearCallSignPatrolSoldiers",            l_ClearCallSignExtraSoldiers },
@@ -2025,12 +1988,6 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     if (!L)
         return 0;
 
-    // Guard against double registration. The SetLuaFunctions hook may have
-    // already registered the V_FrameWork library on this state during the
-    // game's own bootstrap; a subsequent `require "V_FrameWork"` from mod
-    // Lua then routes here. Calling FoxLuaRegisterLibrary a second time
-    // trips the game's "library already registered" assertion (int 3 →
-    // EXCEPTION_BREAKPOINT).
     if (IsLuaStateRegistered(L))
         return 0;
 

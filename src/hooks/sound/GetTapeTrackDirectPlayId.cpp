@@ -11,11 +11,7 @@
 
 namespace
 {
-
-
     using GetTrackInfoByName_t = void* (__fastcall*)(void* thisPtr, std::int32_t trackNameStrCode);
-
-
 }
 
 

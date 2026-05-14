@@ -220,17 +220,9 @@ MODULE: V_TppUiCommand
   SetGameOverScreenBlurBackgroundTexture(path) Blur layer texture
   UnsetGameOverScreenBackgroundTexture()       Clear both
 
-  MISSION TELOP (START TITLE)
-  ---------------------------
-  SetMissionTelopBgTexturePath(path)           Mission start title BG texture
-  ClearMissionTelopBgTexture()                 Restore vanilla
-
   EXAMPLE:
     V_TppUiCommand.SetLoadingScreenBackgroundTexture(
         "/Assets/tpp/ui/texture/my_loading_screen.ftex")
-
-    V_TppUiCommand.SetMissionTelopBgTexturePath(
-        "/Assets/tpp/ui/texture/my_telop_bg.ftex")
 
   --------------------------------------------------------------------------
   iDroid AnnouncePopup (custom-text iDroid corner popups)
@@ -444,7 +436,6 @@ MODULE: V_TppEnemy
   HOLDUP BEHAVIOR
   ---------------
   SetUseConcernedHoldupRecovery(enable)    Concerned recovery behavior
-  HoldUpReactionCowardlyReaction(enable)   Cowardly reactions
 
   CALL SIGN PATROL
   ----------------
@@ -705,35 +696,229 @@ MODULE: V_TppHostage
 
   Tracks lost hostages for the radio speech override system.
   Gender: 0 = male, 1 = female, 2 = child.
+  "hostage" arguments accept either an object name (string) or a raw
+  gameObjectId (number).
 
+  CORE API
+  --------
   SetLostHostage(hostage, gender, hostageLostLabel)
-                                             Track a lost hostage
-  RemoveLostHostage(hostage)                 Stop tracking
-  ClearLostHostages()                        Clear all
-  SetLostHostageFromPlayer(hostage, enable)  Mark player-caused escape
+                                              Track one hostage with an optional
+                                              direct label override.
+  RemoveLostHostage(hostage)                  Stop tracking.
+  ClearLostHostages()                         Clear every tracked hostage.
+  SetLostHostageFromPlayer(hostage, enable)   Toggle the per-hostage "taken by
+                                              player" flag. Re-pushes the
+                                              right label half (gone/taken)
+                                              for that hostage automatically.
+  IsHostageFemale(hostage)         -> bool
+  IsHostageChild(hostage)          -> bool
+  BuildHostageList()                          Enumerate every TppHostage2 /
+                                              TppHostageUnique / TppHostageUnique2
+                                              into mvars.V_HostageList, populating
+                                              each entry's gender, scenario, and
+                                              resolved customLabel.
+  AutoSetLostHostage()                        Apply tracking + custom label
+                                              to every entry in V_HostageList.
+  AutoSetLostHostageFromPlayer(enable)        Flip every entry's "taken"
+                                              flag at once. Each entry's label
+                                              is re-pushed to match.
 
-  When a soldier reports the hostage gone, the speech label is overridden:
-    - Default                  → built-in male/female/child × taken/not-taken
-                                 voice line picked from gender + the
-                                 SetLostHostageFromPlayer flag
-    - hostageLostLabel set     → that voice line plays instead. Accepts a
-                                 label-name string (auto-hashed via
-                                 Fox.StrCode32) or a numeric pre-hashed
-                                 value. Omit / nil for the built-in behavior.
+  CUSTOM-LABEL API
+  ----------------
+  V_TppHostage.labels                         Public table (read/write directly
+                                              if you want, then call
+                                              RefreshCustomLabels yourself).
+  SetCustomLostLabel(key, value)              Set one entry; auto-refreshes
+                                              every tracked hostage.
+  ClearCustomLostLabel(key)                   Remove one entry; auto-refreshes.
+  ClearAllCustomLostLabels()                  Empty the store; auto-refreshes.
+  RegisterCustomLostLabels(table)             Bulk-merge a table of entries;
+                                              auto-refreshes once at the end.
+  RefreshCustomLabels()                       Re-resolve and re-push every
+                                              tracked hostage. Call manually
+                                              only if you poked
+                                              V_TppHostage.labels directly.
 
-  The found-hostage radio ("I see the hostage") always uses the built-in
-  male/female/child found label and is not customizable.
+  THE TWO RADIO SCENARIOS
+  -----------------------
+  When a soldier reports a hostage gone, the engine picks one of two radio
+  categories based on the per-hostage SetLostHostageFromPlayer flag:
 
-  EXAMPLE:
-    V_TppHostage.SetLostHostage("hostage_0001", 1)  -- female, built-in line
-    V_TppHostage.SetLostHostageFromPlayer("hostage_0001", true)
-    V_TppHostage.SetLostHostage("hos_target_0000", 2, "V_CPR0250_KEEP")
-    -- equivalent to:
-    V_TppHostage.SetLostHostage("hos_target_0000", 2,
-                                Fox.StrCode32("V_CPR0250_KEEP"))
+    SetLostHostageFromPlayer = false   "gone"    Prisoner is gone
+                                                 (CPR0230 / CPR0250 / CPR0270)
+    SetLostHostageFromPlayer = true    "taken"   Intruder got the prisoner
+                                                 (CPR0061 / CPR0062 / CPR0063)
+
+  The custom-label API lets you override either or both halves per hostage,
+  per gender, or globally.
+
+  LABEL STORE KEYS
+  ----------------
+    "hostage_object_name"    Specific hostage by name (any non-gender string).
+    gameObjectId (number)    Specific hostage by raw id (e.g. 0x0800).
+    "male"                   Per-gender default for male hostages.
+    "female"                 Per-gender default for female hostages.
+    "child"                  Per-gender default for child hostages.
+
+  LABEL STORE VALUES
+  ------------------
+    "CPR0250"                                Bare string. Applies to BOTH
+                                             scenarios.
+    0xA2C4A6EC                               Bare number (pre-hashed uint32).
+                                             Applies to BOTH scenarios.
+    { gone = "CPR0250", taken = "CPR0062" }  Pair — per scenario.
+    { gone = "CPR0250" }                     Partial pair — "taken" falls
+                                             through to the next resolution
+                                             layer.
+    { taken = "CPR0062" }                    Same idea, "gone" falls through.
+    nil                                      Clears an existing entry.
+
+  RESOLUTION ORDER (per hostage / scenario)
+  -----------------------------------------
+    1. Exact gameObjectId match
+    2. Name match (non-gender string key that resolves to that id)
+    3. Gender default ("male" / "female" / "child")
+    4. Engine default (vanilla CPR023x or CPR006x)
+
+  Setting labels after BuildHostageList has run (e.g. mid-mission) auto-
+  refreshes every tracked entry — no manual call needed.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 1 — per-gender defaults (most common starting point)
+  --------------------------------------------------------------------------
+
+    V_TppHostage.RegisterCustomLostLabels{
+        male   = { gone = "CPR0230", taken = "CPR0061" },
+        female = { gone = "CPR0250", taken = "CPR0062" },
+        child  = { gone = "CPR0270", taken = "CPR0063" },
+    }
+
+  Every hostage of the matching gender now plays the chosen line for both
+  the "gone" and "taken" scenarios.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 2 — override a single hostage by name
+  --------------------------------------------------------------------------
+
+    V_TppHostage.SetCustomLostLabel("hos_female_00",
+        { gone = "V_CPR0250_KEEP", taken = "CPR0062" })
+
+  Only that specific hostage uses the custom lines. All other hostages still
+  fall through to the gender default (or engine default if none set).
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 3 — override by raw gameObjectId
+  --------------------------------------------------------------------------
+
+    V_TppHostage.SetCustomLostLabel(0x0800,
+        { gone = "CPR0250", taken = "CPR0062" })
+
+  Useful when you already have the gameObjectId and don't want a name lookup.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 4 — bare string (same line for both scenarios)
+  --------------------------------------------------------------------------
+
+    V_TppHostage.SetCustomLostLabel("vip_prisoner", "V_CPR0250_KEEP")
+
+  Both "gone" and "taken" play "V_CPR0250_KEEP" for this hostage. Equivalent
+  to { gone = "V_CPR0250_KEEP", taken = "V_CPR0250_KEEP" }.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 5 — partial pair (only customize one scenario)
+  --------------------------------------------------------------------------
+
+    V_TppHostage.SetCustomLostLabel("female",
+        { gone = "V_CPR0250_KEEP" })
+
+  All female hostages play "V_CPR0250_KEEP" when reported gone. When the
+  taken flag flips, "taken" falls through: no female override → no name
+  match → engine default ("CPR0062").
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 6 — pre-hashed numeric label
+  --------------------------------------------------------------------------
+
+    local hash = Fox.StrCode32("V_CPR0250_KEEP")
+    V_TppHostage.SetCustomLostLabel("hostage_0001", hash)
+
+  -- or written inline:
+    V_TppHostage.SetCustomLostLabel(0x0800, 0xA2C4A6EC)
+
+  Numbers skip the StrCode32 hashing step on the C++ side. Identical
+  end result.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 7 — clearing overrides
+  --------------------------------------------------------------------------
+
+    V_TppHostage.ClearCustomLostLabel("scientist_hostage")
+    V_TppHostage.ClearCustomLostLabel("female")
+    V_TppHostage.ClearAllCustomLostLabels()
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 8 — mid-mission update
+  --------------------------------------------------------------------------
+
+    -- Some event fires later in the mission:
+    V_TppHostage.SetCustomLostLabel("hostage_0042",
+        { gone = "CPR0250", taken = "CPR0062" })
+
+  Because mvars.V_HostageList already exists by this point, the setter
+  immediately recomputes every entry's customLabel and pushes the right half
+  to the engine. No manual refresh needed.
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 9 — full mission setup (recommended order)
+  --------------------------------------------------------------------------
+
+    function this.SetUpEnemy()
+        V_TppHostage.ClearLostHostages()
+        V_TppHostage.ClearAllCustomLostLabels()
+
+        V_TppHostage.RegisterCustomLostLabels{
+            -- Gender defaults
+            female = { gone = "CPR0250", taken = "CPR0062" },
+            child  = { gone = "CPR0270", taken = "CPR0063" },
+
+            -- Per-hostage overrides
+            ["named_hostage"] = { gone = "V_CPR0250_KEEP", taken = "CPR0062" },
+            [0x0800]          = "V_CPR0250_KEEP",
+        }
+
+        V_TppHostage.BuildHostageList()
+        V_TppHostage.AutoSetLostHostage()
+        V_TppHostage.AutoSetLostHostageFromPlayer(false)
+    end
+
+
+  --------------------------------------------------------------------------
+  EXAMPLE 10 — direct table poke (advanced)
+  --------------------------------------------------------------------------
+
+  V_TppHostage.labels is a public table. You may write to it directly, but
+  you must call RefreshCustomLabels yourself afterwards:
+
+    V_TppHostage.labels.female = { gone = "CPR0250", taken = "CPR0062" }
+    V_TppHostage.labels["scientist"] = "V_CPR0250_KEEP"
+    V_TppHostage.RefreshCustomLabels()
+
+  The setter functions (SetCustomLostLabel, RegisterCustomLostLabels, etc.)
+  do this for you — direct-poke is only useful for batch construction with
+  conditional logic.
+
 
   See APPENDIX B for the catalog of vanilla voice-line labels usable as
-  the hostageLostLabel argument.
+  the hostageLostLabel argument or in the custom-label store.
 
 
 ================================================================================
@@ -773,8 +958,6 @@ RAW API: V_FrameWork.*
     SetGameOverSplashMainTexturePath(path)
     SetGameOverSplashBlurTexturePath(path)
     ClearGameOverSplashTextures()
-    SetMissionTelopBgTexturePath(path)
-    ClearMissionTelopBgTexture()
 
   SOUND EVENT PATCHES
     SetGameOverMusic(isEnable, type, playEvent, stopEvent) -> bool
@@ -827,7 +1010,6 @@ RAW API: V_FrameWork.*
     RemoveVIPImportant(gameObjectId)               -> nothing
     ClearVIPImportant()                            -> nothing
     SetUseConcernedHoldupRecovery(enable)           -> nothing
-    HoldUpReactionCowardlyReaction(enable)          -> nothing
     AddCallSignPatrolSoldier(gameObjectId)          -> nothing
     RemoveCallSignPatrolSoldier(gameObjectId)       -> nothing
     ClearCallSignPatrolSoldiers()                   -> nothing
@@ -947,43 +1129,33 @@ APPENDIX B: Voice Line Labels (StrCode32)
     V_TppHostage.SetLostHostage("hos_target_0000", 2,
                                 Fox.StrCode32("CPR0250_KEEP"))
 
-  Each label is the name of a CP radio "transmission" — a scripted sequence
-  of voice clips played back-to-back as one logical broadcast.
-
-  Naming convention:
-    _KEEP suffix    The broadcast ends by ordering all units to stay on
-                    alert until stood down (sustained heat).
-    _UNKEEP suffix  Explicitly omits the "stay on alert" tail (transient).
-    _102 suffix     Code 102 (alert state) variant.
-    no suffix       Default ordering for the situation.
-
   --------------------------------------------------------------------------
   BODY / DEATH REPORTS (use as foundDeadBodyRadioLabel)
   --------------------------------------------------------------------------
 
-  V_CPR0042_KEEP        A VIP's dead. Looks like an enemy attack.
-                      Tighten security and find the intruder. All units,
-                      remain on alert until ordered to stand down.
-  V_CPRGZ0040           One of the officers inspecting the base is dead.
-                      Looks like an enemy attack. Tighten security and find
-                      the intruder. All units, remain on alert until
-                      ordered to stand down.
+  V_CPR0042_KEEP      Soldier: A VIP's dead. Looks like an enemy attack.
+                      CP: Tighten security and find the intruder. All units,
+                      CP: remain on alert until ordered to stand down.
+  
+  V_CPRGZ0040         Soldier: One of the officers inspecting the base is dead.
+                      Soldier: Looks like an enemy attack. Tighten security and find
+                      CP: the intruder. All units, remain on alert until
+                      CP: ordered to stand down.
                       (Ground Zeroes officer-inspection scripted variant.)
   V_CPRGZ0040_UNKEEP    Same as V_CPRGZ0040 but no "stay on alert" tail.
-  V_CPR0231             Found the body of a prisoner. Looks like the work of
-                      an intruder. Commence a search ASAP.
+  V_CPR0231             Soldier: Found the body of a prisoner. Looks like the work ofan intruder. 
+                        CP: Commence a search ASAP.
 
   --------------------------------------------------------------------------
   HOSTAGE ESCAPE REPORTS (use as hostageLostLabel)
   --------------------------------------------------------------------------
 
-  V_CPR0250             The girl's disappeared. Looks like she's escaped.
-                      Commence a search ASAP. Do not let her get away.
+  V_CPR0250             Soldier: The girl's disappeared. Looks like she's escaped.
+                        CP: Commence a search ASAP. Do not let her get away.
   V_CPR0250_KEEP        Same as V_CPR0250 plus the "keep up the search until
-                      stood down" tail.
-  V_CPR0270             The kid's missing. It appears he escaped. He couldn't
-                      have gotten far with his feet in that state. Commence
-                      a search ASAP.
+                        stood down" tail.
+  V_CPR0270             Soldier: The kid's missing. It appears he escaped. 
+                        CP: He couldn't have gotten far with his feet in that state. Commence a search ASAP. (English Only)
   V_CPR0270_KEEP        Same as V_CPR0270 with the keep-searching tail.
 
   --------------------------------------------------------------------------

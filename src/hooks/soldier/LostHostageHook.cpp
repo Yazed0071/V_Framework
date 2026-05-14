@@ -13,6 +13,7 @@
 #include "LostHostageHook.h"
 #include "StepRadioDiscovery.h"
 #include "AddressSet.h"
+#include "FoxHashes.h"
 
 
 using ConvertRadioTypeToSpeechLabel_t = std::uint32_t(__fastcall*)(std::uint8_t radioType);
@@ -24,7 +25,6 @@ using GetQuarkSystemTable_t = void* (__fastcall*)();
 
 static constexpr std::uint8_t  RADIO_PRISONER_GONE = 0x1Au;
 static constexpr std::uint8_t  NOTICE_ESCAPE_OBJECT = 0x21u;
-static constexpr std::uint8_t  NOTICE_ESCAPE_PRELUDE = 0x32u;
 static constexpr std::uint16_t ESCAPE_OBJECT_ID_BASE = 0x6200u;
 static constexpr std::uint8_t  NOTICE_OBJECT_TYPE_LOST = 0x01u;
 static constexpr int           kNoticeObjectSlotCount = 24;
@@ -41,12 +41,13 @@ static constexpr int SOURCE_NONE = 0;
 static constexpr int SOURCE_NOTICE = 1;
 static constexpr int SOURCE_RADIO = 2;
 
-static constexpr std::uint32_t LABEL_MALE_NOT_TAKEN = 0xFA42F4E9u;
-static constexpr std::uint32_t LABEL_MALE_TAKEN = 0x43ED2D08u;
-static constexpr std::uint32_t LABEL_FEMALE_NOT_TAKEN = 0x91C5723Eu;
-static constexpr std::uint32_t LABEL_FEMALE_TAKEN = 0xD586CA7Bu;
-static constexpr std::uint32_t LABEL_CHILD_NOT_TAKEN = 0x93B18EDAu;
-static constexpr std::uint32_t LABEL_CHILD_TAKEN = 0x96902568u;
+
+static constexpr const char* LANGID_MALE_NOT_TAKEN   = "CPR0230";
+static constexpr const char* LANGID_FEMALE_NOT_TAKEN = "V_CPR0250";
+static constexpr const char* LANGID_CHILD_NOT_TAKEN  = "V_CPR0271";
+static constexpr const char* LANGID_MALE_TAKEN       = "CPR0061";
+static constexpr const char* LANGID_FEMALE_TAKEN     = "CPR0062";
+static constexpr const char* LANGID_CHILD_TAKEN      = "CPR0063";
 
 
 struct TrackedHostage
@@ -104,10 +105,32 @@ static const char* SourceName(int source)
 
 static std::uint32_t PickSpeechLabel(int hostageType, bool playerTookIt)
 {
-    if (hostageType == HOSTAGE_MALE)   return playerTookIt ? LABEL_MALE_TAKEN : LABEL_MALE_NOT_TAKEN;
-    if (hostageType == HOSTAGE_FEMALE) return playerTookIt ? LABEL_FEMALE_TAKEN : LABEL_FEMALE_NOT_TAKEN;
-    if (hostageType == HOSTAGE_CHILD)  return playerTookIt ? LABEL_CHILD_TAKEN : LABEL_CHILD_NOT_TAKEN;
-    return 0;
+    static std::uint32_t male_not_taken   = 0;
+    static std::uint32_t female_not_taken = 0;
+    static std::uint32_t child_not_taken  = 0;
+    static std::uint32_t male_taken       = 0;
+    static std::uint32_t female_taken     = 0;
+    static std::uint32_t child_taken      = 0;
+
+    if (male_not_taken == 0)
+    {
+        male_not_taken   = FoxHashes::StrCode32(LANGID_MALE_NOT_TAKEN);
+        female_not_taken = FoxHashes::StrCode32(LANGID_FEMALE_NOT_TAKEN);
+        child_not_taken  = FoxHashes::StrCode32(LANGID_CHILD_NOT_TAKEN);
+        male_taken       = FoxHashes::StrCode32(LANGID_MALE_TAKEN);
+        female_taken     = FoxHashes::StrCode32(LANGID_FEMALE_TAKEN);
+        child_taken      = FoxHashes::StrCode32(LANGID_CHILD_TAKEN);
+    }
+
+    if (playerTookIt)
+    {
+        if (hostageType == HOSTAGE_FEMALE) return female_taken;
+        if (hostageType == HOSTAGE_CHILD)  return child_taken;
+        return male_taken;
+    }
+    if (hostageType == HOSTAGE_FEMALE) return female_not_taken;
+    if (hostageType == HOSTAGE_CHILD)  return child_not_taken;
+    return male_not_taken;
 }
 
 
@@ -138,14 +161,6 @@ static bool ReadU64(std::uintptr_t addr, std::uint64_t& out)
     __try { out = *reinterpret_cast<const std::uint64_t*>(addr); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
-
-static bool ReadBytes(std::uintptr_t addr, std::uint8_t* buf, std::size_t size)
-{
-    if (!addr || !buf || !size) return false;
-    __try { std::memcpy(buf, reinterpret_cast<const void*>(addr), size); return true; }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-
 
 static bool LoadGetNameIdFunction()
 {
@@ -208,44 +223,6 @@ static bool ReadNoticeObjectOwner(int slotIndex,
     return true;
 }
 
-
-static bool ReadCurrentNoticeType(void* self, std::uint32_t soldierIndex, std::uint32_t& outType)
-{
-    outType = 0;
-    if (!self) return false;
-
-    std::uint64_t slotsBase = 0;
-    if (!ReadU64(reinterpret_cast<std::uintptr_t>(self) + 0x40ull, slotsBase) || !slotsBase) return false;
-
-    std::uintptr_t slot = static_cast<std::uintptr_t>(slotsBase) + soldierIndex * 0x80ull;
-
-    std::uint8_t compactType = 0;
-    if (!ReadU8(slot, compactType)) return false;
-
-    if (compactType == 0x3Eu)
-    {
-        int fullType = 0;
-        if (!ReadInt(slot + 0x60ull, fullType)) return false;
-        outType = static_cast<std::uint32_t>(fullType);
-    }
-    else
-    {
-        outType = compactType;
-    }
-    return true;
-}
-
-static void BuildHexDump(std::uintptr_t addr, char* buf, std::size_t bufSize)
-{
-    if (!buf || !bufSize) return;
-    buf[0] = '\0';
-    std::uint8_t bytes[16] = {};
-    if (!ReadBytes(addr, bytes, 16)) { std::snprintf(buf, bufSize, "<read failed>"); return; }
-    std::snprintf(buf, bufSize,
-        "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
-}
 
 static bool ParseNoticeBlob(const void* blob, std::uint8_t& outType, std::uint16_t& outObjId, int& outSlot)
 {
@@ -315,12 +292,6 @@ static PendingReport BuildPendingReport(std::uint32_t soldierIndex,
 static void ClearSelectedReport(const char* reason)
 {
     if (!g_SelectedReport.active) return;
-    Log("[LostHostage] ClearSelectedReport reason=%s soldierIndex=%u hostageObjId=0x%04X type=%s source=%s slot=%d\n",
-        reason, static_cast<unsigned>(g_SelectedReport.soldierIndex),
-        static_cast<unsigned>(g_SelectedReport.hostageObjId),
-        HostageTypeName(g_SelectedReport.hostageType),
-        SourceName(g_SelectedReport.source),
-        g_SelectedReport.slotIndex);
     g_SelectedReport = {};
 }
 
@@ -333,36 +304,16 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
     std::uint8_t  noticeType = 0xFFu;
     std::uint16_t noticeObjId = 0xFFFFu;
     int           slot = -1;
-    char          hexDump[16 * 3] = {};
 
     ParseNoticeBlob(noticeBlob, noticeType, noticeObjId, slot);
-    if (noticeBlob)
-        BuildHexDump(reinterpret_cast<std::uintptr_t>(noticeBlob), hexDump, sizeof(hexDump));
-
-    std::uint32_t noticeBefore = 0;
-    const bool hadBefore = ReadCurrentNoticeType(self, soldierIndex, noticeBefore);
 
     const bool accepted = g_OrigAddNoticeInfo(self, soldierIndex, noticeBlob);
     if (!accepted) return false;
-
-    if (noticeType != NOTICE_ESCAPE_OBJECT && noticeType != NOTICE_ESCAPE_PRELUDE)
-        return true;
-
-    std::uint32_t noticeAfter = 0;
-    const bool hasAfter = ReadCurrentNoticeType(self, soldierIndex, noticeAfter);
-
-    Log("[LostHostageNotice] soldierIndex=%u noticeBefore=%s0x%X noticeAfter=%s0x%X newType=0x%02X blob=[%s]\n",
-        static_cast<unsigned>(soldierIndex),
-        hadBefore ? "" : "?", static_cast<unsigned>(noticeBefore),
-        hasAfter ? "" : "?", static_cast<unsigned>(noticeAfter),
-        static_cast<unsigned>(noticeType), hexDump);
 
     if (noticeType != NOTICE_ESCAPE_OBJECT) return true;
 
     if (slot < 0)
     {
-        Log("[LostHostage] AddNoticeInfo: bad slot soldierIndex=%u noticeObjId=0x%04X\n",
-            static_cast<unsigned>(soldierIndex), static_cast<unsigned>(noticeObjId));
         return true;
     }
 
@@ -371,16 +322,11 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
     std::uint8_t  slotFlags = 0u;
     if (!ReadNoticeObjectOwner(slot, ownerId, slotType, slotFlags))
     {
-        Log("[LostHostage] AddNoticeInfo: NoticeObject slot read failed slot=%d soldierIndex=%u\n",
-            slot, static_cast<unsigned>(soldierIndex));
         return true;
     }
 
     if ((slotFlags & 0x1u) == 0u || slotType != NOTICE_OBJECT_TYPE_LOST)
     {
-        Log("[LostHostage] AddNoticeInfo: NoticeObject slot not active-LOST slot=%d type=0x%02X flags=0x%02X soldierIndex=%u\n",
-            slot, static_cast<unsigned>(slotType), static_cast<unsigned>(slotFlags),
-            static_cast<unsigned>(soldierIndex));
         return true;
     }
 
@@ -389,17 +335,11 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
     TrackedHostage hostage{};
     if (!LookupTrackedByObjectId_NoLock(ownerId, hostage))
     {
-        Log("[LostHostage] AddNoticeInfo: NoticeObject ownerId=0x%04X not in tracked set (slot=%d soldierIndex=%u)\n",
-            static_cast<unsigned>(ownerId), slot, static_cast<unsigned>(soldierIndex));
         return true;
     }
 
     const PendingReport report = BuildPendingReport(soldierIndex, hostage, slot, noticeObjId);
     g_PendingBySoldier[soldierIndex] = report;
-
-    Log("[LostHostage] Pending stored soldierIndex=%u slot=%d noticeObjId=0x%04X hostageObjId=0x%04X type=%s playerTook=%s\n",
-        static_cast<unsigned>(soldierIndex), slot, static_cast<unsigned>(noticeObjId),
-        static_cast<unsigned>(hostage.objectId), HostageTypeName(hostage.type), YesNo(hostage.playerTookIt));
 
     return true;
 }
@@ -427,20 +367,12 @@ static void __fastcall hkStateRadioRequest(void* self, int actionIndex, int stat
     auto it = g_PendingBySoldier.find(soldierIndex);
     if (it == g_PendingBySoldier.end())
     {
-        Log("[LostHostage] RadioRequest: no pending for soldierIndex=%u\n", static_cast<unsigned>(soldierIndex));
         return;
     }
 
     g_SelectedReport = it->second;
     g_SelectedReport.source = SOURCE_RADIO;
     g_PendingBySoldier.erase(it);
-
-    Log("[LostHostage] RadioRequest: selected report soldierIndex=%u hostageObjId=0x%04X type=%s slot=%d playerTook=%s\n",
-        static_cast<unsigned>(g_SelectedReport.soldierIndex),
-        static_cast<unsigned>(g_SelectedReport.hostageObjId),
-        HostageTypeName(g_SelectedReport.hostageType),
-        g_SelectedReport.slotIndex,
-        YesNo(g_SelectedReport.playerTookIt));
 }
 
 static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t radioType)
@@ -455,10 +387,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
         if (LostHostageDiscovery_TryConsumeConvertOverride(radioType, discoveryLabel)
             && discoveryLabel != 0u)
         {
-            Log("[LostHostageRadio] Discovery override radioType=0x%02X default=0x%08X override=0x%08X\n",
-                static_cast<unsigned>(radioType),
-                static_cast<unsigned>(defaultLabel),
-                static_cast<unsigned>(discoveryLabel));
             return discoveryLabel;
         }
     }

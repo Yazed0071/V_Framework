@@ -30,7 +30,6 @@ namespace
         std::uint32_t gameObjectId = 0;
         std::uint16_t soldierIndex = 0;
         bool isOfficer = false;
-        // StrCode32 hash. 0 = no override, fall back to officer/VIP defaults.
         std::uint32_t customDeadBodyLabel = 0;
     };
 
@@ -208,29 +207,12 @@ static void __fastcall hkRequestCorpse(
                     g_RecentImportantCorpsesFromRequest.pop_front();
             }
 
-            Log(
-                "[Radio] RequestCorpse originalGameObjectId=0x%04X soldierIndex=%u important=YES officer=%s fromScript=%s\n",
-                static_cast<unsigned int>(originalGameObjectId),
-                static_cast<unsigned int>(info.soldierIndex),
-                YesNo(info.isOfficer),
-                YesNo(fromScript));
             return;
         }
     }
-
-    Log(
-        "[Radio] RequestCorpse originalGameObjectId=0x%04X soldierIndex=%u important=NO officer=NO fromScript=%s\n",
-        static_cast<unsigned int>(originalGameObjectId),
-        static_cast<unsigned int>(GameObjectIdToSoldierIndex(static_cast<std::uint32_t>(originalGameObjectId))),
-        YesNo(fromScript));
 }
 
 
-// At radioType=0x0E (BodyFound), the StateRadio entry's `arg5` (entry+0x06)
-// carries the body's GameObjectId — written by Update from the AddNoticeInfo
-// blob bytes [4..5] that CheckSightNoticeSoldier emits for body sightings.
-// We look the body up directly instead of guessing from a Lua-populated FIFO
-// queue (which mismatched soldier↔body when multiple bodies were active).
 static short* __fastcall hkCallWithRadioType(
     void* self,
     short* outHandle,
@@ -246,11 +228,6 @@ static short* __fastcall hkCallWithRadioType(
         return outHandle;
     }
 
-    // Hostage-discovery (FOUND alive) override: speaker-soldier-keyed lookup
-    // populated by NoticeHostageAi tracking in StepRadioDiscovery. The AI emit
-    // site for these radioTypes (0x0B/0x0C/0x12/0x25) doesn't pass arg5, so we
-    // can't read the target from the entry — we rely on the per-soldier pending
-    // map keyed by ownerIndex (the speaker).
     {
         std::uint32_t hostageOverrideLabel = 0u;
         if (LostHostageDiscovery_TryOverrideForCallWithRadioType(
@@ -280,60 +257,24 @@ static short* __fastcall hkCallWithRadioType(
     {
         ImportantTargetInfo info{};
         bool found = false;
-        const char* matchSource = "miss";
 
         {
             std::lock_guard<std::mutex> lock(g_StateMutex);
 
-            // Primary: arg5 lookup. Works when the radio carries the body's
-            // registered gameObjectId directly (e.g. soldier-discovers-soldier
-            // in a down-but-alive state).
             if (FindImportantTarget(static_cast<std::uint32_t>(arg5), info))
             {
                 found = true;
-                matchSource = "arg5";
             }
-            // Fallback: for KILLED targets, the body-found radio uses the
-            // corpse's gameObjectId (a separate entity assigned by the game),
-            // not the original soldier's id we registered. hkRequestCorpse
-            // populates g_RecentImportantCorpsesFromRequest whenever an
-            // important target's corpse is created. Pop the front so a
-            // subsequent body-found radio doesn't double-fire on the same
-            // corpse.
             else if (!g_RecentImportantCorpsesFromRequest.empty())
             {
                 info = g_RecentImportantCorpsesFromRequest.front();
                 g_RecentImportantCorpsesFromRequest.pop_front();
                 found = true;
-                matchSource = "recent-corpse";
             }
-        }
-
-        if (found)
-        {
-            Log(
-                "[Radio] BodyFound DIAG: owner=%u radioType=0x%02X arg5=0x%04X lookup=MATCH(%s) gameObjectId=0x%08X soldierIndex=%u officer=%s\n",
-                static_cast<unsigned int>(ownerIndex),
-                static_cast<unsigned int>(radioType),
-                static_cast<unsigned int>(arg5),
-                matchSource,
-                static_cast<unsigned int>(info.gameObjectId),
-                static_cast<unsigned int>(info.soldierIndex),
-                YesNo(info.isOfficer));
-        }
-        else
-        {
-            Log(
-                "[Radio] BodyFound DIAG: owner=%u radioType=0x%02X arg5=0x%04X lookup=MISS\n",
-                static_cast<unsigned int>(ownerIndex),
-                static_cast<unsigned int>(radioType),
-                static_cast<unsigned int>(arg5));
         }
 
         if (radioType == kRadioTypeBodyFound && found)
         {
-            // Caller-supplied StrCode32 label takes priority over both the
-            // officer-default and the non-officer radioType swap.
             if (info.customDeadBodyLabel != 0 && g_CallImpl)
             {
                 Log(

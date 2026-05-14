@@ -14,13 +14,9 @@
 
 namespace
 {
-
-
     using CassetteStart_t = void(__fastcall*)(void* cassetteCallbackBase);
 
-
     using PlayOrPauseSelectedTrack_t = bool(__fastcall*)(void* cassetteCallbackBase);
-
 
     using MusicPlayerPlay_t = void(__fastcall*)(
         void* player,
@@ -33,13 +29,10 @@ namespace
         std::uint8_t loopPlayFlag,
         std::uint8_t allOrOneFlag);
 
-
     using CassettePlayerGetState_t = int(__fastcall*)(void* player);
-
 
     using CassettePlayerSetSpeakerMode_t =
         std::uint32_t* (__fastcall*)(void* player, void* outResult, std::uint32_t targetMode);
-
 
     using CassettePlayerGetSpeakerMode_t = int(__fastcall*)(void* player);
 
@@ -50,7 +43,6 @@ namespace
 
     static constexpr std::uint32_t kCassetteSpeakerModeDisabled = 0u;
     static constexpr std::uint32_t kCassetteSpeakerModeEnabled = 1u;
-
 
     static constexpr std::size_t kTapeIdTableSize = 0x200ull;
 

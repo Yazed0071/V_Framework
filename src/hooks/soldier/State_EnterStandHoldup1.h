@@ -3,12 +3,6 @@
 #include <cstdint>
 
 
-void Set_HoldUpReactionCowardlyReactions(bool enabled);
-
-
-bool Get_HoldUpReactionCowardlyReactions();
-
-
 bool Install_HoldUpReactionCowardlyReactions_Hook();
 
 

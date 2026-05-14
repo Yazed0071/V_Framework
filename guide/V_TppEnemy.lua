@@ -35,15 +35,6 @@ function this.SetUseConcernedHoldupRecovery(enable)
     V_FrameWork.SetUseConcernedHoldupRecovery(enable)
 end
 
-function this.HoldUpReactionCowardlyReaction(enable)
-    if enable == nil then enable = true end
-    if type(enable) ~= "boolean" then
-        V_FrameWork.Log("V_TppEnemy.HoldUpReactionCowardlyReaction: enable is not a boolean.")
-        return
-    end
-    V_FrameWork.HoldUpReactionCowardlyReaction(enable)
-end
-
 function this.AddCallSignPatrolSoldier(soldierNameOrId)
     local gameId = GetGameObjectId(soldierNameOrId)
     if gameId == nil then return end
@@ -77,6 +68,28 @@ function this.ClearSoldierStealthCamoOverrides()
     V_FrameWork.ClearSoldierStealthCamoOverrides()
 end
 
+function this.Messages()
+    return Tpp.StrCode32Table {
+        GameObject = {
+            {
+                msg = "ChangePhase",
+                func = function(gameObjectId, phaseName)
+                    local x,y,z=vars.playerPosX,vars.playerPosY,vars.playerPosZ
+	                local closestCp= InfMain.GetClosestCp{x,y,z}
+	                local cp = GameObject.GetGameObjectId( closestCp )
+
+                    if gameObjectId == cp then
+                        if phaseName >= TppGameObject.PHASE_CAUTION then
+                            this.SetUseConcernedHoldupRecovery(true)
+                        else
+                            this.SetUseConcernedHoldupRecovery(false)
+                        end
+                    end
+                end,
+            },
+        },
+    }
+end
 
 this.VIP_MISSION_LIST = {
     [10036] = {
@@ -171,6 +184,8 @@ function this.SetUpEnemy()
         for _, vipInfo in ipairs(this.VIP_MISSION_LIST[missionCode]) do
             if missionCode == 10121 then
                 this.SetVIPImportant(vipInfo.name, vipInfo.isOfficer, "V_CPRGZ0040")
+            elseif missionCode == 10041 then
+                this.SetVIPImportant(vipInfo.name, vipInfo.isOfficer, "V_CPR0042_KEEP")
             else
                 this.SetVIPImportant(vipInfo.name, vipInfo.isOfficer)
             end
@@ -179,6 +194,18 @@ function this.SetUpEnemy()
     else
         V_FrameWork.Log("No VIP setup for mission " .. tostring(missionCode))
     end
+end
+
+function this.Init(missionTable)
+    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
+end
+
+function this.OnReload(missionTable)
+    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
+end
+
+function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
+    Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
 end
 
 return this
