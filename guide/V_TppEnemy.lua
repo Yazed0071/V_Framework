@@ -92,6 +92,46 @@ function this.ClearEnemyUnitName()
     V_FrameWork.ClearEnemyUnitName()
 end
 
+function this.SetEnemyInformationLangIdForSoldier(soldierNameOrId, langId)
+    local id = GetGameObjectId(soldierNameOrId)
+    if id == nil then return end
+    if not IsTypeString(langId) then
+        V_FrameWork.Log("V_TppEnemy.SetEnemyInformationLangIdForSoldier: langId is not a string.")
+        return
+    end
+    V_FrameWork.SetEnemyInformationLangIdForSoldier(id, langId)
+end
+
+function this.ClearEnemyInformationLangIdForSoldier(soldierNameOrId)
+    local id = GetGameObjectId(soldierNameOrId)
+    if id == nil then return end
+    V_FrameWork.ClearEnemyInformationLangIdForSoldier(id)
+end
+
+function this.ClearAllEnemyInformationLangIdForSoldiers()
+    V_FrameWork.ClearAllEnemyInformationLangIdForSoldiers()
+end
+
+function this.SetEnemyUnitNameForSoldier(soldierNameOrId, langId)
+    local id = GetGameObjectId(soldierNameOrId)
+    if id == nil then return end
+    if not IsTypeString(langId) then
+        V_FrameWork.Log("V_TppEnemy.SetEnemyUnitNameForSoldier: langId is not a string.")
+        return
+    end
+    V_FrameWork.SetEnemyUnitNameForSoldier(id, langId)
+end
+
+function this.ClearEnemyUnitNameForSoldier(soldierNameOrId)
+    local id = GetGameObjectId(soldierNameOrId)
+    if id == nil then return end
+    V_FrameWork.ClearEnemyUnitNameForSoldier(id)
+end
+
+function this.ClearAllEnemyUnitNameForSoldiers()
+    V_FrameWork.ClearAllEnemyUnitNameForSoldiers()
+end
+
 function this.Messages()
     return Tpp.StrCode32Table {
         GameObject = {

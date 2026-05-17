@@ -1893,6 +1893,62 @@ static int __cdecl l_ClearEnemyUnitName(lua_State* L)
 }
 
 
+static int __cdecl l_SetEnemyInformationLangIdForSoldier(lua_State* L)
+{
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const char* name = GetLuaString(L, 2);
+    if (!name || !*name)
+        return 0;
+
+    EnemyLangId_SetMapOverrideForSoldier(gameObjectId, FoxHashes::StrCode64(name));
+    return 0;
+}
+
+
+static int __cdecl l_ClearEnemyInformationLangIdForSoldier(lua_State* L)
+{
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    EnemyLangId_ClearMapOverrideForSoldier(gameObjectId);
+    return 0;
+}
+
+
+static int __cdecl l_ClearAllEnemyInformationLangIdForSoldiers(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EnemyLangId_ClearAllMapOverridesForSoldier();
+    return 0;
+}
+
+
+static int __cdecl l_SetEnemyUnitNameForSoldier(lua_State* L)
+{
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    const char* name = GetLuaString(L, 2);
+    if (!name || !*name)
+        return 0;
+
+    EnemyLangId_SetBinoOverrideForSoldier(gameObjectId, FoxHashes::StrCode64(name));
+    return 0;
+}
+
+
+static int __cdecl l_ClearEnemyUnitNameForSoldier(lua_State* L)
+{
+    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
+    EnemyLangId_ClearBinoOverrideForSoldier(gameObjectId);
+    return 0;
+}
+
+
+static int __cdecl l_ClearAllEnemyUnitNameForSoldiers(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EnemyLangId_ClearAllBinoOverridesForSoldier();
+    return 0;
+}
+
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -2001,6 +2057,13 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearEnemyInformationLangId",            l_ClearEnemyInformationLangId },
     { "SetEnemyUnitName",                       l_SetEnemyUnitName },
     { "ClearEnemyUnitName",                     l_ClearEnemyUnitName },
+
+    { "SetEnemyInformationLangIdForSoldier",      l_SetEnemyInformationLangIdForSoldier },
+    { "ClearEnemyInformationLangIdForSoldier",    l_ClearEnemyInformationLangIdForSoldier },
+    { "ClearAllEnemyInformationLangIdForSoldiers",l_ClearAllEnemyInformationLangIdForSoldiers },
+    { "SetEnemyUnitNameForSoldier",               l_SetEnemyUnitNameForSoldier },
+    { "ClearEnemyUnitNameForSoldier",             l_ClearEnemyUnitNameForSoldier },
+    { "ClearAllEnemyUnitNameForSoldiers",         l_ClearAllEnemyUnitNameForSoldiers },
 
 
     { nullptr, nullptr }

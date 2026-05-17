@@ -4,6 +4,8 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
+#include <mutex>
+#include <unordered_map>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -41,6 +43,9 @@ namespace
     static constexpr std::size_t kResolverVtableOffset    = 0x750;
     static constexpr std::size_t kBinoUiPushVtableOffset  = 0x708;
 
+    static constexpr std::size_t kBinoLookTargetHolder    = 0x68;
+    static constexpr std::size_t kBinoLookTargetKey16     = 0x348;
+
 
     static GetEnemyInformationLangId_t g_OrigGetEnemyInformationLangId = nullptr;
     static GetEnemyUnitName_t          g_OrigGetEnemyUnitName          = nullptr;
@@ -50,6 +55,44 @@ namespace
     static std::atomic<std::uint64_t> g_MapOverrideHash{ 0 };
     static std::atomic<bool>          g_BinoOverrideActive{ false };
     static std::atomic<std::uint64_t> g_BinoOverrideHash{ 0 };
+
+
+    static std::mutex                                       g_PerSoldierMutex;
+    static std::unordered_map<std::uint16_t, std::uint64_t> g_MapPerSoldier;
+    static std::unordered_map<std::uint16_t, std::uint64_t> g_BinoPerSoldier;
+
+
+    static std::uint64_t LookupPerSoldier(
+        const std::unordered_map<std::uint16_t, std::uint64_t>& table,
+        std::uint16_t key16)
+    {
+        std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+        const auto it = table.find(key16);
+        return it == table.end() ? 0ull : it->second;
+    }
+
+
+    static bool TryReadBinoLookTargetKey(void* this_, std::uint16_t& outKey)
+    {
+        outKey = 0;
+        if (!this_)
+            return false;
+
+        __try
+        {
+            const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(this_);
+            const std::uintptr_t holder = *reinterpret_cast<std::uintptr_t*>(base + kBinoLookTargetHolder);
+            if (!holder)
+                return false;
+
+            outKey = *reinterpret_cast<std::uint16_t*>(holder + kBinoLookTargetKey16);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 
 
     static void* TryReadPtr(std::uintptr_t addr)
@@ -156,16 +199,26 @@ static std::uint64_t* __fastcall hkGetEnemyInformationLangId(
     std::uint32_t typeSelector)
 {
     const bool bypass = MissionCodeGuard::ShouldBypassHooks();
-    const bool active = g_MapOverrideActive.load(std::memory_order_acquire);
 
-    if (bypass || !active || !outLangId)
+    if (bypass || !outLangId)
     {
         return g_OrigGetEnemyInformationLangId
             ? g_OrigGetEnemyInformationLangId(this_, outLangId, markerId, param2, typeSelector)
             : outLangId;
     }
 
-    const std::uint64_t hash = g_MapOverrideHash.load(std::memory_order_acquire);
+    std::uint64_t hash = LookupPerSoldier(
+        g_MapPerSoldier, static_cast<std::uint16_t>(markerId & 0xFFFFu));
+
+    if (!hash && g_MapOverrideActive.load(std::memory_order_acquire))
+        hash = g_MapOverrideHash.load(std::memory_order_acquire);
+
+    if (!hash)
+    {
+        return g_OrigGetEnemyInformationLangId
+            ? g_OrigGetEnemyInformationLangId(this_, outLangId, markerId, param2, typeSelector)
+            : outLangId;
+    }
 
     __try
     {
@@ -192,10 +245,15 @@ static bool __fastcall hkGetEnemyUnitName(void* this_)
     if (!ok || MissionCodeGuard::ShouldBypassHooks())
         return ok;
 
-    if (!g_BinoOverrideActive.load(std::memory_order_acquire))
-        return ok;
+    std::uint64_t hash = 0;
 
-    const std::uint64_t hash = g_BinoOverrideHash.load(std::memory_order_acquire);
+    std::uint16_t lookKey = 0;
+    if (TryReadBinoLookTargetKey(this_, lookKey))
+        hash = LookupPerSoldier(g_BinoPerSoldier, lookKey);
+
+    if (!hash && g_BinoOverrideActive.load(std::memory_order_acquire))
+        hash = g_BinoOverrideHash.load(std::memory_order_acquire);
+
     if (!hash)
         return ok;
 
@@ -235,6 +293,80 @@ void EnemyLangId_ClearBinoOverride()
     g_BinoOverrideActive.store(false, std::memory_order_release);
     g_BinoOverrideHash.store(0, std::memory_order_release);
     Log("[EnemyLangId] Bino override cleared\n");
+}
+
+
+void EnemyLangId_SetMapOverrideForSoldier(std::uint32_t soldierGameObjectId,
+    std::uint64_t langIdHash)
+{
+    const std::uint16_t key = static_cast<std::uint16_t>(soldierGameObjectId & 0xFFFFu);
+
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    if (langIdHash == 0)
+        g_MapPerSoldier.erase(key);
+    else
+        g_MapPerSoldier[key] = langIdHash;
+
+    Log("[EnemyLangId] Map per-soldier id=%u key=0x%04X hash=0x%llX\n",
+        soldierGameObjectId,
+        key,
+        static_cast<unsigned long long>(langIdHash));
+}
+
+
+void EnemyLangId_ClearMapOverrideForSoldier(std::uint32_t soldierGameObjectId)
+{
+    const std::uint16_t key = static_cast<std::uint16_t>(soldierGameObjectId & 0xFFFFu);
+
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    g_MapPerSoldier.erase(key);
+
+    Log("[EnemyLangId] Map per-soldier id=%u cleared\n", soldierGameObjectId);
+}
+
+
+void EnemyLangId_ClearAllMapOverridesForSoldier()
+{
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    g_MapPerSoldier.clear();
+    Log("[EnemyLangId] Map per-soldier all cleared\n");
+}
+
+
+void EnemyLangId_SetBinoOverrideForSoldier(std::uint32_t soldierGameObjectId,
+    std::uint64_t langIdHash)
+{
+    const std::uint16_t key = static_cast<std::uint16_t>(soldierGameObjectId & 0xFFFFu);
+
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    if (langIdHash == 0)
+        g_BinoPerSoldier.erase(key);
+    else
+        g_BinoPerSoldier[key] = langIdHash;
+
+    Log("[EnemyLangId] Bino per-soldier id=%u key=0x%04X hash=0x%llX\n",
+        soldierGameObjectId,
+        key,
+        static_cast<unsigned long long>(langIdHash));
+}
+
+
+void EnemyLangId_ClearBinoOverrideForSoldier(std::uint32_t soldierGameObjectId)
+{
+    const std::uint16_t key = static_cast<std::uint16_t>(soldierGameObjectId & 0xFFFFu);
+
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    g_BinoPerSoldier.erase(key);
+
+    Log("[EnemyLangId] Bino per-soldier id=%u cleared\n", soldierGameObjectId);
+}
+
+
+void EnemyLangId_ClearAllBinoOverridesForSoldier()
+{
+    std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
+    g_BinoPerSoldier.clear();
+    Log("[EnemyLangId] Bino per-soldier all cleared\n");
 }
 
 

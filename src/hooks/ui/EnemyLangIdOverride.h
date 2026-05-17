@@ -19,3 +19,23 @@ void EnemyLangId_SetBinoOverride(std::uint64_t langIdHash);
 
 
 void EnemyLangId_ClearBinoOverride();
+
+
+void EnemyLangId_SetMapOverrideForSoldier(std::uint32_t soldierGameObjectId,
+    std::uint64_t langIdHash);
+
+
+void EnemyLangId_ClearMapOverrideForSoldier(std::uint32_t soldierGameObjectId);
+
+
+void EnemyLangId_ClearAllMapOverridesForSoldier();
+
+
+void EnemyLangId_SetBinoOverrideForSoldier(std::uint32_t soldierGameObjectId,
+    std::uint64_t langIdHash);
+
+
+void EnemyLangId_ClearBinoOverrideForSoldier(std::uint32_t soldierGameObjectId);
+
+
+void EnemyLangId_ClearAllBinoOverridesForSoldier();
