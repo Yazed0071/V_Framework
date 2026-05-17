@@ -68,6 +68,30 @@ function this.ClearSoldierStealthCamoOverrides()
     V_FrameWork.ClearSoldierStealthCamoOverrides()
 end
 
+function this.SetEnemyInformationLangId(langId)
+    if not IsTypeString(langId) then
+        V_FrameWork.Log("V_TppEnemy.SetEnemyInformationLangId: langId is not a string.")
+        return
+    end
+    V_FrameWork.SetEnemyInformationLangId(langId)
+end
+
+function this.ClearEnemyInformationLangId()
+    V_FrameWork.ClearEnemyInformationLangId()
+end
+
+function this.SetEnemyUnitName(langId)
+    if not IsTypeString(langId) then
+        V_FrameWork.Log("V_TppEnemy.SetEnemyUnitName: langId is not a string.")
+        return
+    end
+    V_FrameWork.SetEnemyUnitName(langId)
+end
+
+function this.ClearEnemyUnitName()
+    V_FrameWork.ClearEnemyUnitName()
+end
+
 function this.Messages()
     return Tpp.StrCode32Table {
         GameObject = {

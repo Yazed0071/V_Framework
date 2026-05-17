@@ -46,6 +46,7 @@ extern "C" {
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
+#include "../hooks/ui/EnemyLangIdOverride.h"
 
 
 namespace
@@ -1854,6 +1855,44 @@ static int __cdecl l_ShowMbDvcAnnouncePopupRewardLangId(lua_State* L)
 }
 
 
+static int __cdecl l_SetEnemyInformationLangId(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    if (!name || !*name)
+        return 0;
+
+    EnemyLangId_SetMapOverride(FoxHashes::StrCode64(name));
+    return 0;
+}
+
+
+static int __cdecl l_ClearEnemyInformationLangId(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EnemyLangId_ClearMapOverride();
+    return 0;
+}
+
+
+static int __cdecl l_SetEnemyUnitName(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    if (!name || !*name)
+        return 0;
+
+    EnemyLangId_SetBinoOverride(FoxHashes::StrCode64(name));
+    return 0;
+}
+
+
+static int __cdecl l_ClearEnemyUnitName(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    EnemyLangId_ClearBinoOverride();
+    return 0;
+}
+
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "SetDefaultEquipBgTexturePath",           l_SetDefaultEquipBgTexturePath },
@@ -1956,6 +1995,12 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ShowMbDvcAnnouncePopupReportLangId",     l_ShowMbDvcAnnouncePopupReportLangId },
     { "ShowMbDvcAnnouncePopupReward",           l_ShowMbDvcAnnouncePopupReward },
     { "ShowMbDvcAnnouncePopupRewardLangId",     l_ShowMbDvcAnnouncePopupRewardLangId },
+
+
+    { "SetEnemyInformationLangId",              l_SetEnemyInformationLangId },
+    { "ClearEnemyInformationLangId",            l_ClearEnemyInformationLangId },
+    { "SetEnemyUnitName",                       l_SetEnemyUnitName },
+    { "ClearEnemyUnitName",                     l_ClearEnemyUnitName },
 
 
     { nullptr, nullptr }

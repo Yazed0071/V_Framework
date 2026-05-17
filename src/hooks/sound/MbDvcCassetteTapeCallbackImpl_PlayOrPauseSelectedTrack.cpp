@@ -888,7 +888,7 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 
 
 bool PlayCassetteByAlbumAndTrack(
-    std::uint32_t albumIndex,
+    std::uint32_t TrackCountInAlbum,
     std::uint32_t trackIndex,
     bool loopPlay,
     bool playAll)
@@ -934,7 +934,7 @@ bool PlayCassetteByAlbumAndTrack(
         " playAll=%u\n",
         player,
         tapeIdTable,
-        static_cast<unsigned int>(albumIndex),
+        static_cast<unsigned int>(TrackCountInAlbum),
         static_cast<unsigned int>(trackIndex),
         static_cast<unsigned int>(flag1),
         static_cast<unsigned int>(flag2));
@@ -944,7 +944,7 @@ bool PlayCassetteByAlbumAndTrack(
         &outHandle,
         playMode,
         tapeIdTable,
-        albumIndex,
+        TrackCountInAlbum,
         trackIndex,
         reservedZero,
         flag1,

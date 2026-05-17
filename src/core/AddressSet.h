@@ -146,6 +146,9 @@ namespace AddressSetRuntime
         uintptr_t DD_vox_SH_radio2                  = 0;
         uintptr_t DD_vox_SH_radio3                  = 0;
 
+        uintptr_t MotherBaseMapCommonDataImpl_GetEnemyInformationLangId = 0;
+        uintptr_t TppUIBinoSubjectiveImpl_GetEnemyUnitName              = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
@@ -303,6 +306,9 @@ namespace AddressSetRuntime
             0x140e24682ull, // DD_vox_SH_radio (heli radio event hash, primary)
             0x140e246ffull, // DD_vox_SH_radio2 (heli radio event hash, secondary)
             0x140e24707ull, // DD_vox_SH_radio3 (heli radio event hash, tertiary)
+
+            0x140921EC0ull, // MotherBaseMapCommonDataImpl_GetEnemyInformationLangId (iDroid map enemy LangId switch, 34 cases)
+            0x1415E4FE0ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName (bino analyze-text UI)
         };
 
         return value;
@@ -452,6 +458,9 @@ namespace AddressSetRuntime
             0x140E24752ull, // DD_vox_SH_radio
             0x140E247CFull, // DD_vox_SH_radio2
             0x140E247D7ull, // DD_vox_SH_radio3
+
+            0x1409218E0ull, // MotherBaseMapCommonDataImpl_GetEnemyInformationLangId
+            0x1415E5150ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName
         };
 
         return value;
