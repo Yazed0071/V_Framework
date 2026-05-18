@@ -213,13 +213,9 @@ function this.Messages()
 			{
 				msg = "MbDvcActOpenTop",
 				func = function()
-					V_FrameWork.Log("#### Open Terminal ####")
                     if Ivars.V_FrameWork_Welcome_Message:Get() == 0 then
-                        V_FrameWork.Log("#### First Time Install ####")
                         Ivars.V_FrameWork_Welcome_Message:Set(1)
                         V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
-                    else
-                        V_FrameWork.Log("#### Not First Time Install ####")
                     end
 				end
 			},

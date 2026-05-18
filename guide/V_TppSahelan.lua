@@ -83,13 +83,12 @@ end
 
 function this.Messages()
     return Tpp.StrCode32Table {
-        V_GameObject = {
+        GameObject = {
             {
-                msg = "ChangeShalenEyeLampColor",
-                func = function(r, g, b, pulse)
-                    V_FrameWork.Log("[V_TppSahelan] ChangeShalenEyeLampColor r=" .. r
-                        .. " g=" .. g .. " b=" .. b .. " pulse=" .. pulse)
-                end,
+                msg = "ShalenSearchModeChange",
+                func = function(mode)
+                    V_FrameWork.Log("[V_TppSahelan] ShalenSearchModeChange mode=" .. mode)
+                end
             },
         },
     }

@@ -12,9 +12,10 @@ this.debugModule=false
 this.DEBUG_strCode32List={
   "GameObject",
   "Terminal",
-  "ShalenSearchModeChange",
+  "Player",
   "HoldupCancelLookToPlayer",
   "CassettePlay",
+  "CrawlSideRoll",
 }
 
 this.str32ToString={}
@@ -22,26 +23,21 @@ this.unknownMessages={}
 this.messageExecTable=nil
 this.registered=false
 
-this.shalenSearchMode={
-  [-1]="NO_MODE",
-  [0]="Init",
-  [1]="Scream",
-  [2]="SearchNormal",
-  [3]="SearchEvasion",
-  [4]="MODE_4",
-  [5]="Alert",
-}
-
 this.CassettePlay={
   [0]="Speaker_off",
   [1]="Speaker_on",
 }
 
+this.rollDirection={
+  [1]="Left",
+  [2]="Right",
+}
+
 function this.PostModuleReload(prevModule)
   this.str32ToString=prevModule.str32ToString or this.str32ToString or {}
   this.unknownMessages=prevModule.unknownMessages or this.unknownMessages or {}
-  this.shalenSearchMode=prevModule.shalenSearchMode or this.shalenSearchMode
   this.CassettePlay=prevModule.CassettePlay or this.CassettePlay
+  this.rollDirection=prevModule.rollDirection or this.rollDirection
   this.registered=prevModule.registered or false
 
   this.RefreshInfLookupLinks()
@@ -192,8 +188,8 @@ function this.RefreshInfLookupLinks()
   --tex generated lookup refs need to be restored too else they'll point to old tables
   this.lookups.str32=this.StrCode32ToString
   this.lookups.gameId=this.ObjectNameForGameId
-  this.lookups.shalenSearchMode=this.shalenSearchMode
   this.lookups.CassettePlay=this.CassettePlay
+  this.lookups.rollDirection=this.rollDirection
 
   --tex "add everything from InfLookup" without copying its giant table.
   --If this.lookups does not have a lookup, Lua falls through to InfLookup.lookups.
@@ -229,8 +225,8 @@ this.lookups={
     [1]="true",
   },
 
-  shalenSearchMode=this.shalenSearchMode,
   CassettePlay=this.CassettePlay,
+  rollDirection=this.rollDirection,
 }
 
 function this.Lookup(lookupType,value)
@@ -304,10 +300,6 @@ this.alertFuncs={
 this.signatureTypes={
   none={},
 
-  shalenMode={
-    {argName="mode",argType="shalenSearchMode"},
-  },
-
   holdupCancelLookToPlayer={
     {argName="gameId",argType="gameId"},
   },
@@ -317,16 +309,23 @@ this.signatureTypes={
     {argName="TrackCountInAlbum",argType="number"},
     {argName="selectedTrackIndex",argType="number"},
   },
+
+  CrawlSideRoll={
+    {argName="playerIndex",argType="number"},
+    {argName="count",argType="number"},
+    {argName="direction",argType="rollDirection"},
+  },
 }
 
 --tex local custom signatures.
 --tex Any missing sender/message can fall through to InfLookup.messageSignatures.
 this.messageSignatures={
   GameObject={
-    ShalenSearchModeChange=this.signatureTypes.shalenMode,
     HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer,
   },
-
+  Player = {
+    CrawlSideRoll=this.signatureTypes.CrawlSideRoll,
+  },
   Terminal={
     CassettePlay=this.signatureTypes.cassettePlay,
   },
@@ -535,20 +534,20 @@ function this.Messages()
   return Tpp.StrCode32Table{
     GameObject={
       {
-        msg="ShalenSearchModeChange",
-        func=function(mode)
-          this.PrintOnMessage("GameObject","ShalenSearchModeChange",mode,nil,nil,nil)
-        end,
-      },
-
-      {
         msg="HoldupCancelLookToPlayer",
         func=function(gameId)
           this.PrintOnMessage("GameObject","HoldupCancelLookToPlayer",gameId,nil,nil,nil)
         end,
       },
     },
-
+    Player = {
+      {
+        msg="CrawlSideRoll",
+        func=function(playerIndex,count,direction)
+          this.PrintOnMessage("Player","CrawlSideRoll",playerIndex,count,direction,nil)
+        end,
+      },
+    },
     Terminal={
       {
         msg="CassettePlay",

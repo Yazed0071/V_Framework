@@ -1149,6 +1149,7 @@ APPENDIX B: Voice Line Labels (StrCode32)
   --------------------------------------------------------------------------
   HOSTAGE ESCAPE REPORTS (use as hostageLostLabel)
   --------------------------------------------------------------------------
+  V_CPR0230_KEEP Same as CPR0230 with the keep-searching tail.
 
   V_CPR0250             Soldier: The girl's disappeared. Looks like she's escaped.
                         CP: Commence a search ASAP. Do not let her get away.
@@ -1157,6 +1158,10 @@ APPENDIX B: Voice Line Labels (StrCode32)
   V_CPR0270             Soldier: The kid's missing. It appears he escaped. 
                         CP: He couldn't have gotten far with his feet in that state. Commence a search ASAP. (English Only)
   V_CPR0270_KEEP        Same as V_CPR0270 with the keep-searching tail.
+
+  V_CPR0271             Soldier: The kid's missing. It appears he escaped. 
+                        CP: Commence a search ASAP.
+  V_CPR0271_KEEP        Same as V_CPR0271 with the keep-searching tail.
 
   --------------------------------------------------------------------------
   GENERAL CP BROADCASTS (reference; not directly tied to either parameter)

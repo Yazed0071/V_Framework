@@ -1,3 +1,6 @@
+-- V_TppHostage — lost-hostage tracking.
+-- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
+
 local this = {}
 
 local StrCode32              = Fox.StrCode32
@@ -8,12 +11,15 @@ local SendCommand            = GameObject.SendCommand
 local NULL_ID                = GameObject.NULL_ID
 
 local HOSTAGE_OBJECT_TYPES = { "TppHostage2", "TppHostageUnique", "TppHostageUnique2" }
+
 this.labels = {}
 
 
 local function lookupCustomLabel(gameObjectId, gender, scenario)
+    -- 1. by gameObjectId
     local label = this.labels[gameObjectId]
 
+    -- 2. by name (skip gender keys)
     if label == nil then
         for k, v in pairs(this.labels) do
             if type(k) == "string" and k ~= "male" and k ~= "female" and k ~= "child" then
@@ -25,12 +31,14 @@ local function lookupCustomLabel(gameObjectId, gender, scenario)
         end
     end
 
+    -- 3. by gender
     if label == nil then
         if gender == 0 then label = this.labels.male
         elseif gender == 1 then label = this.labels.female
         elseif gender == 2 then label = this.labels.child end
     end
 
+    -- Pair table picks the matching half; bare string/number applies to both.
     if type(label) == "table" then return label[scenario] end
     return label
 end
@@ -42,6 +50,7 @@ local function pushEntry(hostage)
 end
 
 
+-- gender: 0 = male, 1 = female, 2 = child.
 function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel)
     if hostageNameOrId == nil then
         V_FrameWork.Log("V_TppHostage.SetLostHostage: hostageNameOrId is nil.")
@@ -106,6 +115,7 @@ function this.SetLostHostageFromPlayer(hostageNameOrId, enable)
     end
     V_FrameWork.SetLostHostageFromPlayer(hostageNameOrId, enable)
 
+    -- Update entry scenario and re-push the matching label half.
     if mvars.V_HostageList ~= nil then
         for _, hostage in ipairs(mvars.V_HostageList) do
             if hostage.gameObjectId == hostageNameOrId then
@@ -154,19 +164,21 @@ function this.IsHostageChild(hostageNameOrId)
 end
 
 
+-- ===== Custom-label API =====================================================
+
 function this.SetCustomLostLabel(key, value)
     this.labels[key] = value
-    V_TppHostage.RefreshCustomLabels()
+    this.RefreshCustomLabels()
 end
 
 function this.ClearCustomLostLabel(key)
     this.labels[key] = nil
-    V_TppHostage.RefreshCustomLabels()
+    this.RefreshCustomLabels()
 end
 
 function this.ClearAllCustomLostLabels()
     this.labels = {}
-    V_TppHostage.RefreshCustomLabels()
+    this.RefreshCustomLabels()
 end
 
 function this.RegisterCustomLostLabels(t)
@@ -177,7 +189,7 @@ function this.RegisterCustomLostLabels(t)
     for k, v in pairs(t) do
         this.labels[k] = v
     end
-    V_TppHostage.RefreshCustomLabels()
+    this.RefreshCustomLabels()
 end
 
 function this.RefreshCustomLabels()
@@ -193,17 +205,15 @@ function this.BuildHostageList()
 
     for _, hostageObjectType in ipairs(HOSTAGE_OBJECT_TYPES) do
         local hostageCount = SendCommand({ type = hostageObjectType }, { id = "GetMaxInstanceCount" })
-        if hostageCount == nil then
-            V_FrameWork.Log("V_TppHostage.BuildHostageList: Failed to get hostage count for type " .. hostageObjectType)
-        else
+        if hostageCount ~= nil then
             for i = 0, hostageCount - 1 do
                 local hostageGameObjectId = GetGameObjectIdByIndex(hostageObjectType, i)
                 if hostageGameObjectId ~= NULL_ID then
-                    local gender = 0
+                    local gender = 0  -- male
                     if this.IsHostageChild(hostageGameObjectId) then
-                        gender = 2
+                        gender = 2 --child
                     elseif this.IsHostageFemale(hostageGameObjectId) then
-                        gender = 1
+                        gender = 1 -- female
                     end
                     table.insert(mvars.V_HostageList, {
                         gameObjectId = hostageGameObjectId,
