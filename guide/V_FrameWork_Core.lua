@@ -54,11 +54,15 @@ function VFW.BroadcastMessage(category, msg, arg0, arg1, arg2, arg3)
     end
 end
 
-function this.OnTerminate()
+
+
+function this.OnAllocate(missionTable)
     V_SoundCoreDaemon.ClearAllPerAkObjIdPitchBiases()
     V_TppCommandPost.UnsetCautionPhaseDuration()
     V_TppEnemy.ClearCallSignPatrolSoldiers()
     V_TppEnemy.ClearSoldierStealthCamoOverrides()
+    V_TppEnemy.ClearEnemyInformationLangId()
+    V_TppEnemy.ClearEnemyUnitName()
     V_TppEnemy.ClearAllEnemyInformationLangIdForSoldiers()
     V_TppEnemy.ClearAllEnemyUnitNameForSoldiers()
     V_TppHostage.ClearLostHostages()
