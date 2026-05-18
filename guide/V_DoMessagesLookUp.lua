@@ -28,7 +28,14 @@ this.CassettePlay={
   [1]="Speaker_on",
 }
 
+this.rollState={
+  [1]="Start",
+  [4]="Rolling",
+  [2]="End",
+}
+
 this.rollDirection={
+  [0]="Unknown",
   [1]="Left",
   [2]="Right",
 }
@@ -37,6 +44,7 @@ function this.PostModuleReload(prevModule)
   this.str32ToString=prevModule.str32ToString or this.str32ToString or {}
   this.unknownMessages=prevModule.unknownMessages or this.unknownMessages or {}
   this.CassettePlay=prevModule.CassettePlay or this.CassettePlay
+  this.rollState=prevModule.rollState or this.rollState
   this.rollDirection=prevModule.rollDirection or this.rollDirection
   this.registered=prevModule.registered or false
 
@@ -305,13 +313,14 @@ this.signatureTypes={
   },
 
   cassettePlay={
-    {argName="IsSpeaker",argType="CassettePlay"},
+    {argName="IsSpeaker",argType="bool"},
     {argName="TrackCountInAlbum",argType="number"},
     {argName="selectedTrackIndex",argType="number"},
   },
 
   CrawlSideRoll={
     {argName="playerIndex",argType="number"},
+    {argName="state",argType="rollState"},
     {argName="count",argType="number"},
     {argName="direction",argType="rollDirection"},
   },
@@ -543,8 +552,10 @@ function this.Messages()
     Player = {
       {
         msg="CrawlSideRoll",
-        func=function(playerIndex,count,direction)
-          this.PrintOnMessage("Player","CrawlSideRoll",playerIndex,count,direction,nil)
+        func=function(playerIndex, State, count, direction)
+          if State == "Rolling" then
+            
+          end
         end,
       },
     },
