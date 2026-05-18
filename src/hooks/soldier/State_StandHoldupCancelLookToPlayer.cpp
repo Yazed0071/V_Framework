@@ -90,19 +90,19 @@ static void* ResolveSpeakObject(void* holdupThis)
 struct FireEntry
 {
     uint64_t key;
-    uint32_t tick;
+    ULONGLONG tick;
 };
 
 static FireEntry gFireRing[64]{};
 static std::atomic<uint32_t> gFireIdx{ 0 };
 
-static bool ShouldFire(uint64_t key, uint32_t nowTick, uint32_t cooldownMs = 800)
+static bool ShouldFire(uint64_t key, ULONGLONG nowTick, uint32_t cooldownMs = 800)
 {
     for (auto& e : gFireRing)
     {
         if (e.key == key)
         {
-            const uint32_t dt = nowTick - e.tick;
+            const ULONGLONG dt = nowTick - e.tick;
             if (dt < cooldownMs)
                 return false;
 
@@ -144,9 +144,11 @@ static void TrySpeak_EnterDownHoldupStyle(void* holdupThis, uint32_t id32, uint3
         Log("[Holdup] Speak vfunc EXCEPTION. this=%p id=%u line=0x%08X\n",
             holdupThis, id32, lineId);
     }
+}
 
 
-
+static void EmitHoldupCancelLookToPlayerMessage(uint32_t id32)
+{
     std::uint32_t gameObjectId = 0xFFFFu;
 
     if (GetSoldierGameObjectIdWithIndex(id32, gameObjectId))
@@ -172,29 +174,29 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
         return;
 
     const uint32_t id32 = static_cast<uint32_t>(id & 0xFFFFFFFFu);
+    const ULONGLONG now = GetTickCount64();
+
+    {
+        const uint64_t emitKey =
+            ((static_cast<uint64_t>(reinterpret_cast<uintptr_t>(holdupThis)) >> 4) ^
+             (static_cast<uint64_t>(id32) << 32)) ^ 0xE17E17E17E17ULL;
+
+        if (ShouldFire(emitKey, now, 500))
+            EmitHoldupCancelLookToPlayerMessage(id32);
+    }
+
     const uintptr_t slot = GetHoldupSlot(holdupThis, id32);
     if (!slot) return;
 
-    const uint8_t b3f = ReadByteNoThrow(slot + 0x3F);
-    const bool alreadyPlayed = ((b3f & 0x02u) != 0);
-
-    if (alreadyPlayed)
-        return;
 
     const uint32_t lineId = ComputeLineIdFromSlot(slot);
 
-    const uint32_t now = GetTickCount();
     const uint64_t key =
         (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(holdupThis)) >> 4) ^
         (static_cast<uint64_t>(id32) << 32) ^
         static_cast<uint64_t>(lineId);
 
-    if (!ShouldFire(key, now, 900))
-        return;
-
     TrySpeak_EnterDownHoldupStyle(holdupThis, id32, lineId);
-
-    WriteByteNoThrow(slot + 0x3F, static_cast<uint8_t>(b3f | 0x02u));
 
     const uint64_t n = ++gDetourHits;
     if (n == 1 || (n % 50) == 0)
