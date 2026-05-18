@@ -149,6 +149,8 @@ namespace AddressSetRuntime
         uintptr_t MotherBaseMapCommonDataImpl_GetEnemyInformationLangId = 0;
         uintptr_t TppUIBinoSubjectiveImpl_GetEnemyUnitName              = 0;
 
+        uintptr_t BasicActionImpl_StateCrawlSideRoll                    = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
@@ -309,6 +311,8 @@ namespace AddressSetRuntime
 
             0x140921EC0ull, // MotherBaseMapCommonDataImpl_GetEnemyInformationLangId (iDroid map enemy LangId switch, 34 cases)
             0x1415E4FE0ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName (bino analyze-text UI)
+
+            0x1410A9520ull, // BasicActionImpl_StateCrawlSideRoll
         };
 
         return value;
@@ -461,6 +465,8 @@ namespace AddressSetRuntime
 
             0x1409218E0ull, // MotherBaseMapCommonDataImpl_GetEnemyInformationLangId
             0x1415E5150ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName
+
+            0x1410A6CA0ull, // BasicActionImpl_StateCrawlSideRoll
         };
 
         return value;

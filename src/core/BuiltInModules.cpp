@@ -90,6 +90,9 @@ bool Uninstall_GetGameObjectIdWithIndex();
 bool Install_EnemyLangIdOverride_Hooks();
 bool Uninstall_EnemyLangIdOverride_Hooks();
 
+bool Install_BasicActionImpl_StateCrawlSideRoll_Hook();
+bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -651,6 +654,26 @@ namespace
         }
     };
 
+    class CrawlSideRollModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CrawlSideRoll";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_BasicActionImpl_StateCrawlSideRoll_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
+        }
+    };
+
 }
 
 void RegisterBuiltInFeatureModules()
@@ -683,6 +706,7 @@ void RegisterBuiltInFeatureModules()
     static SetEyeLampColorModule s_SetEyeLampColorModule;
     static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
+    static CrawlSideRollModule s_CrawlSideRollModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -715,5 +739,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SetEyeLampColorModule);
             FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
+            FeatureModuleRegistry::Instance().Register(&s_CrawlSideRollModule);
         });
 }
