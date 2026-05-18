@@ -7,7 +7,6 @@
 
 #include "AddressSet.h"
 #include "HookUtils.h"
-#include "LuaBroadcaster.h"
 #include "log.h"
 #include "SetEyeLampColorHook.h"
 
@@ -48,8 +47,6 @@ namespace
     static std::atomic<float> g_HeartPulse{ 1.0f };
 
     static std::atomic<bool> g_LoggingEnabled{ false };
-
-    static std::atomic<int> g_LastEmittedMode{ -2 };
 
     static float NowSeconds()
     {
@@ -248,44 +245,6 @@ namespace
             __try { g_OrigUpdateEyeLampColor(self, slot); }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
-
-        const int currentMode = g_LastMode.load(std::memory_order_relaxed);
-        const int prevEmitted = g_LastEmittedMode.load(std::memory_order_relaxed);
-        if (currentMode != prevEmitted)
-        {
-            g_LastEmittedMode.store(currentMode, std::memory_order_relaxed);
-
-            float emitR = 0.0f, emitG = 0.0f, emitB = 0.0f, emitPulse = 0.0f;
-            if (self)
-            {
-                __try
-                {
-                    auto base = *reinterpret_cast<std::uint8_t**>(
-                        reinterpret_cast<std::uintptr_t>(self) + 0x48);
-                    const std::int32_t baseSlot = *reinterpret_cast<std::int32_t*>(
-                        reinterpret_cast<std::uintptr_t>(self) + 0x58);
-                    if (base)
-                    {
-                        const std::int64_t offset =
-                            static_cast<std::int64_t>(
-                                static_cast<std::uint32_t>(slot - baseSlot)) * 0x60 + 0x20;
-                        auto color = reinterpret_cast<const float*>(base + offset);
-                        emitR = color[0];
-                        emitG = color[1];
-                        emitB = color[2];
-                        emitPulse = color[3];
-                    }
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER) {}
-            }
-
-            if (currentMode >= 0 && currentMode < kMaxModes &&
-                g_PerModeEnabled[currentMode].load(std::memory_order_relaxed))
-            {
-                emitPulse = g_PerModePulse[currentMode].load(std::memory_order_relaxed);
-            }
-            V_FrameWork::EmitMessage("GameObject", "ShalenSearchModeChange", currentMode);
-        }
     }
 }
 
@@ -471,7 +430,6 @@ bool Uninstall_SetEyeLampColor_Hook()
     for (int i = 0; i < kMaxModes; ++i)
         g_PerModeEnabled[i].store(false, std::memory_order_relaxed);
     g_LastMode.store(-1, std::memory_order_relaxed);
-    g_LastEmittedMode.store(-2, std::memory_order_relaxed);
     g_DiscoEnabled.store(false, std::memory_order_relaxed);
     g_HeartEnabled.store(false, std::memory_order_relaxed);
     g_LoggingEnabled.store(false, std::memory_order_relaxed);
