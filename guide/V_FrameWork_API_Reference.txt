@@ -21,7 +21,7 @@ TABLE OF CONTENTS
   MODULE: V_TppHelicopter ................ Heli pilot voice / radio event overrides
   MODULE: V_TppCommandPost ............... Caution phase duration
   MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
-  MODULE: V_TppSahelan ................... Sahelanthropus FOVA + eye-lamp color
+  MODULE: V_TppSahelan ................... Sahelanthropus FOVA + eye-lamp color + force-phase
   MODULE: V_SoundCoreDaemon .............. Per-soldier RTPC, voice pitch, akObjId
   MODULE: V_TppHostage ................... Lost hostage tracking
   MODULE: V_TppPickable .................. Pickable item count overrides
@@ -575,6 +575,73 @@ MODULE: V_TppSahelan
     Logs Set/Clear/Disco/Heart calls and engine mode transitions. One line
     per event, no per-frame spam. Off by default; leave off in normal play.
 
+  --------------------------------------------------------------------------
+  SetPhase(phase) / ClearPhase() / GetPhase()
+  --------------------------------------------------------------------------
+
+    Fires a clean one-shot phase transition by manually dispatching the
+    engine's own Exit/Enter step procs against the PhaseSneakAiImpl step-
+    funcs table. Runs at the tail of PhaseSneakAiImpl::PreUpdate so the
+    transition happens immediately after the natural tick:
+
+      1. After the original PreUpdate returns, read currentPhase = knowledge[+4]
+      2. Look up the step-funcs table (Sahelan_PhaseSneakAiImpl_StepFuncsTable
+         at .data:0x142c69aa0 — 8 entries x 16 bytes, [+0]=func, [+8]=offset)
+      3. Call stepFuncs[currentPhase](selfBase, slot, StepProc::Exit,  knowledge, 0)
+      4. Write knowledge[+4] = forced, knowledge[+5] = currentPhase
+      5. Call stepFuncs[forced     ](selfBase, slot, StepProc::Enter, knowledge, 0)
+      6. Clear the queued force (single-shot)
+
+    This is exactly what PreUpdate does internally at its tail when the
+    phase byte changed during the tick. Calling SetPhase fires it once
+    against the user's chosen target. Sound stings, eye-lamp colour, the
+    SahelanChangePhase GameObject broadcast (in Enter), and per-step setup
+    all run as if the engine transitioned naturally.
+
+    HONEST LIMITATION: this is one-shot. On the next tick the natural AI
+    runs again — if the player is in Sahelan's direct line of sight,
+    StepSneak's Update will re-promote to Caution, and StepCaution may then
+    re-promote to Alert. To hold a de-escalated phase against an active
+    threat, call SetPhase from a per-frame Lua tick (e.g. an OnUpdate
+    handler) and/or use the discovery-based hooks. Escalating transitions
+    (e.g. Sneak -> Alert) stick because the natural AI agrees.
+
+    Internal phase byte values (table indices):
+      0 = Wait        4 = PreAlert
+      1 = 1stAction   5 = Alert
+      2 = Sneak       6 = PreVsHeli
+      3 = Caution     7 = VsHeli
+
+    SCRIPT enum (used in SahelanChangePhase broadcast) differs — Enter
+    handlers broadcast: StepSneak=0, StepCaution=1, StepAlert=2.
+
+    SetPhase queues; ClearPhase cancels a pending queue; GetPhase returns
+    the last-observed byte from PreUpdate (or -1 if Sahelan hasn't ticked
+    yet). The Vs-Heli sub-state still has priority within PreUpdate when
+    the heli engagement flags at (slot)+0x6e/+0x74 are set.
+
+    EXAMPLE (single-shot):
+      V_TppSahelan.SetPhase(3)   -- transition to Caution now
+
+    EXAMPLE (per-frame lock from a mod's OnUpdate):
+      function this.OnUpdate()
+          V_TppSahelan.SetPhase(2)   -- re-arm every frame to stay at Sneak
+      end
+
+    PARAMETERS:
+      phase   number  TppSahelan2.SAHELAN2_PHASE_* enum (0..255).
+                       Common indices observed:
+                         0 = Wait        4 = PreAlert
+                         1 = 1stAction   5 = Alert
+                         2 = Sneak       6 = PreVsHeli
+                         3 = Caution     7 = VsHeli
+                       (Confirm against TppSahelan2.lua in vanilla.)
+
+    EXAMPLE:
+      V_TppSahelan.SetPhase(TppSahelan2.SAHELAN2_PHASE_SNEAK)
+      local cur = V_TppSahelan.GetPhase()
+      V_TppSahelan.ClearPhase()
+
 
 ================================================================================
 MODULE: V_SoundCoreDaemon
@@ -1027,6 +1094,9 @@ RAW API: V_FrameWork.*
     SetEyeLampDisco(enabled, speed)                 -> nothing
         Rainbow hue-cycle on all lamps. Overrides per-mode settings.
     SetEyeLampColorLogging(enabled)                 -> nothing
+    SetSahelanPhase(phase)                          -> nothing
+    ClearSahelanPhase()                             -> nothing
+    GetSahelanPhase()                               -> number
 
   SOUND / VOICE (V_SoundCoreDaemon wrapper)
     SetSoldierRtpc(gameObjectId, rtpcName, value, timeMs)     -> number (AKRESULT)

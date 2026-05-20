@@ -81,33 +81,20 @@ function this.SetEyeLampColorLogging(enabled)
 end
 
 
-function this.Messages()
-    return Tpp.StrCode32Table {
-        GameObject = {
-            {
-                msg = "ShalenSearchModeChange",
-                func = function(mode)
-                    V_FrameWork.Log("[V_TppSahelan] ShalenSearchModeChange mode=" .. mode)
-                end
-            },
-        },
-    }
+function this.SetPhase(phase)
+    if type(phase) ~= "number" then
+        V_FrameWork.Log("V_Sahelan.SetPhase: phase must be a number (TppSahelan2.SAHELAN2_PHASE_*).")
+        return
+    end
+    V_FrameWork.SetSahelanPhase(phase)
 end
 
-
-function this.Init(missionTable)
-    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
-    V_FrameWork.RegisterListener(this)
+function this.ClearPhase()
+    V_FrameWork.ClearSahelanPhase()
 end
 
-function this.OnReload(missionTable)
-    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
-    V_FrameWork.RegisterListener(this)
+function this.GetPhase()
+    return V_FrameWork.GetSahelanPhase()
 end
-
-function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
-    Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
-end
-
 
 return this

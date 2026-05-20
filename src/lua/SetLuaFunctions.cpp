@@ -42,6 +42,7 @@ extern "C" {
 #include "V_FrameWorkModLoader.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 #include "../hooks/sahelan/SetEyeLampColorHook.h"
+#include "../hooks/sahelan/PhaseSneakAiImpl_PreUpdate.h"
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
@@ -1534,6 +1535,27 @@ static int __cdecl l_SetEyeLampColorLogging(lua_State* L)
 }
 
 
+static int __cdecl l_SetSahelanPhase(lua_State* L)
+{
+    const std::int32_t phase = static_cast<std::int32_t>(GetLuaInt64(L, 1));
+    ::Set_SahelanForcePhase(phase);
+    return 0;
+}
+
+static int __cdecl l_ClearSahelanPhase(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    ::Clear_SahelanForcePhase();
+    return 0;
+}
+
+static int __cdecl l_GetSahelanPhase(lua_State* L)
+{
+    PushLuaNumber(L, static_cast<float>(::Get_SahelanCurrentPhase()));
+    return 1;
+}
+
+
 static int __cdecl l_SetEyeLampDisco(lua_State* L)
 {
     const bool  enabled = GetLuaBool(L, 1);
@@ -2035,6 +2057,9 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearHeartLightColor",                   l_ClearHeartLightColor },
     { "SetEyeLampColorLogging",                 l_SetEyeLampColorLogging },
 
+    { "SetSahelanPhase",                        l_SetSahelanPhase },
+    { "ClearSahelanPhase",                      l_ClearSahelanPhase },
+    { "GetSahelanPhase",                        l_GetSahelanPhase },
 
     { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },
     { "ClearSecurityCameraFova",                l_ClearSecurityCameraFova },
@@ -2064,7 +2089,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEnemyUnitNameForSoldier",               l_SetEnemyUnitNameForSoldier },
     { "ClearEnemyUnitNameForSoldier",             l_ClearEnemyUnitNameForSoldier },
     { "ClearAllEnemyUnitNameForSoldiers",         l_ClearAllEnemyUnitNameForSoldiers },
-
 
     { nullptr, nullptr }
 };

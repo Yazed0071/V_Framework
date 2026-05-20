@@ -151,6 +151,9 @@ namespace AddressSetRuntime
 
         uintptr_t BasicActionImpl_StateCrawlSideRoll                    = 0;
 
+        uintptr_t Sahelan_PhaseSneakAiImpl_PreUpdate                    = 0;
+        uintptr_t Sahelan_PhaseSneakAiImpl_StepFuncsTable               = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
@@ -313,6 +316,10 @@ namespace AddressSetRuntime
             0x1415E4FE0ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName (bino analyze-text UI)
 
             0x1410A9520ull, // BasicActionImpl_StateCrawlSideRoll
+
+            0x1418ff8d0ull, // Sahelan_PhaseSneakAiImpl_PreUpdate (reads phase byte from *(*param_3)+4, dispatches step funcs; cascade at tail fires Exit/Enter when phase changes mid-tick)
+            0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable (8 entries x 16 bytes: [+0]=stepFunc, [+8]=int32 classOffset; dispatch is stepFunc(baseThis+offset, slot, stepProc, knowledge, 0))
+
         };
 
         return value;
@@ -467,6 +474,10 @@ namespace AddressSetRuntime
             0x1415E5150ull, // TppUIBinoSubjectiveImpl_GetEnemyUnitName
 
             0x1410A6CA0ull, // BasicActionImpl_StateCrawlSideRoll
+
+            0x1418ffa10ull, // Sahelan_PhaseSneakAiImpl_PreUpdate
+            0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable (same .data address as EN)
+
         };
 
         return value;

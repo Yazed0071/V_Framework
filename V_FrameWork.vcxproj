@@ -113,7 +113,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -132,7 +132,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -199,10 +199,12 @@
     <!-- Hooks: Sahelan -->
     <ClInclude Include="src\hooks\sahelan\RealizedSahelanFovaHook.h" />
     <ClInclude Include="src\hooks\sahelan\SetEyeLampColorHook.h" />
+    <ClInclude Include="src\hooks\sahelan\PhaseSneakAiImpl_PreUpdate.h" />
     <!-- Hooks: SecurityCamera -->
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <!-- Hooks: MenuPopup -->
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
+    <!-- Hooks: Notice -->
   </ItemGroup>
   <ItemGroup>
     <!-- Core -->
@@ -260,10 +262,12 @@
     <!-- Hooks: Sahelan -->
     <ClCompile Include="src\hooks\sahelan\RealizedSahelanFovaHook.cpp" />
     <ClCompile Include="src\hooks\sahelan\SetEyeLampColorHook.cpp" />
+    <ClCompile Include="src\hooks\sahelan\PhaseSneakAiImpl_PreUpdate.cpp" />
     <!-- Hooks: SecurityCamera -->
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <!-- Hooks: MenuPopup -->
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
+    <!-- Hooks: Notice -->
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />
