@@ -1,1258 +1,197 @@
-################################################################################
-#                                                                              #
-#                     V_FrameWork Modding API Reference                        #
-#                                                                              #
-#  A complete guide to every function available for MGSV:TPP modders.          #
-#  Use this as a reference when building mods with V_FrameWork.                #
-#                                                                              #
-################################################################################
-
-
-================================================================================
-TABLE OF CONTENTS
-================================================================================
-
-  GETTING STARTED .......................... How mods work with V_FrameWork
-  MODULE: V_TppPlayer .................... Voice FPK overrides
-  MODULE: V_TppEquip ..................... Equipment icon overrides
-  MODULE: V_TppCassette .................. Cassette tape playback & registration
-  MODULE: V_TppUiCommand ................. Loading screen, game over, equip BGs, telop, iDroid popups
-  MODULE: V_TppMusicManager .............. Game-over BGM event overrides
-  MODULE: V_TppHelicopter ................ Heli pilot voice / radio event overrides
-  MODULE: V_TppCommandPost ............... Caution phase duration
-  MODULE: V_TppEnemy ..................... VIP, holdup, stealth camo, call signs
-  MODULE: V_TppSahelan ................... Sahelanthropus FOVA + eye-lamp color + force-phase
-  MODULE: V_SoundCoreDaemon .............. Per-soldier RTPC, voice pitch, akObjId
-  MODULE: V_TppHostage ................... Lost hostage tracking
-  MODULE: V_TppPickable .................. Pickable item count overrides
-  RAW API: V_FrameWork.* ................ Low-level C++ bridge functions
-  APPENDIX A: PlayerType values .......... 0=Snake, 1=DDMale, etc.
-  APPENDIX B: Voice line labels .......... StrCode32 names for VIP/hostage radios
-
-
-================================================================================
-GETTING STARTED
-================================================================================
-
-  V_FrameWork is a DLL hook framework for MGSV:TPP. It intercepts game
-  functions at runtime and exposes them to Lua, letting mooders add new content
-  (cassette tapes, UI texture overrides, etc.) without replacing game files.
-
-  WRAPPER MODULES vs RAW API
-  --------------------------
-  - Use the V_TppXxx wrapper modules (V_TppPlayer, V_TppEquip, etc.) whenever
-    possible. They validate inputs, provide defaults, and handle linking.
-  - The raw V_FrameWork.* functions are the underlying C++ bridge. Use them
-    only when the wrappers don't cover your use case.
-
-  MOD STRUCTURE
-  -------------
-  A mod is a Lua file that returns a table with lifecycle functions:
-
-    local this = {}
-
-    function this.Init(missionTable)
-        -- Called when the mission starts. Register VIPs, etc.
-    end
-
-    function this.LoadLibraries()
-        -- Called once when modules load. Register tapes, etc.
-    end
-
-    return this
-
-
-================================================================================
-MODULE: V_TppPlayer
-================================================================================
-
-  Voice FPK overrides for player character types.
-
-  --------------------------------------------------------------------------
-  SetPlayerVoiceFpkPathForType(playerType, path)
-  --------------------------------------------------------------------------
-
-    Overrides the voice FPK for a player character type. Per-type override.
-
-    PARAMETERS:
-      playerType  number  0-3 (see APPENDIX A)
-      path        string  FPK asset path
-
-    EXAMPLE:
-      V_TppPlayer.SetPlayerVoiceFpkPathForType(0, "/Assets/.../custom_voice.fpk")
-
-  --------------------------------------------------------------------------
-  ClearPlayerVoiceFpkPathForType(playerType)
-  --------------------------------------------------------------------------
-
-    Removes the voice override for one player type.
-
-    PARAMETERS:
-      playerType  number  0-3
-
-  --------------------------------------------------------------------------
-  ClearAllPlayerVoiceFpkOverrides()
-  --------------------------------------------------------------------------
-
-    Removes all voice overrides for all player types.
-
-  --------------------------------------------------------------------------
-  WORKED EXAMPLE
-  --------------------------------------------------------------------------
-
-    V_TppPlayer.SetPlayerVoiceFpkPathForType(0,
-        "/Assets/mod/voice/snake_custom.fpk")
-    V_TppPlayer.SetPlayerVoiceFpkPathForType(1,
-        "/Assets/mod/voice/ddm_custom.fpk")
-
-
-================================================================================
-MODULE: V_TppEquip
-================================================================================
-
-  Equipment icon-texture overrides.
-
-  --------------------------------------------------------------------------
-  SetEquipIdIconFtexPath(equipId, path)
-  --------------------------------------------------------------------------
-
-    Sets the icon texture for an equip slot.
-
-    PARAMETERS:
-      equipId  number  Equip ID
-      path     string  FTEX asset path
-
-    EXAMPLE:
-      V_TppEquip.SetEquipIdIconFtexPath(equipId, "/Assets/.../my_icon")
-
-
-================================================================================
-MODULE: V_TppCassette
-================================================================================
-
-  Controls cassette tape playback (vanilla tapes only).
-
-  --------------------------------------------------------------------------
-  PlayCassetteTape(trackOrName, isLoop, playAll)
-  --------------------------------------------------------------------------
-
-    Plays a cassette tape. Accepts a track name (string) or track ID (number).
-
-    PARAMETERS:
-      trackOrName  string/number  Track name or direct play ID
-      isLoop       bool           optional  Loop playback (default: false)
-      playAll      bool           optional  Play all tracks (default: false)
-
-    RETURNS: bool
-
-    EXAMPLE:
-      V_TppCassette.PlayCassetteTape("my_song_001")
-      V_TppCassette.PlayCassetteTape("my_song_001", true)    -- loop
-      V_TppCassette.PlayCassetteTape(243, false, true)        -- by ID, play all
-
-  --------------------------------------------------------------------------
-  PauseCassette(fadeSec) / ResumeCassette(fadeSec) / StopCassette(fadeSec, stopByUser)
-  --------------------------------------------------------------------------
-
-    Controls playback. fadeSec is in SECONDS (converted to ms internally).
-
-    PARAMETERS:
-      fadeSec     number  optional  Fade duration in seconds (default: 0)
-      stopByUser  bool    optional  Was stop triggered by player (default: false)
-
-    EXAMPLES:
-      V_TppCassette.PauseCassette(0.5)
-      V_TppCassette.ResumeCassette(0.5)
-      V_TppCassette.StopCassette(1.0, true)
-
-  --------------------------------------------------------------------------
-  GetCassettePlayingTime() / GetCassettePlayingTrackId()
-  --------------------------------------------------------------------------
-
-    Returns playback info. Time is in milliseconds.
-
-    EXAMPLE:
-      local ms = V_TppCassette.GetCassettePlayingTime()
-      local trackId = V_TppCassette.GetCassettePlayingTrackId()
-
-  --------------------------------------------------------------------------
-  SetCassetteSpeakerEnabled(enable) / IsCassetteSpeakerEnabled()
-  --------------------------------------------------------------------------
-
-    Toggles or checks the cassette speaker output mode.
-
-    EXAMPLE:
-      V_TppCassette.SetCassetteSpeakerEnabled(true)
-      if V_TppCassette.IsCassetteSpeakerEnabled() then ... end
-
-
-================================================================================
-MODULE: V_TppUiCommand
-================================================================================
-
-  Overrides in-game UI textures + iDroid popup customization. All texture
-  paths are FTEX asset paths.
-
-  NOTE: this module was previously named V_TppUI. The rename aligns with the
-  underlying tpp::ui::UiCommand layer that backs the new iDroid popup helpers.
-
-  EQUIP BACKGROUNDS
-  -----------------
-  SetDefaultEquipBackgroundTexture(path)      Set fallback equip BG
-  UnsetDefaultEquipBackgroundTexture()        Clear fallback
-  SetWeaponEquipBackgroundTexture(id, path)   Set per-weapon BG
-  UnsetWeaponEquipBackgroundTexture(id)       Clear per-weapon BG
-  SetEnemyDefaultEquipBackgroundTexture(path) Set enemy default BG
-  UnsetEnemyDefaultEquipBackgroundTexture()   Clear enemy default
-  SetEnemyWeaponEquipBackgroundTexture(id, path) Set per-enemy-weapon BG
-  UnsetEnemyWeaponEquipBackgroundTexture(id)  Clear per-enemy-weapon BG
-  ClearAllEquipBackgroundTexture()            Clear ALL BG overrides
-
-  LOADING SCREEN
-  --------------
-  SetLoadingScreenBackgroundTexture(path)     Main loading texture
-  SetLoadingScreenBlurBackgroundTexture(path) Blur layer texture
-  UnsetLoadingScreenBackgroundTexture()       Clear both
-
-  GAME OVER SCREEN
-  ----------------
-  SetGameOverScreenBackgroundTexture(path)     Main game over texture
-  SetGameOverScreenBlurBackgroundTexture(path) Blur layer texture
-  UnsetGameOverScreenBackgroundTexture()       Clear both
-
-  EXAMPLE:
-    V_TppUiCommand.SetLoadingScreenBackgroundTexture(
-        "/Assets/tpp/ui/texture/my_loading_screen.ftex")
-
-  --------------------------------------------------------------------------
-  iDroid AnnouncePopup (custom-text iDroid corner popups)
-  --------------------------------------------------------------------------
-
-  Pushes a popup with your own title and body text into MGSV's iDroid
-  AnnouncePopup pipeline. The popup uses the visual chrome of the slot-0
-  "Normal" template (default green/blue iDroid notification look).
-
-  Multiple calls fan out across the controller's 32-slot ring and play
-  sequentially as the menu state machine cycles — one fades out, the next
-  fades in.
-
-  GAME POPUPS HAVE PRIORITY: if MGSV itself wants to queue an iDroid
-  announcement and the ring is full, the framework evicts our oldest pending
-  custom popup so the game's reservation always succeeds. Our text is dropped
-  in that case.
-
-  --------------------------------------------------------------------------
-  ShowMbDvcAnnouncePopupReport(title, body)  -> bool
-  --------------------------------------------------------------------------
-
-    Queues a popup with literal title and body strings. Returns true if
-    queued + (eventually) reserved successfully. Returns false if:
-      - The pending queue is full (16 entries; matches the slot ring's cap).
-      - The slot ring was full and our reservation was rejected (in favor
-        of an already-pending game popup).
-
-    Safe to call BEFORE the iDroid menu is opened the first time during a
-    session. Queued entries are reserved into the slot ring as soon as the
-    popup pipeline ticks, so popups can appear on the very first iDroid
-    open without any priming.
-
-    PARAMETERS:
-      title  string  Literal title text (truncated to ~127 chars).
-      body   string  Literal body text  (truncated to ~1023 chars).
-
-    EXAMPLES:
-      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("MOD LOADED",
-          "All systems online. Welcome back, Boss.")
-
-      -- Sequential burst (all play in order as the menu cycles):
-      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 1", "Walk to the LZ.")
-      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 2", "Call the heli.")
-      V_TppUiCommand.ShowMbDvcAnnouncePopupReport("Step 3", "Extract.")
-
-  --------------------------------------------------------------------------
-  ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel)  -> bool
-  --------------------------------------------------------------------------
-
-    Same as ShowMbDvcAnnouncePopupReport but title and body are LangId LABEL
-    NAMES whose displayable text comes from the game's localized string
-    table. The DLL hashes each label via Fox StrCode64 internally and
-    resolves through the game's lang manager at popup display time, so
-    the shown text follows the current locale.
-
-    PARAMETERS:
-      titleLabel  string  Label name (hashed with StrCode64 in the DLL).
-      bodyLabel   string  Label name (hashed with StrCode64 in the DLL).
-
-    EXAMPLE:
-      V_TppUiCommand.ShowMbDvcAnnouncePopupLangId(
-          "my_mod_title_label",
-          "my_mod_body_label")
-
-  --------------------------------------------------------------------------
-  CAVEATS
-  --------------------------------------------------------------------------
-
-  - Visual chrome (color, icon, sound) is inherited from the slot-0 "Normal"
-    iDroid template. To customize chrome you'd need additional hooks on
-    SetupAssets / StartSound — not currently exposed.
-  - The popup only renders while an iDroid menu is on screen. Calls made in
-    pure gameplay context queue silently and play once a menu opens.
-  - Strings are stored in our own buffers (no Lua-state lifetime issues).
-    Truncation uses _TRUNCATE so multi-byte sequences are clipped cleanly.
-
-================================================================================
-MODULE: V_TppMusicManager
-================================================================================
-
-  Patches the game-over BGM event hashes so a custom Wwise event plays
-  instead of the vanilla one. Each call targets one of four scenarios.
-
-  CONSTANTS
-  ---------
-  V_TppMusicManager.GAME_OVER_GENERAL  = 0   Standard mission failure
-  V_TppMusicManager.GAME_OVER_PARADOX  = 1   Paradox-state failure
-  V_TppMusicManager.GAME_OVER_STEALTH  = 2   Perfect-stealth break
-  V_TppMusicManager.GAME_OVER_CYPRUS   = 3   Cyprus prologue (s10010)
-
-  --------------------------------------------------------------------------
-  SetGameOverMusic(isEnable, type, playEvent, stopEvent)
-  --------------------------------------------------------------------------
-
-    PARAMETERS:
-      isEnable    bool    true to apply, false to restore vanilla
-      type        number  0..3 (use the GAME_OVER_* constants)
-      playEvent   string  custom Play event name (FNV-1 hashed at runtime)
-      stopEvent   string  custom Stop event name
-
-    RETURNS: bool (true on success)
-
-    The PARADOX scenario patches a secondary call site too, so all four
-    type values fire the engine's "stop then play" path correctly.
-
-    EXAMPLE:
-      V_TppMusicManager.SetGameOverMusic(
-          true,
-          V_TppMusicManager.GAME_OVER_GENERAL,
-          "Play_bgm_my_custom",
-          "Stop_bgm_my_custom")
-
-      -- revert later with the same event strings:
-      V_TppMusicManager.SetGameOverMusic(
-          false,
-          V_TppMusicManager.GAME_OVER_GENERAL,
-          "Play_bgm_my_custom",
-          "Stop_bgm_my_custom")
-
-
-================================================================================
-MODULE: V_TppHelicopter
-================================================================================
-
-  Overrides the heli pilot voice + radio Wwise events. The patch covers the
-  primary voice site (DD_vox_SH_voice) plus all three radio call sites
-  (DD_vox_SH_radio / radio2 / radio3) in one call.
-
-  --------------------------------------------------------------------------
-  SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)
-  --------------------------------------------------------------------------
-
-    PARAMETERS:
-      isEnable    bool    true to apply, false to restore vanilla
-      voiceEvent  string  custom voice event name (FNV-1 hashed at runtime)
-      radioEvent  string  custom radio event name (applied to all 3 sites)
-
-    RETURNS: bool (true on success — all four patch sites must succeed)
-
-    EXAMPLE:
-      V_TppHelicopter.SetEnableHeliVoice(true,
-          "DD_vox_my_pilot",
-          "DD_vox_my_pilot_radio")
-
-      -- revert
-      V_TppHelicopter.SetEnableHeliVoice(false,
-          "DD_vox_my_pilot",
-          "DD_vox_my_pilot_radio")
-
-
-================================================================================
-MODULE: V_TppCommandPost
-================================================================================
-
-  Controls the caution phase duration (how long guards stay alert before
-  returning to sneak phase).
-
-  SetCautionPhaseDuration(seconds)     Set custom duration
-  GetCautionPhaseDuration()            Get current duration -> number
-  UnsetCautionPhaseDuration()          Restore vanilla behavior
-  GetRemainingCautionPhaseTime()       Get remaining time -> number
-
-  EXAMPLE:
-    V_TppCommandPost.SetCautionPhaseDuration(120)  -- 2 minutes
-    local remaining = V_TppCommandPost.GetRemainingCautionPhaseTime()
-
-
-================================================================================
-MODULE: V_TppEnemy
-================================================================================
-
-  Modifies enemy/soldier behaviors. Functions that take a soldier accept
-  either a string name (e.g. "sol_vip_0000") or a numeric gameObjectId.
-
-  VIP SYSTEM
-  ----------
-  SetVIPImportant(soldier, isOfficer, foundDeadBodyRadioLabel)
-                                        Mark as VIP
-  RemoveVIPImportant(soldier)           Remove VIP status
-  ClearVIPImportant()                   Clear all VIPs
-
-  Marking a soldier as VIP swaps the game's generic comrade-recovery voice
-  reactions for custom reaction hashes on every wake path: touch, kick, and
-  sound for sleep/faint recovery, plus stand-recovery for holdup release.
-  Lua handlers register once per reaction hash and fire regardless of which
-  wake method was used.
-
-  When a patrolling soldier finds this VIP's body, the body-found radio is
-  overridden:
-    - Officer (isOfficer = true)  → "officer found dead" voice line
-    - Non-officer                 → "VIP found dead" voice line
-    - foundDeadBodyRadioLabel set → that voice line plays instead, taking
-                                    priority over both officer and non-officer
-                                    defaults. Accepts a label-name string
-                                    (auto-hashed via Fox.StrCode32) or a
-                                    numeric pre-hashed value. Omit / nil
-                                    for the built-in behavior.
-
-  EXAMPLE:
-    V_TppEnemy.SetVIPImportant("sol_vip_0000", false)
-    V_TppEnemy.SetVIPImportant("sol_interrogator", true)  -- officer
-    V_TppEnemy.SetVIPImportant("sol_general", true, "V_CPR0042_KEEP")
-    -- equivalent to:
-    V_TppEnemy.SetVIPImportant("sol_general", true,
-                               Fox.StrCode32("V_CPR0042_KEEP"))
-
-  See APPENDIX B for the catalog of vanilla voice-line labels usable as
-  the foundDeadBodyRadioLabel argument.
-
-  HOLDUP BEHAVIOR
-  ---------------
-  SetUseConcernedHoldupRecovery(enable)    Concerned recovery behavior
-
-  CALL SIGN PATROL
-  ----------------
-  AddCallSignPatrolSoldier(soldier)     Add to patrol list
-  RemoveCallSignPatrolSoldier(soldier)  Remove from patrol
-  ClearCallSignPatrolSoldiers()         Clear all
-
-  STEALTH CAMO
-  -------------
-  EnableSoldierStealthCamo(soldier, enable)  Per-soldier. enable default: true
-  EnableAllSoldierStealthCamo(enable)        All soldiers in mission
-  EnableClosestSoldierCamo(enable)           Closest N soldiers to player
-  ClearSoldierStealthCamoOverrides()         Reset all
-
-  UTILITY
-  -------
-  CheckEnemyDistance(gameObjectId)           Distance to player -> number
-  GetAllMissionSoldiersByDistance()          Sorted list -> table
-
-  EXAMPLE:
-    V_TppEnemy.EnableClosestSoldierCamo(true)
-    local soldiers = V_TppEnemy.GetAllMissionSoldiersByDistance()
-    for _, s in ipairs(soldiers) do
-        InfCore.Log(s.soldierName .. " dist=" .. s.distance)
-    end
-
-  AUDIO / VOICE
-  -------------
-  RTPC, voice pitch, and Wwise akObjId helpers used to live here. They
-  moved to MODULE: V_SoundCoreDaemon (see below).
-
-
-================================================================================
-MODULE: V_TppSahelan
-================================================================================
-
-  Sahelanthropus customization — FOVA model variation and eye-lamp color.
-
-  --------------------------------------------------------------------------
-  SetSahelanFova(fv2Path)
-  --------------------------------------------------------------------------
-
-    Override the FOVA used to dress Sahelanthropus at runtime. The hook
-    also bypasses the mission gate so any mission can use the alternate
-    FOVA. The wrapper appends ".fv2" if omitted.
-
-    PARAMETERS:
-      fv2Path  string  Path to the FOVA asset.
-
-    EXAMPLE:
-      V_TppSahelan.SetSahelanFova("/Assets/tpp/fova/mecha/mgs/mgs_cv_pwup.fv2")
-
-  --------------------------------------------------------------------------
-  SetEyeLampColor(r, g, b, pulseSpeed, mode)
-  --------------------------------------------------------------------------
-
-    Override Sahelanthropus' visible eye-lamp color for a specific AI mode.
-    Implemented by hooking ActionCoreImpl::UpdateEyeLampColor and writing
-    the chosen color into the per-slot storage every frame the AI is in
-    that mode.
-
-    PARAMETERS:
-      r, g, b      number  Color components in 0..1.
-      pulseSpeed   number  1 = steady (no pulsing).
-                           0 = normal-speed pulse (1 Hz — one cycle / sec).
-                           Values between lerp (0.5 = half-speed pulse).
-                           Out-of-range values are clamped.
-      mode         number  Engine AI state value (typically 0..5; valid
-                           range 0..15). Optional — omit / nil to apply
-                           the color to ALL modes at once.
-
-    NOTES:
-      - Modes you don't set fall through to the engine's natural color
-        for that state.
-
-    EXAMPLE:
-      -- Steady green for every mode (no `mode` arg):
-      V_TppSahelan.SetEyeLampColor(0, 1, 0, 1)
-      -- Steady green during combat (state 5):
-      V_TppSahelan.SetEyeLampColor(0, 1, 0, 1, 5)
-      -- Normal-speed red pulse during alert (state 2):
-      V_TppSahelan.SetEyeLampColor(1, 0, 0, 0, 2)
-      -- Half-speed blue pulse during caution (state 3):
-      V_TppSahelan.SetEyeLampColor(0, 0, 1, 0.5, 3)
-
-  --------------------------------------------------------------------------
-  ClearEyeLampColor()
-  --------------------------------------------------------------------------
-
-    Clear every per-mode override. The engine's natural colors resume.
-
-  --------------------------------------------------------------------------
-  SetEyeLampDisco(enabled, speed)
-  --------------------------------------------------------------------------
-
-    Disco mode — every eye lamp cycles smoothly through the full hue
-    rainbow, overriding any per-mode SetEyeLampColor settings until
-    disabled.
-
-    PARAMETERS:
-      enabled  boolean  turn the party on / off
-      speed    number   (optional, default 2.0) hue cycles per second.
-                        e.g. 0.5 = one rainbow every 2s, 6.0 = seizure.
-
-    EXAMPLE:
-      V_TppSahelan.SetEyeLampDisco(true)         -- default 2 Hz
-      V_TppSahelan.SetEyeLampDisco(true, 0.5)    -- chill
-      V_TppSahelan.SetEyeLampDisco(false)        -- party over
-
-  --------------------------------------------------------------------------
-  SetHeartLightColor(r, g, b, pulseSpeed)
-  --------------------------------------------------------------------------
-
-    Override the chest "heart" light color. The engine's natural color is
-    driven by Sahelanthropus' HP ratio (greenish when high, red when low);
-    this forces a fixed color regardless. Single color, no per-mode.
-
-    PARAMETERS:
-      r, g, b      number  Color components in 0..1.
-      pulseSpeed   number  Same convention as SetEyeLampColor.
-                           1 = steady, 0 = normal pulse (1 Hz).
-
-    EXAMPLE:
-      V_TppSahelan.SetHeartLightColor(0, 1, 0, 1)    -- steady green heart
-      V_TppSahelan.SetHeartLightColor(0, 0, 1, 0)    -- 1 Hz pulsing blue
-
-  --------------------------------------------------------------------------
-  ClearHeartLightColor()
-  --------------------------------------------------------------------------
-
-    Resume the engine's natural HP-driven heart color.
-
-  --------------------------------------------------------------------------
-  SetEyeLampColorLogging(enabled)
-  --------------------------------------------------------------------------
-
-    Logs Set/Clear/Disco/Heart calls and engine mode transitions. One line
-    per event, no per-frame spam. Off by default; leave off in normal play.
-
-  --------------------------------------------------------------------------
-  SetPhase(phase) / ClearPhase() / GetPhase()
-  --------------------------------------------------------------------------
-
-    Fires a clean one-shot phase transition by manually dispatching the
-    engine's own Exit/Enter step procs against the PhaseSneakAiImpl step-
-    funcs table. Runs at the tail of PhaseSneakAiImpl::PreUpdate so the
-    transition happens immediately after the natural tick:
-
-      1. After the original PreUpdate returns, read currentPhase = knowledge[+4]
-      2. Look up the step-funcs table (Sahelan_PhaseSneakAiImpl_StepFuncsTable
-         at .data:0x142c69aa0 — 8 entries x 16 bytes, [+0]=func, [+8]=offset)
-      3. Call stepFuncs[currentPhase](selfBase, slot, StepProc::Exit,  knowledge, 0)
-      4. Write knowledge[+4] = forced, knowledge[+5] = currentPhase
-      5. Call stepFuncs[forced     ](selfBase, slot, StepProc::Enter, knowledge, 0)
-      6. Clear the queued force (single-shot)
-
-    This is exactly what PreUpdate does internally at its tail when the
-    phase byte changed during the tick. Calling SetPhase fires it once
-    against the user's chosen target. Sound stings, eye-lamp colour, the
-    SahelanChangePhase GameObject broadcast (in Enter), and per-step setup
-    all run as if the engine transitioned naturally.
-
-    HONEST LIMITATION: this is one-shot. On the next tick the natural AI
-    runs again — if the player is in Sahelan's direct line of sight,
-    StepSneak's Update will re-promote to Caution, and StepCaution may then
-    re-promote to Alert. To hold a de-escalated phase against an active
-    threat, call SetPhase from a per-frame Lua tick (e.g. an OnUpdate
-    handler) and/or use the discovery-based hooks. Escalating transitions
-    (e.g. Sneak -> Alert) stick because the natural AI agrees.
-
-    Internal phase byte values (table indices):
-      0 = Wait        4 = PreAlert
-      1 = 1stAction   5 = Alert
-      2 = Sneak       6 = PreVsHeli
-      3 = Caution     7 = VsHeli
-
-    SCRIPT enum (used in SahelanChangePhase broadcast) differs — Enter
-    handlers broadcast: StepSneak=0, StepCaution=1, StepAlert=2.
-
-    SetPhase queues; ClearPhase cancels a pending queue; GetPhase returns
-    the last-observed byte from PreUpdate (or -1 if Sahelan hasn't ticked
-    yet). The Vs-Heli sub-state still has priority within PreUpdate when
-    the heli engagement flags at (slot)+0x6e/+0x74 are set.
-
-    EXAMPLE (single-shot):
-      V_TppSahelan.SetPhase(3)   -- transition to Caution now
-
-    EXAMPLE (per-frame lock from a mod's OnUpdate):
-      function this.OnUpdate()
-          V_TppSahelan.SetPhase(2)   -- re-arm every frame to stay at Sneak
-      end
-
-    PARAMETERS:
-      phase   number  TppSahelan2.SAHELAN2_PHASE_* enum (0..255).
-                       Common indices observed:
-                         0 = Wait        4 = PreAlert
-                         1 = 1stAction   5 = Alert
-                         2 = Sneak       6 = PreVsHeli
-                         3 = Caution     7 = VsHeli
-                       (Confirm against TppSahelan2.lua in vanilla.)
-
-    EXAMPLE:
-      V_TppSahelan.SetPhase(TppSahelan2.SAHELAN2_PHASE_SNEAK)
-      local cur = V_TppSahelan.GetPhase()
-      V_TppSahelan.ClearPhase()
-
-
-================================================================================
-MODULE: V_SoundCoreDaemon
-================================================================================
-
-  Engine-level sound API — per-soldier RTPC, voice pitch overrides, and
-  Wwise AkGameObjectID helpers. (The audio surface that previously lived
-  on V_TppEnemy now lives here.)
-
-  RTPC (Wwise audio parameters)
-  -----------------------------
-  RTPCs (Real-Time Parameter Controls) are named floats wired up in the
-  audio banks to modulate pitch, volume, spatialization, filter cutoffs,
-  etc. All Wwise parameter names flow through fox::sd::ConvertParameterID
-  first, so discover valid names by reading the log.
-
-  --------------------------------------------------------------------------
-  SetRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
-  --------------------------------------------------------------------------
-    Per-soldier RTPC via direct AK::SoundEngine::SetRTPCValue (passes the
-    engine gameObjectId as the AK object). See CAVEATS — Wwise may drop
-    this silently because the engine ID isn't its registered AkObjectID;
-    prefer SetSoldierRtpc or SetRtpcByAkObjId.
-
-      soldierNameOrId : string name OR numeric gameObjectId
-      rtpcNameOrId    : string Wwise name OR numeric (pre-hashed) id
-      timeMs          : transition duration in ms (0 = instant)
-      Returns         : AKRESULT (1 = AK_Success)
-
-  --------------------------------------------------------------------------
-  SetSoldierRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
-  --------------------------------------------------------------------------
-    Per-soldier RTPC via the SoundController chain (resolves the correct
-    AkObjectID internally). The soldier must have been audio-Activated
-    (mission load completed) so the chain is wired up. This is the
-    preferred per-soldier path.
-
-  --------------------------------------------------------------------------
-  SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs)
-  --------------------------------------------------------------------------
-    Raw RTPC on a specific Wwise AkGameObjectID. Pair with
-    SetRtpcLoggingEnabled to discover akObjIds.
-
-  --------------------------------------------------------------------------
-  SetGlobalRtpc(rtpcNameOrId, value, timeMs)
-  --------------------------------------------------------------------------
-    Global RTPC (AK_INVALID_GAME_OBJECT scope). Affects every listener.
-
-  --------------------------------------------------------------------------
-  SetRtpcLoggingEnabled(enabled)  /  IsRtpcLoggingEnabled()
-  --------------------------------------------------------------------------
-    Toggle verbose logging on AK::SoundEngine::SetRTPCValue. Logs every
-    game-side RTPC change with its akObjId and value. Leave OFF in normal
-    play — hot path.
-
-  DISCOVERING RTPC NAMES
-  ----------------------
-  V_FrameWork installs a diagnostic hook (ConvertParameterIdLogger) at
-  startup. Every unique Wwise parameter name the game resolves is written
-  to the log exactly once, in the format:
-
-      [ParamID] "<name>" -> 0x<hash>
-
-  Copy the quoted name verbatim (case-sensitive) into your script. Names
-  that return AKRESULT=1 from SetRtpc are RTPCs; names that return errors
-  are usually Switches or States (same resolver handles all three kinds).
-
-  VOICE PITCH
-  -----------
-  --------------------------------------------------------------------------
-  SetSoldierVoicePitch(soldierNameOrId, cents)
-  --------------------------------------------------------------------------
-    Per-soldier voice pitch override in cents (100 = 1 semitone, negative
-    = lower). The override automatically re-applies to every fresh Wwise
-    akObjId the soldier registers — Fox's audio system uses a 256-entry
-    ring allocator for akObjIds, so the system tracks them by goId and
-    re-arms the bias on each new registration. cents = 0 cancels.
-
-    EXAMPLE:
-      V_SoundCoreDaemon.SetSoldierVoicePitch("sol_vip_field", -200)
-      V_SoundCoreDaemon.SetSoldierVoicePitch("sol_vip_field", 0)  -- cancel
-
-  --------------------------------------------------------------------------
-  SetGlobalVoicePitch(cents)  /  GetGlobalVoicePitch()
-  --------------------------------------------------------------------------
-    Global pitch bias added to EVERY active CAkResampler call — voice,
-    footsteps, gunfire, music. Engine clamps internally to ±2400. 0 = off.
-
-  --------------------------------------------------------------------------
-  SetPitchByAkObjId(akObjId, cents)
-  ClearPitchByAkObjId(akObjId)
-  ClearAllPerAkObjIdPitchBiases()
-  --------------------------------------------------------------------------
-    Direct per-Wwise-object pitch bias. SetSoldierVoicePitch uses this
-    underneath; call it yourself if you already have the akObjId.
-
-  WWISE OBJECT QUERIES
-  --------------------
-  --------------------------------------------------------------------------
-  GetSoldierAkObjId(soldierNameOrId)  -> number
-  --------------------------------------------------------------------------
-    Returns the soldier's most recently observed AkGameObjectID. 0 if the
-    soldier hasn't appeared in a voice event yet (or if the name doesn't
-    resolve to a known gameObjectId).
-
-  CAVEATS
-  -------
-  - Engine gameObjectId != Wwise AkGameObjectID. AK::SoundEngine::SetRTPCValue
-    only honors registered AkObjectIDs. SetSoldierRtpc and the
-    voice-pitch helpers handle the translation; SetRtpc (the direct path)
-    does not.
-  - Wwise clamps values to authored ranges.
-  - SetRtpc with a Switch/State name returns AK_IDNotFound (non-1).
-
-
-================================================================================
-MODULE: V_TppHostage
-================================================================================
-
-  Tracks lost hostages for the radio speech override system.
-  Gender: 0 = male, 1 = female, 2 = child.
-  "hostage" arguments accept either an object name (string) or a raw
-  gameObjectId (number).
-
-  CORE API
-  --------
-  SetLostHostage(hostage, gender, hostageLostLabel)
-                                              Track one hostage with an optional
-                                              direct label override.
-  RemoveLostHostage(hostage)                  Stop tracking.
-  ClearLostHostages()                         Clear every tracked hostage.
-  SetLostHostageFromPlayer(hostage, enable)   Toggle the per-hostage "taken by
-                                              player" flag. Re-pushes the
-                                              right label half (gone/taken)
-                                              for that hostage automatically.
-  IsHostageFemale(hostage)         -> bool
-  IsHostageChild(hostage)          -> bool
-  BuildHostageList()                          Enumerate every TppHostage2 /
-                                              TppHostageUnique / TppHostageUnique2
-                                              into mvars.V_HostageList, populating
-                                              each entry's gender, scenario, and
-                                              resolved customLabel.
-  AutoSetLostHostage()                        Apply tracking + custom label
-                                              to every entry in V_HostageList.
-  AutoSetLostHostageFromPlayer(enable)        Flip every entry's "taken"
-                                              flag at once. Each entry's label
-                                              is re-pushed to match.
-
-  CUSTOM-LABEL API
-  ----------------
-  V_TppHostage.labels                         Public table (read/write directly
-                                              if you want, then call
-                                              RefreshCustomLabels yourself).
-  SetCustomLostLabel(key, value)              Set one entry; auto-refreshes
-                                              every tracked hostage.
-  ClearCustomLostLabel(key)                   Remove one entry; auto-refreshes.
-  ClearAllCustomLostLabels()                  Empty the store; auto-refreshes.
-  RegisterCustomLostLabels(table)             Bulk-merge a table of entries;
-                                              auto-refreshes once at the end.
-  RefreshCustomLabels()                       Re-resolve and re-push every
-                                              tracked hostage. Call manually
-                                              only if you poked
-                                              V_TppHostage.labels directly.
-
-  THE TWO RADIO SCENARIOS
-  -----------------------
-  When a soldier reports a hostage gone, the engine picks one of two radio
-  categories based on the per-hostage SetLostHostageFromPlayer flag:
-
-    SetLostHostageFromPlayer = false   "gone"    Prisoner is gone
-                                                 (CPR0230 / CPR0250 / CPR0270)
-    SetLostHostageFromPlayer = true    "taken"   Intruder got the prisoner
-                                                 (CPR0061 / CPR0062 / CPR0063)
-
-  The custom-label API lets you override either or both halves per hostage,
-  per gender, or globally.
-
-  LABEL STORE KEYS
-  ----------------
-    "hostage_object_name"    Specific hostage by name (any non-gender string).
-    gameObjectId (number)    Specific hostage by raw id (e.g. 0x0800).
-    "male"                   Per-gender default for male hostages.
-    "female"                 Per-gender default for female hostages.
-    "child"                  Per-gender default for child hostages.
-
-  LABEL STORE VALUES
-  ------------------
-    "CPR0250"                                Bare string. Applies to BOTH
-                                             scenarios.
-    0xA2C4A6EC                               Bare number (pre-hashed uint32).
-                                             Applies to BOTH scenarios.
-    { gone = "CPR0250", taken = "CPR0062" }  Pair — per scenario.
-    { gone = "CPR0250" }                     Partial pair — "taken" falls
-                                             through to the next resolution
-                                             layer.
-    { taken = "CPR0062" }                    Same idea, "gone" falls through.
-    nil                                      Clears an existing entry.
-
-  RESOLUTION ORDER (per hostage / scenario)
-  -----------------------------------------
-    1. Exact gameObjectId match
-    2. Name match (non-gender string key that resolves to that id)
-    3. Gender default ("male" / "female" / "child")
-    4. Engine default (vanilla CPR023x or CPR006x)
-
-  Setting labels after BuildHostageList has run (e.g. mid-mission) auto-
-  refreshes every tracked entry — no manual call needed.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 1 — per-gender defaults (most common starting point)
-  --------------------------------------------------------------------------
-
-    V_TppHostage.RegisterCustomLostLabels{
-        male   = { gone = "CPR0230", taken = "CPR0061" },
-        female = { gone = "CPR0250", taken = "CPR0062" },
-        child  = { gone = "CPR0270", taken = "CPR0063" },
-    }
-
-  Every hostage of the matching gender now plays the chosen line for both
-  the "gone" and "taken" scenarios.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 2 — override a single hostage by name
-  --------------------------------------------------------------------------
-
-    V_TppHostage.SetCustomLostLabel("hos_female_00",
-        { gone = "V_CPR0250_KEEP", taken = "CPR0062" })
-
-  Only that specific hostage uses the custom lines. All other hostages still
-  fall through to the gender default (or engine default if none set).
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 3 — override by raw gameObjectId
-  --------------------------------------------------------------------------
-
-    V_TppHostage.SetCustomLostLabel(0x0800,
-        { gone = "CPR0250", taken = "CPR0062" })
-
-  Useful when you already have the gameObjectId and don't want a name lookup.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 4 — bare string (same line for both scenarios)
-  --------------------------------------------------------------------------
-
-    V_TppHostage.SetCustomLostLabel("vip_prisoner", "V_CPR0250_KEEP")
-
-  Both "gone" and "taken" play "V_CPR0250_KEEP" for this hostage. Equivalent
-  to { gone = "V_CPR0250_KEEP", taken = "V_CPR0250_KEEP" }.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 5 — partial pair (only customize one scenario)
-  --------------------------------------------------------------------------
-
-    V_TppHostage.SetCustomLostLabel("female",
-        { gone = "V_CPR0250_KEEP" })
-
-  All female hostages play "V_CPR0250_KEEP" when reported gone. When the
-  taken flag flips, "taken" falls through: no female override → no name
-  match → engine default ("CPR0062").
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 6 — pre-hashed numeric label
-  --------------------------------------------------------------------------
-
-    local hash = Fox.StrCode32("V_CPR0250_KEEP")
-    V_TppHostage.SetCustomLostLabel("hostage_0001", hash)
-
-  -- or written inline:
-    V_TppHostage.SetCustomLostLabel(0x0800, 0xA2C4A6EC)
-
-  Numbers skip the StrCode32 hashing step on the C++ side. Identical
-  end result.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 7 — clearing overrides
-  --------------------------------------------------------------------------
-
-    V_TppHostage.ClearCustomLostLabel("scientist_hostage")
-    V_TppHostage.ClearCustomLostLabel("female")
-    V_TppHostage.ClearAllCustomLostLabels()
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 8 — mid-mission update
-  --------------------------------------------------------------------------
-
-    -- Some event fires later in the mission:
-    V_TppHostage.SetCustomLostLabel("hostage_0042",
-        { gone = "CPR0250", taken = "CPR0062" })
-
-  Because mvars.V_HostageList already exists by this point, the setter
-  immediately recomputes every entry's customLabel and pushes the right half
-  to the engine. No manual refresh needed.
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 9 — full mission setup (recommended order)
-  --------------------------------------------------------------------------
-
-    function this.SetUpEnemy()
-        V_TppHostage.ClearLostHostages()
-        V_TppHostage.ClearAllCustomLostLabels()
-
-        V_TppHostage.RegisterCustomLostLabels{
-            -- Gender defaults
-            female = { gone = "CPR0250", taken = "CPR0062" },
-            child  = { gone = "CPR0270", taken = "CPR0063" },
-
-            -- Per-hostage overrides
-            ["named_hostage"] = { gone = "V_CPR0250_KEEP", taken = "CPR0062" },
-            [0x0800]          = "V_CPR0250_KEEP",
-        }
-
-        V_TppHostage.BuildHostageList()
-        V_TppHostage.AutoSetLostHostage()
-        V_TppHostage.AutoSetLostHostageFromPlayer(false)
-    end
-
-
-  --------------------------------------------------------------------------
-  EXAMPLE 10 — direct table poke (advanced)
-  --------------------------------------------------------------------------
-
-  V_TppHostage.labels is a public table. You may write to it directly, but
-  you must call RefreshCustomLabels yourself afterwards:
-
-    V_TppHostage.labels.female = { gone = "CPR0250", taken = "CPR0062" }
-    V_TppHostage.labels["scientist"] = "V_CPR0250_KEEP"
-    V_TppHostage.RefreshCustomLabels()
-
-  The setter functions (SetCustomLostLabel, RegisterCustomLostLabels, etc.)
-  do this for you — direct-poke is only useful for batch construction with
-  conditional logic.
-
-
-  See APPENDIX B for the catalog of vanilla voice-line labels usable as
-  the hostageLostLabel argument or in the custom-label store.
-
-
-================================================================================
-MODULE: V_TppPickable
-================================================================================
-
-  Overrides pickable item counts at locators.
-
-  SetCountRaw(locatorName, countRaw)   Override count at locator
-  GetCountRaw(locatorName)             Get current count -> number or nil
-
-  EXAMPLE:
-    V_TppPickable.SetCountRaw("pickup_herb_0005", 3)
-    local count = V_TppPickable.GetCountRaw("pickup_herb_0005")
-
-
-================================================================================
-RAW API: V_FrameWork.*
-================================================================================
-
-  These are the low-level C++ bridge functions. The V_TppXxx wrappers call
-  these internally. Use raw functions only when wrappers don't cover your case.
-
-  UI TEXTURES
-    SetDefaultEquipBgTexturePath(path)
-    ClearDefaultEquipBgTexture()
-    SetEquipBgTexturePath(equipId, path)
-    ClearEquipBgTexture(equipId)
-    SetEnemyWeaponBgTexturePath(path)
-    ClearEnemyWeaponBgTexture()
-    SetEnemyEquipBgTexturePath(equipId, path)
-    ClearEnemyEquipBgTexture(equipId)
-    ClearAllEquipBgTextures()
-    SetLoadingSplashMainTexturePath(path)
-    SetLoadingSplashBlurTexturePath(path)
-    ClearLoadingSplashTextures()
-    SetGameOverSplashMainTexturePath(path)
-    SetGameOverSplashBlurTexturePath(path)
-    ClearGameOverSplashTextures()
-
-  SOUND EVENT PATCHES
-    SetGameOverMusic(isEnable, type, playEvent, stopEvent) -> bool
-        type: 0=GENERAL, 1=PARADOX, 2=STEALTH, 3=CYPRUS
-    SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)   -> bool
-
-  iDroid POPUPS (MbDvcAnnouncePopup)
-    ShowMbDvcAnnouncePopupReport(title, body)       -> bool
-        Queues a custom-text iDroid corner popup. title/body are literal
-        strings (cap ~127 / ~1023 chars). Safe to call before the iDroid
-        menu is opened — entries queue unreserved and the popup hook
-        drains them on first pipeline tick. Returns false if our queue is
-        full (16) or the slot ring was full and our reservation was
-        rejected in favor of a pending game popup.
+V_FrameWork API Reference
+=========================
+
+MOD STRUCTURE
+-------------
+local this = {}
+function this.Init(mt)        end  -- mission start
+function this.LoadLibraries() end  -- module load
+return this
+
+
+V_TppPlayer
+-----------
+SetPlayerVoiceFpkPathForType(playerType, path)
+ClearPlayerVoiceFpkPathForType(playerType)
+ClearAllPlayerVoiceFpkOverrides()
+  playerType: 0=Snake 1=DDMale 2=DDFemale 3=Avatar
+
+
+V_TppEquip
+----------
+SetEquipIdIconFtexPath(equipId, path)
+
+
+V_TppCassette
+-------------
+PlayCassetteTape(trackOrName, isLoop, playAll)  -> bool
+PauseCassette(fadeSec)
+ResumeCassette(fadeSec)
+StopCassette(fadeSec, stopByUser)
+GetCassettePlayingTime()                        -> number (ms)
+GetCassettePlayingTrackId()                     -> number
+SetCassetteSpeakerEnabled(enable)
+IsCassetteSpeakerEnabled()                      -> bool
+
+
+V_TppUiCommand
+--------------
+  Equip backgrounds
+    SetDefaultEquipBackgroundTexture(path)
+    UnsetDefaultEquipBackgroundTexture()
+    SetWeaponEquipBackgroundTexture(id, path)
+    UnsetWeaponEquipBackgroundTexture(id)
+    SetEnemyDefaultEquipBackgroundTexture(path)
+    UnsetEnemyDefaultEquipBackgroundTexture()
+    SetEnemyWeaponEquipBackgroundTexture(id, path)
+    UnsetEnemyWeaponEquipBackgroundTexture(id)
+    ClearAllEquipBackgroundTexture()
+
+  Loading / game-over screens
+    SetLoadingScreenBackgroundTexture(path)
+    SetLoadingScreenBlurBackgroundTexture(path)
+    UnsetLoadingScreenBackgroundTexture()
+    SetGameOverScreenBackgroundTexture(path)
+    SetGameOverScreenBlurBackgroundTexture(path)
+    UnsetGameOverScreenBackgroundTexture()
+
+  iDroid popups
+    ShowMbDvcAnnouncePopupReport(title, body)           -> bool
     ShowMbDvcAnnouncePopupLangId(titleLabel, bodyLabel) -> bool
-        Same as above but the args are LangId LABEL NAMES (strings). The
-        DLL hashes each label via Fox StrCode64 and resolves through the
-        game's lang manager at popup display time, so the displayed text
-        follows the current locale.
-    ShowMbDvcAnnouncePopupReward(title, body) -> bool
-        Queue a Server-category popup (handled by UpdateAnnounceServer
-        rather than UpdateAnnounceNormal). Slot picked internally. The
-        framework bypasses the online-readiness gate for our own popups
-        only — vanilla Server popups still respect the game's gating.
-    ShowMbDvcAnnouncePopupRewardLangId(titleLabel, bodyLabel) -> bool
-        Same as ShowMbDvcAnnouncePopupReward but the args are LangId
-        LABEL NAMES (strings). The DLL hashes each label via Fox
-        StrCode64 and resolves through the game's lang manager at
-        popup display time, so the displayed text follows the current
-        locale.
-
-  CAUTION PHASE
-    SetCautionStepNormalDurationSeconds(seconds)  -> nothing
-    GetCautionStepNormalDurationSeconds()          -> number
-    UnsetCautionStepNormalDurationSeconds()        -> nothing
-    GetCautionStepNormalRemainingSeconds()         -> number
-
-  PLAYER VOICE
-    SetPlayerVoiceFpkPathForType(playerType, path) -> nothing
-    ClearPlayerVoiceFpkPathForType(playerType)     -> nothing
-    ClearAllPlayerVoiceFpkOverrides()              -> nothing
-
-  ENEMY / SOLDIER
-    SetVIPImportant(gameObjectId, isOfficer, foundDeadBodyRadioLabel) -> nothing
-                                                    foundDeadBodyRadioLabel:
-                                                      optional StrCode32 hash;
-                                                      0 / omitted = use the
-                                                      built-in officer/VIP
-                                                      voice line.
-    RemoveVIPImportant(gameObjectId)               -> nothing
-    ClearVIPImportant()                            -> nothing
-    SetUseConcernedHoldupRecovery(enable)           -> nothing
-    AddCallSignPatrolSoldier(gameObjectId)          -> nothing
-    RemoveCallSignPatrolSoldier(gameObjectId)       -> nothing
-    ClearCallSignPatrolSoldiers()                   -> nothing
-    EnableSoldierStealthCamo(actorIndex, enable)     -> nothing
-    ClearSoldierStealthCamoOverrides()              -> nothing
-
-  SAHELAN (V_TppSahelan wrapper)
-    SetSahelanFova(fv2Path)                         -> bool
-    ClearSahelanFova()                              -> nothing
-    SetEyeLampColor(r, g, b, pulseSpeed, mode)      -> nothing
-        Per-AI-mode override. mode 0..15 = single mode; mode = -1 (or
-        wrapper called with mode omitted) = apply to ALL modes.
-        pulseSpeed: 1 = steady, 0 = normal pulse (1 Hz); lerp in between.
-    ClearEyeLampColor()                             -> nothing
-    SetEyeLampDisco(enabled, speed)                 -> nothing
-        Rainbow hue-cycle on all lamps. Overrides per-mode settings.
-    SetEyeLampColorLogging(enabled)                 -> nothing
-    SetSahelanPhase(phase)                          -> nothing
-    ClearSahelanPhase()                             -> nothing
-    GetSahelanPhase()                               -> number
-
-  SOUND / VOICE (V_SoundCoreDaemon wrapper)
-    SetSoldierRtpc(gameObjectId, rtpcName, value, timeMs)     -> number (AKRESULT)
-        NOTE: passes engine gameObjectId. Wwise drops the call silently
-        because it doesn't have a registered object at that ID. Use
-        SetSoldierObjectRtpc(ByName) or SetRtpcByAkObjId for real
-        per-soldier RTPC.
-    SetSoldierRtpcById(gameObjectId, rtpcId, value, timeMs)   -> number (AKRESULT)
-        Same caveat as SetSoldierRtpc.
-    SetGlobalRtpc(rtpcName, value, timeMs)                    -> number (AKRESULT)
-    SetGlobalRtpcById(rtpcId, value, timeMs)                  -> number (AKRESULT)
-    SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs)        -> number (AKRESULT)
-        Reliable per-Wwise-object RTPC. Pair with SetRtpcLoggingEnabled
-        to discover AkObjectIDs.
-    SetRtpcByAkObjIdById(akObjId, rtpcId, value, timeMs)      -> number (AKRESULT)
-    SetRtpcLoggingEnabled(enabled)                            -> bool (previous state)
-        Installs a logging hook on AK::SoundEngine::SetRTPCValue. Logs
-        every game-side RTPC change so you can identify per-soldier
-        AkObjectIDs. Disable when done — hot-path overhead.
-    IsRtpcLoggingEnabled()                                    -> bool
-    SetSoldierObjectRtpc(gameObjectId, rtpcId, value, timeMs)         -> bool
-        Per-soldier RTPC via the SoundController chain (resolves the
-        soldier's real AkObjectID internally). Preferred per-soldier path.
-    SetSoldierObjectRtpcByName(gameObjectId, rtpcName, value, timeMs) -> bool
-        String-name variant.
-    SetGlobalVoicePitch(cents)                                -> nothing
-        Global pitch bias added to EVERY CAkResampler call.
-    GetGlobalVoicePitch()                                     -> number
-    SetPitchByAkObjId(akObjId, cents)                         -> nothing
-    ClearPitchByAkObjId(akObjId)                              -> nothing
-    ClearAllPerAkObjIdPitchBiases()                           -> nothing
-    SetSoldierVoicePitch(gameObjectId, cents)                 -> bool
-        Per-soldier pitch override; auto-tracks the soldier's akObjId
-        churn (Wwise's 256-entry ring allocator).
-    GetSoldierAkObjId(gameObjectId)                           -> number
-        Returns 0 if the soldier hasn't been observed yet.
-
-  HOSTAGE
-    SetLostHostage(gameObjectId, gender, hostageLostLabel) -> nothing
-                                                    hostageLostLabel:
-                                                      optional StrCode32 hash;
-                                                      0 / omitted = use the
-                                                      built-in male/female/
-                                                      child × taken matrix.
-    RemoveLostHostage(gameObjectId)                 -> nothing
-    ClearLostHostages()                             -> nothing
-    SetLostHostageFromPlayer(gameObjectId, enable)  -> nothing
-
-  CASSETTE TAPES
-    PlayCassetteTapeByTrackId(mode, trackId, isLoop, playAll) -> nothing
-    GetTapeTrackDirectPlayId(trackName)             -> number
-    GetCassettePlayingTime()                        -> number (ms)
-    GetCassettePlayingTrackId()                     -> number
-    PauseCassette(fadeMs)                           -> nothing
-    ResumeCassette(fadeMs)                          -> nothing
-    StopCassette(fadeMs, stopByUser)                -> nothing
-    IsCassetteSpeakerEnabled()                      -> bool
-    SetCassetteSpeakerEnabled(enable)               -> nothing
-
-  PICKABLE ITEMS
-    SetPickableCountRawByIndex(locatorIndex, countRaw) -> nothing
-    GetPickableCountRawByIndex(locatorIndex)            -> number
-
-  EQUIPMENT
-    SetEquipIdIconFtexPath(equipId, path)            -> nothing
-
-  MOD SYSTEM
-    GetModFiles()                                   -> table
-    Log(msg)                                        -> nothing
-        Writes `msg` to mod\V_FrameWork\V_FrameWork_log.txt with a
-        timestamp prefix, interleaved chronologically with C++ hook logs.
-        Useful for tracing Lua mod initialization / feature registration.
+    ShowMbDvcAnnouncePopupReward(title, body)           -> bool
+    ShowMbDvcAnnouncePopupRewardLangId(t, b)            -> bool
 
 
-================================================================================
-APPENDIX A: PlayerType Values
-================================================================================
-
-  Numeric value | Description
-  --------------+-------------------------------------------------
-  0             | snake     — Venom Snake
-  1             | ddMale    — Diamond Dogs male soldier
-  2             | ddFemale  — Diamond Dogs female soldier
-  3             | avatar    — custom avatar
-  4             | Liquid    — (read-only contexts)
-  5             | Ocelot    — (read-only contexts)
-  6             | Quiet     — (read-only contexts)
+V_TppMusicManager
+-----------------
+SetGameOverMusic(isEnable, type, playEvent, stopEvent)  -> bool
+  type: 0=GENERAL 1=PARADOX 2=STEALTH 3=CYPRUS
+  GAME_OVER_GENERAL / PARADOX / STEALTH / CYPRUS constants available
 
 
-================================================================================
-APPENDIX B: Voice Line Labels (StrCode32)
-================================================================================
-
-  These labels can be passed by name as the foundDeadBodyRadioLabel argument
-  of SetVIPImportant or the hostageLostLabel argument of SetLostHostage. The
-  V_TppEnemy / V_TppHostage wrappers hash the string via Fox.StrCode32
-  before forwarding to the C++ bridge, so either form works:
-
-    V_TppHostage.SetLostHostage("hos_target_0000", 2, "CPR0250_KEEP")
-    V_TppHostage.SetLostHostage("hos_target_0000", 2,
-                                Fox.StrCode32("CPR0250_KEEP"))
-
-  --------------------------------------------------------------------------
-  BODY / DEATH REPORTS (use as foundDeadBodyRadioLabel)
-  --------------------------------------------------------------------------
-
-  V_CPR0042_KEEP      Soldier: A VIP's dead. Looks like an enemy attack.
-                      CP: Tighten security and find the intruder. All units,
-                      CP: remain on alert until ordered to stand down.
-  
-  V_CPRGZ0040         Soldier: One of the officers inspecting the base is dead.
-                      Soldier: Looks like an enemy attack. Tighten security and find
-                      CP: the intruder. All units, remain on alert until
-                      CP: ordered to stand down.
-                      (Ground Zeroes officer-inspection scripted variant.)
-  V_CPRGZ0040_UNKEEP    Same as V_CPRGZ0040 but no "stay on alert" tail.
-  V_CPR0231             Soldier: Found the body of a prisoner. Looks like the work ofan intruder. 
-                        CP: Commence a search ASAP.
-
-  --------------------------------------------------------------------------
-  HOSTAGE ESCAPE REPORTS (use as hostageLostLabel)
-  --------------------------------------------------------------------------
-  V_CPR0230_KEEP Same as CPR0230 with the keep-searching tail.
-
-  V_CPR0250             Soldier: The girl's disappeared. Looks like she's escaped.
-                        CP: Commence a search ASAP. Do not let her get away.
-  V_CPR0250_KEEP        Same as V_CPR0250 plus the "keep up the search until
-                        stood down" tail.
-  V_CPR0270             Soldier: The kid's missing. It appears he escaped. 
-                        CP: He couldn't have gotten far with his feet in that state. Commence a search ASAP. (English Only)
-  V_CPR0270_KEEP        Same as V_CPR0270 with the keep-searching tail.
-
-  V_CPR0271             Soldier: The kid's missing. It appears he escaped. 
-                        CP: Commence a search ASAP.
-  V_CPR0271_KEEP        Same as V_CPR0271 with the keep-searching tail.
-
-  --------------------------------------------------------------------------
-  GENERAL CP BROADCASTS (reference; not directly tied to either parameter)
-  --------------------------------------------------------------------------
-
-  V_CPR0037_102         Attention all units, this is CP. We have a Code 102.
-                      Maintain watch with current manpower. Out.
-  V_CPR0038_102         All units, this is CP! Code 102, code 102! All of
-                      you, hold out with available resources! Out!!
-  V_CPRGZ0010           CP, this is patrol. Lost contact in admin building.
-                      How should we proceed? — All fireteams, focus your
-                      search on the admin building.
-  V_CPRGZ0020           Supplies coming through. Open the front gate.
-                      Opening front gate.
-  V_CPRGZ0021           Patrol-prefixed version of V_CPRGZ0020.
-
-  EXAMPLE:
-    V_TppEnemy.SetVIPImportant("sol_general", true, "V_CPR0042_KEEP")
-    V_TppHostage.SetLostHostage("hos_target_0000", 2, "V_CPR0250_KEEP")
+V_TppHelicopter
+---------------
+SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)    -> bool
 
 
-################################################################################
-#                          END OF API REFERENCE                                #
-################################################################################
+V_TppCommandPost
+----------------
+SetCautionPhaseDuration(seconds)
+GetCautionPhaseDuration()         -> number
+UnsetCautionPhaseDuration()
+GetRemainingCautionPhaseTime()    -> number
+
+
+V_TppEnemy
+----------
+  VIP
+    SetVIPImportant(soldier, isOfficer, foundDeadBodyRadioLabel)
+    RemoveVIPImportant(soldier)
+    ClearVIPImportant()
+
+  Holdup / call sign / camo
+    SetUseConcernedHoldupRecovery(enable)
+    AddCallSignPatrolSoldier(soldier)
+    RemoveCallSignPatrolSoldier(soldier)
+    ClearCallSignPatrolSoldiers()
+    EnableSoldierStealthCamo(soldier, enable)
+    EnableAllSoldierStealthCamo(enable)
+    EnableClosestSoldierCamo(enable)
+    ClearSoldierStealthCamoOverrides()
+
+  Utility
+    CheckEnemyDistance(gameObjectId)          -> number
+    GetAllMissionSoldiersByDistance()         -> table
+
+
+V_TppSahelan
+------------
+SetSahelanFova(fv2Path)
+ClearSahelanFova()
+SetEyeLampColor(r, g, b, pulseSpeed, mode)   -- mode optional; omit = all modes
+ClearEyeLampColor()
+SetEyeLampDisco(enabled, speed)              -- speed optional, default 2.0
+ClearHeartLightColor()
+SetHeartLightColor(r, g, b, pulseSpeed)
+SetEyeLampColorLogging(enabled)
+SetPhase(phase)                              -- sustained; AI can't override
+ClearPhase()
+GetPhase()                                   -> number
+
+  phase values: 0=Wait 1=1stAction 2=Sneak 3=Caution 4=PreAlert 5=Alert 6=PreVsHeli 7=VsHeli
+
+  SendCommand alternative:
+    GameObject.SendCommand({type="TppSahelan2",group=0,index=0}, {id="V_SetSahelanPhase", phase=2})
+
+
+V_SoundCoreDaemon
+-----------------
+  RTPC
+    SetSoldierRtpc(soldier, rtpcName, value, timeMs)      -> AKRESULT
+    SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs)    -> AKRESULT
+    SetGlobalRtpc(rtpcName, value, timeMs)                -> AKRESULT
+    SetRtpcLoggingEnabled(enabled)                        -> bool
+    IsRtpcLoggingEnabled()                                -> bool
+
+  Voice pitch
+    SetSoldierVoicePitch(soldier, cents)                  -> bool
+    SetGlobalVoicePitch(cents)
+    GetGlobalVoicePitch()                                 -> number
+    SetPitchByAkObjId(akObjId, cents)
+    ClearPitchByAkObjId(akObjId)
+    ClearAllPerAkObjIdPitchBiases()
+
+  Wwise object ID
+    GetSoldierAkObjId(soldier)                            -> number
+
+
+V_TppHostage
+------------
+SetLostHostage(hostage, gender, hostageLostLabel)   -- gender: 0=male 1=female 2=child
+RemoveLostHostage(hostage)
+ClearLostHostages()
+SetLostHostageFromPlayer(hostage, enable)
+IsHostageFemale(hostage)    -> bool
+IsHostageChild(hostage)     -> bool
+BuildHostageList()
+AutoSetLostHostage()
+AutoSetLostHostageFromPlayer(enable)
+
+  Custom labels
+    SetCustomLostLabel(key, value)
+    ClearCustomLostLabel(key)
+    ClearAllCustomLostLabels()
+    RegisterCustomLostLabels(table)
+    RefreshCustomLabels()
+
+  label key:   hostage name / gameObjectId / "male" / "female" / "child"
+  label value: "LABEL_STR" / hash / {gone="...", taken="..."} / nil
+
+
+V_TppPickable
+-------------
+SetCountRaw(locatorName, countRaw)
+GetCountRaw(locatorName)    -> number
+
+
+APPENDIX A — PlayerType
+-----------------------
+0=Snake  1=DDMale  2=DDFemale  3=Avatar  4=Liquid  5=Ocelot  6=Quiet
+
+
+APPENDIX B — Voice Line Labels
+------------------------------
+VIP / body found (foundDeadBodyRadioLabel):
+  V_CPR0042_KEEP    "A VIP's dead. Looks like an enemy attack."
+  V_CPRGZ0040       "One of the officers inspecting the base is dead."
+  V_CPRGZ0040_UNKEEP  Same, no "stay on alert" tail.
+  V_CPR0231         "Found the body of a prisoner."
+
+Hostage escape (hostageLostLabel):
+  V_CPR0250         "The girl's disappeared."
+  V_CPR0250_KEEP    Same + keep-searching tail.
+  V_CPR0270         "The kid's missing." (EN only)
+  V_CPR0270_KEEP    Same + keep-searching tail.
+  V_CPR0271         "The kid's missing." (alt)
+  V_CPR0271_KEEP    Same + keep-searching tail.
+  V_CPR0230_KEEP    Male variant + keep-searching tail.
