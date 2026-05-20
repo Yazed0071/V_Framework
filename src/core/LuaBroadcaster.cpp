@@ -134,11 +134,11 @@ namespace
 
     static bool PushBroadcastTarget(lua_State* L, const LuaApi& lua)
     {
-        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("V_FrameWork"));
+        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("Mission"));
         if (lua.type(L, -1) != LUA_TTABLE)
             return false;
 
-        lua.getfield(L, -1, const_cast<char*>("BroadcastMessage"));
+        lua.getfield(L, -1, const_cast<char*>("SendMessage"));
         if (lua.type(L, -1) != LUA_TFUNCTION)
             return false;
 
@@ -217,7 +217,7 @@ namespace
     {
         const char* errMsg = lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
 
-        Log("[V_FrameWork] BroadcastMessage pcall err=%d category=%s msg=%s: %s\n",
+        Log("[V_FrameWork] Mission.SendMessage pcall err=%d category=%s msg=%s: %s\n",
             err,
             category,
             msg,

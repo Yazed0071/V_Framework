@@ -682,47 +682,23 @@ function this.ImportExistingListeners()
 end
 
 function this.RegisterInfModuleListeners()
-  if not V_FrameWork or not V_FrameWork.RegisterListener or not InfModules then
+  if not V_FrameWork or not InfModules then
     return
   end
 
   for i,module in ipairs(InfModules)do
     if module and module.OnMessage then
-      if not module._V_FrameWorkRegistered then
-        V_FrameWork.RegisterListener(module)
-      else
-        this.TrackListener(module)
-      end
+      this.TrackListener(module)
     end
   end
 end
 
 function this.LoadLibraries()
-  if not V_FrameWork or not V_FrameWork.RegisterListener then
+  if not V_FrameWork then
     return
   end
 
   this.EnsureTrackingTables()
-
-  if not V_FrameWork._V_DoMessagesLookUp_RegisterListenerHooked then
-    V_FrameWork._V_DoMessagesLookUp_RegisterListenerHooked=true
-
-    local RegisterListener=V_FrameWork.RegisterListener
-
-    V_FrameWork.RegisterListener=function(listener)
-      if not listener then
-        return
-      end
-
-      if V_FrameWork._V_DoMessagesLookUp_RegisteredListeners[listener] then
-        return
-      end
-
-      this.TrackListener(listener)
-
-      return RegisterListener(listener)
-    end
-  end
 
   if Tpp and Tpp.DoMessage and not Tpp._V_DoMessagesLookUp_DoMessageHooked then
     Tpp._V_DoMessagesLookUp_DoMessageHooked=true
@@ -756,45 +732,6 @@ function this.LoadLibraries()
         arg3,
         strLogText
       )
-    end
-  end
-
-  if V_FrameWork.BroadcastMessage and not V_FrameWork._V_DoMessagesLookUp_BroadcastMessageHooked then
-    V_FrameWork._V_DoMessagesLookUp_BroadcastMessageHooked=true
-
-    local BroadcastMessage=V_FrameWork.BroadcastMessage
-
-    V_FrameWork.BroadcastMessage=function(sender,messageId,arg0,arg1,arg2,arg3,strLogText)
-      this.RefreshLookups()
-      this.ImportLookupModules(nil)
-      this.ImportExistingListeners()
-      this.RegisterInfModuleListeners()
-
-      local previousContext=V_FrameWork._V_DoMessagesLookUp_CurrentContext
-
-      local context={
-        sender=sender,
-        messageId=messageId,
-        receivers={},
-        receiverSet={},
-      }
-
-      V_FrameWork._V_DoMessagesLookUp_CurrentContext=context
-
-      local identity=this.PrintOnMessage(sender,messageId,arg0,arg1,arg2,arg3,strLogText)
-
-      BroadcastMessage(sender,messageId,arg0,arg1,arg2,arg3,strLogText)
-
-      V_FrameWork._V_DoMessagesLookUp_CurrentContext=previousContext
-
-      if identity then
-        InfCore.Log(
-          "/OnMessage: "
-          ..tostring(identity)
-          .." recievers: "
-          ..this.GetReceiverString(sender,messageId,context)
-        )
-      end
     end
   end
 

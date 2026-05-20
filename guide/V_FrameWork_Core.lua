@@ -18,44 +18,6 @@ _G.V_FrameWork_Core = this
 this.V_FrameWork = VFW
 
 
-VFW.MessageListeners = VFW.MessageListeners or {}
-
-function VFW.RegisterListener(module)
-    if type(module) ~= "table" then
-        VFW.Log("V_FrameWork.RegisterListener: argument is not a table.")
-        return
-    end
-    if type(module.OnMessage) ~= "function" then
-        VFW.Log("V_FrameWork.RegisterListener: module has no OnMessage function.")
-        return
-    end
-    for _, m in ipairs(VFW.MessageListeners) do
-        if m == module then return end
-    end
-    table.insert(VFW.MessageListeners, module)
-end
-
-function VFW.UnregisterListener(module)
-    for i, m in ipairs(VFW.MessageListeners) do
-        if m == module then
-            table.remove(VFW.MessageListeners, i)
-            return
-        end
-    end
-end
-
-function VFW.BroadcastMessage(category, msg, arg0, arg1, arg2, arg3)
-    local senderHash = Fox.StrCode32(category)
-    local msgHash    = Fox.StrCode32(msg)
-    for _, m in ipairs(VFW.MessageListeners) do
-        if m.OnMessage then
-            m.OnMessage(senderHash, msgHash, arg0, arg1, arg2, arg3, "")
-        end
-    end
-end
-
-
-
 function this.OnAllocate(missionTable)
     V_SoundCoreDaemon.ClearAllPerAkObjIdPitchBiases()
     V_TppCommandPost.UnsetCautionPhaseDuration()
