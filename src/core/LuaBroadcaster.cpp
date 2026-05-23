@@ -145,6 +145,19 @@ namespace
         return true;
     }
 
+    static bool PushSendToSubscribersTarget(lua_State* L, const LuaApi& lua)
+    {
+        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("Mission"));
+        if (lua.type(L, -1) != LUA_TTABLE)
+            return false;
+
+        lua.getfield(L, -1, const_cast<char*>("SendMessageToSubscribers"));
+        if (lua.type(L, -1) != LUA_TFUNCTION)
+            return false;
+
+        return true;
+    }
+
     static void PushRequiredBroadcastArgs(lua_State* L,
         const LuaApi& lua,
         const char* category,
@@ -223,6 +236,7 @@ namespace
             msg,
             errMsg ? errMsg : "<no message>");
     }
+
 }
 
 void V_FrameWork::EmitMessageValues(const char* category,
@@ -245,21 +259,36 @@ void V_FrameWork::EmitMessageValues(const char* category,
 
     __try
     {
-        if (!PushBroadcastTarget(L, lua))
+        if (PushBroadcastTarget(L, lua))
         {
-            lua.settop(L, savedTop);
-            return;
+            PushRequiredBroadcastArgs(L, lua, category, msg);
+
+            const int pushedOptionalArgs = PushOptionalArgs(L, lua, args, argCount);
+            const int luaArgCount = 2 + pushedOptionalArgs;
+
+            const int err = lua.pcall(L, luaArgCount, 0, 0);
+            if (err != 0)
+            {
+                LogBroadcastError(lua, L, err, category, msg);
+            }
         }
+        lua.settop(L, savedTop);
 
-        PushRequiredBroadcastArgs(L, lua, category, msg);
-
-        const int pushedOptionalArgs = PushOptionalArgs(L, lua, args, argCount);
-        const int luaArgCount = 2 + pushedOptionalArgs;
-
-        const int err = lua.pcall(L, luaArgCount, 0, 0);
-        if (err != 0)
+        if (PushSendToSubscribersTarget(L, lua))
         {
-            LogBroadcastError(lua, L, err, category, msg);
+            PushRequiredBroadcastArgs(L, lua, category, msg);
+
+            const int pushedOptionalArgs = PushOptionalArgs(L, lua, args, argCount);
+            const int luaArgCount = 2 + pushedOptionalArgs;
+
+            const int err = lua.pcall(L, luaArgCount, 0, 0);
+            if (err != 0)
+            {
+                const char* errMsg = lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
+                Log("[V_FrameWork] Mission.SendMessageToSubscribers pcall err=%d "
+                    "category=%s msg=%s: %s\n",
+                    err, category, msg, errMsg ? errMsg : "<no message>");
+            }
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
