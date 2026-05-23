@@ -8,6 +8,7 @@ extern "C" {
 #include <cstring>
 
 #include "AddressSet.h"
+#include "FoxHashes.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaBroadcaster.h"
@@ -24,6 +25,8 @@ namespace
     using lua_getfield_t = void(__fastcall*)(lua_State*, int, char*);
     using lua_type_t = int(__fastcall*)(lua_State*, int);
     using lua_tolstring_t = const char* (__fastcall*)(lua_State*, int, size_t*);
+    using lua_pushvalue_t = void (__fastcall*)(lua_State*, int);
+    using lua_rawset_t    = void (__fastcall*)(lua_State*, int);
 
     static constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
@@ -37,6 +40,8 @@ namespace
     static constexpr uintptr_t BOOTSTRAP_EN_lua_getfield = 0x14C1D7320ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_type = 0x14C1ED760ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring = 0x141A123C0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue = 0x14C1E87E0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_rawset    = 0x14C1E9CF0ull;
 
     static uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr,
         uintptr_t bootstrapAddr)
@@ -66,6 +71,8 @@ namespace
         lua_getfield_t    getfield = nullptr;
         lua_type_t        type = nullptr;
         lua_tolstring_t   tolstring = nullptr;
+        lua_pushvalue_t   pushvalue = nullptr;
+        lua_rawset_t      rawset = nullptr;
     };
 
     static bool ResolveLuaApi(LuaApi& lua)
@@ -110,6 +117,14 @@ namespace
             gAddr.lua_tolstring,
             BOOTSTRAP_EN_lua_tolstring);
 
+        lua.pushvalue = ResolveLua<lua_pushvalue_t>(
+            gAddr.lua_pushvalue,
+            BOOTSTRAP_EN_lua_pushvalue);
+
+        lua.rawset = ResolveLua<lua_rawset_t>(
+            gAddr.lua_rawset,
+            BOOTSTRAP_EN_lua_rawset);
+
         return lua.pcall &&
             lua.pushnumber &&
             lua.pushstring &&
@@ -118,7 +133,9 @@ namespace
             lua.settop &&
             lua.gettop &&
             lua.getfield &&
-            lua.type;
+            lua.type &&
+            lua.pushvalue &&
+            lua.rawset;
     }
 
     static int ClampBroadcastArgCount(int argCount)
@@ -145,17 +162,127 @@ namespace
         return true;
     }
 
-    static bool PushSendToSubscribersTarget(lua_State* L, const LuaApi& lua)
+    static bool EnsureDispatchHelperInstalled(lua_State* L, const LuaApi& lua)
     {
-        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("Mission"));
-        if (lua.type(L, -1) != LUA_TTABLE)
-            return false;
+        const int top0 = lua.gettop(L);
 
-        lua.getfield(L, -1, const_cast<char*>("SendMessageToSubscribers"));
+        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("_V_FrameWork_Dispatch"));
+        if (lua.type(L, -1) == LUA_TFUNCTION)
+        {
+            lua.settop(L, top0);
+            return true;
+        }
+        lua.settop(L, top0);
+
+        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("loadstring"));
         if (lua.type(L, -1) != LUA_TFUNCTION)
+        {
+            Log("[V_FrameWork] install: loadstring missing (type=%d)\n",
+                lua.type(L, -1));
+            lua.settop(L, top0);
             return false;
+        }
 
-        return true;
+        static const char* kChunk =
+            "return function(G, sender, msg, a0, a1, a2, a3)\n"
+            "    local TppMain = G.TppMain\n"
+            "    local debug = G.debug\n"
+            "    local Tpp = G.Tpp\n"
+            "    local TppMission = G.TppMission\n"
+            "    if not TppMain or not debug or not debug.getupvalue then return end\n"
+            "    local fn = TppMain.SetMessageFunction\n"
+            "    if not fn then return end\n"
+            "    local omt, omtSize, met, metSize\n"
+            "    local i = 1\n"
+            "    while true do\n"
+            "        local name, value = debug.getupvalue(fn, i)\n"
+            "        if name == nil then break end\n"
+            "        if name == 'onMessageTable' then omt = value\n"
+            "        elseif name == 'onMessageTableSize' then omtSize = value\n"
+            "        elseif name == 'messageExecTable' then met = value\n"
+            "        elseif name == 'messageExecTableSize' then metSize = value\n"
+            "        end\n"
+            "        i = i + 1\n"
+            "    end\n"
+            "    if omt and omtSize then\n"
+            "        for j = 1, omtSize do\n"
+            "            local cb = omt[j]\n"
+            "            if type(cb) == 'function' then\n"
+            "                pcall(cb, sender, msg, a0, a1, a2, a3, '')\n"
+            "            end\n"
+            "        end\n"
+            "    end\n"
+            "    if met and metSize and Tpp and Tpp.DoMessage then\n"
+            "        local checkOpt = TppMission and TppMission.CheckMessageOption\n"
+            "        for j = 1, metSize do\n"
+            "            local et = met[j]\n"
+            "            if type(et) == 'table' then\n"
+            "                pcall(Tpp.DoMessage, et, checkOpt, sender, msg, a0, a1, a2, a3, '')\n"
+            "            end\n"
+            "        end\n"
+            "    end\n"
+            "end\n";
+
+        lua.pushstring(L, const_cast<char*>(kChunk));
+
+        int err = lua.pcall(L, 1, 2, 0);
+        if (err != 0)
+        {
+            const char* errMsg = lua.tolstring(L, -1, nullptr);
+            Log("[V_FrameWork] install: loadstring pcall err=%d: %s\n",
+                err, errMsg ? errMsg : "<unknown>");
+            lua.settop(L, top0);
+            return false;
+        }
+
+        if (lua.type(L, -2) != LUA_TFUNCTION)
+        {
+            const char* errMsg = lua.tolstring(L, -1, nullptr);
+            Log("[V_FrameWork] install: chunk compile failed: %s\n",
+                errMsg ? errMsg : "<unknown>");
+            lua.settop(L, top0);
+            return false;
+        }
+
+        lua.settop(L, lua.gettop(L) - 1);
+
+        err = lua.pcall(L, 0, 1, 0);
+        if (err != 0)
+        {
+            const char* errMsg = lua.tolstring(L, -1, nullptr);
+            Log("[V_FrameWork] install: chunk exec err=%d: %s\n",
+                err, errMsg ? errMsg : "<unknown>");
+            lua.settop(L, top0);
+            return false;
+        }
+
+        if (lua.type(L, -1) != LUA_TFUNCTION)
+        {
+            Log("[V_FrameWork] install: chunk did not return a function (type=%d)\n",
+                lua.type(L, -1));
+            lua.settop(L, top0);
+            return false;
+        }
+
+        const int fnIdx = lua.gettop(L);
+
+        lua.pushstring(L, const_cast<char*>("_V_FrameWork_Dispatch"));
+        lua.pushvalue(L, fnIdx);
+        lua.rawset(L, LUA_GLOBALSINDEX_51);
+
+        lua.settop(L, top0);
+
+        lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("_V_FrameWork_Dispatch"));
+        const bool installed = (lua.type(L, -1) == LUA_TFUNCTION);
+        lua.settop(L, top0);
+
+        if (!installed)
+        {
+            Log("[V_FrameWork] install: rawset verification failed; "
+                "rawset(LUA_GLOBALSINDEX) did not stick\n");
+        }
+
+        return installed;
     }
 
     static void PushRequiredBroadcastArgs(lua_State* L,
@@ -257,6 +384,9 @@ void V_FrameWork::EmitMessageValues(const char* category,
 
     const int savedTop = lua.gettop(L);
 
+    const std::uint32_t senderHash = FoxHashes::StrCode32(category);
+    const std::uint32_t msgHash    = FoxHashes::StrCode32(msg);
+
     __try
     {
         if (PushBroadcastTarget(L, lua))
@@ -274,20 +404,40 @@ void V_FrameWork::EmitMessageValues(const char* category,
         }
         lua.settop(L, savedTop);
 
-        if (PushSendToSubscribersTarget(L, lua))
+        if (EnsureDispatchHelperInstalled(L, lua))
         {
-            PushRequiredBroadcastArgs(L, lua, category, msg);
-
-            const int pushedOptionalArgs = PushOptionalArgs(L, lua, args, argCount);
-            const int luaArgCount = 2 + pushedOptionalArgs;
-
-            const int err = lua.pcall(L, luaArgCount, 0, 0);
-            if (err != 0)
+            lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("_V_FrameWork_Dispatch"));
+            if (lua.type(L, -1) == LUA_TFUNCTION)
             {
-                const char* errMsg = lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
-                Log("[V_FrameWork] Mission.SendMessageToSubscribers pcall err=%d "
-                    "category=%s msg=%s: %s\n",
-                    err, category, msg, errMsg ? errMsg : "<no message>");
+                lua.pushvalue(L, LUA_GLOBALSINDEX_51);
+                lua.pushnumber(L, static_cast<lua_Number>(senderHash));
+                lua.pushnumber(L, static_cast<lua_Number>(msgHash));
+
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (args && i < argCount)
+                    {
+                        PushOneOptionalArg(L, lua, args[i]);
+                    }
+                    else
+                    {
+                        lua.pushnil(L);
+                    }
+                }
+
+                const int err = lua.pcall(L, 7, 0, 0);
+                if (err != 0)
+                {
+                    const char* errMsg = lua.tolstring(L, -1, nullptr);
+                    Log("[V_FrameWork] _V_FrameWork_Dispatch pcall err=%d "
+                        "sender=0x%08x msg=0x%08x: %s\n",
+                        err, senderHash, msgHash,
+                        errMsg ? errMsg : "<no message>");
+                }
+            }
+            else
+            {
+                lua.settop(L, lua.gettop(L) - 1);
             }
         }
     }
