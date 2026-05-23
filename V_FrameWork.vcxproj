@@ -162,7 +162,7 @@
     <ClInclude Include="include\luaconf.h" />
     <ClInclude Include="include\lualib.h" />
     <ClInclude Include="include\MinHook.h" />
-    <ClInclude Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.h" />
+    <ClInclude Include="include\GetGameObjectIdWithIndex.h" />
     <!-- Hooks: Soldier -->
     <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h" />
     <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />

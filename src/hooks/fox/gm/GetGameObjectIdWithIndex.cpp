@@ -13,11 +13,6 @@ namespace
 {
     static constexpr std::uint32_t kInvalidGameObjectId = 0xFFFFu;
 
-    // TppGameObject.GAME_OBJECT_TYPE_SOLDIER2 appears to be type index 2.
-    // Native GameObjectId packing from disassembly:
-    //   gameObjectId = (typeIndex << 9) | (index & 0x1FF)
-    static constexpr std::uint16_t kTppSoldier2TypeIndex = 2;
-
     struct NativeGameObjectId
     {
         std::uint16_t value = 0xFFFF;
@@ -25,17 +20,10 @@ namespace
 
     using GetGameObjectIdWithIndex_t =
         void(__fastcall*)(NativeGameObjectId* out,
-            std::uint32_t typeNameId,
+            std::uint32_t typeArg,
             std::uint32_t index);
 
     static GetGameObjectIdWithIndex_t g_GetGameObjectIdWithIndex = nullptr;
-
-    static std::uint32_t BuildGameObjectIdFromTypeIndex(std::uint16_t typeIndex,
-        std::uint32_t index)
-    {
-        return (static_cast<std::uint32_t>(typeIndex) << 9) |
-            (index & 0x1FFu);
-    }
 
     static bool IsTypeName(const char* lhs, const char* rhs)
     {
@@ -45,24 +33,48 @@ namespace
         return std::strcmp(lhs, rhs) == 0;
     }
 
-    static bool TryFallbackGameObjectIdWithIndex(const char* typeName,
+    static std::uint16_t LookupTypeIndex(const char* typeName)
+    {
+        if (IsTypeName(typeName, "TppSoldier2"))
+            return TppGameObjectType::kSoldier2;
+
+        return TppGameObjectType::kUnknown;
+    }
+
+    static std::uint32_t PackGameObjectId(std::uint16_t typeIndex,
+        std::uint32_t index)
+    {
+        return (static_cast<std::uint32_t>(typeIndex) << 9) |
+            (index & 0x1FFu);
+    }
+
+    static bool TryNativeWithStrCode32(const char* typeName,
         std::uint32_t index,
         std::uint32_t& gameObjectIdOut)
     {
-        if (IsTypeName(typeName, "TppSoldier2"))
+        if (!g_GetGameObjectIdWithIndex)
+            return false;
+
+        const std::uint32_t typeNameId = FoxHashes::StrCode32(typeName);
+        NativeGameObjectId result{};
+
+        __try
         {
-            gameObjectIdOut =
-                BuildGameObjectIdFromTypeIndex(kTppSoldier2TypeIndex, index);
-
-            Log("[GetGameObjectIdWithIndex] native failed, fallback type=%s index=%u -> gameObjectId=%u\n",
+            g_GetGameObjectIdWithIndex(&result, typeNameId, index);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[GetGameObjectIdWithIndex] SEH exception type=%s index=%u\n",
                 typeName,
-                index,
-                gameObjectIdOut);
-
-            return true;
+                index);
+            return false;
         }
 
-        return false;
+        if (result.value == 0xFFFFu)
+            return false;
+
+        gameObjectIdOut = static_cast<std::uint32_t>(result.value);
+        return true;
     }
 }
 
@@ -117,47 +129,22 @@ bool GetGameObjectIdWithIndex(const char* typeName,
     if (!typeName || !typeName[0])
         return false;
 
-    bool nativeAttempted = false;
+    const std::uint16_t typeIndex = LookupTypeIndex(typeName);
+    if (typeIndex != TppGameObjectType::kUnknown)
+    {
+        gameObjectIdOut = PackGameObjectId(typeIndex, index);
+        return true;
+    }
 
     if (!g_GetGameObjectIdWithIndex)
         Install_GetGameObjectIdWithIndex();
 
-    if (g_GetGameObjectIdWithIndex)
-    {
-        const std::uint32_t typeNameId = FoxHashes::StrCode32(typeName);
-        NativeGameObjectId result{};
-
-        nativeAttempted = true;
-
-        __try
-        {
-            g_GetGameObjectIdWithIndex(&result, typeNameId, index);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[GetGameObjectIdWithIndex] SEH exception type=%s index=%u\n",
-                typeName,
-                index);
-
-            result.value = 0xFFFF;
-        }
-
-        if (result.value != 0xFFFFu)
-        {
-            gameObjectIdOut = static_cast<std::uint32_t>(result.value);
-            return true;
-        }
-    }
-
-    if (TryFallbackGameObjectIdWithIndex(typeName, index, gameObjectIdOut))
+    if (TryNativeWithStrCode32(typeName, index, gameObjectIdOut))
         return true;
 
-    if (nativeAttempted)
-    {
-        Log("[GetGameObjectIdWithIndex] no GameObjectId type=%s index=%u\n",
-            typeName,
-            index);
-    }
+    Log("[GetGameObjectIdWithIndex] unmapped type=%s index=%u (add it to TppGameObjectType)\n",
+        typeName,
+        index);
 
     return false;
 }
@@ -168,4 +155,11 @@ bool GetSoldierGameObjectIdWithIndex(std::uint32_t soldierIndex,
     return GetGameObjectIdWithIndex("TppSoldier2",
         soldierIndex,
         gameObjectIdOut);
+}
+
+std::uint32_t GetGameObjectIdByIndex(const char* typeName,
+    std::uint32_t index)
+{
+    std::uint32_t out = 0;
+    return GetGameObjectIdWithIndex(typeName, index, out) ? out : 0;
 }

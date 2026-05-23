@@ -20,7 +20,6 @@ static uintptr_t gBase = 0;
 using StateFn_t = void(__fastcall*)(void* holdupThis, uint64_t id, int phase);
 static StateFn_t gOrig_State = nullptr;
 
-
 using SpeakVfunc20_t = void(__fastcall*)(void* self,
     uint32_t id32,
     uint32_t a3,
@@ -147,20 +146,23 @@ static void TrySpeak_EnterDownHoldupStyle(void* holdupThis, uint32_t id32, uint3
 }
 
 
-static void EmitHoldupCancelLookToPlayerMessage(uint32_t id32)
-{
-    std::uint32_t gameObjectId = 0xFFFFu;
+static constexpr uintptr_t kSlotSoldierIndexOffset = 0x38;
 
-    if (GetSoldierGameObjectIdWithIndex(id32, gameObjectId))
+static uint32_t ReadSoldierIndexFromSlot(uintptr_t slot)
+{
+    return ReadDwordNoThrow(slot + kSlotSoldierIndexOffset);
+}
+
+static void EmitHoldupCancelLookToPlayerMessage(uint32_t soldierIndex)
+{
+    const std::uint32_t gameObjectId = GetGameObjectIdByIndex("TppSoldier2", soldierIndex);
+    if (!gameObjectId)
     {
-        V_FrameWork::EmitMessage("GameObject",
-            "HoldupCancelLookToPlayer",
-            gameObjectId);
+        Log("[Holdup] failed to resolve soldier index %u\n", soldierIndex);
+        return;
     }
-    else
-    {
-        Log("[Holdup] failed to convert soldier index %u to GameObjectId\n", id32);
-    }
+
+    V_FrameWork::EmitMessage("GameObject", "HoldupCancelLookToPlayer", gameObjectId);
 }
 
 static std::atomic<uint64_t> gDetourHits{ 0 };
@@ -173,36 +175,37 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
     if (phase != 1)
         return;
 
-    const uint32_t id32 = static_cast<uint32_t>(id & 0xFFFFFFFFu);
+    const uint32_t holdupId = static_cast<uint32_t>(id & 0xFFFFFFFFu);
     const ULONGLONG now = GetTickCount64();
+
+    const uintptr_t slot = GetHoldupSlot(holdupThis, holdupId);
+    if (!slot) return;
+
+    const uint32_t soldierIndex = ReadSoldierIndexFromSlot(slot);
 
     {
         const uint64_t emitKey =
             ((static_cast<uint64_t>(reinterpret_cast<uintptr_t>(holdupThis)) >> 4) ^
-             (static_cast<uint64_t>(id32) << 32)) ^ 0xE17E17E17E17ULL;
+             (static_cast<uint64_t>(soldierIndex) << 32)) ^ 0xE17E17E17E17ULL;
 
         if (ShouldFire(emitKey, now, 500))
-            EmitHoldupCancelLookToPlayerMessage(id32);
+            EmitHoldupCancelLookToPlayerMessage(soldierIndex);
     }
-
-    const uintptr_t slot = GetHoldupSlot(holdupThis, id32);
-    if (!slot) return;
-
 
     const uint32_t lineId = ComputeLineIdFromSlot(slot);
 
     const uint64_t key =
         (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(holdupThis)) >> 4) ^
-        (static_cast<uint64_t>(id32) << 32) ^
+        (static_cast<uint64_t>(holdupId) << 32) ^
         static_cast<uint64_t>(lineId);
 
-    TrySpeak_EnterDownHoldupStyle(holdupThis, id32, lineId);
+    TrySpeak_EnterDownHoldupStyle(holdupThis, holdupId, lineId);
 
     const uint64_t n = ++gDetourHits;
     if (n == 1 || (n % 50) == 0)
     {
-        Log("[Holdup] SPEAK attempt #%llu phase=1 id=%u line=0x%08X this=%p slot=%p\n",
-            (unsigned long long)n, id32, lineId, holdupThis, (void*)slot);
+        Log("[Holdup] SPEAK attempt #%llu phase=1 holdupId=%u soldierIndex=%u line=0x%08X this=%p slot=%p\n",
+            (unsigned long long)n, holdupId, soldierIndex, lineId, holdupThis, (void*)slot);
     }
 }
 

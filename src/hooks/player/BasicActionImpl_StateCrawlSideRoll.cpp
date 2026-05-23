@@ -229,21 +229,7 @@ static void __fastcall hkStateCrawlSideRoll(
     TryReadRollDirection(this_, playerIndex, direction);
 
     V_FrameWork::EmitMessage(
-        "V_Player",
-        "CrawlSideRoll",
-        playerIndex,
-        RollPhaseToStringStrCode32(emitPhase),
-        emitCount,
-        direction);
-    V_FrameWork::EmitMessage(
         "Player",
-        "CrawlSideRoll",
-        playerIndex,
-        RollPhaseToStringStrCode32(emitPhase),
-        emitCount,
-        direction);
-    V_FrameWork::EmitMessage(
-        "GameObject",
         "CrawlSideRoll",
         playerIndex,
         RollPhaseToStringStrCode32(emitPhase),
