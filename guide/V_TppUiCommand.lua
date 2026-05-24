@@ -3,7 +3,8 @@
 
 local this = {}
 local StrCode32 = Fox.StrCode32
-local IsTypeString=Tpp.IsTypeString
+local IsTypeNumber = Tpp.IsTypeNumber
+local IsTypeString = Tpp.IsTypeString
 
 this.registerIvars={
 	"V_FrameWork_Welcome_Message",
@@ -204,6 +205,51 @@ function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
         return
     end
     return V_FrameWork.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
+end
+
+function this.SetMissionEmergency(missionCode, enabled, enableSortiePrep)
+    if not IsTypeNumber(missionCode) then
+        V_FrameWork.Log("V_TppUiCommand.SetMissionEmergency: missionCode must be a number.")
+        return
+    end
+    V_FrameWork.SetMissionEmergency(missionCode, enabled, enableSortiePrep)
+end
+
+function this.IsMissionEmergency(missionCode)
+    if not IsTypeNumber(missionCode) then return false end
+    return V_FrameWork.IsMissionEmergency(missionCode)
+end
+
+function this.ClearAllMissionEmergencies()
+    V_FrameWork.ClearAllMissionEmergencies()
+end
+
+function this.ShowEmergencyMissionPopup(title, body)
+    if title ~= nil and not IsTypeString(title) then
+        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopup: title is not a string or nil.")
+        return
+    end
+    if body ~= nil and not IsTypeString(body) then
+        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopup: body is not a string or nil.")
+        return
+    end
+    return V_FrameWork.ShowEmergencyMissionPopup(title, body)
+end
+
+function this.ShowEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+    if titleLabel ~= nil and not IsTypeString(titleLabel) then
+        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopupLangId: titleLabel is not a string or nil.")
+        return
+    end
+    if bodyLabel ~= nil and not IsTypeString(bodyLabel) then
+        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopupLangId: bodyLabel is not a string or nil.")
+        return
+    end
+    return V_FrameWork.ShowEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+end
+
+function this.ClearEmergencyMissionPopupOverride()
+    V_FrameWork.ClearEmergencyMissionPopupOverride()
 end
 
 function this.Messages()

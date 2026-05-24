@@ -79,6 +79,8 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -96,6 +98,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -115,6 +118,8 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -134,6 +139,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -194,6 +200,7 @@
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\ui\EnemyLangIdOverride.h" />
+    <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <!-- Hooks: Sahelan -->
@@ -258,6 +265,7 @@
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\ui\EnemyLangIdOverride.cpp" />
+    <ClCompile Include="src\hooks\ui\MissionEmergencyHook.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->

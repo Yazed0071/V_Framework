@@ -93,6 +93,7 @@ namespace AddressSetRuntime
         uintptr_t lua_gettable = 0;
         uintptr_t lua_pushvalue = 0;
         uintptr_t lua_pcall = 0;
+        uintptr_t lua_pushcclosure = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
         uintptr_t AK_SoundEngine_SetRTPCValue = 0;
@@ -113,8 +114,9 @@ namespace AddressSetRuntime
         uintptr_t Sahelan_EyeMeshHashTable = 0;
         uintptr_t Sahelan_PhaseSneakAi_ColorTableBase = 0;
         uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
-        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal = 0;
-        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer = 0;
+        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal    = 0;
+        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer    = 0;
+        uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency = 0;
         uintptr_t HudCommonDataManager_GetInstance       = 0;
         uintptr_t HudCommonDataManager_SetPopupType      = 0;
         uintptr_t HudCommonDataManager_SetPopupText      = 0;
@@ -148,6 +150,8 @@ namespace AddressSetRuntime
         uintptr_t Sahelan_PhaseSneakAiImpl_StepFuncsTable               = 0;
 
         uintptr_t MessageResendCounter                                  = 0;
+
+        uintptr_t GetMissionCodeCategory                                = 0;
 
     };
 

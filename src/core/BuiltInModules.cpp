@@ -96,6 +96,9 @@ bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
 bool Install_PhaseSneakAiImpl_PreUpdate_Hook();
 bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook();
 
+bool Install_MissionEmergency_Hook();
+bool Uninstall_MissionEmergency_Hook();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -685,6 +688,14 @@ namespace
         void Uninstall() override { Uninstall_PhaseSneakAiImpl_PreUpdate_Hook(); }
     };
 
+    class MissionEmergencyModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "MissionEmergency"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_MissionEmergency_Hook(); }
+        void Uninstall() override { Uninstall_MissionEmergency_Hook(); }
+    };
+
 
 
 }
@@ -721,6 +732,7 @@ void RegisterBuiltInFeatureModules()
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
     static CrawlSideRollModule s_CrawlSideRollModule;
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
+    static MissionEmergencyModule s_MissionEmergencyModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -755,5 +767,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_CrawlSideRollModule);
             FeatureModuleRegistry::Instance().Register(&s_PhaseSneakAiImpl_PreUpdateModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);
         });
 }

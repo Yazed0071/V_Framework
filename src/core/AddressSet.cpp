@@ -134,6 +134,7 @@ namespace AddressSetRuntime
             0x14C1D7C10ull, // lua_gettable
             0x14C1E87E0ull, // lua_pushvalue
             0x141A11930ull, // lua_pcall
+            0x14C1E67B0ull, // lua_pushcclosure
 
             0x145E62540ull, // GetIconFtexPath
             0x145CCFCC0ull, // LoadingTipsEv_UpdateActPhase
@@ -165,6 +166,7 @@ namespace AddressSetRuntime
 
             0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal
             0x140EF32A0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
+            0x140EF2CC0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency
 
             0x145C0A890ull, // HudCommonDataManager_GetInstance
             0x1408679B0ull, // HudCommonDataManager_SetPopupType
@@ -204,6 +206,8 @@ namespace AddressSetRuntime
             0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
 
             0x142c1fd24ull, // MessageResendCounter
+
+            0x145e642a0ull, // GetMissionCodeCategory
 
         };
 
@@ -293,6 +297,7 @@ namespace AddressSetRuntime
             0x14C987B90ull, // lua_gettable
             0x14C98E1D0ull, // lua_pushvalue
             0x141A11A50ull, // lua_pcall
+            0ull,           // lua_pushcclosure
 
 
             0x147A6BD40ull, // GetIconFtexPath
@@ -325,6 +330,7 @@ namespace AddressSetRuntime
 
             0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal
             0x140EF3410ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
+            0ull,           // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency (JP TBD)
 
             0x147719930ull, // HudCommonDataManager_GetInstance
             0x140867630ull, // HudCommonDataManager_SetPopupType
@@ -364,6 +370,8 @@ namespace AddressSetRuntime
             0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
 
             0ull,           // MessageResendCounter
+
+            0ull,           // GetMissionCodeCategory
 
         };
 

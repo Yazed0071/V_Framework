@@ -61,6 +61,69 @@ V_TppUiCommand
     ShowMbDvcAnnouncePopupReward(title, body)           -> bool
     ShowMbDvcAnnouncePopupRewardLangId(t, b)            -> bool
 
+  iDroid emergency badge — mark/unmark a mission code
+    SetMissionEmergency(missionCode, enabled [, enableSortiePrep])
+
+      enableSortiePrep (default false): when false, Accept skips the engine's
+      AbortMission chain and calls ReserveMissionClear directly (instant load,
+      no deploy picker, no "Return to Mission" on game-over). When true, the
+      engine runs its full AbortMission chain so the deploy-time picker AND
+      "Return to Mission" both work.
+
+  Emergency popup text override (flat — not tied to a mission code)
+    ShowEmergencyMissionPopup       (title,      body)       -> bool   -- literal text
+    ShowEmergencyMissionPopupLangId (titleLabel, bodyLabel)  -> bool   -- LangId labels
+    ClearEmergencyMissionPopupOverride()
+
+      The engine's "Emergency Missions" popup is a single generic notification
+      ("you have emergency missions; OK opens the list"). It is rendered by
+      a dedicated state in MbDvcAnnouncePopupCallbackImpl, NOT via the popup-
+      controller slot system, and the engine only ever fires one per iDroid
+      session. So the override is intentionally flat: "use this text for the
+      next Emergency popup display." Each Show* call replaces the active
+      override entirely; Clear drops it so the next popup uses engine default.
+
+      LangId labels are hashed via FoxHashes::StrCode64 and resolved through
+      the engine lang manager at popup-fire time (same path
+      ShowMbDvcAnnouncePopupLangId uses). If a hash doesn't resolve, that
+      field silently falls back to engine default.
+
+      Pass nil for any field to leave that field on engine default. Title
+      buffer is 0x80 bytes (utf-16 64 chars), body buffer is 0x400 bytes
+      (utf-16 512 chars) — strings are written via strncpy_s.
+
+      Examples:
+        -- vanilla emergency mission, sortie prep off (default)
+        V_TppUiCommand.SetMissionEmergency(10115, true)
+
+        -- vanilla emergency mission with sortie prep on (engine deploy picker)
+        V_TppUiCommand.SetMissionEmergency(10115, true, true)
+
+        -- custom popup text (literal)
+        V_TppUiCommand.ShowEmergencyMissionPopup("Mission Alert", "Hostile transport spotted nearby.")
+
+        -- custom popup text (LangId)
+        V_TppUiCommand.ShowEmergencyMissionPopupLangId(nil, "announce_heli_arrive_LZ")
+
+        -- revert to engine-default popup text
+        V_TppUiCommand.ClearEmergencyMissionPopupOverride()
+
+
+V_TppMission (custom mission positioning + emergency-state queries)
+-------------------------------------------------------------------
+    SetMissionStartPos(missionCode, x, y, z[, rotY])     -- optional, on-foot custom missions
+    IsMissionEmergency(missionCode)                      -> bool
+    ClearAllMissionEmergencies()
+
+      To mark/unmark a mission as an emergency, use
+      V_TppUiCommand.SetMissionEmergency under the V_TppUiCommand section
+      above — it controls the iDroid badge / popup which is a UI concern.
+
+      Examples:
+        -- custom on-foot mission with explicit spawn position
+        V_FrameWork.SetMissionStartPos(42000, -11.78, 8.48, 165.55, 0)
+        V_TppUiCommand.SetMissionEmergency(42000, true)
+
 
 V_TppMusicManager
 -----------------

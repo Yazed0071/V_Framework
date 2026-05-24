@@ -9,6 +9,7 @@ extern "C" {
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <string>
@@ -48,6 +49,7 @@ extern "C" {
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 #include "../hooks/ui/EnemyLangIdOverride.h"
+#include "../hooks/ui/MissionEmergencyHook.h"
 
 
 namespace
@@ -76,8 +78,11 @@ namespace
     using lua_next_t = int(__fastcall*)(lua_State* L, int idx);
     using lua_gettable_t = void(__fastcall*)(lua_State* L, int idx);
     using lua_pushvalue_t = void(__fastcall*)(lua_State* L, int idx);
+    using lua_pushcclosure_t = void(__fastcall*)(lua_State* L, lua_CFunction fn, int n);
+    using lua_pcall_t = int(__fastcall*)(lua_State* L, int nargs, int nresults, int errfunc);
 
     static constexpr int LUA_GLOBALSINDEX_51 = -10002;
+    static constexpr int LUA_UPVALUEINDEX_51_1 = -10003; // lua_upvalueindex(1) in Lua 5.1: -10002 - 1
 
 
     static constexpr uintptr_t BOOTSTRAP_EN_SetLuaFunctions = 0x1408D78A0ull;
@@ -104,6 +109,8 @@ namespace
     static constexpr uintptr_t BOOTSTRAP_EN_lua_next = 0x14C1DA770ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_gettable = 0x14C1D7C10ull;
     static constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue = 0x14C1E87E0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushcclosure = 0x14C1E67B0ull;
+    static constexpr uintptr_t BOOTSTRAP_EN_lua_pcall = 0x141A11930ull;
 
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
     static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
@@ -129,6 +136,8 @@ namespace
     static lua_next_t              g_lua_next = nullptr;
     static lua_gettable_t          g_lua_gettable = nullptr;
     static lua_pushvalue_t         g_lua_pushvalue = nullptr;
+    static lua_pushcclosure_t      g_lua_pushcclosure = nullptr;
+    static lua_pcall_t             g_lua_pcall = nullptr;
 
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
@@ -214,6 +223,14 @@ static bool ResolveLuaApi()
     if (!g_lua_pushvalue)
         g_lua_pushvalue = reinterpret_cast<lua_pushvalue_t>(
             ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushvalue, BOOTSTRAP_EN_lua_pushvalue)));
+
+    if (!g_lua_pushcclosure)
+        g_lua_pushcclosure = reinterpret_cast<lua_pushcclosure_t>(
+            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushcclosure, BOOTSTRAP_EN_lua_pushcclosure)));
+
+    if (!g_lua_pcall)
+        g_lua_pcall = reinterpret_cast<lua_pcall_t>(
+            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pcall, BOOTSTRAP_EN_lua_pcall)));
 
     return g_FoxLuaRegisterLibrary &&
         g_lua_tolstring &&
@@ -1388,6 +1405,836 @@ static int __cdecl l_ClearAllIconFtexPaths(lua_State* L)
 }
 
 
+// --------------------------------------------------------------------------
+// TppMission.IsEmergencyMission Lua-side override.
+//
+// The engine's iDroid "accept emergency mission" path is gated entirely in
+// Lua: TppMission.AcceptEmergencyMission(missionCode) does
+//     if not this.IsEmergencyMission(missionCode) then return end
+// and TppMission.IsEmergencyMission hardcodes only 10115 and 50050.
+// Hooking C++'s GetMissionCodeCategory is enough to light up the badge but
+// not enough to actually let the engine start the mission; the Lua check
+// must also pass.
+//
+// To make V_FrameWork.SetMissionEmergency(missionCode, true) work end-to-end
+// without homework on the user, the first time it's called we transparently
+// rewrap TppMission.IsEmergencyMission with a C closure that consults the
+// V_FrameWork allowlist first and otherwise forwards to the original.
+// --------------------------------------------------------------------------
+
+static bool g_VFI_IsEmergencyMissionOverrideInstalled = false;
+
+
+// C closure body. Upvalue 1 is the original TppMission.IsEmergencyMission,
+// captured by lua_pushcclosure at install time. Arg 1 is the mission code.
+static int __cdecl l_VFI_IsEmergencyMissionOverride(lua_State* L)
+{
+    if (!ResolveLuaApi())
+        return 0;
+
+    // Fast path: if the mission is in V_FrameWork's allowlist, return true.
+    if (g_lua_isnumber && g_lua_isnumber(L, 1))
+    {
+        const long long mc = g_lua_tointeger ? g_lua_tointeger(L, 1) : 0;
+        if (mc > 0 && mc <= 0xFFFF &&
+            MissionEmergency_IsEnabled(static_cast<std::uint16_t>(mc)))
+        {
+            g_lua_pushboolean(L, 1);
+            return 1;
+        }
+    }
+
+    // Fallback: forward to the original (captured as upvalue 1).
+    if (!g_lua_pushvalue || !g_lua_pcall || !g_lua_gettop || !g_lua_settop || !g_lua_pushnil)
+        return 0;
+
+    const int nargs = g_lua_gettop(L);
+
+    g_lua_pushvalue(L, LUA_UPVALUEINDEX_51_1);
+    for (int i = 1; i <= nargs; ++i)
+        g_lua_pushvalue(L, i);
+
+    const int err = g_lua_pcall(L, nargs, 1, 0);
+    if (err != 0)
+    {
+        const char* errMsg = g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : nullptr;
+        Log("[MissionEmergency] IsEmergencyMission OVERRIDE: original pcall err=%d: %s\n",
+            err, errMsg ? errMsg : "<no message>");
+        g_lua_settop(L, nargs);
+        g_lua_pushnil(L);
+    }
+    return 1;
+}
+
+
+// Install the override on TppMission.IsEmergencyMission. Idempotent: succeeds
+// silently if already installed; retries on subsequent calls if TppMission
+// wasn't loaded yet on a prior attempt.
+static bool InstallIsEmergencyMissionOverride(lua_State* L)
+{
+    if (g_VFI_IsEmergencyMissionOverrideInstalled)
+        return true;
+
+    if (!ResolveLuaApi() || !g_lua_pushcclosure || !g_lua_pcall)
+    {
+        Log("[MissionEmergency] InstallIsEmergencyMissionOverride: Lua FFI unavailable; skipped\n");
+        return false;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMission"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallIsEmergencyMissionOverride: TppMission not loaded yet; deferred\n");
+        return false;
+    }
+
+    g_lua_getfield(L, -1, const_cast<char*>("IsEmergencyMission"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallIsEmergencyMissionOverride: original function missing\n");
+        return false;
+    }
+
+    g_lua_pushcclosure(L, &l_VFI_IsEmergencyMissionOverride, 1);
+
+    g_lua_pushstring(L, const_cast<char*>("IsEmergencyMission"));
+    g_lua_pushvalue(L, -2);
+    g_lua_rawset(L, -4);
+
+    g_lua_settop(L, top0);
+
+    g_VFI_IsEmergencyMissionOverrideInstalled = true;
+    Log("[MissionEmergency] InstallIsEmergencyMissionOverride: installed\n");
+    return true;
+}
+
+
+// Append missionCode to TppDefine.EMERGENCY_MISSION_LIST if not already there.
+// TppStory.CloseEmergencyMission and a few cleanup paths iterate this list,
+// so it has to stay in sync.
+static void AppendToEmergencyMissionList(lua_State* L, int missionCode)
+{
+    if (!ResolveLuaApi())
+        return;
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
+    if (g_lua_type(L, -1) != LUA_TTABLE) { g_lua_settop(L, top0); return; }
+
+    g_lua_getfield(L, -1, const_cast<char*>("EMERGENCY_MISSION_LIST"));
+    if (g_lua_type(L, -1) != LUA_TTABLE) { g_lua_settop(L, top0); return; }
+
+    const int len = static_cast<int>(g_lua_objlen(L, -1));
+
+    for (int i = 1; i <= len; ++i)
+    {
+        g_lua_rawgeti(L, -1, i);
+        const bool isMatch =
+            g_lua_isnumber(L, -1) &&
+            (static_cast<int>(g_lua_tointeger(L, -1)) == missionCode);
+        g_lua_settop(L, -2);
+        if (isMatch)
+        {
+            g_lua_settop(L, top0);
+            return;
+        }
+    }
+
+    g_lua_pushnumber(L, static_cast<lua_Number>(len + 1));
+    g_lua_pushnumber(L, static_cast<lua_Number>(missionCode));
+    g_lua_rawset(L, -3);
+
+    g_lua_settop(L, top0);
+
+    Log("[MissionEmergency] appended %d to TppDefine.EMERGENCY_MISSION_LIST\n",
+        missionCode);
+}
+
+
+// Mirror of AppendToEmergencyMissionList — shifts down to keep ipairs happy.
+static void RemoveFromEmergencyMissionList(lua_State* L, int missionCode)
+{
+    if (!ResolveLuaApi())
+        return;
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
+    if (g_lua_type(L, -1) != LUA_TTABLE) { g_lua_settop(L, top0); return; }
+
+    g_lua_getfield(L, -1, const_cast<char*>("EMERGENCY_MISSION_LIST"));
+    if (g_lua_type(L, -1) != LUA_TTABLE) { g_lua_settop(L, top0); return; }
+
+    const int len = static_cast<int>(g_lua_objlen(L, -1));
+    int foundIdx = -1;
+
+    for (int i = 1; i <= len; ++i)
+    {
+        g_lua_rawgeti(L, -1, i);
+        const bool isMatch =
+            g_lua_isnumber(L, -1) &&
+            (static_cast<int>(g_lua_tointeger(L, -1)) == missionCode);
+        g_lua_settop(L, -2);
+        if (isMatch)
+        {
+            foundIdx = i;
+            break;
+        }
+    }
+
+    if (foundIdx < 0)
+    {
+        g_lua_settop(L, top0);
+        return;
+    }
+
+    // list[i] = list[i+1] for i = foundIdx..len-1
+    for (int i = foundIdx; i < len; ++i)
+    {
+        g_lua_rawgeti(L, -1, i + 1);
+        g_lua_pushnumber(L, static_cast<lua_Number>(i));
+        g_lua_pushvalue(L, -2);
+        g_lua_rawset(L, -4);
+        g_lua_settop(L, -2);
+    }
+
+    // list[len] = nil
+    g_lua_pushnumber(L, static_cast<lua_Number>(len));
+    g_lua_pushnil(L);
+    g_lua_rawset(L, -3);
+
+    g_lua_settop(L, top0);
+
+    Log("[MissionEmergency] removed %d from TppDefine.EMERGENCY_MISSION_LIST\n",
+        missionCode);
+}
+
+
+namespace
+{
+    static bool g_VFI_AcceptEmergencyMissionOverrideInstalled = false;
+    static bool g_VFI_GoToEmergencyMissionOverrideInstalled = false;
+}
+
+
+// AcceptEmergencyMission override. When sortie prep is enabled (default), forward to original (engine runs full AbortMission chain). When disabled, call ReserveMissionClear directly (IH-style, no sortie prep, no "Return to Mission").
+static int __cdecl l_VFI_AcceptEmergencyMissionOverride(lua_State* L)
+{
+    if (!ResolveLuaApi() ||
+        !g_lua_pushvalue || !g_lua_pcall || !g_lua_gettop ||
+        !g_lua_isnumber || !g_lua_tointeger || !g_lua_type ||
+        !g_lua_settop || !g_lua_getfield || !g_lua_createtable ||
+        !g_lua_pushstring || !g_lua_pushnumber || !g_lua_settable)
+    {
+        return 0;
+    }
+
+    const int       nargs       = g_lua_gettop(L);
+    const long long missionCode = (nargs >= 1 && g_lua_isnumber(L, 1)) ? g_lua_tointeger(L, 1) : 0;
+
+    const bool isAllowlisted =
+        missionCode > 0 && missionCode <= 0xFFFF &&
+        MissionEmergency_IsEnabled(static_cast<std::uint16_t>(missionCode));
+
+    const bool sortiePrepEnabled =
+        isAllowlisted
+            ? MissionEmergency_IsSortiePrepEnabled(static_cast<std::uint16_t>(missionCode))
+            : true;
+
+    // Default path: forward to original (engine handles AbortMission, sortie prep, etc.)
+    if (sortiePrepEnabled)
+    {
+        Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE mc=%lld -> forward (sortie prep on)\n",
+            missionCode);
+
+        g_lua_pushvalue(L, LUA_UPVALUEINDEX_51_1);
+        for (int i = 1; i <= nargs; ++i)
+            g_lua_pushvalue(L, i);
+
+        const int err = g_lua_pcall(L, nargs, 0, 0);
+        if (err != 0)
+        {
+            const char* errMsg = g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : nullptr;
+            Log("[MissionEmergency] AcceptEmergencyMission original pcall ERR=%d mc=%lld: %s\n",
+                err, missionCode, errMsg ? errMsg : "<no message>");
+        }
+        return 0;
+    }
+
+    // IH-style: skip AbortMission chain, call TppMission.ReserveMissionClear directly.
+    Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE mc=%lld -> IH-style direct ReserveMissionClear (sortie prep off)\n",
+        missionCode);
+
+    const int top0 = g_lua_gettop(L);
+
+    // Manually set the interrupt-mission state that AbortMission would normally set,
+    // so "Return to Mission" on game-over still works even without sortie prep.
+    long long currentMissionCode = 0;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("vars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("missionCode"));
+        if (g_lua_isnumber(L, -1)) currentMissionCode = g_lua_tointeger(L, -1);
+    }
+    g_lua_settop(L, top0);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("Ivars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_pushstring(L, const_cast<char*>("prevMissionCode"));
+        g_lua_pushnumber(L, static_cast<lua_Number>(currentMissionCode));
+        g_lua_rawset(L, -3);
+    }
+    g_lua_settop(L, top0);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("mvars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_pushstring(L, const_cast<char*>("mis_isInterruptMission"));
+        g_lua_pushboolean(L, 1);
+        g_lua_rawset(L, -3);
+
+        g_lua_pushstring(L, const_cast<char*>("mis_emergencyMissionCode"));
+        g_lua_pushnumber(L, static_cast<lua_Number>(missionCode));
+        g_lua_rawset(L, -3);
+
+        g_lua_pushstring(L, const_cast<char*>("mis_nextMissionCodeForAbort"));
+        g_lua_pushnumber(L, static_cast<lua_Number>(currentMissionCode));
+        g_lua_rawset(L, -3);
+    }
+    g_lua_settop(L, top0);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("gvars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_pushstring(L, const_cast<char*>("usingNormalMissionSlot"));
+        g_lua_pushboolean(L, 0);
+        g_lua_rawset(L, -3);
+
+        g_lua_pushstring(L, const_cast<char*>("mis_nextMissionCodeForEmergency"));
+        g_lua_pushnumber(L, static_cast<lua_Number>(missionCode));
+        g_lua_rawset(L, -3);
+    }
+    g_lua_settop(L, top0);
+
+    Log("[MissionEmergency] interrupt-mission state set: prevMissionCode=%lld mis_isInterruptMission=true mis_emergencyMissionCode=%lld\n",
+        currentMissionCode, missionCode);
+
+    long long missionClearTypeFromHelispace = 1;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("MISSION_CLEAR_TYPE"));
+        if (g_lua_type(L, -1) == LUA_TTABLE)
+        {
+            g_lua_getfield(L, -1, const_cast<char*>("FROM_HELISPACE"));
+            if (g_lua_isnumber(L, -1))
+                missionClearTypeFromHelispace = g_lua_tointeger(L, -1);
+        }
+    }
+    g_lua_settop(L, top0);
+
+    long long clusterId = (nargs >= 3 && g_lua_isnumber(L, 3)) ? g_lua_tointeger(L, 3) : 2;
+    if (clusterId <= 0) clusterId = 2;
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMission"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE: TppMission missing\n");
+        return 0;
+    }
+    g_lua_getfield(L, -1, const_cast<char*>("ReserveMissionClear"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE: ReserveMissionClear missing\n");
+        return 0;
+    }
+
+    g_lua_createtable(L, 0, 3);
+    g_lua_pushstring(L, const_cast<char*>("missionClearType"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(missionClearTypeFromHelispace));
+    g_lua_settable(L, -3);
+    g_lua_pushstring(L, const_cast<char*>("nextMissionId"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(missionCode));
+    g_lua_settable(L, -3);
+    g_lua_pushstring(L, const_cast<char*>("nextClusterId"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(clusterId));
+    g_lua_settable(L, -3);
+
+    const int err = g_lua_pcall(L, 1, 0, 0);
+    if (err != 0)
+    {
+        const char* errMsg = g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : nullptr;
+        Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE: ReserveMissionClear pcall ERR=%d mc=%lld: %s\n",
+            err, missionCode, errMsg ? errMsg : "<no message>");
+    }
+
+    g_lua_settop(L, top0);
+    return 0;
+}
+
+
+// GoToEmergencyMission override — replicates the engine body but skips the
+// route gate so non-50050 missions with route=0 can still load (on-foot).
+// For non-allowlisted missions, forwards to the original verbatim.
+//
+// Original body (TppMission.lua:3593-3614):
+//   local emergencyMissionCode = gvars.mis_nextMissionCodeForEmergency
+//   local startRoute
+//   if emergencyMissionCode ~= TppDefine.SYS_MISSION_ID.FOB then
+//     if gvars.mis_nextMissionStartRouteForEmergency ~= 0 then
+//       startRoute = gvars.mis_nextMissionStartRouteForEmergency
+//     else
+//       return  -- <-- the gate we bypass for allowlisted missions
+//     end
+//   end
+//   -- mbLayoutCode is computed but unused (engine dead-store)
+//   local clusterId = 2
+//   if gvars.mis_nextClusterIdForEmergency ~= TppDefine.INVALID_CLUSTER_ID then
+//     clusterId = gvars.mis_nextClusterIdForEmergency
+//   end
+//   this.ReserveMissionClear{ missionClearType=FROM_HELISPACE, nextMissionId=mc,
+//                             nextHeliRoute=startRoute, nextClusterId=clusterId }
+static int __cdecl l_VFI_GoToEmergencyMissionOverride(lua_State* L)
+{
+    if (!ResolveLuaApi() ||
+        !g_lua_getfield || !g_lua_type || !g_lua_settop || !g_lua_gettop ||
+        !g_lua_isnumber || !g_lua_tointeger || !g_lua_pushvalue || !g_lua_pcall ||
+        !g_lua_createtable || !g_lua_pushstring || !g_lua_pushnumber || !g_lua_settable)
+    {
+        Log("[MissionEmergency] GoToEmergencyMission OVERRIDE: required FFI missing; bailing\n");
+        return 0;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    // Read gvars.mis_nextMissionCodeForEmergency
+    long long mc = 0;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("gvars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("mis_nextMissionCodeForEmergency"));
+        if (g_lua_isnumber(L, -1)) mc = g_lua_tointeger(L, -1);
+    }
+    g_lua_settop(L, top0);
+
+    const bool isAllowlisted =
+        mc > 0 && mc <= 0xFFFF &&
+        MissionEmergency_IsEnabled(static_cast<std::uint16_t>(mc));
+
+    // Non-allowlisted: forward verbatim (preserves engine behavior for vanilla
+    // emergency missions V_FrameWork doesn't have in its allowlist).
+    if (!isAllowlisted)
+    {
+        g_lua_pushvalue(L, LUA_UPVALUEINDEX_51_1);
+        const int err = g_lua_pcall(L, 0, 0, 0);
+        if (err != 0)
+        {
+            const char* errMsg = g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : nullptr;
+            Log("[MissionEmergency] original GoToEmergencyMission pcall ERR=%d mc=%lld: %s\n",
+                err, mc, errMsg ? errMsg : "<no message>");
+            g_lua_settop(L, top0);
+        }
+        return 0;
+    }
+
+    // Allowlisted: replicate the body but skip the route-gate `return`.
+
+    long long startRoute = 0;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("gvars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("mis_nextMissionStartRouteForEmergency"));
+        if (g_lua_isnumber(L, -1)) startRoute = g_lua_tointeger(L, -1);
+    }
+    g_lua_settop(L, top0);
+    const bool hasRoute = (startRoute != 0);
+
+    long long clusterId = 2;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("gvars"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("mis_nextClusterIdForEmergency"));
+        if (g_lua_isnumber(L, -1))
+        {
+            const long long c = g_lua_tointeger(L, -1);
+            if (c > 0) clusterId = c;
+        }
+    }
+    g_lua_settop(L, top0);
+
+    long long missionClearTypeFromHelispace = 1;
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        g_lua_getfield(L, -1, const_cast<char*>("MISSION_CLEAR_TYPE"));
+        if (g_lua_type(L, -1) == LUA_TTABLE)
+        {
+            g_lua_getfield(L, -1, const_cast<char*>("FROM_HELISPACE"));
+            if (g_lua_isnumber(L, -1))
+                missionClearTypeFromHelispace = g_lua_tointeger(L, -1);
+        }
+    }
+    g_lua_settop(L, top0);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMission"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] GoToEmergencyMission OVERRIDE: TppMission missing\n");
+        return 0;
+    }
+    g_lua_getfield(L, -1, const_cast<char*>("ReserveMissionClear"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] GoToEmergencyMission OVERRIDE: ReserveMissionClear missing\n");
+        return 0;
+    }
+
+    g_lua_createtable(L, 0, hasRoute ? 4 : 3);
+
+    g_lua_pushstring(L, const_cast<char*>("missionClearType"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(missionClearTypeFromHelispace));
+    g_lua_settable(L, -3);
+
+    g_lua_pushstring(L, const_cast<char*>("nextMissionId"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(mc));
+    g_lua_settable(L, -3);
+
+    if (hasRoute)
+    {
+        g_lua_pushstring(L, const_cast<char*>("nextHeliRoute"));
+        g_lua_pushnumber(L, static_cast<lua_Number>(startRoute));
+        g_lua_settable(L, -3);
+    }
+
+    g_lua_pushstring(L, const_cast<char*>("nextClusterId"));
+    g_lua_pushnumber(L, static_cast<lua_Number>(clusterId));
+    g_lua_settable(L, -3);
+
+    Log("[MissionEmergency] GoToEmergencyMission OVERRIDE mc=%lld -> ReserveMissionClear(cluster=%lld%s)\n",
+        mc, clusterId, hasRoute ? ", heli" : ", on-foot");
+
+    const int err = g_lua_pcall(L, 1, 0, 0);
+    if (err != 0)
+    {
+        const char* errMsg = g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : nullptr;
+        Log("[MissionEmergency] ReserveMissionClear pcall ERR=%d mc=%lld: %s\n",
+            err, mc, errMsg ? errMsg : "<no message>");
+    }
+
+    g_lua_settop(L, top0);
+    return 0;
+}
+
+
+static bool InstallAcceptEmergencyMissionOverride(lua_State* L)
+{
+    if (g_VFI_AcceptEmergencyMissionOverrideInstalled)
+        return true;
+
+    if (!ResolveLuaApi() || !g_lua_pushcclosure || !g_lua_pcall)
+    {
+        Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: Lua FFI unavailable; skipped\n");
+        return false;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMission"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: TppMission not loaded; deferred\n");
+        return false;
+    }
+
+    g_lua_getfield(L, -1, const_cast<char*>("AcceptEmergencyMission"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: original function missing\n");
+        return false;
+    }
+
+    g_lua_pushcclosure(L, &l_VFI_AcceptEmergencyMissionOverride, 1);
+
+    g_lua_pushstring(L, const_cast<char*>("AcceptEmergencyMission"));
+    g_lua_pushvalue(L, -2);
+    g_lua_rawset(L, -4);
+
+    g_lua_settop(L, top0);
+
+    g_VFI_AcceptEmergencyMissionOverrideInstalled = true;
+    Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: installed\n");
+    return true;
+}
+
+
+static bool InstallGoToEmergencyMissionOverride(lua_State* L)
+{
+    if (g_VFI_GoToEmergencyMissionOverrideInstalled)
+        return true;
+
+    if (!ResolveLuaApi() || !g_lua_pushcclosure || !g_lua_pcall)
+    {
+        Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: Lua FFI unavailable; skipped\n");
+        return false;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMission"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: TppMission not loaded; deferred\n");
+        return false;
+    }
+
+    g_lua_getfield(L, -1, const_cast<char*>("GoToEmergencyMission"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        g_lua_settop(L, top0);
+        Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: original function missing\n");
+        return false;
+    }
+
+    g_lua_pushcclosure(L, &l_VFI_GoToEmergencyMissionOverride, 1);
+
+    g_lua_pushstring(L, const_cast<char*>("GoToEmergencyMission"));
+    g_lua_pushvalue(L, -2);
+    g_lua_rawset(L, -4);
+
+    g_lua_settop(L, top0);
+
+    g_VFI_GoToEmergencyMissionOverrideInstalled = true;
+    Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: installed\n");
+    return true;
+}
+
+
+// Optional helper: register an on-foot start position for missionCode.
+// Patches the engine-side TppDefine.NO_HELICOPTER_MISSION_START_POSITION
+// table (consumed by TppMain.LoadingPositionFromHeliSpace) and appends to
+// TppDefine.NO_HELICOPTER_ROUTE_MISSION_LIST. Also flags the mission in
+// V_FrameWork's C++ side so the AcceptEmergencyMission override takes the
+// IH-style direct ReserveMissionClear path (skips the GoToEmergencyMission
+// route gate).
+//
+// Args: missionCode (int), x (number), y (number), z (number), rotY (number, default 0).
+static int __cdecl l_SetMissionStartPos(lua_State* L)
+{
+    const int missionCodeRaw = GetLuaInt(L, 1);
+    const float x    = LuaIsNumber(L, 2) ? GetLuaNumber(L, 2) : 0.0f;
+    const float y    = LuaIsNumber(L, 3) ? GetLuaNumber(L, 3) : 0.0f;
+    const float z    = LuaIsNumber(L, 4) ? GetLuaNumber(L, 4) : 0.0f;
+    const float rotY = LuaIsNumber(L, 5) ? GetLuaNumber(L, 5) : 0.0f;
+
+    if (missionCodeRaw <= 0 || missionCodeRaw > 0xFFFF)
+    {
+        Log("[MissionEmergency] SetMissionStartPos: missionCode %d out of range; bailing\n",
+            missionCodeRaw);
+        return 0;
+    }
+
+    Log("[MissionEmergency] SetMissionStartPos mc=%d pos=(%g, %g, %g, %g)\n",
+        missionCodeRaw, x, y, z, rotY);
+
+    if (!ResolveLuaApi() ||
+        !g_lua_getfield || !g_lua_type || !g_lua_settop ||
+        !g_lua_createtable || !g_lua_pushnumber || !g_lua_rawset ||
+        !g_lua_pushvalue || !g_lua_objlen || !g_lua_rawgeti ||
+        !g_lua_isstring || !g_lua_tolstring || !g_lua_pushstring)
+    {
+        Log("[MissionEmergency] SetMissionStartPos: required FFI missing\n");
+        return 0;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        Log("[MissionEmergency] SetMissionStartPos: TppDefine missing\n");
+        g_lua_settop(L, top0);
+        return 0;
+    }
+    // Stack: [TppDefine]
+
+    // Patch TppDefine.NO_HELICOPTER_MISSION_START_POSITION[mc] = {x, y, z, rotY}
+    g_lua_getfield(L, -1, const_cast<char*>("NO_HELICOPTER_MISSION_START_POSITION"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        Log("[MissionEmergency] SetMissionStartPos: NO_HELICOPTER_MISSION_START_POSITION missing\n");
+        g_lua_settop(L, top0);
+        return 0;
+    }
+    // Stack: [TppDefine, NO_HELICOPTER_MISSION_START_POSITION]
+
+    g_lua_createtable(L, 4, 0);                                // posTable
+    g_lua_pushnumber(L, 1);  g_lua_pushnumber(L, x);    g_lua_rawset(L, -3);
+    g_lua_pushnumber(L, 2);  g_lua_pushnumber(L, y);    g_lua_rawset(L, -3);
+    g_lua_pushnumber(L, 3);  g_lua_pushnumber(L, z);    g_lua_rawset(L, -3);
+    g_lua_pushnumber(L, 4);  g_lua_pushnumber(L, rotY); g_lua_rawset(L, -3);
+    // Stack: [TppDefine, NO_HELI_..._POSITION, posTable]
+
+    g_lua_pushnumber(L, static_cast<lua_Number>(missionCodeRaw));
+    g_lua_pushvalue(L, -2);                                    // copy posTable
+    g_lua_rawset(L, -4);                                       // [NO_HELI..._POSITION][mc] = posTable
+    g_lua_settop(L, top0 + 1);                                 // keep only TppDefine on stack
+
+    // Append tostring(missionCode) to NO_HELICOPTER_ROUTE_MISSION_LIST if absent.
+    g_lua_getfield(L, -1, const_cast<char*>("NO_HELICOPTER_ROUTE_MISSION_LIST"));
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        char mcStr[16];
+        std::snprintf(mcStr, sizeof(mcStr), "%d", missionCodeRaw);
+
+        const int len = static_cast<int>(g_lua_objlen(L, -1));
+        bool found = false;
+        for (int i = 1; i <= len; ++i)
+        {
+            g_lua_rawgeti(L, -1, i);
+            if (g_lua_isstring(L, -1))
+            {
+                const char* s = g_lua_tolstring(L, -1, nullptr);
+                if (s && std::strcmp(s, mcStr) == 0)
+                    found = true;
+            }
+            g_lua_settop(L, -2);
+            if (found) break;
+        }
+
+        if (!found)
+        {
+            g_lua_pushnumber(L, static_cast<lua_Number>(len + 1));
+            g_lua_pushstring(L, mcStr);
+            g_lua_rawset(L, -3);
+        }
+    }
+
+    g_lua_settop(L, top0);
+
+    // Make sure our Lua-side overrides are installed (idempotent) in case
+    // the user calls SetMissionStartPos before SetMissionEmergency.
+    InstallIsEmergencyMissionOverride(L);
+    InstallAcceptEmergencyMissionOverride(L);
+    InstallGoToEmergencyMissionOverride(L);
+
+    return 0;
+}
+
+
+static int __cdecl l_SetMissionEmergency(lua_State* L)
+{
+    const int  missionCodeRaw = GetLuaInt(L, 1);
+    const bool enabled        = GetLuaBool(L, 2) != 0;
+
+    // Arg 3 = enableSortiePrep, default false (IH-style direct path).
+    bool enableSortiePrep = false;
+    if (g_lua_gettop && g_lua_gettop(L) >= 3 && g_lua_type)
+    {
+        const int t = g_lua_type(L, 3);
+        if (t == LUA_TBOOLEAN) enableSortiePrep = GetLuaBool(L, 3);
+    }
+
+    if (missionCodeRaw <= 0 || missionCodeRaw > 0xFFFF)
+    {
+        Log("[MissionEmergency] SetMissionEmergency: missionCode %d out of range; bailing\n",
+            missionCodeRaw);
+        return 0;
+    }
+
+    Log("[MissionEmergency] SetMissionEmergency mc=%d enabled=%d sortiePrep=%d\n",
+        missionCodeRaw, enabled ? 1 : 0, enableSortiePrep ? 1 : 0);
+
+    const std::uint16_t missionCode = static_cast<std::uint16_t>(missionCodeRaw);
+
+    MissionEmergency_SetEnabled(missionCode, enabled);
+
+    if (enabled)
+        MissionEmergency_SetSortiePrepEnabled(missionCode, enableSortiePrep);
+    else
+        MissionEmergency_SetSortiePrepEnabled(missionCode, true); // reset to default
+
+    InstallIsEmergencyMissionOverride(L);
+    InstallAcceptEmergencyMissionOverride(L);
+    InstallGoToEmergencyMissionOverride(L);
+
+    if (enabled)
+        AppendToEmergencyMissionList(L, missionCodeRaw);
+    else
+        RemoveFromEmergencyMissionList(L, missionCodeRaw);
+
+    return 0;
+}
+
+
+static int __cdecl l_IsMissionEmergency(lua_State* L)
+{
+    const int missionCodeRaw = GetLuaInt(L, 1);
+
+    bool result = false;
+    if (missionCodeRaw > 0 && missionCodeRaw <= 0xFFFF)
+    {
+        result = MissionEmergency_IsEnabled(
+            static_cast<std::uint16_t>(missionCodeRaw));
+    }
+
+    PushLuaBool(L, result);
+    return 1;
+}
+
+
+static int __cdecl l_ClearAllMissionEmergencies(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    MissionEmergency_ClearAll();
+    return 0;
+}
+
+
+static int __cdecl l_ShowEmergencyMissionPopup(lua_State* L)
+{
+    const char* title = LuaIsString(L, 1) ? GetLuaString(L, 1) : nullptr;
+    const char* body  = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+
+    const bool ok = Show_MbDvcEmergencyPopup(title, body);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+static int __cdecl l_ShowEmergencyMissionPopupLangId(lua_State* L)
+{
+    const char* titleLabel = LuaIsString(L, 1) ? GetLuaString(L, 1) : nullptr;
+    const char* bodyLabel  = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+
+    const bool ok = Show_MbDvcEmergencyPopupLangId(titleLabel, bodyLabel);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+static int __cdecl l_ClearEmergencyMissionPopupOverride(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_MbDvcEmergencyPopupOverride();
+    return 0;
+}
+
+
+
+
 static int __cdecl l_GetModFiles(lua_State* L)
 {
     const auto files = V_FrameWorkModLoader::FindModFiles();
@@ -2041,6 +2888,14 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEquipIdIconFtexPath",                 l_SetEquipIdIconFtexPath },
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
+    { "SetMissionEmergency",                    l_SetMissionEmergency },
+    { "SetMissionStartPos",                     l_SetMissionStartPos },
+    { "IsMissionEmergency",                     l_IsMissionEmergency },
+    { "ClearAllMissionEmergencies",             l_ClearAllMissionEmergencies },
+    { "ShowEmergencyMissionPopup",              l_ShowEmergencyMissionPopup },
+    { "ShowEmergencyMissionPopupLangId",        l_ShowEmergencyMissionPopupLangId },
+    { "ClearEmergencyMissionPopupOverride",     l_ClearEmergencyMissionPopupOverride },
+
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
 

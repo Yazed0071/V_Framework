@@ -7,12 +7,15 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "AddressSet.h"
 #include "FoxHashes.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "MbDvcCustomPopupHook.h"
+
+
 
 
 namespace
@@ -43,13 +46,15 @@ namespace
 
     constexpr std::size_t kGateVtableIndex = 0x610 / sizeof(void*);
 
-    using UpdateAnnounceNormal_t = std::int32_t (__fastcall*)(void* self);
-    using ReserveAnnouncePopup_t = void (__fastcall*)(void* ctrl, const void* param);
-    using GetLangText_t          = const char* (__fastcall*)(void* langMgr, std::uint64_t hash);
-    using GateFn_t               = char (__fastcall*)(void* svc);
+    using UpdateAnnounceNormal_t    = std::int32_t (__fastcall*)(void* self);
+    using UpdateAnnounceEmergency_t = std::int32_t (__fastcall*)(void* self);
+    using ReserveAnnouncePopup_t    = void (__fastcall*)(void* ctrl, const void* param);
+    using GetLangText_t             = const char* (__fastcall*)(void* langMgr, std::uint64_t hash);
+    using GateFn_t                  = char (__fastcall*)(void* svc);
 
-    static UpdateAnnounceNormal_t g_OrigUpdateAnnounceNormal = nullptr;
-    static UpdateAnnounceNormal_t g_OrigUpdateAnnounceServer = nullptr;
+    static UpdateAnnounceNormal_t    g_OrigUpdateAnnounceNormal    = nullptr;
+    static UpdateAnnounceNormal_t    g_OrigUpdateAnnounceServer    = nullptr;
+    static UpdateAnnounceEmergency_t g_OrigUpdateAnnounceEmergency = nullptr;
     static ReserveAnnouncePopup_t g_OrigReserveAnnouncePopup = nullptr;
     static GateFn_t               g_OrigGateFn               = nullptr;
     static void*                  g_ReserveHookTarget        = nullptr;
@@ -80,6 +85,24 @@ namespace
     };
     static std::deque<PendingPopup> g_PendingQueue;
     static std::mutex               g_PendingMutex;
+
+
+    struct EmergencyPopupOverride
+    {
+        bool          hasTitle    = false;
+        bool          titleIsHash = false;
+        std::string   titleLiteral;
+        std::uint64_t titleHash   = 0;
+
+        bool          hasBody    = false;
+        bool          bodyIsHash = false;
+        std::string   bodyLiteral;
+        std::uint64_t bodyHash   = 0;
+    };
+    static std::mutex                       g_EmergencyOverrideMutex;
+    static EmergencyPopupOverride           g_ActiveEmergencyOverride;
+    static bool                             g_HasActiveEmergencyOverride = false;
+    static void*                            g_EmergencyHookTarget        = nullptr;
 
 #pragma pack(push, 1)
     struct ReserveParam
@@ -908,6 +931,182 @@ namespace
         return RunPopupOverrideHook(self, g_OrigUpdateAnnounceServer,
                                     kServerIds, sizeof(kServerIds));
     }
+
+
+    // SEH-only helper: __try can't coexist with C++ object destructors in the caller.
+    static bool SafeWriteEmergencyBuffers(void* self,
+                                          const char* titleOrNull,
+                                          const char* bodyOrNull)
+    {
+        if (!self) return false;
+        __try
+        {
+            if (titleOrNull)
+            {
+                char* titleBuf = reinterpret_cast<char*>(
+                    reinterpret_cast<std::uintptr_t>(self) + kImpl_TitleBufOffset);
+                strncpy_s(titleBuf, kImpl_TitleBufSize, titleOrNull, _TRUNCATE);
+            }
+            if (bodyOrNull)
+            {
+                char* bodyBuf = reinterpret_cast<char*>(
+                    reinterpret_cast<std::uintptr_t>(self) + kImpl_BodyBufOffset);
+                strncpy_s(bodyBuf, kImpl_BodyBufSize, bodyOrNull, _TRUNCATE);
+            }
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+
+    static std::int32_t __fastcall hk_UpdateAnnounceEmergency(void* self)
+    {
+        const std::int32_t result = g_OrigUpdateAnnounceEmergency
+            ? g_OrigUpdateAnnounceEmergency(self) : 0;
+
+        if (!self)
+            return result;
+
+        EmergencyPopupOverride snap;
+        bool                   haveSnap = false;
+        {
+            std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
+            if (g_HasActiveEmergencyOverride)
+            {
+                snap     = g_ActiveEmergencyOverride;
+                haveSnap = true;
+            }
+        }
+
+        if (!haveSnap || (!snap.hasTitle && !snap.hasBody))
+            return result;
+
+        std::string titleResolved;
+        std::string bodyResolved;
+        const char* titleArg = nullptr;
+        const char* bodyArg  = nullptr;
+
+        if (snap.hasTitle)
+        {
+            if (snap.titleIsHash)
+            {
+                const char* r = MbDvcCustom_TryResolveLangText(snap.titleHash);
+                if (r) { titleResolved = r; titleArg = titleResolved.c_str(); }
+            }
+            else
+            {
+                titleArg = snap.titleLiteral.c_str();
+            }
+        }
+
+        if (snap.hasBody)
+        {
+            if (snap.bodyIsHash)
+            {
+                const char* r = MbDvcCustom_TryResolveLangText(snap.bodyHash);
+                if (r) { bodyResolved = r; bodyArg = bodyResolved.c_str(); }
+            }
+            else
+            {
+                bodyArg = snap.bodyLiteral.c_str();
+            }
+        }
+
+        if (titleArg || bodyArg)
+            SafeWriteEmergencyBuffers(self, titleArg, bodyArg);
+
+        return result;
+    }
+}
+
+
+bool Show_MbDvcEmergencyPopup(const char* title, const char* body)
+{
+    std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
+
+    EmergencyPopupOverride entry{};
+
+    if (title)
+    {
+        entry.titleLiteral = title;
+        entry.titleHash    = 0;
+        entry.titleIsHash  = false;
+        entry.hasTitle     = true;
+    }
+    if (body)
+    {
+        entry.bodyLiteral = body;
+        entry.bodyHash    = 0;
+        entry.bodyIsHash  = false;
+        entry.hasBody     = true;
+    }
+
+    if (!entry.hasTitle && !entry.hasBody)
+    {
+        g_HasActiveEmergencyOverride = false;
+        g_ActiveEmergencyOverride    = {};
+        Log("[MbDvcCustomPopup] Emergency popup override cleared (Show called with both fields null)\n");
+        return true;
+    }
+
+    g_ActiveEmergencyOverride    = std::move(entry);
+    g_HasActiveEmergencyOverride = true;
+
+    Log("[MbDvcCustomPopup] Emergency popup override set title=%s body=%s\n",
+        g_ActiveEmergencyOverride.hasTitle ? "(literal)" : "(engine default)",
+        g_ActiveEmergencyOverride.hasBody  ? "(literal)" : "(engine default)");
+    return true;
+}
+
+
+bool Show_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabel)
+{
+    std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
+
+    EmergencyPopupOverride entry{};
+
+    if (titleLabel && *titleLabel)
+    {
+        entry.titleHash   = FoxHashes::StrCode64(titleLabel);
+        entry.titleIsHash = true;
+        entry.hasTitle    = true;
+    }
+    if (bodyLabel && *bodyLabel)
+    {
+        entry.bodyHash   = FoxHashes::StrCode64(bodyLabel);
+        entry.bodyIsHash = true;
+        entry.hasBody    = true;
+    }
+
+    if (!entry.hasTitle && !entry.hasBody)
+    {
+        g_HasActiveEmergencyOverride = false;
+        g_ActiveEmergencyOverride    = {};
+        Log("[MbDvcCustomPopup] Emergency popup override cleared (ShowLangId called with both labels empty)\n");
+        return true;
+    }
+
+    g_ActiveEmergencyOverride    = std::move(entry);
+    g_HasActiveEmergencyOverride = true;
+
+    Log("[MbDvcCustomPopup] Emergency popup override set titleHash=0x%016llX bodyHash=0x%016llX\n",
+        static_cast<unsigned long long>(g_ActiveEmergencyOverride.titleIsHash
+            ? g_ActiveEmergencyOverride.titleHash : 0),
+        static_cast<unsigned long long>(g_ActiveEmergencyOverride.bodyIsHash
+            ? g_ActiveEmergencyOverride.bodyHash : 0));
+    return true;
+}
+
+
+void Clear_MbDvcEmergencyPopupOverride()
+{
+    std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
+    if (g_HasActiveEmergencyOverride)
+    {
+        g_HasActiveEmergencyOverride = false;
+        g_ActiveEmergencyOverride    = {};
+        Log("[MbDvcCustomPopup] Emergency popup override cleared\n");
+    }
 }
 
 
@@ -949,6 +1148,26 @@ bool Install_MbDvcCustomPopup_Hook()
         Log("[Hook] MbDvcCustomPopup Server: skipped (no address for current build)\n");
     }
 
+    if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency)
+    {
+        void* targetE = ResolveGameAddress(
+            gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency);
+        if (targetE)
+        {
+            const bool okE = CreateAndEnableHook(
+                targetE,
+                reinterpret_cast<void*>(&hk_UpdateAnnounceEmergency),
+                reinterpret_cast<void**>(&g_OrigUpdateAnnounceEmergency));
+            if (okE) g_EmergencyHookTarget = targetE;
+            Log("[Hook] MbDvcCustomPopup Emergency: %s (target=%p)\n",
+                okE ? "OK" : "FAIL", targetE);
+        }
+    }
+    else
+    {
+        Log("[Hook] MbDvcCustomPopup Emergency: skipped (no address for current build)\n");
+    }
+
     return okN;
 }
 
@@ -966,6 +1185,19 @@ bool Uninstall_MbDvcCustomPopup_Hook()
             gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer);
         DisableAndRemoveHook(targetS);
         g_OrigUpdateAnnounceServer = nullptr;
+    }
+
+    if (g_EmergencyHookTarget)
+    {
+        DisableAndRemoveHook(g_EmergencyHookTarget);
+        g_EmergencyHookTarget = nullptr;
+        g_OrigUpdateAnnounceEmergency = nullptr;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
+        g_HasActiveEmergencyOverride = false;
+        g_ActiveEmergencyOverride    = {};
     }
 
     if (g_ReserveHookTarget)
