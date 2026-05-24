@@ -107,6 +107,9 @@
     <ClCompile Include="src\core\pch.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\AddressSet.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="src\core\BuiltInModules.cpp">
       <Filter>Core</Filter>
     </ClCompile>
