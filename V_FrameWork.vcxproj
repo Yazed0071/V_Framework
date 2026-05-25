@@ -201,6 +201,8 @@
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\ui\EnemyLangIdOverride.h" />
     <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
+    <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
+    <ClInclude Include="src\hooks\ui\UiPalette.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <!-- Hooks: Sahelan -->
@@ -266,6 +268,8 @@
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\ui\EnemyLangIdOverride.cpp" />
     <ClCompile Include="src\hooks\ui\MissionEmergencyHook.cpp" />
+    <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
+    <ClCompile Include="src\hooks\ui\UiPalette.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->

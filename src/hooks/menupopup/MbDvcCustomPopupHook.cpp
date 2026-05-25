@@ -981,6 +981,12 @@ namespace
         if (!haveSnap || (!snap.hasTitle && !snap.hasBody))
             return result;
 
+        void* lang = SafeReadLangManagerFromSelf(self);
+        if (lang)
+            g_LangManager.store(lang, std::memory_order_relaxed);
+        else
+            lang = g_LangManager.load(std::memory_order_relaxed);
+
         std::string titleResolved;
         std::string bodyResolved;
         const char* titleArg = nullptr;
@@ -990,7 +996,7 @@ namespace
         {
             if (snap.titleIsHash)
             {
-                const char* r = MbDvcCustom_TryResolveLangText(snap.titleHash);
+                const char* r = SafeResolveLangText(lang, snap.titleHash);
                 if (r) { titleResolved = r; titleArg = titleResolved.c_str(); }
             }
             else
@@ -1003,7 +1009,7 @@ namespace
         {
             if (snap.bodyIsHash)
             {
-                const char* r = MbDvcCustom_TryResolveLangText(snap.bodyHash);
+                const char* r = SafeResolveLangText(lang, snap.bodyHash);
                 if (r) { bodyResolved = r; bodyArg = bodyResolved.c_str(); }
             }
             else
@@ -1020,7 +1026,7 @@ namespace
 }
 
 
-bool Show_MbDvcEmergencyPopup(const char* title, const char* body)
+bool Set_MbDvcEmergencyPopup(const char* title, const char* body)
 {
     std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
 
@@ -1045,7 +1051,7 @@ bool Show_MbDvcEmergencyPopup(const char* title, const char* body)
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
-        Log("[MbDvcCustomPopup] Emergency popup override cleared (Show called with both fields null)\n");
+        Log("[MbDvcCustomPopup] Emergency popup override cleared (Set called with both fields null)\n");
         return true;
     }
 
@@ -1059,7 +1065,7 @@ bool Show_MbDvcEmergencyPopup(const char* title, const char* body)
 }
 
 
-bool Show_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabel)
+bool Set_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabel)
 {
     std::lock_guard<std::mutex> lock(g_EmergencyOverrideMutex);
 
@@ -1082,7 +1088,7 @@ bool Show_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabe
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
-        Log("[MbDvcCustomPopup] Emergency popup override cleared (ShowLangId called with both labels empty)\n");
+        Log("[MbDvcCustomPopup] Emergency popup override cleared (SetLangId called with both labels empty)\n");
         return true;
     }
 

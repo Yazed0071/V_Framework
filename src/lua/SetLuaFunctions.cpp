@@ -50,6 +50,8 @@ extern "C" {
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 #include "../hooks/ui/EnemyLangIdOverride.h"
 #include "../hooks/ui/MissionEmergencyHook.h"
+#include "../hooks/ui/UiPalette.h"
+#include "../hooks/ui/ShowMissionIcon.h"
 
 
 namespace
@@ -2203,23 +2205,23 @@ static int __cdecl l_ClearAllMissionEmergencies(lua_State* L)
 }
 
 
-static int __cdecl l_ShowEmergencyMissionPopup(lua_State* L)
+static int __cdecl l_SetEmergencyMissionPopup(lua_State* L)
 {
     const char* title = LuaIsString(L, 1) ? GetLuaString(L, 1) : nullptr;
     const char* body  = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
 
-    const bool ok = Show_MbDvcEmergencyPopup(title, body);
+    const bool ok = Set_MbDvcEmergencyPopup(title, body);
     PushLuaBool(L, ok);
     return 1;
 }
 
 
-static int __cdecl l_ShowEmergencyMissionPopupLangId(lua_State* L)
+static int __cdecl l_SetEmergencyMissionPopupLangId(lua_State* L)
 {
     const char* titleLabel = LuaIsString(L, 1) ? GetLuaString(L, 1) : nullptr;
     const char* bodyLabel  = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
 
-    const bool ok = Show_MbDvcEmergencyPopupLangId(titleLabel, bodyLabel);
+    const bool ok = Set_MbDvcEmergencyPopupLangId(titleLabel, bodyLabel);
     PushLuaBool(L, ok);
     return 1;
 }
@@ -2232,6 +2234,140 @@ static int __cdecl l_ClearEmergencyMissionPopupOverride(lua_State* L)
     return 0;
 }
 
+
+static int __cdecl l_ShowMissionIcon(lua_State* L)
+{
+    if (!ResolveLuaApi() ||
+        !g_lua_gettop || !g_lua_type || !g_lua_settop ||
+        !g_lua_getfield || !g_lua_pushvalue || !g_lua_pcall || !g_lua_tolstring ||
+        !g_lua_pushstring || !g_lua_pushnumber || !g_lua_isnumber || !g_lua_tonumber)
+    {
+        return 0;
+    }
+
+    const int top0 = g_lua_gettop(L);
+
+    const int titleType = g_lua_type(L, 1);
+    const int bodyType  = g_lua_type(L, 2);
+
+    lua_Number timeNum = 6.0;
+    if (g_lua_isnumber(L, 3))
+        timeNum = g_lua_tonumber(L, 3);
+
+    if (titleType == LUA_TSTRING)
+    {
+        const char* titleLabel = g_lua_tolstring(L, 1, nullptr);
+        if (titleLabel && titleLabel[0])
+            ShowMissionIcon_SetTitleHash(FoxHashes::StrCode64(titleLabel) & 0x0000FFFFFFFFFFFFull);
+        else
+            ShowMissionIcon_SetTitleHash(0);
+    }
+    else if (titleType == LUA_TNUMBER)
+    {
+        ShowMissionIcon_SetTitleHash(static_cast<std::uint64_t>(g_lua_tointeger(L, 1)) & 0x0000FFFFFFFFFFFFull);
+    }
+    else
+    {
+        ShowMissionIcon_SetTitleHash(0);
+    }
+
+    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppUiCommand"));
+    if (g_lua_type(L, -1) != LUA_TTABLE)
+    {
+        Log("[V_FrameWork.ShowMissionIcon] TppUiCommand not loaded\n");
+        g_lua_settop(L, top0);
+        return 0;
+    }
+
+    g_lua_getfield(L, -1, const_cast<char*>("ShowMissionIcon"));
+    if (g_lua_type(L, -1) != LUA_TFUNCTION)
+    {
+        Log("[V_FrameWork.ShowMissionIcon] TppUiCommand.ShowMissionIcon missing\n");
+        g_lua_settop(L, top0);
+        return 0;
+    }
+
+    g_lua_pushstring(L, const_cast<char*>("urgent_time"));
+    g_lua_pushnumber(L, timeNum);
+
+    if (bodyType == LUA_TSTRING)
+        g_lua_pushvalue(L, 2);
+    else
+        g_lua_pushstring(L, const_cast<char*>("announce_online_900_from_0_prio_0"));
+
+    g_lua_pushnil(L);
+
+    const int err = g_lua_pcall(L, 4, 0, 0);
+    if (err != 0)
+    {
+        const char* errMsg = g_lua_tolstring(L, -1, nullptr);
+        Log("[V_FrameWork.ShowMissionIcon] pcall ERR=%d: %s\n",
+            err, errMsg ? errMsg : "<no message>");
+    }
+
+    g_lua_settop(L, top0);
+    return 0;
+}
+
+
+static int __cdecl l_SetUiPaletteColor(lua_State* L)
+{
+    if (!ResolveLuaApi() ||
+        !g_lua_gettop || !g_lua_type || !g_lua_tolstring ||
+        !g_lua_tointeger || !g_lua_tonumber || !g_lua_pushboolean)
+    {
+        return 0;
+    }
+
+    const int top = g_lua_gettop(L);
+    if (top < 4)
+    {
+        g_lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    std::uint32_t keyHash = 0;
+    const int keyType = g_lua_type(L, 1);
+    if (keyType == LUA_TSTRING)
+    {
+        const char* keyStr = g_lua_tolstring(L, 1, nullptr);
+        if (!keyStr || !keyStr[0])
+        {
+            g_lua_pushboolean(L, 0);
+            return 1;
+        }
+        keyHash = FoxHashes::StrCode32(keyStr);
+    }
+    else if (keyType == LUA_TNUMBER)
+    {
+        const long long raw = g_lua_tointeger(L, 1);
+        keyHash = static_cast<std::uint32_t>(raw & 0xFFFFFFFFLL);
+    }
+    else
+    {
+        g_lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    const float r = static_cast<float>(g_lua_tonumber(L, 2));
+    const float g = static_cast<float>(g_lua_tonumber(L, 3));
+    const float b = static_cast<float>(g_lua_tonumber(L, 4));
+    float a = 1.0f;
+    if (top >= 5 && g_lua_type(L, 5) == LUA_TNUMBER)
+        a = static_cast<float>(g_lua_tonumber(L, 5));
+
+    const bool ok = UiPalette::SetColor(keyHash, r, g, b, a);
+    g_lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+
+static int __cdecl l_RestoreUiPalette(lua_State* L)
+{
+    (void)L;
+    UiPalette::RestoreAll();
+    return 0;
+}
 
 
 
@@ -2892,9 +3028,12 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetMissionStartPos",                     l_SetMissionStartPos },
     { "IsMissionEmergency",                     l_IsMissionEmergency },
     { "ClearAllMissionEmergencies",             l_ClearAllMissionEmergencies },
-    { "ShowEmergencyMissionPopup",              l_ShowEmergencyMissionPopup },
-    { "ShowEmergencyMissionPopupLangId",        l_ShowEmergencyMissionPopupLangId },
+    { "SetEmergencyMissionPopup",               l_SetEmergencyMissionPopup },
+    { "SetEmergencyMissionPopupLangId",         l_SetEmergencyMissionPopupLangId },
     { "ClearEmergencyMissionPopupOverride",     l_ClearEmergencyMissionPopupOverride },
+    { "ShowMissionIcon",                        l_ShowMissionIcon },
+    { "SetUiPaletteColor",                      l_SetUiPaletteColor },
+    { "RestoreUiPalette",                       l_RestoreUiPalette },
 
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },

@@ -224,32 +224,52 @@ function this.ClearAllMissionEmergencies()
     V_FrameWork.ClearAllMissionEmergencies()
 end
 
-function this.ShowEmergencyMissionPopup(title, body)
+function this.SetEmergencyMissionPopup(title, body)
     if title ~= nil and not IsTypeString(title) then
-        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopup: title is not a string or nil.")
+        V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopup: title is not a string or nil.")
         return
     end
     if body ~= nil and not IsTypeString(body) then
-        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopup: body is not a string or nil.")
+        V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopup: body is not a string or nil.")
         return
     end
-    return V_FrameWork.ShowEmergencyMissionPopup(title, body)
+    return V_FrameWork.SetEmergencyMissionPopup(title, body)
 end
 
-function this.ShowEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+function this.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
     if titleLabel ~= nil and not IsTypeString(titleLabel) then
-        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopupLangId: titleLabel is not a string or nil.")
+        V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopupLangId: titleLabel is not a string or nil.")
         return
     end
     if bodyLabel ~= nil and not IsTypeString(bodyLabel) then
-        V_FrameWork.Log("V_TppUiCommand.ShowEmergencyMissionPopupLangId: bodyLabel is not a string or nil.")
+        V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopupLangId: bodyLabel is not a string or nil.")
         return
     end
-    return V_FrameWork.ShowEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+    return V_FrameWork.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
 end
 
 function this.ClearEmergencyMissionPopupOverride()
     V_FrameWork.ClearEmergencyMissionPopupOverride()
+end
+
+function this.ShowMissionIcon(title, body, time)
+    if title ~= nil and type(title) ~= "string" and type(title) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.ShowMissionIcon: title must be string, number or nil.")
+        return
+    end
+    if body ~= nil and not IsTypeString(body) then
+        V_FrameWork.Log("V_TppUiCommand.ShowMissionIcon: body must be a string or nil.")
+        return
+    end
+    if time ~= nil and type(time) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.ShowMissionIcon: time must be a number or nil.")
+        return
+    end
+    V_FrameWork.ShowMissionIcon(title, body, time or 6)
+end
+
+function this.HideMissionIcon()
+    TppUiCommand.HideMissionIcon()
 end
 
 function this.Messages()

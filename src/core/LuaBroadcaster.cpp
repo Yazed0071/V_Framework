@@ -276,12 +276,17 @@ void V_FrameWork::EmitMessageValues(const char* category,
 
     const int savedTop = lua.gettop(L);
 
+    volatile std::uint32_t* counter = GetMessageResendCounter();
+    const std::uint32_t     savedCounter = counter ? *counter : 0;
+    if (counter) *counter = 0xFFFFu;
+
+    DWORD  sehCode     = 0;
+    PVOID  sehAddr     = nullptr;
+    ULONG_PTR sehFault = 0;
+    int    sehKind     = 0;
+
     __try
     {
-        volatile std::uint32_t* counter = GetMessageResendCounter();
-        const std::uint32_t saved = counter ? *counter : 0;
-        if (counter) *counter = 0xFFFFu;
-
         if (PushTppMainOnMessage(L, lua, savedTop))
         {
             const std::uint32_t senderHash = FoxHashes::StrCode32(category);
@@ -307,15 +312,26 @@ void V_FrameWork::EmitMessageValues(const char* category,
                     err, category, msg, errMsg ? errMsg : "<no message>");
             }
         }
-
-        if (counter) *counter = saved;
     }
-    __except (EXCEPTION_EXECUTE_HANDLER)
+    __except ((sehCode = GetExceptionCode(),
+               sehAddr = GetExceptionInformation()->ExceptionRecord->ExceptionAddress,
+               sehKind = (GetExceptionInformation()->ExceptionRecord->NumberParameters >= 2 ? 1 : 0),
+               sehFault = (sehKind ? GetExceptionInformation()->ExceptionRecord->ExceptionInformation[1] : 0),
+               EXCEPTION_EXECUTE_HANDLER))
     {
-        Log("[V_FrameWork] BroadcastMessage SEH exception category=%s msg=%s\n",
-            category,
-            msg);
+        if (sehKind)
+        {
+            Log("[V_FrameWork] BroadcastMessage SEH category=%s msg=%s code=0x%08X at=%p faulting=0x%llX\n",
+                category, msg, sehCode, sehAddr,
+                static_cast<unsigned long long>(sehFault));
+        }
+        else
+        {
+            Log("[V_FrameWork] BroadcastMessage SEH category=%s msg=%s code=0x%08X at=%p\n",
+                category, msg, sehCode, sehAddr);
+        }
     }
 
+    if (counter) *counter = savedCounter;
     lua.settop(L, savedTop);
 }

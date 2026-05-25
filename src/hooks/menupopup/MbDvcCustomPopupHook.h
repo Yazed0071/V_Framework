@@ -18,6 +18,6 @@ bool Show_MbDvcAnnouncePopupRewardLangId(const char* titleLabel,
 
 const char* MbDvcCustom_TryResolveLangText(std::uint64_t hash);
 
-bool Show_MbDvcEmergencyPopup       (const char* title,      const char* body);
-bool Show_MbDvcEmergencyPopupLangId (const char* titleLabel, const char* bodyLabel);
+bool Set_MbDvcEmergencyPopup        (const char* title,      const char* body);
+bool Set_MbDvcEmergencyPopupLangId  (const char* titleLabel, const char* bodyLabel);
 void Clear_MbDvcEmergencyPopupOverride();

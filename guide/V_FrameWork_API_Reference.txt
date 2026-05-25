@@ -71,8 +71,8 @@ V_TppUiCommand
       "Return to Mission" both work.
 
   Emergency popup text override (flat — not tied to a mission code)
-    ShowEmergencyMissionPopup       (title,      body)       -> bool   -- literal text
-    ShowEmergencyMissionPopupLangId (titleLabel, bodyLabel)  -> bool   -- LangId labels
+    SetEmergencyMissionPopup       (title,      body)       -> bool   -- literal text
+    SetEmergencyMissionPopupLangId (titleLabel, bodyLabel)  -> bool   -- LangId labels
     ClearEmergencyMissionPopupOverride()
 
       The engine's "Emergency Missions" popup is a single generic notification
@@ -100,13 +100,89 @@ V_TppUiCommand
         V_TppUiCommand.SetMissionEmergency(10115, true, true)
 
         -- custom popup text (literal)
-        V_TppUiCommand.ShowEmergencyMissionPopup("Mission Alert", "Hostile transport spotted nearby.")
+        V_TppUiCommand.SetEmergencyMissionPopup("Mission Alert", "Hostile transport spotted nearby.")
 
         -- custom popup text (LangId)
-        V_TppUiCommand.ShowEmergencyMissionPopupLangId(nil, "announce_heli_arrive_LZ")
+        V_TppUiCommand.SetEmergencyMissionPopupLangId(nil, "announce_heli_arrive_LZ")
 
         -- revert to engine-default popup text
         V_TppUiCommand.ClearEmergencyMissionPopupOverride()
+
+  HUD mission icon (top-right "urgent_time" widget — custom title supported)
+    ShowMissionIcon(title, body, time)
+
+      title : string (widget child-element name) | number (48-bit hash) | nil
+              nil = engine default ("hud_emergency_mission").
+              Passing nil after a custom title restores the engine default.
+              IMPORTANT: title is a WIDGET CHILD-ELEMENT NAME, not a generic
+              LangId. The engine looks it up via FoxStrHash64 (low 48 bits)
+              against the urgent_time .uilb child registry. If the name
+              doesn't resolve to a real child element of the urgent_time
+              widget, the engine dereferences garbage and crashes the Lua VM.
+              The only label that ships in vanilla is "hud_emergency_mission"
+              — to use a custom name, ship a modded .uilb that defines that
+              child element.
+      body  : string (LangId/literal label) | nil
+              nil = "announce_online_900_from_0_prio_0" placeholder.
+      time  : number  (seconds visible; default 6)
+
+      The title is applied by patching the inline imm64 (low 48 bits) that
+      the engine reads at the title-lookup call site; it persists across
+      subsequent calls until ShowMissionIcon(nil, ...) is called or the
+      framework uninstalls.
+
+      Examples:
+        -- vanilla (no patch, always safe)
+        V_TppUiCommand.ShowMissionIcon(nil, "announce_refresh", 6)
+
+        -- custom child name (requires modded urgent_time .uilb!)
+        V_TppUiCommand.ShowMissionIcon("my_custom_child", "announce_refresh", 4)
+
+        -- pass a precomputed StrCode64 truncated to 48 bits
+        V_TppUiCommand.ShowMissionIcon(0x49ACF2C3F78A, "announce_refresh", 6)
+
+  HUD UI palette (runtime color override for mb_col_palette entries)
+    SetUiPaletteColor(key, r, g, b [, a])  -> bool
+    RestoreUiPalette()
+
+      key   : string (palette key e.g. "COL-3") | number (StrCode32 hash)
+      r,g,b : floats 0.0..1.0
+      a     : optional float 0.0..1.0 (default 1.0)
+
+      The FIRST SetUiPaletteColor call after framework load (or after a
+      RestoreUiPalette) scans committed memory for the key you pass, uses
+      that key as the anchor, then walks adjacent 24-byte palette entries
+      to discover the full StringMap. Subsequent calls hit the cached
+      array directly.
+
+      Because the palette is only in memory once the iDroid (or whatever
+      UI owns the palette) has been loaded at least once, you must call
+      SetUiPaletteColor AFTER the player has opened that UI. Calling it
+      from your mod's Init() (which runs at mission start) is usually too
+      early — defer to a SendMessage hook for iDroid open, or just call
+      it the first time the player toggles the menu.
+
+      Anchor choice: if multiple .fox2 palettes share key names (e.g.
+      "COL-1"), pass a unique anchor key first. The easiest way is to
+      put a one-of-a-kind marker key in your custom .fox2 (e.g.
+      "VFW_ANCHOR_MyMod_42") and SetUiPaletteColor on that key first;
+      the rest of your palette is then cached relative to that anchor.
+
+      Originals are remembered and restored on RestoreUiPalette() or on
+      framework uninstall. RestoreUiPalette also drops the scan cache —
+      the next SetUiPaletteColor will rescan using its key as anchor.
+
+      Examples:
+        -- typical: change a known palette color (open iDroid first!)
+        V_FrameWork.SetUiPaletteColor("COL-3", 1.0, 0.2, 0.2, 1.0)
+        V_FrameWork.SetUiPaletteColor(0x62A1C222, 0.0, 1.0, 0.0)
+
+        -- recommended: anchor on a unique marker, then set real colors
+        V_FrameWork.SetUiPaletteColor("VFW_ANCHOR_MyMod_42", 0, 0, 0, 0)
+        V_FrameWork.SetUiPaletteColor("MyButton", 1, 0.5, 0)
+
+        -- drop cache + restore originals
+        V_FrameWork.RestoreUiPalette()
 
 
 V_TppMission (custom mission positioning + emergency-state queries)

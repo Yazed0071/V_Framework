@@ -153,6 +153,12 @@ namespace AddressSetRuntime
 
         uintptr_t GetMissionCodeCategory                                = 0;
 
+        uintptr_t TppUiCommand_ShowMissionIcon                          = 0;
+
+        uintptr_t IconTitleHashImm                                      = 0;
+
+        uintptr_t IconTitleGetLangTextCall                              = 0;
+
     };
 
     inline GameBuild& GetGameBuild()

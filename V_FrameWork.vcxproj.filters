@@ -99,6 +99,8 @@
     <ClInclude Include="src\hooks\sahelan\SetEyeLampColorHook.h" />
     <ClInclude Include="src\hooks\securitycamera\SecurityCameraFovaHook.h" />
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
+    <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
+    <ClInclude Include="src\hooks\ui\UiPalette.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -174,6 +176,8 @@
     <ClCompile Include="src\hooks\sahelan\SetEyeLampColorHook.cpp" />
     <ClCompile Include="src\hooks\securitycamera\SecurityCameraFovaHook.cpp" />
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
+    <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
+    <ClCompile Include="src\hooks\ui\UiPalette.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

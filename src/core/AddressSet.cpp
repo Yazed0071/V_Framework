@@ -209,6 +209,12 @@ namespace AddressSetRuntime
 
             0x145e642a0ull, // GetMissionCodeCategory
 
+            0x145DADFC1ull, // TppUiCommand_ShowMissionIcon
+
+            0x14162135Cull, // IconTitleHashImm
+
+            0x14162136Bull, // IconTitleGetLangTextCall
+
         };
 
         return value;
@@ -372,6 +378,12 @@ namespace AddressSetRuntime
             0ull,           // MessageResendCounter
 
             0ull,           // GetMissionCodeCategory
+
+            0ull,           // TppUiCommand_ShowMissionIcon
+
+            0ull,           // IconTitleHashImm
+
+            0ull,           // IconTitleGetLangTextCall
 
         };
 
