@@ -16,8 +16,6 @@
 #include "MbDvcCustomPopupHook.h"
 
 
-
-
 namespace
 {
     constexpr std::uint32_t kVPopupMagic = 0x56465043u;
@@ -933,7 +931,6 @@ namespace
     }
 
 
-    // SEH-only helper: __try can't coexist with C++ object destructors in the caller.
     static bool SafeWriteEmergencyBuffers(void* self,
                                           const char* titleOrNull,
                                           const char* bodyOrNull)
@@ -1394,5 +1391,3 @@ const char* MbDvcCustom_TryResolveLangText(std::uint64_t hash)
         return nullptr;
     return SafeResolveLangText(lang, hash);
 }
-
-

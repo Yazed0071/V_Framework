@@ -1,6 +1,3 @@
--- V_TppUiCommand — UI texture overrides + iDroid AnnouncePopup customization.
--- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
-
 local this = {}
 local StrCode32 = Fox.StrCode32
 local IsTypeNumber = Tpp.IsTypeNumber
@@ -207,12 +204,12 @@ function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
     return V_FrameWork.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
 end
 
-function this.SetMissionEmergency(missionCode, enabled, enableSortiePrep)
+function this.SetMissionEmergency(missionCode, enabled)
     if not IsTypeNumber(missionCode) then
         V_FrameWork.Log("V_TppUiCommand.SetMissionEmergency: missionCode must be a number.")
         return
     end
-    V_FrameWork.SetMissionEmergency(missionCode, enabled, enableSortiePrep)
+    V_FrameWork.SetMissionEmergency(missionCode, enabled)
 end
 
 function this.IsMissionEmergency(missionCode)
@@ -237,6 +234,7 @@ function this.SetEmergencyMissionPopup(title, body)
 end
 
 function this.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+    this.ClearEmergencyMissionPopupOverride()
     if titleLabel ~= nil and not IsTypeString(titleLabel) then
         V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopupLangId: titleLabel is not a string or nil.")
         return

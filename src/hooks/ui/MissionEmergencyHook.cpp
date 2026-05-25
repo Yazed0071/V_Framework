@@ -19,9 +19,6 @@ namespace
     static std::mutex                       g_AllowlistMutex;
     static std::unordered_set<std::uint16_t> g_EmergencyMissionAllowlist;
 
-    static std::mutex                       g_SortiePrepMutex;
-    static std::unordered_set<std::uint16_t> g_MissionsWithSortiePrepDisabled;
-
     static bool g_MissionEmergencyHookInstalled = false;
 
     static constexpr std::uint8_t kEmergencyCategory = 4;
@@ -74,38 +71,6 @@ bool MissionEmergency_IsEnabled(std::uint16_t missionCode)
 {
     std::lock_guard<std::mutex> lock(g_AllowlistMutex);
     return g_EmergencyMissionAllowlist.find(missionCode) != g_EmergencyMissionAllowlist.end();
-}
-
-
-void MissionEmergency_SetSortiePrepEnabled(std::uint16_t missionCode, bool enabled)
-{
-    std::lock_guard<std::mutex> lock(g_SortiePrepMutex);
-    if (enabled)
-    {
-        const auto erased = g_MissionsWithSortiePrepDisabled.erase(missionCode);
-        if (erased > 0)
-        {
-            Log("[MissionEmergency] sortie prep RE-ENABLED for mc=%u\n",
-                static_cast<unsigned>(missionCode));
-        }
-    }
-    else
-    {
-        const auto inserted = g_MissionsWithSortiePrepDisabled.insert(missionCode);
-        if (inserted.second)
-        {
-            Log("[MissionEmergency] sortie prep DISABLED for mc=%u (will use IH-style direct ReserveMissionClear)\n",
-                static_cast<unsigned>(missionCode));
-        }
-    }
-}
-
-
-bool MissionEmergency_IsSortiePrepEnabled(std::uint16_t missionCode)
-{
-    std::lock_guard<std::mutex> lock(g_SortiePrepMutex);
-    return g_MissionsWithSortiePrepDisabled.find(missionCode) ==
-           g_MissionsWithSortiePrepDisabled.end();
 }
 
 

@@ -292,9 +292,9 @@ void V_FrameWork::EmitMessageValues(const char* category,
             const std::uint32_t senderHash = FoxHashes::StrCode32(category);
             const std::uint32_t msgHash    = FoxHashes::StrCode32(msg);
 
-            lua.pushnil(L);                                              // missionTable
-            lua.pushnumber(L, static_cast<lua_Number>(senderHash));      // sender hash
-            lua.pushnumber(L, static_cast<lua_Number>(msgHash));         // messageId hash
+            lua.pushnil(L);
+            lua.pushnumber(L, static_cast<lua_Number>(senderHash));
+            lua.pushnumber(L, static_cast<lua_Number>(msgHash));
 
             for (int i = 0; i < 4; ++i)
             {
