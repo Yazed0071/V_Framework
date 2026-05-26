@@ -257,14 +257,77 @@ SetEyeLampDisco(enabled, speed)              -- speed optional, default 2.0
 ClearHeartLightColor()
 SetHeartLightColor(r, g, b, pulseSpeed)
 SetEyeLampColorLogging(enabled)
-SetPhase(phase)                              -- sustained; AI can't override
-ClearPhase()
+SetPhase(phase)                              -- single-shot Exit/Enter into target phase
 GetPhase()                                   -> number
 
-  phase values: 0=Wait 1=1stAction 2=Sneak 3=Caution 4=PreAlert 5=Alert 6=PreVsHeli 7=VsHeli
+  Engine phase enum (TppSahelan2.SAHELAN2_PHASE_*):
+    0 = SNEAK    1 = CAUTION   2 = ALERT     3 = VS_HELI
+    4 = 1ST      5 = 2ND       6 = 3RD       7 = 4TH
 
-  SendCommand alternative:
-    GameObject.SendCommand({type="TppSahelan2",group=0,index=0}, {id="V_SetSahelanPhase", phase=2})
+  SetPhase / GetPhase are thin wrappers around the SendCommand IDs
+  SetSahelanPhase / GetSahelanPhase. See the "Custom GameObject.SendCommand IDs"
+  section below if you want to call them directly.
+
+
+V_TppGameObject
+---------------
+Global constants table populated from C++ at Lua-state init (same mechanism
+the engine uses for TppGameObject.HOSTAGE_NOTICE_STATE_*). The table is bound
+once when SetLuaFunctions fires and is immediately visible to every Lua
+script; no module require, no Lua-side definition file.
+
+Currently empty — reserved for custom V_FrameWork constants that don't have
+engine equivalents. Sahelan phase constants live on the engine's own
+TppSahelan2.SAHELAN2_PHASE_* table (see V_TppSahelan above).
+
+To add constants, edit RegisterV_TppGameObjectConstants() in
+src/lua/SetLuaFunctions.cpp — insert rows into kEntries[] before the null
+sentinel and rebuild.
+
+
+Custom GameObject.SendCommand IDs
+---------------------------------
+V_FrameWork installs a hook on the engine's GameObject.SendCommand binding that
+adds new command IDs to the dispatch table. Any ID that V_FrameWork does not
+recognize falls through to the engine unchanged, so vanilla commands
+(SetVip, SetLangType, etc.) keep working.
+
+Usage shape:
+  GameObject.SendCommand(targetSpec, { id = "XXX", ...params })
+
+  targetSpec is the same form the engine accepts for vanilla commands. For
+  singleton-class targets (e.g. Sahelan2) pass {type, group, index}; for
+  per-entity targets pass a gameObjectId. Custom global commands ignore the
+  target and only read the command table, so a placeholder like
+  {type="TppSahelan2",group=0,index=0} works for global state.
+
+Currently supported IDs:
+
+  id = "SetSahelanPhase",   phase = <number>       -> nil
+    Force Sahelan into the given phase via a single-shot Exit/Enter on the next
+    PreUpdate; the engine's natural transitions resume immediately after.
+    phase: see TppSahelan2.SAHELAN2_PHASE_* (0=SNEAK, 1=CAUTION, 2=ALERT,
+    3=VS_HELI, 4=1ST, 5=2ND, 6=3RD, 7=4TH).
+
+  id = "GetSahelanPhase"                           -> number
+    Returns Sahelan's current phase number.
+
+  id = "SetEscapeState",    enable = <boolean>      -> nil
+    Marks a hostage as "taken by player" (or clears that flag). The target must
+    be a hostage gameObjectId (TppHostage2 / TppHostageUnique / etc). Internally
+    routes through V_FrameWork's lost-hostage tracking — the same backend used
+    by V_TppHostage.SetLostHostageFromPlayer.
+
+Example:
+  local target = { type = "TppSahelan2", group = 0, index = 0 }
+  GameObject.SendCommand(target, {
+      id = "SetSahelanPhase",
+      phase = TppSahelan2.SAHELAN2_PHASE_ALERT,
+  })
+  local cur = GameObject.SendCommand(target, { id = "GetSahelanPhase" })
+
+  local hostageId = GameObject.GetGameObjectId("hostage_01")
+  GameObject.SendCommand(hostageId, { id = "SetEscapeState", enable = true })
 
 
 V_SoundCoreDaemon

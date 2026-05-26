@@ -1154,15 +1154,6 @@ static int __cdecl l_ClearLostHostages(lua_State* L)
     return 0;
 }
 
-static int __cdecl l_SetLostHostageFromPlayer(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const bool playerTookHostage = GetLuaBool(L, 2);
-    PlayerTookHostage(gameObjectId, playerTookHostage);
-    return 0;
-}
-
-
 static int __cdecl l_EnableSoldierStealthCamo(lua_State* L)
 {
     const std::uint32_t mappedIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
@@ -2452,13 +2443,6 @@ static int __cdecl l_SetSahelanPhase(lua_State* L)
     return 0;
 }
 
-static int __cdecl l_ClearSahelanPhase(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    ::Clear_SahelanForcePhase();
-    return 0;
-}
-
 static int __cdecl l_GetSahelanPhase(lua_State* L)
 {
     PushLuaNumber(L, static_cast<float>(::Get_SahelanCurrentPhase()));
@@ -2934,7 +2918,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetLostHostage",                         l_SetLostHostage },
     { "RemoveLostHostage",                      l_RemoveLostHostage },
     { "ClearLostHostages",                      l_ClearLostHostages },
-    { "SetLostHostageFromPlayer",               l_SetLostHostageFromPlayer },
     { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
     { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
     { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
@@ -2981,7 +2964,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "SetEyeLampColorLogging",                 l_SetEyeLampColorLogging },
 
     { "SetSahelanPhase",                        l_SetSahelanPhase },
-    { "ClearSahelanPhase",                      l_ClearSahelanPhase },
     { "GetSahelanPhase",                        l_GetSahelanPhase },
 
     { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },
@@ -3017,6 +2999,38 @@ static luaL_Reg g_VFrameWorkLib[] =
 };
 
 
+static void RegisterV_TppGameObjectConstants(lua_State* L)
+{
+    if (!L || !ResolveLuaApi() ||
+        !g_lua_pushstring || !g_lua_createtable ||
+        !g_lua_pushnumber || !g_lua_settable)
+    {
+        return;
+    }
+
+    struct ConstEntry { const char* name; lua_Number value; };
+    static const ConstEntry kEntries[] = {
+        { nullptr, 0.0 },
+    };
+
+    g_lua_pushstring(L, const_cast<char*>("V_TppGameObject"));
+    g_lua_createtable(L, 0, 0);
+
+    int registered = 0;
+    for (const auto& e : kEntries)
+    {
+        if (!e.name) break;
+        g_lua_pushstring(L, const_cast<char*>(e.name));
+        g_lua_pushnumber(L, e.value);
+        g_lua_settable(L, -3);
+        ++registered;
+    }
+
+    g_lua_settable(L, LUA_GLOBALSINDEX_51);
+    Log("[V_FrameWork] Registered global V_TppGameObject (%d constants)\n", registered);
+}
+
+
 static void RegisterAllUiLuaLibraries(lua_State* L)
 {
     if (!L)
@@ -3027,6 +3041,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
 
     if (RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
     {
+        RegisterV_TppGameObjectConstants(L);
         TrackLuaState(L);
     }
 }
