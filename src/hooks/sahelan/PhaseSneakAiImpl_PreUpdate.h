@@ -7,7 +7,6 @@ bool Install_PhaseSneakAiImpl_PreUpdate_Hook();
 bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook();
 
 void Set_SahelanForcePhase(std::int32_t phase);
-void Clear_SahelanForcePhase();
 std::int32_t Get_SahelanCurrentPhase();
 
 namespace SahelanPhaseForce

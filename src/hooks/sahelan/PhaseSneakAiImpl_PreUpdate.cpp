@@ -167,11 +167,6 @@ void Set_SahelanForcePhase(std::int32_t phase)
     Log("[Sahelan] ForcePhase: queued phase=%d (single-shot Exit/Enter on next PreUpdate)\n", phase);
 }
 
-void Clear_SahelanForcePhase()
-{
-    SahelanPhaseForce::g_ForcedPhase.store(-1, std::memory_order_relaxed);
-}
-
 std::int32_t Get_SahelanCurrentPhase()
 {
     return SahelanPhaseForce::g_CurrentPhase.load(std::memory_order_relaxed);
