@@ -105,6 +105,9 @@ bool Uninstall_ShowMissionIcon_Hook();
 bool Install_UiPalette_Hook();
 bool Uninstall_UiPalette_Hook();
 
+bool Install_GameObjectSendCommand_Hook();
+bool Uninstall_GameObjectSendCommand_Hook();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -718,6 +721,14 @@ namespace
         void Uninstall() override { Uninstall_UiPalette_Hook(); }
     };
 
+    class GameObjectSendCommandModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "GameObjectSendCommand"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_GameObjectSendCommand_Hook(); }
+        void Uninstall() override { Uninstall_GameObjectSendCommand_Hook(); }
+    };
+
 
 
 
@@ -758,6 +769,7 @@ void RegisterBuiltInFeatureModules()
     static MissionEmergencyModule s_MissionEmergencyModule;
     static ShowMissionIconModule s_ShowMissionIconModule;
     static UiPaletteModule s_UiPaletteModule;
+    static GameObjectSendCommandModule s_GameObjectSendCommandModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -795,5 +807,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);
             FeatureModuleRegistry::Instance().Register(&s_ShowMissionIconModule);
             FeatureModuleRegistry::Instance().Register(&s_UiPaletteModule);
+            FeatureModuleRegistry::Instance().Register(&s_GameObjectSendCommandModule);
         });
 }

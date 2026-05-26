@@ -203,6 +203,7 @@
     <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
     <ClInclude Include="src\hooks\ui\UiPalette.h" />
+    <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <!-- Hooks: Sahelan -->
@@ -233,6 +234,7 @@
     <ClCompile Include="src\core\LuaBroadcaster.cpp" />
     <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
     <!-- Hooks: Soldier -->

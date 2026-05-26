@@ -266,6 +266,65 @@ function this.ShowMissionIcon(title, body, time)
     V_FrameWork.ShowMissionIcon(title, body, time or 6)
 end
 
+function this.SetUiPaletteColor(key, r, g, b, a)
+    if key == nil or (type(key) ~= "string" and type(key) ~= "number") then
+        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: key must be a string or number.")
+        return false
+    end
+    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: r, g, b must be numbers.")
+        return false
+    end
+    if a ~= nil and type(a) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: a must be a number or nil.")
+        return false
+    end
+    return V_FrameWork.SetUiPaletteColor(key, r, g, b, a or 1.0)
+end
+
+function this.RestoreUiPalette(key)
+    if key ~= nil and type(key) ~= "string" and type(key) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.RestoreUiPalette: key must be a string, number or nil.")
+        return
+    end
+    V_FrameWork.RestoreUiPalette(key)
+end
+
+function this.AnimateUiPaletteColor(key, mode, period, ...)
+    if key == nil or (type(key) ~= "string" and type(key) ~= "number") then
+        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: key must be a string or number.")
+        return false
+    end
+    if mode ~= "blink" and mode ~= "pulse" then
+        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: mode must be 'blink' or 'pulse'.")
+        return false
+    end
+    if type(period) ~= "number" or period <= 0 then
+        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: period must be a positive number (seconds).")
+        return false
+    end
+    local args = { ... }
+    if #args < 4 or (#args % 4) ~= 0 then
+        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: provide r,g,b,a for at least one color (multiples of 4 numbers).")
+        return false
+    end
+    for i = 1, #args do
+        if type(args[i]) ~= "number" then
+            V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: color component #" .. i .. " is not a number.")
+            return false
+        end
+    end
+    return V_FrameWork.AnimateUiPaletteColor(key, mode, period, ...)
+end
+
+function this.ClearUiPaletteAnimation(key)
+    if key ~= nil and type(key) ~= "string" and type(key) ~= "number" then
+        V_FrameWork.Log("V_TppUiCommand.ClearUiPaletteAnimation: key must be a string, number or nil.")
+        return
+    end
+    V_FrameWork.ClearUiPaletteAnimation(key)
+end
+
 function this.HideMissionIcon()
     TppUiCommand.HideMissionIcon()
 end

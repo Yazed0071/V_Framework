@@ -159,6 +159,13 @@ namespace AddressSetRuntime
 
         uintptr_t IconTitleGetLangTextCall                              = 0;
 
+        uintptr_t UiPaletteManager_GetForName                           = 0;
+        uintptr_t g_UiPaletteManager                                    = 0;
+
+        uintptr_t GameObject_SendCommand                                = 0;
+
+        uintptr_t ModelNode_UpdateModelNodeParameter                    = 0;
+
     };
 
     inline GameBuild& GetGameBuild()

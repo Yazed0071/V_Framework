@@ -101,6 +101,7 @@
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
     <ClInclude Include="src\hooks\ui\UiPalette.h" />
+    <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -178,6 +179,7 @@
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
     <ClCompile Include="src\hooks\ui\UiPalette.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

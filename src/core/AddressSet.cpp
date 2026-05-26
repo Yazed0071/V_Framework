@@ -215,6 +215,13 @@ namespace AddressSetRuntime
 
             0x14162136Bull, // IconTitleGetLangTextCall
 
+            0x14D711D30ull, // UiPaletteManager_GetForName
+            0x142C8FA90ull, // g_UiPaletteManager
+
+            0x146CC7170ull, // GameObject_SendCommand
+
+            0x14D71DB50ull, // ModelNode_UpdateModelNodeParameter
+
         };
 
         return value;
@@ -384,6 +391,13 @@ namespace AddressSetRuntime
             0ull,           // IconTitleHashImm
 
             0ull,           // IconTitleGetLangTextCall
+
+            0ull,           // UiPaletteManager_GetForName
+            0ull,           // g_UiPaletteManager
+
+            0ull,           // GameObject_SendCommand
+
+            0ull,           // ModelNode_UpdateModelNodeParameter
 
         };
 

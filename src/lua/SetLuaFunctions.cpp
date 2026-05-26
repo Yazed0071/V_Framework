@@ -2125,10 +2125,11 @@ static int __cdecl l_SetUiPaletteColor(lua_State* L)
     }
 
     std::uint32_t keyHash = 0;
+    const char*   keyStr  = "<int>";
     const int keyType = g_lua_type(L, 1);
     if (keyType == LUA_TSTRING)
     {
-        const char* keyStr = g_lua_tolstring(L, 1, nullptr);
+        keyStr = g_lua_tolstring(L, 1, nullptr);
         if (!keyStr || !keyStr[0])
         {
             g_lua_pushboolean(L, 0);
@@ -2154,6 +2155,9 @@ static int __cdecl l_SetUiPaletteColor(lua_State* L)
     if (top >= 5 && g_lua_type(L, 5) == LUA_TNUMBER)
         a = static_cast<float>(g_lua_tonumber(L, 5));
 
+    Log("[Lua/SetUiPaletteColor] keyStr='%s' hash=0x%08X rgba=(%.3f,%.3f,%.3f,%.3f)\n",
+        keyStr ? keyStr : "<null>", keyHash, r, g, b, a);
+
     const bool ok = UiPalette::SetColor(keyHash, r, g, b, a);
     g_lua_pushboolean(L, ok ? 1 : 0);
     return 1;
@@ -2162,8 +2166,134 @@ static int __cdecl l_SetUiPaletteColor(lua_State* L)
 
 static int __cdecl l_RestoreUiPalette(lua_State* L)
 {
-    (void)L;
-    UiPalette::RestoreAll();
+    if (!ResolveLuaApi() || !g_lua_gettop || !g_lua_type)
+    {
+        UiPalette::RestoreAll();
+        return 0;
+    }
+
+    const int top     = g_lua_gettop(L);
+    const int keyType = top >= 1 ? g_lua_type(L, 1) : LUA_TNIL;
+
+    if (keyType != LUA_TSTRING && keyType != LUA_TNUMBER)
+    {
+        UiPalette::RestoreAll();
+        return 0;
+    }
+
+    std::uint32_t keyHash = 0;
+    if (keyType == LUA_TSTRING)
+    {
+        const char* keyStr = g_lua_tolstring(L, 1, nullptr);
+        if (keyStr && keyStr[0]) keyHash = FoxHashes::StrCode32(keyStr);
+    }
+    else
+    {
+        keyHash = static_cast<std::uint32_t>(
+            g_lua_tointeger(L, 1) & 0xFFFFFFFFLL);
+    }
+
+    if (keyHash == 0)
+    {
+        UiPalette::RestoreAll();
+        return 0;
+    }
+
+    UiPalette::RestoreColor(keyHash);
+    return 0;
+}
+
+
+static int __cdecl l_AnimateUiPaletteColor(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_gettop || !g_lua_type || !g_lua_tolstring ||
+        !g_lua_tointeger || !g_lua_tonumber || !g_lua_pushboolean)
+    {
+        return 0;
+    }
+
+    const int top = g_lua_gettop(L);
+    const int colorArgs = top - 3;
+    if (top < 7 || colorArgs < 4 || (colorArgs % 4) != 0)
+    {
+        g_lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    std::uint32_t keyHash = 0;
+    const int keyType = g_lua_type(L, 1);
+    if (keyType == LUA_TSTRING)
+    {
+        const char* keyStr = g_lua_tolstring(L, 1, nullptr);
+        if (!keyStr || !keyStr[0])
+        {
+            g_lua_pushboolean(L, 0);
+            return 1;
+        }
+        keyHash = FoxHashes::StrCode32(keyStr);
+    }
+    else if (keyType == LUA_TNUMBER)
+    {
+        keyHash = static_cast<std::uint32_t>(g_lua_tointeger(L, 1) & 0xFFFFFFFFLL);
+    }
+    else
+    {
+        g_lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    const char* mode = (g_lua_type(L, 2) == LUA_TSTRING)
+        ? g_lua_tolstring(L, 2, nullptr) : "blink";
+    const double period = static_cast<double>(g_lua_tonumber(L, 3));
+
+    const int colorCount = colorArgs / 4;
+    std::vector<float> rgba;
+    rgba.reserve(static_cast<std::size_t>(colorArgs));
+    for (int i = 0; i < colorArgs; ++i)
+        rgba.push_back(static_cast<float>(g_lua_tonumber(L, 4 + i)));
+
+    const bool ok = UiPalette::AnimateColor(keyHash, mode, period,
+                                            rgba.data(), colorCount);
+    g_lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+
+static int __cdecl l_ClearUiPaletteAnimation(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_gettop || !g_lua_type)
+    {
+        UiPalette::ClearAllAnimations();
+        return 0;
+    }
+
+    const int top     = g_lua_gettop(L);
+    const int keyType = top >= 1 ? g_lua_type(L, 1) : LUA_TNIL;
+
+    if (keyType != LUA_TSTRING && keyType != LUA_TNUMBER)
+    {
+        UiPalette::ClearAllAnimations();
+        return 0;
+    }
+
+    std::uint32_t keyHash = 0;
+    if (keyType == LUA_TSTRING)
+    {
+        const char* keyStr = g_lua_tolstring(L, 1, nullptr);
+        if (keyStr && keyStr[0]) keyHash = FoxHashes::StrCode32(keyStr);
+    }
+    else
+    {
+        keyHash = static_cast<std::uint32_t>(g_lua_tointeger(L, 1) & 0xFFFFFFFFLL);
+    }
+
+    if (keyHash == 0)
+    {
+        UiPalette::ClearAllAnimations();
+        return 0;
+    }
+
+    UiPalette::ClearAnimation(keyHash);
     return 0;
 }
 
@@ -2831,6 +2961,8 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ShowMissionIcon",                        l_ShowMissionIcon },
     { "SetUiPaletteColor",                      l_SetUiPaletteColor },
     { "RestoreUiPalette",                       l_RestoreUiPalette },
+    { "AnimateUiPaletteColor",                  l_AnimateUiPaletteColor },
+    { "ClearUiPaletteAnimation",                l_ClearUiPaletteAnimation },
 
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
