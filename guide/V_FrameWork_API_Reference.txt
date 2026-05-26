@@ -110,9 +110,10 @@ V_TppUiCommand
       Shows the urgent-mission icon in the upper-left HUD with custom
       title and body text.
 
-      title : LangId string, or nil for engine default ("hud_emergency_mission")
-      body  : LangId string, or nil for default placeholder
-      time  : seconds visible (default 6)
+      title  : LangId string, or nil for engine default
+               ("hud_emergency_mission")
+      body   : LangId string, or nil for default placeholder
+      time   : seconds visible (default 6)
 
       The title and body text shown are whatever your LangId resolves to in
       the game's localization. Pass any LangId that the game knows — the
@@ -124,6 +125,9 @@ V_TppUiCommand
 
         V_TppUiCommand.ShowMissionIcon(nil, "announce_refresh", 6)
 
+      The icon's accent color is baked into the engine "urgent_time"
+      preset and cannot be changed via this call.
+
       Examples:
         V_TppUiCommand.ShowMissionIcon("announce_heli_arrive_LZ", "announce_refresh", 6)
         V_TppUiCommand.ShowMissionIcon("hud_emergency_mission", "hud_fob_defense", 5)
@@ -131,7 +135,7 @@ V_TppUiCommand
 
   HUD UI palette — runtime color overrides for mb_col_palette entries
     SetUiPaletteColor(key, r, g, b [, a])  -> bool
-    RestoreUiPalette()
+    RestoreUiPalette([key])
 
       Override a palette color used by HUD/menu widgets.
 
@@ -148,12 +152,27 @@ V_TppUiCommand
       player opens the relevant UI, or off a SendMessage hook for iDroid
       open.
 
+      How it sticks: SetUiPaletteColor does two things in one call —
+        (1) patches the matching color in every loaded UiPaletteData
+            currently in memory (VirtualProtect + RGBA write), and
+        (2) registers an in-process override so any FUTURE
+            UiPaletteManager::GetForName lookup for that key returns your
+            color regardless of what is in the palette data.
+      Transient widgets (popups, notification icons, anything created on
+      demand) pick up the new color on their next construction because of
+      (2). Persistent widgets that were already built keep their cached
+      value until they rebuild — opening and closing the pause menu is the
+      cheapest way to force that rebuild.
+
       For mods shipping their own .fox2 palettes that might share key
       names (e.g. "COL-1") with other palettes, define a unique marker
       key in your .fox2 (e.g. "VFW_ANCHOR_MyMod_42") and set it first —
       subsequent SetUiPaletteColor calls will then target your palette.
 
       RestoreUiPalette() restores all originals you've overridden.
+      RestoreUiPalette(key) restores just one key (string or hash). Both
+      the in-memory palette write and the in-process override are cleared
+      for that single key; everything else stays patched.
 
       Examples:
         -- typical (open iDroid first!)
@@ -163,7 +182,10 @@ V_TppUiCommand
         V_FrameWork.SetUiPaletteColor("VFW_ANCHOR_MyMod_42", 0, 0, 0, 0)
         V_FrameWork.SetUiPaletteColor("MyButton", 1, 0.5, 0)
 
-        -- revert
+        -- revert one key only
+        V_FrameWork.RestoreUiPalette("cmn-col-emergency")
+
+        -- revert everything
         V_FrameWork.RestoreUiPalette()
 
 
