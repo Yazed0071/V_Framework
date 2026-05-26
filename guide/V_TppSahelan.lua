@@ -86,15 +86,11 @@ function this.SetPhase(phase)
         V_FrameWork.Log("V_Sahelan.SetPhase: phase must be a number (TppSahelan2.SAHELAN2_PHASE_*).")
         return
     end
-    V_FrameWork.SetSahelanPhase(phase)
-end
-
-function this.ClearPhase()
-    V_FrameWork.ClearSahelanPhase()
+    GameObject.SendCommand({ type = "TppSahelan2", group = 0, index = 0 }, { id = "SetSahelanPhase", phase = phase })
 end
 
 function this.GetPhase()
-    return V_FrameWork.GetSahelanPhase()
+    return GameObject.SendCommand({ type = "TppSahelan2", group = 0, index = 0 }, { id = "GetSahelanPhase" })
 end
 
 return this

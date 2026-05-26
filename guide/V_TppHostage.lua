@@ -113,7 +113,7 @@ function this.SetLostHostageFromPlayer(hostageNameOrId, enable)
         V_FrameWork.Log("V_TppHostage.SetLostHostageFromPlayer: enable is not a boolean.")
         return
     end
-    V_FrameWork.SetLostHostageFromPlayer(hostageNameOrId, enable)
+    GameObject.SendCommand(hostageNameOrId, { id = "SetEscapeState", enable = enable })
 
     -- Update entry scenario and re-push the matching label half.
     if mvars.V_HostageList ~= nil then
@@ -244,7 +244,7 @@ function this.AutoSetLostHostageFromPlayer(enable)
         this.BuildHostageList()
     end
     for _, hostage in ipairs(mvars.V_HostageList) do
-        V_FrameWork.SetLostHostageFromPlayer(hostage.gameObjectId, enable)
+        GameObject.SendCommand(hostage.gameObjectId, { id = "SetEscapeState", enable = enable })
         hostage.scenario = enable and "taken" or "gone"
         pushEntry(hostage)
     end
