@@ -25,34 +25,24 @@ SetEquipIdIconFtexPath(equipId, path)
 V_TppCassette
 -------------
 PlayCassetteTape(trackOrName, isLoop, playAll)  -> bool
-PauseCassette(fadeSec)
-ResumeCassette(fadeSec)
-StopCassette(fadeSec, stopByUser)
-GetCassettePlayingTime()                        -> number (ms)
-GetCassettePlayingTrackId()                     -> number
-SetCassetteSpeakerEnabled(enable)
-IsCassetteSpeakerEnabled()                      -> bool
+PauseCassette(fadeSec) / ResumeCassette(fadeSec) / StopCassette(fadeSec, stopByUser)
+GetCassettePlayingTime()  -> number (ms)   GetCassettePlayingTrackId() -> number
+SetCassetteSpeakerEnabled(enable) / IsCassetteSpeakerEnabled() -> bool
 
 
 V_TppUiCommand
 --------------
   Equip backgrounds
-    SetDefaultEquipBackgroundTexture(path)
-    UnsetDefaultEquipBackgroundTexture()
-    SetWeaponEquipBackgroundTexture(id, path)
-    UnsetWeaponEquipBackgroundTexture(id)
-    SetEnemyDefaultEquipBackgroundTexture(path)
-    UnsetEnemyDefaultEquipBackgroundTexture()
-    SetEnemyWeaponEquipBackgroundTexture(id, path)
-    UnsetEnemyWeaponEquipBackgroundTexture(id)
+    SetDefaultEquipBackgroundTexture(path) / UnsetDefaultEquipBackgroundTexture()
+    SetWeaponEquipBackgroundTexture(id, path) / UnsetWeaponEquipBackgroundTexture(id)
+    SetEnemyDefaultEquipBackgroundTexture(path) / UnsetEnemyDefaultEquipBackgroundTexture()
+    SetEnemyWeaponEquipBackgroundTexture(id, path) / UnsetEnemyWeaponEquipBackgroundTexture(id)
     ClearAllEquipBackgroundTexture()
 
   Loading / game-over screens
-    SetLoadingScreenBackgroundTexture(path)
-    SetLoadingScreenBlurBackgroundTexture(path)
+    SetLoadingScreenBackgroundTexture(path) / SetLoadingScreenBlurBackgroundTexture(path)
     UnsetLoadingScreenBackgroundTexture()
-    SetGameOverScreenBackgroundTexture(path)
-    SetGameOverScreenBlurBackgroundTexture(path)
+    SetGameOverScreenBackgroundTexture(path) / SetGameOverScreenBlurBackgroundTexture(path)
     UnsetGameOverScreenBackgroundTexture()
 
   iDroid popups
@@ -61,155 +51,44 @@ V_TppUiCommand
     ShowMbDvcAnnouncePopupReward(title, body)           -> bool
     ShowMbDvcAnnouncePopupRewardLangId(t, b)            -> bool
 
-  iDroid emergency badge — mark/unmark a mission code
-    SetMissionEmergency(missionCode, enabled)
-
-      Marks/unmarks a mission code as an emergency mission so it appears in
-      the iDroid emergency-missions list. Accepting it runs the engine's
-      vanilla emergency-mission flow: deploy picker is shown, prior mission
-      is marked Aborted, "Return to Mission" works on game-over.
-
-  Emergency popup text override (single-instance — not tied to a mission code)
-    SetEmergencyMissionPopup       (title,      body)       -> bool   -- literal text
-    SetEmergencyMissionPopupLangId (titleLabel, bodyLabel)  -> bool   -- LangId labels
+  Emergency missions
+    SetMissionEmergency(missionCode, enabled [, sortiePrep])
+      Mark a mission code as emergency (iDroid emergency list). sortiePrep=true runs the
+      engine deploy picker / abort-prior-mission flow.
+    SetEmergencyMissionPopup(title, body)                  -> bool  -- literal text
+    SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)  -> bool  -- LangId labels
     ClearEmergencyMissionPopupOverride()
+      Overrides the single generic "you have emergency missions" popup (one slot; each call
+      replaces the last). nil field = engine default; unknown LangId = default.
 
-      The "Emergency Missions" popup is a single generic notification the
-      game shows once per iDroid session ("you have emergency missions; OK
-      opens the list"). Use these to override its text:
-
-        - SetEmergencyMissionPopup       — pass literal display strings
-        - SetEmergencyMissionPopupLangId — pass LangIds (game looks up
-          the localized text)
-
-      Each call replaces any previous override (there's only one slot, not
-      a queue). Clear restores the engine default.
-
-      Pass nil for either field to leave just that field at engine default.
-      Unknown LangIds silently fall back to engine default for that field.
-
-      Examples:
-        -- vanilla emergency mission, sortie prep off (default)
-        V_TppUiCommand.SetMissionEmergency(10115, true)
-
-        -- vanilla emergency mission with sortie prep on (engine deploy picker)
-        V_TppUiCommand.SetMissionEmergency(10115, true, true)
-
-        -- custom popup text (literal)
-        V_TppUiCommand.SetEmergencyMissionPopup("Mission Alert", "Hostile transport spotted nearby.")
-
-        -- custom popup text (LangId)
-        V_TppUiCommand.SetEmergencyMissionPopupLangId(nil, "announce_heli_arrive_LZ")
-
-        -- revert to engine-default popup text
-        V_TppUiCommand.ClearEmergencyMissionPopupOverride()
-
-  HUD mission icon — upper-left "urgent_time" widget
+  HUD mission icon (upper-left "urgent_time" widget)
     ShowMissionIcon(title, body, time)
+      title/body: LangId string, or nil for engine default. time: seconds (default 6).
+      Unregistered labels show nothing; accent color is fixed by the engine preset.
 
-      Shows the urgent-mission icon in the upper-left HUD with custom
-      title and body text.
-
-      title  : LangId string, or nil for engine default
-               ("hud_emergency_mission")
-      body   : LangId string, or nil for default placeholder
-      time   : seconds visible (default 6)
-
-      The title and body text shown are whatever your LangId resolves to in
-      the game's localization. Pass any LangId that the game knows — the
-      same ones IH/Tpp use for other UI text work here. Made-up labels that
-      aren't registered will not display anything (silent fallback).
-
-      The title override persists between calls. To revert to the engine
-      default title, pass nil:
-
-        V_TppUiCommand.ShowMissionIcon(nil, "announce_refresh", 6)
-
-      The icon's accent color is baked into the engine "urgent_time"
-      preset and cannot be changed via this call.
-
-      Examples:
-        V_TppUiCommand.ShowMissionIcon("announce_heli_arrive_LZ", "announce_refresh", 6)
-        V_TppUiCommand.ShowMissionIcon("hud_emergency_mission", "hud_fob_defense", 5)
-        V_TppUiCommand.ShowMissionIcon(nil, nil, 4)
-
-  HUD UI palette — runtime color overrides for mb_col_palette entries
-    SetUiPaletteColor(key, r, g, b [, a])  -> bool
-    RestoreUiPalette([key])
-
-      Override a palette color used by HUD/menu widgets.
-
-      key   : palette key string (e.g. "COL-3") or its 32-bit hash
-      r,g,b : 0.0 .. 1.0
-      a     : optional 0.0 .. 1.0 (default 1.0)
-
-      Returns true if the color was applied, false if the palette key
-      wasn't found.
-
-      Important: the palette is only in memory once the iDroid (or the UI
-      that owns the palette) has been opened at least once. Calling this
-      from your mod's Init() is too early — call it the first time the
-      player opens the relevant UI, or off a SendMessage hook for iDroid
-      open.
-
-      How it sticks: SetUiPaletteColor does two things in one call —
-        (1) patches the matching color in every loaded UiPaletteData
-            currently in memory (VirtualProtect + RGBA write), and
-        (2) registers an in-process override so any FUTURE
-            UiPaletteManager::GetForName lookup for that key returns your
-            color regardless of what is in the palette data.
-      Transient widgets (popups, notification icons, anything created on
-      demand) pick up the new color on their next construction because of
-      (2). Persistent widgets that were already built keep their cached
-      value until they rebuild — opening and closing the pause menu is the
-      cheapest way to force that rebuild.
-
-      For mods shipping their own .fox2 palettes that might share key
-      names (e.g. "COL-1") with other palettes, define a unique marker
-      key in your .fox2 (e.g. "VFW_ANCHOR_MyMod_42") and set it first —
-      subsequent SetUiPaletteColor calls will then target your palette.
-
-      RestoreUiPalette() restores all originals you've overridden.
-      RestoreUiPalette(key) restores just one key (string or hash). Both
-      the in-memory palette write and the in-process override are cleared
-      for that single key; everything else stays patched.
-
-      Examples:
-        -- typical (open iDroid first!)
-        V_FrameWork.SetUiPaletteColor("COL-3", 1.0, 0.2, 0.2, 1.0)
-
-        -- unique anchor pattern for modded palettes
-        V_FrameWork.SetUiPaletteColor("VFW_ANCHOR_MyMod_42", 0, 0, 0, 0)
-        V_FrameWork.SetUiPaletteColor("MyButton", 1, 0.5, 0)
-
-        -- revert one key only
-        V_FrameWork.RestoreUiPalette("cmn-col-emergency")
-
-        -- revert everything
-        V_FrameWork.RestoreUiPalette()
+  HUD UI palette (mb_col_palette color overrides)
+    SetUiPaletteColor(key, r, g, b [, a])  -> bool   key: "COL-3" or its hash; r,g,b,a = 0..1
+    RestoreUiPalette([key])                          one key (string/hash), or all
+      Returns false if the key isn't found. The palette only exists in memory after the
+      iDroid / owning UI has opened once -- don't call from Init(); call on first UI open.
+      Each call patches loaded palette data AND registers an override for future lookups, so
+      transient widgets pick it up on rebuild; already-built widgets keep their cached color
+      until they rebuild (reopen the pause menu). For modded .fox2 palettes that share key
+      names, set a unique anchor key first so calls target your palette.
 
 
-V_TppMission (custom mission positioning + emergency-state queries)
--------------------------------------------------------------------
-    SetMissionStartPos(missionCode, x, y, z[, rotY])     -- optional, on-foot custom missions
-    IsMissionEmergency(missionCode)                      -> bool
-    ClearAllMissionEmergencies()
-
-      To mark/unmark a mission as an emergency, use
-      V_TppUiCommand.SetMissionEmergency under the V_TppUiCommand section
-      above — it controls the iDroid badge / popup which is a UI concern.
-
-      Examples:
-        -- custom on-foot mission with explicit spawn position
-        V_FrameWork.SetMissionStartPos(42000, -11.78, 8.48, 165.55, 0)
-        V_TppUiCommand.SetMissionEmergency(42000, true)
+V_TppMission
+------------
+SetMissionStartPos(missionCode, x, y, z[, rotY])   -- on-foot custom missions
+IsMissionEmergency(missionCode)  -> bool
+ClearAllMissionEmergencies()
+  To mark a mission emergency, use V_TppUiCommand.SetMissionEmergency (UI concern).
 
 
 V_TppMusicManager
 -----------------
 SetGameOverMusic(isEnable, type, playEvent, stopEvent)  -> bool
-  type: 0=GENERAL 1=PARADOX 2=STEALTH 3=CYPRUS
-  GAME_OVER_GENERAL / PARADOX / STEALTH / CYPRUS constants available
+  type: 0=GENERAL 1=PARADOX 2=STEALTH 3=CYPRUS  (GAME_OVER_* constants available)
 
 
 V_TppHelicopter
@@ -219,170 +98,114 @@ SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)    -> bool
 
 V_TppCommandPost
 ----------------
-SetCautionPhaseDuration(seconds)
-GetCautionPhaseDuration()         -> number
-UnsetCautionPhaseDuration()
-GetRemainingCautionPhaseTime()    -> number
+SetCautionPhaseDuration(seconds) / GetCautionPhaseDuration() -> number
+UnsetCautionPhaseDuration()      / GetRemainingCautionPhaseTime() -> number
 
 
 V_TppEnemy
 ----------
   VIP
     SetVIPImportant(soldier, isOfficer, foundDeadBodyRadioLabel)
-    RemoveVIPImportant(soldier)
-    ClearVIPImportant()
+    RemoveVIPImportant(soldier) / ClearVIPImportant()
 
   Holdup / call sign / camo
     SetUseConcernedHoldupRecovery(enable)
-    AddCallSignPatrolSoldier(soldier)
-    RemoveCallSignPatrolSoldier(soldier)
-    ClearCallSignPatrolSoldiers()
-    EnableSoldierStealthCamo(soldier, enable)
-    EnableAllSoldierStealthCamo(enable)
-    EnableClosestSoldierCamo(enable)
-    ClearSoldierStealthCamoOverrides()
+    AddCallSignPatrolSoldier(soldier) / RemoveCallSignPatrolSoldier(soldier) / ClearCallSignPatrolSoldiers()
+    EnableSoldierStealthCamo(soldier, enable) / EnableAllSoldierStealthCamo(enable)
+    EnableClosestSoldierCamo(enable) / ClearSoldierStealthCamoOverrides()
+
+  Occasional chat (applies to every soldier; non-destructive, restored each pick)
+    SetOccasionalChatList(labels)        -- replace pool (vanilla suppressed); {} restores vanilla
+    InsertToOccasionalChatList(labels)   -- add on top of the pool (accumulates)
+    RemoveFromOccasionalChatList(labels) -- suppress labels (vanilla and custom)
+    ResetOccasionalChatList()            -- back to vanilla
+      labels: array of numbers (StrCode32 hash) and/or strings (hashed for you).
+              Insert/Remove also accept a single value; Set needs an array.
 
   Utility
-    CheckEnemyDistance(gameObjectId)          -> number
-    GetAllMissionSoldiersByDistance()         -> table
+    CheckEnemyDistance(gameObjectId)  -> number
+    GetAllMissionSoldiersByDistance() -> table
 
 
 V_TppSahelan
 ------------
-SetSahelanFova(fv2Path)
-ClearSahelanFova()
+SetSahelanFova(fv2Path) / ClearSahelanFova()
 SetEyeLampColor(r, g, b, pulseSpeed, mode)   -- mode optional; omit = all modes
 ClearEyeLampColor()
 SetEyeLampDisco(enabled, speed)              -- speed optional, default 2.0
-ClearHeartLightColor()
-SetHeartLightColor(r, g, b, pulseSpeed)
+SetHeartLightColor(r, g, b, pulseSpeed) / ClearHeartLightColor()
 SetEyeLampColorLogging(enabled)
-SetPhase(phase)                              -- single-shot Exit/Enter into target phase
-GetPhase()                                   -> number
-
-  Engine phase enum (TppSahelan2.SAHELAN2_PHASE_*):
-    0 = SNEAK    1 = CAUTION   2 = ALERT     3 = VS_HELI
-    4 = 1ST      5 = 2ND       6 = 3RD       7 = 4TH
-
-  SetPhase / GetPhase are thin wrappers around the SendCommand IDs
-  SetSahelanPhase / GetSahelanPhase. See the "Custom GameObject.SendCommand IDs"
-  section below if you want to call them directly.
+SetPhase(phase) / GetPhase() -> number       -- single-shot Exit/Enter into target phase
+  phase (TppSahelan2.SAHELAN2_PHASE_*): 0=SNEAK 1=CAUTION 2=ALERT 3=VS_HELI 4=1ST 5=2ND 6=3RD 7=4TH
 
 
 V_TppGameObject
 ---------------
-Global constants table populated from C++ at Lua-state init (same mechanism
-the engine uses for TppGameObject.HOSTAGE_NOTICE_STATE_*). The table is bound
-once when SetLuaFunctions fires and is immediately visible to every Lua
-script; no module require, no Lua-side definition file.
-
-Currently empty — reserved for custom V_FrameWork constants that don't have
-engine equivalents. Sahelan phase constants live on the engine's own
-TppSahelan2.SAHELAN2_PHASE_* table (see V_TppSahelan above).
-
-To add constants, edit RegisterV_TppGameObjectConstants() in
-src/lua/SetLuaFunctions.cpp — insert rows into kEntries[] before the null
-sentinel and rebuild.
+Global constants table bound at Lua-state init (like TppGameObject.*). Currently empty --
+reserved for custom constants. Add via RegisterV_TppGameObjectConstants() in
+src/lua/SetLuaFunctions.cpp.
 
 
 Custom GameObject.SendCommand IDs
 ---------------------------------
-V_FrameWork installs a hook on the engine's GameObject.SendCommand binding that
-adds new command IDs to the dispatch table. Any ID that V_FrameWork does not
-recognize falls through to the engine unchanged, so vanilla commands
-(SetVip, SetLangType, etc.) keep working.
+GameObject.SendCommand(targetSpec, { id = "XXX", ...params }). Unknown IDs fall through to the
+engine. Global commands ignore the target -- use a placeholder like {type="TppSahelan2",group=0,index=0}.
 
-Usage shape:
-  GameObject.SendCommand(targetSpec, { id = "XXX", ...params })
+  id="SetSahelanPhase",  phase=<number>   -> nil     single-shot Exit/Enter (phase enum above)
+  id="GetSahelanPhase"                    -> number
+  id="SetEscapeState",   enable=<boolean> -> nil     mark a hostage taken-by-player (hostage gameObjectId)
+  id="SetOccasionalChatList",     labels={...}  -> nil   replace pool (every soldier; {} restores vanilla)
+  id="InsertToOccasionalChatList",labels={...}  -> nil   add to pool (accumulates)
+  id="RemoveFromOccasionalChatList",labels={...}-> nil   suppress labels (vanilla and custom)
+  id="ResetOccasionalChatList"                  -> nil   restore vanilla
+    (occasional-chat IDs are wrapped by V_TppEnemy.* above; labels = hashes or strings)
 
-  targetSpec is the same form the engine accepts for vanilla commands. For
-  singleton-class targets (e.g. Sahelan2) pass {type, group, index}; for
-  per-entity targets pass a gameObjectId. Custom global commands ignore the
-  target and only read the command table, so a placeholder like
-  {type="TppSahelan2",group=0,index=0} works for global state.
-
-Currently supported IDs:
-
-  id = "SetSahelanPhase",   phase = <number>       -> nil
-    Force Sahelan into the given phase via a single-shot Exit/Enter on the next
-    PreUpdate; the engine's natural transitions resume immediately after.
-    phase: see TppSahelan2.SAHELAN2_PHASE_* (0=SNEAK, 1=CAUTION, 2=ALERT,
-    3=VS_HELI, 4=1ST, 5=2ND, 6=3RD, 7=4TH).
-
-  id = "GetSahelanPhase"                           -> number
-    Returns Sahelan's current phase number.
-
-  id = "SetEscapeState",    enable = <boolean>      -> nil
-    Marks a hostage as "taken by player" (or clears that flag). The target must
-    be a hostage gameObjectId (TppHostage2 / TppHostageUnique / etc). Internally
-    routes through V_FrameWork's lost-hostage tracking — the same backend used
-    by V_TppHostage.SetLostHostageFromPlayer.
-
-Example:
-  local target = { type = "TppSahelan2", group = 0, index = 0 }
-  GameObject.SendCommand(target, {
-      id = "SetSahelanPhase",
-      phase = TppSahelan2.SAHELAN2_PHASE_ALERT,
-  })
-  local cur = GameObject.SendCommand(target, { id = "GetSahelanPhase" })
-
-  local hostageId = GameObject.GetGameObjectId("hostage_01")
-  GameObject.SendCommand(hostageId, { id = "SetEscapeState", enable = true })
+  Example:
+    local t = { type = "TppSahelan2", group = 0, index = 0 }
+    GameObject.SendCommand(t, { id = "SetSahelanPhase", phase = TppSahelan2.SAHELAN2_PHASE_ALERT })
+    GameObject.SendCommand(GameObject.GetGameObjectId("hostage_01"), { id = "SetEscapeState", enable = true })
 
 
 V_SoundCoreDaemon
 -----------------
   RTPC
-    SetSoldierRtpc(soldier, rtpcName, value, timeMs)      -> AKRESULT
-    SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs)    -> AKRESULT
-    SetGlobalRtpc(rtpcName, value, timeMs)                -> AKRESULT
-    SetRtpcLoggingEnabled(enabled)                        -> bool
-    IsRtpcLoggingEnabled()                                -> bool
+    SetSoldierRtpc(soldier, rtpcName, value, timeMs)   -> AKRESULT
+    SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs) -> AKRESULT
+    SetGlobalRtpc(rtpcName, value, timeMs)             -> AKRESULT
+    SetRtpcLoggingEnabled(enabled) / IsRtpcLoggingEnabled() -> bool
 
   Voice pitch
-    SetSoldierVoicePitch(soldier, cents)                  -> bool
-    SetGlobalVoicePitch(cents)
-    GetGlobalVoicePitch()                                 -> number
-    SetPitchByAkObjId(akObjId, cents)
-    ClearPitchByAkObjId(akObjId)
-    ClearAllPerAkObjIdPitchBiases()
+    SetSoldierVoicePitch(soldier, cents)  -> bool
+    SetGlobalVoicePitch(cents) / GetGlobalVoicePitch() -> number
+    SetPitchByAkObjId(akObjId, cents) / ClearPitchByAkObjId(akObjId) / ClearAllPerAkObjIdPitchBiases()
 
   Wwise object ID
-    GetSoldierAkObjId(soldier)                            -> number
+    GetSoldierAkObjId(soldier)  -> number
 
 
 V_TppHostage
 ------------
 SetLostHostage(hostage, gender, hostageLostLabel)   -- gender: 0=male 1=female 2=child
-RemoveLostHostage(hostage)
-ClearLostHostages()
+RemoveLostHostage(hostage) / ClearLostHostages()
 SetLostHostageFromPlayer(hostage, enable)
-IsHostageFemale(hostage)    -> bool
-IsHostageChild(hostage)     -> bool
-BuildHostageList()
-AutoSetLostHostage()
-AutoSetLostHostageFromPlayer(enable)
+IsHostageFemale(hostage) -> bool / IsHostageChild(hostage) -> bool
+BuildHostageList() / AutoSetLostHostage() / AutoSetLostHostageFromPlayer(enable)
 
   Custom labels
-    SetCustomLostLabel(key, value)
-    ClearCustomLostLabel(key)
-    ClearAllCustomLostLabels()
-    RegisterCustomLostLabels(table)
-    RefreshCustomLabels()
-
-  label key:   hostage name / gameObjectId / "male" / "female" / "child"
-  label value: "LABEL_STR" / hash / {gone="...", taken="..."} / nil
+    SetCustomLostLabel(key, value) / ClearCustomLostLabel(key) / ClearAllCustomLostLabels()
+    RegisterCustomLostLabels(table) / RefreshCustomLabels()
+    key:   hostage name / gameObjectId / "male" / "female" / "child"
+    value: "LABEL_STR" / hash / {gone="...", taken="..."} / nil
 
 
 V_TppPickable
 -------------
-SetCountRaw(locatorName, countRaw)
-GetCountRaw(locatorName)    -> number
+SetCountRaw(locatorName, countRaw) / GetCountRaw(locatorName) -> number
 
 
 APPENDIX A — PlayerType
 -----------------------
-0=Snake  1=DDMale  2=DDFemale  3=Avatar  4=Liquid  5=Ocelot  6=Quiet
+0=Snake 1=DDMale 2=DDFemale 3=Avatar 4=Liquid 5=Ocelot 6=Quiet
 
 
 APPENDIX B — Voice Line Labels
