@@ -1171,6 +1171,44 @@ bool Install_MbDvcCustomPopup_Hook()
         Log("[Hook] MbDvcCustomPopup Emergency: skipped (no address for current build)\n");
     }
 
+    if (gAddr.MbDvcReserveAnnouncePopup)
+    {
+        void* reserveFn = ResolveGameAddress(gAddr.MbDvcReserveAnnouncePopup);
+        if (reserveFn)
+        {
+            const bool okR = CreateAndEnableHook(
+                reserveFn,
+                reinterpret_cast<void*>(&hk_ReserveAnnouncePopup),
+                reinterpret_cast<void**>(&g_OrigReserveAnnouncePopup));
+            if (okR)
+            {
+                g_ReserveHookTarget = reserveFn;
+                std::call_once(g_ReserveHookInstallFlag, []() {});
+            }
+            Log("[MbDvcCustomPopup] ReserveHook install: %s (target=%p)\n",
+                okR ? "OK" : "FAIL", reserveFn);
+        }
+    }
+
+    if (gAddr.MbDvcPopupGateFn)
+    {
+        void* gateFn = ResolveGameAddress(gAddr.MbDvcPopupGateFn);
+        if (gateFn)
+        {
+            const bool okG = CreateAndEnableHook(
+                gateFn,
+                reinterpret_cast<void*>(&hk_GateFn),
+                reinterpret_cast<void**>(&g_OrigGateFn));
+            if (okG)
+            {
+                g_GateHookTarget = gateFn;
+                std::call_once(g_GateHookInstallFlag, []() {});
+            }
+            Log("[MbDvcCustomPopup] GateHook install: %s (target=%p)\n",
+                okG ? "OK" : "FAIL", gateFn);
+        }
+    }
+
     return okN;
 }
 
