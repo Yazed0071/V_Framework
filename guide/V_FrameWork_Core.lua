@@ -38,6 +38,7 @@ function this.AddMissionPacks(missionCode,packPaths)
 	if InfMain.IsOnlineMission(missionCode) or missionCode < 5 then return end
 
 	packPaths[#packPaths + 1] = "/Assets/tpp/pack/V_FrameWork/V_FrameWork_Common.fpk"
+    packPaths[#packPaths + 1] = "/Assets/tpp/pack/mission2/online/o50050/o50050_additional.fpk"
 end
 
 
