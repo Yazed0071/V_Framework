@@ -108,6 +108,16 @@ bool Uninstall_UiPalette_Hook();
 bool Install_GameObjectSendCommand_Hook();
 bool Uninstall_GameObjectSendCommand_Hook();
 
+bool Install_InitEquipHudData();
+bool Uninstall_InitEquipHudData();
+
+
+bool Install_OccasionalChatList_Hook();
+bool Uninstall_OccasionalChatList_Hook();
+
+bool Install_CoInvestigateLog_Hooks();
+bool Uninstall_CoInvestigateLog_Hooks();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -729,8 +739,29 @@ namespace
         void Uninstall() override { Uninstall_GameObjectSendCommand_Hook(); }
     };
 
+    class InitEquipHudDataModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "InitEquipHudData"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_InitEquipHudData(); }
+        void Uninstall() override { Uninstall_InitEquipHudData(); }
+    };
 
+    class OccasionalChatListModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "OccasionalChatList"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_OccasionalChatList_Hook(); }
+        void Uninstall() override { Uninstall_OccasionalChatList_Hook(); }
+    };
 
+    class CoInvestigateLogModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CoInvestigateLog"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CoInvestigateLog_Hooks(); }
+        void Uninstall() override { Uninstall_CoInvestigateLog_Hooks(); }
+    };
 
 }
 
@@ -770,6 +801,9 @@ void RegisterBuiltInFeatureModules()
     static ShowMissionIconModule s_ShowMissionIconModule;
     static UiPaletteModule s_UiPaletteModule;
     static GameObjectSendCommandModule s_GameObjectSendCommandModule;
+    static InitEquipHudDataModule s_InitEquipHudDataModule;
+    static OccasionalChatListModule s_OccasionalChatListModule;
+    static CoInvestigateLogModule s_CoInvestigateLogModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -808,5 +842,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_ShowMissionIconModule);
             FeatureModuleRegistry::Instance().Register(&s_UiPaletteModule);
             FeatureModuleRegistry::Instance().Register(&s_GameObjectSendCommandModule);
+            FeatureModuleRegistry::Instance().Register(&s_InitEquipHudDataModule);
+            FeatureModuleRegistry::Instance().Register(&s_OccasionalChatListModule);
+            FeatureModuleRegistry::Instance().Register(&s_CoInvestigateLogModule);
         });
 }

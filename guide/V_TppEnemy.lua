@@ -132,14 +132,34 @@ function this.ClearAllEnemyUnitNameForSoldiers()
     V_FrameWork.ClearAllEnemyUnitNameForSoldiers()
 end
 
+function this.SetOccasionalChatList(labels)
+    GameObject.SendCommand({ type = "TppSoldier2"},
+    { id = "SetOccasionalChatList", labels = labels or {} })
+end
+
+function this.InsertToOccasionalChatList(labels)
+    if type(labels) ~= "table" then labels = { labels } end
+    GameObject.SendCommand({type = "TppSoldier2"},
+        { id = "InsertToOccasionalChatList", labels = labels })
+end
+
+function this.RemoveFromOccasionalChatList(labels)
+    if type(labels) ~= "table" then labels = { labels } end
+    GameObject.SendCommand({ type = "TppSoldier2"},
+        { id = "RemoveFromOccasionalChatList", labels = labels })
+end
+
+function this.ResetOccasionalChatList()
+    GameObject.SendCommand({ type = "TppSoldier2"}, { id = "ResetOccasionalChatList" })
+end
+
 function this.Messages()
     return Tpp.StrCode32Table {
         GameObject = {
             {
                 msg = "ChangePhase",
                 func = function(gameObjectId, phaseName)
-                    local x,y,z=vars.playerPosX,vars.playerPosY,vars.playerPosZ
-	                local closestCp= InfMain.GetClosestCp{x,y,z}
+	                local closestCp= InfMain.GetClosestCp{vars.playerPosX,vars.playerPosY,vars.playerPosZ}
 	                local cp = GameObject.GetGameObjectId( closestCp )
 
                     if gameObjectId == cp then

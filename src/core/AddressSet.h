@@ -166,6 +166,22 @@ namespace AddressSetRuntime
 
         uintptr_t ModelNode_UpdateModelNodeParameter                    = 0;
 
+        uintptr_t UiControllerImpl_InitEquipHudData                     = 0;
+
+        uintptr_t NoticeControllerImpl_GetOccasionalChat                = 0;
+
+        uintptr_t SoldierConversationService_ConvertSpeechLabelToConversationType = 0;
+
+        uintptr_t OccasionalChat_FactionTestNop                         = 0;
+
+        uintptr_t MbDvcReserveAnnouncePopup                             = 0;
+        uintptr_t MbDvcPopupGateFn                                      = 0;
+
+        uintptr_t NoticeIndisAiImpl_StepCallHelp                        = 0;
+        uintptr_t NoticeNoiseAiImpl_StepCallHelp                        = 0;
+        uintptr_t NoticeNoiseAiImpl_StepResponse                        = 0;
+        uintptr_t NoticeNoiseAiImpl_StepAware                           = 0;
+
     };
 
     inline GameBuild& GetGameBuild()

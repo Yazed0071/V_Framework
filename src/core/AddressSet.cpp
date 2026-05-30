@@ -202,10 +202,10 @@ namespace AddressSetRuntime
 
             0x1410A9520ull, // BasicActionImpl_StateCrawlSideRoll
 
-            0x1418ff8d0ull, // Sahelan_PhaseSneakAiImpl_PreUpdate
-            0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
+            0x1418FF8D0ull, // Sahelan_PhaseSneakAiImpl_PreUpdate
+            0x142C69AA0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
 
-            0x142c1fd24ull, // MessageResendCounter
+            0x142C1fD24ull, // MessageResendCounter
 
             0x145e642a0ull, // GetMissionCodeCategory
 
@@ -221,6 +221,22 @@ namespace AddressSetRuntime
             0x146CC7170ull, // GameObject_SendCommand
 
             0x14D71DB50ull, // ModelNode_UpdateModelNodeParameter
+
+            0x1496A8070ull, // UiControllerImpl_InitEquipHudData
+
+            0x1414E6110ull, // NoticeControllerImpl_GetOccasionalChat
+
+            0x140D83480ull, // SoldierConversationService_ConvertSpeechLabelToConversationType
+
+            0x1414E6229ull, // OccasionalChat_FactionTestNop
+
+            0x140932BE0ull, // MbDvcReserveAnnouncePopup
+            0x140939EE0ull, // MbDvcPopupGateFn
+
+            0x1415144E0ull, // NoticeIndisAiImpl_StepCallHelp
+            0x141520910ull, // NoticeNoiseAiImpl_StepCallHelp
+            0x141522A00ull, // NoticeNoiseAiImpl_StepResponse
+            0x14151FE30ull, // NoticeNoiseAiImpl_StepAware
 
         };
 
@@ -310,7 +326,7 @@ namespace AddressSetRuntime
             0x14C987B90ull, // lua_gettable
             0x14C98E1D0ull, // lua_pushvalue
             0x141A11A50ull, // lua_pcall
-            0ull,           // lua_pushcclosure
+            0x14C98C080ull, // lua_pushcclosure
 
 
             0x147A6BD40ull, // GetIconFtexPath
@@ -343,7 +359,7 @@ namespace AddressSetRuntime
 
             0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal
             0x140EF3410ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
-            0ull,           // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency (JP TBD)
+            0x140EF2E30ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency
 
             0x147719930ull, // HudCommonDataManager_GetInstance
             0x140867630ull, // HudCommonDataManager_SetPopupType
@@ -379,25 +395,41 @@ namespace AddressSetRuntime
 
             0x1410A6CA0ull, // BasicActionImpl_StateCrawlSideRoll
 
-            0x1418ffa10ull, // Sahelan_PhaseSneakAiImpl_PreUpdate
-            0x142c69aa0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
+            0x1418FFA10ull, // Sahelan_PhaseSneakAiImpl_PreUpdate
+            0x142C69AA0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
 
-            0ull,           // MessageResendCounter
+            0x142C1FD24ull, // MessageResendCounter
 
-            0ull,           // GetMissionCodeCategory
+            0x147a6cfe0ull, // GetMissionCodeCategory
 
-            0ull,           // TppUiCommand_ShowMissionIcon
+            0x1478EB990ull, // TppUiCommand_ShowMissionIcon
 
-            0ull,           // IconTitleHashImm
+            0x1416214aaull, // IconTitleHashImm
 
-            0ull,           // IconTitleGetLangTextCall
+            0x1416214bbull, // IconTitleGetLangTextCall
 
-            0ull,           // UiPaletteManager_GetForName
-            0ull,           // g_UiPaletteManager
+            0x14ddab360ull, // UiPaletteManager_GetForName
+            0x142c8fa90ull, // g_UiPaletteManager
 
-            0ull,           // GameObject_SendCommand
+            0x148b0e440ull, // GameObject_SendCommand
 
-            0ull,           // ModelNode_UpdateModelNodeParameter
+            0x14ddb9ac0ull, // ModelNode_UpdateModelNodeParameter
+
+            0x14A10B530ull, // UiControllerImpl_InitEquipHudData (JP address not yet found)
+
+            0x1414E60E0ull, // NoticeControllerImpl_GetOccasionalChat
+
+            0x140D833D0ull, // SoldierConversationService_ConvertSpeechLabelToConversationType
+
+            0x1414e61f9ull, // OccasionalChat_FactionTestNop
+
+            0x1409325E0ull, // MbDvcReserveAnnouncePopup
+            0x140915150ull, // MbDvcPopupGateFn
+
+            0x1415144B0ull, // NoticeIndisAiImpl_StepCallHelp
+            0x1415208E0ull, // NoticeNoiseAiImpl_StepCallHelp
+            0x1415229D0ull, // NoticeNoiseAiImpl_StepResponse
+            0x14151FE00ull, // NoticeNoiseAiImpl_StepAware
 
         };
 
