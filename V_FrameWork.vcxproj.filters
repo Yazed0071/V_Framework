@@ -71,6 +71,7 @@
     <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />
     <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h" />
     <ClInclude Include="src\hooks\soldier\LostHostageHook.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.h" />
     <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h" />
     <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h" />
     <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h" />
@@ -84,6 +85,7 @@
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
+    <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
@@ -148,6 +150,8 @@
     <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
     <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp" />
     <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierNotice.cpp" />
     <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp" />
     <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="src\hooks\soldier\State_StandHoldupCancelLookToPlayer.cpp" />
@@ -162,6 +166,7 @@
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
+    <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />

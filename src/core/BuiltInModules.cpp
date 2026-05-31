@@ -115,8 +115,8 @@ bool Uninstall_InitEquipHudData();
 bool Install_OccasionalChatList_Hook();
 bool Uninstall_OccasionalChatList_Hook();
 
-bool Install_CoInvestigateLog_Hooks();
-bool Uninstall_CoInvestigateLog_Hooks();
+bool Install_SoldierNotice_Hooks();
+bool Uninstall_SoldierNotice_Hooks();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
@@ -755,12 +755,12 @@ namespace
         void Uninstall() override { Uninstall_OccasionalChatList_Hook(); }
     };
 
-    class CoInvestigateLogModule final : public IFeatureModule
+    class SoldierNoticeModule final : public IFeatureModule
     {
     public:
-        const char* GetName() const override { return "CoInvestigateLog"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CoInvestigateLog_Hooks(); }
-        void Uninstall() override { Uninstall_CoInvestigateLog_Hooks(); }
+        const char* GetName() const override { return "SoldierNotice"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SoldierNotice_Hooks(); }
+        void Uninstall() override { Uninstall_SoldierNotice_Hooks(); }
     };
 
 }
@@ -803,7 +803,7 @@ void RegisterBuiltInFeatureModules()
     static GameObjectSendCommandModule s_GameObjectSendCommandModule;
     static InitEquipHudDataModule s_InitEquipHudDataModule;
     static OccasionalChatListModule s_OccasionalChatListModule;
-    static CoInvestigateLogModule s_CoInvestigateLogModule;
+    static SoldierNoticeModule s_SoldierNoticeModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -844,6 +844,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_GameObjectSendCommandModule);
             FeatureModuleRegistry::Instance().Register(&s_InitEquipHudDataModule);
             FeatureModuleRegistry::Instance().Register(&s_OccasionalChatListModule);
-            FeatureModuleRegistry::Instance().Register(&s_CoInvestigateLogModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
         });
 }

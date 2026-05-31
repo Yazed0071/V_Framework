@@ -181,6 +181,10 @@ namespace AddressSetRuntime
         uintptr_t NoticeNoiseAiImpl_StepCallHelp                        = 0;
         uintptr_t NoticeNoiseAiImpl_StepResponse                        = 0;
         uintptr_t NoticeNoiseAiImpl_StepAware                           = 0;
+        uintptr_t NoticeIndisAiImpl_StepAware                           = 0;
+        uintptr_t NoticeIndisAiImpl_StepResponse                        = 0;
+        uintptr_t NoticeControllerImpl_DoCheckSpreadNotice              = 0;
+        uintptr_t NoticeControllerImpl_CheckSightNoticeSoldier          = 0;
 
     };
 

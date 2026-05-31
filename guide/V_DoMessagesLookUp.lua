@@ -15,6 +15,8 @@ this.DEBUG_strCode32List={
   "Start",
   "Rolling",
   "End",
+  "NoticeIndis",
+  "NoticeNoise",
 }
 
 this.CassettePlay={
@@ -27,8 +29,12 @@ this.signatureTypes={
     {argName="soldierId",argType="gameId"},
   },
 
+  Notice={
+    {argName="soldierId",argType="gameId"},
+  },
+
   cassettePlay={
-    {argName="IsSpeaker",argType="number"},
+    {argName="IsSpeakerOn",argType="number"},
     {argName="TrackCountInAlbum",argType="number"},
     {argName="selectedTrackIndex",argType="number"},
   },
@@ -44,6 +50,8 @@ this.signatureTypes={
 this.messageSignatures={
   GameObject={
     HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer,
+    NoticeIndis=this.signatureTypes.notice,
+    NoticeNoise=this.signatureTypes.notice,
   },
 
   Player={
@@ -250,12 +258,15 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.signatureTypes.cassettePlay=this.signatureTypes.cassettePlay
   InfLookup.signatureTypes.holdupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
+  InfLookup.signatureTypes.notice=this.signatureTypes.notice
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
   InfLookup.messageSignatures.Terminal=InfLookup.messageSignatures.Terminal or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
+  InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.notice
+  InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.notice
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
 end

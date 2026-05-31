@@ -237,6 +237,10 @@ namespace AddressSetRuntime
             0x141520910ull, // NoticeNoiseAiImpl_StepCallHelp
             0x141522A00ull, // NoticeNoiseAiImpl_StepResponse
             0x14151FE30ull, // NoticeNoiseAiImpl_StepAware
+            0x141513B00ull, // NoticeIndisAiImpl_StepAware
+            0x1415162D0ull, // NoticeIndisAiImpl_StepResponse
+            0x1414E5830ull, // NoticeControllerImpl_DoCheckSpreadNotice
+            0x1414E3070ull, // NoticeControllerImpl_CheckSightNoticeSoldier
 
         };
 
@@ -430,7 +434,10 @@ namespace AddressSetRuntime
             0x1415208E0ull, // NoticeNoiseAiImpl_StepCallHelp
             0x1415229D0ull, // NoticeNoiseAiImpl_StepResponse
             0x14151FE00ull, // NoticeNoiseAiImpl_StepAware
-
+            0x141513AD0ull, // NoticeIndisAiImpl_StepAware
+            0x1415162A0ull, // NoticeIndisAiImpl_StepResponse
+            0x1414E5800ull, // NoticeControllerImpl_DoCheckSpreadNotice
+            0x1414E3040ull, // NoticeControllerImpl_CheckSightNoticeSoldier
         };
 
         return value;
