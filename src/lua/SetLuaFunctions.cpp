@@ -1837,107 +1837,6 @@ static bool InstallGoToEmergencyMissionOverride(lua_State* L)
 }
 
 
-static int __cdecl l_SetMissionStartPos(lua_State* L)
-{
-    const int missionCodeRaw = GetLuaInt(L, 1);
-    const float x    = LuaIsNumber(L, 2) ? GetLuaNumber(L, 2) : 0.0f;
-    const float y    = LuaIsNumber(L, 3) ? GetLuaNumber(L, 3) : 0.0f;
-    const float z    = LuaIsNumber(L, 4) ? GetLuaNumber(L, 4) : 0.0f;
-    const float rotY = LuaIsNumber(L, 5) ? GetLuaNumber(L, 5) : 0.0f;
-
-    if (missionCodeRaw <= 0 || missionCodeRaw > 0xFFFF)
-    {
-        Log("[MissionEmergency] SetMissionStartPos: missionCode %d out of range; bailing\n",
-            missionCodeRaw);
-        return 0;
-    }
-
-    Log("[MissionEmergency] SetMissionStartPos mc=%d pos=(%g, %g, %g, %g)\n",
-        missionCodeRaw, x, y, z, rotY);
-
-    if (!ResolveLuaApi() ||
-        !g_lua_getfield || !g_lua_type || !g_lua_settop ||
-        !g_lua_createtable || !g_lua_pushnumber || !g_lua_rawset ||
-        !g_lua_pushvalue || !g_lua_objlen || !g_lua_rawgeti ||
-        !g_lua_isstring || !g_lua_tolstring || !g_lua_pushstring)
-    {
-        Log("[MissionEmergency] SetMissionStartPos: required FFI missing\n");
-        return 0;
-    }
-
-    const int top0 = g_lua_gettop(L);
-
-    g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppDefine"));
-    if (g_lua_type(L, -1) != LUA_TTABLE)
-    {
-        Log("[MissionEmergency] SetMissionStartPos: TppDefine missing\n");
-        g_lua_settop(L, top0);
-        return 0;
-    }
-
-
-    g_lua_getfield(L, -1, const_cast<char*>("NO_HELICOPTER_MISSION_START_POSITION"));
-    if (g_lua_type(L, -1) != LUA_TTABLE)
-    {
-        Log("[MissionEmergency] SetMissionStartPos: NO_HELICOPTER_MISSION_START_POSITION missing\n");
-        g_lua_settop(L, top0);
-        return 0;
-    }
-
-
-    g_lua_createtable(L, 4, 0);
-    g_lua_pushnumber(L, 1);  g_lua_pushnumber(L, x);    g_lua_rawset(L, -3);
-    g_lua_pushnumber(L, 2);  g_lua_pushnumber(L, y);    g_lua_rawset(L, -3);
-    g_lua_pushnumber(L, 3);  g_lua_pushnumber(L, z);    g_lua_rawset(L, -3);
-    g_lua_pushnumber(L, 4);  g_lua_pushnumber(L, rotY); g_lua_rawset(L, -3);
-
-
-    g_lua_pushnumber(L, static_cast<lua_Number>(missionCodeRaw));
-    g_lua_pushvalue(L, -2);
-    g_lua_rawset(L, -4);
-    g_lua_settop(L, top0 + 1);
-
-
-    g_lua_getfield(L, -1, const_cast<char*>("NO_HELICOPTER_ROUTE_MISSION_LIST"));
-    if (g_lua_type(L, -1) == LUA_TTABLE)
-    {
-        char mcStr[16];
-        std::snprintf(mcStr, sizeof(mcStr), "%d", missionCodeRaw);
-
-        const int len = static_cast<int>(g_lua_objlen(L, -1));
-        bool found = false;
-        for (int i = 1; i <= len; ++i)
-        {
-            g_lua_rawgeti(L, -1, i);
-            if (g_lua_isstring(L, -1))
-            {
-                const char* s = g_lua_tolstring(L, -1, nullptr);
-                if (s && std::strcmp(s, mcStr) == 0)
-                    found = true;
-            }
-            g_lua_settop(L, -2);
-            if (found) break;
-        }
-
-        if (!found)
-        {
-            g_lua_pushnumber(L, static_cast<lua_Number>(len + 1));
-            g_lua_pushstring(L, mcStr);
-            g_lua_rawset(L, -3);
-        }
-    }
-
-    g_lua_settop(L, top0);
-
-
-    InstallIsEmergencyMissionOverride(L);
-    InstallAcceptEmergencyMissionOverride(L);
-    InstallGoToEmergencyMissionOverride(L);
-
-    return 0;
-}
-
-
 static int __cdecl l_SetMissionEmergency(lua_State* L)
 {
     const int  missionCodeRaw = GetLuaInt(L, 1);
@@ -2935,7 +2834,6 @@ static luaL_Reg g_VFrameWorkLib[] =
     { "ClearIconFtexPath",                      l_ClearIconFtexPath },
     { "ClearAllIconFtexPaths",                  l_ClearAllIconFtexPaths },
     { "SetMissionEmergency",                    l_SetMissionEmergency },
-    { "SetMissionStartPos",                     l_SetMissionStartPos },
     { "IsMissionEmergency",                     l_IsMissionEmergency },
     { "ClearAllMissionEmergencies",             l_ClearAllMissionEmergencies },
     { "SetEmergencyMissionPopup",               l_SetEmergencyMissionPopup },

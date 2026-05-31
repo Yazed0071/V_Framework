@@ -52,9 +52,8 @@ V_TppUiCommand
     ShowMbDvcAnnouncePopupRewardLangId(t, b)            -> bool
 
   Emergency missions
-    SetMissionEmergency(missionCode, enabled [, sortiePrep])
-      Mark a mission code as emergency (iDroid emergency list). sortiePrep=true runs the
-      engine deploy picker / abort-prior-mission flow.
+    SetMissionEmergency(missionCode, enabled)
+      Mark a mission code as emergency (iDroid emergency list).
     SetEmergencyMissionPopup(title, body)                  -> bool  -- literal text
     SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)  -> bool  -- LangId labels
     ClearEmergencyMissionPopupOverride()
@@ -79,7 +78,6 @@ V_TppUiCommand
 
 V_TppMission
 ------------
-SetMissionStartPos(missionCode, x, y, z[, rotY])   -- on-foot custom missions
 IsMissionEmergency(missionCode)  -> bool
 ClearAllMissionEmergencies()
   To mark a mission emergency, use V_TppUiCommand.SetMissionEmergency (UI concern).
@@ -137,13 +135,6 @@ SetHeartLightColor(r, g, b, pulseSpeed) / ClearHeartLightColor()
 SetEyeLampColorLogging(enabled)
 SetPhase(phase) / GetPhase() -> number       -- single-shot Exit/Enter into target phase
   phase (TppSahelan2.SAHELAN2_PHASE_*): 0=SNEAK 1=CAUTION 2=ALERT 3=VS_HELI 4=1ST 5=2ND 6=3RD 7=4TH
-
-
-V_TppGameObject
----------------
-Global constants table bound at Lua-state init (like TppGameObject.*). Currently empty --
-reserved for custom constants. Add via RegisterV_TppGameObjectConstants() in
-src/lua/SetLuaFunctions.cpp.
 
 
 Custom GameObject.SendCommand IDs
