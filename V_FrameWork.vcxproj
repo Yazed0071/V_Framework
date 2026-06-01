@@ -174,6 +174,7 @@
     <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />
     <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h" />
     <ClInclude Include="src\hooks\soldier\LostHostageHook.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierHairFovaHook.h" />
     <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.h" />
     <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h" />
     <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h" />
@@ -244,6 +245,7 @@
     <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
     <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp" />
     <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierHairFovaHook.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierNotice.cpp" />
     <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp" />

@@ -186,6 +186,11 @@ namespace AddressSetRuntime
         uintptr_t NoticeControllerImpl_DoCheckSpreadNotice              = 0;
         uintptr_t NoticeControllerImpl_CheckSightNoticeSoldier          = 0;
 
+        uintptr_t RealizedSoldier2Impl_ConvertHeadEquipModelType        = 0;
+        uintptr_t RealizedSoldier2Impl_UpdateHeadEquipMesh              = 0;
+        uintptr_t FovaController_GetActiveFovaResourceManager           = 0;
+        uintptr_t Fv2ResourceManager_GetModel                           = 0;
+
     };
 
     inline GameBuild& GetGameBuild()

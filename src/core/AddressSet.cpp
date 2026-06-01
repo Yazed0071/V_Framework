@@ -242,6 +242,11 @@ namespace AddressSetRuntime
             0x1414E5830ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E3070ull, // NoticeControllerImpl_CheckSightNoticeSoldier
 
+            0x140B15B00ull, // RealizedSoldier2Impl_ConvertHeadEquipModelType
+            0x140B18ED0ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
+            0x140B1AE60ull, // FovaController_GetActiveFovaResourceManager
+            0x144A49BF0ull, // Fv2ResourceManager_GetModel
+
         };
 
         return value;
@@ -438,6 +443,11 @@ namespace AddressSetRuntime
             0x1415162A0ull, // NoticeIndisAiImpl_StepResponse
             0x1414E5800ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E3040ull, // NoticeControllerImpl_CheckSightNoticeSoldier
+
+            0x140B15650ull, // RealizedSoldier2Impl_ConvertHeadEquipModelType
+            0x140B18A20ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
+            0x140B1A9B0ull, // FovaController_GetActiveFovaResourceManager
+            0x1448ACA50ull, // Fv2ResourceManager_GetModel
         };
 
         return value;

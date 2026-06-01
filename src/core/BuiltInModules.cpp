@@ -24,6 +24,9 @@ bool Uninstall_RealizedSahelanFova_Hook();
 bool Install_SecurityCameraFova_Hook();
 bool Uninstall_SecurityCameraFova_Hook();
 
+bool Install_SoldierHairFova_Hook();
+bool Uninstall_SoldierHairFova_Hook();
+
 bool Install_PlayerVoiceFpk_Hook();
 bool Uninstall_PlayerVoiceFpk_Hook();
 
@@ -239,6 +242,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_SecurityCameraFova_Hook();
+        }
+    };
+
+    class SoldierHairFovaModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SoldierHairFova";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SoldierHairFova_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SoldierHairFova_Hook();
         }
     };
 
@@ -773,6 +796,7 @@ void RegisterBuiltInFeatureModules()
     static CautionTimerModule s_CautionTimerModule;
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
     static SecurityCameraFovaModule s_SecurityCameraFovaModule;
+    static SoldierHairFovaModule s_SoldierHairFovaModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
     static VIPSleepFaintModule s_VIPSleepFaintModule;
@@ -814,6 +838,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_SecurityCameraFovaModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierHairFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
