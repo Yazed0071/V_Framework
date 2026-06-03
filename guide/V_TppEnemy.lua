@@ -73,11 +73,11 @@ function this.SetEnemyInformationLangId(langId)
         V_FrameWork.Log("V_TppEnemy.SetEnemyInformationLangId: langId is not a string.")
         return
     end
-    V_FrameWork.SetEnemyInformationLangId(langId)
+    V_TppUiCommand.SetEnemyInformationLangId(langId)
 end
 
 function this.ClearEnemyInformationLangId()
-    V_FrameWork.ClearEnemyInformationLangId()
+    V_TppUiCommand.ClearEnemyInformationLangId()
 end
 
 function this.SetEnemyUnitName(langId)
@@ -85,11 +85,11 @@ function this.SetEnemyUnitName(langId)
         V_FrameWork.Log("V_TppEnemy.SetEnemyUnitName: langId is not a string.")
         return
     end
-    V_FrameWork.SetEnemyUnitName(langId)
+    V_TppUiCommand.SetEnemyUnitName(langId)
 end
 
 function this.ClearEnemyUnitName()
-    V_FrameWork.ClearEnemyUnitName()
+    V_TppUiCommand.ClearEnemyUnitName()
 end
 
 function this.SetEnemyInformationLangIdForSoldier(soldierNameOrId, langId)
@@ -99,17 +99,17 @@ function this.SetEnemyInformationLangIdForSoldier(soldierNameOrId, langId)
         V_FrameWork.Log("V_TppEnemy.SetEnemyInformationLangIdForSoldier: langId is not a string.")
         return
     end
-    V_FrameWork.SetEnemyInformationLangIdForSoldier(id, langId)
+    V_TppUiCommand.SetEnemyInformationLangIdForSoldier(id, langId)
 end
 
 function this.ClearEnemyInformationLangIdForSoldier(soldierNameOrId)
     local id = GetGameObjectId(soldierNameOrId)
     if id == nil then return end
-    V_FrameWork.ClearEnemyInformationLangIdForSoldier(id)
+    V_TppUiCommand.ClearEnemyInformationLangIdForSoldier(id)
 end
 
 function this.ClearAllEnemyInformationLangIdForSoldiers()
-    V_FrameWork.ClearAllEnemyInformationLangIdForSoldiers()
+    V_TppUiCommand.ClearAllEnemyInformationLangIdForSoldiers()
 end
 
 function this.SetEnemyUnitNameForSoldier(soldierNameOrId, langId)
@@ -119,17 +119,17 @@ function this.SetEnemyUnitNameForSoldier(soldierNameOrId, langId)
         V_FrameWork.Log("V_TppEnemy.SetEnemyUnitNameForSoldier: langId is not a string.")
         return
     end
-    V_FrameWork.SetEnemyUnitNameForSoldier(id, langId)
+    V_TppUiCommand.SetEnemyUnitNameForSoldier(id, langId)
 end
 
 function this.ClearEnemyUnitNameForSoldier(soldierNameOrId)
     local id = GetGameObjectId(soldierNameOrId)
     if id == nil then return end
-    V_FrameWork.ClearEnemyUnitNameForSoldier(id)
+    V_TppUiCommand.ClearEnemyUnitNameForSoldier(id)
 end
 
 function this.ClearAllEnemyUnitNameForSoldiers()
-    V_FrameWork.ClearAllEnemyUnitNameForSoldiers()
+    V_TppUiCommand.ClearAllEnemyUnitNameForSoldiers()
 end
 
 function this.SetOccasionalChatList(labels)

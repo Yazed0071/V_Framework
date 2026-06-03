@@ -19,10 +19,10 @@ function this.SetRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
         return
     end
     if IsTypeString(rtpcNameOrId) then
-        return V_FrameWork.SetSoldierRtpc(gameObjectId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetSoldierRtpc(gameObjectId, rtpcNameOrId, value, timeMs or 0)
     end
     if type(rtpcNameOrId) == "number" then
-        return V_FrameWork.SetSoldierRtpcById(gameObjectId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetSoldierRtpcById(gameObjectId, rtpcNameOrId, value, timeMs or 0)
     end
     V_FrameWork.Log("V_SoundCoreDaemon.SetRtpc: rtpcNameOrId must be string or number.")
 end
@@ -42,10 +42,10 @@ function this.SetSoldierRtpc(soldierNameOrId, rtpcNameOrId, value, timeMs)
         return false
     end
     if IsTypeString(rtpcNameOrId) then
-        return V_FrameWork.SetSoldierObjectRtpcByName(gameObjectId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetSoldierObjectRtpcByName(gameObjectId, rtpcNameOrId, value, timeMs or 0)
     end
     if type(rtpcNameOrId) == "number" then
-        return V_FrameWork.SetSoldierObjectRtpc(gameObjectId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetSoldierObjectRtpc(gameObjectId, rtpcNameOrId, value, timeMs or 0)
     end
     V_FrameWork.Log("V_SoundCoreDaemon.SetSoldierRtpc: rtpcNameOrId must be string or number.")
     return false
@@ -66,10 +66,10 @@ function this.SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs)
         return
     end
     if IsTypeString(rtpcNameOrId) then
-        return V_FrameWork.SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetRtpcByAkObjId(akObjId, rtpcNameOrId, value, timeMs or 0)
     end
     if type(rtpcNameOrId) == "number" then
-        return V_FrameWork.SetRtpcByAkObjIdById(akObjId, rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetRtpcByAkObjIdById(akObjId, rtpcNameOrId, value, timeMs or 0)
     end
     V_FrameWork.Log("V_SoundCoreDaemon.SetRtpcByAkObjId: rtpcNameOrId must be string or number.")
 end
@@ -85,10 +85,10 @@ function this.SetGlobalRtpc(rtpcNameOrId, value, timeMs)
         return
     end
     if IsTypeString(rtpcNameOrId) then
-        return V_FrameWork.SetGlobalRtpc(rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetGlobalRtpc(rtpcNameOrId, value, timeMs or 0)
     end
     if type(rtpcNameOrId) == "number" then
-        return V_FrameWork.SetGlobalRtpcById(rtpcNameOrId, value, timeMs or 0)
+        return V_TppSoundDaemon.SetGlobalRtpcById(rtpcNameOrId, value, timeMs or 0)
     end
     V_FrameWork.Log("V_SoundCoreDaemon.SetGlobalRtpc: rtpcNameOrId must be string or number.")
 end
@@ -99,11 +99,11 @@ function this.SetRtpcLoggingEnabled(enabled)
         V_FrameWork.Log("V_SoundCoreDaemon.SetRtpcLoggingEnabled: enabled is not a boolean.")
         return
     end
-    return V_FrameWork.SetRtpcLoggingEnabled(enabled)
+    return V_TppSoundDaemon.SetRtpcLoggingEnabled(enabled)
 end
 
 function this.IsRtpcLoggingEnabled()
-    return V_FrameWork.IsRtpcLoggingEnabled()
+    return V_TppSoundDaemon.IsRtpcLoggingEnabled()
 end
 
 
@@ -115,11 +115,11 @@ function this.SetGlobalVoicePitch(cents)
         V_FrameWork.Log("V_SoundCoreDaemon.SetGlobalVoicePitch: cents is not a number.")
         return
     end
-    V_FrameWork.SetGlobalVoicePitch(cents)
+    V_TppSoundDaemon.SetGlobalVoicePitch(cents)
 end
 
 function this.GetGlobalVoicePitch()
-    return V_FrameWork.GetGlobalVoicePitch()
+    return V_TppSoundDaemon.GetGlobalVoicePitch()
 end
 
 -- Per-AkObjId pitch bias. Only the matched Wwise object's playbacks get
@@ -133,7 +133,7 @@ function this.SetPitchByAkObjId(akObjId, cents)
         V_FrameWork.Log("V_SoundCoreDaemon.SetPitchByAkObjId: cents must be a number.")
         return
     end
-    V_FrameWork.SetPitchByAkObjId(akObjId, cents)
+    V_TppSoundDaemon.SetPitchByAkObjId(akObjId, cents)
 end
 
 function this.ClearPitchByAkObjId(akObjId)
@@ -141,11 +141,11 @@ function this.ClearPitchByAkObjId(akObjId)
         V_FrameWork.Log("V_SoundCoreDaemon.ClearPitchByAkObjId: akObjId must be a number.")
         return
     end
-    V_FrameWork.ClearPitchByAkObjId(akObjId)
+    V_TppSoundDaemon.ClearPitchByAkObjId(akObjId)
 end
 
 function this.ClearAllPerAkObjIdPitchBiases()
-    V_FrameWork.ClearAllPerAkObjIdPitchBiases()
+    V_TppSoundDaemon.ClearAllPerAkObjIdPitchBiases()
 end
 
 -- Look up a soldier's most recently captured Wwise AkGameObjectID.
@@ -156,7 +156,7 @@ function this.GetSoldierAkObjId(soldierNameOrId)
         gameObjectId = GetGameObjectId(soldierNameOrId)
     end
     if gameObjectId == nil then return 0 end
-    return V_FrameWork.GetSoldierAkObjId(gameObjectId)
+    return V_TppSoundDaemon.GetSoldierAkObjId(gameObjectId)
 end
 
 -- Per-soldier voice pitch — automatically re-applies to every fresh akObjId
@@ -172,7 +172,7 @@ function this.SetSoldierVoicePitch(soldierNameOrId, cents)
         V_FrameWork.Log("V_SoundCoreDaemon.SetSoldierVoicePitch: cents is not a number.")
         return false
     end
-    return V_FrameWork.SetSoldierVoicePitch(gameObjectId, cents)
+    return V_TppSoundDaemon.SetSoldierVoicePitch(gameObjectId, cents)
 end
 
 

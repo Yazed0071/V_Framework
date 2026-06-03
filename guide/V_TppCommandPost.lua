@@ -1,27 +1,24 @@
--- V_TppCommandPost — caution (alert) phase duration override.
--- See guide/V_FrameWork_API_Reference.txt for parameter specs and examples.
-
 local this = {}
-
+local TppCommandPost2 = {type="TppCommandPost2"}
 
 function this.SetCautionPhaseDuration(seconds)
     if type(seconds) ~= "number" then
         V_FrameWork.Log("V_TppCommandPost.SetCautionPhaseDuration: Value must be a number.")
         return
     end
-    V_FrameWork.SetCautionStepNormalDurationSeconds(seconds)
+    GameObject.SendCommand(TppCommandPost2, {id="SetCautionPhaseDuration", duration=seconds})
 end
 
 function this.GetCautionPhaseDuration()
-    return V_FrameWork.GetCautionStepNormalDurationSeconds()
+    return GameObject.SendCommand(TppCommandPost2, {id="GetCautionPhaseDuration"})
 end
 
 function this.UnsetCautionPhaseDuration()
-    V_FrameWork.UnsetCautionStepNormalDurationSeconds()
+    GameObject.SendCommand(TppCommandPost2, {id="UnsetCautionPhaseDuration"})
 end
 
 function this.GetRemainingCautionPhaseTime()
-    return V_FrameWork.GetCautionStepNormalRemainingSeconds()
+    return GameObject.SendCommand(TppCommandPost2, {id="GetCautionPhaseRemaining"})
 end
 
 return this

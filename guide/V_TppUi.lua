@@ -22,15 +22,15 @@ function this.SetEquipIdIconFtexPath(equipId, path)
         V_FrameWork.Log("V_TppUiCommand.SetEquipIdIconFtexPath: path is not a string.")
         return
     end
-    V_FrameWork.SetEquipIdIconFtexPath(equipId, path)
+    V_TppUiCommand.SetEquipIdIconFtexPath(equipId, path)
 end
 
 function this.ClearIconFtexPath(equipId)
-    V_FrameWork.ClearIconFtexPath(equipId)
+    V_TppUiCommand.ClearIconFtexPath(equipId)
 end
 
 function this.ClearAllIconFtexPaths()
-    V_FrameWork.ClearAllIconFtexPaths()
+    V_TppUiCommand.ClearAllIconFtexPaths()
 end
 
 function this.SetDefaultEquipBgTexturePath(path)
@@ -38,12 +38,12 @@ function this.SetDefaultEquipBgTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetDefaultEquipBgTexturePath: path is not a string.")
         return
     end
-    V_FrameWork.SetDefaultEquipBgTexturePath(path)
+    V_TppUiCommand.SetDefaultEquipBgTexturePath(path)
 end
 
 function this.ClearDefaultEquipBgTexture()
     V_FrameWork.Log("V_TppUiCommand.ClearDefaultEquipBgTexture: Clearing default equip background texture.")
-    V_FrameWork.ClearDefaultEquipBgTexture()
+    V_TppUiCommand.ClearDefaultEquipBgTexture()
 end
 
 function this.SetEquipBgTexturePath(equipId, path)
@@ -55,7 +55,7 @@ function this.SetEquipBgTexturePath(equipId, path)
         V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: path is not a string.")
         return
     end
-    V_FrameWork.SetEquipBgTexturePath(equipId, path)
+    V_TppUiCommand.SetEquipBgTexturePath(equipId, path)
 end
 
 function this.ClearEquipBgTexture(equipId)
@@ -63,7 +63,7 @@ function this.ClearEquipBgTexture(equipId)
         V_FrameWork.Log("V_TppUiCommand.ClearEquipBgTexture: equipId is nil, cannot clear texture.")
         return
     end
-    V_FrameWork.ClearEquipBgTexture(equipId)
+    V_TppUiCommand.ClearEquipBgTexture(equipId)
 end
 
 function this.SetEnemyWeaponBgTexturePath(path)
@@ -71,12 +71,12 @@ function this.SetEnemyWeaponBgTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetEnemyWeaponBgTexturePath: path is not a string.")
         return
     end
-    V_FrameWork.SetEnemyWeaponBgTexturePath(path)
+    V_TppUiCommand.SetEnemyWeaponBgTexturePath(path)
 end
 
 function this.ClearEnemyWeaponBgTexture()
     V_FrameWork.Log("V_TppUiCommand.ClearEnemyWeaponBgTexture: Clearing enemy weapon background texture.")
-    V_FrameWork.ClearEnemyWeaponBgTexture()
+    V_TppUiCommand.ClearEnemyWeaponBgTexture()
 end
 
 function this.SetEnemyEquipBgTexturePath(equipId, path)
@@ -88,7 +88,7 @@ function this.SetEnemyEquipBgTexturePath(equipId, path)
         V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: path is not a string.")
         return
     end
-    V_FrameWork.SetEnemyEquipBgTexturePath(equipId, path)
+    V_TppUiCommand.SetEnemyEquipBgTexturePath(equipId, path)
 end
 
 function this.ClearEnemyEquipBgTexture(equipId)
@@ -96,12 +96,12 @@ function this.ClearEnemyEquipBgTexture(equipId)
         V_FrameWork.Log("V_TppUiCommand.ClearEnemyEquipBgTexture: equipId is nil, cannot clear texture.")
         return
     end
-    V_FrameWork.ClearEnemyEquipBgTexture(equipId)
+    V_TppUiCommand.ClearEnemyEquipBgTexture(equipId)
 end
 
 function this.ClearAllEquipBgTextures()
     V_FrameWork.Log("V_TppUiCommand.ClearAllEquipBgTextures: Clearing all equip background textures.")
-    V_FrameWork.ClearAllEquipBgTextures()
+    V_TppUiCommand.ClearAllEquipBgTextures()
 end
 
 function this.SetLoadingSplashMainTexturePath(path)
@@ -109,7 +109,7 @@ function this.SetLoadingSplashMainTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetLoadingSplashMainTexturePath: path is not a string." .. tostring(path))
        return
     end
-    V_FrameWork.SetLoadingSplashMainTexturePath(path)
+    V_TppUiCommand.SetLoadingSplashMainTexturePath(path)
 end
 
 function this.SetLoadingSplashBlurTexturePath(path)
@@ -117,7 +117,7 @@ function this.SetLoadingSplashBlurTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetLoadingSplashBlurTexturePath: path is not a string." .. tostring(path))
         return
     end
-    V_FrameWork.SetLoadingSplashBlurTexturePath(path)
+    V_TppUiCommand.SetLoadingSplashBlurTexturePath(path)
 end
 
 function this.SetLoadingTexturePath(path)
@@ -125,13 +125,13 @@ function this.SetLoadingTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetLoadingTexturePath: path is not a string." .. tostring(path))
         return
     end
-    V_FrameWork.SetLoadingSplashMainTexturePath(path)
-    V_FrameWork.SetLoadingSplashBlurTexturePath(path)
+    V_TppUiCommand.SetLoadingSplashMainTexturePath(path)
+    V_TppUiCommand.SetLoadingSplashBlurTexturePath(path)
 end
 
 function this.ClearLoadingSplashTextures()
     V_FrameWork.Log("V_TppUiCommand.ClearLoadingSplashTextures: Clearing loading splash textures.")
-    V_FrameWork.ClearLoadingSplashTextures()
+    V_TppUiCommand.ClearLoadingSplashTextures()
 end
 
 
@@ -140,7 +140,7 @@ function this.SetGameOverSplashMainTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetGameOverSplashMainTexturePath: path is not a string." .. tostring(path))
         return
     end
-    V_FrameWork.SetGameOverSplashMainTexturePath(path)
+    V_TppUiCommand.SetGameOverSplashMainTexturePath(path)
 end
 
 function this.SetGameOverSplashBlurTexturePath(path)
@@ -148,12 +148,12 @@ function this.SetGameOverSplashBlurTexturePath(path)
         V_FrameWork.Log("V_TppUiCommand.SetGameOverSplashBlurTexturePath: path is not a string." .. tostring(path))
         return
     end
-    V_FrameWork.SetGameOverSplashBlurTexturePath(path)
+    V_TppUiCommand.SetGameOverSplashBlurTexturePath(path)
 end
 
 function this.ClearGameOverSplashTextures()
     V_FrameWork.Log("V_TppUiCommand.ClearGameOverSplashTextures: Clearing game over splash textures.")
-    V_FrameWork.ClearGameOverSplashTextures()
+    V_TppUiCommand.ClearGameOverSplashTextures()
 end
 
 function this.ShowMbDvcAnnouncePopupReport(title, body)
@@ -165,7 +165,7 @@ function this.ShowMbDvcAnnouncePopupReport(title, body)
         V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReport: body is not a string.")
         return
     end
-    return V_FrameWork.ShowMbDvcAnnouncePopupReport(title or "", body or "")
+    return V_TppUiCommand.ShowMbDvcAnnouncePopupReport(title or "", body or "")
 end
 
 function this.ShowMbDvcAnnouncePopupReportLangId(TitleLangId, BodyLangId)
@@ -177,7 +177,7 @@ function this.ShowMbDvcAnnouncePopupReportLangId(TitleLangId, BodyLangId)
         V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupLangId: BodyLangId is not a string.")
         return
     end
-    return V_FrameWork.ShowMbDvcAnnouncePopupReportLangId(TitleLangId or "", BodyLangId or "")
+    return V_TppUiCommand.ShowMbDvcAnnouncePopupReportLangId(TitleLangId or "", BodyLangId or "")
 end
 
 function this.ShowMbDvcAnnouncePopupReward(title, body)
@@ -189,7 +189,7 @@ function this.ShowMbDvcAnnouncePopupReward(title, body)
         V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupReward: body is not a string.")
         return
     end
-    return V_FrameWork.ShowMbDvcAnnouncePopupReward(title or "", body or "")
+    return V_TppUiCommand.ShowMbDvcAnnouncePopupReward(title or "", body or "")
 end
 
 function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
@@ -201,7 +201,7 @@ function this.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId, BodyLangId)
         V_FrameWork.Log("V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId: BodyLangId is not a string.")
         return
     end
-    return V_FrameWork.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
+    return V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId(TitleLangId or "", BodyLangId or "")
 end
 
 function this.SetMissionEmergency(missionCode, enabled)
@@ -209,16 +209,16 @@ function this.SetMissionEmergency(missionCode, enabled)
         V_FrameWork.Log("V_TppUiCommand.SetMissionEmergency: missionCode must be a number.")
         return
     end
-    V_FrameWork.SetMissionEmergency(missionCode, enabled)
+    V_TppUiCommand.SetMissionEmergency(missionCode, enabled)
 end
 
 function this.IsMissionEmergency(missionCode)
     if not IsTypeNumber(missionCode) then return false end
-    return V_FrameWork.IsMissionEmergency(missionCode)
+    return V_TppUiCommand.IsMissionEmergency(missionCode)
 end
 
 function this.ClearAllMissionEmergencies()
-    V_FrameWork.ClearAllMissionEmergencies()
+    V_TppUiCommand.ClearAllMissionEmergencies()
 end
 
 function this.SetEmergencyMissionPopup(title, body)
@@ -230,7 +230,7 @@ function this.SetEmergencyMissionPopup(title, body)
         V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopup: body is not a string or nil.")
         return
     end
-    return V_FrameWork.SetEmergencyMissionPopup(title, body)
+    return V_TppUiCommand.SetEmergencyMissionPopup(title, body)
 end
 
 function this.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
@@ -243,11 +243,11 @@ function this.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
         V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopupLangId: bodyLabel is not a string or nil.")
         return
     end
-    return V_FrameWork.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
+    return V_TppUiCommand.SetEmergencyMissionPopupLangId(titleLabel, bodyLabel)
 end
 
 function this.ClearEmergencyMissionPopupOverride()
-    V_FrameWork.ClearEmergencyMissionPopupOverride()
+    V_TppUiCommand.ClearEmergencyMissionPopupOverride()
 end
 
 function this.ShowMissionIcon(title, body, time)
@@ -263,70 +263,19 @@ function this.ShowMissionIcon(title, body, time)
         V_FrameWork.Log("V_TppUiCommand.ShowMissionIcon: time must be a number or nil.")
         return
     end
-    V_FrameWork.ShowMissionIcon(title, body, time or 6)
-end
-
-function this.SetUiPaletteColor(key, r, g, b, a)
-    if key == nil or (type(key) ~= "string" and type(key) ~= "number") then
-        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: key must be a string or number.")
-        return false
-    end
-    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: r, g, b must be numbers.")
-        return false
-    end
-    if a ~= nil and type(a) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.SetUiPaletteColor: a must be a number or nil.")
-        return false
-    end
-    return V_FrameWork.SetUiPaletteColor(key, r, g, b, a or 1.0)
-end
-
-function this.RestoreUiPalette(key)
-    if key ~= nil and type(key) ~= "string" and type(key) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.RestoreUiPalette: key must be a string, number or nil.")
-        return
-    end
-    V_FrameWork.RestoreUiPalette(key)
-end
-
-function this.AnimateUiPaletteColor(key, mode, period, ...)
-    if key == nil or (type(key) ~= "string" and type(key) ~= "number") then
-        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: key must be a string or number.")
-        return false
-    end
-    if mode ~= "blink" and mode ~= "pulse" then
-        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: mode must be 'blink' or 'pulse'.")
-        return false
-    end
-    if type(period) ~= "number" or period <= 0 then
-        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: period must be a positive number (seconds).")
-        return false
-    end
-    local args = { ... }
-    if #args < 4 or (#args % 4) ~= 0 then
-        V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: provide r,g,b,a for at least one color (multiples of 4 numbers).")
-        return false
-    end
-    for i = 1, #args do
-        if type(args[i]) ~= "number" then
-            V_FrameWork.Log("V_TppUiCommand.AnimateUiPaletteColor: color component #" .. i .. " is not a number.")
-            return false
-        end
-    end
-    return V_FrameWork.AnimateUiPaletteColor(key, mode, period, ...)
-end
-
-function this.ClearUiPaletteAnimation(key)
-    if key ~= nil and type(key) ~= "string" and type(key) ~= "number" then
-        V_FrameWork.Log("V_TppUiCommand.ClearUiPaletteAnimation: key must be a string, number or nil.")
-        return
-    end
-    V_FrameWork.ClearUiPaletteAnimation(key)
+    V_TppUiCommand.ShowMissionIcon(title, body, time or 6)
 end
 
 function this.HideMissionIcon()
     TppUiCommand.HideMissionIcon()
+end
+
+function this.ShowTimeCigaretteUi()
+    return V_TppUiCommand.ShowTimeCigaretteUi()
+end
+
+function this.HideTimeCigaretteUi()
+    return V_TppUiCommand.HideTimeCigaretteUi()
 end
 
 function this.Messages()
@@ -338,7 +287,7 @@ function this.Messages()
 				func = function()
                     if Ivars.V_FrameWork_Welcome_Message:Get() == 0 then
                         Ivars.V_FrameWork_Welcome_Message:Set(1)
-                        V_TppUiCommand.ShowMbDvcAnnouncePopupRewardLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
+                        this.ShowMbDvcAnnouncePopupRewardLangId("MbDvcPopup_Title_FirstTimeInstall",  "MbDvcPopup_Text_FirstTimeInstall")
                     end
 				end
 			},
