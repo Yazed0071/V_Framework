@@ -162,6 +162,12 @@
     <ClInclude Include="src\core\FoxHashes.h" />
     <ClInclude Include="src\core\LuaBroadcaster.h" />
     <ClInclude Include="src\core\log.h" />
+    <!-- Lua bridge -->
+    <ClInclude Include="src\lua\V_TppUiCommandLib.h" />
+    <ClInclude Include="src\lua\V_TppGameObjectConstants.h" />
+    <ClInclude Include="src\lua\UiCommandFunctions.h" />
+    <ClInclude Include="src\lua\V_TppSoundDaemonLib.h" />
+    <ClInclude Include="src\lua\SoundDaemonFunctions.h" />
     <!-- Third-party -->
     <ClInclude Include="include\lauxlib.h" />
     <ClInclude Include="include\lua.h" />
@@ -192,6 +198,7 @@
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
+    <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
@@ -199,13 +206,14 @@
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
+    <!-- Hooks: Heli -->
+    <ClInclude Include="src\hooks\heli\FieldTaxiMenu.h" />
     <!-- Hooks: UI -->
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\ui\EnemyLangIdOverride.h" />
     <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
-    <ClInclude Include="src\hooks\ui\UiPalette.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
@@ -240,6 +248,9 @@
     <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
+    <ClCompile Include="src\lua\V_TppUiCommandLib.cpp" />
+    <ClCompile Include="src\lua\V_TppGameObjectConstants.cpp" />
+    <ClCompile Include="src\lua\V_TppSoundDaemonLib.cpp" />
     <!-- Hooks: Soldier -->
     <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp" />
     <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
@@ -265,6 +276,7 @@
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
+    <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
@@ -272,13 +284,14 @@
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />
+    <!-- Hooks: Heli -->
+    <ClCompile Include="src\hooks\heli\FieldTaxiMenu.cpp" />
     <!-- Hooks: UI -->
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\ui\EnemyLangIdOverride.cpp" />
     <ClCompile Include="src\hooks\ui\MissionEmergencyHook.cpp" />
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
-    <ClCompile Include="src\hooks\ui\UiPalette.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->
