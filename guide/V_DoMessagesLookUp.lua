@@ -12,6 +12,7 @@ this.DEBUG_strCode32List={
   "HoldupCancelLookToPlayer",
   "CassettePlay",
   "CrawlSideRoll",
+  "TimeCigaretteUi",
   "Start",
   "Rolling",
   "End",
@@ -45,6 +46,10 @@ this.signatureTypes={
     {argName="count",argType="number"},
     {argName="direction",argType="number"},
   },
+
+  TimeCigaretteUi={
+    {argName="playerIndex",argType="number"},
+  },
 }
 
 this.messageSignatures={
@@ -56,6 +61,7 @@ this.messageSignatures={
 
   Player={
     CrawlSideRoll=this.signatureTypes.CrawlSideRoll,
+    TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi,
   },
 
   Terminal={
@@ -256,6 +262,7 @@ function this.RefreshLookups()
   InfLookup.lookups.CassettePlay=this.CassettePlay
 
   InfLookup.signatureTypes.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
+  InfLookup.signatureTypes.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.signatureTypes.cassettePlay=this.signatureTypes.cassettePlay
   InfLookup.signatureTypes.holdupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.signatureTypes.notice=this.signatureTypes.notice
@@ -268,6 +275,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.notice
   InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.notice
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
+  InfLookup.messageSignatures.Player.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
 end
 
