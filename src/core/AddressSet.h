@@ -159,9 +159,6 @@ namespace AddressSetRuntime
 
         uintptr_t IconTitleGetLangTextCall                              = 0;
 
-        uintptr_t UiPaletteManager_GetForName                           = 0;
-        uintptr_t g_UiPaletteManager                                    = 0;
-
         uintptr_t GameObject_SendCommand                                = 0;
 
         uintptr_t ModelNode_UpdateModelNodeParameter                    = 0;
@@ -190,6 +187,8 @@ namespace AddressSetRuntime
         uintptr_t RealizedSoldier2Impl_UpdateHeadEquipMesh              = 0;
         uintptr_t FovaController_GetActiveFovaResourceManager           = 0;
         uintptr_t Fv2ResourceManager_GetModel                           = 0;
+
+        uintptr_t TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi      = 0;
 
     };
 

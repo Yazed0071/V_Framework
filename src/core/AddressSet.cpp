@@ -215,9 +215,6 @@ namespace AddressSetRuntime
 
             0x14162136Bull, // IconTitleGetLangTextCall
 
-            0x14D711D30ull, // UiPaletteManager_GetForName
-            0x142C8FA90ull, // g_UiPaletteManager
-
             0x146CC7170ull, // GameObject_SendCommand
 
             0x14D71DB50ull, // ModelNode_UpdateModelNodeParameter
@@ -246,6 +243,8 @@ namespace AddressSetRuntime
             0x140B18ED0ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
             0x140B1AE60ull, // FovaController_GetActiveFovaResourceManager
             0x144A49BF0ull, // Fv2ResourceManager_GetModel
+
+            0x149CD7DD0ull, // TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi
 
         };
 
@@ -417,9 +416,6 @@ namespace AddressSetRuntime
 
             0x1416214bbull, // IconTitleGetLangTextCall
 
-            0x14ddab360ull, // UiPaletteManager_GetForName
-            0x142c8fa90ull, // g_UiPaletteManager
-
             0x148b0e440ull, // GameObject_SendCommand
 
             0x14ddb9ac0ull, // ModelNode_UpdateModelNodeParameter
@@ -448,6 +444,8 @@ namespace AddressSetRuntime
             0x140B18A20ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
             0x140B1A9B0ull, // FovaController_GetActiveFovaResourceManager
             0x1448ACA50ull, // Fv2ResourceManager_GetModel
+
+            0x14A6347F0ull, // TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi
         };
 
         return value;

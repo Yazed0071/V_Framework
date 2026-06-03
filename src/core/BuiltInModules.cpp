@@ -105,9 +105,6 @@ bool Uninstall_MissionEmergency_Hook();
 bool Install_ShowMissionIcon_Hook();
 bool Uninstall_ShowMissionIcon_Hook();
 
-bool Install_UiPalette_Hook();
-bool Uninstall_UiPalette_Hook();
-
 bool Install_GameObjectSendCommand_Hook();
 bool Uninstall_GameObjectSendCommand_Hook();
 
@@ -120,6 +117,12 @@ bool Uninstall_OccasionalChatList_Hook();
 
 bool Install_SoldierNotice_Hooks();
 bool Uninstall_SoldierNotice_Hooks();
+
+bool Install_FieldTaxiMenu();
+bool Uninstall_FieldTaxiMenu();
+
+bool Install_TimeCigaretteUi_Hook();
+bool Uninstall_TimeCigaretteUi_Hook();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
@@ -746,14 +749,6 @@ namespace
         void Uninstall() override { Uninstall_ShowMissionIcon_Hook(); }
     };
 
-    class UiPaletteModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "UiPalette"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_UiPalette_Hook(); }
-        void Uninstall() override { Uninstall_UiPalette_Hook(); }
-    };
-
     class GameObjectSendCommandModule final : public IFeatureModule
     {
     public:
@@ -786,6 +781,21 @@ namespace
         void Uninstall() override { Uninstall_SoldierNotice_Hooks(); }
     };
 
+    class FieldTaxiMenuModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "FieldTaxiMenu"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_FieldTaxiMenu(); }
+        void Uninstall() override { Uninstall_FieldTaxiMenu(); }
+    };
+
+    class TimeCigaretteUiModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "TimeCigaretteUi"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_TimeCigaretteUi_Hook(); }
+        void Uninstall() override { Uninstall_TimeCigaretteUi_Hook(); }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -823,11 +833,12 @@ void RegisterBuiltInFeatureModules()
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
     static MissionEmergencyModule s_MissionEmergencyModule;
     static ShowMissionIconModule s_ShowMissionIconModule;
-    static UiPaletteModule s_UiPaletteModule;
     static GameObjectSendCommandModule s_GameObjectSendCommandModule;
     static InitEquipHudDataModule s_InitEquipHudDataModule;
     static OccasionalChatListModule s_OccasionalChatListModule;
     static SoldierNoticeModule s_SoldierNoticeModule;
+    static FieldTaxiMenuModule s_FieldTaxiMenuModule;
+    static TimeCigaretteUiModule s_TimeCigaretteUiModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -865,10 +876,11 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_PhaseSneakAiImpl_PreUpdateModule);
             FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);
             FeatureModuleRegistry::Instance().Register(&s_ShowMissionIconModule);
-            FeatureModuleRegistry::Instance().Register(&s_UiPaletteModule);
             FeatureModuleRegistry::Instance().Register(&s_GameObjectSendCommandModule);
             FeatureModuleRegistry::Instance().Register(&s_InitEquipHudDataModule);
             FeatureModuleRegistry::Instance().Register(&s_OccasionalChatListModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
+            FeatureModuleRegistry::Instance().Register(&s_FieldTaxiMenuModule);
+            FeatureModuleRegistry::Instance().Register(&s_TimeCigaretteUiModule);
         });
 }
