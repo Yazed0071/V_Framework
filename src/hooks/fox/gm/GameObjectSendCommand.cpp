@@ -17,6 +17,7 @@ extern "C" {
 #include "../../sahelan/PhaseSneakAiImpl_PreUpdate.h"
 #include "../../soldier/LostHostageHook.h"
 #include "../../soldier/NoticeControllerImpl_GetOccasionalChat.h"
+#include "../../soldier/CautionStepNormalTimerHook.h"
 #include "../../../core/FoxHashes.h"
 
 namespace
@@ -226,6 +227,53 @@ namespace
             ::ClearOccasionalChatListOverride();
             Log("[SendCommand] ResetOccasionalChatList\n");
             return 0;
+        }
+
+        if (idStr == "SetCautionPhaseDuration")
+        {
+            const double duration = ReadCommandNumber(L, 2, "duration");
+
+            bool isPerCp = false;
+            const int a1 = g_lua_type(L, 1);
+            if (a1 == LUA_TNUMBER)
+            {
+                isPerCp = true;
+            }
+            else if (a1 == LUA_TTABLE)
+            {
+                g_lua_pushstring(L, const_cast<char*>("index"));
+                g_lua_gettable(L, 1);
+                isPerCp = (g_lua_type(L, -1) != LUA_TNIL);
+            }
+            g_lua_settop(L, top);
+
+            if (isPerCp)
+            {
+                ::Set_PendingCautionDurationForCp(static_cast<float>(duration));
+                Log("[SendCommand] SetCautionPhaseDuration (per-cp) duration=%.2f -> passthrough\n", duration);
+                return g_OrigSendCommand(L);
+            }
+
+            ::Set_CautionStepNormalDurationSeconds(static_cast<float>(duration));
+            Log("[SendCommand] SetCautionPhaseDuration (global) duration=%.2f\n", duration);
+            return 0;
+        }
+        if (idStr == "GetCautionPhaseDuration")
+        {
+            g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSeconds()));
+            return 1;
+        }
+        if (idStr == "UnsetCautionPhaseDuration")
+        {
+            g_lua_settop(L, top);
+            ::Unset_CautionStepNormalDurationSeconds();
+            Log("[SendCommand] UnsetCautionPhaseDuration\n");
+            return 0;
+        }
+        if (idStr == "GetCautionPhaseRemaining")
+        {
+            g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSeconds()));
+            return 1;
         }
 
         return g_OrigSendCommand(L);
