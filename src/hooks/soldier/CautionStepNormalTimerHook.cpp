@@ -9,6 +9,8 @@
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "AddressSet.h"
+#include "FoxHashes.h"
+#include "CautionStepNormalTimerHook.h"
 
 namespace
 {
@@ -25,6 +27,21 @@ namespace
 
     static bool g_EnableOverride = false;
     static bool g_LogEveryAppliedDrain = false;
+
+    static constexpr unsigned kMaxCommandPosts = 256;
+    static bool  g_CpEnable[kMaxCommandPosts]          = {};
+    static float g_CpDurationSeconds[kMaxCommandPosts] = {};
+    static float g_CpNormalizedDrain[kMaxCommandPosts] = {};
+
+    // Per-CP override if set for this command-post index, else the global override, else 0 (vanilla).
+    static float EffectiveNormalizedDrain(std::uint32_t cpIndex)
+    {
+        if (cpIndex < kMaxCommandPosts && g_CpEnable[cpIndex] && g_CpNormalizedDrain[cpIndex] > 0.0f)
+            return g_CpNormalizedDrain[cpIndex];
+        if (g_EnableOverride && g_NormalizedDrainRate > 0.0f)
+            return g_NormalizedDrainRate;
+        return 0.0f;
+    }
 
 
     static bool g_HaveLastObservedSnapshot = false;
@@ -186,10 +203,9 @@ namespace
         {
             remainingSeconds = 0.0f;
         }
-        else if (g_EnableOverride && g_NormalizedDrainRate > 0.0f)
+        else if (EffectiveNormalizedDrain(phaseIndex) > 0.0f)
         {
-
-            remainingSeconds = currentTimer / g_NormalizedDrainRate;
+            remainingSeconds = currentTimer / EffectiveNormalizedDrain(phaseIndex);
         }
         else if (vanillaPhaseRate > 0.0f)
         {
@@ -239,7 +255,8 @@ namespace
         const float vanillaDrain = beforeTimer - vanillaAfterTimer;
 
 
-        if (!g_EnableOverride || g_NormalizedDrainRate <= 0.0f)
+        const float overrideDrain = EffectiveNormalizedDrain(phaseIndex);
+        if (overrideDrain <= 0.0f)
         {
             UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
 
@@ -305,7 +322,7 @@ namespace
             return;
         }
 
-        const float customDrain = deltaScale * g_NormalizedDrainRate;
+        const float customDrain = deltaScale * overrideDrain;
 
         float customAfterTimer = beforeTimer - customDrain;
         if (customAfterTimer < 0.0f)
@@ -359,6 +376,30 @@ namespace
     }
 
 
+    // Per-CP: hk_SendCommand stashes the duration; the engine resolves cpId->index and calls TppCp2_LuaCommands(param_2=index).
+    static bool  g_PendingCpActive   = false;
+    static float g_PendingCpDuration = 0.0f;
+
+    using TppCp2LuaCommands_t = void(__fastcall*)(unsigned long long, unsigned long long, unsigned int, unsigned int);
+    static TppCp2LuaCommands_t   g_OrigTppCp2LuaCommands       = nullptr;
+    static std::uint32_t         g_HashSetCautionPhaseDuration = 0;
+    static constexpr std::uintptr_t kAddr_TppCp2LuaCommands = 0x140D5E070ull; // EN only
+
+    static void __fastcall hkTppCp2LuaCommands(unsigned long long p1, unsigned long long p2,
+                                               unsigned int p3, unsigned int cmdHash)
+    {
+        if (g_OrigTppCp2LuaCommands)
+            g_OrigTppCp2LuaCommands(p1, p2, p3, cmdHash);
+
+        if (cmdHash == g_HashSetCautionPhaseDuration && g_PendingCpActive)
+        {
+            g_PendingCpActive = false;
+            LogCautionPhaseTimer("[CautionCp] TppCp2 args: p1=0x%llX p2=0x%llX p3=%u(0x%X) dur=%.3f\n",
+                p1, p2, p3, p3, g_PendingCpDuration);
+            Set_CautionStepNormalDurationSecondsForCp(p3, g_PendingCpDuration);
+        }
+    }
+
     static void __fastcall hkDecrementPhaseCounter(void* self, std::uint32_t phaseIndex, void* knowledge)
     {
         MISSION_GUARD_ORIGINAL_VOID(g_OrigDecrementPhaseCounter, self, phaseIndex, knowledge);
@@ -393,6 +434,17 @@ bool Install_CautionStepNormalTimerHook()
         g_EnableOverride ? "ON" : "OFF"
     );
 
+    g_HashSetCautionPhaseDuration = FoxHashes::StrCode32("SetCautionPhaseDuration");
+    if (gGameBuild == AddressSetRuntime::GameBuild::English)
+    {
+        void* cp2 = ResolveGameAddress(kAddr_TppCp2LuaCommands);
+        const bool ok2 = cp2 && CreateAndEnableHook(
+            cp2,
+            reinterpret_cast<void*>(&hkTppCp2LuaCommands),
+            reinterpret_cast<void**>(&g_OrigTppCp2LuaCommands));
+        LogCautionPhaseTimer("[Hook] TppCp2LuaCommands (per-cp caution): %s @ %p\n", ok2 ? "OK" : "FAIL", cp2);
+    }
+
     return ok;
 }
 
@@ -401,6 +453,11 @@ bool Uninstall_CautionStepNormalTimerHook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.DecrementPhaseCounter));
     g_OrigDecrementPhaseCounter = nullptr;
+    if (g_OrigTppCp2LuaCommands)
+    {
+        DisableAndRemoveHook(ResolveGameAddress(kAddr_TppCp2LuaCommands));
+        g_OrigTppCp2LuaCommands = nullptr;
+    }
 
     LogCautionPhaseTimer("[Hook] CautionPhaseTimer: removed\n");
     return true;
@@ -434,6 +491,45 @@ void Unset_CautionStepNormalDurationSeconds()
     LogCautionPhaseTimer(
         "[CautionPhaseTimer] custom duration override disabled -> vanilla behavior restored\n"
     );
+}
+
+
+void Set_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex, float seconds)
+{
+    if (cpIndex >= kMaxCommandPosts)
+        return;
+    if (seconds <= 0.0f)
+        seconds = 1.0f;
+    g_CpDurationSeconds[cpIndex] = seconds;
+    g_CpNormalizedDrain[cpIndex] = 1.0f / seconds;
+    g_CpEnable[cpIndex] = true;
+
+    LogCautionPhaseTimer(
+        "[CautionPhaseTimer] cp=%u duration set to %.3f seconds -> normalized drain %.6f (override enabled)\n",
+        cpIndex, seconds, g_CpNormalizedDrain[cpIndex]
+    );
+}
+
+
+void Unset_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex)
+{
+    if (cpIndex < kMaxCommandPosts)
+        g_CpEnable[cpIndex] = false;
+}
+
+
+void Clear_AllCautionStepNormalDurationOverrides()
+{
+    g_EnableOverride = false;
+    for (unsigned i = 0; i < kMaxCommandPosts; ++i)
+        g_CpEnable[i] = false;
+}
+
+
+void Set_PendingCautionDurationForCp(float seconds)
+{
+    g_PendingCpDuration = seconds;
+    g_PendingCpActive = true;
 }
 
 
