@@ -18,8 +18,38 @@ _G.V_FrameWork_Core = this
 this.V_FrameWork = VFW
 
 
+this.registerMenus={
+	"V_FrameWork",
+}
+
+this.V_FrameWork={
+	parentRefs={"InfMenuDefs.safeSpaceMenu","InfMenuDefs.inMissionMenu"},
+	options={
+		"V_FrameWork.V_FrameWork_V_TppHelicopter",
+	}
+}
+
+this.V_FrameWork_V_TppHelicopter={
+	options={
+		"V_FrameWork.V_TppHelicopter_SetTaxiRidePose",
+	}
+}
+
+this.langStrings={
+	eng={
+		V_FrameWork="V_FrameWork",
+		V_FrameWork_V_TppHelicopter = "V_TppHelicopter",
+	},
+	help={
+		eng={
+			V_FrameWork="Toggle individual options for V_FrameWork mod.",
+			V_FrameWork_V_TppHelicopter = "Toggle individual options for some of the functions V_FrameWork_Core provides.",
+		},
+	},
+}
+
 function this.OnAllocate(missionTable)
-    V_SoundCoreDaemon.ClearAllPerAkObjIdPitchBiases()
+    V_TppSound.ClearAllPerAkObjIdPitchBiases()
     V_TppCommandPost.UnsetCautionPhaseDuration()
     V_TppEnemy.ClearCallSignPatrolSoldiers()
     V_TppEnemy.ClearSoldierStealthCamoOverrides()

@@ -1,10 +1,10 @@
 local this = {}
 local IsTypeString = Tpp.IsTypeString
 
-this.GAME_OVER_GENERAL = 0
-this.GAME_OVER_PARADOX = 1
-this.GAME_OVER_STEALTH = 2
-this.GAME_OVER_CYPRUS  = 3
+--V_TppGameObject.GAME_OVER_GENERAL
+--V_TppGameObject.GAME_OVER_PARADOX
+--V_TppGameObject.GAME_OVER_STEALTH
+--V_TppGameObject.GAME_OVER_CYPRUS 
 
 function this.SetGameOverMusic(isEnable, gameOverType, playEvent, stopEvent)
     if type(isEnable) ~= "boolean" then
@@ -25,7 +25,7 @@ function this.SetGameOverMusic(isEnable, gameOverType, playEvent, stopEvent)
             return false
         end
     end
-    return V_FrameWork.SetGameOverMusic(isEnable, gameOverType, playEvent or "", stopEvent or "")
+    return V_TppSoundDaemon.SetGameOverMusic(isEnable, gameOverType, playEvent or "", stopEvent or "")
 end
 
 return this

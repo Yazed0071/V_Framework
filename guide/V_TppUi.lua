@@ -278,6 +278,26 @@ function this.HideTimeCigaretteUi()
     return V_TppUiCommand.HideTimeCigaretteUi()
 end
 
+function this.SetAnnounceLogSE(label, value, chara, dialogueEvent)
+    if not IsTypeString(label) then
+        V_FrameWork.Log("V_TppUiCommand.SetAnnounceLogSE: label must be a string (the announce lang label).")
+        return
+    end
+    if value == nil then
+        V_FrameWork.Log("V_TppUiCommand.SetAnnounceLogSE: value is nil -- pass a condition/sound-id number or an event-name string.")
+        return
+    end
+    if chara ~= nil and not IsTypeNumber(chara) then
+        V_FrameWork.Log("V_TppUiCommand.SetAnnounceLogSE: chara must be a number or nil.")
+        return
+    end
+    if dialogueEvent ~= nil and not IsTypeNumber(dialogueEvent) then
+        V_FrameWork.Log("V_TppUiCommand.SetAnnounceLogSE: dialogueEvent must be a number or nil.")
+        return
+    end
+    return V_TppUiCommand.SetAnnounceLogSE(label, value, chara, dialogueEvent)
+end
+
 function this.Messages()
 	return
 	Tpp.StrCode32Table {

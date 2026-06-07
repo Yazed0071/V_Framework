@@ -19,7 +19,7 @@ local function lookupCustomLabel(gameObjectId, gender, scenario)
     -- 1. by gameObjectId
     local label = this.labels[gameObjectId]
 
-    -- 2. by name (skip gender keys)
+    -- 2. by name
     if label == nil then
         for k, v in pairs(this.labels) do
             if type(k) == "string" and k ~= "male" and k ~= "female" and k ~= "child" then
@@ -38,7 +38,6 @@ local function lookupCustomLabel(gameObjectId, gender, scenario)
         elseif gender == 2 then label = this.labels.child end
     end
 
-    -- Pair table picks the matching half; bare string/number applies to both.
     if type(label) == "table" then return label[scenario] end
     return label
 end
@@ -46,7 +45,7 @@ end
 
 local function pushEntry(hostage)
     hostage.customLabel = lookupCustomLabel(hostage.gameObjectId, hostage.gender, hostage.scenario)
-    V_FrameWork.SetLostHostage(hostage.gameObjectId, hostage.gender, hostage.customLabel or 0)
+    GameObject.SendCommand(hostage.gameObjectId, { id = "SetLostHostage", hostageType = hostage.gender, customLostLabel = hostage.customLabel or 0 })
 end
 
 
@@ -72,7 +71,7 @@ function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel)
         hostageLostLabel = 0
     end
 
-    V_FrameWork.SetLostHostage(hostageNameOrId, gender, hostageLostLabel or 0)
+    GameObject.SendCommand(hostageNameOrId, { id = "SetLostHostage", hostageType = gender, customLostLabel = hostageLostLabel or 0 })
 end
 
 function this.RemoveLostHostage(hostageNameOrId)
@@ -87,11 +86,11 @@ function this.RemoveLostHostage(hostageNameOrId)
         V_FrameWork.Log("V_TppHostage.RemoveLostHostage: hostageId is NULL_ID.")
         return
     end
-    V_FrameWork.RemoveLostHostage(hostageNameOrId)
+    GameObject.SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
 end
 
 function this.ClearLostHostages()
-    V_FrameWork.ClearLostHostages()
+    GameObject.SendCommand({ type = "TppHostage2" }, { id = "ClearLostHostages" })
 end
 
 function this.SetLostHostageFromPlayer(hostageNameOrId, enable)
@@ -115,7 +114,6 @@ function this.SetLostHostageFromPlayer(hostageNameOrId, enable)
     end
     GameObject.SendCommand(hostageNameOrId, { id = "SetEscapeState", enable = enable })
 
-    -- Update entry scenario and re-push the matching label half.
     if mvars.V_HostageList ~= nil then
         for _, hostage in ipairs(mvars.V_HostageList) do
             if hostage.gameObjectId == hostageNameOrId then
@@ -162,9 +160,6 @@ function this.IsHostageChild(hostageNameOrId)
 
     return isChild
 end
-
-
--- ===== Custom-label API =====================================================
 
 function this.SetCustomLostLabel(key, value)
     this.labels[key] = value

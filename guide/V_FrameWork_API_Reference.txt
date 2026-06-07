@@ -157,8 +157,8 @@ engine. Global commands ignore the target -- use a placeholder like {type="TppSa
     GameObject.SendCommand(GameObject.GetGameObjectId("hostage_01"), { id = "SetEscapeState", enable = true })
 
 
-V_SoundCoreDaemon
------------------
+V_TppSound
+----------
   RTPC
     SetSoldierRtpc(soldier, rtpcName, value, timeMs)   -> AKRESULT
     SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs) -> AKRESULT
@@ -191,7 +191,7 @@ BuildHostageList() / AutoSetLostHostage() / AutoSetLostHostageFromPlayer(enable)
 
 V_TppPickable
 -------------
-SetCountRaw(locatorName, countRaw) / GetCountRaw(locatorName) -> number
+SetCountRaw(locatorIndex, countRaw) / GetCountRaw(locatorIndex) -> number
 
 
 APPENDIX A — PlayerType

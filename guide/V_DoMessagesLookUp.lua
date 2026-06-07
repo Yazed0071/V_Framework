@@ -9,10 +9,16 @@ this.DEBUG_strCode32List={
   "GameObject",
   "Terminal",
   "Player",
+  "Radio",
   "HoldupCancelLookToPlayer",
   "CassettePlay",
   "CrawlSideRoll",
   "TimeCigaretteUi",
+  "HeliStart",
+  "HeliFinish",
+  "HUD",
+  "AnnounceLog",
+  "RequestedHeliTaxi",
   "Start",
   "Rolling",
   "End",
@@ -24,6 +30,90 @@ this.CassettePlay={
   [0]="Speaker_off",
   [1]="Speaker_on",
 }
+
+this.HeliVoiceLines={
+  ["SHR0010"]="About to arrive - prior notification (map)",
+  ["SHR0020"]="About to arrive - prior notification (flare)",
+  ["SHR0030"]="Arrival at LZ (normal)",
+  ["SHR0040"]="Arrival at flare position (normal)",
+  ["SHR0050"]="Landing notification - combat (LZ)",
+  ["SHR0060"]="Notification of action - forced landing (LZ)",
+  ["SHR0070"]="Arrival notification - combat (destination marker)",
+  ["SHR0080"]="Notification of action - prioritizing the elimination of dangerous enemy",
+  ["SHR0090"]="Notification of action - forced landing at nearby LZ",
+  ["SHR0100"]="Notification of action - cover fire",
+  ["SHR0110"]="LZ standby - pulling out (time has elapsed)",
+  ["SHR0140"]="Landing notification - please move",
+  ["SHR0150"]="Landing notification - please move object",
+  ["SHR0160"]="Landing notification - moving to different LZ",
+  ["SHR0170"]="Changing course of action - all enemies eliminated",
+  ["SHR0180"]="Changing course of action - from combat to landing",
+  ["SHR0190"]="Changing course of action - from standby to combat",
+  ["SHR0200"]="Changing course of action - returning mid-flight (normal)",
+  ["SHR0210"]="Changing course of action - returning mid-flight (damage)",
+  ["SHR0220"]="Changing course of action - pulling out (taken damage)",
+  ["SHR0230"]="Cover fire - general",
+  ["SHR0240"]="Attack_rocket launcher",
+  ["SHR0250"]="Attack_missile",
+  ["SHR0260"]="Attack_napalm",
+  ["SHR0270"]="Attack_smoke",
+  ["SHR0280"]="Attack_sleeping gas",
+  ["SHR0290"]="Taken damage_general purpose",
+  ["SHR0300"]="Taken damage_level great",
+  ["SHR0310"]="Taken damage - requesting support",
+  ["SHR0320"]="Taken damage_crash",
+  ["SHV0010"]="Taken damage_gunfire (safe)",
+  ["SHV0020"]="Taken damage_gunfire (caution)",
+  ["SHV0030"]="Taken damage_gunfire (danger)",
+  ["SHV0040"]="Taken damage_explosion (safe)",
+  ["SHV0050"]="Taken damage_explosion (caution)",
+  ["SHV0060"]="Taken damage_explosion (danger)",
+  ["SHV0070"]="Evasive action_general",
+  ["SHV0080"]="Evasive action_circling (player is onboard)",
+  ["SHV0090"]="Evasive action_rapid ascension (player is onboard)",
+  ["SHV0110"]="Door closing",
+  ["SHV0120"]="Door opening",
+  ["SHV0130"]="Player disembarks (safe)",
+  ["SHV0150"]="Pulling out",
+  ["SHV0200"]="Enemy dead ahead",
+  ["SHV0201"]="Enemy at 1 o'clock",
+  ["SHV0202"]="Enemy at 2 o'clock",
+  ["SHV0203"]="Enemy at 3 o'clock",
+  ["SHV0204"]="Enemy at 4 o'clock",
+  ["SHV0205"]="Enemy at 5 o'clock",
+  ["SHV0206"]="Enemy at 6 o'clock",
+  ["SHV0207"]="Enemy at 7 o'clock",
+  ["SHV0208"]="Enemy at 8 o'clock",
+  ["SHV0209"]="Enemy at 9 o'clock",
+  ["SHV0210"]="Enemy at 10 o'clock",
+  ["SHV0211"]="Enemy at 11 o'clock",
+  ["SHV0212"]="Enemy at 12 o'clock",
+  ["SHV0300"]="Forced landing with enemies present",
+  ["SHV0301"]="Forced landing with enemies present (asking player to fire)",
+  ["SHV0310"]="Really leaving the mission? (normal)",
+  ["SHV0311"]="Really leaving the mission? (combat)",
+  ["SHV0320"]="Moving to other AO (area of operation)",
+  ["SHV0330"]="Sightseeing around Mother Base",
+}
+
+this.heliVoiceByHash=nil
+function this.BuildHeliVoiceLookup()
+  if this.heliVoiceByHash and next(this.heliVoiceByHash) then
+    return
+  end
+  if not (V_Fox and V_Fox.FNVHash32) then
+    return
+  end
+  local map={}
+  for code,desc in pairs(this.HeliVoiceLines)do
+    local label=code
+    if desc and desc~="" then
+      label=code.." - "..desc
+    end
+    map[V_Fox.FNVHash32(code)]=label
+  end
+  this.heliVoiceByHash=map
+end
 
 this.signatureTypes={
   holdupCancelLookToPlayer={
@@ -50,22 +140,57 @@ this.signatureTypes={
   TimeCigaretteUi={
     {argName="playerIndex",argType="number"},
   },
+
+  HeliStart={
+    {argName="voiceId",argType="heliVoice"},
+    {argName="param4",argType="heliVoice"},
+    {argName="voiceType",argType="number"},
+  },
+  HeliFinish={
+    {argName="voiceId",argType="heliVoice"},
+    {argName="param4",argType="heliVoice"},
+    {argName="voiceType",argType="number"},
+  },
+
+  RequestedHeliTaxi={
+    {argName="heliId",argType="gameId"},
+    {argName="currentLandingZoneName",argType="str32"},
+    {argName="nextLandingZoneName",argType="str32"},
+  },
+
+  AnnounceLog={
+    {argName="announceType",argType="str64"},
+    {argName="seId",argType="number"},
+  },
 }
 
 this.messageSignatures={
   GameObject={
     HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer,
-    NoticeIndis=this.signatureTypes.notice,
-    NoticeNoise=this.signatureTypes.notice,
+    NoticeIndis=this.signatureTypes.Notice,
+    NoticeNoise=this.signatureTypes.Notice,
+    RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi,
   },
 
   Player={
     CrawlSideRoll=this.signatureTypes.CrawlSideRoll,
+  },
+
+  UI={
     TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi,
   },
 
   Terminal={
     CassettePlay=this.signatureTypes.cassettePlay,
+  },
+
+  Radio={
+    HeliStart=this.signatureTypes.HeliStart,
+    HeliFinish=this.signatureTypes.HeliFinish,
+  },
+
+  HUD={
+    AnnounceLog=this.signatureTypes.AnnounceLog,
   },
 }
 
@@ -83,6 +208,11 @@ this.lookups={
   end,
 
   CassettePlay=this.CassettePlay,
+
+  heliVoice=function(value)
+    this.BuildHeliVoiceLookup()
+    return this.heliVoiceByHash and this.heliVoiceByHash[value]
+  end,
 }
 
 function this.PostModuleReload(prevModule)
@@ -260,23 +390,33 @@ function this.RefreshLookups()
   InfLookup.messageSignatures=InfLookup.messageSignatures or {}
 
   InfLookup.lookups.CassettePlay=this.CassettePlay
+  InfLookup.lookups.heliVoice=this.lookups.heliVoice
 
   InfLookup.signatureTypes.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.signatureTypes.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
+  InfLookup.signatureTypes.HeliStart=this.signatureTypes.HeliStart
   InfLookup.signatureTypes.cassettePlay=this.signatureTypes.cassettePlay
   InfLookup.signatureTypes.holdupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
-  InfLookup.signatureTypes.notice=this.signatureTypes.notice
+  InfLookup.signatureTypes.notice=this.signatureTypes.Notice
+  InfLookup.signatureTypes.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
+  InfLookup.signatureTypes.AnnounceLog=this.signatureTypes.AnnounceLog
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
   InfLookup.messageSignatures.Terminal=InfLookup.messageSignatures.Terminal or {}
+  InfLookup.messageSignatures.Radio=InfLookup.messageSignatures.Radio or {}
+  InfLookup.messageSignatures.HUD=InfLookup.messageSignatures.HUD or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
-  InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.notice
-  InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.notice
+  InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
+  InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.Notice
+  InfLookup.messageSignatures.GameObject.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
-  InfLookup.messageSignatures.Player.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
+  InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
+  InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart
+  InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliStart
+  InfLookup.messageSignatures.HUD.AnnounceLog=this.signatureTypes.AnnounceLog
 end
 
 function this.GetMessageSignature(sender,messageId)

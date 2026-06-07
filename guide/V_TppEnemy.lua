@@ -13,17 +13,17 @@ function this.SetVIPImportant(soldierNameOrId, isOfficer, foundDeadBodyRadioLabe
         V_FrameWork.Log("V_TppEnemy.SetVIPImportant: isOfficer is not a boolean.")
         return
     end
-    V_FrameWork.SetVIPImportant(id, isOfficer or false, foundDeadBodyRadioLabel)
+    GameObject.SendCommand(id, { id = "SetVIPImportant", isOfficer = isOfficer or false, deadBodyLabel = foundDeadBodyRadioLabel })
 end
 
 function this.RemoveVIPImportant(soldierNameOrId)
     local id = GetGameObjectId(soldierNameOrId)
     if id == nil then return end
-    V_FrameWork.RemoveVIPImportant(id)
+    GameObject.SendCommand(id, { id = "RemoveVIPImportant" })
 end
 
 function this.ClearVIPImportant()
-    V_FrameWork.ClearVIPImportant()
+    GameObject.SendCommand({ type = "TppSoldier2" }, { id = "ClearVIPImportant" })
 end
 
 function this.SetUseConcernedHoldupRecovery(enable)
@@ -32,27 +32,26 @@ function this.SetUseConcernedHoldupRecovery(enable)
         V_FrameWork.Log("V_TppEnemy.SetUseConcernedHoldupRecovery: enable is not a boolean.")
         return
     end
-    V_FrameWork.SetUseConcernedHoldupRecovery(enable)
+    GameObject.SendCommand({ type = "TppSoldier2" }, { id = "SetUseConcernedHoldupRecovery", enable = enable })
 end
 
 function this.AddCallSignPatrolSoldier(soldierNameOrId)
     local gameId = GetGameObjectId(soldierNameOrId)
     if gameId == nil then return end
 
-    V_FrameWork.AddCallSignPatrolSoldier(gameId)
+    GameObject.SendCommand(gameId, { id = "AddCallSignPatrolSoldier" })
 end
 
 function this.RemoveCallSignPatrolSoldier(soldierNameOrId)
     local gameId = GetGameObjectId(soldierNameOrId)
     if gameId == nil then return end
-    V_FrameWork.RemoveCallSignPatrolSoldier(gameId)
+    GameObject.SendCommand(gameId, { id = "RemoveCallSignPatrolSoldier" })
 end
 
 function this.ClearCallSignPatrolSoldiers()
-    V_FrameWork.ClearCallSignPatrolSoldiers()
+    GameObject.SendCommand({ type = "TppSoldier2" }, { id = "ClearCallSignPatrolSoldiers" })
 end
 
--- enable defaults to true.
 function this.EnableSoldierStealthCamo(soldierNameOrId, enable)
     local gameId = GetGameObjectId(soldierNameOrId)
     if gameId == nil then return end
@@ -61,11 +60,11 @@ function this.EnableSoldierStealthCamo(soldierNameOrId, enable)
         V_FrameWork.Log("V_TppEnemy.EnableSoldierStealthCamo: enable is not a boolean.")
         return
     end
-    V_FrameWork.EnableSoldierStealthCamo(gameId, enable)
+    GameObject.SendCommand(gameId, { id = "EnableSoldierStealthCamo", enable = enable })
 end
 
 function this.ClearSoldierStealthCamoOverrides()
-    V_FrameWork.ClearSoldierStealthCamoOverrides()
+    GameObject.SendCommand({ type = "TppSoldier2" }, { id = "ClearSoldierStealthCamoOverrides" })
 end
 
 function this.SetEnemyInformationLangId(langId)
@@ -273,7 +272,7 @@ function this.SetUpEnemy()
             else
                 this.SetVIPImportant(vipInfo.name, vipInfo.isOfficer)
             end
-            V_SoundCoreDaemon.SetSoldierVoicePitch(vipInfo.name, pitch)
+            V_TppSound.SetSoldierVoicePitch(vipInfo.name, pitch)
         end
     else
         V_FrameWork.Log("No VIP setup for mission " .. tostring(missionCode))

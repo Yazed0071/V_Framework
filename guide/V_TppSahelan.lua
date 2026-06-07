@@ -13,11 +13,11 @@ function this.SetSahelanFova(fv2Path)
     end
 
     V_FrameWork.Log("V_Sahelan.SetSahelanFova: Setting Sahelan Fova to " .. fv2Path)
-    V_FrameWork.SetSahelanFova(fv2Path)
+    V_Sahelan.SetSahelanFova(fv2Path)
 end
 function this.ClearSahelanFova()
     V_FrameWork.Log("V_Sahelan.ClearSahelanFova: Clearing Sahelan Fova override.")
-    V_FrameWork.ClearSahelanFova()
+    V_Sahelan.ClearSahelanFova()
 end
 
 function this.SetEyeLampColor(r, g, b, pulseSpeed, mode)
@@ -35,11 +35,11 @@ function this.SetEyeLampColor(r, g, b, pulseSpeed, mode)
         V_FrameWork.Log("V_Sahelan.SetEyeLampColor: mode must be a number or nil.")
         return
     end
-    V_FrameWork.SetEyeLampColor(r, g, b, pulseSpeed, mode)
+    V_Sahelan.SetEyeLampColor(r, g, b, pulseSpeed, mode)
 end
 
 function this.ClearEyeLampColor()
-    V_FrameWork.ClearEyeLampColor()
+    V_Sahelan.ClearEyeLampColor()
 end
 
 function this.SetEyeLampDisco(enabled, speed)
@@ -52,7 +52,7 @@ function this.SetEyeLampDisco(enabled, speed)
         V_FrameWork.Log("V_Sahelan.SetEyeLampDisco: speed must be a number or nil.")
         return
     end
-    V_FrameWork.SetEyeLampDisco(enabled, speed)
+    V_Sahelan.SetEyeLampDisco(enabled, speed)
 end
 
 function this.SetHeartLightColor(r, g, b, pulseSpeed)
@@ -65,11 +65,11 @@ function this.SetHeartLightColor(r, g, b, pulseSpeed)
         V_FrameWork.Log("V_Sahelan.SetHeartLightColor: pulseSpeed must be a number or nil.")
         return
     end
-    V_FrameWork.SetHeartLightColor(r, g, b, pulseSpeed)
+    V_Sahelan.SetHeartLightColor(r, g, b, pulseSpeed)
 end
 
 function this.ClearHeartLightColor()
-    V_FrameWork.ClearHeartLightColor()
+    V_Sahelan.ClearHeartLightColor()
 end
 
 function this.SetEyeLampColorLogging(enabled)
@@ -77,7 +77,7 @@ function this.SetEyeLampColorLogging(enabled)
         V_FrameWork.Log("V_Sahelan.SetEyeLampColorLogging: enabled must be a boolean.")
         return
     end
-    V_FrameWork.SetEyeLampColorLogging(enabled)
+    V_Sahelan.SetEyeLampColorLogging(enabled)
 end
 
 
