@@ -22,3 +22,9 @@ void Clear_AllSecurityCameraFovas();
 
 
 std::uint64_t Get_SecurityCameraFovaHash(std::int32_t variantIndex);
+
+
+std::int32_t ResolveSecurityCameraVariantName(const char* name);
+
+
+bool Set_SecurityCameraFovaFromArg(std::int32_t variantIndex, const char* fova);

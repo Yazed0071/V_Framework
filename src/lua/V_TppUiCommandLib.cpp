@@ -12,29 +12,11 @@ extern "C" {
 #include "log.h"
 #include "V_TppUiCommandLib.h"
 #include "UiCommandFunctions.h"
+#include "LuaApi.h"
 
 
 namespace
 {
-    using FoxLuaRegisterLibrary_t = void(__fastcall*)(lua_State* L, const char* libName, luaL_Reg* funcs);
-
-    // EN (mgsvtpp.exe, base 0x140000000) fallback — used only until AddressSet is resolved.
-    static constexpr std::uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
-
-    static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
-
-    static bool ResolveLuaApi()
-    {
-        if (!g_FoxLuaRegisterLibrary)
-        {
-            const std::uintptr_t addr = gAddr.FoxLuaRegisterLibrary
-                ? gAddr.FoxLuaRegisterLibrary
-                : BOOTSTRAP_EN_FoxLuaRegisterLibrary;
-            g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(addr));
-        }
-        return g_FoxLuaRegisterLibrary != nullptr;
-    }
-
     static luaL_Reg g_VTppUiCommandLib[] =
     {
         { "SetDefaultEquipBgTexturePath",             l_SetDefaultEquipBgTexturePath },
@@ -82,16 +64,14 @@ namespace
         { "ClearEnemyUnitNameForSoldier",             l_ClearEnemyUnitNameForSoldier },
         { "ClearAllEnemyUnitNameForSoldiers",         l_ClearAllEnemyUnitNameForSoldiers },
 
+        { "SetAnnounceLogSE",                          l_SetAnnounceLogSE },
+        { "RegisterAnnounceLogSfx",                    l_RegisterAnnounceLogSfx },
+
         { nullptr,          nullptr }
     };
 }
 
 bool Register_V_TppUiCommandLibrary(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return false;
-
-    g_FoxLuaRegisterLibrary(L, "V_TppUiCommand", g_VTppUiCommandLib);
-    Log("[V_FrameWork] Registered library: V_TppUiCommand (L=%p)\n", L);
-    return true;
+    return RegisterLuaLibrary(L, "V_TppUiCommand", g_VTppUiCommandLib);
 }

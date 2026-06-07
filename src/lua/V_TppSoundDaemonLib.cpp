@@ -12,26 +12,38 @@ extern "C" {
 #include "log.h"
 #include "V_TppSoundDaemonLib.h"
 #include "SoundDaemonFunctions.h"
+#include "LuaApi.h"
+#include "../hooks/sound/GameOverMusic.h"
 
 namespace
 {
-    using FoxLuaRegisterLibrary_t = void(__fastcall*)(lua_State* L, const char* libName, luaL_Reg* funcs);
-
-    // EN (mgsvtpp.exe, base 0x140000000) fallback — used only until AddressSet is resolved.
-    static constexpr std::uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
-
-    static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
-
-    static bool ResolveLuaApi()
+    static int __cdecl l_SetGameOverMusic(lua_State* L)
     {
-        if (!g_FoxLuaRegisterLibrary)
+        const bool isEnable = GetLuaBool(L, 1);
+        const int  typeRaw  = GetLuaInt(L, 2);
+        const char* playEvt = GetLuaString(L, 3);
+        const char* stopEvt = GetLuaString(L, 4);
+
+        if (typeRaw < GAME_OVER_GENERAL || typeRaw > GAME_OVER_CYPRUS)
         {
-            const std::uintptr_t addr = gAddr.FoxLuaRegisterLibrary
-                ? gAddr.FoxLuaRegisterLibrary
-                : BOOTSTRAP_EN_FoxLuaRegisterLibrary;
-            g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(addr));
+            Log("[GameOverMusic] SetGameOverMusic: invalid type=%d (expected 0..3)\n", typeRaw);
+            PushLuaBool(L, false);
+            return 1;
         }
-        return g_FoxLuaRegisterLibrary != nullptr;
+
+        if (isEnable && (!playEvt || !*playEvt || !stopEvt || !*stopEvt))
+        {
+            Log("[GameOverMusic] SetGameOverMusic: enable=true requires non-empty play/stop event strings\n");
+            PushLuaBool(L, false);
+            return 1;
+        }
+
+        const bool ok = SetGameOverMusic(isEnable,
+                                         static_cast<GAME_OVER_TYPE>(typeRaw),
+                                         playEvt ? playEvt : "",
+                                         stopEvt ? stopEvt : "");
+        PushLuaBool(L, ok);
+        return 1;
     }
 
     static luaL_Reg g_VTppSoundDaemonLib[] =
@@ -59,16 +71,13 @@ namespace
         { "GetSoldierAkObjId",              l_GetSoldierAkObjId },
         { "SetSoldierVoicePitch",           l_SetSoldierVoicePitch },
 
+        { "SetGameOverMusic",               l_SetGameOverMusic },
+
         { nullptr, nullptr }
     };
 }
 
 bool Register_V_TppSoundDaemonLibrary(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return false;
-
-    g_FoxLuaRegisterLibrary(L, "V_TppSoundDaemon", g_VTppSoundDaemonLib);
-    Log("[V_FrameWork] Registered library: V_TppSoundDaemon (L=%p)\n", L);
-    return true;
+    return RegisterLuaLibrary(L, "V_TppSoundDaemon", g_VTppSoundDaemonLib);
 }

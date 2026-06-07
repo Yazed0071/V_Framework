@@ -64,3 +64,6 @@ int __cdecl l_ClearAllEnemyInformationLangIdForSoldiers(lua_State* L);
 int __cdecl l_SetEnemyUnitNameForSoldier(lua_State* L);
 int __cdecl l_ClearEnemyUnitNameForSoldier(lua_State* L);
 int __cdecl l_ClearAllEnemyUnitNameForSoldiers(lua_State* L);
+
+int __cdecl l_SetAnnounceLogSE(lua_State* L);
+int __cdecl l_RegisterAnnounceLogSfx(lua_State* L);

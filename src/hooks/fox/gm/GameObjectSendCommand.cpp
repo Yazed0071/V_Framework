@@ -16,64 +16,20 @@ extern "C" {
 #include "../../../core/HookUtils.h"
 #include "../../sahelan/PhaseSneakAiImpl_PreUpdate.h"
 #include "../../soldier/LostHostageHook.h"
+#include "../../soldier/StepRadioDiscovery.h"
+#include "../../soldier/VIPSleepFaintHook.h"
+#include "../../soldier/VIPHoldupHook.h"
+#include "../../soldier/VIPRadioHook.h"
+#include "../../soldier/GetVoiceParamWithCallSign.h"
+#include "../../soldier/ActionCoreImpl_UpdateOptCamo.h"
+#include "../../securitycamera/SecurityCameraFovaHook.h"
 #include "../../soldier/NoticeControllerImpl_GetOccasionalChat.h"
 #include "../../soldier/CautionStepNormalTimerHook.h"
 #include "../../../core/FoxHashes.h"
+#include "../../../lua/LuaApi.h"
 
 namespace
 {
-    using lua_gettop_t     = int         (__fastcall*)(lua_State*);
-    using lua_settop_t     = void        (__fastcall*)(lua_State*, int);
-    using lua_type_t       = int         (__fastcall*)(lua_State*, int);
-    using lua_pushstring_t = void        (__fastcall*)(lua_State*, char*);
-    using lua_pushnumber_t = void        (__fastcall*)(lua_State*, lua_Number);
-    using lua_gettable_t   = void        (__fastcall*)(lua_State*, int);
-    using lua_tolstring_t  = const char* (__fastcall*)(lua_State*, int, size_t*);
-    using lua_tonumber_t   = lua_Number  (__fastcall*)(lua_State*, int);
-    using lua_toboolean_t  = int         (__fastcall*)(lua_State*, int);
-    using lua_tointeger_t  = long long   (__fastcall*)(lua_State*, int);
-    using lua_objlen_t     = size_t      (__fastcall*)(lua_State*, int);
-    using lua_rawgeti_t    = void        (__fastcall*)(lua_State*, int, int);
-
-    static lua_gettop_t     g_lua_gettop     = nullptr;
-    static lua_settop_t     g_lua_settop     = nullptr;
-    static lua_type_t       g_lua_type       = nullptr;
-    static lua_pushstring_t g_lua_pushstring = nullptr;
-    static lua_pushnumber_t g_lua_pushnumber = nullptr;
-    static lua_gettable_t   g_lua_gettable   = nullptr;
-    static lua_tolstring_t  g_lua_tolstring  = nullptr;
-    static lua_tonumber_t   g_lua_tonumber   = nullptr;
-    static lua_toboolean_t  g_lua_toboolean  = nullptr;
-    static lua_tointeger_t  g_lua_tointeger  = nullptr;
-    static lua_objlen_t     g_lua_objlen     = nullptr;
-    static lua_rawgeti_t    g_lua_rawgeti    = nullptr;
-
-    static bool ResolveLuaApi()
-    {
-        if (g_lua_gettop && g_lua_settop && g_lua_type && g_lua_pushstring &&
-            g_lua_pushnumber && g_lua_gettable && g_lua_tolstring && g_lua_tonumber &&
-            g_lua_toboolean && g_lua_tointeger)
-        {
-            return true;
-        }
-
-        g_lua_gettop     = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(gAddr.lua_gettop));
-        g_lua_settop     = reinterpret_cast<lua_settop_t>(ResolveGameAddress(gAddr.lua_settop));
-        g_lua_type       = reinterpret_cast<lua_type_t>(ResolveGameAddress(gAddr.lua_type));
-        g_lua_pushstring = reinterpret_cast<lua_pushstring_t>(ResolveGameAddress(gAddr.lua_pushstring));
-        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(gAddr.lua_pushnumber));
-        g_lua_gettable   = reinterpret_cast<lua_gettable_t>(ResolveGameAddress(gAddr.lua_gettable));
-        g_lua_tolstring  = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(gAddr.lua_tolstring));
-        g_lua_tonumber   = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(gAddr.lua_tonumber));
-        g_lua_toboolean  = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(gAddr.lua_toboolean));
-        g_lua_tointeger  = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(gAddr.lua_tointeger));
-        g_lua_objlen     = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(gAddr.lua_objlen));
-        g_lua_rawgeti    = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(gAddr.lua_rawgeti));
-
-        return g_lua_gettop && g_lua_settop && g_lua_type && g_lua_pushstring &&
-               g_lua_pushnumber && g_lua_gettable && g_lua_tolstring && g_lua_tonumber &&
-               g_lua_toboolean && g_lua_tointeger;
-    }
 
     using GameObjectSendCommand_t = int (__fastcall*)(lua_State* L);
 
@@ -113,6 +69,30 @@ namespace
         else if (t == LUA_TNUMBER)
             v = static_cast<int>(g_lua_tonumber(L, -1)) != 0;
         return v;
+    }
+
+    static std::uint32_t ReadCommandStrCode32(lua_State* L, int cmdStackIdx, const char* key)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_gettable(L, cmdStackIdx);
+        std::uint32_t v = 0;
+        const int t = g_lua_type(L, -1);
+        if (t == LUA_TNUMBER)
+            v = static_cast<std::uint32_t>(static_cast<long long>(g_lua_tonumber(L, -1)));
+        else if (t == LUA_TSTRING)
+        {
+            const char* s = g_lua_tolstring(L, -1, nullptr);
+            if (s && s[0])
+                v = FoxHashes::StrCode32(s);
+        }
+        return v;
+    }
+
+    static std::uint32_t ReadCommandTargetId(lua_State* L)
+    {
+        if (g_lua_type(L, 1) == LUA_TNUMBER)
+            return static_cast<std::uint32_t>(g_lua_tointeger(L, 1) & 0xFFFFFFFFLL);
+        return 0;
     }
 
     static std::size_t ReadLabelArray(lua_State* L, int cmdStackIdx, std::uint32_t* out, const char* key)
@@ -274,6 +254,138 @@ namespace
         {
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSeconds()));
             return 1;
+        }
+
+        if (idStr == "SetVIPImportant")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            const bool isOfficer = ReadCommandBool(L, 2, "isOfficer");
+            const std::uint32_t deadBodyLabel = ReadCommandStrCode32(L, 2, "deadBodyLabel");
+            g_lua_settop(L, top);
+            ::Add_VIPSleepFaintImportantGameObjectId(id, isOfficer);
+            ::Add_VIPHoldupImportantGameObjectId(id, isOfficer);
+            ::Add_VIPRadioImportantGameObjectId(id, isOfficer, deadBodyLabel);
+            Log("[SendCommand] SetVIPImportant id=0x%08X isOfficer=%d\n", id, isOfficer ? 1 : 0);
+            return 0;
+        }
+        if (idStr == "RemoveVIPImportant")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            g_lua_settop(L, top);
+            ::Remove_VIPSleepFaintImportantGameObjectId(id);
+            ::Remove_VIPHoldupImportantGameObjectId(id);
+            ::Remove_VIPRadioImportantGameObjectId(id);
+            Log("[SendCommand] RemoveVIPImportant id=0x%08X\n", id);
+            return 0;
+        }
+        if (idStr == "ClearVIPImportant")
+        {
+            g_lua_settop(L, top);
+            ::Clear_VIPSleepFaintImportantGameObjectIds();
+            ::Clear_VIPHoldupImportantGameObjectIds();
+            ::Clear_VIPRadioImportantGameObjectIds();
+            Log("[SendCommand] ClearVIPImportant\n");
+            return 0;
+        }
+        if (idStr == "SetUseConcernedHoldupRecovery")
+        {
+            const bool enable = ReadCommandBool(L, 2, "enable");
+            g_lua_settop(L, top);
+            ::Set_UseCustomNonVipHoldupRecovery(enable);
+            Log("[SendCommand] SetUseConcernedHoldupRecovery enable=%d\n", enable ? 1 : 0);
+            return 0;
+        }
+        if (idStr == "AddCallSignPatrolSoldier")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            g_lua_settop(L, top);
+            ::Add_CallSignExtraSoldier(id);
+            Log("[SendCommand] AddCallSignPatrolSoldier id=0x%08X\n", id);
+            return 0;
+        }
+        if (idStr == "RemoveCallSignPatrolSoldier")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            g_lua_settop(L, top);
+            ::Remove_CallSignExtraSoldier(id);
+            Log("[SendCommand] RemoveCallSignPatrolSoldier id=0x%08X\n", id);
+            return 0;
+        }
+        if (idStr == "ClearCallSignPatrolSoldiers")
+        {
+            g_lua_settop(L, top);
+            ::Clear_CallSignExtraSoldiers();
+            Log("[SendCommand] ClearCallSignPatrolSoldiers\n");
+            return 0;
+        }
+        if (idStr == "SetLostHostage")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            const int hostageType = static_cast<int>(ReadCommandNumber(L, 2, "hostageType"));
+            const std::uint32_t customLostLabel = ReadCommandStrCode32(L, 2, "customLostLabel");
+            g_lua_settop(L, top);
+            ::Add_LostHostageTrap(id, hostageType, customLostLabel);
+            ::Add_LostHostageDiscovery(id, hostageType);
+            Log("[SendCommand] SetLostHostage id=0x%08X type=%d\n", id, hostageType);
+            return 0;
+        }
+        if (idStr == "RemoveLostHostage")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            g_lua_settop(L, top);
+            ::Remove_LostHostageTrap(id);
+            ::Remove_LostHostageDiscovery(id);
+            Log("[SendCommand] RemoveLostHostage id=0x%08X\n", id);
+            return 0;
+        }
+        if (idStr == "ClearLostHostages")
+        {
+            g_lua_settop(L, top);
+            ::Clear_LostHostagesTrap();
+            ::Clear_LostHostageDiscovery();
+            Log("[SendCommand] ClearLostHostages\n");
+            return 0;
+        }
+        if (idStr == "EnableSoldierStealthCamo")
+        {
+            const std::uint32_t mappedIndex = ReadCommandTargetId(L);
+            const bool enable = ReadCommandBool(L, 2, "enable");
+            g_lua_settop(L, top);
+            ::Set_UpdateOptCamoEnableMappedIndex(mappedIndex, enable);
+            Log("[SendCommand] EnableSoldierStealthCamo mappedIndex=%u enable=%d\n", mappedIndex, enable ? 1 : 0);
+            return 0;
+        }
+        if (idStr == "ClearSoldierStealthCamoOverrides")
+        {
+            g_lua_settop(L, top);
+            ::Clear_UpdateOptCamoMappedIndexOverrides();
+            Log("[SendCommand] ClearSoldierStealthCamoOverrides\n");
+            return 0;
+        }
+        if (idStr == "SetSecurityCameraFova")
+        {
+            std::int32_t variant = -1;
+            g_lua_pushstring(L, const_cast<char*>("variant"));
+            g_lua_gettable(L, 2);
+            const int vt = g_lua_type(L, -1);
+            if (vt == LUA_TNUMBER)
+                variant = static_cast<std::int32_t>(g_lua_tonumber(L, -1));
+            else if (vt == LUA_TSTRING)
+                variant = ::ResolveSecurityCameraVariantName(g_lua_tolstring(L, -1, nullptr));
+
+            std::string fova;
+            g_lua_pushstring(L, const_cast<char*>("fova"));
+            g_lua_gettable(L, 2);
+            if (g_lua_type(L, -1) == LUA_TSTRING)
+            {
+                const char* s = g_lua_tolstring(L, -1, nullptr);
+                if (s) fova = s;
+            }
+
+            g_lua_settop(L, top);
+            const bool ok = ::Set_SecurityCameraFovaFromArg(variant, fova.c_str());
+            Log("[SendCommand] SetSecurityCameraFova variant=%d ok=%d\n", static_cast<int>(variant), ok ? 1 : 0);
+            return 0;
         }
 
         return g_OrigSendCommand(L);

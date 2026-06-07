@@ -13,6 +13,7 @@
 #include "SecurityCameraFovaHook.h"
 
 #include <cstring>
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -217,4 +218,65 @@ std::uint64_t Get_SecurityCameraFovaHash(std::int32_t variantIndex)
         return 0;
 
     return g_VariantOverrides[variantIndex].load(std::memory_order_relaxed);
+}
+
+
+std::int32_t ResolveSecurityCameraVariantName(const char* name)
+{
+    if (!name || !*name)
+        return -1;
+
+    char lower[32] = {};
+    std::size_t n = 0;
+    while (name[n] && n + 1 < sizeof(lower))
+    {
+        char c = name[n];
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        lower[n] = c;
+        ++n;
+    }
+    lower[n] = 0;
+
+    if (std::strcmp(lower, "normalcamera") == 0 || std::strcmp(lower, "normal") == 0)
+        return 0;
+    if (std::strcmp(lower, "guncamera") == 0 || std::strcmp(lower, "gun") == 0)
+        return 1;
+    return -1;
+}
+
+
+bool Set_SecurityCameraFovaFromArg(std::int32_t variantIndex, const char* fova)
+{
+    if (variantIndex < 0 || !fova || !*fova)
+        return false;
+
+    bool hasPathSep = false;
+    for (const char* p = fova; *p; ++p)
+    {
+        if (*p == '/' || *p == '\\') { hasPathSep = true; break; }
+    }
+
+    if (!hasPathSep)
+    {
+        const bool hasHexPrefix = (fova[0] == '0') && (fova[1] == 'x' || fova[1] == 'X');
+        const char* hexStart = hasHexPrefix ? fova + 2 : fova;
+        bool allHex = true;
+        std::size_t hexLen = 0;
+        for (const char* p = hexStart; *p; ++p)
+        {
+            const char c = *p;
+            const bool isHexDigit =
+                (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!isHexDigit) { allHex = false; break; }
+            ++hexLen;
+        }
+        if (allHex && hexLen > 0 && hexLen <= 16)
+        {
+            Set_SecurityCameraFovaHash(variantIndex, std::strtoull(hexStart, nullptr, 16));
+            return true;
+        }
+    }
+
+    Set_SecurityCameraFovaPath(variantIndex, fova);
+    return true;
 }

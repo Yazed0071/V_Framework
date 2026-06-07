@@ -33,6 +33,7 @@ extern "C" {
 #include "TppPickableRuntime.h"
 
 #include "AddressSet.h"
+#include "LuaApi.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
 #include "SoldierRtpcHook.h"
@@ -45,6 +46,7 @@ extern "C" {
 #include "../hooks/sahelan/PhaseSneakAiImpl_PreUpdate.h"
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
+#include "../hooks/heli/HeliSoundController.h"
 #include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 #include "../hooks/ui/EnemyLangIdOverride.h"
@@ -58,94 +60,27 @@ extern "C" {
 #include "UiCommandFunctions.h"
 #include "V_TppSoundDaemonLib.h"
 #include "SoundDaemonFunctions.h"
+#include "V_TppCassetteLib.h"
+#include "CassetteFunctions.h"
+#include "V_TppSahelanLib.h"
+#include "SahelanFunctions.h"
+#include "V_PlayerLib.h"
+#include "PlayerFunctions.h"
+#include "V_TppSecurityCameraLib.h"
+#include "SecurityCameraFunctions.h"
+#include "V_FoxLib.h"
+#include "V_HelicopterLib.h"
+#include "FoxFunctions.h"
 
 
 namespace
 {
     using SetLuaFunctions_t = void(__fastcall*)(lua_State* L);
-    using FoxLuaRegisterLibrary_t = void(__fastcall*)(lua_State* L, const char* libName, luaL_Reg* funcs);
-    using lua_tolstring_t = const char* (__fastcall*)(lua_State* L, int idx, size_t* len);
-    using lua_tointeger_t = long long(__fastcall*)(lua_State* L, int idx);
-    using lua_tonumber_t = lua_Number(__fastcall*)(lua_State* L, int idx);
-    using lua_pushnumber_t = void(__fastcall*)(lua_State* L, lua_Number n);
-    using lua_toboolean_t = int(__fastcall*)(lua_State* L, int idx);
-    using lua_gettop_t = int(__fastcall*)(lua_State* L);
-    using lua_settop_t = void(__fastcall*)(lua_State* L, int idx);
-    using lua_getfield_t = void(__fastcall*)(lua_State* L, int idx, char* k);
-    using lua_rawgeti_t = void(__fastcall*)(lua_State* L, int idx, int n);
-    using lua_type_t = int(__fastcall*)(lua_State* L, int idx);
-    using lua_isstring_t = int(__fastcall*)(lua_State* L, int idx);
-    using lua_isnumber_t = int(__fastcall*)(lua_State* L, int idx);
-    using lua_objlen_t = size_t(__fastcall*)(lua_State* L, int idx);
-    using lua_pushboolean_t = void(__fastcall*)(lua_State* L, int b);
-    using lua_pushstring_t = void(__fastcall*)(lua_State* L, char* s);
-    using lua_createtable_t = void(__fastcall*)(lua_State* L, int narr, int nrec);
-    using lua_rawset_t = void(__fastcall*)(lua_State* L, int idx);
-    using lua_settable_t = void(__fastcall*)(lua_State* L, int idx);
-    using lua_pushnil_t = void(__fastcall*)(lua_State* L);
-    using lua_next_t = int(__fastcall*)(lua_State* L, int idx);
-    using lua_gettable_t = void(__fastcall*)(lua_State* L, int idx);
-    using lua_pushvalue_t = void(__fastcall*)(lua_State* L, int idx);
-    using lua_pushcclosure_t = void(__fastcall*)(lua_State* L, lua_CFunction fn, int n);
-    using lua_pcall_t = int(__fastcall*)(lua_State* L, int nargs, int nresults, int errfunc);
-
-    static constexpr int LUA_GLOBALSINDEX_51 = -10002;
-    static constexpr int LUA_UPVALUEINDEX_51_1 = -10003;
 
 
     static constexpr uintptr_t BOOTSTRAP_EN_SetLuaFunctions = 0x1408D78A0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring = 0x141A123C0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_tointeger = 0x141A12390ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_tonumber = 0x141A12460ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushnumber = 0x141A11BC0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_toboolean = 0x141A12330ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_gettop = 0x14C1D7D40ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_settop = 0x14C1EBBE0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_getfield = 0x14C1D7320ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_rawgeti = 0x14C1E9320ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_type = 0x14C1ED760ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_isstring = 0x14C1D9250ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_isnumber = 0x14C1D8C90ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_objlen = 0x14C1DA960ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushboolean = 0x14C1DB230ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushstring = 0x14C1E7EE0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_createtable = 0x14C1D6320ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_rawset = 0x14C1E9CF0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_settable = 0x14C1EB2B0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushnil = 0x14C1E7CC0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_next = 0x14C1DA770ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_gettable = 0x14C1D7C10ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue = 0x14C1E87E0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushcclosure = 0x14C1E67B0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pcall = 0x141A11930ull;
 
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
-    static FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
-    static lua_tolstring_t         g_lua_tolstring = nullptr;
-    static lua_tointeger_t         g_lua_tointeger = nullptr;
-    static lua_tonumber_t          g_lua_tonumber = nullptr;
-    static lua_pushnumber_t        g_lua_pushnumber = nullptr;
-    static lua_toboolean_t         g_lua_toboolean = nullptr;
-    static lua_gettop_t            g_lua_gettop = nullptr;
-    static lua_settop_t            g_lua_settop = nullptr;
-    static lua_getfield_t          g_lua_getfield = nullptr;
-    static lua_rawgeti_t           g_lua_rawgeti = nullptr;
-    static lua_type_t              g_lua_type = nullptr;
-    static lua_isstring_t          g_lua_isstring = nullptr;
-    static lua_isnumber_t          g_lua_isnumber = nullptr;
-    static lua_objlen_t            g_lua_objlen = nullptr;
-    static lua_pushboolean_t       g_lua_pushboolean = nullptr;
-    static lua_pushstring_t        g_lua_pushstring = nullptr;
-    static lua_createtable_t       g_lua_createtable = nullptr;
-    static lua_rawset_t            g_lua_rawset = nullptr;
-    static lua_settable_t          g_lua_settable = nullptr;
-    static lua_pushnil_t           g_lua_pushnil = nullptr;
-    static lua_next_t              g_lua_next = nullptr;
-    static lua_gettable_t          g_lua_gettable = nullptr;
-    static lua_pushvalue_t         g_lua_pushvalue = nullptr;
-    static lua_pushcclosure_t      g_lua_pushcclosure = nullptr;
-    static lua_pcall_t             g_lua_pcall = nullptr;
 
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
@@ -159,303 +94,12 @@ static uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr, uintptr_t bootstrap
 }
 
 
-static bool ResolveLuaApi()
-{
-    if (!g_FoxLuaRegisterLibrary)
-        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.FoxLuaRegisterLibrary, BOOTSTRAP_EN_FoxLuaRegisterLibrary)));
-
-    if (!g_lua_tolstring)
-        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tolstring, BOOTSTRAP_EN_lua_tolstring)));
-
-    if (!g_lua_tointeger)
-        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tointeger, BOOTSTRAP_EN_lua_tointeger)));
-
-    if (!g_lua_tonumber)
-        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tonumber, BOOTSTRAP_EN_lua_tonumber)));
-
-    if (!g_lua_toboolean)
-        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_toboolean, BOOTSTRAP_EN_lua_toboolean)));
-
-    if (!g_lua_pushnumber)
-        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushnumber, BOOTSTRAP_EN_lua_pushnumber)));
-
-    if (!g_lua_gettop)
-        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_gettop, BOOTSTRAP_EN_lua_gettop)));
-
-    if (!g_lua_settop)
-        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_settop, BOOTSTRAP_EN_lua_settop)));
-
-    if (!g_lua_getfield)
-        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_getfield, BOOTSTRAP_EN_lua_getfield)));
-
-    if (!g_lua_rawgeti)
-        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_rawgeti, BOOTSTRAP_EN_lua_rawgeti)));
-
-    if (!g_lua_type)
-        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_type, BOOTSTRAP_EN_lua_type)));
-
-    if (!g_lua_isstring)
-        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_isstring, BOOTSTRAP_EN_lua_isstring)));
-
-    if (!g_lua_isnumber)
-        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_isnumber, BOOTSTRAP_EN_lua_isnumber)));
-
-    if (!g_lua_objlen)
-        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_objlen, BOOTSTRAP_EN_lua_objlen)));
-
-    if (!g_lua_pushboolean)
-        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushboolean, BOOTSTRAP_EN_lua_pushboolean)));
-
-    if (!g_lua_pushstring)
-        g_lua_pushstring = reinterpret_cast<lua_pushstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushstring, BOOTSTRAP_EN_lua_pushstring)));
-
-    if (!g_lua_createtable)
-        g_lua_createtable = reinterpret_cast<lua_createtable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_createtable, BOOTSTRAP_EN_lua_createtable)));
-
-    if (!g_lua_rawset)
-        g_lua_rawset = reinterpret_cast<lua_rawset_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_rawset, BOOTSTRAP_EN_lua_rawset)));
-
-    if (!g_lua_settable)
-        g_lua_settable = reinterpret_cast<lua_settable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_settable, BOOTSTRAP_EN_lua_settable)));
-
-    if (!g_lua_pushnil)
-        g_lua_pushnil = reinterpret_cast<lua_pushnil_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushnil, BOOTSTRAP_EN_lua_pushnil)));
-
-    if (!g_lua_next)
-        g_lua_next = reinterpret_cast<lua_next_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_next, BOOTSTRAP_EN_lua_next)));
-
-    if (!g_lua_gettable)
-        g_lua_gettable = reinterpret_cast<lua_gettable_t>(
-            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_gettable, BOOTSTRAP_EN_lua_gettable)));
-
-    if (!g_lua_pushvalue)
-        g_lua_pushvalue = reinterpret_cast<lua_pushvalue_t>(
-            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushvalue, BOOTSTRAP_EN_lua_pushvalue)));
-
-    if (!g_lua_pushcclosure)
-        g_lua_pushcclosure = reinterpret_cast<lua_pushcclosure_t>(
-            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushcclosure, BOOTSTRAP_EN_lua_pushcclosure)));
-
-    if (!g_lua_pcall)
-        g_lua_pcall = reinterpret_cast<lua_pcall_t>(
-            ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pcall, BOOTSTRAP_EN_lua_pcall)));
-
-    return g_FoxLuaRegisterLibrary &&
-        g_lua_tolstring &&
-        g_lua_tointeger &&
-        g_lua_tonumber &&
-        g_lua_toboolean &&
-        g_lua_pushnumber &&
-        g_lua_gettop &&
-        g_lua_settop &&
-        g_lua_getfield &&
-        g_lua_gettable &&
-        g_lua_rawgeti &&
-        g_lua_type &&
-        g_lua_isstring &&
-        g_lua_isnumber &&
-        g_lua_objlen &&
-        g_lua_pushboolean &&
-        g_lua_pushvalue &&
-        g_lua_pushstring &&
-        g_lua_createtable &&
-        g_lua_rawset &&
-        g_lua_settable &&
-        g_lua_pushnil &&
-        g_lua_next;
-}
-
-
-static int GetLuaTop(lua_State* L)
-{
-    if (!ResolveLuaApi() || !g_lua_gettop)
-        return 0;
-
-    return g_lua_gettop(L);
-}
-
-
 static void SetLuaTop(lua_State* L, int idx)
 {
     if (!ResolveLuaApi() || !g_lua_settop)
         return;
 
     g_lua_settop(L, idx);
-}
-
-
-static void LuaGetField(lua_State* L, int idx, const char* fieldName)
-{
-    if (!ResolveLuaApi() || !g_lua_getfield || !fieldName)
-        return;
-
-    g_lua_getfield(L, idx, const_cast<char*>(fieldName));
-}
-
-
-static void LuaRawGetI(lua_State* L, int idx, int n)
-{
-    if (!ResolveLuaApi() || !g_lua_rawgeti)
-        return;
-
-    g_lua_rawgeti(L, idx, n);
-}
-
-
-static int LuaType(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_type)
-        return -1;
-
-    return g_lua_type(L, idx);
-}
-
-
-static bool LuaIsString(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_isstring)
-        return false;
-
-    return g_lua_isstring(L, idx) != 0;
-}
-
-
-static bool LuaIsNumber(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_isnumber)
-        return false;
-
-    return g_lua_isnumber(L, idx) != 0;
-}
-
-
-static size_t LuaObjLen(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_objlen)
-        return 0;
-
-    return g_lua_objlen(L, idx);
-}
-
-
-static void PushLuaBool(lua_State* L, bool value)
-{
-    if (!ResolveLuaApi() || !g_lua_pushboolean)
-        return;
-
-    g_lua_pushboolean(L, value ? 1 : 0);
-}
-
-
-static void LuaPop(lua_State* L, int count)
-{
-    if (!ResolveLuaApi() || !g_lua_settop)
-        return;
-
-    g_lua_settop(L, -count - 1);
-}
-
-
-static bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* funcs)
-{
-    if (!ResolveLuaApi() || !L || !libName || !funcs)
-        return false;
-
-    g_FoxLuaRegisterLibrary(L, libName, funcs);
-    Log("[V_FrameWork] Registered library: %s (L=%p)\n", libName, L);
-    return true;
-}
-
-
-static const char* GetLuaString(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_tolstring)
-        return nullptr;
-
-    return g_lua_tolstring(L, idx, nullptr);
-}
-
-
-static int GetLuaInt(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_tointeger)
-        return 0;
-
-    return static_cast<int>(g_lua_tointeger(L, idx));
-}
-
-
-static std::uint64_t GetLuaInt64(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_tointeger)
-        return 0;
-
-    return static_cast<std::uint64_t>(g_lua_tointeger(L, idx));
-}
-
-
-static bool GetLuaBool(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_toboolean)
-        return false;
-
-    return g_lua_toboolean(L, idx) != 0;
-}
-
-
-static float GetLuaNumber(lua_State* L, int idx)
-{
-    if (!ResolveLuaApi() || !g_lua_tonumber)
-        return 0.0f;
-
-    return static_cast<float>(g_lua_tonumber(L, idx));
-}
-
-
-static void PushLuaNumber(lua_State* L, float value)
-{
-    if (!ResolveLuaApi() || !g_lua_pushnumber)
-        return;
-
-    g_lua_pushnumber(L, static_cast<lua_Number>(value));
-}
-
-
-static void PushLuaString(lua_State* L, const char* s)
-{
-    if (!ResolveLuaApi() || !g_lua_pushstring)
-        return;
-
-    g_lua_pushstring(L, const_cast<char*>(s ? s : ""));
-}
-
-
-static void PushLuaNil(lua_State* L)
-{
-    if (!ResolveLuaApi() || !g_lua_pushnil)
-        return;
-
-    g_lua_pushnil(L);
-}
-
-
-static std::uint32_t GetLuaStrCode32Arg(lua_State* L, int idx)
-{
-    if (GetLuaTop(L) < idx)
-        return 0u;
-
-    if (LuaIsNumber(L, idx))
-        return static_cast<std::uint32_t>(GetLuaInt64(L, idx));
-
-    if (LuaIsString(L, idx))
-    {
-        const char* s = GetLuaString(L, idx);
-        if (!s || !s[0])
-            return 0u;
-        return FoxHashes::StrCode32(s);
-    }
-
-    return 0u;
 }
 
 
@@ -829,7 +473,7 @@ int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
 }
 
 
-static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
+int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
     const char* rawPath = GetLuaString(L, 2);
@@ -842,7 +486,7 @@ static int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
 }
 
 
-static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
+int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
     Clear_PlayerVoiceFpkPathForType(static_cast<std::uint32_t>(playerType));
@@ -850,7 +494,7 @@ static int __cdecl l_ClearPlayerVoiceFpkPathForType(lua_State* L)
 }
 
 
-static int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
+int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     Clear_AllPlayerVoiceFpkOverrides();
@@ -1033,147 +677,8 @@ int __cdecl l_SetSoldierVoicePitch(lua_State* L)
 }
 
 
-static int __cdecl l_SetVIPImportant(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const bool isOfficer = GetLuaBool(L, 2);
-    const std::uint32_t customDeadBodyLabel = GetLuaStrCode32Arg(L, 3);
 
-    Add_VIPSleepFaintImportantGameObjectId(gameObjectId, isOfficer);
-    Add_VIPHoldupImportantGameObjectId(gameObjectId, isOfficer);
-    Add_VIPRadioImportantGameObjectId(gameObjectId, isOfficer, customDeadBodyLabel);
-    return 0;
-}
-
-
-static int __cdecl l_RemoveVIPImportant(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
-    Remove_VIPSleepFaintImportantGameObjectId(gameObjectId);
-    Remove_VIPHoldupImportantGameObjectId(gameObjectId);
-    Remove_VIPRadioImportantGameObjectId(gameObjectId);
-    return 0;
-}
-
-
-static int __cdecl l_ClearVIPImportant(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-
-    Clear_VIPSleepFaintImportantGameObjectIds();
-    Clear_VIPHoldupImportantGameObjectIds();
-    Clear_VIPRadioImportantGameObjectIds();
-    return 0;
-}
-
-
-static int l_SetUseConcernedHoldupRecovery(lua_State* L)
-{
-    const bool enabled = GetLuaBool(L, 1) != 0;
-    Set_UseCustomNonVipHoldupRecovery(enabled);
-    return 0;
-}
-
-
-static int __cdecl l_AddCallSignExtraSoldier(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    Add_CallSignExtraSoldier(gameObjectId);
-    return 0;
-}
-
-
-static int __cdecl l_RemoveCallSignExtraSoldier(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    Remove_CallSignExtraSoldier(gameObjectId);
-    return 0;
-}
-
-
-static int __cdecl l_ClearCallSignExtraSoldiers(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_CallSignExtraSoldiers();
-    return 0;
-}
-
-
-static int __cdecl l_SetLostHostage(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const int hostageType = GetLuaInt(L, 2);
-    const std::uint32_t customLostLabel = GetLuaStrCode32Arg(L, 3);
-
-    Add_LostHostageTrap(gameObjectId, hostageType, customLostLabel);
-    Add_LostHostageDiscovery(gameObjectId, hostageType);
-    return 0;
-}
-
-
-static int __cdecl l_RemoveLostHostage(lua_State* L)
-{
-    const std::uint32_t gameObjectId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-
-    Remove_LostHostageTrap(gameObjectId);
-    Remove_LostHostageDiscovery(gameObjectId);
-    return 0;
-}
-
-
-static int __cdecl l_ClearLostHostages(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_LostHostagesTrap();
-    Clear_LostHostageDiscovery();
-    return 0;
-}
-
-static int __cdecl l_EnableSoldierStealthCamo(lua_State* L)
-{
-    const std::uint32_t mappedIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
-    const bool enabled = GetLuaBool(L, 2);
-    Set_UpdateOptCamoEnableMappedIndex(mappedIndex, enabled);
-    return 0;
-}
-
-
-static int __cdecl l_ClearSoldierStealthCamoOverrides(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_UpdateOptCamoMappedIndexOverrides();
-    return 0;
-}
-
-
-static int __cdecl l_PlayCassetteTapeByAlbumAndTrack(lua_State* L)
-{
-    const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
-    const std::uint32_t trackIndex = static_cast<std::uint32_t>(GetLuaInt(L, 2));
-
-    bool loopPlay = false;
-    bool playAll = true;
-
-    const int arg3Type = LuaType(L, 3);
-    if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
-    {
-        loopPlay = GetLuaBool(L, 3);
-    }
-
-    const int arg4Type = LuaType(L, 4);
-    if (arg4Type != LUA_TNONE && arg4Type != LUA_TNIL)
-    {
-        playAll = GetLuaBool(L, 4);
-    }
-
-    const bool ok = PlayCassetteByAlbumAndTrack(albumIndex, trackIndex, loopPlay, playAll);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
+int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
 {
     const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
     const std::uint32_t trackId = static_cast<std::uint32_t>(GetLuaInt(L, 2));
@@ -1198,7 +703,7 @@ static int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
     return 1;
 }
 
-static int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
+int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
 {
     if (!LuaIsString(L, 1))
     {
@@ -1213,7 +718,7 @@ static int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
     return 1;
 }
 
-static int l_GetCassettePlayingTime(lua_State* L)
+int __cdecl l_GetCassettePlayingTime(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
 
@@ -1222,7 +727,7 @@ static int l_GetCassettePlayingTime(lua_State* L)
     return 1;
 }
 
-static int l_GetCassettePlayingTrackId(lua_State* L)
+int __cdecl l_GetCassettePlayingTrackId(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
 
@@ -1231,7 +736,7 @@ static int l_GetCassettePlayingTrackId(lua_State* L)
     return 1;
 }
 
-static int __cdecl l_PauseCassette(lua_State* L)
+int __cdecl l_PauseCassette(lua_State* L)
 {
     std::uint32_t fadeMs = 0;
 
@@ -1246,7 +751,7 @@ static int __cdecl l_PauseCassette(lua_State* L)
     return 1;
 }
 
-static int __cdecl l_ResumeCassette(lua_State* L)
+int __cdecl l_ResumeCassette(lua_State* L)
 {
     std::uint32_t fadeMs = 0;
 
@@ -1261,7 +766,7 @@ static int __cdecl l_ResumeCassette(lua_State* L)
     return 1;
 }
 
-static int __cdecl l_StopCassette(lua_State* L)
+int __cdecl l_StopCassette(lua_State* L)
 {
     std::uint32_t fadeMs = 0;
     bool stopByUser = false;
@@ -1284,7 +789,7 @@ static int __cdecl l_StopCassette(lua_State* L)
 }
 
 
-static int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L)
+int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
 
@@ -1302,45 +807,11 @@ static int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L)
 }
 
 
-static int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
+int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
     const bool ok = SetCassetteSpeakerEnabled(enabled);
     PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_SetPickableCountRawByIndex(lua_State* L)
-{
-    const int locatorIndex = GetLuaInt(L, 1);
-    const int countRaw = GetLuaInt(L, 2);
-
-    const bool ok = Set_TppPickableCountRawByIndex(
-        static_cast<std::uint32_t>(locatorIndex),
-        static_cast<std::uint32_t>(countRaw));
-
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_GetPickableCountRawByIndex(lua_State* L)
-{
-    const int locatorIndex = GetLuaInt(L, 1);
-
-    std::uint16_t countRaw = 0;
-    const bool ok = Get_TppPickableCountRawByIndex(
-        static_cast<std::uint32_t>(locatorIndex),
-        countRaw);
-
-    if (!ok)
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    PushLuaNumber(L, static_cast<float>(countRaw));
     return 1;
 }
 
@@ -1988,6 +1459,67 @@ int __cdecl l_HideTimeCigaretteUi(lua_State* L)
 }
 
 
+std::uint32_t Set_AnnounceLogSE(const char* announceLabel, std::uint32_t seId);
+std::uint32_t Set_AnnounceLogEvent(const char* announceLabel, const char* eventName);
+std::uint32_t Set_AnnounceLogVoice(const char* announceLabel, const char* voiceName);
+std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t condition,
+                                      std::uint32_t chara, std::uint32_t dialogueEvent);
+std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventName);
+bool Register_AnnounceLogSfx(const char* eventName);
+bool IsAnnounceLogSfxRegistered(const char* eventName);
+
+int __cdecl l_SetAnnounceLogSE(lua_State* L)
+{
+    const char* label = GetLuaString(L, 1);
+    std::uint32_t announceType = 0u;
+
+    if (label && *label)
+    {
+        if (GetLuaTop(L) >= 2 && LuaIsNumber(L, 2))
+        {
+            const std::uint32_t n = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
+            if (n > 0xFFu)
+            {
+                const std::uint32_t chara = (GetLuaTop(L) >= 3 && LuaIsNumber(L, 3))
+                                          ? static_cast<std::uint32_t>(GetLuaInt64(L, 3)) : 0u;
+                const std::uint32_t dlgEv = (GetLuaTop(L) >= 4 && LuaIsNumber(L, 4))
+                                          ? static_cast<std::uint32_t>(GetLuaInt64(L, 4)) : 0u;
+                announceType = Set_AnnounceLogDialogue(label, n, chara, dlgEv);
+            }
+            else
+            {
+                announceType = Set_AnnounceLogSE(label, n);
+            }
+        }
+        else if (GetLuaTop(L) >= 2 && LuaIsString(L, 2))
+        {
+            const char* s = GetLuaString(L, 2);
+            const bool isVoice = s && s[0] == 'V' && s[1] == 'O' && s[2] == 'I' &&
+                                 s[3] == 'C' && s[4] == 'E' && s[5] == '_';
+            announceType = isVoice ? Set_AnnounceLogVoice(label, s)
+                         : IsAnnounceLogSfxRegistered(s) ? Set_AnnounceLogSfx(label, s)
+                                   : Set_AnnounceLogEvent(label, s);
+        }
+        else
+            announceType = Set_AnnounceLogSE(label, 0u);
+    }
+
+    ResolveLuaApi();
+    if (g_lua_pushnumber)
+        g_lua_pushnumber(L, static_cast<lua_Number>(announceType));
+    return 1;
+}
+
+
+int __cdecl l_RegisterAnnounceLogSfx(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    const bool ok = Register_AnnounceLogSfx(name);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
 static int __cdecl l_GetModFiles(lua_State* L)
 {
     const auto files = V_FrameWorkModLoader::FindModFiles();
@@ -2075,7 +1607,7 @@ static std::uint64_t ParseSahelanFovaArg(const char* text)
 }
 
 
-static int __cdecl l_SetSahelanFova(lua_State* L)
+int __cdecl l_SetSahelanFova(lua_State* L)
 {
     const char* arg = GetLuaString(L, 1);
     if (!arg || !*arg)
@@ -2099,7 +1631,7 @@ static int __cdecl l_SetSahelanFova(lua_State* L)
 }
 
 
-static int __cdecl l_ClearSahelanFova(lua_State* L)
+int __cdecl l_ClearSahelanFova(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     Clear_SahelanFovaOverride();
@@ -2107,7 +1639,7 @@ static int __cdecl l_ClearSahelanFova(lua_State* L)
 }
 
 
-static int __cdecl l_SetEyeLampColor(lua_State* L)
+int __cdecl l_SetEyeLampColor(lua_State* L)
 {
     const float r          = GetLuaNumber(L, 1);
     const float g          = GetLuaNumber(L, 2);
@@ -2119,7 +1651,7 @@ static int __cdecl l_SetEyeLampColor(lua_State* L)
 }
 
 
-static int __cdecl l_ClearEyeLampColor(lua_State* L)
+int __cdecl l_ClearEyeLampColor(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     ::Clear_EyeLampColor();
@@ -2127,7 +1659,7 @@ static int __cdecl l_ClearEyeLampColor(lua_State* L)
 }
 
 
-static int __cdecl l_SetEyeLampColorLogging(lua_State* L)
+int __cdecl l_SetEyeLampColorLogging(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
     ::Set_EyeLampColorLogging(enabled);
@@ -2135,21 +1667,7 @@ static int __cdecl l_SetEyeLampColorLogging(lua_State* L)
 }
 
 
-static int __cdecl l_SetSahelanPhase(lua_State* L)
-{
-    const std::int32_t phase = static_cast<std::int32_t>(GetLuaInt64(L, 1));
-    ::Set_SahelanForcePhase(phase);
-    return 0;
-}
-
-static int __cdecl l_GetSahelanPhase(lua_State* L)
-{
-    PushLuaNumber(L, static_cast<float>(::Get_SahelanCurrentPhase()));
-    return 1;
-}
-
-
-static int __cdecl l_SetEyeLampDisco(lua_State* L)
+int __cdecl l_SetEyeLampDisco(lua_State* L)
 {
     const bool  enabled = GetLuaBool(L, 1);
     const float speed   = GetLuaNumber(L, 2);
@@ -2158,7 +1676,7 @@ static int __cdecl l_SetEyeLampDisco(lua_State* L)
 }
 
 
-static int __cdecl l_SetHeartLightColor(lua_State* L)
+int __cdecl l_SetHeartLightColor(lua_State* L)
 {
     const float r          = GetLuaNumber(L, 1);
     const float g          = GetLuaNumber(L, 2);
@@ -2169,7 +1687,7 @@ static int __cdecl l_SetHeartLightColor(lua_State* L)
 }
 
 
-static int __cdecl l_ClearHeartLightColor(lua_State* L)
+int __cdecl l_ClearHeartLightColor(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     ::Clear_HeartLightColor();
@@ -2212,57 +1730,7 @@ static std::int32_t ResolveSecurityCameraVariant(lua_State* L, int idx)
 }
 
 
-static int __cdecl l_SetSecurityCameraFova(lua_State* L)
-{
-    const std::int32_t variantIndex = ResolveSecurityCameraVariant(L, 1);
-    if (variantIndex < 0)
-    {
-        Log("[SecCamFova] SetSecurityCameraFova: bad variant arg (expected number 0/1 or \"NormalCamera\"/\"GunCamera\")\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const char* arg = GetLuaString(L, 2);
-    if (!arg || !*arg)
-    {
-        Log("[SecCamFova] SetSecurityCameraFova: missing fova argument (variant=%d)\n",
-            static_cast<int>(variantIndex));
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-
-    const bool hasHexPrefix = (arg[0] == '0') && (arg[1] == 'x' || arg[1] == 'X');
-    bool hasPathSep = false;
-    for (const char* p = arg; *p; ++p)
-    {
-        if (*p == '/' || *p == '\\') { hasPathSep = true; break; }
-    }
-
-    if (hasHexPrefix || !hasPathSep)
-    {
-
-        const std::uint64_t hash = ParseSahelanFovaArg(arg);
-        if (hash == 0)
-        {
-            Log("[SecCamFova] SetSecurityCameraFova: parsed hash is zero (input=\"%s\")\n", arg);
-            PushLuaBool(L, false);
-            return 1;
-        }
-        Set_SecurityCameraFovaHash(variantIndex, hash);
-    }
-    else
-    {
-
-        Set_SecurityCameraFovaPath(variantIndex, arg);
-    }
-
-    PushLuaBool(L, true);
-    return 1;
-}
-
-
-static int __cdecl l_ClearSecurityCameraFova(lua_State* L)
+int __cdecl l_ClearSecurityCameraFova(lua_State* L)
 {
     const std::int32_t variantIndex = ResolveSecurityCameraVariant(L, 1);
     if (variantIndex < 0)
@@ -2275,43 +1743,7 @@ static int __cdecl l_ClearSecurityCameraFova(lua_State* L)
 }
 
 
-static int __cdecl l_HashPathNoExt(lua_State* L)
-{
-    const char* path = GetLuaString(L, 1);
-    if (!path || !*path)
-    {
-        LuaPushString(L, const_cast<char*>(""));
-        return 1;
-    }
-
-    const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
-
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(hash));
-    LuaPushString(L, buf);
-    return 1;
-}
-
-
-static int __cdecl l_HashPathWithExt(lua_State* L)
-{
-    const char* path = GetLuaString(L, 1);
-    if (!path || !*path)
-    {
-        LuaPushString(L, const_cast<char*>(""));
-        return 1;
-    }
-
-    const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
-
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(hash));
-    LuaPushString(L, buf);
-    return 1;
-}
-
-
-static int __cdecl l_ClearAllSecurityCameraFovas(lua_State* L)
+int __cdecl l_ClearAllSecurityCameraFovas(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     Clear_AllSecurityCameraFovas();
@@ -2319,101 +1751,13 @@ static int __cdecl l_ClearAllSecurityCameraFovas(lua_State* L)
 }
 
 
-static int __cdecl l_EnableTornadoDual(lua_State* L)
+int __cdecl l_FNVHash32(lua_State* L)
 {
-    static constexpr std::uint8_t kOriginalBytes[2] = { 0x74, 0x10 };
-    static constexpr std::uint8_t kEnabledBytes[2]  = { 0x90, 0x90 };
-
-    const bool enable = GetLuaBool(L, 1);
-
-    if (!gAddr.TornadoDualPatch)
-    {
-        Log("[TornadoDual] EnableTornadoDual(%s): patch address not set for current build\n",
-            enable ? "true" : "false");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    void* target = ResolveGameAddress(gAddr.TornadoDualPatch);
-    if (!target)
-    {
-        Log("[TornadoDual] EnableTornadoDual(%s): ResolveGameAddress returned null\n",
-            enable ? "true" : "false");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    DWORD oldProtect = 0;
-    if (!VirtualProtect(target, sizeof(kOriginalBytes), PAGE_EXECUTE_READWRITE, &oldProtect))
-    {
-        Log("[TornadoDual] EnableTornadoDual(%s): VirtualProtect failed (err=%lu)\n",
-            enable ? "true" : "false", GetLastError());
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const std::uint8_t* src = enable ? kEnabledBytes : kOriginalBytes;
-    std::memcpy(target, src, sizeof(kOriginalBytes));
-
-    DWORD restored = 0;
-    VirtualProtect(target, sizeof(kOriginalBytes), oldProtect, &restored);
-    FlushInstructionCache(GetCurrentProcess(), target, sizeof(kOriginalBytes));
-
-    Log("[TornadoDual] EnableTornadoDual(%s): wrote %02X %02X at %p\n",
-        enable ? "true" : "false", src[0], src[1], target);
-
-    PushLuaBool(L, true);
-    return 1;
-}
-
-
-static int __cdecl l_SetGameOverMusic(lua_State* L)
-{
-    const bool isEnable = GetLuaBool(L, 1);
-    const int  typeRaw  = GetLuaInt(L, 2);
-    const char* playEvt = GetLuaString(L, 3);
-    const char* stopEvt = GetLuaString(L, 4);
-
-    if (typeRaw < GAME_OVER_GENERAL || typeRaw > GAME_OVER_CYPRUS)
-    {
-        Log("[GameOverMusic] SetGameOverMusic: invalid type=%d (expected 0..3)\n", typeRaw);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    if (isEnable && (!playEvt || !*playEvt || !stopEvt || !*stopEvt))
-    {
-        Log("[GameOverMusic] SetGameOverMusic: enable=true requires non-empty play/stop event strings\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const bool ok = SetGameOverMusic(isEnable,
-                                     static_cast<GAME_OVER_TYPE>(typeRaw),
-                                     playEvt ? playEvt : "",
-                                     stopEvt ? stopEvt : "");
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_SetEnableHeliVoice(lua_State* L)
-{
-    const bool isEnable = GetLuaBool(L, 1);
-    const char* voiceEvt = GetLuaString(L, 2);
-    const char* radioEvt = GetLuaString(L, 3);
-
-    if (isEnable && (!voiceEvt || !*voiceEvt || !radioEvt || !*radioEvt))
-    {
-        Log("[HeliVoice] SetEnableHeliVoice: enable=true requires non-empty voice/radio event strings\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const bool ok = SetEnableHeliVoice(isEnable,
-                                       voiceEvt ? voiceEvt : "",
-                                       radioEvt ? radioEvt : "");
-    PushLuaBool(L, ok);
+    const char* s = GetLuaString(L, 1);
+    const std::uint32_t h = (s && *s) ? FoxHashes::FNVHash32(s) : 0u;
+    ResolveLuaApi();
+    if (g_lua_pushnumber)
+        g_lua_pushnumber(L, static_cast<lua_Number>(h));
     return 1;
 }
 
@@ -2571,90 +1915,10 @@ static void PushLuaUInt32(lua_State* L, std::uint32_t v)
 }
 
 
-static int __cdecl l_StrCode32(lua_State* L)
-{
-    PushLuaUInt32(L, GetLuaStrCode32Arg(L, 1));
-    return 1;
-}
-
-
-static int __cdecl l_SetFieldTaxiMissionEnabled(lua_State* L)
-{
-    const unsigned int code    = static_cast<unsigned int>(GetLuaNumber(L, 1));
-    const bool         enabled = (GetLuaTop(L) >= 2) ? GetLuaBool(L, 2) : true;
-    FieldTaxi_SetMissionEnabled(code, enabled);
-    return 0;
-}
-
-
 static luaL_Reg g_VFrameWorkLib[] =
 {
-    { "SetPlayerVoiceFpkPathForType",           l_SetPlayerVoiceFpkPathForType },
-    { "ClearPlayerVoiceFpkPathForType",         l_ClearPlayerVoiceFpkPathForType },
-    { "ClearAllPlayerVoiceFpkOverrides",        l_ClearAllPlayerVoiceFpkOverrides },
-
-
-    { "SetVIPImportant",                        l_SetVIPImportant },
-    { "SetUseConcernedHoldupRecovery",          l_SetUseConcernedHoldupRecovery },
-    { "RemoveVIPImportant",                     l_RemoveVIPImportant },
-    { "ClearVIPImportant",                      l_ClearVIPImportant },
-    { "AddCallSignPatrolSoldier",               l_AddCallSignExtraSoldier },
-    { "RemoveCallSignPatrolSoldier",            l_RemoveCallSignExtraSoldier },
-    { "ClearCallSignPatrolSoldiers",            l_ClearCallSignExtraSoldiers },
-    { "SetLostHostage",                         l_SetLostHostage },
-    { "RemoveLostHostage",                      l_RemoveLostHostage },
-    { "ClearLostHostages",                      l_ClearLostHostages },
-    { "EnableSoldierStealthCamo",               l_EnableSoldierStealthCamo },
-    { "ClearSoldierStealthCamoOverrides",       l_ClearSoldierStealthCamoOverrides },
-    { "PlayCassetteTapeByTrackId",              l_PlayCassetteTapeByTrackId },
-    { "GetTapeTrackDirectPlayId",               l_GetTapeTrackDirectPlayId },
-    { "GetCassettePlayingTime",                 l_GetCassettePlayingTime },
-    { "GetCassettePlayingTrackId",              l_GetCassettePlayingTrackId },
-    { "PauseCassette",                          l_PauseCassette },
-    { "ResumeCassette",                         l_ResumeCassette },
-    { "StopCassette",                           l_StopCassette },
-    { "IsCassetteSpeakerEnabled",               l_IsCassetteSpeakerEnabled },
-    { "SetCassetteSpeakerEnabled",              l_SetCassetteSpeakerEnabled },
-    { "SetPickableCountRawByIndex",             l_SetPickableCountRawByIndex },
-    { "GetPickableCountRawByIndex",             l_GetPickableCountRawByIndex },
-
     { "Log",                                    l_Log },
     { "GetModFiles",                            l_GetModFiles },
-
-
-    { "EnableTornadoDual",                      l_EnableTornadoDual },
-
-
-    { "SetSahelanFova",                         l_SetSahelanFova },
-    { "ClearSahelanFova",                       l_ClearSahelanFova },
-    { "SetEyeLampColor",                        l_SetEyeLampColor },
-    { "ClearEyeLampColor",                      l_ClearEyeLampColor },
-    { "SetEyeLampDisco",                        l_SetEyeLampDisco },
-    { "SetHeartLightColor",                     l_SetHeartLightColor },
-    { "ClearHeartLightColor",                   l_ClearHeartLightColor },
-    { "SetEyeLampColorLogging",                 l_SetEyeLampColorLogging },
-
-    { "SetSahelanPhase",                        l_SetSahelanPhase },
-    { "GetSahelanPhase",                        l_GetSahelanPhase },
-
-    { "SetSecurityCameraFova",                  l_SetSecurityCameraFova },
-    { "ClearSecurityCameraFova",                l_ClearSecurityCameraFova },
-    { "ClearAllSecurityCameraFovas",            l_ClearAllSecurityCameraFovas },
-    { "HashPathNoExt",                          l_HashPathNoExt },
-    { "HashPathWithExt",                        l_HashPathWithExt },
-
-
-    { "SetGameOverMusic",                       l_SetGameOverMusic },
-    { "SetEnableHeliVoice",                     l_SetEnableHeliVoice },
-
-    { "StrCode32",                              l_StrCode32 },
-
-    { "SetFieldTaxiMissionEnabled",             l_SetFieldTaxiMissionEnabled },
-
-
-
-
-
 
     { nullptr, nullptr }
 };
@@ -2673,6 +1937,12 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_TppUiCommandLibrary(L);
         Register_V_TppSoundDaemonLibrary(L);
         Register_V_TppGameObjectConstants(L);
+        Register_V_TppCassetteLibrary(L);
+        Register_V_TppSahelanLibrary(L);
+        Register_V_TppPlayerLibrary(L);
+        Register_V_TppSecurityCameraLibrary(L);
+        Register_V_FoxLibrary(L);
+        Register_V_HelicopterLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -2702,6 +1972,12 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     Register_V_TppUiCommandLibrary(L);
     Register_V_TppSoundDaemonLibrary(L);
     Register_V_TppGameObjectConstants(L);
+    Register_V_TppCassetteLibrary(L);
+    Register_V_TppSahelanLibrary(L);
+    Register_V_TppPlayerLibrary(L);
+    Register_V_TppSecurityCameraLibrary(L);
+    Register_V_FoxLibrary(L);
+    Register_V_HelicopterLibrary(L);
 
     if (!RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
         return 0;
