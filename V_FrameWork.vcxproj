@@ -168,6 +168,18 @@
     <ClInclude Include="src\lua\UiCommandFunctions.h" />
     <ClInclude Include="src\lua\V_TppSoundDaemonLib.h" />
     <ClInclude Include="src\lua\SoundDaemonFunctions.h" />
+    <ClInclude Include="src\lua\V_TppCassetteLib.h" />
+    <ClInclude Include="src\lua\CassetteFunctions.h" />
+    <ClInclude Include="src\lua\V_TppSahelanLib.h" />
+    <ClInclude Include="src\lua\SahelanFunctions.h" />
+    <ClInclude Include="src\lua\V_PlayerLib.h" />
+    <ClInclude Include="src\lua\PlayerFunctions.h" />
+    <ClInclude Include="src\lua\V_TppSecurityCameraLib.h" />
+    <ClInclude Include="src\lua\SecurityCameraFunctions.h" />
+    <ClInclude Include="src\lua\V_FoxLib.h" />
+    <ClInclude Include="src\lua\V_HelicopterLib.h" />
+    <ClInclude Include="src\lua\FoxFunctions.h" />
+    <ClInclude Include="src\lua\LuaApi.h" />
     <!-- Third-party -->
     <ClInclude Include="include\lauxlib.h" />
     <ClInclude Include="include\lua.h" />
@@ -196,6 +208,7 @@
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <!-- Hooks: Player -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
+    <ClInclude Include="src\hooks\player\TornadoDualPatch.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
@@ -208,12 +221,14 @@
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
     <!-- Hooks: Heli -->
     <ClInclude Include="src\hooks\heli\FieldTaxiMenu.h" />
+    <ClInclude Include="src\hooks\heli\HeliSoundController.h" />
     <!-- Hooks: UI -->
     <ClInclude Include="src\hooks\ui\UiTextureOverrides.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
     <ClInclude Include="src\hooks\ui\EnemyLangIdOverride.h" />
     <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
+    <ClInclude Include="src\hooks\ui\AnnounceLogHook.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
@@ -247,10 +262,17 @@
     <ClCompile Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
     <!-- Lua bridge -->
+    <ClCompile Include="src\lua\LuaApi.cpp" />
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
     <ClCompile Include="src\lua\V_TppUiCommandLib.cpp" />
     <ClCompile Include="src\lua\V_TppGameObjectConstants.cpp" />
     <ClCompile Include="src\lua\V_TppSoundDaemonLib.cpp" />
+    <ClCompile Include="src\lua\V_TppCassetteLib.cpp" />
+    <ClCompile Include="src\lua\V_TppSahelanLib.cpp" />
+    <ClCompile Include="src\lua\V_PlayerLib.cpp" />
+    <ClCompile Include="src\lua\V_TppSecurityCameraLib.cpp" />
+    <ClCompile Include="src\lua\V_FoxLib.cpp" />
+    <ClCompile Include="src\lua\V_HelicopterLib.cpp" />
     <!-- Hooks: Soldier -->
     <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp" />
     <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
@@ -274,6 +296,7 @@
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <!-- Hooks: Player -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
+    <ClCompile Include="src\hooks\player\TornadoDualPatch.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
@@ -286,12 +309,14 @@
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />
     <!-- Hooks: Heli -->
     <ClCompile Include="src\hooks\heli\FieldTaxiMenu.cpp" />
+    <ClCompile Include="src\hooks\heli\HeliSoundController.cpp" />
     <!-- Hooks: UI -->
     <ClCompile Include="src\hooks\ui\UiTextureOverrides.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\ui\EnemyLangIdOverride.cpp" />
     <ClCompile Include="src\hooks\ui\MissionEmergencyHook.cpp" />
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
+    <ClCompile Include="src\hooks\ui\AnnounceLogHook.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->
