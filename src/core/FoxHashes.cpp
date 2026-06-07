@@ -13,10 +13,26 @@ namespace
     using FoxStrHash32_t = uint32_t(__fastcall*)(char* str);
     using FoxStrHash64_t = uint64_t(__fastcall*)(char* str);
     using PathHashCode_t = uint64_t(__fastcall*)(char* str);
+    using FNVHash32_t    = uint32_t(__fastcall*)(const char* str);
 
     static FoxStrHash32_t g_FoxStrHash32 = nullptr;
     static FoxStrHash64_t g_FoxStrHash64 = nullptr;
     static PathHashCode_t g_PathHashCode = nullptr;
+    static FNVHash32_t    g_FNVHash32    = nullptr;
+
+    static uint32_t Fnv1Hash32Lower(const char* text)
+    {
+        uint32_t hash = 0x811C9DC5u;
+        for (const char* p = text; *p; ++p)
+        {
+            unsigned char c = static_cast<unsigned char>(*p);
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<unsigned char>(c - 'A' + 'a');
+            hash *= 0x01000193u;
+            hash ^= c;
+        }
+        return hash;
+    }
 }
 
 namespace FoxHashes
@@ -80,6 +96,28 @@ namespace FoxHashes
 
         std::string temp(text);
         return g_FoxStrHash32(&temp[0]);
+    }
+
+    uint32_t FNVHash32(const char* text)
+    {
+        if (!text || !*text)
+            return 0;
+
+        if (!g_FNVHash32 && gAddr.FNVHash32)
+            g_FNVHash32 = reinterpret_cast<FNVHash32_t>(ResolveGameAddress(gAddr.FNVHash32));
+
+        if (g_FNVHash32)
+        {
+            std::string temp(text);
+            return g_FNVHash32(&temp[0]);
+        }
+
+        return Fnv1Hash32Lower(text);
+    }
+
+    uint32_t FNVHash32(const std::string& text)
+    {
+        return text.empty() ? 0u : FNVHash32(text.c_str());
     }
 
     uint64_t StrCode64(const char* text)

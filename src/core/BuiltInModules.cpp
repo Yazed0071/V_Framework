@@ -124,6 +124,14 @@ bool Uninstall_FieldTaxiMenu();
 bool Install_TimeCigaretteUi_Hook();
 bool Uninstall_TimeCigaretteUi_Hook();
 
+bool Install_HeliSoundController_Hook();
+bool Uninstall_HeliSoundController_Hook();
+bool Install_AnnounceLogHook();
+bool Uninstall_AnnounceLogHook();
+
+bool Install_TornadoDualPatch();
+void Uninstall_TornadoDualPatch();
+
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
 
@@ -796,6 +804,30 @@ namespace
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_TimeCigaretteUi_Hook(); }
         void Uninstall() override { Uninstall_TimeCigaretteUi_Hook(); }
     };
+
+    class HeliSoundControllerModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "HeliSoundController"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_HeliSoundController_Hook(); }
+        void Uninstall() override { Uninstall_HeliSoundController_Hook(); }
+    };
+
+    class AnnounceLogModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "AnnounceLog"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_AnnounceLogHook(); }
+        void Uninstall() override { Uninstall_AnnounceLogHook(); }
+    };
+
+    class TornadoDualPatchModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "TornadoDualPatch"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_TornadoDualPatch(); }
+        void Uninstall() override { Uninstall_TornadoDualPatch(); }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -839,6 +871,9 @@ void RegisterBuiltInFeatureModules()
     static SoldierNoticeModule s_SoldierNoticeModule;
     static FieldTaxiMenuModule s_FieldTaxiMenuModule;
     static TimeCigaretteUiModule s_TimeCigaretteUiModule;
+    static HeliSoundControllerModule s_HeliSoundControllerModule;
+    static AnnounceLogModule s_AnnounceLogModule;
+    static TornadoDualPatchModule s_TornadoDualPatchModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -882,5 +917,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
             FeatureModuleRegistry::Instance().Register(&s_FieldTaxiMenuModule);
             FeatureModuleRegistry::Instance().Register(&s_TimeCigaretteUiModule);
+            FeatureModuleRegistry::Instance().Register(&s_HeliSoundControllerModule);
+            FeatureModuleRegistry::Instance().Register(&s_AnnounceLogModule);
+            FeatureModuleRegistry::Instance().Register(&s_TornadoDualPatchModule);
         });
 }

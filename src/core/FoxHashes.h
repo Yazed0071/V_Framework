@@ -12,6 +12,9 @@ namespace FoxHashes
     uint32_t StrCode32(const char* text);
     uint32_t StrCode32(const std::string& text);
 
+    uint32_t FNVHash32(const char* text);
+    uint32_t FNVHash32(const std::string& text);
+
     uint64_t StrCode64(const char* text);
     uint64_t StrCode64(const std::string& text);
 
