@@ -133,7 +133,7 @@ namespace
             return;
 
         if (read && !wasShown && TryIsShown(element))
-            V_FrameWork::EmitMessage("Player", "TimeCigaretteUi", index);
+            V_FrameWork::EmitMessage("UI", "TimeCigaretteUi", index);
     }
 }
 
