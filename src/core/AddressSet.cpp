@@ -246,6 +246,39 @@ namespace AddressSetRuntime
 
             0x149CD7DD0ull, // TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi
 
+            0x1408E5DB0ull, // HeliTaxi_CanHeliTaxi
+            0x140F0D8D0ull, // HeliTaxi_CallRescueHeli
+            0x140E0CD90ull, // HeliTaxi_StepWithdraw
+            0x140910890ull, // HeliTaxi_GetLocationId
+            0x145C468F0ull, // HeliTaxi_RequestMapPhase
+            0x140E096E0ull, // HeliTaxi_StepGoToNav
+            0x140E0A2F0ull, // HeliTaxi_StepTaxiCurrentCluster
+            0x148F8CB80ull, // HeliTaxi_PassengerUpdate
+            0x140E143C0ull, // MechaActionImpl_StateOff
+            0x140E14800ull, // MechaActionImpl_StateOn
+            0x148F8A4A0ull, // PassengerControllerImpl_IsPassengerClosingDoor
+
+            0x1463FC140ull, // PlacedSystemImpl_BindResource
+            0x140935760ull, // UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate
+
+            0x140E242C0ull, // HeliSoundControllerImpl_Update
+            0x148FABEA0ull, // HeliSoundControllerImpl_CallVoice
+            0x140DFD240ull, // HeliFlightControllerImpl_Update
+            0x145C096B0ull, // Hud_GetAnnounceLogSE
+            0x1409137A0ull, // Ui_GetStringId
+            0x1408A2EA0ull, // Hud_TypingLogActUpdate
+            0x141DC9ED0ull, // Ui_SoundControlStart
+            0x14085F0C0ull, // Ui_UiCommonDataManagerGetInstance
+            0x14085F190ull, // Ui_EventNodeBodyGetGraphState
+            0x145F804D0ull, // VoiceParam_PlayDialogue
+            0x1408CC280ull, // Ui_AnnounceLogViewLangId
+
+            0x149B603F0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
+            0x14121EB90ull, // RideHeliActionPluginImpl_GetStateFn
+
+            0x142BFF960ull, // SoundDaemon_Instance
+            0x146142730ull, // SoundDaemon_PostEventQueue
+            0x1420A72B0ull, // Sd_kW_Select
         };
 
         return value;
@@ -446,6 +479,39 @@ namespace AddressSetRuntime
             0x1448ACA50ull, // Fv2ResourceManager_GetModel
 
             0x14A6347F0ull, // TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi
+
+            0x1408E57C0ull, // HeliTaxi_CanHeliTaxi
+            0x149D09260ull, // HeliTaxi_CallRescueHeli
+            0x140E0CE40ull, // HeliTaxi_StepWithdraw
+            0x1409102C0ull, // HeliTaxi_GetLocationId
+            0x14779D2F0ull, // HeliTaxi_RequestMapPhase
+            0x140E09790ull, // HeliTaxi_StepGoToNav
+            0x140E0E3A0ull, // HeliTaxi_StepTaxiCurrentCluster
+            0x14973F220ull, // HeliTaxi_PassengerUpdate
+            0x140E14470ull, // MechaActionImpl_StateOff
+            0x140E148B0ull, // MechaActionImpl_StateOn
+            0x14973C110ull, // PassengerControllerImpl_IsPassengerClosingDoor
+
+            0x14804A500ull, // PlacedSystemImpl_BindResource
+            0x140935170ull, // UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate
+
+            0x140E24030ull, // HeliSoundControllerImpl_Update
+            0x14975E670ull, // HeliSoundControllerImpl_CallVoice
+            0x140DfD310ull, // HeliFlightControllerImpl_Update
+            0x147718790ull, // Hud_GetAnnounceLogSE
+            0x148108C90ull, // Ui_GetStringId
+            0x1408a29c0ull, // Hud_TypingLogActUpdate
+            0x141DC9F10ull, // Ui_SoundControlStart
+            0x1476cda70ull, // Ui_UiCommonDataManagerGetInstance
+            0x1404b2220ull, // Ui_EventNodeBodyGetGraphState
+            0x147b92a30ull, // VoiceParam_PlayDialogue
+            0x1408cbcb0ull, // Ui_AnnounceLogViewLangId
+            0x14a4979a0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
+            0x14121ecb0ull, // RideHeliActionPluginImpl_GetStateFn
+
+            0x142bff960ull, // SoundDaemon_Instance
+            0x147ddeb40ull, // SoundDaemon_PostEventQueue
+            0x1420a72b0ull, // Sd_kW_Select
         };
 
         return value;

@@ -190,6 +190,41 @@ namespace AddressSetRuntime
 
         uintptr_t TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi      = 0;
 
+        uintptr_t HeliTaxi_CanHeliTaxi      = 0;
+        uintptr_t HeliTaxi_CallRescueHeli   = 0;
+        uintptr_t HeliTaxi_StepWithdraw     = 0;
+        uintptr_t HeliTaxi_GetLocationId    = 0;
+        uintptr_t HeliTaxi_RequestMapPhase  = 0;
+        uintptr_t HeliTaxi_StepGoToNav      = 0;
+        uintptr_t HeliTaxi_StepTaxiCurrentCluster  = 0;
+        uintptr_t HeliTaxi_PassengerUpdate  = 0;
+        uintptr_t MechaActionImpl_StateOff  = 0;
+        uintptr_t MechaActionImpl_StateOn    = 0;
+        uintptr_t PassengerControllerImpl_IsPassengerClosingDoor = 0;
+
+        uintptr_t PlacedSystemImpl_BindResource = 0;
+        uintptr_t UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate = 0;
+
+        uintptr_t HeliSoundControllerImpl_Update    = 0;
+        uintptr_t HeliSoundControllerImpl_CallVoice = 0;
+        uintptr_t HeliFlightControllerImpl_Update   = 0;
+        uintptr_t Hud_GetAnnounceLogSE              = 0;
+        uintptr_t Ui_GetStringId                    = 0;
+
+        uintptr_t Hud_TypingLogActUpdate            = 0;
+        uintptr_t Ui_SoundControlStart              = 0;
+        uintptr_t Ui_UiCommonDataManagerGetInstance = 0;
+        uintptr_t Ui_EventNodeBodyGetGraphState     = 0;
+        uintptr_t VoiceParam_PlayDialogue                 = 0;
+        uintptr_t Ui_AnnounceLogViewLangId          = 0;
+
+        uintptr_t RideHeliActionPluginImpl_ExecPreMotionGraph = 0;
+        uintptr_t RideHeliActionPluginImpl_GetStateFn         = 0;
+
+        uintptr_t SoundDaemon_Instance       = 0;
+        uintptr_t SoundDaemon_PostEventQueue = 0;
+        uintptr_t Sd_kW_Select               = 0;
+
     };
 
     inline GameBuild& GetGameBuild()
