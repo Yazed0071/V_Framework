@@ -10,25 +10,6 @@
 
 namespace
 {
-    using FNVHash32_t = unsigned int(__fastcall*)(const char* strToHash);
-    static FNVHash32_t g_FNVHash32 = nullptr;
-
-    unsigned int GetFNVHash32(const char* strToHash)
-    {
-        if (!g_FNVHash32 && gAddr.FNVHash32)
-        {
-            g_FNVHash32 = reinterpret_cast<FNVHash32_t>(
-                ResolveGameAddress(gAddr.FNVHash32));
-        }
-
-        if (!g_FNVHash32 || !strToHash)
-            return 0;
-
-        const unsigned int ret = g_FNVHash32(strToHash);
-        Log("[GameOverMusic] GetFNVHash32(%s)=%u\n", strToHash, ret);
-        return ret;
-    }
-
     bool TogglePatch(bool isEnable,
                      uintptr_t pointer,
                      SIZE_T dwSize,
@@ -84,11 +65,11 @@ namespace
 
 bool SetGameOverMusic(bool isEnable,
                       GAME_OVER_TYPE type,
-                      const char* playEventStr,
-                      const char* stopEventStr)
+                      unsigned int playEventHash,
+                      unsigned int stopEventHash)
 {
-    unsigned int playEventHash = GetFNVHash32(playEventStr);
-    unsigned int stopEventHash = GetFNVHash32(stopEventStr);
+    Log("[GameOverMusic] SetGameOverMusic enable=%d type=%d playHash=%u stopHash=%u\n",
+        isEnable ? 1 : 0, static_cast<int>(type), playEventHash, stopEventHash);
 
     auto* playEventBytes = reinterpret_cast<std::uint8_t*>(&playEventHash);
     auto* stopEventBytes = reinterpret_cast<std::uint8_t*>(&stopEventHash);

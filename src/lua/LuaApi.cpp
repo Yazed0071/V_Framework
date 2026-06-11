@@ -34,7 +34,6 @@ lua_pcall_t        g_lua_pcall        = nullptr;
 
 namespace
 {
-    // EN used only until AddressSet is resolved.
     constexpr uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
     constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring    = 0x141A123C0ull;
     constexpr uintptr_t BOOTSTRAP_EN_lua_tointeger    = 0x141A12390ull;

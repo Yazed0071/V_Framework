@@ -21,8 +21,8 @@ namespace
     {
         const bool isEnable = GetLuaBool(L, 1);
         const int  typeRaw  = GetLuaInt(L, 2);
-        const char* playEvt = GetLuaString(L, 3);
-        const char* stopEvt = GetLuaString(L, 4);
+        const unsigned int playHash = GetLuaFnvHash32Arg(L, 3);
+        const unsigned int stopHash = GetLuaFnvHash32Arg(L, 4);
 
         if (typeRaw < GAME_OVER_GENERAL || typeRaw > GAME_OVER_CYPRUS)
         {
@@ -31,45 +31,25 @@ namespace
             return 1;
         }
 
-        if (isEnable && (!playEvt || !*playEvt || !stopEvt || !*stopEvt))
+        if (isEnable && (playHash == 0 || stopHash == 0))
         {
-            Log("[GameOverMusic] SetGameOverMusic: enable=true requires non-empty play/stop event strings\n");
+            Log("[GameOverMusic] SetGameOverMusic: enable=true requires a valid play/stop event (name string or hash number)\n");
             PushLuaBool(L, false);
             return 1;
         }
 
         const bool ok = SetGameOverMusic(isEnable,
                                          static_cast<GAME_OVER_TYPE>(typeRaw),
-                                         playEvt ? playEvt : "",
-                                         stopEvt ? stopEvt : "");
+                                         playHash,
+                                         stopHash);
         PushLuaBool(L, ok);
         return 1;
     }
 
     static luaL_Reg g_VTppSoundDaemonLib[] =
     {
-        // RTPC (raw Wwise)
-        { "SetSoldierRtpc",                 l_SetSoldierRtpc },
-        { "SetGlobalRtpc",                  l_SetGlobalRtpc },
-        { "SetSoldierRtpcById",             l_SetSoldierRtpcById },
-        { "SetGlobalRtpcById",              l_SetGlobalRtpcById },
-        { "SetRtpcByAkObjId",               l_SetRtpcByAkObjId },
-        { "SetRtpcByAkObjIdById",           l_SetRtpcByAkObjIdById },
-        { "SetRtpcLoggingEnabled",          l_SetRtpcLoggingEnabled },
-        { "IsRtpcLoggingEnabled",           l_IsRtpcLoggingEnabled },
-
-        // RTPC (per-soldier via SoundController)
-        { "SetSoldierObjectRtpc",           l_SetSoldierObjectRtpc },
-        { "SetSoldierObjectRtpcByName",     l_SetSoldierObjectRtpcByName },
-
-        // Voice pitch
-        { "SetGlobalVoicePitch",            l_SetGlobalVoicePitch },
-        { "GetGlobalVoicePitch",            l_GetGlobalVoicePitch },
-        { "SetPitchByAkObjId",              l_SetPitchByAkObjId },
-        { "ClearPitchByAkObjId",            l_ClearPitchByAkObjId },
-        { "ClearAllPerAkObjIdPitchBiases",  l_ClearAllPerAkObjIdPitchBiases },
-        { "GetSoldierAkObjId",              l_GetSoldierAkObjId },
         { "SetSoldierVoicePitch",           l_SetSoldierVoicePitch },
+        { "UnsetSoldierVoicePitch",         l_UnsetSoldierVoicePitch },
 
         { "SetGameOverMusic",               l_SetGameOverMusic },
 

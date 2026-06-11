@@ -294,6 +294,16 @@ bool Set_SoldierVoicePitch(std::uint32_t gameObjectId, float cents)
 }
 
 
+void Unset_AllSoldierVoicePitch()
+{
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        g_PendingPitchByGameObjectId.clear();
+    }
+    SoldierAkObjIdMap::ClearAllDesiredPitches();
+}
+
+
 void TryApplyAllPendingSoldierPitches()
 {
     std::vector<std::pair<std::uint32_t, float>> snapshot;

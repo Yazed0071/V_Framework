@@ -11,5 +11,5 @@ enum GAME_OVER_TYPE : std::uint8_t
 
 bool SetGameOverMusic(bool isEnable,
                       GAME_OVER_TYPE type,
-                      const char* playEventStr,
-                      const char* stopEventStr);
+                      unsigned int playEventHash,
+                      unsigned int stopEventHash);

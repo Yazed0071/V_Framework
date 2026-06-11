@@ -18,7 +18,9 @@ extern "C" {
 #include "HookUtils.h"
 #include "log.h"
 #include "FoxHashes.h"
-#include "UiTextureOverrides.h"
+#include "EquipBgTexture.h"
+#include "LoadingSplash.h"
+#include "GameOverSplash.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPHoldupHook.h"
 #include "VIPRadioHook.h"
@@ -36,7 +38,6 @@ extern "C" {
 #include "LuaApi.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
-#include "SoldierRtpcHook.h"
 #include "SoldierVoiceTypeQuery.h"
 #include "SoldierObjectRtpc.h"
 #include "../hooks/sound/VoicePitchOverride.h"
@@ -47,7 +48,6 @@ extern "C" {
 #include "../hooks/sound/GameOverMusic.h"
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/heli/HeliSoundController.h"
-#include "../hooks/securitycamera/SecurityCameraFovaHook.h"
 #include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 #include "../hooks/ui/EnemyLangIdOverride.h"
 #include "../hooks/ui/MissionEmergencyHook.h"
@@ -66,8 +66,6 @@ extern "C" {
 #include "SahelanFunctions.h"
 #include "V_PlayerLib.h"
 #include "PlayerFunctions.h"
-#include "V_TppSecurityCameraLib.h"
-#include "SecurityCameraFunctions.h"
 #include "V_FoxLib.h"
 #include "V_HelicopterLib.h"
 #include "FoxFunctions.h"
@@ -331,7 +329,11 @@ int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    EquipBg_SetDefaultTexture(FoxHashes::PathCode64Ext(rawPath));
+    const int coloredType = LuaType(L, 2);
+    const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 2) != 0;
+    const int opacityType = LuaType(L, 3);
+    const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 3) : 1.0f;
+    EquipBg_SetDefaultTexture(FoxHashes::PathCode64Ext(rawPath), colored, opacity);
     return 0;
 }
 
@@ -344,13 +346,42 @@ int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
 }
 
 
+int __cdecl l_SetEquipBgTexturePath(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    const char* rawPath = GetLuaString(L, 2);
+
+    if (!rawPath || !*rawPath)
+        return 0;
+
+    const int coloredType = LuaType(L, 3);
+    const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 3) != 0;
+    const int opacityType = LuaType(L, 4);
+    const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 4) : 1.0f;
+    EquipBg_SetEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath), colored, opacity);
+    return 0;
+}
+
+
+int __cdecl l_ClearEquipBgTexture(lua_State* L)
+{
+    const int equipId = GetLuaInt(L, 1);
+    EquipBg_ClearEquipTexture(equipId);
+    return 0;
+}
+
+
 int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
     if (!rawPath || !*rawPath)
         return 0;
 
-    EquipBg_SetEnemyWeaponTexture(FoxHashes::PathCode64Ext(rawPath));
+    const int coloredType = LuaType(L, 2);
+    const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 2) != 0;
+    const int opacityType = LuaType(L, 3);
+    const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 3) : 1.0f;
+    EquipBg_SetEnemyWeaponTexture(FoxHashes::PathCode64Ext(rawPath), colored, opacity);
     return 0;
 }
 
@@ -371,7 +402,11 @@ int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    EquipBg_SetEnemyEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath));
+    const int coloredType = LuaType(L, 3);
+    const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 3) != 0;
+    const int opacityType = LuaType(L, 4);
+    const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 4) : 1.0f;
+    EquipBg_SetEnemyEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath), colored, opacity);
     return 0;
 }
 
@@ -380,27 +415,6 @@ int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
 {
     const int equipId = GetLuaInt(L, 1);
     EquipBg_ClearEnemyEquipTexture(equipId);
-    return 0;
-}
-
-
-int __cdecl l_SetEquipBgTexturePath(lua_State* L)
-{
-    const int equipId = GetLuaInt(L, 1);
-    const char* rawPath = GetLuaString(L, 2);
-
-    if (!rawPath || !*rawPath)
-        return 0;
-
-    EquipBg_SetEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath));
-    return 0;
-}
-
-
-int __cdecl l_ClearEquipBgTexture(lua_State* L)
-{
-    const int equipId = GetLuaInt(L, 1);
-    EquipBg_ClearEquipTexture(equipId);
     return 0;
 }
 
@@ -502,171 +516,6 @@ int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 }
 
 
-int __cdecl l_SetSoldierRtpc(lua_State* L)
-{
-    const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const char* rtpcName = GetLuaString(L, 2);
-    const float value = GetLuaNumber(L, 3);
-    const long timeMs = static_cast<long>(GetLuaInt(L, 4));
-
-    const int result = SoldierRtpc::SetSoldierRtpc(goId, rtpcName, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetGlobalRtpc(lua_State* L)
-{
-    const char* rtpcName = GetLuaString(L, 1);
-    const float value = GetLuaNumber(L, 2);
-    const long timeMs = static_cast<long>(GetLuaInt(L, 3));
-
-    const int result = SoldierRtpc::SetGlobalRtpc(rtpcName, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetSoldierRtpcById(lua_State* L)
-{
-    const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
-    const float         value  = GetLuaNumber(L, 3);
-    const long          timeMs = static_cast<long>(GetLuaInt(L, 4));
-
-    const int result = SoldierRtpc::SetSoldierRtpcById(goId, rtpcId, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetGlobalRtpcById(lua_State* L)
-{
-    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const float         value  = GetLuaNumber(L, 2);
-    const long          timeMs = static_cast<long>(GetLuaInt(L, 3));
-
-    const int result = SoldierRtpc::SetGlobalRtpcById(rtpcId, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetRtpcByAkObjId(lua_State* L)
-{
-    const std::uint64_t akObjId  = GetLuaInt64(L, 1);
-    const char*         rtpcName = GetLuaString(L, 2);
-    const float         value    = GetLuaNumber(L, 3);
-    const long          timeMs   = static_cast<long>(GetLuaInt(L, 4));
-
-    const int result = SoldierRtpc::SetRtpcByAkObjId(akObjId, rtpcName, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetRtpcByAkObjIdById(lua_State* L)
-{
-    const std::uint64_t akObjId = GetLuaInt64(L, 1);
-    const std::uint32_t rtpcId  = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
-    const float         value   = GetLuaNumber(L, 3);
-    const long          timeMs  = static_cast<long>(GetLuaInt(L, 4));
-
-    const int result = SoldierRtpc::SetRtpcByAkObjIdById(akObjId, rtpcId, value, timeMs);
-    PushLuaNumber(L, static_cast<float>(result));
-    return 1;
-}
-
-
-int __cdecl l_SetRtpcLoggingEnabled(lua_State* L)
-{
-    const bool enabled = GetLuaBool(L, 1);
-    const bool prev    = SoldierRtpc::SetRtpcLoggingEnabled(enabled);
-    PushLuaBool(L, prev);
-    return 1;
-}
-
-
-int __cdecl l_IsRtpcLoggingEnabled(lua_State* L)
-{
-    PushLuaBool(L, SoldierRtpc::IsRtpcLoggingEnabled());
-    return 1;
-}
-
-
-int __cdecl l_SetSoldierObjectRtpc(lua_State* L)
-{
-    const std::uint32_t goId   = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const std::uint32_t rtpcId = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
-    const float         value  = GetLuaNumber(L, 3);
-    const long          timeMs = static_cast<long>(GetLuaInt(L, 4));
-    const bool ok = ::Set_SoldierObjectRtpc(goId, rtpcId, value, timeMs);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-int __cdecl l_SetSoldierObjectRtpcByName(lua_State* L)
-{
-    const std::uint32_t goId     = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const char*         rtpcName = GetLuaString(L, 2);
-    const float         value    = GetLuaNumber(L, 3);
-    const long          timeMs   = static_cast<long>(GetLuaInt(L, 4));
-    const bool ok = ::Set_SoldierObjectRtpcByName(goId, rtpcName, value, timeMs);
-    PushLuaBool(L, ok);
-    return 1;
-}
-
-
-int __cdecl l_SetGlobalVoicePitch(lua_State* L)
-{
-    const float cents = GetLuaNumber(L, 1);
-    ::Set_GlobalVoicePitchBiasCents(cents);
-    return 0;
-}
-
-
-int __cdecl l_GetGlobalVoicePitch(lua_State* L)
-{
-    PushLuaNumber(L, ::Get_GlobalVoicePitchBiasCents());
-    return 1;
-}
-
-
-int __cdecl l_SetPitchByAkObjId(lua_State* L)
-{
-    const std::uint64_t akObjId = GetLuaInt64(L, 1);
-    const float         cents   = GetLuaNumber(L, 2);
-    ::Set_PitchBiasForAkObjId(akObjId, cents);
-    return 0;
-}
-
-
-int __cdecl l_ClearPitchByAkObjId(lua_State* L)
-{
-    const std::uint64_t akObjId = GetLuaInt64(L, 1);
-    ::Clear_PitchBiasForAkObjId(akObjId);
-    return 0;
-}
-
-
-int __cdecl l_ClearAllPerAkObjIdPitchBiases(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    ::Clear_AllPerAkObjIdPitchBiases();
-    return 0;
-}
-
-
-int __cdecl l_GetSoldierAkObjId(lua_State* L)
-{
-    const std::uint32_t goId = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
-    const std::uint32_t akObjId = ::Get_SoldierAkObjId(goId);
-    PushLuaNumber(L, static_cast<float>(akObjId));
-    return 1;
-}
-
-
 int __cdecl l_SetSoldierVoicePitch(lua_State* L)
 {
     const std::uint32_t goId  = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -674,6 +523,14 @@ int __cdecl l_SetSoldierVoicePitch(lua_State* L)
     const bool ok = ::Set_SoldierVoicePitch(goId, cents);
     PushLuaBool(L, ok);
     return 1;
+}
+
+
+int __cdecl l_UnsetSoldierVoicePitch(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    ::Unset_AllSoldierVoicePitch();
+    return 0;
 }
 
 
@@ -1607,146 +1464,10 @@ static std::uint64_t ParseSahelanFovaArg(const char* text)
 }
 
 
-int __cdecl l_SetSahelanFova(lua_State* L)
-{
-    const char* arg = GetLuaString(L, 1);
-    if (!arg || !*arg)
-    {
-        Log("[SahelanFova] SetSahelanFova: missing argument; expected hex hash like \"0x60887fe72aa5c04b\" or asset path\n");
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    const std::uint64_t hash = ParseSahelanFovaArg(arg);
-    if (hash == 0)
-    {
-        Log("[SahelanFova] SetSahelanFova: parsed hash is zero (input=\"%s\")\n", arg);
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    Set_SahelanFovaHash(hash);
-    PushLuaBool(L, true);
-    return 1;
-}
-
-
-int __cdecl l_ClearSahelanFova(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_SahelanFovaOverride();
-    return 0;
-}
-
-
-int __cdecl l_SetEyeLampColor(lua_State* L)
-{
-    const float r          = GetLuaNumber(L, 1);
-    const float g          = GetLuaNumber(L, 2);
-    const float b          = GetLuaNumber(L, 3);
-    const float pulseSpeed = GetLuaNumber(L, 4);
-    const int   mode       = static_cast<int>(GetLuaInt64(L, 5));
-    ::Set_EyeLampColor(mode, r, g, b, pulseSpeed);
-    return 0;
-}
-
-
-int __cdecl l_ClearEyeLampColor(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    ::Clear_EyeLampColor();
-    return 0;
-}
-
-
 int __cdecl l_SetEyeLampColorLogging(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
     ::Set_EyeLampColorLogging(enabled);
-    return 0;
-}
-
-
-int __cdecl l_SetEyeLampDisco(lua_State* L)
-{
-    const bool  enabled = GetLuaBool(L, 1);
-    const float speed   = GetLuaNumber(L, 2);
-    ::Set_EyeLampDisco(enabled, speed);
-    return 0;
-}
-
-
-int __cdecl l_SetHeartLightColor(lua_State* L)
-{
-    const float r          = GetLuaNumber(L, 1);
-    const float g          = GetLuaNumber(L, 2);
-    const float b          = GetLuaNumber(L, 3);
-    const float pulseSpeed = GetLuaNumber(L, 4);
-    ::Set_HeartLightColor(r, g, b, pulseSpeed);
-    return 0;
-}
-
-
-int __cdecl l_ClearHeartLightColor(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    ::Clear_HeartLightColor();
-    return 0;
-}
-
-
-static std::int32_t ResolveSecurityCameraVariant(lua_State* L, int idx)
-{
-
-    if (LuaType(L, idx) == 3)
-        return static_cast<std::int32_t>(GetLuaInt(L, idx));
-
-
-    if (LuaType(L, idx) == 4)
-    {
-        const char* s = GetLuaString(L, idx);
-        if (!s || !*s)
-            return -1;
-
-
-        char lower[32] = {};
-        size_t n = 0;
-        while (s[n] && n + 1 < sizeof(lower))
-        {
-            char c = s[n];
-            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-            lower[n] = c;
-            ++n;
-        }
-        lower[n] = 0;
-
-        if (std::strcmp(lower, "normalcamera") == 0 || std::strcmp(lower, "normal") == 0)
-            return 0;
-        if (std::strcmp(lower, "guncamera") == 0 || std::strcmp(lower, "gun") == 0)
-            return 1;
-    }
-
-    return -1;
-}
-
-
-int __cdecl l_ClearSecurityCameraFova(lua_State* L)
-{
-    const std::int32_t variantIndex = ResolveSecurityCameraVariant(L, 1);
-    if (variantIndex < 0)
-    {
-        Log("[SecCamFova] ClearSecurityCameraFova: bad variant arg\n");
-        return 0;
-    }
-    Clear_SecurityCameraFova(variantIndex);
-    return 0;
-}
-
-
-int __cdecl l_ClearAllSecurityCameraFovas(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    Clear_AllSecurityCameraFovas();
     return 0;
 }
 
@@ -1940,7 +1661,6 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_TppCassetteLibrary(L);
         Register_V_TppSahelanLibrary(L);
         Register_V_TppPlayerLibrary(L);
-        Register_V_TppSecurityCameraLibrary(L);
         Register_V_FoxLibrary(L);
         Register_V_HelicopterLibrary(L);
         TrackLuaState(L);
@@ -1975,7 +1695,6 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     Register_V_TppCassetteLibrary(L);
     Register_V_TppSahelanLibrary(L);
     Register_V_TppPlayerLibrary(L);
-    Register_V_TppSecurityCameraLibrary(L);
     Register_V_FoxLibrary(L);
     Register_V_HelicopterLibrary(L);
 

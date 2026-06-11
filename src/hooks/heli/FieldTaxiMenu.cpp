@@ -74,10 +74,13 @@ namespace
 
     static volatile bool         g_taxiMapOpen  = false;
 
-    static volatile unsigned int g_taxiRideState   = 0x08;   // EFFECTIVE taxi-cruise pose the hooks apply; re-derived each ride from the two configured poses + the route's relay status
-    static volatile unsigned int g_taxiPose = 0x03;   // the heli ride pose (edge/door/chair); set via V_Helicopter.SetTaxiRideState, applied per taxi LZ-select
-    static volatile bool         g_taxiPoseLocked = false;        // effective pose is locked once per ride (at LZ-select/carry-start); a mid-ride SetTaxiRideState waits for the next ride
-    static volatile bool         g_taxiRideLog   = false;   // verbose ride-state logging (toggle via V_Helicopter.SetTaxiRideLog)
+    static volatile unsigned int g_taxiRideState = 0x08;
+    static volatile unsigned int g_taxiPose = 0x03;
+    static volatile bool         g_taxiPoseLocked = false;
+    static volatile bool         g_taxiRideLog   = false;
+    static volatile bool         g_taxiRequested = false;
+    static volatile unsigned int g_dbgCur  = 0;
+    static volatile unsigned int g_dbgNext = 0;
 
     static unsigned short CurrentLocationId()
     {
@@ -121,7 +124,14 @@ namespace
 
     static char __fastcall hkCanHeliTaxi(void* self, char param2)
     {
-        if (IsTaxiEnabled()) return 1;
+        if (IsTaxiEnabled())
+        {
+            static unsigned long long s_lastCanLog = 0;
+            if (Throttle(s_lastCanLog, 3000))
+                Log("[Taxi] CanHeliTaxi FORCED=1 missionCode=%u (enabledCount=%d)\n",
+                    static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()), g_taxiMissionCount);
+            return 1;
+        }
         if (g_OrigCanHeliTaxi) return g_OrigCanHeliTaxi(self, param2);
         return 0;
     }
@@ -130,10 +140,22 @@ namespace
     {
         if (g_OrigStepWithdraw) g_OrigStepWithdraw(self, idx, substate);
 
-        const unsigned short loc = CurrentLocationId();
-        g_lastFieldLoc = loc;   // arrival/carry handling runs for ANY heli taxi (pose is independent of SetFieldTaxiMissionEnabled); field-only work below is gated by g_pendingEmit / g_carryWaiting / g_taxiMapOpen
+        if (g_carryActive)
+        {
+            g_carryActive    = false;
+            g_doorOpenAtDest = (g_taxiRideState != 0x03);
+            g_disembarkReady = false;
+            g_doorOpenFrames = 0;
+            g_arrivalTick    = GetTickCount64();
+        }
 
-        if (g_pendingEmit)   // emit early (before the carry forks/takes off) -- emitting later stalls the takeoff
+        if (!IsTaxiEnabled())
+            return;
+
+        const unsigned short loc = CurrentLocationId();
+        g_lastFieldLoc = loc;
+
+        if (g_pendingEmit)
         {
             g_pendingEmit = false;
             const unsigned int heliId = GetGameObjectIdByIndex("TppHeli2", 0);
@@ -161,15 +183,6 @@ namespace
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER) { g_carryWaiting = false; }
-        }
-
-        if (g_carryActive)
-        {
-            g_carryActive    = false;
-            g_doorOpenAtDest = (g_taxiRideState != 0x03);   // the edge pose already rides the open doorway -> skip the destination door-open
-            g_disembarkReady = false;
-            g_doorOpenFrames = 0;
-            g_arrivalTick    = GetTickCount64();
         }
 
         if (g_taxiMapOpen || g_carryWaiting)
@@ -225,19 +238,31 @@ namespace
     static void __fastcall hkStepTaxiCurrentCluster(void* self, unsigned int idx, int proc)
     {
         if (g_OrigStepTaxiCurrent) g_OrigStepTaxiCurrent(self, idx, proc);
-        if (proc != 3)   // carry detection runs for ANY taxi (so the pose isn't tied to SetFieldTaxiMissionEnabled); the field-carry FORCING below stays gated
+        if (proc != 3)
             return;
+        if (!g_taxiRequested)
+        {
+            if (g_taxiRideLog)
+            {
+                static unsigned long long s_lastSkipLog = 0;
+                if (Throttle(s_lastSkipLog, 2000))
+                    Log("[Ride] taxi SKIP (no LZ chosen): loc=%u mapOpen=%d carryWaiting=%d poseLocked=%d\n",
+                        static_cast<unsigned>(CurrentLocationId()), g_taxiMapOpen ? 1 : 0, g_carryWaiting ? 1 : 0, g_taxiPoseLocked ? 1 : 0);
+            }
+            return;
+        }
         __try
         {
             const std::uintptr_t S        = reinterpret_cast<std::uintptr_t>(self);
             const std::uintptr_t Ctrl     = *reinterpret_cast<std::uintptr_t*>(S + 0x70);
             const std::uintptr_t descBase = *reinterpret_cast<std::uintptr_t*>(*reinterpret_cast<std::uintptr_t*>(Ctrl + 0xd8) + 8);
-            const unsigned int cur   = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x14);   // currentClusterRoute (SetTaxiRoute); set together with the others, so once it's non-empty the relayRoute beside it is valid
-            const unsigned int relay = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x18);   // relayRoute (SetTaxiRoute)
-            const unsigned int next  = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x1c);   // nextClusterRoute (SetTaxiRoute)
-            g_carryActive = true;                                                                         // proc 3 only runs while a taxi cluster carry is in progress (the flight after an LZ is chosen) -> mark carry for ANY taxi incl. Mother Base; plain boarding/idle never reaches proc 3, so the pose stays off there
-            const bool routeReady = (cur != kEmptyRoute && cur != 0) || (relay != kEmptyRoute && relay != 0) || (next != kEmptyRoute && next != 0);   // SetTaxiRoute writes cur->+0x14, relay->+0x18, next->+0x1c together; lock once the descriptor is populated (any route non-empty)
-            if (!g_taxiPoseLocked && routeReady)                                                          // lock the pose once per ride, after SetTaxiRoute has populated the route descriptor
+            const unsigned int cur   = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x14);
+            const unsigned int relay = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x18);
+            const unsigned int next  = *reinterpret_cast<unsigned int*>(descBase + static_cast<std::uintptr_t>(idx) * 0x28 + 0x1c);
+            g_carryActive = true;
+            g_dbgCur = cur; g_dbgNext = next;
+            const bool routeReady = (cur != kEmptyRoute && cur != 0) || (relay != kEmptyRoute && relay != 0) || (next != kEmptyRoute && next != 0);
+            if (!g_taxiPoseLocked && routeReady)
             {
                 g_taxiRideState = g_taxiPose;
                 g_taxiPoseLocked = true;
@@ -247,8 +272,8 @@ namespace
             auto nextStep = reinterpret_cast<unsigned char*>(stepArr + static_cast<std::uintptr_t>(idx) * 0x14 + 0x12);
             if ((relay == kEmptyRoute || relay == 0) && next != kEmptyRoute && next != 0 && *nextStep == 8)
             {
-                if (IsTaxiEnabled()) *nextStep = 3;   // force the next-cluster carry only for the V_FrameWork field taxi; the Mother Base / native taxi drives its own step
-                g_carryActive = true;                 // carry flag for the pose is set regardless, so the pose applies to any taxi
+                if (IsTaxiEnabled()) *nextStep = 3;
+                g_carryActive = true;
                 g_doorOpenAtDest = false;
                 g_disembarkReady = false;
             }
@@ -268,7 +293,7 @@ namespace
             const std::uintptr_t arr = *reinterpret_cast<std::uintptr_t*>(reinterpret_cast<std::uintptr_t>(self) + 0x40);
             if (!arr)
                 return;
-            auto ctrl = reinterpret_cast<unsigned short*>(arr + 0x1bc);   // passenger record 0 = the support-heli player; do NOT loop past the array
+            auto ctrl = reinterpret_cast<unsigned short*>(arr + 0x1bc);
             *ctrl = static_cast<unsigned short>((*ctrl & ~static_cast<unsigned short>(0x0040 | 0x0100)) | static_cast<unsigned short>(0x0080));
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -281,7 +306,7 @@ namespace
             return;
         __try
         {
-            const std::uintptr_t p   = reinterpret_cast<std::uintptr_t>(self);   // MechaAction - 0x20
+            const std::uintptr_t p   = reinterpret_cast<std::uintptr_t>(self);
             const std::uintptr_t pc  = *reinterpret_cast<std::uintptr_t*>(*reinterpret_cast<std::uintptr_t*>(p + 0x68) + 0x58);
             const std::uintptr_t rec = *reinterpret_cast<std::uintptr_t*>(pc + 0x40) + static_cast<std::uintptr_t>(idx) * 0x1c0;
             const unsigned char phase = static_cast<unsigned char>(*reinterpret_cast<unsigned char*>(rec + 0x1be) & 3);
@@ -291,13 +316,13 @@ namespace
             auto e = reinterpret_cast<unsigned char*>(layer + static_cast<std::uintptr_t>(side) * 4);
             if (e[0] == 5)
             {
-                if (phase == 3 || (g_carryActive && g_taxiRideState == 0x03))   // soldier opening (arrival) OR edge ride -> slide the mesh open
+                if (phase == 3 || (g_carryActive && g_taxiRideState == 0x03))
                 {
                     e[3] = static_cast<unsigned char>(e[3] & ~1);
                     e[2] = 2;
                     e[1] = 1;
                 }
-                else              // soldier not opening yet -> hold the mesh closed (block the default snap)
+                else
                 {
                     e[1] = 6;
                 }
@@ -308,11 +333,6 @@ namespace
 
     static void __fastcall hkMechaDoorOpen(void* self, unsigned int idx, unsigned int side, int proc)
     {
-        // Door/chair pose: clear e[3] bit0 (SLIDE mode) BEFORE the original StateOn runs, so when the climb fires the
-        // close (MechaActionImpl::StateOn proc 5, trigger e[2]==5) it picks the sliding states 3/4 instead of snapping
-        // straight to closed (state 5). Confirmed in StateOn: (e[3] & 1) ? snap-to-5 : slide-via-3/4. The MB taxi sets
-        // this bit (snap); the field leaves it clear (slide). We only flip this bit -- never e[1] (that command byte is
-        // what caused the open-spam loop last time). Edge pose (0x03) is excluded; the field already has it clear.
         if (proc == 5 && side <= 1 && g_carryActive && (g_taxiRideState == 0x08 || g_taxiRideState == 0x0A))
         {
             __try
@@ -331,12 +351,12 @@ namespace
             return;
         __try
         {
-            const std::uintptr_t p         = reinterpret_cast<std::uintptr_t>(self);   // MechaAction - 0x20
+            const std::uintptr_t p         = reinterpret_cast<std::uintptr_t>(self);
             const std::uintptr_t workEntry = *reinterpret_cast<std::uintptr_t*>(p + 0x80)
                 + static_cast<std::uintptr_t>(idx - static_cast<unsigned int>(*reinterpret_cast<int*>(p + 0x88))) * 0x18;
             const std::uintptr_t layer = *reinterpret_cast<std::uintptr_t*>(workEntry + 8);
             auto e = reinterpret_cast<unsigned char*>(layer + static_cast<std::uintptr_t>(side) * 4);
-            if (e[0] == 2)   // door open -> keep it open (block the periodic re-close that causes the flicker)
+            if (e[0] == 2)
             {
                 e[2] = 2;
                 e[1] = 6;
@@ -358,6 +378,9 @@ namespace
         unsigned int usePhase = phase;
         if (phase == 0x16)
         {
+            Log("[Taxi] map request 0x16: missionCode=%u taxiEnabled=%d (enabledCount=%d)\n",
+                static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()),
+                IsTaxiEnabled() ? 1 : 0, g_taxiMissionCount);
             if (IsTaxiEnabled())
             {
                 usePhase = 5;
@@ -373,7 +396,6 @@ namespace
         if (g_OrigRequestMapPhase) g_OrigRequestMapPhase(self, usePhase, p3, p4);
     }
 
-    // mirrors RideHeliActionPluginImpl::Work::ExecStateChangeImpl: exit-signal the old state, swap the handler, enter-signal the new state
     static void ForceRideState(std::uintptr_t self, std::uintptr_t plv, unsigned int idx, unsigned char newState, std::uintptr_t newFn)
     {
         if (!newFn) return;
@@ -389,7 +411,6 @@ namespace
         if (*fnSlot) reinterpret_cast<StateFn>(*fnSlot)(self, idx, 2, 0);
     }
 
-    // resolve any RideHeli state's handler fn at runtime via the game's state->fn jump table, so the Lua API can force/explore all 17 states
     static std::uintptr_t StateFnViaMapper(std::uintptr_t self, unsigned int st)
     {
         using Fn = void*(__fastcall*)(void*, void*, unsigned int);
@@ -400,12 +421,12 @@ namespace
         return desc[0];
     }
 
-    // taxi cruise: swap the doorway ride state (0x8) for the player-selected pose (g_taxiRideState); restore the doorway at arrival so disembark is normal
     static void __fastcall hkExecPreMotion(void* self, unsigned int idx)
     {
         static bool s_prevCarry = false;
         const bool nowCarry = g_carryActive;
-        if (!nowCarry) g_taxiPoseLocked = false;   // not carrying (boarding / between rides): unlock so the next carry re-applies the configured pose
+        if (s_prevCarry && !nowCarry) g_taxiRequested = false;
+        if (!nowCarry) { g_taxiPoseLocked = false; g_taxiRideState = 0x08; }
         __try
         {
             const std::uintptr_t S      = reinterpret_cast<std::uintptr_t>(self);
@@ -430,7 +451,7 @@ namespace
                 }
                 if (st != s_lastSt || (nowCarry ? 1 : 0) != s_lastCarry)
                 {
-                    Log("[Ride] STATE 0x%X -> 0x%X | sub=0x%X carry=%d want=0x%X motion=0x%llX idx=%u\n", s_lastSt, st, sub, nowCarry ? 1 : 0, want, motion, idx);
+                    Log("[Ride] STATE 0x%X -> 0x%X | carry=%d want=0x%X req=%d locked=%d loc=%u cur=0x%X next=0x%X motion=0x%llX idx=%u\n", s_lastSt, st, nowCarry ? 1 : 0, want, g_taxiRequested ? 1 : 0, g_taxiPoseLocked ? 1 : 0, static_cast<unsigned>(CurrentLocationId()), g_dbgCur, g_dbgNext, motion, idx);
                     s_lastSt = st; s_lastCarry = nowCarry ? 1 : 0;
                 }
                 else if (motion != s_lastMotion)
@@ -441,11 +462,11 @@ namespace
             }
 
             static int s_nullFrames = 0;
-            if (st == 0x00) { if (++s_nullFrames > 20) g_carryActive = false; }   // only drop the carry flag when st is STUCK at the null state (a reload/non-ride scene); a 1-frame 0x0 blip during boarding/arrival won't trip it, so the arrival door-open is left intact
+            if (st == 0x00) { if (++s_nullFrames > 20) { g_carryActive = false; g_taxiRequested = false; } }
             else s_nullFrames = 0;
             if (nowCarry)
             {
-                if (want != 0 && st != want && st == 0x08)   // force ONLY at the natural doorway settle (0x8): edge(0x3)/chair(0xA) are forced from 0x8; the door pose (want=0x8) needs no force and stays natural so it disembarks on its own
+                if (g_taxiPoseLocked && want != 0 && st != want && st == 0x08)
                 {
                     ForceRideState(S, plv, idx, static_cast<unsigned char>(want), StateFnViaMapper(S, want));
                     if (g_taxiRideLog) Log("[Ride] settle: forced ride state 0x%X -> 0x%X\n", st, want);
@@ -453,12 +474,11 @@ namespace
             }
             else if (s_prevCarry && (st == 0x0A || st == 0x0B))
             {
-                ForceRideState(S, plv, idx, 0x0C, StateFnViaMapper(S, 0x0C));   // chair -> the natural get-up-from-chair / open-door state (0xC -> 0x3), instead of snapping to the doorway
+                ForceRideState(S, plv, idx, 0x0C, StateFnViaMapper(S, 0x0C));
                 if (g_taxiRideLog) Log("[Ride] arrival: chair 0x%X -> get-up/open-door (0xC)\n", st);
             }
 
-            // Mother Base / native taxi: the engine parks the player at the open doorway (0x3) and never sets the climb-request bit, so it never closes the door or reaches the 0x8 settle. The 0x3 state handler (FUN_141220840) decides climb-vs-stay purely on bit 0x40 of the passenger door-control at +0x1bc: set -> it advances itself to 0x7 (climb) -> 0x8 (settle); clear -> it stays at the open doorway. So for door/chair we just SET that bit and let the engine run its OWN animated climb -- the door closes naturally exactly like the field taxi (no forced state, no snap), and the field force above applies the real pose once it reaches 0x8. Edge leaves the bit clear so it stays at the open doorway. Carry-gated, so boarding/idle (bit untouched) is unaffected.
-            if (nowCarry && want != 0 && want != 0x03)
+            if (nowCarry && g_taxiPoseLocked && want != 0 && want != 0x03)
             {
                 const std::uintptr_t paxRec = *reinterpret_cast<std::uintptr_t*>(plv + 0x68);
                 if (paxRec)
@@ -469,7 +489,7 @@ namespace
                         *doorCtrl |= 0x40;
                         if (g_taxiRideLog) Log("[Ride] MB: set climb bit (0x40 @ +0x1bc) -> engine runs its own 0x3->0x7->0x8 climb\n");
                     }
-                    *doorCtrl = static_cast<unsigned short>(*doorCtrl & ~0x80);   // keep the get-off bit (0x80) cleared all ride: the seated-chair handler (state 0xB) reads it as "get off" and pops up to 0xC (get-up) mid-ride -> loop
+                    *doorCtrl = static_cast<unsigned short>(*doorCtrl & ~0x80);
                 }
             }
         }
@@ -477,7 +497,6 @@ namespace
         s_prevCarry = nowCarry;
         if (g_OrigExecPreMotion) g_OrigExecPreMotion(self, idx);
 
-        // edge pose disguise: the carry needs ride-state 0x7 (climb), but its POSE is just a motion. Capture state 0x3's motion, then re-play it over the 0x7 climb so it LOOKS like the edge while the carry keeps 0x7.
         __try
         {
             const std::uintptr_t S      = reinterpret_cast<std::uintptr_t>(self);
@@ -499,14 +518,14 @@ namespace
                 if (nodeSlot) s_edgeNode = *nodeSlot;
             }
             else if (g_carryActive && g_taxiRideState == 0x03 && st != 0x03 && st != 0x04 && st != 0x05 && s_edgeMotion != 0
-                     && *reinterpret_cast<unsigned long long*>(plv + 0x70) != s_edgeMotion)   // 0x4 = minigun, 0x5 = move side: real player actions, leave them visible
+                     && *reinterpret_cast<unsigned long long*>(plv + 0x70) != s_edgeMotion)
             {
                 const std::uintptr_t sub78     = owner ? *reinterpret_cast<std::uintptr_t*>(owner + 0x78) : 0;
                 const std::uintptr_t motionMgr = sub78 ? *reinterpret_cast<std::uintptr_t*>(sub78 + 0x238) : 0;
                 if (motionMgr)
                 {
                     void** vt = *reinterpret_cast<void***>(motionMgr);
-                    auto play = reinterpret_cast<void(__fastcall*)(void*, unsigned int, int, unsigned long long, float)>(vt[50]);   // motion mgr vtable +0x190
+                    auto play = reinterpret_cast<void(__fastcall*)(void*, unsigned int, int, unsigned long long, float)>(vt[50]);
                     play(reinterpret_cast<void*>(motionMgr), idx, 0, s_edgeMotion, 0.5f);
                     *reinterpret_cast<unsigned long long*>(plv + 0x70) = s_edgeMotion;
                     if (nodeSlot && s_edgeNode) *nodeSlot = s_edgeNode;
@@ -522,7 +541,26 @@ namespace
         if (g_OrigCallRescueHeli) g_OrigCallRescueHeli(utilTable, call);
 
         if (!IsTaxiEnabled())
+        {
+            if (CurrentLocationId() == 0x32)
+            {
+                __try
+                {
+                    const std::uintptr_t ct = ClusterTableFromUtil(reinterpret_cast<std::uintptr_t>(utilTable));
+                    if (ct)
+                    {
+                        const int reqIdx = *reinterpret_cast<int*>(ct + 0xC24);
+                        if (reqIdx >= 0 && reqIdx < 0x40)
+                        {
+                            g_taxiRequested = true;
+                            if (g_taxiRideLog) Log("[Ride] MB taxi pick -> arm pose (reqIdx=%d)\n", reqIdx);
+                        }
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
             return;
+        }
         g_lastFieldLoc = CurrentLocationId();
         __try
         {
@@ -543,6 +581,8 @@ namespace
                         g_carryWaiting    = true;
                         g_carryWaitFrames = 0;
                         g_carryIdx        = reqIdx;
+                        g_taxiRequested   = true;
+
                         *reinterpret_cast<int*>(ct + 0xC28)           = reqIdx;
                         *reinterpret_cast<unsigned char*>(ct + 0xC2D) = 0;
                         g_emitCur = curHash; g_emitDest = destHash; g_pendingEmit = true;
@@ -636,9 +676,10 @@ void FieldTaxi_SetMissionEnabled(unsigned int missionCode, bool enabled)
     }
 }
 
-void FieldTaxi_SetTaxiRideState(unsigned int state)          // the heli ride pose; applied at the next taxi LZ-select, not mid-ride
+void FieldTaxi_SetTaxiRideState(unsigned int state)
 {
     g_taxiPose = state;
+    if (g_taxiRideLog) Log("[Ride] SetTaxiRideState -> g_taxiPose=0x%X (locked=%d)\n", state, g_taxiPoseLocked ? 1 : 0);
 }
 
 void FieldTaxi_SetTaxiRideLog(bool enabled)

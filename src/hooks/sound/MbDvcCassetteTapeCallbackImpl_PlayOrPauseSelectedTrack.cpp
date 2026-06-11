@@ -788,30 +788,61 @@ bool SetCassetteSpeakerEnabled(bool enabled)
 }
 
 
+static void* ResolveSoundMusicPlayerFromMusicManager()
+{
+    void* mmGlobal = ResolveGameAddress(gAddr.MusicManager_s_instance);
+    if (!mmGlobal)
+        return nullptr;
+
+    __try
+    {
+        void* mm = *reinterpret_cast<void**>(mmGlobal);
+        if (!mm)
+            return nullptr;
+
+        return *reinterpret_cast<void**>(reinterpret_cast<std::uintptr_t>(mm) + 0xA8ull);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+
 static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlayer)
 {
     outPlayFn = nullptr;
     outPlayer = nullptr;
 
+    void* callbackBase = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
         outPlayFn = g_OrigMusicPlayerPlay;
         outPlayer = g_LastMusicPlayer;
+        callbackBase = g_LastCassetteCallbackBase;
     }
 
+    void* callbackPlayer = callbackBase ? ResolveMusicPlayerFromCassetteCallback(callbackBase) : nullptr;
+    void* smp = ResolveSoundMusicPlayerFromMusicManager();
+
     if (!outPlayer)
-    {
-        RefreshGlobalCassetteMusicPlayerFromSoundSystem();
-        outPlayer = GetGlobalCassetteMusicPlayerFromSoundSystem();
-    }
+        outPlayer = callbackPlayer;
+    if (!outPlayer)
+        outPlayer = smp;
 
     if (!outPlayFn && outPlayer)
     {
         void* target = ResolveMusicPlayerPlayTarget(outPlayer);
         if (target)
-        {
             outPlayFn = reinterpret_cast<MusicPlayerPlay_t>(target);
-        }
+    }
+
+    if (outPlayFn == nullptr || outPlayer == nullptr)
+    {
+        Log("[CassettePlay] resolve FAIL: chosenPlayer=%p chosenFn=%p | callbackBase=%p callbackPlayer=%p(fn=%p) soundMusicPlayer=%p(fn=%p)\n",
+            outPlayer, reinterpret_cast<void*>(outPlayFn), callbackBase,
+            callbackPlayer, callbackPlayer ? ResolveMusicPlayerPlayTarget(callbackPlayer) : nullptr,
+            smp, smp ? ResolveMusicPlayerPlayTarget(smp) : nullptr);
     }
 
     return (outPlayFn != nullptr && outPlayer != nullptr);
@@ -915,6 +946,17 @@ bool PlayCassetteByTrackId(
     const std::uint32_t reservedZero = 0;
     const std::uint8_t flag1 = loopPlay ? 1 : 0;
     const std::uint8_t flag2 = playAll ? 1 : 0;
+
+    __try
+    {
+        Log(
+            "[CassettePlay] DirectPlay player=%p vtable=%p (expect CassettePlayerVtable=%p) playFn=%p\n",
+            player,
+            *reinterpret_cast<void**>(player),
+            reinterpret_cast<void*>(gAddr.CassettePlayerVtable),
+            reinterpret_cast<void*>(playFn));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
 
     Log(
         "[CassettePlay] DirectPlayByTrackId"

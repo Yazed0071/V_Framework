@@ -9,8 +9,14 @@
 bool Install_SetLuaFunctions_Hook();
 bool Uninstall_SetLuaFunctions_Hook();
 
-bool Install_UiTextureOverrides_Hook();
-bool Uninstall_UiTextureOverrides_Hook();
+bool Install_EquipBgTexture_Hook();
+bool Uninstall_EquipBgTexture_Hook();
+
+bool Install_LoadingSplash_Hook();
+bool Uninstall_LoadingSplash_Hook();
+
+bool Install_GameOverSplash_Hook();
+bool Uninstall_GameOverSplash_Hook();
 
 bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame);
 bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
@@ -20,9 +26,6 @@ bool Uninstall_CautionStepNormalTimerHook();
 
 bool Install_RealizedSahelanFova_Hook();
 bool Uninstall_RealizedSahelanFova_Hook();
-
-bool Install_SecurityCameraFova_Hook();
-bool Uninstall_SecurityCameraFova_Hook();
 
 bool Install_SoldierHairFova_Hook();
 bool Uninstall_SoldierHairFova_Hook();
@@ -157,23 +160,63 @@ namespace
         }
     };
 
-    class UiTextureOverridesModule final : public IFeatureModule
+    class EquipBgTextureModule final : public IFeatureModule
     {
     public:
         const char* GetName() const override
         {
-            return "UiTextureOverrides";
+            return "EquipBgTexture";
         }
 
         bool Install(HMODULE hGame) override
         {
             UNREFERENCED_PARAMETER(hGame);
-            return Install_UiTextureOverrides_Hook();
+            return Install_EquipBgTexture_Hook();
         }
 
         void Uninstall() override
         {
-            Uninstall_UiTextureOverrides_Hook();
+            Uninstall_EquipBgTexture_Hook();
+        }
+    };
+
+    class LoadingSplashModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "LoadingSplash";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_LoadingSplash_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_LoadingSplash_Hook();
+        }
+    };
+
+    class GameOverSplashModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "GameOverSplash";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_GameOverSplash_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_GameOverSplash_Hook();
         }
     };
 
@@ -233,26 +276,6 @@ namespace
         void Uninstall() override
         {
             Uninstall_RealizedSahelanFova_Hook();
-        }
-    };
-
-    class SecurityCameraFovaModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "SecurityCameraFova";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_SecurityCameraFova_Hook();
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_SecurityCameraFova_Hook();
         }
     };
 
@@ -833,11 +856,12 @@ namespace
 void RegisterBuiltInFeatureModules()
 {
     static LuaBridgeModule s_LuaBridgeModule;
-    static UiTextureOverridesModule s_UiTextureOverridesModule;
+    static EquipBgTextureModule s_EquipBgTextureModule;
+    static LoadingSplashModule s_LoadingSplashModule;
+    static GameOverSplashModule s_GameOverSplashModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
-    static SecurityCameraFovaModule s_SecurityCameraFovaModule;
     static SoldierHairFovaModule s_SoldierHairFovaModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
@@ -879,11 +903,12 @@ void RegisterBuiltInFeatureModules()
     std::call_once(s_Once, []()
         {
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
-            FeatureModuleRegistry::Instance().Register(&s_UiTextureOverridesModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipBgTextureModule);
+            FeatureModuleRegistry::Instance().Register(&s_LoadingSplashModule);
+            FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
-            FeatureModuleRegistry::Instance().Register(&s_SecurityCameraFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierHairFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);

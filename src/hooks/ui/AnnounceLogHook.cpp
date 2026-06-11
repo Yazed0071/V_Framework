@@ -23,7 +23,6 @@ namespace
 
     static std::unordered_map<std::uint32_t, std::uint32_t> g_Overrides;
 
-    // tops out at 0x7d
     static constexpr std::uint32_t kModSeIdBase = 0xA0u;
     static constexpr std::uint32_t kModSeIdMax  = 0xFFu;
 
@@ -94,7 +93,7 @@ namespace
         const std::uint32_t ch = d.chara ? d.chara
             : *reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(ctrl) + kCtrl_Chara);
         std::uint32_t voiceParam[8] = {};
-        voiceParam[1] = d.condition; // +4 = condition
+        voiceParam[1] = d.condition;
         g_VoicePlay(voiceParam, obj, ev, ch);
     }
 
@@ -110,7 +109,7 @@ namespace
         using GetVoiceType_t = char(__fastcall*)(void* self, const char* name);
         using RequestVoice_t = void(__fastcall*)(void* self, std::uint8_t slot);
         const char slot = reinterpret_cast<GetVoiceType_t>(vt[0x50 / 8])(ctrl, name);
-        if (static_cast<std::uint8_t>(slot) != 0x76u) // 0x76 = not found
+        if (static_cast<std::uint8_t>(slot) != 0x76u)
             reinterpret_cast<RequestVoice_t>(vt[0x18 / 8])(ctrl, static_cast<std::uint8_t>(slot));
     }
 
@@ -151,7 +150,7 @@ namespace
                             g_SoundControlStart(soundControl, g_ModEvents[seId], 0);
                     }
                 }
-                *seIdPtr = 0; // suppress vanilla play for our reserved seId
+                *seIdPtr = 0;
             }
         }
         g_OrigUpdate(self);

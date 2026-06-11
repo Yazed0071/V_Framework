@@ -465,6 +465,16 @@ namespace SoldierAkObjIdMap
     }
 
 
+    void ClearAllDesiredPitches()
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_GoIdAkObjMutex);
+            g_DesiredCentsByGoId.clear();
+        }
+        Clear_AllPerAkObjIdPitchBiases();
+    }
+
+
     std::vector<std::uint32_t> GetAkObjIdsForGoId(std::uint32_t goId)
     {
         std::lock_guard<std::mutex> lock(g_GoIdAkObjMutex);

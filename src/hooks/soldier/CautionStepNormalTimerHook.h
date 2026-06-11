@@ -31,3 +31,15 @@ void Set_PendingCautionDurationForCp(float seconds);
 
 
 float Get_CautionStepNormalRemainingSeconds();
+
+
+void Arm_CautionCpCapture();
+
+
+std::uint32_t Take_CautionCpIndex();
+
+
+float Get_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex);
+
+
+float Get_CautionStepNormalRemainingSecondsForCp(std::uint32_t cpIndex);

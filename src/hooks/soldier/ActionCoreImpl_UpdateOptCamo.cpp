@@ -41,6 +41,8 @@ namespace
 
     static constexpr std::uint32_t kDesiredOptCamoBit = 0x20000000u;
 
+    static constexpr std::uint32_t kSoldierIndexMask = 0x01FFu;
+
     static UpdateOptCamo_t g_OrigUpdateOptCamo = nullptr;
 
     static std::mutex g_UpdateOptCamoMutex;
@@ -305,20 +307,23 @@ bool Uninstall_UpdateOptCamo_Hook()
 
 void Set_UpdateOptCamoEnableMappedIndex(std::uint32_t mappedIndex, bool enabled)
 {
+    const std::uint32_t soldierIndex = mappedIndex & kSoldierIndexMask;
+
     std::lock_guard<std::mutex> lock(g_UpdateOptCamoMutex);
 
     if (enabled)
     {
-        SetMappedIndexMode_NoLock(mappedIndex, OptCamoForceMode::ForceOn);
+        SetMappedIndexMode_NoLock(soldierIndex, OptCamoForceMode::ForceOn);
     }
     else
     {
-        SetMappedIndexMode_NoLock(mappedIndex, OptCamoForceMode::ForceOff);
+        SetMappedIndexMode_NoLock(soldierIndex, OptCamoForceMode::ForceOff);
     }
 
     Log(
-        "[OptCamo] EnableMappedIndex: mappedIndex=%u enabled=%s\n",
+        "[OptCamo] EnableMappedIndex: gameObjectId=%u soldierIndex=%u enabled=%s\n",
         static_cast<unsigned int>(mappedIndex),
+        static_cast<unsigned int>(soldierIndex),
         enabled ? "true" : "false");
 }
 

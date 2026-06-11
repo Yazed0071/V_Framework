@@ -15,6 +15,8 @@ extern "C" {
 #include "../../../core/AddressSet.h"
 #include "../../../core/HookUtils.h"
 #include "../../sahelan/PhaseSneakAiImpl_PreUpdate.h"
+#include "../../sahelan/RealizedSahelanFovaHook.h"
+#include "../../sahelan/SetEyeLampColorHook.h"
 #include "../../soldier/LostHostageHook.h"
 #include "../../soldier/StepRadioDiscovery.h"
 #include "../../soldier/VIPSleepFaintHook.h"
@@ -22,7 +24,6 @@ extern "C" {
 #include "../../soldier/VIPRadioHook.h"
 #include "../../soldier/GetVoiceParamWithCallSign.h"
 #include "../../soldier/ActionCoreImpl_UpdateOptCamo.h"
-#include "../../securitycamera/SecurityCameraFovaHook.h"
 #include "../../soldier/NoticeControllerImpl_GetOccasionalChat.h"
 #include "../../soldier/CautionStepNormalTimerHook.h"
 #include "../../../core/FoxHashes.h"
@@ -53,6 +54,16 @@ namespace
         g_lua_pushstring(L, const_cast<char*>(key));
         g_lua_gettable(L, cmdStackIdx);
         double v = 0.0;
+        if (g_lua_type(L, -1) == LUA_TNUMBER)
+            v = static_cast<double>(g_lua_tonumber(L, -1));
+        return v;
+    }
+
+    static double ReadCommandNumberOr(lua_State* L, int cmdStackIdx, const char* key, double def)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_gettable(L, cmdStackIdx);
+        double v = def;
         if (g_lua_type(L, -1) == LUA_TNUMBER)
             v = static_cast<double>(g_lua_tonumber(L, -1));
         return v;
@@ -124,6 +135,57 @@ namespace
         }
 
         return n;
+    }
+
+    static float SmartScaleA(float a)
+    {
+        return (a > 1.0f) ? (a * (1.0f / 255.0f)) : a;
+    }
+
+    static void SmartScaleRgb(float* r, float* g, float* b)
+    {
+        if (*r > 1.0f || *g > 1.0f || *b > 1.0f)
+        {
+            *r *= (1.0f / 255.0f);
+            *g *= (1.0f / 255.0f);
+            *b *= (1.0f / 255.0f);
+        }
+    }
+
+    static void ReadColor(lua_State* L, int cmdStackIdx, float* r, float* g, float* b, float* a, float defaultA)
+    {
+        *r = 0.0f; *g = 0.0f; *b = 0.0f; *a = defaultA;
+        g_lua_pushstring(L, const_cast<char*>("color"));
+        g_lua_gettable(L, cmdStackIdx);
+        if (g_lua_type(L, -1) == LUA_TTABLE)
+        {
+            const int t = g_lua_gettop(L);
+            g_lua_pushstring(L, const_cast<char*>("r")); g_lua_gettable(L, t); if (g_lua_type(L, -1) == LUA_TNUMBER) *r = static_cast<float>(g_lua_tonumber(L, -1)); g_lua_settop(L, t);
+            g_lua_pushstring(L, const_cast<char*>("g")); g_lua_gettable(L, t); if (g_lua_type(L, -1) == LUA_TNUMBER) *g = static_cast<float>(g_lua_tonumber(L, -1)); g_lua_settop(L, t);
+            g_lua_pushstring(L, const_cast<char*>("b")); g_lua_gettable(L, t); if (g_lua_type(L, -1) == LUA_TNUMBER) *b = static_cast<float>(g_lua_tonumber(L, -1)); g_lua_settop(L, t);
+            g_lua_pushstring(L, const_cast<char*>("a")); g_lua_gettable(L, t); if (g_lua_type(L, -1) == LUA_TNUMBER) *a = static_cast<float>(g_lua_tonumber(L, -1)); g_lua_settop(L, t);
+        }
+        SmartScaleRgb(r, g, b);
+        *a = SmartScaleA(*a);
+    }
+
+    static bool CautionPerCpTarget(lua_State* L)
+    {
+        const int top = g_lua_gettop(L);
+        bool isPerCp = false;
+        const int a1 = g_lua_type(L, 1);
+        if (a1 == LUA_TNUMBER)
+        {
+            isPerCp = true;
+        }
+        else if (a1 == LUA_TTABLE)
+        {
+            g_lua_pushstring(L, const_cast<char*>("index"));
+            g_lua_gettable(L, 1);
+            isPerCp = (g_lua_type(L, -1) != LUA_TNIL);
+        }
+        g_lua_settop(L, top);
+        return isPerCp;
     }
 
     static int __fastcall hk_SendCommand(lua_State* L)
@@ -240,18 +302,48 @@ namespace
         }
         if (idStr == "GetCautionPhaseDuration")
         {
+            if (CautionPerCpTarget(L))
+            {
+                ::Arm_CautionCpCapture();
+                g_OrigSendCommand(L);
+                const std::uint32_t cp = ::Take_CautionCpIndex();
+                g_lua_settop(L, top);
+                g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSecondsForCp(cp)));
+                Log("[SendCommand] GetCautionPhaseDuration (per-cp) cp=%u\n", cp);
+                return 1;
+            }
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSeconds()));
             return 1;
         }
         if (idStr == "UnsetCautionPhaseDuration")
         {
+            if (CautionPerCpTarget(L))
+            {
+                ::Arm_CautionCpCapture();
+                g_OrigSendCommand(L);
+                const std::uint32_t cp = ::Take_CautionCpIndex();
+                ::Unset_CautionStepNormalDurationSecondsForCp(cp);
+                g_lua_settop(L, top);
+                Log("[SendCommand] UnsetCautionPhaseDuration (per-cp) cp=%u\n", cp);
+                return 0;
+            }
             g_lua_settop(L, top);
             ::Unset_CautionStepNormalDurationSeconds();
-            Log("[SendCommand] UnsetCautionPhaseDuration\n");
+            Log("[SendCommand] UnsetCautionPhaseDuration (global)\n");
             return 0;
         }
         if (idStr == "GetCautionPhaseRemaining")
         {
+            if (CautionPerCpTarget(L))
+            {
+                ::Arm_CautionCpCapture();
+                g_OrigSendCommand(L);
+                const std::uint32_t cp = ::Take_CautionCpIndex();
+                g_lua_settop(L, top);
+                g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSecondsForCp(cp)));
+                Log("[SendCommand] GetCautionPhaseRemaining (per-cp) cp=%u\n", cp);
+                return 1;
+            }
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSeconds()));
             return 1;
         }
@@ -362,29 +454,80 @@ namespace
             Log("[SendCommand] ClearSoldierStealthCamoOverrides\n");
             return 0;
         }
-        if (idStr == "SetSecurityCameraFova")
+        if (idStr == "SetSahelanFova")
         {
-            std::int32_t variant = -1;
-            g_lua_pushstring(L, const_cast<char*>("variant"));
-            g_lua_gettable(L, 2);
-            const int vt = g_lua_type(L, -1);
-            if (vt == LUA_TNUMBER)
-                variant = static_cast<std::int32_t>(g_lua_tonumber(L, -1));
-            else if (vt == LUA_TSTRING)
-                variant = ::ResolveSecurityCameraVariantName(g_lua_tolstring(L, -1, nullptr));
-
-            std::string fova;
-            g_lua_pushstring(L, const_cast<char*>("fova"));
+            std::string fv2;
+            g_lua_pushstring(L, const_cast<char*>("fv2"));
             g_lua_gettable(L, 2);
             if (g_lua_type(L, -1) == LUA_TSTRING)
             {
                 const char* s = g_lua_tolstring(L, -1, nullptr);
-                if (s) fova = s;
+                if (s) fv2 = s;
             }
-
             g_lua_settop(L, top);
-            const bool ok = ::Set_SecurityCameraFovaFromArg(variant, fova.c_str());
-            Log("[SendCommand] SetSecurityCameraFova variant=%d ok=%d\n", static_cast<int>(variant), ok ? 1 : 0);
+            ::Set_SahelanFovaPath(fv2.c_str());
+            Log("[SendCommand] SetSahelanFova fv2=%s\n", fv2.c_str());
+            return 0;
+        }
+        if (idStr == "ClearSahelanFova")
+        {
+            g_lua_settop(L, top);
+            ::Clear_SahelanFovaOverride();
+            Log("[SendCommand] ClearSahelanFova\n");
+            return 0;
+        }
+        if (idStr == "SetEyeLampColor")
+        {
+            float r, g, b, a;
+            ReadColor(L, 2, &r, &g, &b, &a, 1.0f);
+            const int   mode = static_cast<int>(ReadCommandNumberOr(L, 2, "Phase", -1.0));
+            g_lua_settop(L, top);
+            ::Set_EyeLampColor(mode, r, g, b, a);
+            Log("[SendCommand] SetEyeLampColor r=%.2f g=%.2f b=%.2f a=%.2f mode=%d\n", r, g, b, a, mode);
+            return 0;
+        }
+        if (idStr == "ClearEyeLampColor")
+        {
+            g_lua_settop(L, top);
+            ::Clear_EyeLampColor();
+            Log("[SendCommand] ClearEyeLampColor\n");
+            return 0;
+        }
+        if (idStr == "SetEyeLampDisco")
+        {
+            const bool  enabled = ReadCommandBool(L, 2, "enabled");
+            const float speed   = static_cast<float>(ReadCommandNumber(L, 2, "speed"));
+            const float a       = SmartScaleA(static_cast<float>(ReadCommandNumberOr(L, 2, "a", 1.0)));
+            g_lua_settop(L, top);
+            ::Set_EyeLampDisco(enabled, speed, a);
+            Log("[SendCommand] SetEyeLampDisco enabled=%d speed=%.2f a=%.2f\n", enabled ? 1 : 0, speed, a);
+            return 0;
+        }
+        if (idStr == "SetHeartLightColor")
+        {
+            float r, g, b, a;
+            ReadColor(L, 2, &r, &g, &b, &a, 1.0f);
+            const int mode = static_cast<int>(ReadCommandNumberOr(L, 2, "phase", -1.0));
+            g_lua_settop(L, top);
+            ::Set_HeartLightColor(mode, r, g, b, a);
+            Log("[SendCommand] SetHeartLightColor r=%.2f g=%.2f b=%.2f a=%.2f phase=%d\n", r, g, b, a, mode);
+            return 0;
+        }
+        if (idStr == "ClearHeartLightColor")
+        {
+            g_lua_settop(L, top);
+            ::Clear_HeartLightColor();
+            Log("[SendCommand] ClearHeartLightColor\n");
+            return 0;
+        }
+        if (idStr == "SetHeartLightDisco")
+        {
+            const bool  enabled = ReadCommandBool(L, 2, "enabled");
+            const float speed   = static_cast<float>(ReadCommandNumber(L, 2, "speed"));
+            const float a       = SmartScaleA(static_cast<float>(ReadCommandNumberOr(L, 2, "a", 1.0)));
+            g_lua_settop(L, top);
+            ::Set_HeartLightDisco(enabled, speed, a);
+            Log("[SendCommand] SetHeartLightDisco enabled=%d speed=%.2f a=%.2f\n", enabled ? 1 : 0, speed, a);
             return 0;
         }
 

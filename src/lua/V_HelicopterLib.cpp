@@ -34,11 +34,8 @@ namespace
 
     static int __cdecl l_PilotCallVoice(lua_State* L)
     {
-        const std::uint32_t voiceId   = GetLuaFnvHash32Arg(L, 1);
-        const std::uint32_t slot      = (GetLuaTop(L) >= 2) ? static_cast<std::uint32_t>(GetLuaInt64(L, 2)) : 0u;
-        const std::uint32_t voiceType = (GetLuaTop(L) >= 3) ? static_cast<std::uint32_t>(GetLuaInt64(L, 3)) : 0u;
-        const std::uint32_t param4    = GetLuaFnvHash32Arg(L, 4);
-        PushLuaBool(L, Play_PilotCallVoice(voiceId, slot, voiceType, param4));
+        const std::uint32_t voiceId = GetLuaFnvHash32Arg(L, 1);
+        PushLuaBool(L, Play_PilotCallVoice(voiceId, 0u, 0u, 0u));
         return 1;
     }
 

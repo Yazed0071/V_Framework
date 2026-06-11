@@ -19,13 +19,6 @@ namespace
 {
     static luaL_Reg g_VTppSahelanLib[] =
     {
-        { "SetSahelanFova",                           l_SetSahelanFova },
-        { "ClearSahelanFova",                         l_ClearSahelanFova },
-        { "SetEyeLampColor",                          l_SetEyeLampColor },
-        { "ClearEyeLampColor",                        l_ClearEyeLampColor },
-        { "SetEyeLampDisco",                          l_SetEyeLampDisco },
-        { "SetHeartLightColor",                       l_SetHeartLightColor },
-        { "ClearHeartLightColor",                     l_ClearHeartLightColor },
         { "SetEyeLampColorLogging",                   l_SetEyeLampColorLogging },
 
         { nullptr,          nullptr }

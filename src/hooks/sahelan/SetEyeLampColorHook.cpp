@@ -34,17 +34,26 @@ namespace
     static std::atomic<float> g_PerModeR[kMaxModes]{};
     static std::atomic<float> g_PerModeG[kMaxModes]{};
     static std::atomic<float> g_PerModeB[kMaxModes]{};
-    static std::atomic<float> g_PerModePulse[kMaxModes]{};
+    static std::atomic<float> g_PerModeA[kMaxModes]{};
     static std::atomic<int>   g_LastMode{ -1 };
+
+    static constexpr int kMaxEyeSlots = 16;
+    static float g_VanillaEye[kMaxEyeSlots][4]{};
+    static bool  g_HasVanillaEye[kMaxEyeSlots]{};
 
     static std::atomic<bool>  g_DiscoEnabled{ false };
     static std::atomic<float> g_DiscoSpeed{ 2.0f };
+    static std::atomic<float> g_DiscoA{ 1.0f };
 
-    static std::atomic<bool>  g_HeartEnabled{ false };
-    static std::atomic<float> g_HeartR{ 1.0f };
-    static std::atomic<float> g_HeartG{ 1.0f };
-    static std::atomic<float> g_HeartB{ 1.0f };
-    static std::atomic<float> g_HeartPulse{ 1.0f };
+    static std::atomic<bool>  g_HeartPerModeEnabled[kMaxModes]{};
+    static std::atomic<float> g_HeartPerModeR[kMaxModes]{};
+    static std::atomic<float> g_HeartPerModeG[kMaxModes]{};
+    static std::atomic<float> g_HeartPerModeB[kMaxModes]{};
+    static std::atomic<float> g_HeartPerModeA[kMaxModes]{};
+
+    static std::atomic<bool>  g_HeartDiscoEnabled{ false };
+    static std::atomic<float> g_HeartDiscoSpeed{ 2.0f };
+    static std::atomic<float> g_HeartDiscoA{ 1.0f };
 
     static std::atomic<bool> g_LoggingEnabled{ false };
 
@@ -52,18 +61,6 @@ namespace
     {
         const ULONGLONG ms = GetTickCount64();
         return static_cast<float>(ms % 1000000ULL) / 1000.0f;
-    }
-
-
-    static float ComputePulseMultiplier(float pulseSpeed)
-    {
-        if (pulseSpeed >= 1.0f) return 1.0f;
-        if (pulseSpeed < 0.0f)  pulseSpeed = 0.0f;
-        constexpr float kDefaultHz = 1.0f;
-        constexpr float kTwoPi     = 6.2831853f;
-        const float hz = (1.0f - pulseSpeed) * kDefaultHz;
-        if (hz <= 0.0f) return 1.0f;
-        return 0.5f + 0.5f * std::sin(NowSeconds() * hz * kTwoPi);
     }
 
 
@@ -104,12 +101,12 @@ namespace
             {
                 const bool active =
                     g_PerModeEnabled[mode].load(std::memory_order_relaxed);
-                Log("[EyeLamp] engine mode=%d  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
+                Log("[EyeLamp] engine mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
                     mode,
                     g_PerModeR[mode].load(std::memory_order_relaxed),
                     g_PerModeG[mode].load(std::memory_order_relaxed),
                     g_PerModeB[mode].load(std::memory_order_relaxed),
-                    g_PerModePulse[mode].load(std::memory_order_relaxed),
+                    g_PerModeA[mode].load(std::memory_order_relaxed),
                     active ? "" : "  (no override — engine color)");
             }
             else
@@ -136,14 +133,39 @@ namespace
 
     static void __fastcall hk_UpdateHeartLight(void* self, std::uint32_t slot)
     {
-        if (g_HeartEnabled.load(std::memory_order_relaxed) && self)
-        {
-            const float r0    = g_HeartR.load(std::memory_order_relaxed);
-            const float g0    = g_HeartG.load(std::memory_order_relaxed);
-            const float b0    = g_HeartB.load(std::memory_order_relaxed);
-            const float ps    = g_HeartPulse.load(std::memory_order_relaxed);
-            const float pulse = ComputePulseMultiplier(ps);
+        const bool heartDisco = g_HeartDiscoEnabled.load(std::memory_order_relaxed);
 
+        float r0 = 0.0f, g0 = 0.0f, b0 = 0.0f, a0 = 1.0f;
+        bool  haveColor = false;
+        if (heartDisco)
+        {
+            const float speed = g_HeartDiscoSpeed.load(std::memory_order_relaxed);
+            HsvToRgb(NowSeconds() * speed, 1.0f, 1.0f, r0, g0, b0);
+            a0 = g_HeartDiscoA.load(std::memory_order_relaxed);
+            haveColor = true;
+        }
+        else
+        {
+            int useMode = g_LastMode.load(std::memory_order_relaxed);
+            if (useMode < 0 || useMode >= kMaxModes)
+            {
+                useMode = -1;
+                for (int m = 0; m < kMaxModes; ++m)
+                    if (g_HeartPerModeEnabled[m].load(std::memory_order_relaxed)) { useMode = m; break; }
+            }
+            if (useMode >= 0 && useMode < kMaxModes &&
+                g_HeartPerModeEnabled[useMode].load(std::memory_order_relaxed))
+            {
+                r0 = g_HeartPerModeR[useMode].load(std::memory_order_relaxed);
+                g0 = g_HeartPerModeG[useMode].load(std::memory_order_relaxed);
+                b0 = g_HeartPerModeB[useMode].load(std::memory_order_relaxed);
+                a0 = g_HeartPerModeA[useMode].load(std::memory_order_relaxed);
+                haveColor = true;
+            }
+        }
+
+        if (haveColor && self)
+        {
             __try
             {
                 auto base = *reinterpret_cast<std::uint8_t**>(
@@ -156,10 +178,10 @@ namespace
                     static_cast<std::int64_t>(
                         static_cast<std::uint32_t>(slot - baseSlot)) * 0x60 + 0x10;
                 auto color = reinterpret_cast<float*>(base + offset);
-                color[0] = r0 * pulse;
-                color[1] = g0 * pulse;
-                color[2] = b0 * pulse;
-                color[3] = 1.0f;
+                color[0] = r0;
+                color[1] = g0;
+                color[2] = b0;
+                color[3] = a0;
 
                 auto outer = *reinterpret_cast<void**>(
                     reinterpret_cast<std::uintptr_t>(self) + 0x98);
@@ -188,7 +210,7 @@ namespace
 
     static void __fastcall hk_UpdateEyeLampColor(void* self, std::int32_t slot)
     {
-        float outR = 0.0f, outG = 0.0f, outB = 0.0f;
+        float outR = 0.0f, outG = 0.0f, outB = 0.0f, outA = 1.0f;
         bool  haveColor = false;
 
         if (g_DiscoEnabled.load(std::memory_order_relaxed))
@@ -196,28 +218,41 @@ namespace
             const float speed = g_DiscoSpeed.load(std::memory_order_relaxed);
             const float hue   = NowSeconds() * speed;
             HsvToRgb(hue, 1.0f, 1.0f, outR, outG, outB);
+            outA = g_DiscoA.load(std::memory_order_relaxed);
             haveColor = true;
         }
         else
         {
-            const int mode = g_LastMode.load(std::memory_order_relaxed);
-            const bool active = (mode >= 0 && mode < kMaxModes) &&
-                g_PerModeEnabled[mode].load(std::memory_order_relaxed);
+            int useMode = g_LastMode.load(std::memory_order_relaxed);
+            if (useMode < 0 || useMode >= kMaxModes)
+            {
+                useMode = -1;
+                for (int m = 0; m < kMaxModes; ++m)
+                    if (g_PerModeEnabled[m].load(std::memory_order_relaxed)) { useMode = m; break; }
+            }
+            const bool active = (useMode >= 0 && useMode < kMaxModes) &&
+                g_PerModeEnabled[useMode].load(std::memory_order_relaxed);
             if (active)
             {
-                const float r0 = g_PerModeR[mode].load(std::memory_order_relaxed);
-                const float g0 = g_PerModeG[mode].load(std::memory_order_relaxed);
-                const float b0 = g_PerModeB[mode].load(std::memory_order_relaxed);
-                const float ps = g_PerModePulse[mode].load(std::memory_order_relaxed);
-                const float pulse = ComputePulseMultiplier(ps);
-                outR = r0 * pulse;
-                outG = g0 * pulse;
-                outB = b0 * pulse;
+                outR = g_PerModeR[useMode].load(std::memory_order_relaxed);
+                outG = g_PerModeG[useMode].load(std::memory_order_relaxed);
+                outB = g_PerModeB[useMode].load(std::memory_order_relaxed);
+                outA = g_PerModeA[useMode].load(std::memory_order_relaxed);
                 haveColor = true;
             }
         }
 
-        if (haveColor && self)
+        if (g_LoggingEnabled.load(std::memory_order_relaxed))
+        {
+            static int s_updThrottle = 0;
+            if ((s_updThrottle++ % 120) == 0)
+                Log("[EyeLamp] Update fired: lastMode=%d haveColor=%d disco=%d self=%p slot=%d out=(%.3f,%.3f,%.3f,%.3f)\n",
+                    g_LastMode.load(std::memory_order_relaxed), haveColor ? 1 : 0,
+                    g_DiscoEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+                    self, static_cast<int>(slot), outR, outG, outB, outA);
+        }
+
+        if (self)
         {
             __try
             {
@@ -227,14 +262,33 @@ namespace
                     reinterpret_cast<std::uintptr_t>(self) + 0x58);
                 if (base)
                 {
+                    const std::uint32_t si = static_cast<std::uint32_t>(slot - baseSlot);
                     const std::int64_t offset =
-                        static_cast<std::int64_t>(
-                            static_cast<std::uint32_t>(slot - baseSlot)) * 0x60 + 0x20;
+                        static_cast<std::int64_t>(si) * 0x60 + 0x20;
                     auto color = reinterpret_cast<float*>(base + offset);
-                    color[0] = outR;
-                    color[1] = outG;
-                    color[2] = outB;
-                    color[3] = 0.0f;
+                    if (haveColor)
+                    {
+                        if (si < static_cast<std::uint32_t>(kMaxEyeSlots) && !g_HasVanillaEye[si])
+                        {
+                            g_VanillaEye[si][0] = color[0];
+                            g_VanillaEye[si][1] = color[1];
+                            g_VanillaEye[si][2] = color[2];
+                            g_VanillaEye[si][3] = color[3];
+                            g_HasVanillaEye[si] = true;
+                        }
+                        color[0] = outR;
+                        color[1] = outG;
+                        color[2] = outB;
+                        color[3] = outA;
+                    }
+                    else if (si < static_cast<std::uint32_t>(kMaxEyeSlots) && g_HasVanillaEye[si])
+                    {
+                        color[0] = g_VanillaEye[si][0];
+                        color[1] = g_VanillaEye[si][1];
+                        color[2] = g_VanillaEye[si][2];
+                        color[3] = g_VanillaEye[si][3];
+                        g_HasVanillaEye[si] = false;
+                    }
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -248,7 +302,7 @@ namespace
     }
 }
 
-void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
+void Set_EyeLampColor(int mode, float r, float g, float b, float a)
 {
     const bool allModes = (mode < 0);
     if (!allModes && mode >= kMaxModes) return;
@@ -260,7 +314,7 @@ void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
         g_PerModeR[m].store(r, std::memory_order_relaxed);
         g_PerModeG[m].store(g, std::memory_order_relaxed);
         g_PerModeB[m].store(b, std::memory_order_relaxed);
-        g_PerModePulse[m].store(pulseSpeed, std::memory_order_relaxed);
+        g_PerModeA[m].store(a, std::memory_order_relaxed);
         g_PerModeEnabled[m].store(true, std::memory_order_relaxed);
     }
 
@@ -270,14 +324,14 @@ void Set_EyeLampColor(int mode, float r, float g, float b, float pulseSpeed)
     {
         if (allModes)
         {
-            Log("[EyeLamp] SetEyeLampColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
-                r, g, b, pulseSpeed,
+            Log("[EyeLamp] SetEyeLampColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
+                r, g, b, a,
                 wasDisco ? "  (disco auto-disabled)" : "");
         }
         else
         {
-            Log("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f%s\n",
-                mode, r, g, b, pulseSpeed,
+            Log("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
+                mode, r, g, b, a,
                 wasDisco ? "  (disco auto-disabled)" : "");
         }
     }
@@ -298,37 +352,61 @@ void Clear_EyeLampColor()
 }
 
 
-void Set_HeartLightColor(float r, float g, float b, float pulseSpeed)
+void Set_HeartLightColor(int mode, float r, float g, float b, float a)
 {
-    g_HeartR.store(r, std::memory_order_relaxed);
-    g_HeartG.store(g, std::memory_order_relaxed);
-    g_HeartB.store(b, std::memory_order_relaxed);
-    g_HeartPulse.store(pulseSpeed, std::memory_order_relaxed);
-    g_HeartEnabled.store(true, std::memory_order_relaxed);
+    const bool allModes = (mode < 0);
+    if (!allModes && mode >= kMaxModes) return;
+
+    const int start = allModes ? 0           : mode;
+    const int end   = allModes ? kMaxModes   : (mode + 1);
+    for (int m = start; m < end; ++m)
+    {
+        g_HeartPerModeR[m].store(r, std::memory_order_relaxed);
+        g_HeartPerModeG[m].store(g, std::memory_order_relaxed);
+        g_HeartPerModeB[m].store(b, std::memory_order_relaxed);
+        g_HeartPerModeA[m].store(a, std::memory_order_relaxed);
+        g_HeartPerModeEnabled[m].store(true, std::memory_order_relaxed);
+    }
+
+    const bool wasHeartDisco = g_HeartDiscoEnabled.exchange(false, std::memory_order_relaxed);
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
-        Log("[EyeLamp] SetHeartLightColor:  R=%.3f  G=%.3f  B=%.3f  PULS=%.2f\n",
-            r, g, b, pulseSpeed);
+        if (allModes)
+        {
+            Log("[EyeLamp] SetHeartLightColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
+                r, g, b, a,
+                wasHeartDisco ? "  (heart disco auto-disabled)" : "");
+        }
+        else
+        {
+            Log("[EyeLamp] SetHeartLightColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
+                mode, r, g, b, a,
+                wasHeartDisco ? "  (heart disco auto-disabled)" : "");
+        }
     }
 }
 
 
 void Clear_HeartLightColor()
 {
-    g_HeartEnabled.store(false, std::memory_order_relaxed);
+    for (int m = 0; m < kMaxModes; ++m)
+        g_HeartPerModeEnabled[m].store(false, std::memory_order_relaxed);
+    const bool wasHeartDisco = g_HeartDiscoEnabled.exchange(false, std::memory_order_relaxed);
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
-        Log("[EyeLamp] ClearHeartLightColor: HP-driven heart color resumed\n");
+        Log("[EyeLamp] ClearHeartLightColor: HP-driven heart color resumed%s\n",
+            wasHeartDisco ? " (incl. heart disco)" : "");
     }
 }
 
 
-void Set_EyeLampDisco(bool enabled, float speed)
+void Set_EyeLampDisco(bool enabled, float speed, float a)
 {
     if (speed < 0.0f) speed = 0.0f;
     g_DiscoSpeed.store(speed, std::memory_order_relaxed);
+    g_DiscoA.store(a, std::memory_order_relaxed);
     g_DiscoEnabled.store(enabled, std::memory_order_relaxed);
 
     bool clearedPerMode = false;
@@ -343,9 +421,33 @@ void Set_EyeLampDisco(bool enabled, float speed)
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
-        Log("[EyeLamp] Disco %s (speed=%.2f hue cycles/sec)%s\n",
-            enabled ? "ENABLED" : "DISABLED", speed,
+        Log("[EyeLamp] Disco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
+            enabled ? "ENABLED" : "DISABLED", speed, a,
             clearedPerMode ? " (per-mode overrides cleared)" : "");
+    }
+}
+
+
+void Set_HeartLightDisco(bool enabled, float speed, float a)
+{
+    if (speed < 0.0f) speed = 0.0f;
+    g_HeartDiscoSpeed.store(speed, std::memory_order_relaxed);
+    g_HeartDiscoA.store(a, std::memory_order_relaxed);
+    g_HeartDiscoEnabled.store(enabled, std::memory_order_relaxed);
+
+    bool clearedFixed = false;
+    if (enabled)
+    {
+        for (int m = 0; m < kMaxModes; ++m)
+            if (g_HeartPerModeEnabled[m].exchange(false, std::memory_order_relaxed))
+                clearedFixed = true;
+    }
+
+    if (g_LoggingEnabled.load(std::memory_order_relaxed))
+    {
+        Log("[EyeLamp] HeartDisco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
+            enabled ? "ENABLED" : "DISABLED", speed, a,
+            clearedFixed ? " (fixed heart color cleared)" : "");
     }
 }
 
@@ -428,10 +530,15 @@ bool Uninstall_SetEyeLampColor_Hook()
         g_OrigUpdateHeartLight = nullptr;
     }
     for (int i = 0; i < kMaxModes; ++i)
+    {
         g_PerModeEnabled[i].store(false, std::memory_order_relaxed);
+        g_HeartPerModeEnabled[i].store(false, std::memory_order_relaxed);
+    }
+    for (int i = 0; i < kMaxEyeSlots; ++i)
+        g_HasVanillaEye[i] = false;
     g_LastMode.store(-1, std::memory_order_relaxed);
     g_DiscoEnabled.store(false, std::memory_order_relaxed);
-    g_HeartEnabled.store(false, std::memory_order_relaxed);
+    g_HeartDiscoEnabled.store(false, std::memory_order_relaxed);
     g_LoggingEnabled.store(false, std::memory_order_relaxed);
     return true;
 }

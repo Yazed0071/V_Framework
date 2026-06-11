@@ -86,7 +86,6 @@ namespace
         return n;
     }
 
-    // hkUpdate must NOT EmitMessage (calling Lua from the per-frame Update crashes mid scene-transition); queue here, flush from the safe event contexts.
     static void FlushPendingFinishes()
     {
         const int n = g_PendingFinishCount;
@@ -112,7 +111,6 @@ namespace
         }
     }
 
-    // FlightControllerImpl::Update is per-frame, always ticked, and non-audio (unlike the sound Update), so it is a Lua-safe place to flush the queued HeliFinishes at the real finish moment.
     static void __fastcall hkFlightUpdate(void* this_)
     {
         if (g_OrigFlightUpdate)

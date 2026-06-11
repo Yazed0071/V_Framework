@@ -18,5 +18,6 @@ namespace SoldierAkObjIdMap
     void ClearPitchForControl(void* control);
     void SetDesiredPitchForGoId(std::uint32_t goId, float cents);
     void ClearDesiredPitchForGoId(std::uint32_t goId);
+    void ClearAllDesiredPitches();
     std::vector<std::uint32_t> GetAkObjIdsForGoId(std::uint32_t goId);
 }

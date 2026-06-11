@@ -12,7 +12,6 @@ extern "C" {
 #include "V_TppGameObjectConstants.h"
 #include "LuaApi.h"
 
-// V_TppGameObject — a global table of numeric constants exposed to Lua.
 
 namespace
 {

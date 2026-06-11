@@ -14,7 +14,6 @@ namespace
     using InitEquipHudData_t = void(__fastcall*)(void* this_);
     static InitEquipHudData_t g_Orig = nullptr;
 
-    // The no-use list lives at *(this+0x48)+0x1a4, 32 entries of uint32.
     static constexpr std::size_t kInnerPtrOffset  = 0x48;
     static constexpr std::size_t kNoUseListOffset = 0x1a4;
     static constexpr std::size_t kNoUseListCount  = 32;

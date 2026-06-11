@@ -18,7 +18,7 @@ using CheckNoticeFn_t = void(__fastcall*)(void* self, std::uint32_t param1, void
 using SpeakVfunc20_t = bool(__fastcall*)(void* self, std::uint32_t id32, std::uint32_t a3, int a4, std::uint32_t lineId, float a6);
 
 static constexpr int STEP_ENTER = 0;
-static constexpr std::uint32_t kEvn220LineId = 0x8073EA46u; // EVN220
+static constexpr std::uint32_t kEvn220LineId = 0x8073EA46u;
 static constexpr std::uint64_t kSpeakCooldownMs = 8000;
 static constexpr std::uint64_t kGlobalSpeakCooldownMs = 3000;
 

@@ -23,19 +23,14 @@ namespace
 
     static StateCrawlSideRoll_t g_OrigStateCrawlSideRoll = nullptr;
 
-    // Game phases we care about.
     static constexpr std::uint32_t kRollStartPhase = 1u;
     static constexpr std::uint32_t kRollRollingPhase = 4u;
     static constexpr std::uint32_t kRollEndPhase = 2u;
 
-    // If no state calls happen for this long, the chain/session is considered broken.
     static constexpr ULONGLONG kConsecutiveWindowMs = 1500ull;
 
-    // Phase 4 fires every frame while rolling, so debounce it.
-    // Tune this if Rolling emits too fast or too slow.
     static constexpr ULONGLONG kRollingRepeatMs = 500ull;
 
-    // Set true only while debugging. This will spam your log every frame.
     static constexpr bool kVerboseEveryCallLog = false;
 
     static std::atomic<ULONGLONG> g_LastCallTickMs{ 0 };
@@ -79,7 +74,6 @@ namespace
                 *reinterpret_cast<std::uint32_t*>(
                     reinterpret_cast<std::uintptr_t>(actionInfo) + kSlotOriginField);
 
-            // Prevent unsigned underflow.
             if (playerIndex < slotOrigin)
                 return false;
 
@@ -189,30 +183,28 @@ static void __fastcall hkStateCrawlSideRoll(
             g_RollCount = 1;
             g_LastRollingEmitMs = nowMs;
 
-            emitPhase = kRollStartPhase;   // 1 = Start
+            emitPhase = kRollStartPhase;
             emitCount = g_RollCount;
             shouldEmit = true;
         }
         else if (isRolling && g_IsRolling)
         {
-            // Phase 4 fires every frame, so only emit Rolling every kRollingRepeatMs.
             if (g_LastRollingEmitMs == 0 ||
                 (nowMs - g_LastRollingEmitMs) >= kRollingRepeatMs)
             {
                 ++g_RollCount;
                 g_LastRollingEmitMs = nowMs;
 
-                emitPhase = kRollRollingPhase; // 4 = Rolling
+                emitPhase = kRollRollingPhase;
                 emitCount = g_RollCount;
                 shouldEmit = true;
             }
         }
         else if (isEnd)
         {
-            // Emit final End event with the final count.
             if (g_IsRolling || g_RollCount > 0)
             {
-                emitPhase = kRollEndPhase; // 2 = End
+                emitPhase = kRollEndPhase;
                 emitCount = g_RollCount;
                 shouldEmit = true;
             }

@@ -32,8 +32,8 @@ namespace
     static bool  g_CpEnable[kMaxCommandPosts]          = {};
     static float g_CpDurationSeconds[kMaxCommandPosts] = {};
     static float g_CpNormalizedDrain[kMaxCommandPosts] = {};
+    static float g_CpRemainingSeconds[kMaxCommandPosts] = {};
 
-    // Per-CP override if set for this command-post index, else the global override, else 0 (vanilla).
     static float EffectiveNormalizedDrain(std::uint32_t cpIndex)
     {
         if (cpIndex < kMaxCommandPosts && g_CpEnable[cpIndex] && g_CpNormalizedDrain[cpIndex] > 0.0f)
@@ -219,6 +219,9 @@ namespace
         g_LastObservedNormalizedTimer = currentTimer;
         g_LastObservedRemainingSeconds = remainingSeconds;
         g_LastObservedUsedOverride = g_EnableOverride;
+
+        if (phaseIndex < kMaxCommandPosts)
+            g_CpRemainingSeconds[phaseIndex] = remainingSeconds;
     }
 
 
@@ -376,14 +379,16 @@ namespace
     }
 
 
-    // Per-CP: hk_SendCommand stashes the duration; the engine resolves cpId->index and calls TppCp2_LuaCommands(param_2=index).
     static bool  g_PendingCpActive   = false;
     static float g_PendingCpDuration = 0.0f;
+
+    static bool          g_PendingCpCapture = false;
+    static std::uint32_t g_CapturedCpIndex  = 0xFFFFFFFFu;
 
     using TppCp2LuaCommands_t = void(__fastcall*)(unsigned long long, unsigned long long, unsigned int, unsigned int);
     static TppCp2LuaCommands_t   g_OrigTppCp2LuaCommands       = nullptr;
     static std::uint32_t         g_HashSetCautionPhaseDuration = 0;
-    static constexpr std::uintptr_t kAddr_TppCp2LuaCommands = 0x140D5E070ull; // EN only
+    static constexpr std::uintptr_t kAddr_TppCp2LuaCommands = 0x140D5E070ull;
 
     static void __fastcall hkTppCp2LuaCommands(unsigned long long p1, unsigned long long p2,
                                                unsigned int p3, unsigned int cmdHash)
@@ -398,6 +403,13 @@ namespace
                 p1, p2, p3, p3, g_PendingCpDuration);
             Set_CautionStepNormalDurationSecondsForCp(p3, g_PendingCpDuration);
         }
+
+        if (g_PendingCpCapture)
+        {
+            g_PendingCpCapture = false;
+            g_CapturedCpIndex = p3;
+            LogCautionPhaseTimer("[CautionCp] captured cp index p3=%u(0x%X)\n", p3, p3);
+        }
     }
 
     static void __fastcall hkDecrementPhaseCounter(void* self, std::uint32_t phaseIndex, void* knowledge)
@@ -411,6 +423,9 @@ namespace
 bool Install_CautionStepNormalTimerHook()
 {
     SyncCautionStepNormalDrainFromDuration();
+
+    for (unsigned i = 0; i < kMaxCommandPosts; ++i)
+        g_CpRemainingSeconds[i] = -1.0f;
 
     void* target = ResolveGameAddress(gAddr.DecrementPhaseCounter);
     if (!target)
@@ -552,5 +567,35 @@ float Get_CautionStepNormalRemainingSeconds()
         g_LastObservedUsedOverride ? "custom" : "vanilla"
     );
 
+    return g_LastObservedRemainingSeconds;
+}
+
+
+void Arm_CautionCpCapture()
+{
+    g_CapturedCpIndex = 0xFFFFFFFFu;
+    g_PendingCpCapture = true;
+}
+
+
+std::uint32_t Take_CautionCpIndex()
+{
+    g_PendingCpCapture = false;
+    return g_CapturedCpIndex;
+}
+
+
+float Get_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex)
+{
+    if (cpIndex < kMaxCommandPosts && g_CpEnable[cpIndex])
+        return g_CpDurationSeconds[cpIndex];
+    return g_DurationSeconds;
+}
+
+
+float Get_CautionStepNormalRemainingSecondsForCp(std::uint32_t cpIndex)
+{
+    if (cpIndex < kMaxCommandPosts)
+        return g_CpRemainingSeconds[cpIndex];
     return g_LastObservedRemainingSeconds;
 }
