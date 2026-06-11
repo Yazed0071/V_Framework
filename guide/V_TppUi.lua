@@ -22,85 +22,82 @@ function this.SetEquipIdIconFtexPath(equipId, path)
         V_FrameWork.Log("V_TppUiCommand.SetEquipIdIconFtexPath: path is not a string.")
         return
     end
-    V_TppUiCommand.SetEquipIdIconFtexPath(equipId, path)
+    V_TppUiCommand.SetEquipIdIconFtexPath(equipId, path) -- WORK
 end
 
 function this.ClearIconFtexPath(equipId)
-    V_TppUiCommand.ClearIconFtexPath(equipId)
+    V_TppUiCommand.ClearIconFtexPath(equipId) -- WORK
 end
 
 function this.ClearAllIconFtexPaths()
-    V_TppUiCommand.ClearAllIconFtexPaths()
+    V_TppUiCommand.ClearAllIconFtexPaths() -- WORK
 end
 
-function this.SetDefaultEquipBgTexturePath(path)
+function this.SetDefaultEquipBgTexturePath(path, colored, opacity)
     if not IsTypeString(path) then
         V_FrameWork.Log("V_TppUiCommand.SetDefaultEquipBgTexturePath: path is not a string.")
         return
     end
-    V_TppUiCommand.SetDefaultEquipBgTexturePath(path)
+    V_TppUiCommand.SetDefaultEquipBgTexturePath(path, colored, opacity)
 end
 
 function this.ClearDefaultEquipBgTexture()
-    V_FrameWork.Log("V_TppUiCommand.ClearDefaultEquipBgTexture: Clearing default equip background texture.")
     V_TppUiCommand.ClearDefaultEquipBgTexture()
 end
 
-function this.SetEquipBgTexturePath(equipId, path)
+function this.SetEquipBgTexturePath(equipId, path, colored, opacity)
     if equipId == nil then
-        V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: equipId is nil, cannot set texture path.")
+        V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: equipId is nil.")
         return
     end
     if not IsTypeString(path) then
         V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: path is not a string.")
         return
     end
-    V_TppUiCommand.SetEquipBgTexturePath(equipId, path)
+    V_TppUiCommand.SetEquipBgTexturePath(equipId, path, colored, opacity)
 end
 
 function this.ClearEquipBgTexture(equipId)
     if equipId == nil then
-        V_FrameWork.Log("V_TppUiCommand.ClearEquipBgTexture: equipId is nil, cannot clear texture.")
+        V_FrameWork.Log("V_TppUiCommand.ClearEquipBgTexture: equipId is nil.")
         return
     end
     V_TppUiCommand.ClearEquipBgTexture(equipId)
 end
 
-function this.SetEnemyWeaponBgTexturePath(path)
+function this.SetEnemyWeaponBgTexturePath(path, colored, opacity)
     if not IsTypeString(path) then
         V_FrameWork.Log("V_TppUiCommand.SetEnemyWeaponBgTexturePath: path is not a string.")
         return
     end
-    V_TppUiCommand.SetEnemyWeaponBgTexturePath(path)
+    V_TppUiCommand.SetEnemyWeaponBgTexturePath(path, colored, opacity)
 end
 
 function this.ClearEnemyWeaponBgTexture()
-    V_FrameWork.Log("V_TppUiCommand.ClearEnemyWeaponBgTexture: Clearing enemy weapon background texture.")
     V_TppUiCommand.ClearEnemyWeaponBgTexture()
 end
 
-function this.SetEnemyEquipBgTexturePath(equipId, path)
+function this.SetEnemyEquipBgTexturePath(equipId, path, colored, opacity)
     if equipId == nil then
-        V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: equipId is nil, cannot set texture path.")
+        V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: equipId is nil.")
         return
     end
     if not IsTypeString(path) then
         V_FrameWork.Log("V_TppUiCommand.SetEnemyEquipBgTexturePath: path is not a string.")
         return
     end
-    V_TppUiCommand.SetEnemyEquipBgTexturePath(equipId, path)
+    V_TppUiCommand.SetEnemyEquipBgTexturePath(equipId, path, colored, opacity)
 end
 
 function this.ClearEnemyEquipBgTexture(equipId)
     if equipId == nil then
-        V_FrameWork.Log("V_TppUiCommand.ClearEnemyEquipBgTexture: equipId is nil, cannot clear texture.")
+        V_FrameWork.Log("V_TppUiCommand.ClearEnemyEquipBgTexture: equipId is nil.")
         return
     end
     V_TppUiCommand.ClearEnemyEquipBgTexture(equipId)
 end
 
 function this.ClearAllEquipBgTextures()
-    V_FrameWork.Log("V_TppUiCommand.ClearAllEquipBgTextures: Clearing all equip background textures.")
     V_TppUiCommand.ClearAllEquipBgTextures()
 end
 

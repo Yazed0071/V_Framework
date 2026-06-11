@@ -16,16 +16,16 @@ function this.SetGameOverMusic(isEnable, gameOverType, playEvent, stopEvent)
         return false
     end
     if isEnable then
-        if not IsTypeString(playEvent) then
-            V_FrameWork.Log("V_TppMusicManager.SetGameOverMusic: playEvent is not a string.")
+        if not (IsTypeString(playEvent) or type(playEvent) == "number") then
+            V_FrameWork.Log("V_TppMusicManager.SetGameOverMusic: playEvent must be a string (event name) or number (event hash).")
             return false
         end
-        if not IsTypeString(stopEvent) then
-            V_FrameWork.Log("V_TppMusicManager.SetGameOverMusic: stopEvent is not a string.")
+        if not (IsTypeString(stopEvent) or type(stopEvent) == "number") then
+            V_FrameWork.Log("V_TppMusicManager.SetGameOverMusic: stopEvent must be a string (event name) or number (event hash).")
             return false
         end
     end
-    return V_TppSoundDaemon.SetGameOverMusic(isEnable, gameOverType, playEvent or "", stopEvent or "")
+    return V_TppSoundDaemon.SetGameOverMusic(isEnable, gameOverType, playEvent, stopEvent)
 end
 
 return this

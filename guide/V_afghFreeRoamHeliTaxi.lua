@@ -1829,8 +1829,8 @@ function this.RequestHeliTaxi(gameObjectId, currentLandingZoneName, nextLandingZ
         return
     end
 
-    -- relay route -> ride on the heli edge (pose 1 / state 0x3); no relay route -> ride in front of the door (pose 2 / state 0x8)
-    V_Helicopter.SetTaxiRideState(heliTaxiSettings.relayRoute and 0x3 or 0x8)
+    -- heli ride pose is left entirely to V_Helicopter.SetTaxiRideState / the "Set Taxi Ride Pose" IVar;
+    -- the taxi intentionally does NOT override it here (forcing 0x3/0x8 clobbered the player's configured pose)
 
     SendCommand(
         { type = "TppHeli2", index = 0 },

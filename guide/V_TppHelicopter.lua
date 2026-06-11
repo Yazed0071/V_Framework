@@ -5,6 +5,17 @@ this.registerIvars={
 	"V_TppHelicopter_SetTaxiRidePose",
 }
 
+this.registerMenus={
+	"V_FrameWork_V_TppHelicopter",
+}
+
+this.V_FrameWork_V_TppHelicopter={
+	parentRefs={"V_FrameWork_Core.V_FrameWork"},
+	options={
+		"Ivars.V_TppHelicopter_SetTaxiRidePose",
+	}
+}
+
 this.V_TppHelicopter_SetTaxiRidePose={
     save = IvarProc.CATEGORY_EXTERNAL,
     settings = { "Heli Edge", "Inside", "BackSeat" },
@@ -16,6 +27,7 @@ this.V_TppHelicopter_SetTaxiRidePose={
 
 this.langStrings={
 	eng={
+        V_FrameWork_V_TppHelicopter = "V_TppHelicopter",
 		V_TppHelicopter_SetTaxiRidePose = "Set Taxi Ride Pose",
 	},
 	help={
@@ -64,24 +76,12 @@ function this.SetEnableHeliVoice(isEnable, voiceEvent, radioEvent)
     return V_Helicopter.SetEnableHeliVoice(isEnable, voiceEvent or "", radioEvent or "")
 end
 
-function this.PilotCallVoice(voice, slot, voiceType, param4)
+function this.PilotCallVoice(voice)
     if not isNameOrHash(voice) then
         V_FrameWork.Log("V_TppHelicopter.PilotCallVoice: voice must be a name (string) or hash (number).")
         return false
     end
-    if slot ~= nil and type(slot) ~= "number" then
-        V_FrameWork.Log("V_TppHelicopter.PilotCallVoice: slot must be a number.")
-        return false
-    end
-    if voiceType ~= nil and type(voiceType) ~= "number" then
-        V_FrameWork.Log("V_TppHelicopter.PilotCallVoice: voiceType must be a number.")
-        return false
-    end
-    if param4 ~= nil and not isNameOrHash(param4) then
-        V_FrameWork.Log("V_TppHelicopter.PilotCallVoice: param4 must be a name (string) or hash (number).")
-        return false
-    end
-    return V_Helicopter.PilotCallVoice(voice, slot or 0, voiceType or 0, param4 or 0)
+    return V_Helicopter.PilotCallVoice(voice)
 end
 
 function this.PilotCallRadio(line1, line2)

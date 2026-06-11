@@ -24,32 +24,23 @@ this.registerMenus={
 
 this.V_FrameWork={
 	parentRefs={"InfMenuDefs.safeSpaceMenu","InfMenuDefs.inMissionMenu"},
-	options={
-		"V_FrameWork.V_FrameWork_V_TppHelicopter",
-	}
+	options={}
 }
 
-this.V_FrameWork_V_TppHelicopter={
-	options={
-		"V_FrameWork.V_TppHelicopter_SetTaxiRidePose",
-	}
-}
 
 this.langStrings={
 	eng={
 		V_FrameWork="V_FrameWork",
-		V_FrameWork_V_TppHelicopter = "V_TppHelicopter",
 	},
 	help={
 		eng={
 			V_FrameWork="Toggle individual options for V_FrameWork mod.",
-			V_FrameWork_V_TppHelicopter = "Toggle individual options for some of the functions V_FrameWork_Core provides.",
 		},
 	},
 }
 
 function this.OnAllocate(missionTable)
-    V_TppSound.ClearAllPerAkObjIdPitchBiases()
+    V_TppSound.UnsetSoldierVoicePitch()
     V_TppCommandPost.UnsetCautionPhaseDuration()
     V_TppEnemy.ClearCallSignPatrolSoldiers()
     V_TppEnemy.ClearSoldierStealthCamoOverrides()
