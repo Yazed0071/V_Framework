@@ -388,7 +388,18 @@ namespace
     using TppCp2LuaCommands_t = void(__fastcall*)(unsigned long long, unsigned long long, unsigned int, unsigned int);
     static TppCp2LuaCommands_t   g_OrigTppCp2LuaCommands       = nullptr;
     static std::uint32_t         g_HashSetCautionPhaseDuration = 0;
-    static constexpr std::uintptr_t kAddr_TppCp2LuaCommands = 0x140D5E070ull;
+    static std::uintptr_t Addr_TppCp2LuaCommands()
+    {
+        using GB = AddressSetRuntime::GameBuild;
+        switch (gGameBuild)
+        {
+        case GB::En_1_0_15_4: return 0x140D5DF30ull;
+        case GB::En_1_0_15_3: return 0x140D5E070ull;
+        case GB::Jp_1_0_15_4: return 0x140D5DEF0ull;
+        case GB::Jp_1_0_15_3: return 0x140D5DDE0ull;
+        default:              return 0;
+        }
+    }
 
     static void __fastcall hkTppCp2LuaCommands(unsigned long long p1, unsigned long long p2,
                                                unsigned int p3, unsigned int cmdHash)
@@ -450,9 +461,9 @@ bool Install_CautionStepNormalTimerHook()
     );
 
     g_HashSetCautionPhaseDuration = FoxHashes::StrCode32("SetCautionPhaseDuration");
-    if (gGameBuild == AddressSetRuntime::GameBuild::English)
+    if (Addr_TppCp2LuaCommands() != 0)
     {
-        void* cp2 = ResolveGameAddress(kAddr_TppCp2LuaCommands);
+        void* cp2 = ResolveGameAddress(Addr_TppCp2LuaCommands());
         const bool ok2 = cp2 && CreateAndEnableHook(
             cp2,
             reinterpret_cast<void*>(&hkTppCp2LuaCommands),
@@ -470,7 +481,7 @@ bool Uninstall_CautionStepNormalTimerHook()
     g_OrigDecrementPhaseCounter = nullptr;
     if (g_OrigTppCp2LuaCommands)
     {
-        DisableAndRemoveHook(ResolveGameAddress(kAddr_TppCp2LuaCommands));
+        DisableAndRemoveHook(ResolveGameAddress(Addr_TppCp2LuaCommands()));
         g_OrigTppCp2LuaCommands = nullptr;
     }
 

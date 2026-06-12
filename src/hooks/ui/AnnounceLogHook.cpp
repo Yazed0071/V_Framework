@@ -279,6 +279,39 @@ bool IsAnnounceLogSfxRegistered(const char* eventName)
     return g_GameplaySfx.find(FoxHashes::FNVHash32(eventName)) != g_GameplaySfx.end();
 }
 
+bool Unset_AnnounceLogSE(const char* announceLabel)
+{
+    const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
+    if (announceType == 0)
+        return false;
+
+    const bool had = g_Overrides.erase(announceType) != 0;
+
+    const auto it = g_SeIdByType.find(announceType);
+    if (it != g_SeIdByType.end())
+    {
+        const std::uint32_t seId = it->second;
+        if (seId >= kModSeIdBase && seId <= kModSeIdMax)
+        {
+            g_ModSfx[seId]      = 0;
+            g_ModEvents[seId]   = 0;
+            g_ModVoices[seId].clear();
+            g_ModDialogue[seId] = {};
+        }
+    }
+
+    if (had)
+        Log("[AnnounceLog] '%s' override cleared (vanilla restored)\n", announceLabel);
+    return had;
+}
+
+bool Unregister_AnnounceLogSfx(const char* eventName)
+{
+    if (!eventName || !*eventName)
+        return false;
+    return g_GameplaySfx.erase(FoxHashes::FNVHash32(eventName)) != 0;
+}
+
 bool Install_AnnounceLogHook()
 {
     if (g_Installed)

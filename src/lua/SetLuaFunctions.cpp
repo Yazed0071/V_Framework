@@ -1324,6 +1324,8 @@ std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t c
 std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventName);
 bool Register_AnnounceLogSfx(const char* eventName);
 bool IsAnnounceLogSfxRegistered(const char* eventName);
+bool Unset_AnnounceLogSE(const char* announceLabel);
+bool Unregister_AnnounceLogSfx(const char* eventName);
 
 int __cdecl l_SetAnnounceLogSE(lua_State* L)
 {
@@ -1372,6 +1374,24 @@ int __cdecl l_RegisterAnnounceLogSfx(lua_State* L)
 {
     const char* name = GetLuaString(L, 1);
     const bool ok = Register_AnnounceLogSfx(name);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_UnsetAnnounceLogSE(lua_State* L)
+{
+    const char* label = GetLuaString(L, 1);
+    const bool ok = (label && *label) ? Unset_AnnounceLogSE(label) : false;
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    const bool ok = Unregister_AnnounceLogSfx(name);
     PushLuaBool(L, ok);
     return 1;
 }

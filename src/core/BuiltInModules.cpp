@@ -916,7 +916,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSoundRecoveryModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPRadioModule);
-            FeatureModuleRegistry::Instance().Register(&s_ConvertParameterIdLoggerModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldUpReactionCowardlyReactionsModule);
             FeatureModuleRegistry::Instance().Register(&s_PerSoldierCallSignOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);

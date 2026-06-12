@@ -66,6 +66,8 @@ namespace
 
         { "SetAnnounceLogSE",                          l_SetAnnounceLogSE },
         { "RegisterAnnounceLogSfx",                    l_RegisterAnnounceLogSfx },
+        { "UnsetAnnounceLogSE",                        l_UnsetAnnounceLogSE },
+        { "UnregisterAnnounceLogSfx",                  l_UnregisterAnnounceLogSfx },
 
         { nullptr,          nullptr }
     };

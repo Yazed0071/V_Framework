@@ -19,7 +19,6 @@ namespace
     using GetQuarkSystemTable_t = void* (__fastcall*)();
 
     SetWeaponPanelLogo_t  g_OrigSetWeaponPanelLogo = nullptr;
-    SetWeaponPanelLogo_t  g_OrigSetWeaponPanelLogo2 = nullptr;
     SetTextureName_t      g_SetTextureName = nullptr;
     GetUixUtility_t       g_GetUixUtility = nullptr;
     GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
@@ -240,12 +239,6 @@ namespace
     {
         return EquipBgApply(equipId, node, g_OrigSetWeaponPanelLogo);
     }
-
-
-    uint8_t __fastcall hkSetWeaponPanelLogo2(int equipId, void* node)
-    {
-        return EquipBgApply(equipId, node, g_OrigSetWeaponPanelLogo2);
-    }
 }
 
 
@@ -320,16 +313,6 @@ bool Install_EquipBgTexture_Hook()
         reinterpret_cast<void*>(&hkSetWeaponPanelLogo),
         reinterpret_cast<void**>(&g_OrigSetWeaponPanelLogo));
 
-    if (gAddr.SetEquipBackgroundTexture2 != 0)
-    {
-        void* target2 = ResolveGameAddress(gAddr.SetEquipBackgroundTexture2);
-        if (target2)
-            CreateAndEnableHook(
-                target2,
-                reinterpret_cast<void*>(&hkSetWeaponPanelLogo2),
-                reinterpret_cast<void**>(&g_OrigSetWeaponPanelLogo2));
-    }
-
     Resolve();
     Log("[Hook] EquipBgTexture: %s\n", ok ? "OK" : "FAIL");
     return ok;
@@ -339,10 +322,7 @@ bool Install_EquipBgTexture_Hook()
 bool Uninstall_EquipBgTexture_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetEquipBackgroundTexture));
-    if (gAddr.SetEquipBackgroundTexture2 != 0)
-        DisableAndRemoveHook(ResolveGameAddress(gAddr.SetEquipBackgroundTexture2));
 
     g_OrigSetWeaponPanelLogo = nullptr;
-    g_OrigSetWeaponPanelLogo2 = nullptr;
     return true;
 }

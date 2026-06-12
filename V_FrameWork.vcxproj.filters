@@ -116,6 +116,9 @@
     <ClCompile Include="src\core\AddressSet.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\AddressSet_day1820.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="src\core\BuiltInModules.cpp">
       <Filter>Core</Filter>
     </ClCompile>

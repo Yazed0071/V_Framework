@@ -249,6 +249,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\core\AddressSet.cpp" />
+    <ClCompile Include="src\core\AddressSet_day1820.cpp" />
     <ClCompile Include="src\core\BuiltInModules.cpp" />
     <ClCompile Include="src\core\FeatureModule.cpp" />
     <ClCompile Include="src\core\MissionCodeGuard.cpp" />

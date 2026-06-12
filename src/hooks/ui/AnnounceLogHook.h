@@ -13,3 +13,5 @@ std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t c
 std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventName);
 bool Register_AnnounceLogSfx(const char* eventName);
 bool IsAnnounceLogSfxRegistered(const char* eventName);
+bool Unset_AnnounceLogSE(const char* announceLabel);
+bool Unregister_AnnounceLogSfx(const char* eventName);
