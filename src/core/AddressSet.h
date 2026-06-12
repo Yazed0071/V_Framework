@@ -8,8 +8,10 @@ namespace AddressSetRuntime
     enum class GameBuild
     {
         Unknown,
-        English,
-        Japanese
+        En_1_0_15_3,   // day1820
+        Jp_1_0_15_3,   // day1820
+        En_1_0_15_4,   // day3800
+        Jp_1_0_15_4    // day3800
     };
 
     struct AddressSet
@@ -39,6 +41,7 @@ namespace AddressSetRuntime
         uintptr_t GetPlayingTrackId = 0;
         uintptr_t GetQuarkSystemTable = 0;
         uintptr_t GetTrackInfoByName = 0;
+        uintptr_t GetUixUtilityToFeedQuarkEnvironment = 0;
         uintptr_t GetVoiceLanguage = 0;
         uintptr_t GetVoiceParamWithCallSign = 0;
         uintptr_t KernelAllocAligned = 0;
@@ -113,7 +116,6 @@ namespace AddressSetRuntime
         uintptr_t Sahelan_PhaseSneakAi_PushEyeColor = 0;
         uintptr_t Sahelan_EyeMeshHashTable = 0;
         uintptr_t Sahelan_PhaseSneakAi_ColorTableBase = 0;
-        uintptr_t RealizedSecurityCamera2Impl_SetFova = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal    = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer    = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency = 0;
@@ -239,8 +241,10 @@ namespace AddressSetRuntime
         return value;
     }
 
-    const AddressSet& GetEnglishAddressSet();
-    const AddressSet& GetJapaneseAddressSet();
+    const AddressSet& Get_mst_en_day3800_AddressSet();   // 1.0.15.4 english
+    const AddressSet& Get_mst_jp_day3800_AddressSet();   // 1.0.15.4 japanese
+    const AddressSet& Get_mst_en_day1820_AddressSet();   // 1.0.15.3 english
+    const AddressSet& Get_mst_jp_day1820_AddressSet();   // 1.0.15.3 japanese
     GameBuild DetectGameBuildFromVersionInfo(HMODULE hGame);
     bool ResolveAddressSet(HMODULE hGame);
 
@@ -248,14 +252,16 @@ namespace AddressSetRuntime
     {
         switch (build)
         {
-        case GameBuild::English:
-            return "English";
-        case GameBuild::Japanese:
-            return "Japanese";
-        default:
-            return "Unknown";
+        case GameBuild::En_1_0_15_3: return "EN 1.0.15.3";
+        case GameBuild::Jp_1_0_15_3: return "JP 1.0.15.3";
+        case GameBuild::En_1_0_15_4: return "EN 1.0.15.4";
+        case GameBuild::Jp_1_0_15_4: return "JP 1.0.15.4";
+        default:                     return "Unknown";
         }
     }
+
+    inline bool IsEnglishBuild(GameBuild b)  { return b == GameBuild::En_1_0_15_3 || b == GameBuild::En_1_0_15_4; }
+    inline bool IsJapaneseBuild(GameBuild b) { return b == GameBuild::Jp_1_0_15_3 || b == GameBuild::Jp_1_0_15_4; }
 }
 
 #define gGameBuild (::AddressSetRuntime::GetGameBuild())
