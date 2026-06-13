@@ -108,6 +108,30 @@ static void* ResolveMusicPlayerFromCassetteCallback(void* cassetteCallbackBase)
 }
 
 
+// MEM_PRIVATE, so this cleanly rejects a music-player object whose "vtable" is actually heap data.
+static bool IsModuleImagePtr(const void* p, bool requireExec)
+{
+    if (!p)
+        return false;
+
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (VirtualQuery(p, &mbi, sizeof(mbi)) != sizeof(mbi))
+        return false;
+    if (mbi.State != MEM_COMMIT || mbi.Type != MEM_IMAGE)
+        return false;
+    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))
+        return false;
+    if (requireExec)
+    {
+        const DWORD exec =
+            PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+        if ((mbi.Protect & exec) == 0)
+            return false;
+    }
+    return true;
+}
+
+
 static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
 {
     if (!musicPlayer)
@@ -119,9 +143,15 @@ static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
         if (!vtable)
             return nullptr;
 
+        if (!IsModuleImagePtr(reinterpret_cast<const void*>(vtable), false))
+            return nullptr;
+
         const std::uintptr_t target =
             *reinterpret_cast<const std::uintptr_t*>(vtable + kMusicPlayerPlayVtableOffset);
         if (!target)
+            return nullptr;
+
+        if (!IsModuleImagePtr(reinterpret_cast<const void*>(target), true))
             return nullptr;
 
         return reinterpret_cast<void*>(target);
@@ -808,6 +838,26 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
 }
 
+static void* ResolveStaticPlayWrapperFromVtable()
+{
+    void* vtbl = ResolveGameAddress(gAddr.CassettePlayerVtable);
+    if (!vtbl || !IsModuleImagePtr(vtbl, false))
+        return nullptr;
+
+    __try
+    {
+        void* target = *reinterpret_cast<void**>(
+            reinterpret_cast<std::uintptr_t>(vtbl) + kMusicPlayerPlayVtableOffset);
+        if (target && IsModuleImagePtr(target, true))
+            return target;
+        return nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
 
 static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlayer)
 {
@@ -835,6 +885,17 @@ static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlaye
         void* target = ResolveMusicPlayerPlayTarget(outPlayer);
         if (target)
             outPlayFn = reinterpret_cast<MusicPlayerPlay_t>(target);
+    }
+
+    if (!outPlayFn)
+    {
+        void* staticWrapper = ResolveStaticPlayWrapperFromVtable();
+        if (staticWrapper)
+        {
+            outPlayFn = reinterpret_cast<MusicPlayerPlay_t>(staticWrapper);
+            if (!outPlayer)
+                outPlayer = smp;
+        }
     }
 
     if (outPlayFn == nullptr || outPlayer == nullptr)
@@ -932,7 +993,9 @@ bool PlayCassetteByTrackId(
 
     if (!ResolveDirectPlayState(playFn, player))
     {
-        Log("[CassettePlay] PlayCassetteByTrackId: playFn/player not ready\n");
+        Log("[CassettePlay] PlayCassetteByTrackId: no play-capable player. Open the in-game Music Player"
+            " once so the cassette player gets captured — the cold *(MM+0xA8) object is track-info-only,"
+            " not a vtable play target.\n");
         return false;
     }
 
@@ -942,6 +1005,8 @@ bool PlayCassetteByTrackId(
     g_DirectTrackTable[0] = trackId;
 
     const std::uint32_t playMode = 0;
+
+    const std::uint32_t trackCount = 1;
     const std::uint32_t selectedTrackIndex = 0;
     const std::uint32_t reservedZero = 0;
     const std::uint8_t flag1 = loopPlay ? 1 : 0;
@@ -961,12 +1026,14 @@ bool PlayCassetteByTrackId(
     Log(
         "[CassettePlay] DirectPlayByTrackId"
         " player=%p"
-        " albumIndex=%u"
+        " trackCount=%u"
+        " ignoredAlbumIndex=%u"
         " trackId=%u (0x%X)"
         " loop=%u"
         " playAll=%u"
         " table=%p\n",
         player,
+        static_cast<unsigned int>(trackCount),
         static_cast<unsigned int>(albumIndex),
         static_cast<unsigned int>(trackId),
         static_cast<unsigned int>(trackId),
@@ -979,11 +1046,18 @@ bool PlayCassetteByTrackId(
         &outHandle,
         playMode,
         g_DirectTrackTable,
-        albumIndex,
+        trackCount,
         selectedTrackIndex,
         reservedZero,
         flag1,
         flag2);
+
+    const std::int32_t playResult =
+        static_cast<std::int32_t>(static_cast<std::uint32_t>(outHandle));
+    Log(
+        "[CassettePlay] DirectPlayByTrackId result handle=%d %s\n",
+        playResult,
+        (playResult < 0) ? "FAILED (-1: play fn rejected it — music subsystem not ready / state gate)" : "OK (playing)");
 
     return true;
 }
