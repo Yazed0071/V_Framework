@@ -58,9 +58,11 @@ function this.StopCassette(fadeSec, stopByUser)
 end
 
 function this.SetCassetteSpeakerEnabled(enable)
-    if type(enable) ~= "boolean" then
+    if type(enable) ~= "boolean" and enable~= nil then
         V_FrameWork.Log("V_TppCassette.SetCassetteSpeakerEnabled: enable is not a boolean.")
         return
+    elseif enable == nil then
+        enable = true
     end
     return V_CassetteCommand.SetCassetteSpeakerEnabled(enable)
 end

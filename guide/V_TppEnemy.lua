@@ -1,6 +1,7 @@
 local this = {}
 local StrCode32 = Fox.StrCode32
 local StrCode32Table = Tpp.StrCode32Table
+local IsString=Tpp.IsTypeString
 local GetGameObjectId = GameObject.GetGameObjectId
 local IsTypeString = Tpp.IsTypeString
 local NULL_ID = GameObject.NULL_ID
@@ -35,15 +36,19 @@ function this.SetUseConcernedHoldupRecovery(enable)
     GameObject.SendCommand({ type = "TppSoldier2" }, { id = "SetUseConcernedHoldupRecovery", enable = enable })
 end
 
-function this.AddCallSignPatrolSoldier(soldierNameOrId)
-    local gameId = GetGameObjectId(soldierNameOrId)
+function this.AddCallSignPatrolSoldier(gameId)
+    if IsString(gameId) then
+        gameId = GetGameObjectId(gameId)
+    end
     if gameId == nil then return end
 
     GameObject.SendCommand(gameId, { id = "AddCallSignPatrolSoldier" })
 end
 
-function this.RemoveCallSignPatrolSoldier(soldierNameOrId)
-    local gameId = GetGameObjectId(soldierNameOrId)
+function this.RemoveCallSignPatrolSoldier(gameId)
+    if IsString(gameId) then
+        gameId = GetGameObjectId(gameId)
+    end
     if gameId == nil then return end
     GameObject.SendCommand(gameId, { id = "RemoveCallSignPatrolSoldier" })
 end
@@ -150,6 +155,22 @@ end
 
 function this.ResetOccasionalChatList()
     GameObject.SendCommand({ type = "TppSoldier2"}, { id = "ResetOccasionalChatList" })
+end
+
+function this.LoadLibraries()
+    local ApplyPowerSetting = TppEnemy.ApplyPowerSetting
+    TppEnemy.ApplyPowerSetting = function(soldierId, powerSettings)
+        ApplyPowerSetting(soldierId, powerSettings)
+
+        if soldierId == NULL_ID then
+            return
+        end
+
+        local powerLoadout = mvars.ene_soldierPowerSettings[soldierId]
+        if powerLoadout.RADIO then
+            GameObject.SendCommand(soldierId, { id = "AddCallSignPatrolSoldier" })
+        end
+    end
 end
 
 function this.Messages()
@@ -280,10 +301,6 @@ function this.SetUpEnemy()
 end
 
 function this.Init(missionTable)
-    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
-end
-
-function this.OnReload(missionTable)
     this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
 end
 
