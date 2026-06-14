@@ -69,6 +69,13 @@ bool Uninstall_UpdateOptCamo_Hook();
 bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
 bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook();
 
+bool Install_SoundMusicPlayer_SetupMusicInfos_Hook();
+bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
+bool Install_CustomTapeOwnership_Hooks();
+bool Uninstall_CustomTapeOwnership_Hooks();
+bool Install_CassetteTapeSetCurrentAlbum_Hook();
+bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+
 bool Install_SoundSystem_BeginSoundSystem_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
 
@@ -540,6 +547,30 @@ namespace
         }
     };
 
+    class CustomTapesModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CustomTapes"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SoundMusicPlayer_SetupMusicInfos_Hook(); }
+        void Uninstall() override { Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook(); }
+    };
+
+    class CustomTapeOwnershipModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CustomTapeOwnership"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CustomTapeOwnership_Hooks(); }
+        void Uninstall() override { Uninstall_CustomTapeOwnership_Hooks(); }
+    };
+
+    class CassetteTapeSetCurrentAlbumModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CassetteTapeSetCurrentAlbum"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CassetteTapeSetCurrentAlbum_Hook(); }
+        void Uninstall() override { Uninstall_CassetteTapeSetCurrentAlbum_Hook(); }
+    };
+
     class SoundSystemBeginModule final : public IFeatureModule
     {
     public:
@@ -875,6 +906,9 @@ void RegisterBuiltInFeatureModules()
     static LostHostageModule s_LostHostageModule;
     static UpdateOptCamoModule s_UpdateOptCamoModule;
     static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
+    static CustomTapesModule s_CustomTapesModule;
+    static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
+    static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
@@ -921,6 +955,9 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_LostHostageModule);
             FeatureModuleRegistry::Instance().Register(&s_UpdateOptCamoModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);

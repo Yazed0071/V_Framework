@@ -227,6 +227,13 @@ namespace AddressSetRuntime
         uintptr_t SoundDaemon_PostEventQueue = 0;
         uintptr_t Sd_kW_Select               = 0;
 
+        uintptr_t AddCassetteTapeTrack        = 0;
+        uintptr_t CollectGotTapes             = 0;
+        uintptr_t IsGotCassetteTapeTrack      = 0;
+        uintptr_t SetCassetteTapeTrackNewFlag = 0;
+        uintptr_t SetCurrentAlbum             = 0;
+        uintptr_t SetupMusicInfos             = 0;
+
     };
 
     inline GameBuild& GetGameBuild()

@@ -241,6 +241,12 @@ namespace AddressSetRuntime
             0x142BFF980ull, // SoundDaemon_Instance
             0x140971410ull, // SoundDaemon_PostEventQueue
             0x1420A72F0ull, // Sd_kW_Select
+            0x140A87D11ull, // AddCassetteTapeTrack
+            0x140EF5E00ull, // CollectGotTapes
+            0x140A961C0ull, // IsGotCassetteTapeTrack
+            0x140AACC00ull, // SetCassetteTapeTrackNewFlag
+            0x140EF7481ull, // SetCurrentAlbum (body)
+            0x140975580ull, // SetupMusicInfos
         };
 
         return value;
@@ -436,6 +442,12 @@ namespace AddressSetRuntime
             0x142BFF980ull, // SoundDaemon_Instance
             0x140971360ull, // SoundDaemon_PostEventQueue
             0x1420A72F0ull, // Sd_kW_Select
+            0x140A87CB0ull, // AddCassetteTapeTrack
+            0x140EF5E30ull, // CollectGotTapes
+            0x140A96160ull, // IsGotCassetteTapeTrack
+            0x140AACBA0ull, // SetCassetteTapeTrackNewFlag
+            0x140EF74B0ull, // SetCurrentAlbum (body)
+            0x1409754D0ull, // SetupMusicInfos
         };
         return value;
     }

@@ -71,4 +71,32 @@ function this.IsCassetteSpeakerEnabled()
     return V_CassetteCommand.IsCassetteSpeakerEnabled()
 end
 
+
+function this.RegisterCustomCassetteAlbum(albumInfo, trackList)
+    if type(albumInfo) ~= "table" or not albumInfo.albumId then
+        V_FrameWork.Log("V_TppCassette.RegisterCustomCassetteAlbum: albumInfo.albumId required.")
+        return false
+    end
+
+    local tracks = {}
+    for i, track in ipairs(trackList or {}) do
+        local t = {}
+        for k, v in pairs(track) do t[k] = v end
+        if not t.albumId then t.albumId = albumInfo.albumId end
+        t.langId = t.langId or "sub_mission_untitle"
+        tracks[i] = t
+    end
+
+    return V_FrameWork.RegisterCustomTapes({
+        albums = {
+            {
+                albumId = albumInfo.albumId,
+                langId  = albumInfo.langId or "sub_mission_untitle",
+                type    = albumInfo.type,
+            }
+        },
+        tracks = tracks,
+    })
+end
+
 return this
