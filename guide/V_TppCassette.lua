@@ -71,4 +71,57 @@ function this.IsCassetteSpeakerEnabled()
     return V_CassetteCommand.IsCassetteSpeakerEnabled()
 end
 
+
+function this.RegisterCustomCassetteAlbum(albumInfo, trackList)
+    if type(albumInfo) ~= "table" or not albumInfo.albumId then
+        V_FrameWork.Log("V_TppCassette.RegisterCustomCassetteAlbum: albumInfo.albumId required.")
+        return false
+    end
+
+    local tracks = {}
+    for i, track in ipairs(trackList or {}) do
+        local t = {}
+        for k, v in pairs(track) do t[k] = v end
+        if not t.albumId then t.albumId = albumInfo.albumId end
+        t.langId = t.langId or "sub_mission_untitle"
+        tracks[i] = t
+    end
+
+    return V_FrameWork.RegisterCustomTapes({
+        albums = {
+            {
+                albumId = albumInfo.albumId,
+                langId  = albumInfo.langId or "sub_mission_untitle",
+                type    = albumInfo.type,
+            }
+        },
+        tracks = tracks,
+    })
+end
+
+
+function this.RegisterRadioCassette(gimmickName, fox2Path, wwiseEvent, fileName)
+    if not IsTypeString(gimmickName) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: gimmickName must be a string.")
+        return false
+    end
+    if fox2Path ~= nil and not IsTypeString(fox2Path) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: fox2Path must be a string when provided.")
+        return false
+    end
+    if wwiseEvent == nil then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: wwiseEvent (event name or id) is required.")
+        return false
+    end
+    if not IsTypeString(wwiseEvent) and type(wwiseEvent) ~= "number" then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: wwiseEvent must be a string or number.")
+        return false
+    end
+    if fileName ~= nil and not IsTypeString(fileName) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: fileName must be a string when provided.")
+        return false
+    end
+    return V_CassetteCommand.RegisterRadioCassette(gimmickName, fox2Path, wwiseEvent, fileName)
+end
+
 return this

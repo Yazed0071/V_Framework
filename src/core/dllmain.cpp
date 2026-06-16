@@ -8,6 +8,7 @@
 #include "BuiltInModules.h"
 #include "FeatureModule.h"
 #include "AddressSet.h"
+#include "V_FrameWorkState.h"
 
 bool Install_SetLuaFunctions_Hook();
 
@@ -63,6 +64,7 @@ static DWORD WINAPI InitThread(LPVOID)
 
     RegisterBuiltInFeatureModules();
 
+    V_FrameWorkState::Load();
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
     Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
 

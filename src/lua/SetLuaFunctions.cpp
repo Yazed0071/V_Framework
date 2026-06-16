@@ -30,8 +30,10 @@ extern "C" {
 #include "StepRadioDiscovery.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
+#include "SoundMusicPlayer_SetupMusicInfos.h"
 #include "GetTapeTrackDirectPlayId.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
+#include "CustomRadioCassette.h"
 #include "TppPickableRuntime.h"
 
 #include "AddressSet.h"
@@ -669,6 +671,63 @@ int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
     const bool ok = SetCassetteSpeakerEnabled(enabled);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_RegisterRadioCassette(lua_State* L)
+{
+    if (!LuaIsString(L, 1))
+    {
+        Log("[RadioCassette] RegisterRadioCassette: gimmickName must be a string\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* gimmickName = GetLuaString(L, 1);
+    if (!gimmickName || !*gimmickName)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* fox2Path = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+
+    std::uint32_t wwiseEventId = 0;
+    if (LuaIsString(L, 3))
+    {
+        wwiseEventId = FoxHashes::FNVHash32(GetLuaString(L, 3));
+    }
+    else
+    {
+        const int arg3Type = LuaType(L, 3);
+        if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
+            wwiseEventId = static_cast<std::uint32_t>(GetLuaInt64(L, 3));
+    }
+
+    if (wwiseEventId == 0)
+    {
+        Log("[RadioCassette] RegisterRadioCassette: wwiseEvent missing/invalid\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* fileName = LuaIsString(L, 4) ? GetLuaString(L, 4) : nullptr;
+    const std::uint32_t trackNameId =
+        (fileName && *fileName) ? FoxHashes::StrCode32(fileName) : 0u;
+    const std::uint32_t nameHash = FoxHashes::StrCode32(gimmickName);
+
+    const bool ok = Register_CustomRadioCassette(nameHash, wwiseEventId, trackNameId, fileName);
+
+    Log("[RadioCassette] RegisterRadioCassette name='%s' fox2='%s' nameHash=%08X wwise=%08X track=%08X -> %s\n",
+        gimmickName,
+        fox2Path ? fox2Path : "(none)",
+        static_cast<unsigned int>(nameHash),
+        static_cast<unsigned int>(wwiseEventId),
+        static_cast<unsigned int>(trackNameId),
+        ok ? "OK" : "FAIL");
+
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1657,9 +1716,106 @@ static void PushLuaUInt32(lua_State* L, std::uint32_t v)
 }
 
 
+static bool CT_ReadStrField(lua_State* L, int t, const char* key, std::string& out)
+{
+    g_lua_pushstring(L, const_cast<char*>(key));
+    g_lua_gettable(L, t);
+    bool ok = false;
+    if (g_lua_type(L, -1) == LUA_TSTRING)
+    {
+        const char* s = g_lua_tolstring(L, -1, nullptr);
+        if (s) { out = s; ok = true; }
+    }
+    g_lua_settop(L, g_lua_gettop(L) - 1);
+    return ok;
+}
+
+static long long CT_ReadIntField(lua_State* L, int t, const char* key, long long def)
+{
+    g_lua_pushstring(L, const_cast<char*>(key));
+    g_lua_gettable(L, t);
+    long long v = def;
+    if (g_lua_type(L, -1) == LUA_TNUMBER)
+        v = static_cast<long long>(g_lua_tonumber(L, -1));
+    g_lua_settop(L, g_lua_gettop(L) - 1);
+    return v;
+}
+
+static int __cdecl l_RegisterCustomTapes(lua_State* L)
+{
+    if (!ResolveLuaApi() || g_lua_type(L, 1) != LUA_TTABLE)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    std::vector<CustomTapeAlbumDefinition> albums;
+    std::vector<CustomTapeTrackDefinition> tracks;
+
+    g_lua_pushstring(L, const_cast<char*>("albums"));
+    g_lua_gettable(L, 1);
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        const int at = GetLuaTop(L);
+        const std::size_t n = g_lua_objlen(L, at);
+        for (std::size_t i = 1; i <= n; ++i)
+        {
+            g_lua_rawgeti(L, at, static_cast<int>(i));
+            const int et = GetLuaTop(L);
+            if (g_lua_type(L, et) == LUA_TTABLE)
+            {
+                CustomTapeAlbumDefinition def;
+                const bool a = CT_ReadStrField(L, et, "albumId", def.albumId);
+                const bool b = CT_ReadStrField(L, et, "langId", def.langId);
+                const bool c = CT_ReadStrField(L, et, "type", def.type);
+                def.typeValue = static_cast<std::int32_t>(CT_ReadIntField(L, et, "typeValue", -1));
+                if (a && b && (c || def.typeValue >= 0)) albums.push_back(def);
+            }
+            g_lua_settop(L, at);
+        }
+    }
+    g_lua_settop(L, g_lua_gettop(L) - 1);
+
+    g_lua_pushstring(L, const_cast<char*>("tracks"));
+    g_lua_gettable(L, 1);
+    if (g_lua_type(L, -1) == LUA_TTABLE)
+    {
+        const int tt = GetLuaTop(L);
+        const std::size_t n = g_lua_objlen(L, tt);
+        for (std::size_t i = 1; i <= n; ++i)
+        {
+            g_lua_rawgeti(L, tt, static_cast<int>(i));
+            const int et = GetLuaTop(L);
+            if (g_lua_type(L, et) == LUA_TTABLE)
+            {
+                CustomTapeTrackDefinition def;
+                const bool a = CT_ReadStrField(L, et, "albumId", def.albumId);
+                const bool b = CT_ReadStrField(L, et, "langId", def.langId);
+                const bool c = CT_ReadStrField(L, et, "fileName", def.fileName);
+                def.saveIndex  = -1;
+                def.dataTimeJp = static_cast<std::uint32_t>(CT_ReadIntField(L, et, "dataTimeJp", 0));
+                def.dataTimeEn = static_cast<std::uint32_t>(CT_ReadIntField(L, et, "dataTimeEn", 0));
+                def.important  = static_cast<std::uint16_t>(CT_ReadIntField(L, et, "important", 0));
+                def.special    = static_cast<std::uint16_t>(CT_ReadIntField(L, et, "special", 0));
+                def.unlocked   = CT_ReadIntField(L, et, "unlocked", 0) != 0;
+                if (a && b && c) tracks.push_back(def);
+            }
+            g_lua_settop(L, tt);
+        }
+    }
+    g_lua_settop(L, g_lua_gettop(L) - 1);
+
+    const bool ok = Register_CustomTapes(albums, tracks);
+    Log("[CustomTapes] RegisterCustomTapes albums=%zu tracks=%zu -> %s\n",
+        albums.size(), tracks.size(), ok ? "OK" : "FAIL");
+    PushLuaBool(L, ok);
+    return 1;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
+    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
     { "GetModFiles",                            l_GetModFiles },
 
     { nullptr, nullptr }

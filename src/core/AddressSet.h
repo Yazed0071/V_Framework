@@ -236,6 +236,22 @@ namespace AddressSetRuntime
 
         uintptr_t UiControllerImpl_HideBinocle               = 0;
 
+        uintptr_t AddCassetteTapeTrack        = 0;
+        uintptr_t CollectGotTapes             = 0;
+        uintptr_t IsGotCassetteTapeTrack      = 0;
+        uintptr_t SetCassetteTapeTrackNewFlag = 0;
+        uintptr_t SetCurrentAlbum             = 0;
+        uintptr_t SetupMusicInfos             = 0;
+
+        uintptr_t RadioCassette_SearchCasseteInfo = 0;
+        uintptr_t RadioCassette_GetCassetteMusic  = 0;
+        uintptr_t RadioCassette_IsGotCassette     = 0;
+        uintptr_t RadioCassette_GetCassetteSaveIndex = 0;
+        uintptr_t RadioCassette_SdPostEvent          = 0;
+        uintptr_t RadioCassette_RadioUpdate          = 0;
+        uintptr_t AddCassetteTapeTrackByIndex        = 0;
+        uintptr_t RadioCassette_ActivateUnit         = 0;
+        uintptr_t RadioCassette_IsSameSaveIndexFromName = 0;
     };
 
     inline GameBuild& GetGameBuild()

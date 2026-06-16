@@ -200,6 +200,21 @@ namespace AddressSetRuntime
             0x145F78B90ull, // GetMbFreeChangeLocationMenuParameter
             0x140925ef0ull, // GetPhotoAdditionalTextLangId
             0x140fe7db0ull, // UiControllerImpl_HideBinocle
+            0x1466A5770ull, // AddCassetteTapeTrack
+            0x149309EA0ull, // CollectGotTapes
+            0x1466EC350ull, // IsGotCassetteTapeTrack
+            0x140AAC670ull, // SetCassetteTapeTrackNewFlag
+            0x140EF7A50ull, // SetCurrentAlbum
+            0x140974880ull, // SetupMusicInfos
+            0x1450487C0ull, // RadioCassette_SearchCasseteInfo
+            0x1450475C0ull, // RadioCassette_GetCassetteMusic
+            0x145047E90ull, // RadioCassette_IsGotCassette
+            0x145047B10ull, // RadioCassette_GetCassetteSaveIndex
+            0x1450C73E0ull, // RadioCassette_SdPostEvent
+            0x140641CA0ull, // RadioCassette_RadioUpdate
+            0x1466A5A50ull, // AddCassetteTapeTrackByIndex
+            0x1451FCC50ull, // RadioCassette_ActivateUnit
+            0x1405D56D0ull, // RadioCassette_IsSameSaveIndexFromName
         };
         return value;
     }
@@ -435,6 +450,21 @@ namespace AddressSetRuntime
             0x147b897d0ull, // GetMbFreeChangeLocationMenuParameter
             0x140925910ull, // GetPhotoAdditionalTextLangId
             0x140fe7e80ull, // UiControllerImpl_HideBinocle
+            0x140A87290ull, // AddCassetteTapeTrack (thunk)
+            0x140EF6540ull, // CollectGotTapes (thunk)
+            0x140A95740ull, // IsGotCassetteTapeTrack (thunk)
+            0x140AAC180ull, // SetCassetteTapeTrackNewFlag
+            0x149CD4320ull, // SetCurrentAlbum (body)
+            0x140974370ull, // SetupMusicInfos
+            0x144EBCCC0ull, // RadioCassette_SearchCasseteInfo
+            0x144EBBC20ull, // RadioCassette_GetCassetteMusic
+            0x144EBC1E0ull, // RadioCassette_IsGotCassette
+            0x144EBBE30ull, // RadioCassette_GetCassetteSaveIndex
+            0x145032460ull, // RadioCassette_SdPostEvent
+            0x140641AC0ull, // RadioCassette_RadioUpdate
+            0x1482D7CB0ull, // AddCassetteTapeTrackByIndex
+            0x1451E1DF0ull, // RadioCassette_ActivateUnit
+            0x1405A69E0ull, // RadioCassette_IsSameSaveIndexFromName
         };
 
         return value;

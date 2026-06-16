@@ -11,3 +11,4 @@ int __cdecl l_ResumeCassette(lua_State* L);
 int __cdecl l_StopCassette(lua_State* L);
 int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L);
 int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L);
+int __cdecl l_RegisterRadioCassette(lua_State* L);

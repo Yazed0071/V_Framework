@@ -247,6 +247,21 @@ namespace AddressSetRuntime
             0x140926860ull, // GetMbFreeChangeLocationMenuParameter
             0x140926940ull, // GetPhotoAdditionalTextLangId
             0x140fe75a0ull, // UiControllerImpl_HideBinocle
+            0x140A87D11ull, // AddCassetteTapeTrack
+            0x140EF5E00ull, // CollectGotTapes
+            0x140A961C0ull, // IsGotCassetteTapeTrack
+            0x140AACC00ull, // SetCassetteTapeTrackNewFlag
+            0x140EF7481ull, // SetCurrentAlbum (body)
+            0x140975580ull, // SetupMusicInfos
+            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  (EN 1.0.15.4)
+            0x1405D6560ull, // RadioCassette_GetCassetteMusic   (EN 1.0.15.4)
+            0x1405D65B0ull, // RadioCassette_IsGotCassette      (EN 1.0.15.4)
+            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex (EN 1.0.15.4)
+            0x1405FC750ull, // RadioCassette_SdPostEvent          (EN 1.0.15.4, diagnostic)
+            0x1406433D0ull, // RadioCassette_RadioUpdate          (EN 1.0.15.4)
+            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        (EN 1.0.15.4)
+            0x1406424C0ull, // RadioCassette_ActivateUnit         (EN 1.0.15.4)
+            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName (EN 1.0.15.4)
         };
 
         return value;
@@ -448,6 +463,21 @@ namespace AddressSetRuntime
             0x140926770ull, // GetMbFreeChangeLocationMenuParameter
             0x140926840ull, // GetPhotoAdditionalTextLangId
             0x140fe75d0ull, // UiControllerImpl_HideBinocle
+            0x140A87CB0ull, // AddCassetteTapeTrack
+            0x140EF5E30ull, // CollectGotTapes
+            0x140A96160ull, // IsGotCassetteTapeTrack
+            0x140AACBA0ull, // SetCassetteTapeTrackNewFlag
+            0x140EF74B0ull, // SetCurrentAlbum (body)
+            0x1409754D0ull, // SetupMusicInfos
+            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  (JP 1.0.15.4)
+            0x1405D6820ull, // RadioCassette_GetCassetteMusic   (JP 1.0.15.4)
+            0x1405D6870ull, // RadioCassette_IsGotCassette      (JP 1.0.15.4)
+            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex (JP 1.0.15.4)
+            0x1405FC7E0ull, // RadioCassette_SdPostEvent          (JP 1.0.15.4, diagnostic)
+            0x140643400ull, // RadioCassette_RadioUpdate          (JP 1.0.15.4)
+            0x140A87D50ull, // AddCassetteTapeTrackByIndex        (JP 1.0.15.4)
+            0x1406424F0ull, // RadioCassette_ActivateUnit         (JP 1.0.15.4)
+            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName (JP 1.0.15.4)
         };
         return value;
     }

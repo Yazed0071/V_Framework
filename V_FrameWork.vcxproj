@@ -154,6 +154,7 @@
     <ClInclude Include="src\core\framework.h" />
     <ClInclude Include="src\core\pch.h" />
     <ClInclude Include="src\core\AddressSet.h" />
+    <ClInclude Include="src\core\V_FrameWorkState.h" />
     <ClInclude Include="src\core\HookUtils.h" />
     <ClInclude Include="src\core\FeatureModule.h" />
     <ClInclude Include="src\core\BuiltInModules.h" />
@@ -216,6 +217,11 @@
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
+    <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
+    <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
+    <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
+    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
@@ -254,6 +260,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\core\AddressSet.cpp" />
+    <ClCompile Include="src\core\V_FrameWorkState.cpp" />
     <ClCompile Include="src\core\AddressSet_day1820.cpp" />
     <ClCompile Include="src\core\BuiltInModules.cpp" />
     <ClCompile Include="src\core\FeatureModule.cpp" />
@@ -308,6 +315,11 @@
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
+    <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
+    <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
+    <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
+    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />

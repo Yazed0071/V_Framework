@@ -21,6 +21,9 @@ inline constexpr uintptr_t ToRva(uintptr_t absAddr)
 
 inline void* ResolveGameAddress(uintptr_t absAddr)
 {
+    if (absAddr == 0)
+        return nullptr;   // unfilled address (e.g. unported build slot) — never hook/call it
+
     const uintptr_t base = GetExeBase();
     if (!base)
         return nullptr;

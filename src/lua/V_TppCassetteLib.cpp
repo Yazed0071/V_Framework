@@ -28,6 +28,7 @@ namespace
         { "StopCassette",                             l_StopCassette },
         { "IsCassetteSpeakerEnabled",                 l_IsCassetteSpeakerEnabled },
         { "SetCassetteSpeakerEnabled",                l_SetCassetteSpeakerEnabled },
+        { "RegisterRadioCassette",                    l_RegisterRadioCassette },
 
         { nullptr,          nullptr }
     };
