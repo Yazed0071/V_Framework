@@ -716,13 +716,16 @@ int __cdecl l_RegisterRadioCassette(lua_State* L)
     const std::uint32_t trackNameId =
         (fileName && *fileName) ? FoxHashes::StrCode32(fileName) : 0u;
     const std::uint32_t nameHash = FoxHashes::StrCode32(gimmickName);
+    const std::uint32_t fox2PathHash =
+        (fox2Path && *fox2Path) ? FoxHashes::StrCode32(fox2Path) : 0u;
 
-    const bool ok = Register_CustomRadioCassette(nameHash, wwiseEventId, trackNameId, fileName);
+    const bool ok = Register_CustomRadioCassette(nameHash, fox2PathHash, wwiseEventId, trackNameId, fileName);
 
-    Log("[RadioCassette] RegisterRadioCassette name='%s' fox2='%s' nameHash=%08X wwise=%08X track=%08X -> %s\n",
+    Log("[RadioCassette] RegisterRadioCassette name='%s' fox2='%s' nameHash=%08X fox2Hash=%08X wwise=%08X track=%08X -> %s\n",
         gimmickName,
         fox2Path ? fox2Path : "(none)",
         static_cast<unsigned int>(nameHash),
+        static_cast<unsigned int>(fox2PathHash),
         static_cast<unsigned int>(wwiseEventId),
         static_cast<unsigned int>(trackNameId),
         ok ? "OK" : "FAIL");
