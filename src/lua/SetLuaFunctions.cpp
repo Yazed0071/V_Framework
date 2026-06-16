@@ -68,6 +68,7 @@ extern "C" {
 #include "PlayerFunctions.h"
 #include "V_FoxLib.h"
 #include "V_HelicopterLib.h"
+#include "V_TppMotherBaseManagementLib.h"
 #include "FoxFunctions.h"
 
 
@@ -1683,6 +1684,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_TppPlayerLibrary(L);
         Register_V_FoxLibrary(L);
         Register_V_HelicopterLibrary(L);
+        Register_V_TppMotherBaseManagementLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -1717,6 +1719,7 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     Register_V_TppPlayerLibrary(L);
     Register_V_FoxLibrary(L);
     Register_V_HelicopterLibrary(L);
+    Register_V_TppMotherBaseManagementLibrary(L);
 
     if (!RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
         return 0;

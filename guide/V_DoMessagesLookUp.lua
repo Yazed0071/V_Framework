@@ -24,6 +24,8 @@ this.DEBUG_strCode32List={
   "End",
   "NoticeIndis",
   "NoticeNoise",
+  "AntiAir",
+  "OffBinocularsMode",
 }
 
 this.CassettePlay={
@@ -162,6 +164,14 @@ this.signatureTypes={
     {argName="announceType",argType="str64"},
     {argName="seId",argType="number"},
   },
+
+  AntiAir={
+    {argName="commandPostId",argType="gameId"},
+    {argName="isEnable",argType="number"},
+  },
+
+  OffBinocularsMode={
+  },
 }
 
 this.messageSignatures={
@@ -170,10 +180,12 @@ this.messageSignatures={
     NoticeIndis=this.signatureTypes.Notice,
     NoticeNoise=this.signatureTypes.Notice,
     RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi,
+    AntiAir=this.signatureTypes.AntiAir,
   },
 
   Player={
     CrawlSideRoll=this.signatureTypes.CrawlSideRoll,
+    OffBinocularsMode=this.signatureTypes.OffBinocularsMode,
   },
 
   UI={
@@ -400,6 +412,8 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.notice=this.signatureTypes.Notice
   InfLookup.signatureTypes.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
   InfLookup.signatureTypes.AnnounceLog=this.signatureTypes.AnnounceLog
+  InfLookup.signatureTypes.AntiAir=this.signatureTypes.AntiAir
+  InfLookup.signatureTypes.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -411,7 +425,9 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
   InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.Notice
   InfLookup.messageSignatures.GameObject.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
+  InfLookup.messageSignatures.GameObject.AntiAir=this.signatureTypes.AntiAir
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
+  InfLookup.messageSignatures.Player.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart

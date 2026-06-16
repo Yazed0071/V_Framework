@@ -194,6 +194,12 @@ namespace AddressSetRuntime
             0x142BFF960ull, // SoundDaemon_Instance
             0x146142730ull, // SoundDaemon_PostEventQueue
             0x1420A72B0ull, // Sd_kW_Select
+            0x140d7c7d0ull, // UpdateAntiAir
+            0x147362370ull, // ClearAntiAir
+            0x145F785D0ull, // GetChangeLocationMenuParameterByLocationId
+            0x145F78B90ull, // GetMbFreeChangeLocationMenuParameter
+            0x140925ef0ull, // GetPhotoAdditionalTextLangId
+            0x140fe7db0ull, // UiControllerImpl_HideBinocle
         };
         return value;
     }
@@ -423,6 +429,12 @@ namespace AddressSetRuntime
             0x142bff960ull, // SoundDaemon_Instance
             0x147ddeb40ull, // SoundDaemon_PostEventQueue
             0x1420a72b0ull, // Sd_kW_Select
+            0x140d7c720ull, // UpdateAntiAir
+            0x1494bfe40ull, // ClearAntiAir
+            0x147b88d00ull, // GetChangeLocationMenuParameterByLocationId
+            0x147b897d0ull, // GetMbFreeChangeLocationMenuParameter
+            0x140925910ull, // GetPhotoAdditionalTextLangId
+            0x140fe7e80ull, // UiControllerImpl_HideBinocle
         };
 
         return value;
