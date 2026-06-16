@@ -215,6 +215,7 @@
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
+    <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
@@ -307,6 +308,7 @@
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
+    <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />

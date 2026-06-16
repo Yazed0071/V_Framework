@@ -33,6 +33,7 @@ extern "C" {
 #include "SoundMusicPlayer_SetupMusicInfos.h"
 #include "GetTapeTrackDirectPlayId.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
+#include "CustomRadioCassette.h"
 #include "TppPickableRuntime.h"
 
 #include "AddressSet.h"
@@ -669,6 +670,63 @@ int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L)
 {
     const bool enabled = GetLuaBool(L, 1);
     const bool ok = SetCassetteSpeakerEnabled(enabled);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_RegisterRadioCassette(lua_State* L)
+{
+    if (!LuaIsString(L, 1))
+    {
+        Log("[RadioCassette] RegisterRadioCassette: gimmickName must be a string\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* gimmickName = GetLuaString(L, 1);
+    if (!gimmickName || !*gimmickName)
+    {
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* fox2Path = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+
+    std::uint32_t wwiseEventId = 0;
+    if (LuaIsString(L, 3))
+    {
+        wwiseEventId = FoxHashes::FNVHash32(GetLuaString(L, 3));
+    }
+    else
+    {
+        const int arg3Type = LuaType(L, 3);
+        if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
+            wwiseEventId = static_cast<std::uint32_t>(GetLuaInt64(L, 3));
+    }
+
+    if (wwiseEventId == 0)
+    {
+        Log("[RadioCassette] RegisterRadioCassette: wwiseEvent missing/invalid\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const char* fileName = LuaIsString(L, 4) ? GetLuaString(L, 4) : nullptr;
+    const std::uint32_t trackNameId =
+        (fileName && *fileName) ? FoxHashes::StrCode32(fileName) : 0u;
+    const std::uint32_t nameHash = FoxHashes::StrCode32(gimmickName);
+
+    const bool ok = Register_CustomRadioCassette(nameHash, wwiseEventId, trackNameId, fileName);
+
+    Log("[RadioCassette] RegisterRadioCassette name='%s' fox2='%s' nameHash=%08X wwise=%08X track=%08X -> %s\n",
+        gimmickName,
+        fox2Path ? fox2Path : "(none)",
+        static_cast<unsigned int>(nameHash),
+        static_cast<unsigned int>(wwiseEventId),
+        static_cast<unsigned int>(trackNameId),
+        ok ? "OK" : "FAIL");
+
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1657,7 +1715,6 @@ static void PushLuaUInt32(lua_State* L, std::uint32_t v)
 }
 
 
-// ---- Custom Tapes Lua entry (ported from the pre-reorg copy, rewritten with current helpers) ----
 static bool CT_ReadStrField(lua_State* L, int t, const char* key, std::string& out)
 {
     g_lua_pushstring(L, const_cast<char*>(key));
@@ -1734,7 +1791,7 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
                 const bool a = CT_ReadStrField(L, et, "albumId", def.albumId);
                 const bool b = CT_ReadStrField(L, et, "langId", def.langId);
                 const bool c = CT_ReadStrField(L, et, "fileName", def.fileName);
-                def.saveIndex  = -1;   // always auto-allocated; a modder-supplied saveIndex is ignored
+                def.saveIndex  = -1;
                 def.dataTimeJp = static_cast<std::uint32_t>(CT_ReadIntField(L, et, "dataTimeJp", 0));
                 def.dataTimeEn = static_cast<std::uint32_t>(CT_ReadIntField(L, et, "dataTimeEn", 0));
                 def.important  = static_cast<std::uint16_t>(CT_ReadIntField(L, et, "important", 0));

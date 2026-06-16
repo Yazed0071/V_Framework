@@ -88,6 +88,7 @@
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
+    <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
@@ -172,6 +173,7 @@
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
+    <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />

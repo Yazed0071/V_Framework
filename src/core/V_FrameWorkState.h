@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace V_FrameWorkState
@@ -47,6 +48,13 @@ namespace V_FrameWorkState
 
     bool GetTapeOwned(const char* key);
     bool GetTapeNew(const char* key);
+
+
+    void ForEachTape(
+        const std::function<void(const std::string& key,
+                                 std::int16_t saveIndex,
+                                 bool owned,
+                                 bool isNew)>& callback);
 
 
     void Reset();

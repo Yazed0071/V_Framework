@@ -569,6 +569,16 @@ namespace V_FrameWorkState
         return (it != g_State.tapes.end()) ? it->second.isNew : false;
     }
 
+    void ForEachTape(
+        const std::function<void(const std::string&, std::int16_t, bool, bool)>& callback)
+    {
+        if (!callback) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        for (const auto& kv : g_State.tapes)
+            callback(kv.first, kv.second.saveIndex, kv.second.owned, kv.second.isNew);
+    }
+
     void Reset()
     {
         std::lock_guard<std::mutex> lock(g_Mutex);

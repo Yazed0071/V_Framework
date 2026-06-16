@@ -10,11 +10,8 @@ bool Uninstall_CustomTapeOwnership_Hooks();
 
 
 bool IsCustomTapeSaveIndex(std::int16_t saveIndex);
-
-
 bool IsCustomTapeOwnedSaveIndex(std::int16_t saveIndex);
-
-
+bool IsCustomTapeOwnedInLiveTable(std::int16_t saveIndex);
 bool IsCustomTapeNewFlagSaveIndex(std::int16_t saveIndex);
 
 

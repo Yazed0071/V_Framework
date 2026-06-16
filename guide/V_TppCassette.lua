@@ -99,4 +99,29 @@ function this.RegisterCustomCassetteAlbum(albumInfo, trackList)
     })
 end
 
+
+function this.RegisterRadioCassette(gimmickName, fox2Path, wwiseEvent, fileName)
+    if not IsTypeString(gimmickName) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: gimmickName must be a string.")
+        return false
+    end
+    if fox2Path ~= nil and not IsTypeString(fox2Path) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: fox2Path must be a string when provided.")
+        return false
+    end
+    if wwiseEvent == nil then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: wwiseEvent (event name or id) is required.")
+        return false
+    end
+    if not IsTypeString(wwiseEvent) and type(wwiseEvent) ~= "number" then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: wwiseEvent must be a string or number.")
+        return false
+    end
+    if fileName ~= nil and not IsTypeString(fileName) then
+        V_FrameWork.Log("V_TppCassette.RegisterRadioCassette: fileName must be a string when provided.")
+        return false
+    end
+    return V_CassetteCommand.RegisterRadioCassette(gimmickName, fox2Path, wwiseEvent, fileName)
+end
+
 return this

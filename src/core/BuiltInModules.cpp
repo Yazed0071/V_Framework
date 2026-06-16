@@ -76,6 +76,9 @@ bool Uninstall_CustomTapeOwnership_Hooks();
 bool Install_CassetteTapeSetCurrentAlbum_Hook();
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 
+bool Install_CustomRadioCassette_Hooks();
+bool Uninstall_CustomRadioCassette_Hooks();
+
 bool Install_SoundSystem_BeginSoundSystem_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
 
@@ -571,6 +574,14 @@ namespace
         void Uninstall() override { Uninstall_CassetteTapeSetCurrentAlbum_Hook(); }
     };
 
+    class CustomRadioCassetteModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CustomRadioCassette"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CustomRadioCassette_Hooks(); }
+        void Uninstall() override { Uninstall_CustomRadioCassette_Hooks(); }
+    };
+
     class SoundSystemBeginModule final : public IFeatureModule
     {
     public:
@@ -909,6 +920,7 @@ void RegisterBuiltInFeatureModules()
     static CustomTapesModule s_CustomTapesModule;
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
+    static CustomRadioCassetteModule s_CustomRadioCassetteModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
@@ -958,6 +970,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);

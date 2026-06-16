@@ -29,6 +29,7 @@ namespace
 
 
     using AddCassetteTapeTrack_t = std::uint64_t(__cdecl*)(lua_State* luaState);
+    using AddCassetteTapeTrackByIndex_t = std::uint64_t(__cdecl*)(lua_State* luaState);
 
 
     using IsGotCassetteTapeTrack_t = int(__cdecl*)(lua_State* luaState);
@@ -51,6 +52,7 @@ namespace
     using lua_tolstring_t = const char* (__fastcall*)(lua_State* luaState, int idx, size_t* len);
     using lua_toboolean_t = int(__fastcall*)(lua_State* luaState, int idx);
     using lua_pushboolean_t = void(__fastcall*)(lua_State* luaState, int value);
+    using lua_tointeger_t = std::intptr_t(__fastcall*)(lua_State* luaState, int idx);
 
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
     static constexpr std::int16_t kCustomSaveIndexMax = 1999;
@@ -67,6 +69,7 @@ namespace
     };
 
     static AddCassetteTapeTrack_t g_OrigAddCassetteTapeTrack = nullptr;
+    static AddCassetteTapeTrackByIndex_t g_OrigAddCassetteTapeTrackByIndex = nullptr;
     static IsGotCassetteTapeTrack_t g_OrigIsGotCassetteTapeTrack = nullptr;
     static SetCassetteTapeTrackNewFlag_t g_OrigSetCassetteTapeTrackNewFlag = nullptr;
     static CollectGotTapes_t g_OrigCollectGotTapes = nullptr;
@@ -76,6 +79,7 @@ namespace
     static lua_tolstring_t g_lua_tolstring = nullptr;
     static lua_toboolean_t g_lua_toboolean = nullptr;
     static lua_pushboolean_t g_lua_pushboolean = nullptr;
+    static lua_tointeger_t g_lua_tointeger = nullptr;
 
     static std::mutex g_CustomTapeStateMutex;
     static std::unordered_set<int> g_CustomOwnedTapeSaveIndices;
@@ -110,6 +114,9 @@ static bool ResolveLuaHelpers()
 
     if (!g_lua_pushboolean)
         g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(gAddr.lua_pushboolean));
+
+    if (!g_lua_tointeger)
+        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(gAddr.lua_tointeger));
 
     return g_lua_isstring && g_lua_type && g_lua_tolstring && g_lua_toboolean && g_lua_pushboolean;
 }
@@ -403,51 +410,37 @@ static bool SaveCustomTapeStateToDisk()
 
 static bool LoadCustomTapeStateFromDisk()
 {
-    const std::string path = GetCustomTapeStateFilePath();
-    std::ifstream file(path);
-    if (!file.is_open())
-    {
-        Log("[CustomTapeState] No persistence file yet at %s\n", path.c_str());
-        return true;
-    }
-
     std::unordered_set<int> loadedOwned;
     std::unordered_set<int> loadedNew;
     std::unordered_map<int, CustomTapePersistEntry> loadedEntries;
 
-    static const std::regex entryPattern(
-        R"(\[(\d+)\]\s*=\s*\{\s*saveIndex\s*=\s*(\d+)\s*,\s*albumId\s*=\s*\[\[(.*?)\]\]\s*,\s*fileName\s*=\s*\[\[(.*?)\]\]\s*,\s*owned\s*=\s*(true|false)\s*,\s*new\s*=\s*(true|false)\s*\})");
+    V_FrameWorkState::ForEachTape(
+        [&](const std::string& key, std::int16_t saveIndex, bool owned, bool isNew)
+        {
+            if (saveIndex < kCustomSaveIndexMin || saveIndex > kCustomSaveIndexMax)
+                return;
 
-    std::string line;
-    while (std::getline(file, line))
-    {
-        std::smatch match;
-        if (!std::regex_search(line, match, entryPattern))
-            continue;
+            CustomTapePersistEntry entry;
+            entry.saveIndex = saveIndex;
 
-        const int keySaveIndex = std::stoi(match[1].str());
-        const int valueSaveIndex = std::stoi(match[2].str());
-        if (keySaveIndex != valueSaveIndex)
-            continue;
+            // "albumId:fileName".
+            const auto colon = key.find(':');
+            if (colon != std::string::npos)
+            {
+                entry.albumId = key.substr(0, colon);
+                entry.fileName = key.substr(colon + 1);
+            }
 
-        if (keySaveIndex < kCustomSaveIndexMin || keySaveIndex > kCustomSaveIndexMax)
-            continue;
+            entry.owned = owned;
+            entry.isNew = isNew;
 
-        CustomTapePersistEntry entry;
-        entry.saveIndex = static_cast<std::int16_t>(keySaveIndex);
-        entry.albumId = match[3].str();
-        entry.fileName = match[4].str();
-        entry.owned = match[5].str() == "true";
-        entry.isNew = match[6].str() == "true";
+            if (owned)
+                loadedOwned.insert(static_cast<int>(saveIndex));
+            if (isNew)
+                loadedNew.insert(static_cast<int>(saveIndex));
 
-        if (entry.owned)
-            loadedOwned.insert(keySaveIndex);
-
-        if (entry.isNew)
-            loadedNew.insert(keySaveIndex);
-
-        loadedEntries[keySaveIndex] = std::move(entry);
-    }
+            loadedEntries[static_cast<int>(saveIndex)] = std::move(entry);
+        });
 
     {
         std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
@@ -461,19 +454,10 @@ static bool LoadCustomTapeStateFromDisk()
     }
 
     Log(
-        "[CustomTapeState] Loaded owned=%zu new=%zu metadata=%zu from %s\n",
+        "[CustomTapeState] Loaded owned=%zu new=%zu metadata=%zu from V_FrameWork_State.lua\n",
         g_CustomOwnedTapeSaveIndices.size(),
         g_CustomNewTapeSaveIndices.size(),
-        g_CustomTapePersistEntries.size(),
-        path.c_str());
-
-
-    for (const auto& kv : g_CustomTapePersistEntries)
-    {
-        const auto& entry = kv.second;
-        V_FrameWorkState::SetTapeOwnedBySaveIndex(entry.saveIndex, entry.owned);
-        V_FrameWorkState::SetTapeNewBySaveIndex(entry.saveIndex, entry.isNew);
-    }
+        g_CustomTapePersistEntries.size());
 
     return true;
 }
@@ -770,6 +754,14 @@ bool IsCustomTapeOwnedSaveIndex(std::int16_t saveIndex)
     EnsureCustomTapeStateLoaded();
     std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
     return g_CustomOwnedTapeSaveIndices.find(static_cast<int>(saveIndex)) != g_CustomOwnedTapeSaveIndices.end();
+}
+
+
+bool IsCustomTapeOwnedInLiveTable(std::int16_t saveIndex)
+{
+    bool owned = false;
+    bool isNew = false;
+    return TryReadLiveCassetteState(saveIndex, owned, isNew) && owned;
 }
 
 
@@ -1153,6 +1145,28 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrack(lua_State* luaState)
     return 0ull;
 }
 
+static std::uint64_t __cdecl hkAddCassetteTapeTrackByIndex(lua_State* luaState)
+{
+    if (g_lua_tointeger)
+    {
+        const std::int16_t saveIndex = static_cast<std::int16_t>(g_lua_tointeger(luaState, 1));
+        if (IsCustomTapeSaveIndex(saveIndex))
+        {
+            const bool ownedChanged = SetCustomTapeOwnedSaveIndex(saveIndex, true);
+            const bool newChanged   = SetCustomTapeNewFlagSaveIndex(saveIndex, true);
+            ApplyCustomTapeStateToLiveTable(saveIndex, true, true);
+            FlushCustomTapeStateIfChanged(ownedChanged, newChanged, false);
+
+            Log("[CustomTapeState] AddCassetteTapeTrackByIndex custom saveIndex=%d owned=1 new=1 ownedChanged=%d newChanged=%d\n",
+                static_cast<int>(saveIndex),
+                ownedChanged ? 1 : 0,
+                newChanged ? 1 : 0);
+        }
+    }
+
+    return g_OrigAddCassetteTapeTrackByIndex ? g_OrigAddCassetteTapeTrackByIndex(luaState) : 0ull;
+}
+
 
 static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
 {
@@ -1308,6 +1322,7 @@ bool Install_CustomTapeOwnership_Hooks()
     Sync_CustomTapeStateToLiveTable();
 
     bool okAdd = false;
+    bool okAddByIndex = false;
     bool okIsGot = false;
     bool okSetNew = false;
     bool okCollect = false;
@@ -1318,6 +1333,14 @@ bool Install_CustomTapeOwnership_Hooks()
             target,
             reinterpret_cast<void*>(&hkAddCassetteTapeTrack),
             reinterpret_cast<void**>(&g_OrigAddCassetteTapeTrack));
+    }
+
+    if (void* target = ResolveGameAddress(gAddr.AddCassetteTapeTrackByIndex))
+    {
+        okAddByIndex = CreateAndEnableHook(
+            target,
+            reinterpret_cast<void*>(&hkAddCassetteTapeTrackByIndex),
+            reinterpret_cast<void**>(&g_OrigAddCassetteTapeTrackByIndex));
     }
 
     if (void* target = ResolveGameAddress(gAddr.IsGotCassetteTapeTrack))
@@ -1345,6 +1368,7 @@ bool Install_CustomTapeOwnership_Hooks()
     }
 
     Log("[Hook] CustomTapeState AddCassetteTapeTrack: %s\n", okAdd ? "OK" : "FAIL");
+    Log("[Hook] CustomTapeState AddCassetteTapeTrackByIndex: %s\n", okAddByIndex ? "OK" : "FAIL");
     Log("[Hook] CustomTapeState IsGotCassetteTapeTrack: %s\n", okIsGot ? "OK" : "FAIL");
     Log("[Hook] CustomTapeState SetCassetteTapeTrackNewFlag: %s\n", okSetNew ? "OK" : "FAIL");
     Log("[Hook] CustomTapeState CollectGotTapes: %s\n", okCollect ? "OK" : "FAIL");
@@ -1357,11 +1381,13 @@ bool Uninstall_CustomTapeOwnership_Hooks()
 {
     EnsureCustomTapeStateLoaded();
     DisableAndRemoveHook(ResolveGameAddress(gAddr.AddCassetteTapeTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.AddCassetteTapeTrackByIndex));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.IsGotCassetteTapeTrack));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetCassetteTapeTrackNewFlag));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectGotTapes));
 
     g_OrigAddCassetteTapeTrack = nullptr;
+    g_OrigAddCassetteTapeTrackByIndex = nullptr;
     g_OrigIsGotCassetteTapeTrack = nullptr;
     g_OrigSetCassetteTapeTrackNewFlag = nullptr;
     g_OrigCollectGotTapes = nullptr;
