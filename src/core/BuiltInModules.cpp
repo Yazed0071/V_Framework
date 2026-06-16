@@ -24,6 +24,15 @@ bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook();
 bool Install_CautionStepNormalTimerHook();
 bool Uninstall_CautionStepNormalTimerHook();
 
+bool Install_CpAntiAir_Hook();
+bool Uninstall_CpAntiAir_Hook();
+
+bool Install_ChangeLocationMenu_Hook();
+bool Uninstall_ChangeLocationMenu_Hook();
+
+bool Install_PhotoAdditionalText_Hook();
+bool Uninstall_PhotoAdditionalText_Hook();
+
 bool Install_RealizedSahelanFova_Hook();
 bool Uninstall_RealizedSahelanFova_Hook();
 
@@ -136,6 +145,9 @@ bool Uninstall_FieldTaxiMenu();
 
 bool Install_TimeCigaretteUi_Hook();
 bool Uninstall_TimeCigaretteUi_Hook();
+
+bool Install_HideBinocle_Hook();
+bool Uninstall_HideBinocle_Hook();
 
 bool Install_HeliSoundController_Hook();
 bool Uninstall_HeliSoundController_Hook();
@@ -266,6 +278,66 @@ namespace
         void Uninstall() override
         {
             Uninstall_CautionStepNormalTimerHook();
+        }
+    };
+
+    class CpAntiAirModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CpAntiAir";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CpAntiAir_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CpAntiAir_Hook();
+        }
+    };
+
+    class ChangeLocationMenuModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ChangeLocationMenu";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_ChangeLocationMenu_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_ChangeLocationMenu_Hook();
+        }
+    };
+
+    class PhotoAdditionalTextModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PhotoAdditionalText";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_PhotoAdditionalText_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_PhotoAdditionalText_Hook();
         }
     };
 
@@ -870,6 +942,14 @@ namespace
         void Uninstall() override { Uninstall_TimeCigaretteUi_Hook(); }
     };
 
+    class HideBinocleModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "HideBinocle"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_HideBinocle_Hook(); }
+        void Uninstall() override { Uninstall_HideBinocle_Hook(); }
+    };
+
     class HeliSoundControllerModule final : public IFeatureModule
     {
     public:
@@ -903,6 +983,9 @@ void RegisterBuiltInFeatureModules()
     static GameOverSplashModule s_GameOverSplashModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
+    static CpAntiAirModule s_CpAntiAirModule;
+    static ChangeLocationMenuModule s_ChangeLocationMenuModule;
+    static PhotoAdditionalTextModule s_PhotoAdditionalTextModule;
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
     static SoldierHairFovaModule s_SoldierHairFovaModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
@@ -941,6 +1024,7 @@ void RegisterBuiltInFeatureModules()
     static SoldierNoticeModule s_SoldierNoticeModule;
     static FieldTaxiMenuModule s_FieldTaxiMenuModule;
     static TimeCigaretteUiModule s_TimeCigaretteUiModule;
+    static HideBinocleModule s_HideBinocleModule;
     static HeliSoundControllerModule s_HeliSoundControllerModule;
     static AnnounceLogModule s_AnnounceLogModule;
     static TornadoDualPatchModule s_TornadoDualPatchModule;
@@ -954,6 +1038,9 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
+            FeatureModuleRegistry::Instance().Register(&s_CpAntiAirModule);
+            FeatureModuleRegistry::Instance().Register(&s_ChangeLocationMenuModule);
+            FeatureModuleRegistry::Instance().Register(&s_PhotoAdditionalTextModule);
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierHairFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
@@ -991,6 +1078,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
             FeatureModuleRegistry::Instance().Register(&s_FieldTaxiMenuModule);
             FeatureModuleRegistry::Instance().Register(&s_TimeCigaretteUiModule);
+            FeatureModuleRegistry::Instance().Register(&s_HideBinocleModule);
             FeatureModuleRegistry::Instance().Register(&s_HeliSoundControllerModule);
             FeatureModuleRegistry::Instance().Register(&s_AnnounceLogModule);
             FeatureModuleRegistry::Instance().Register(&s_TornadoDualPatchModule);

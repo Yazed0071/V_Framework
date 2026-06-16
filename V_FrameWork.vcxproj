@@ -159,7 +159,6 @@
     <ClInclude Include="src\core\FeatureModule.h" />
     <ClInclude Include="src\core\BuiltInModules.h" />
     <ClInclude Include="src\core\MissionCodeGuard.h" />
-    <ClInclude Include="src\core\V_FrameWorkModLoader.h" />
     <ClInclude Include="src\core\FoxHashes.h" />
     <ClInclude Include="src\core\LuaBroadcaster.h" />
     <ClInclude Include="src\core\log.h" />
@@ -177,6 +176,7 @@
     <ClInclude Include="src\lua\PlayerFunctions.h" />
     <ClInclude Include="src\lua\V_FoxLib.h" />
     <ClInclude Include="src\lua\V_HelicopterLib.h" />
+    <ClInclude Include="src\lua\V_TppMotherBaseManagementLib.h" />
     <ClInclude Include="src\lua\FoxFunctions.h" />
     <ClInclude Include="src\lua\LuaApi.h" />
     <!-- Third-party -->
@@ -188,6 +188,7 @@
     <ClInclude Include="include\GetGameObjectIdWithIndex.h" />
     <!-- Hooks: Soldier -->
     <ClInclude Include="src\hooks\soldier\CautionStepNormalTimerHook.h" />
+    <ClInclude Include="src\hooks\soldier\CpAntiAir.h" />
     <ClInclude Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.h" />
     <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h" />
     <ClInclude Include="src\hooks\soldier\LostHostageHook.h" />
@@ -210,6 +211,7 @@
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
+    <ClInclude Include="src\hooks\player\UiControllerImpl_HideBinocle.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
@@ -234,6 +236,8 @@
     <ClInclude Include="src\hooks\ui\MissionEmergencyHook.h" />
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
     <ClInclude Include="src\hooks\ui\AnnounceLogHook.h" />
+    <ClInclude Include="src\hooks\ui\ChangeLocationMenu.h" />
+    <ClInclude Include="src\hooks\ui\GetPhotoAdditionalTextLangId.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
@@ -260,7 +264,6 @@
     <ClCompile Include="src\core\BuiltInModules.cpp" />
     <ClCompile Include="src\core\FeatureModule.cpp" />
     <ClCompile Include="src\core\MissionCodeGuard.cpp" />
-    <ClCompile Include="src\core\V_FrameWorkModLoader.cpp" />
     <ClCompile Include="src\core\FoxHashes.cpp" />
     <ClCompile Include="src\core\LuaBroadcaster.cpp" />
     <ClCompile Include="src\core\log.cpp" />
@@ -277,8 +280,10 @@
     <ClCompile Include="src\lua\V_PlayerLib.cpp" />
     <ClCompile Include="src\lua\V_FoxLib.cpp" />
     <ClCompile Include="src\lua\V_HelicopterLib.cpp" />
+    <ClCompile Include="src\lua\V_TppMotherBaseManagementLib.cpp" />
     <!-- Hooks: Soldier -->
     <ClCompile Include="src\hooks\soldier\CautionStepNormalTimerHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\CpAntiAir.cpp" />
     <ClCompile Include="src\hooks\soldier\EnterDownHoldupForceVoiceHook.cpp" />
     <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp" />
     <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
@@ -303,6 +308,7 @@
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
+    <ClCompile Include="src\hooks\player\UiControllerImpl_HideBinocle.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
@@ -327,6 +333,8 @@
     <ClCompile Include="src\hooks\ui\MissionEmergencyHook.cpp" />
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
     <ClCompile Include="src\hooks\ui\AnnounceLogHook.cpp" />
+    <ClCompile Include="src\hooks\ui\ChangeLocationMenu.cpp" />
+    <ClCompile Include="src\hooks\ui\GetPhotoAdditionalTextLangId.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->

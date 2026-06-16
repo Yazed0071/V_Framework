@@ -10,7 +10,7 @@ function this.PlayCassetteTape(trackOrName, isLoop, playAll)
 
     local trackId
     if IsTypeString(trackOrName) then
-        trackId = V_CassetteCommand.GetTapeTrackDirectPlayId(trackOrName)
+        trackId = V_CassetteCommand.GetTapeTrackId(trackOrName)
         if not trackId or trackId < 0 then
             V_FrameWork.Log("V_TppCassette.PlayCassetteTape: track not found: " .. tostring(trackOrName))
             return false
@@ -22,7 +22,7 @@ function this.PlayCassetteTape(trackOrName, isLoop, playAll)
         return false
     end
 
-    return V_CassetteCommand.PlayCassetteTapeByTrackId(0, trackId, isLoop or false, playAll or false)
+    return V_CassetteCommand.PlayCassetteTapeByTrackId(trackId, isLoop or false, playAll or false)
 end
 
 function this.GetCassettePlayingTime()
@@ -87,7 +87,7 @@ function this.RegisterCustomCassetteAlbum(albumInfo, trackList)
         tracks[i] = t
     end
 
-    return V_FrameWork.RegisterCustomTapes({
+    return V_CassetteCommand.RegisterCustomTapes({
         albums = {
             {
                 albumId = albumInfo.albumId,

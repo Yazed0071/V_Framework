@@ -214,10 +214,6 @@ function this.IsMissionEmergency(missionCode)
     return V_TppUiCommand.IsMissionEmergency(missionCode)
 end
 
-function this.ClearAllMissionEmergencies()
-    V_TppUiCommand.ClearAllMissionEmergencies()
-end
-
 function this.SetEmergencyMissionPopup(title, body)
     if title ~= nil and not IsTypeString(title) then
         V_FrameWork.Log("V_TppUiCommand.SetEmergencyMissionPopup: title is not a string or nil.")

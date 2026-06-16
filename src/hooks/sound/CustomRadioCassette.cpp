@@ -48,6 +48,7 @@ namespace
     struct CustomRadioCassetteEntry
     {
         std::uint32_t nameHash     = 0;   // StrCode32(gimmickName);
+        std::uint32_t fox2PathHash = 0;
         std::uint32_t wwiseEventId = 0;   // Ak event
         std::uint32_t trackNameId  = 0;   // StrCode32(fileName);
         std::string   fileName;
@@ -135,6 +136,7 @@ static std::int16_t ResolveSlotSaveIndex(int slot)
 
 bool Register_CustomRadioCassette(
     std::uint32_t gimmickNameHash,
+    std::uint32_t fox2PathHash,
     std::uint32_t wwiseEventId,
     std::uint32_t trackNameId,
     const char* fileName)
@@ -146,7 +148,7 @@ bool Register_CustomRadioCassette(
 
     for (auto& existing : g_Entries)
     {
-        if (existing.nameHash == gimmickNameHash)
+        if (existing.nameHash == gimmickNameHash && existing.fox2PathHash == fox2PathHash)
         {
             existing.wwiseEventId      = wwiseEventId;
             existing.trackNameId       = trackNameId;
@@ -161,11 +163,19 @@ bool Register_CustomRadioCassette(
 
     CustomRadioCassetteEntry entry;
     entry.nameHash     = gimmickNameHash;
+    entry.fox2PathHash = fox2PathHash;
     entry.wwiseEventId = wwiseEventId;
     entry.trackNameId  = trackNameId;
     entry.fileName     = fileName ? fileName : "";
     g_Entries.push_back(entry);
     return true;
+}
+
+static bool EntryMatchesKey(const CustomRadioCassetteEntry& e, std::uint64_t key)
+{
+    if (e.fox2PathHash != 0)
+        return ((static_cast<std::uint64_t>(e.fox2PathHash) << 32) | e.nameHash) == key;
+    return e.nameHash == static_cast<std::uint32_t>(key & 0xFFFFFFFFu);
 }
 
 static int __fastcall hkSearchCasseteInfo(void* thisPtr, std::uint64_t key)
@@ -182,7 +192,7 @@ static int __fastcall hkSearchCasseteInfo(void* thisPtr, std::uint64_t key)
     std::lock_guard<std::mutex> lock(g_Mutex);
     for (std::size_t i = 0; i < g_Entries.size(); ++i)
     {
-        if (g_Entries[i].nameHash == incomingNameHash)
+        if (EntryMatchesKey(g_Entries[i], key))
         {
             const int slot = kSyntheticSlotBase + static_cast<int>(i);
             if (g_LoggedSearchSlots.insert(slot).second)
@@ -302,14 +312,12 @@ static void* __fastcall hkSdPostEvent(
 
 static bool __fastcall hkIsSameSaveIndexFromName(void* thisPtr, std::uint64_t key, std::int16_t saveIndex)
 {
-    const std::uint32_t incomingNameHash = static_cast<std::uint32_t>(key & 0xFFFFFFFFu);
-
     int matchedSlot = -1;
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (std::size_t i = 0; i < g_Entries.size(); ++i)
         {
-            if (g_Entries[i].nameHash == incomingNameHash)
+            if (EntryMatchesKey(g_Entries[i], key))
             {
                 matchedSlot = kSyntheticSlotBase + static_cast<int>(i);
                 break;
@@ -391,10 +399,9 @@ static std::uint32_t ReadRadioNibble(void* thisPtr)
 
 static int FindSlotForKey(std::uint64_t key)
 {
-    const std::uint32_t nameHash = static_cast<std::uint32_t>(key & 0xFFFFFFFFu);
     std::lock_guard<std::mutex> lock(g_Mutex);
     for (std::size_t i = 0; i < g_Entries.size(); ++i)
-        if (g_Entries[i].nameHash == nameHash)
+        if (EntryMatchesKey(g_Entries[i], key))
             return kSyntheticSlotBase + static_cast<int>(i);
     return -1;
 }

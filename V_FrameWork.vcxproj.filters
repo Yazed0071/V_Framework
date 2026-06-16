@@ -34,9 +34,6 @@
     <ClInclude Include="src\core\MissionCodeGuard.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\V_FrameWorkModLoader.h">
-      <Filter>Core</Filter>
-    </ClInclude>
     <ClInclude Include="src\core\FoxHashes.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -127,9 +124,6 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\MissionCodeGuard.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="src\core\V_FrameWorkModLoader.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\FoxHashes.cpp">

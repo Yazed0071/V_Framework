@@ -227,6 +227,15 @@ namespace AddressSetRuntime
         uintptr_t SoundDaemon_PostEventQueue = 0;
         uintptr_t Sd_kW_Select               = 0;
 
+        uintptr_t UpdateAntiAir              = 0;
+        uintptr_t ClearAntiAir               = 0;
+
+        uintptr_t GetChangeLocationMenuParameterByLocationId = 0;
+        uintptr_t GetMbFreeChangeLocationMenuParameter       = 0;
+        uintptr_t GetPhotoAdditionalTextLangId               = 0;
+
+        uintptr_t UiControllerImpl_HideBinocle               = 0;
+
         uintptr_t AddCassetteTapeTrack        = 0;
         uintptr_t CollectGotTapes             = 0;
         uintptr_t IsGotCassetteTapeTrack      = 0;

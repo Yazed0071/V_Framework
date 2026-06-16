@@ -480,7 +480,7 @@ namespace
         {
             float r, g, b, a;
             ReadColor(L, 2, &r, &g, &b, &a, 1.0f);
-            const int   mode = static_cast<int>(ReadCommandNumberOr(L, 2, "Phase", -1.0));
+            const int   mode = static_cast<int>(ReadCommandNumberOr(L, 2, "phase", -1.0));
             g_lua_settop(L, top);
             ::Set_EyeLampColor(mode, r, g, b, a);
             Log("[SendCommand] SetEyeLampColor r=%.2f g=%.2f b=%.2f a=%.2f mode=%d\n", r, g, b, a, mode);
