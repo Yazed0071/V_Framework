@@ -40,7 +40,6 @@ namespace
         { "ClearAllIconFtexPaths",                    l_ClearAllIconFtexPaths },
         { "SetMissionEmergency",                      l_SetMissionEmergency },
         { "IsMissionEmergency",                       l_IsMissionEmergency },
-        { "ClearAllMissionEmergencies",               l_ClearAllMissionEmergencies },
         { "SetEmergencyMissionPopup",                 l_SetEmergencyMissionPopup },
         { "SetEmergencyMissionPopupLangId",           l_SetEmergencyMissionPopupLangId },
         { "ClearEmergencyMissionPopupOverride",       l_ClearEmergencyMissionPopupOverride },

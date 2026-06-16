@@ -25,7 +25,6 @@ int __cdecl l_ClearAllIconFtexPaths(lua_State* L);
 
 int __cdecl l_SetMissionEmergency(lua_State* L);
 int __cdecl l_IsMissionEmergency(lua_State* L);
-int __cdecl l_ClearAllMissionEmergencies(lua_State* L);
 int __cdecl l_SetEmergencyMissionPopup(lua_State* L);
 int __cdecl l_SetEmergencyMissionPopupLangId(lua_State* L);
 int __cdecl l_ClearEmergencyMissionPopupOverride(lua_State* L);

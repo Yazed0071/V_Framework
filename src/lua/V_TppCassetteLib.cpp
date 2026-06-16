@@ -20,7 +20,7 @@ namespace
     static luaL_Reg g_VTppCassetteLib[] =
     {
         { "PlayCassetteTapeByTrackId",                l_PlayCassetteTapeByTrackId },
-        { "GetTapeTrackDirectPlayId",                 l_GetTapeTrackDirectPlayId },
+        { "GetTapeTrackId",                           l_GetTapeTrackId },
         { "GetCassettePlayingTime",                   l_GetCassettePlayingTime },
         { "GetCassettePlayingTrackId",                l_GetCassettePlayingTrackId },
         { "PauseCassette",                            l_PauseCassette },
@@ -29,6 +29,7 @@ namespace
         { "IsCassetteSpeakerEnabled",                 l_IsCassetteSpeakerEnabled },
         { "SetCassetteSpeakerEnabled",                l_SetCassetteSpeakerEnabled },
         { "RegisterRadioCassette",                    l_RegisterRadioCassette },
+        { "RegisterCustomTapes",                      l_RegisterCustomTapes },
 
         { nullptr,          nullptr }
     };

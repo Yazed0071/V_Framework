@@ -43,7 +43,6 @@ extern "C" {
 #include "SoldierVoiceTypeQuery.h"
 #include "SoldierObjectRtpc.h"
 #include "../hooks/sound/VoicePitchOverride.h"
-#include "V_FrameWorkModLoader.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 #include "../hooks/sahelan/SetEyeLampColorHook.h"
 #include "../hooks/sahelan/PhaseSneakAiImpl_PreUpdate.h"
@@ -540,22 +539,22 @@ int __cdecl l_UnsetSoldierVoicePitch(lua_State* L)
 
 int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
 {
-    const std::uint32_t albumIndex = static_cast<std::uint32_t>(GetLuaInt(L, 1));
-    const std::uint32_t trackId = static_cast<std::uint32_t>(GetLuaInt(L, 2));
+    const std::uint32_t albumIndex = 0;
+    const std::uint32_t trackId = static_cast<std::uint32_t>(GetLuaInt(L, 1));
 
     bool loopPlay = false;
     bool playAll = false;
 
+    const int arg2Type = LuaType(L, 2);
+    if (arg2Type != LUA_TNONE && arg2Type != LUA_TNIL)
+    {
+        loopPlay = GetLuaBool(L, 2);
+    }
+
     const int arg3Type = LuaType(L, 3);
     if (arg3Type != LUA_TNONE && arg3Type != LUA_TNIL)
     {
-        loopPlay = GetLuaBool(L, 3);
-    }
-
-    const int arg4Type = LuaType(L, 4);
-    if (arg4Type != LUA_TNONE && arg4Type != LUA_TNIL)
-    {
-        playAll = GetLuaBool(L, 4);
+        playAll = GetLuaBool(L, 3);
     }
 
     const bool ok = PlayCassetteByTrackId(albumIndex, trackId, loopPlay, playAll);
@@ -563,7 +562,7 @@ int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
     return 1;
 }
 
-int __cdecl l_GetTapeTrackDirectPlayId(lua_State* L)
+int __cdecl l_GetTapeTrackId(lua_State* L)
 {
     if (!LuaIsString(L, 1))
     {
@@ -1249,14 +1248,6 @@ int __cdecl l_IsMissionEmergency(lua_State* L)
 }
 
 
-int __cdecl l_ClearAllMissionEmergencies(lua_State* L)
-{
-    UNREFERENCED_PARAMETER(L);
-    MissionEmergency_ClearAll();
-    return 0;
-}
-
-
 int __cdecl l_SetEmergencyMissionPopup(lua_State* L)
 {
     const char* title = LuaIsString(L, 1) ? GetLuaString(L, 1) : nullptr;
@@ -1453,30 +1444,6 @@ int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
     const char* name = GetLuaString(L, 1);
     const bool ok = Unregister_AnnounceLogSfx(name);
     PushLuaBool(L, ok);
-    return 1;
-}
-
-
-static int __cdecl l_GetModFiles(lua_State* L)
-{
-    const auto files = V_FrameWorkModLoader::FindModFiles();
-
-    if (!ResolveLuaApi())
-    {
-        PushLuaBool(L, false);
-        return 1;
-    }
-
-    g_lua_createtable(L, static_cast<int>(files.size()), 0);
-    const int tableIdx = GetLuaTop(L);
-
-    for (std::size_t i = 0; i < files.size(); ++i)
-    {
-        g_lua_pushnumber(L, static_cast<lua_Number>(i + 1));
-        g_lua_pushstring(L, const_cast<char*>(files[i].c_str()));
-        g_lua_settable(L, tableIdx);
-    }
-
     return 1;
 }
 
@@ -1741,7 +1708,7 @@ static long long CT_ReadIntField(lua_State* L, int t, const char* key, long long
     return v;
 }
 
-static int __cdecl l_RegisterCustomTapes(lua_State* L)
+int __cdecl l_RegisterCustomTapes(lua_State* L)
 {
     if (!ResolveLuaApi() || g_lua_type(L, 1) != LUA_TTABLE)
     {
@@ -1815,8 +1782,6 @@ static int __cdecl l_RegisterCustomTapes(lua_State* L)
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
-    { "RegisterCustomTapes",                    l_RegisterCustomTapes },
-    { "GetModFiles",                            l_GetModFiles },
 
     { nullptr, nullptr }
 };
