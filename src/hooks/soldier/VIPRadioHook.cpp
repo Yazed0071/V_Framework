@@ -234,13 +234,6 @@ static short* __fastcall hkCallWithRadioType(
                 ownerIndex, radioType, hostageOverrideLabel)
             && hostageOverrideLabel != 0u)
         {
-            Log(
-                "[Radio] Hostage-found override: owner=%u radioType=0x%02X arg5=0x%04X overrideLabel=0x%08X\n",
-                static_cast<unsigned int>(ownerIndex),
-                static_cast<unsigned int>(radioType),
-                static_cast<unsigned int>(arg5),
-                static_cast<unsigned int>(hostageOverrideLabel));
-
             if (g_CallImpl)
             {
                 return g_CallImpl(
@@ -277,14 +270,6 @@ static short* __fastcall hkCallWithRadioType(
         {
             if (info.customDeadBodyLabel != 0 && g_CallImpl)
             {
-                Log(
-                    "[Radio] Custom body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u customLabel=0x%08X\n",
-                    static_cast<unsigned int>(ownerIndex),
-                    static_cast<unsigned int>(arg5),
-                    static_cast<unsigned int>(info.gameObjectId),
-                    static_cast<unsigned int>(info.soldierIndex),
-                    static_cast<unsigned int>(info.customDeadBodyLabel));
-
                 return g_CallImpl(
                     reinterpret_cast<long long>(self) - 0x20ll,
                     outHandle,
@@ -295,14 +280,6 @@ static short* __fastcall hkCallWithRadioType(
 
             if (info.isOfficer)
             {
-                Log(
-                    "[Radio] Officer body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u speechLabel=0x%08X\n",
-                    static_cast<unsigned int>(ownerIndex),
-                    static_cast<unsigned int>(arg5),
-                    static_cast<unsigned int>(info.gameObjectId),
-                    static_cast<unsigned int>(info.soldierIndex),
-                    static_cast<unsigned int>(kOfficerBodyFoundSpeechLabel));
-
                 if (g_CallImpl)
                 {
                     return g_CallImpl(
@@ -315,14 +292,6 @@ static short* __fastcall hkCallWithRadioType(
             }
             else
             {
-                Log(
-                    "[Radio] VIP body-found override: owner=%u arg5=0x%04X gameObjectId=0x%08X soldierIndex=%u radioType=0x%02X\n",
-                    static_cast<unsigned int>(ownerIndex),
-                    static_cast<unsigned int>(arg5),
-                    static_cast<unsigned int>(info.gameObjectId),
-                    static_cast<unsigned int>(info.soldierIndex),
-                    static_cast<unsigned int>(kRadioTypeVipBodyFound));
-
                 if (g_OrigCallWithRadioType)
                 {
                     return g_OrigCallWithRadioType(
@@ -358,13 +327,6 @@ void Add_VIPRadioImportantTarget(std::uint32_t gameObjectId, std::uint16_t soldi
     std::lock_guard<std::mutex> lock(g_StateMutex);
     g_ImportantByGameObjectId[info.gameObjectId] = info;
     g_ImportantBySoldierIndex[info.soldierIndex] = info;
-
-    Log(
-        "[Radio] Added important target: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s customDeadBodyLabel=0x%08X\n",
-        static_cast<unsigned int>(info.gameObjectId),
-        static_cast<unsigned int>(info.soldierIndex),
-        YesNo(info.isOfficer),
-        static_cast<unsigned int>(info.customDeadBodyLabel));
 }
 
 
@@ -388,11 +350,6 @@ void Remove_VIPRadioImportantGameObjectId(std::uint32_t gameObjectId)
     const std::uint16_t soldierIndex = GameObjectIdToSoldierIndex(gameObjectId);
     g_ImportantByGameObjectId.erase(gameObjectId);
     g_ImportantBySoldierIndex.erase(soldierIndex);
-
-    Log(
-        "[Radio] Removed important target: gameObjectId=0x%08X soldierIndex=%u\n",
-        static_cast<unsigned int>(gameObjectId),
-        static_cast<unsigned int>(soldierIndex));
 }
 
 
@@ -418,8 +375,6 @@ void Clear_VIPRadioImportantGameObjectIds()
     g_ImportantByGameObjectId.clear();
     g_ImportantBySoldierIndex.clear();
     g_RecentImportantCorpsesFromRequest.clear();
-
-    Log("[Radio] Cleared important targets and recent corpse log\n");
 }
 
 

@@ -79,13 +79,11 @@ namespace
             const std::uint8_t nops[5] = { 0x90, 0x90, 0x90, 0x90, 0x90 };
             std::memcpy(target, nops, sizeof(nops));
             g_FactionNopApplied = true;
-            Log("[OccasionalChatList] faction test NOP'd @ %p (all soldiers chat)\n", target);
         }
         else
         {
             std::memcpy(target, g_FactionNopOriginal, sizeof(g_FactionNopOriginal));
             g_FactionNopApplied = false;
-            Log("[OccasionalChatList] faction test restored @ %p\n", target);
         }
 
         DWORD restored = 0;
@@ -263,8 +261,6 @@ void SetOccasionalChatList(const std::uint32_t* labels, std::size_t count)
         if (labels[i] != 0) g_Labels.push_back(labels[i]);
     g_Mode = g_Labels.empty() ? Mode::Off : Mode::Set;
     ApplyFactionTestNop(g_Mode == Mode::Set);
-    Log("[OccasionalChatList] SET -> %zu labels (mode=%s)\n",
-        g_Labels.size(), g_Labels.empty() ? "OFF" : "SET");
 }
 
 void InsertToOccasionalChatList(const std::uint32_t* labels, std::size_t count)
@@ -281,8 +277,6 @@ void InsertToOccasionalChatList(const std::uint32_t* labels, std::size_t count)
     if (g_Mode == Mode::Off && !g_Labels.empty())
         g_Mode = Mode::Insert;
     ApplyFactionTestNop(g_Mode == Mode::Set);
-    Log("[OccasionalChatList] INSERT -> %zu labels (mode=%s)\n",
-        g_Labels.size(), g_Mode == Mode::Set ? "SET" : (g_Mode == Mode::Insert ? "INSERT" : "OFF"));
 }
 
 void RemoveFromOccasionalChatList(const std::uint32_t* labels, std::size_t count)
@@ -297,7 +291,6 @@ void RemoveFromOccasionalChatList(const std::uint32_t* labels, std::size_t count
         if (!dup) g_Removed.push_back(lbl);
     }
     ApplyFactionTestNop(g_Mode == Mode::Set);
-    Log("[OccasionalChatList] REMOVE -> %zu blocked labels\n", g_Removed.size());
 }
 
 void ClearOccasionalChatListOverride()
@@ -307,5 +300,4 @@ void ClearOccasionalChatListOverride()
     g_Removed.clear();
     g_Mode = Mode::Off;
     ApplyFactionTestNop(false);
-    Log("[OccasionalChatList] override cleared (vanilla)\n");
 }

@@ -19,25 +19,19 @@ namespace
 }
 
 
+#ifdef _DEBUG
 static void SetupConsole()
 {
     if (gConsoleReady.load())
         return;
 
-    if (!AllocConsole())
-        AttachConsole(ATTACH_PARENT_PROCESS);
-
-    FILE* fp = nullptr;
-    freopen_s(&fp, "CONOUT$", "w", stdout);
-    freopen_s(&fp, "CONOUT$", "w", stderr);
-    freopen_s(&fp, "CONIN$", "r", stdin);
-
-    SetConsoleTitleW(L"V_FrameWork");
+    EnsureConsole();
     gConsoleReady.store(true);
 
     printf("[DLL] Console ready\n");
     fflush(stdout);
 }
+#endif
 
 static DWORD WINAPI InitThread(LPVOID)
 {

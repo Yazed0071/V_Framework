@@ -5,3 +5,4 @@
 void InitLog();
 void Log(const char* fmt, ...);
 void CloseLog();
+void EnsureConsole();

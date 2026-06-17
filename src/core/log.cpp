@@ -12,6 +12,12 @@ static FILE* g_LogFile = nullptr;
 static std::mutex g_LogMutex;
 static bool g_AtLineStart = true;
 
+static inline void ConsoleWrite(const char* data, int len)
+{
+    if (GetConsoleWindow())
+        fwrite(data, 1, static_cast<size_t>(len), stdout);
+}
+
 void InitLog()
 {
     char gameDir[MAX_PATH]{};
@@ -66,7 +72,7 @@ void Log(const char* fmt, ...)
                 ts, sizeof(ts),
                 "[%02u:%02u:%02u.%03u] ",
                 st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-            fwrite(ts, 1, tslen, stdout);
+            ConsoleWrite(ts, tslen);
             if (g_LogFile)
                 fwrite(ts, 1, tslen, g_LogFile);
             g_AtLineStart = false;
@@ -78,14 +84,14 @@ void Log(const char* fmt, ...)
 
         if (j > i)
         {
-            fwrite(buf + i, 1, j - i, stdout);
+            ConsoleWrite(buf + i, j - i);
             if (g_LogFile)
                 fwrite(buf + i, 1, j - i, g_LogFile);
         }
 
         if (j < len)
         {
-            fputc('\n', stdout);
+            ConsoleWrite("\n", 1);
             if (g_LogFile)
                 fputc('\n', g_LogFile);
             g_AtLineStart = true;
@@ -108,4 +114,20 @@ void CloseLog()
         fclose(g_LogFile);
         g_LogFile = nullptr;
     }
+}
+
+void EnsureConsole()
+{
+    if (GetConsoleWindow())
+        return;
+
+    if (!AllocConsole())
+        AttachConsole(ATTACH_PARENT_PROCESS);
+
+    FILE* fp = nullptr;
+    freopen_s(&fp, "CONOUT$", "w", stdout);
+    freopen_s(&fp, "CONOUT$", "w", stderr);
+    freopen_s(&fp, "CONIN$", "r", stdin);
+
+    SetConsoleTitleW(L"V_FrameWork");
 }

@@ -50,6 +50,5 @@ void FeatureModuleRegistry::UninstallAll()
             continue;
 
         module->Uninstall();
-        Log("[FeatureModule] Uninstall %s -> done\n", module->GetName());
     }
 }

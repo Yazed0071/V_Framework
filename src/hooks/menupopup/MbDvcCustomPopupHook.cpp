@@ -555,42 +555,20 @@ namespace
             const auto* base = reinterpret_cast<const std::uint8_t*>(ctrl);
 
             const std::uintptr_t vtbl = *reinterpret_cast<const std::uintptr_t*>(base);
-            Log("[MbDvcCustomPopup][DIAG] controller=%p vtable=0x%016llX\n",
-                ctrl, static_cast<unsigned long long>(vtbl));
 
             if (incomingParam)
             {
                 const auto* pb = reinterpret_cast<const std::uint8_t*>(incomingParam);
-                Log("[MbDvcCustomPopup][DIAG] incoming param 20 bytes: "
-                    "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X "
-                    "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
-                    pb[0],  pb[1],  pb[2],  pb[3],  pb[4],  pb[5],  pb[6],  pb[7],
-                    pb[8],  pb[9],  pb[10], pb[11], pb[12], pb[13], pb[14], pb[15],
-                    pb[16], pb[17], pb[18], pb[19]);
             }
 
-            Log("[MbDvcCustomPopup][DIAG] --- assuming OLD layout (stride=12, type@+0x08) ---\n");
             for (int i = 0; i < 8; ++i)
             {
                 const auto* slot = base + 0x08 + (std::size_t)i * 0x0c;
-                Log("[MbDvcCustomPopup][DIAG] slot[%d] cv1=0x%08X cv2=0x%08X type=0x%02X\n",
-                    i,
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x00),
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x04),
-                    *(slot + 0x08));
             }
 
-            Log("[MbDvcCustomPopup][DIAG] --- assuming NEW layout (stride=20, type@+0x10) ---\n");
             for (int i = 0; i < 8; ++i)
             {
                 const auto* slot = base + 0x08 + (std::size_t)i * 0x14;
-                Log("[MbDvcCustomPopup][DIAG] slot[%d] cv1=0x%08X cv2=0x%08X cv3=0x%08X cv4=0x%08X type=0x%02X\n",
-                    i,
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x00),
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x04),
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x08),
-                    *reinterpret_cast<const std::uint32_t*>(slot + 0x0c),
-                    *(slot + 0x10));
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -632,7 +610,6 @@ namespace
         {
             if (isOurs)
             {
-                Log("[MbDvcCustomPopup] Reserve hook: ring full + our reservation -> reject\n");
                 return;
             }
             else
@@ -645,8 +622,6 @@ namespace
                         if (!g_PendingQueue.empty())
                             g_PendingQueue.pop_front();
                     }
-                    Log("[MbDvcCustomPopup] Reserve hook: ring full + game popup -> "
-                        "evicted oldest V_FrameWork slot to make room\n");
                 }
                 else
                 {
@@ -889,10 +864,6 @@ namespace
 
                 if (SafeWriteTitleBody(self, titleText, bodyText))
                 {
-                    Log("[MbDvcCustomPopup] override APPLIED: title=\"%s\" body=\"%.40s%s\"\n",
-                        titleText,
-                        bodyText,
-                        std::strlen(bodyText) > 40 ? "..." : "");
                 }
                 else
                 {

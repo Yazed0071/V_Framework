@@ -221,39 +221,11 @@ static void CacheTapeIdTableFromCassetteCallback(void* cassetteCallbackBase)
         g_LastTapeIdTable = g_CachedTapeIdTable;
         g_HasCopiedTapeIdTable = true;
     }
-
-    Log(
-        "[CassettePlay] Cached tapeIdTable from callback=%p localCopy=%p size=0x%zX\n",
-        cassetteCallbackBase,
-        g_CachedTapeIdTable,
-        kTapeIdTableSize);
 }
 
 
 static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uint8_t* rowBytes)
 {
-    Log(
-        "%s +0x%04zX : "
-        "%02X %02X %02X %02X %02X %02X %02X %02X "
-        "%02X %02X %02X %02X %02X %02X %02X %02X\n",
-        prefix,
-        baseOffset,
-        static_cast<unsigned int>(rowBytes[0]),
-        static_cast<unsigned int>(rowBytes[1]),
-        static_cast<unsigned int>(rowBytes[2]),
-        static_cast<unsigned int>(rowBytes[3]),
-        static_cast<unsigned int>(rowBytes[4]),
-        static_cast<unsigned int>(rowBytes[5]),
-        static_cast<unsigned int>(rowBytes[6]),
-        static_cast<unsigned int>(rowBytes[7]),
-        static_cast<unsigned int>(rowBytes[8]),
-        static_cast<unsigned int>(rowBytes[9]),
-        static_cast<unsigned int>(rowBytes[10]),
-        static_cast<unsigned int>(rowBytes[11]),
-        static_cast<unsigned int>(rowBytes[12]),
-        static_cast<unsigned int>(rowBytes[13]),
-        static_cast<unsigned int>(rowBytes[14]),
-        static_cast<unsigned int>(rowBytes[15]));
 }
 
 
@@ -282,24 +254,6 @@ static void LogCassetteCallbackState(void* cassetteCallbackBase)
         const std::uint32_t  f64 = *reinterpret_cast<const std::uint32_t*>(base + 0xF64ull);
         const std::uint32_t  f80 = *reinterpret_cast<const std::uint32_t*>(base + 0xF80ull);
         const std::uint32_t  f84 = *reinterpret_cast<const std::uint32_t*>(base + 0xF84ull);
-
-        Log(
-            "[CassetteState] callback=%p"
-            " D20=%p D28=%u"
-            " D30=%p D38=%u"
-            " D40=%p D48=%u"
-            " D50=%u F64=%u F80=%u F84=%u\n",
-            cassetteCallbackBase,
-            reinterpret_cast<void*>(pD20),
-            static_cast<unsigned int>(cD28),
-            reinterpret_cast<void*>(pD30),
-            static_cast<unsigned int>(cD38),
-            reinterpret_cast<void*>(pD40),
-            static_cast<unsigned int>(cD48),
-            static_cast<unsigned int>(curD50),
-            static_cast<unsigned int>(f64),
-            static_cast<unsigned int>(f80),
-            static_cast<unsigned int>(f84));
 
         if (pD20 && cD28)
         {
@@ -370,12 +324,6 @@ static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumInde
         return;
     }
 
-    Log(
-        "[CassetteTrace] table=%p albumIndex=%u selectedTrackIndex=%u\n",
-        tapeIdTable,
-        static_cast<unsigned int>(albumIndex),
-        static_cast<unsigned int>(selectedTrackIndex));
-
     {
         std::uint8_t block[0x100] = {};
         if (TryCopyBytes(tapeIdTable, block, sizeof(block)))
@@ -401,11 +349,6 @@ static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumInde
 
         if (TryCopyBytes(startPtr, block, sizeof(block)))
         {
-            Log(
-                "[CassetteTrace] selectedTrackIndex*4 center=0x%zX start=0x%zX\n",
-                centerOffset,
-                startOffset);
-
             for (std::size_t i = 0; i < sizeof(block); i += 0x10)
             {
                 LogHexRow("[CassetteTrace][TrackWindow]", startOffset + i, &block[i]);
@@ -430,20 +373,10 @@ static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumInde
 
         if (TryCopyBytes(selectedTrackPtr, &selectedTrackId, sizeof(selectedTrackId)))
         {
-            Log(
-                "[CassetteTrace] dword@trackIndex*4 addr=%p value=%08X (%u)\n",
-                selectedTrackPtr,
-                static_cast<unsigned int>(selectedTrackId),
-                static_cast<unsigned int>(selectedTrackId));
         }
 
         if (TryCopyBytes(selectedAlbumPtr, &selectedAlbumValue, sizeof(selectedAlbumValue)))
         {
-            Log(
-                "[CassetteTrace] dword@albumIndex*4 addr=%p value=%08X (%u)\n",
-                selectedAlbumPtr,
-                static_cast<unsigned int>(selectedAlbumValue),
-                static_cast<unsigned int>(selectedAlbumValue));
         }
     }
 }
@@ -510,27 +443,6 @@ static void __fastcall hkMusicPlayerPlay(
 
     LogCassetteCallbackState(g_LastCassetteCallbackBase);
     LogCassetteSelectionTrace(tapeIdTable, albumIndex, selectedTrackIndex);
-    V_FrameWork::EmitMessage("Terminal", "CassettePlay", playMode, albumIndex, selectedTrackIndex);
-    Log(
-        "[CassettePlay] RealPlay"
-        " player=%p"
-        " outHandle=%p"
-        " playMode=%u"
-        " tapeIdTable=%p"
-        " albumIndex=%u"
-        " selectedTrackIndex=%u"
-        " reservedZero=%u"
-        " flag1=%u"
-        " flag2=%u\n",
-        player,
-        outHandle,
-        static_cast<unsigned int>(playMode),
-        tapeIdTable,
-        static_cast<unsigned int>(albumIndex),
-        static_cast<unsigned int>(selectedTrackIndex),
-        static_cast<unsigned int>(reservedZero),
-        static_cast<unsigned int>(flag1),
-        static_cast<unsigned int>(flag2));
 
     if (g_OrigMusicPlayerPlay)
     {
@@ -549,11 +461,6 @@ static void __fastcall hkMusicPlayerPlay(
 
 static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
 {
-    Log(
-        "[CassettePlay] hkCassetteStart entered callback=%p orig=%p\n",
-        cassetteCallbackBase,
-        g_OrigCassetteStart);
-
     if (!g_OrigCassetteStart)
     {
         Log("[CassettePlay] hkCassetteStart: orig is null\n");
@@ -563,10 +470,6 @@ static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
     g_OrigCassetteStart(cassetteCallbackBase);
 
     const bool bypass = MissionCodeGuard::ShouldBypassHooks();
-    Log(
-        "[CassettePlay] hkCassetteStart bypass=%d callback=%p\n",
-        bypass ? 1 : 0,
-        cassetteCallbackBase);
 
     if (bypass)
         return;
@@ -577,17 +480,10 @@ static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
     }
 
     CacheTapeIdTableFromCassetteCallback(cassetteCallbackBase);
-
-    Log("[CassettePlay] Cassette Start cached callback=%p\n", cassetteCallbackBase);
 }
 
 static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
 {
-    Log(
-        "[CassettePlay] hkPlayOrPauseSelectedTrack entered callback=%p orig=%p\n",
-        cassetteCallbackBase,
-        g_OrigPlayOrPauseSelectedTrack);
-
     if (!g_OrigPlayOrPauseSelectedTrack)
     {
         Log("[CassettePlay] hkPlayOrPauseSelectedTrack: orig is null\n");
@@ -595,10 +491,6 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
     }
 
     const bool bypass = MissionCodeGuard::ShouldBypassHooks();
-    Log(
-        "[CassettePlay] hkPlayOrPauseSelectedTrack bypass=%d callback=%p\n",
-        bypass ? 1 : 0,
-        cassetteCallbackBase);
 
     if (bypass)
         return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
@@ -613,7 +505,6 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
     void* musicPlayer = ResolveMusicPlayerFromCassetteCallback(cassetteCallbackBase);
     if (musicPlayer)
     {
-        Log("[CassettePlay] hkPlayOrPauseSelectedTrack resolved musicPlayer=%p\n", musicPlayer);
         TryInstallMusicPlayerPlayHook(musicPlayer);
     }
     else
@@ -735,7 +626,6 @@ bool IsCassetteSpeakerEnabled(bool& outEnabled)
 
         outEnabled = currentMode == static_cast<int>(kCassetteSpeakerModeEnabled);
 
-        Log("[CassetteSpeaker] Get: callback=%p player=%p mode=%d enabled=%d\n", callbackBase, player, currentMode, outEnabled ? 1 : 0);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -771,7 +661,6 @@ bool SetCassetteSpeakerEnabled(bool enabled)
 
     if (currentEnabled == enabled)
     {
-        Log("[CassetteSpeaker] Set: already in requested state enabled=%d\n", enabled ? 1 : 0);
         return true;
     }
 
@@ -798,15 +687,6 @@ bool SetCassetteSpeakerEnabled(bool enabled)
         }
 
         const bool ok = ((*result >> 31) & 1u) == 0;
-
-        Log(
-            "[CassetteSpeaker] Set: callback=%p player=%p targetMode=%u enabled=%d ok=%d raw=%08X\n",
-            callbackBase,
-            player,
-            static_cast<unsigned int>(targetMode),
-            enabled ? 1 : 0,
-            ok ? 1 : 0,
-            static_cast<unsigned int>(*result));
 
         return ok;
     }
@@ -1014,32 +894,8 @@ bool PlayCassetteByTrackId(
 
     __try
     {
-        Log(
-            "[CassettePlay] DirectPlay player=%p vtable=%p (expect CassettePlayerVtable=%p) playFn=%p\n",
-            player,
-            *reinterpret_cast<void**>(player),
-            reinterpret_cast<void*>(gAddr.CassettePlayerVtable),
-            reinterpret_cast<void*>(playFn));
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
-
-    Log(
-        "[CassettePlay] DirectPlayByTrackId"
-        " player=%p"
-        " trackCount=%u"
-        " ignoredAlbumIndex=%u"
-        " trackId=%u (0x%X)"
-        " loop=%u"
-        " playAll=%u"
-        " table=%p\n",
-        player,
-        static_cast<unsigned int>(trackCount),
-        static_cast<unsigned int>(albumIndex),
-        static_cast<unsigned int>(trackId),
-        static_cast<unsigned int>(trackId),
-        static_cast<unsigned int>(flag1),
-        static_cast<unsigned int>(flag2),
-        g_DirectTrackTable);
 
     playFn(
         player,

@@ -274,12 +274,6 @@ void V_FrameWork::EmitMessageValues(const char* category,
     if (!ResolveLuaApi(lua))
         return;
 
-    const int savedTop = lua.gettop(L);
-
-    volatile std::uint32_t* counter = GetMessageResendCounter();
-    const std::uint32_t     savedCounter = counter ? *counter : 0;
-    if (counter) *counter = 0xFFFFu;
-
     DWORD  sehCode     = 0;
     PVOID  sehAddr     = nullptr;
     ULONG_PTR sehFault = 0;
@@ -287,6 +281,12 @@ void V_FrameWork::EmitMessageValues(const char* category,
 
     __try
     {
+        const int savedTop = lua.gettop(L);
+
+        volatile std::uint32_t* counter = GetMessageResendCounter();
+        const std::uint32_t     savedCounter = counter ? *counter : 0;
+        if (counter) *counter = 0xFFFFu;
+
         if (PushTppMainOnMessage(L, lua, savedTop))
         {
             const std::uint32_t senderHash = FoxHashes::StrCode32(category);
@@ -312,6 +312,9 @@ void V_FrameWork::EmitMessageValues(const char* category,
                     err, category, msg, errMsg ? errMsg : "<no message>");
             }
         }
+
+        if (counter) *counter = savedCounter;
+        lua.settop(L, savedTop);
     }
     __except ((sehCode = GetExceptionCode(),
                sehAddr = GetExceptionInformation()->ExceptionRecord->ExceptionAddress,
@@ -331,7 +334,4 @@ void V_FrameWork::EmitMessageValues(const char* category,
                 category, msg, sehCode, sehAddr);
         }
     }
-
-    if (counter) *counter = savedCounter;
-    lua.settop(L, savedTop);
 }

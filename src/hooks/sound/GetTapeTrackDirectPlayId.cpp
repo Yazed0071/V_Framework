@@ -82,22 +82,6 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
             *reinterpret_cast<const std::uint32_t*>(
                 reinterpret_cast<const std::uintptr_t>(trackInfo) + 0x14ull);
 
-        Log(
-            "[TapeDirectPlayId] Resolved"
-            " trackName=%s"
-            " strCode=%08X"
-            " musicManager=%p"
-            " soundMusicPlayer=%p"
-            " trackInfo=%p"
-            " directPlayTrackId=%u (0x%X)\n",
-            trackName,
-            static_cast<unsigned int>(trackNameStrCode),
-            musicManagerInstance,
-            soundMusicPlayer,
-            trackInfo,
-            static_cast<unsigned int>(directPlayTrackId),
-            static_cast<unsigned int>(directPlayTrackId));
-
         return static_cast<std::int32_t>(directPlayTrackId);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)

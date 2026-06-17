@@ -266,8 +266,6 @@ void EnemyLangId_SetMapOverride(std::uint64_t langIdHash)
 {
     g_MapOverrideHash.store(langIdHash, std::memory_order_release);
     g_MapOverrideActive.store(langIdHash != 0, std::memory_order_release);
-    Log("[EnemyLangId] Map override = 0x%llX\n",
-        static_cast<unsigned long long>(langIdHash));
 }
 
 
@@ -275,7 +273,6 @@ void EnemyLangId_ClearMapOverride()
 {
     g_MapOverrideActive.store(false, std::memory_order_release);
     g_MapOverrideHash.store(0, std::memory_order_release);
-    Log("[EnemyLangId] Map override cleared\n");
 }
 
 
@@ -283,8 +280,6 @@ void EnemyLangId_SetBinoOverride(std::uint64_t langIdHash)
 {
     g_BinoOverrideHash.store(langIdHash, std::memory_order_release);
     g_BinoOverrideActive.store(langIdHash != 0, std::memory_order_release);
-    Log("[EnemyLangId] Bino override = 0x%llX\n",
-        static_cast<unsigned long long>(langIdHash));
 }
 
 
@@ -292,7 +287,6 @@ void EnemyLangId_ClearBinoOverride()
 {
     g_BinoOverrideActive.store(false, std::memory_order_release);
     g_BinoOverrideHash.store(0, std::memory_order_release);
-    Log("[EnemyLangId] Bino override cleared\n");
 }
 
 
@@ -306,11 +300,6 @@ void EnemyLangId_SetMapOverrideForSoldier(std::uint32_t soldierGameObjectId,
         g_MapPerSoldier.erase(key);
     else
         g_MapPerSoldier[key] = langIdHash;
-
-    Log("[EnemyLangId] Map per-soldier id=%u key=0x%04X hash=0x%llX\n",
-        soldierGameObjectId,
-        key,
-        static_cast<unsigned long long>(langIdHash));
 }
 
 
@@ -320,8 +309,6 @@ void EnemyLangId_ClearMapOverrideForSoldier(std::uint32_t soldierGameObjectId)
 
     std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
     g_MapPerSoldier.erase(key);
-
-    Log("[EnemyLangId] Map per-soldier id=%u cleared\n", soldierGameObjectId);
 }
 
 
@@ -329,7 +316,6 @@ void EnemyLangId_ClearAllMapOverridesForSoldier()
 {
     std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
     g_MapPerSoldier.clear();
-    Log("[EnemyLangId] Map per-soldier all cleared\n");
 }
 
 
@@ -343,11 +329,6 @@ void EnemyLangId_SetBinoOverrideForSoldier(std::uint32_t soldierGameObjectId,
         g_BinoPerSoldier.erase(key);
     else
         g_BinoPerSoldier[key] = langIdHash;
-
-    Log("[EnemyLangId] Bino per-soldier id=%u key=0x%04X hash=0x%llX\n",
-        soldierGameObjectId,
-        key,
-        static_cast<unsigned long long>(langIdHash));
 }
 
 
@@ -357,8 +338,6 @@ void EnemyLangId_ClearBinoOverrideForSoldier(std::uint32_t soldierGameObjectId)
 
     std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
     g_BinoPerSoldier.erase(key);
-
-    Log("[EnemyLangId] Bino per-soldier id=%u cleared\n", soldierGameObjectId);
 }
 
 
@@ -366,7 +345,6 @@ void EnemyLangId_ClearAllBinoOverridesForSoldier()
 {
     std::lock_guard<std::mutex> lock(g_PerSoldierMutex);
     g_BinoPerSoldier.clear();
-    Log("[EnemyLangId] Bino per-soldier all cleared\n");
 }
 
 

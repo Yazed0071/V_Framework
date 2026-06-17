@@ -145,16 +145,9 @@ bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t co
     if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
     {
         ApplyCountOverride(liveInfo, value16);
-
-        Log("[TppPickable] SetCountRawByIndex index=%u value=%u live=patched\n",
-            static_cast<unsigned>(index16),
-            static_cast<unsigned>(value16));
     }
     else
     {
-        Log("[TppPickable] SetCountRawByIndex index=%u value=%u live=pending\n",
-            static_cast<unsigned>(index16),
-            static_cast<unsigned>(value16));
     }
 
     return true;
@@ -170,19 +163,12 @@ bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& o
     if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
     {
         outCountRaw = liveInfo[2];
-
-        Log("[TppPickable] GetCountRawByIndex index=%u source=live value=%u\n",
-            static_cast<unsigned>(locatorIndex),
-            static_cast<unsigned>(outCountRaw));
         return true;
     }
 
     const std::uint16_t index16 = static_cast<std::uint16_t>(locatorIndex);
     if (TryGetStoredOverride(index16, outCountRaw))
     {
-        Log("[TppPickable] GetCountRawByIndex index=%u source=override value=%u\n",
-            static_cast<unsigned>(locatorIndex),
-            static_cast<unsigned>(outCountRaw));
         return true;
     }
 
@@ -198,8 +184,6 @@ void Clear_TppPickableCountRawOverrides()
 
     const std::size_t oldCount = g_PickableCountOverrides.size();
     g_PickableCountOverrides.clear();
-
-    Log("[TppPickable] Cleared count overrides count=%zu\n", oldCount);
 }
 
 

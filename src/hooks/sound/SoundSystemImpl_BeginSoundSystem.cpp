@@ -145,7 +145,6 @@ static void* FindCassettePlayerInStruct(void* basePtr, std::size_t scanSize)
 
         if (HasExpectedVtable(reinterpret_cast<void*>(candidate), gAddr.CassettePlayerVtable))
         {
-            Log("[SoundSystem] Found cassette player at +0x%zX -> %p\n", offset, reinterpret_cast<void*>(candidate));
             return reinterpret_cast<void*>(candidate);
         }
     }
@@ -161,7 +160,6 @@ static void* FindCassettePlayerFromSoundSystemInternal(void* soundSystem)
 
     if (HasExpectedVtable(soundSystem, gAddr.CassettePlayerVtable))
     {
-        Log("[SoundSystem] Sound system object itself matched cassette player vtable: %p\n", soundSystem);
         return soundSystem;
     }
 
@@ -183,11 +181,6 @@ static void* FindCassettePlayerFromSoundSystemInternal(void* soundSystem)
         void* nested = FindCassettePlayerInStruct(reinterpret_cast<void*>(subObject), kSubObjectScanSize);
         if (nested)
         {
-            Log(
-                "[SoundSystem] Found cassette player through SoundSystem +0x%zX -> %p -> %p\n",
-                offset,
-                reinterpret_cast<void*>(subObject),
-                nested);
             return nested;
         }
     }
@@ -212,7 +205,6 @@ bool RefreshGlobalCassetteMusicPlayerFromSoundSystem()
         {
             std::lock_guard<std::mutex> lock(g_SoundSystemMutex);
             g_CachedSoundSystem = soundSystem;
-            Log("[SoundSystem] Resolved g_SoundSystem from global = %p\n", soundSystem);
         }
     }
 
@@ -234,7 +226,6 @@ bool RefreshGlobalCassetteMusicPlayerFromSoundSystem()
         g_CachedCassettePlayer = cassettePlayer;
     }
 
-    Log("[SoundSystem] Cached cassette player = %p\n", cassettePlayer);
     return true;
 }
 
@@ -273,11 +264,6 @@ std::uint32_t GetCassettePlayingTime()
     {
         const std::uint32_t value = GetPlayingTime(soundMusicPlayer);
 
-        Log(
-            "[CassettePlayTime] soundMusicPlayer=%p value=%u\n",
-            soundMusicPlayer,
-            static_cast<unsigned int>(value));
-
         return value;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -307,12 +293,6 @@ std::uint32_t GetCassettePlayingTrackId()
     __try
     {
         const std::uint32_t value = GetPlayingTrackId(soundMusicPlayer);
-
-        Log(
-            "[CassetteTrackId] soundMusicPlayer=%p value=%u (0x%X)\n",
-            soundMusicPlayer,
-            static_cast<unsigned int>(value),
-            static_cast<unsigned int>(value));
 
         return value;
     }
@@ -345,12 +325,6 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
         int errorCode = -1;
         PauseMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
 
-        Log(
-            "[CassettePause] soundMusicPlayer=%p fadeMs=%u errorCode=%d\n",
-            soundMusicPlayer,
-            static_cast<unsigned int>(fadeMs),
-            errorCode);
-
         return static_cast<std::int32_t>(errorCode);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -381,12 +355,6 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     {
         int errorCode = -1;
         ResumeMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
-
-        Log(
-            "[CassetteResume] soundMusicPlayer=%p fadeMs=%u errorCode=%d\n",
-            soundMusicPlayer,
-            static_cast<unsigned int>(fadeMs),
-            errorCode);
 
         return static_cast<std::int32_t>(errorCode);
     }
@@ -419,13 +387,6 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
         std::uint32_t errorCode = static_cast<std::uint32_t>(-1);
         StopMusicPlayer(soundMusicPlayer, &errorCode, fadeMs, stopByUser ? 1 : 0);
 
-        Log(
-            "[CassetteStop] soundMusicPlayer=%p fadeMs=%u stopByUser=%u errorCode=%d\n",
-            soundMusicPlayer,
-            static_cast<unsigned int>(fadeMs),
-            stopByUser ? 1u : 0u,
-            static_cast<int>(errorCode));
-
         return static_cast<std::int32_t>(errorCode);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -448,8 +409,6 @@ static void* __fastcall hkSoundSystemCtor(void* thisPtr, std::uint64_t a2, std::
         g_CachedSoundSystem = result ? result : thisPtr;
     }
 
-    Log("[SoundSystem] SoundSystemImpl ctor cached = %p\n", result ? result : thisPtr);
-
     RefreshGlobalCassetteMusicPlayerFromSoundSystem();
     return result;
 }
@@ -465,7 +424,6 @@ static void __fastcall hkBeginSoundSystem()
     if (MissionCodeGuard::ShouldBypassHooks())
         return;
 
-    Log("[SoundSystem] BeginSoundSystem finished\n");
     RefreshGlobalCassetteMusicPlayerFromSoundSystem();
 }
 

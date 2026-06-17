@@ -183,11 +183,6 @@ static void __fastcall hkState_SoundRecovery(
                             ? HASH_HOLDUP_RECOVERY_VIP
                             : HASH_SLEEP_WAKE_OFFICER;
 
-                    Log("[SoundRecovery] actor=%u b57=0x%02X dispatch=0x%08X\n",
-                        actorId,
-                        static_cast<unsigned>(b57),
-                        replacementHash);
-
                     DispatchNoticeReaction(self, actorId, replacementHash);
                     return;
                 }

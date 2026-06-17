@@ -40,8 +40,6 @@ bool __thiscall hkUpdateAntiAir(long long* self, unsigned long long cpIndex)
     if (ret == true)
         SendAntiAirMessage(cpIndex, true);
 
-    Log("[hkUpdateAntiAir] %p %llu set to %s\n", self, cpIndex, ret ? "true" : "false");
-
     return ret;
 }
 
@@ -51,7 +49,6 @@ void __thiscall hkClearAntiAir(long long* self, unsigned long long cpIndex)
     if (MissionCodeGuard::ShouldBypassHooks())
         return;
     SendAntiAirMessage(cpIndex, false);
-    Log("[hkClearAntiAir] %p %llu cleared\n", self, cpIndex);
 }
 
 bool Install_CpAntiAir_Hook()

@@ -471,11 +471,6 @@ static void __fastcall hkState_RecoveryTouch(
 
             if (isImportant)
             {
-                Log("[SleepFaint] DISPATCH actor=%u sleeperGameObjectId=0x%04X sleeperIndex=%u officer=YES\n",
-                    actorId,
-                    static_cast<unsigned>(sleeperGameObjectId),
-                    static_cast<unsigned>(sleeperIndex));
-
                 ErasePendingWake(actorId, "dispatch");
                 DispatchNoticeReaction(self, actorId, HASH_SLEEP_WAKE_OFFICER);
                 return;
@@ -543,12 +538,6 @@ static bool TryInterceptRecoveryWake(
     if (!isImportant)
         return false;
 
-    Log("[SleepFaint] DISPATCH %s actor=%u sleeperGameObjectId=0x%04X sleeperIndex=%u officer=YES\n",
-        tag,
-        actorId,
-        static_cast<unsigned>(sleeperGameObjectId),
-        static_cast<unsigned>(sleeperIndex));
-
     ErasePendingWake(actorId, "dispatch");
     DispatchNoticeReaction(self, actorId, HASH_SLEEP_WAKE_OFFICER);
     return true;
@@ -587,11 +576,6 @@ void Add_VIPSleepFaintImportantGameObjectId(std::uint32_t gameObjectId, bool isO
         std::lock_guard<std::mutex> lock(g_SleepFaintMutex);
         g_ImportantTargetsBySoldierIndex[soldierIndex] = info;
     }
-
-    Log("[SleepFaint] Added important target: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex),
-        isOfficer ? "YES" : "NO");
 }
 
 
@@ -608,10 +592,6 @@ void Remove_VIPSleepFaintImportantGameObjectId(std::uint32_t gameObjectId)
         std::lock_guard<std::mutex> lock(g_SleepFaintMutex);
         g_ImportantTargetsBySoldierIndex.erase(soldierIndex);
     }
-
-    Log("[SleepFaint] Removed important target: gameObjectId=0x%08X soldierIndex=0x%04X\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex));
 }
 
 
@@ -622,8 +602,6 @@ void Clear_VIPSleepFaintImportantGameObjectIds()
         g_ImportantTargetsBySoldierIndex.clear();
         g_PendingWakeByActor.clear();
     }
-
-    Log("[SleepFaint] Cleared all important targets and pending wake cache\n");
 }
 
 

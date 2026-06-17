@@ -64,12 +64,10 @@ void AddPhotoAdditionalText(unsigned short missionCode, unsigned char photoId, u
         if (it->MissionCode == missionCode && it->PhotoId == photoId && it->PhotoType == photoType)
         {
             it->TargetTypeLangId = hash;
-            Log("[V_FrameWork] AddPhotoAdditionalText replaced %u %u %u with %s\n", missionCode, photoId, photoType, targetTypeLangIdStr);
             return;
         }
     }
 
     PhotoInfo photoInfo = { missionCode, photoId, static_cast<PHOTO_TYPE>(photoType), hash };
     addPhotoInfos.push_back(photoInfo);
-    Log("[V_FrameWork] AddPhotoAdditionalText added %u %u %u with %s\n", missionCode, photoId, photoType, targetTypeLangIdStr);
 }

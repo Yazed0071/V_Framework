@@ -410,8 +410,6 @@ namespace
         if (cmdHash == g_HashSetCautionPhaseDuration && g_PendingCpActive)
         {
             g_PendingCpActive = false;
-            LogCautionPhaseTimer("[CautionCp] TppCp2 args: p1=0x%llX p2=0x%llX p3=%u(0x%X) dur=%.3f\n",
-                p1, p2, p3, p3, g_PendingCpDuration);
             Set_CautionStepNormalDurationSecondsForCp(p3, g_PendingCpDuration);
         }
 
@@ -419,7 +417,6 @@ namespace
         {
             g_PendingCpCapture = false;
             g_CapturedCpIndex = p3;
-            LogCautionPhaseTimer("[CautionCp] captured cp index p3=%u(0x%X)\n", p3, p3);
         }
     }
 
@@ -562,21 +559,7 @@ void Set_PendingCautionDurationForCp(float seconds)
 float Get_CautionStepNormalRemainingSeconds()
 {
     if (!g_HaveLastObservedSnapshot)
-    {
-        LogCautionPhaseTimer(
-            "[CautionPhaseTimer] GetRemainingSeconds -> no snapshot available yet\n"
-        );
         return -1.0f;
-    }
-
-    LogCautionPhaseTimer(
-        "[CautionPhaseTimer] GetRemainingSeconds -> phase=%u state=%u timer=%.3f remainingSeconds=%.3f mode=%s\n",
-        g_LastObservedPhaseIndex,
-        static_cast<unsigned>(g_LastObservedStateId),
-        g_LastObservedNormalizedTimer,
-        g_LastObservedRemainingSeconds,
-        g_LastObservedUsedOverride ? "custom" : "vanilla"
-    );
 
     return g_LastObservedRemainingSeconds;
 }

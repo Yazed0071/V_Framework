@@ -64,10 +64,8 @@ void AddLocationIdToChangeLocationMenu(unsigned short locationId)
     if (std::find(changeLocationMenuIds.begin(), changeLocationMenuIds.end(), locationId) == changeLocationMenuIds.end())
     {
         changeLocationMenuIds.push_back(locationId);
-        Log("[V_FrameWork] AddLocationIdToChangeLocationMenu %u added\n", locationId);
     }
     else
     {
-        Log("[V_FrameWork] AddLocationIdToChangeLocationMenu %u already set\n", locationId);
     }
 }

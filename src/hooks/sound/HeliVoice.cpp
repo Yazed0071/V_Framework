@@ -26,7 +26,6 @@ namespace
             return 0;
 
         const unsigned int ret = g_FNVHash32(strToHash);
-        Log("[HeliVoice] GetFNVHash32(%s)=%u\n", strToHash, ret);
         return ret;
     }
 
@@ -68,8 +67,6 @@ namespace
         VirtualProtect(target, dwSize, oldProtect, &restored);
         FlushInstructionCache(GetCurrentProcess(), target, dwSize);
 
-        Log("[HeliVoice] TogglePatch(%s): wrote %zu bytes at %p\n",
-            isEnable ? "true" : "false", static_cast<size_t>(dwSize), target);
         return true;
     }
 
@@ -81,11 +78,6 @@ bool SetEnableHeliVoice(bool isEnable,
                         const char* DD_vox_SH_voice_new,
                         const char* DD_vox_SH_radio_new)
 {
-    Log("[HeliVoice] SetEnableHeliVoice(enable=%s, voice=\"%s\", radio=\"%s\")\n",
-        isEnable ? "true" : "false",
-        DD_vox_SH_voice_new ? DD_vox_SH_voice_new : "(null)",
-        DD_vox_SH_radio_new ? DD_vox_SH_radio_new : "(null)");
-
     unsigned int origVoiceHash = GetFNVHash32(kOriginalVoiceEvent);
     unsigned int origRadioHash = GetFNVHash32(kOriginalRadioEvent);
     unsigned int newVoiceHash  = GetFNVHash32(DD_vox_SH_voice_new);

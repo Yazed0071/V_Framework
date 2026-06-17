@@ -48,8 +48,6 @@ namespace
         VirtualProtect(target, dwSize, oldProtect, &restored);
         FlushInstructionCache(GetCurrentProcess(), target, dwSize);
 
-        Log("[GameOverMusic] TogglePatch(%s): wrote %zu bytes at %p\n",
-            isEnable ? "true" : "false", static_cast<size_t>(dwSize), target);
         return true;
     }
 
@@ -68,9 +66,6 @@ bool SetGameOverMusic(bool isEnable,
                       unsigned int playEventHash,
                       unsigned int stopEventHash)
 {
-    Log("[GameOverMusic] SetGameOverMusic enable=%d type=%d playHash=%u stopHash=%u\n",
-        isEnable ? 1 : 0, static_cast<int>(type), playEventHash, stopEventHash);
-
     auto* playEventBytes = reinterpret_cast<std::uint8_t*>(&playEventHash);
     auto* stopEventBytes = reinterpret_cast<std::uint8_t*>(&stopEventHash);
 

@@ -179,11 +179,6 @@ static void __fastcall hkState_EnterDownHoldup(
                 {
                     const std::uint32_t reactionHash = ChooseRandomHoldupDownHash();
 
-                    Log("[HoldupDownForce] actor=%u flags3F=0x%02X forcedHash=0x%08X\n",
-                        actorId,
-                        static_cast<unsigned>(flags3F),
-                        reactionHash);
-
                     DispatchHoldupDownReaction(self, actorId, reactionHash);
                 }
             }

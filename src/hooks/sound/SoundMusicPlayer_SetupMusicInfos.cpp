@@ -324,18 +324,6 @@ static bool ShouldUseStockMissionInfoSaveIndex(
 }
 
 
-static bool ShouldAllowTrackOnExistingMissionInfoAlbum(
-    std::uint64_t albumIdHash,
-    const TapeAlbumRecord* existingAlbums,
-    std::uint32_t existingAlbumCount)
-{
-    if (albumIdHash != FoxHashes::StrCode64("tp_mission_01"))
-        return false;
-
-    return FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr;
-}
-
-
 static void PrepareCustomAlbums(
     const CustomTapeRegistry& registry,
     const TapeAlbumRecord* existingAlbums,
@@ -476,13 +464,12 @@ static void PrepareCustomTracks(
         const bool acceptedCustomAlbum =
             validAlbumIds.find(albumIdHash) != validAlbumIds.end();
 
-        const bool acceptedExistingMissionAlbum =
-            ShouldAllowTrackOnExistingMissionInfoAlbum(
-                albumIdHash,
-                existingAlbums,
-                existingAlbumCount);
+        // Accept a track aimed at any album that already exists (vanilla or
+        // previously-injected), not just custom albums registered in this call.
+        const bool acceptedExistingAlbum =
+            FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr;
 
-        if (!acceptedCustomAlbum && !acceptedExistingMissionAlbum)
+        if (!acceptedCustomAlbum && !acceptedExistingAlbum)
         {
             Log(
                 "[CustomTapes] Skipping track %s because its album was not accepted: %s\n",
@@ -511,14 +498,6 @@ static void PrepareCustomTracks(
             prepared.dataTime = isJapaneseVoice ? def.dataTimeEn : def.dataTimeJp;
         }
 
-        Log(
-            "[CustomTapes] Prepared track albumId=%s fileName=%s requestedSaveIndex=%d persistent=%d existingMissionAlbum=%d\n",
-            prepared.albumId.c_str(),
-            prepared.fileName.c_str(),
-            static_cast<int>(prepared.requestedSaveIndex),
-            prepared.usePersistentSaveIndex ? 1 : 0,
-            acceptedExistingMissionAlbum ? 1 : 0);
-
         outTracks.push_back(prepared);
     }
 }
@@ -531,12 +510,6 @@ static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& pr
         if (!track.usePersistentSaveIndex)
         {
             track.resolvedSaveIndex = track.requestedSaveIndex;
-
-            Log(
-                "[CustomTapes] Preserving stock mission-info saveIndex for albumId=%s fileName=%s saveIndex=%d\n",
-                track.albumId.c_str(),
-                track.fileName.c_str(),
-                static_cast<int>(track.resolvedSaveIndex));
 
             continue;
         }
@@ -575,15 +548,6 @@ static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& pr
                 track.unlocked,
                 track.unlocked);
         }
-
-        Log(
-            "[CustomTapes] Resolved track albumId=%s fileName=%s requested=%d resolved=%d created=%d unlocked=%d\n",
-            track.albumId.c_str(),
-            track.fileName.c_str(),
-            static_cast<int>(track.requestedSaveIndex),
-            static_cast<int>(track.resolvedSaveIndex),
-            wasCreated ? 1 : 0,
-            track.unlocked ? 1 : 0);
     }
 
     return true;
@@ -595,14 +559,11 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     if (!soundMusicPlayer)
         return false;
 
-    Log("[CustomTapes] ApplyCustomTapesToPlayer begin this=%p\n", soundMusicPlayer);
-
     CustomTapeRegistry registry;
     CopyCustomTapeRegistry(registry);
 
     if (registry.albums.empty() && registry.tracks.empty())
     {
-        Log("[CustomTapes] Registry is empty, nothing to apply\n");
         return true;
     }
 
@@ -619,13 +580,6 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     const std::uint32_t oldTotalAlbumCount = snapshot.oldTotalAlbumCount;
     const std::uint32_t oldLuaTrackCount = snapshot.oldLuaTrackCount;
     const std::uint32_t oldTotalTrackCount = snapshot.oldTotalTrackCount;
-
-    Log(
-        "[CustomTapes] snapshot oldLuaAlbumCount=%u oldTotalAlbumCount=%u oldLuaTrackCount=%u oldTotalTrackCount=%u\n",
-        oldLuaAlbumCount,
-        oldTotalAlbumCount,
-        oldLuaTrackCount,
-        oldTotalTrackCount);
 
     if (oldTotalAlbumCount < oldLuaAlbumCount || oldTotalTrackCount < oldLuaTrackCount)
     {
@@ -658,11 +612,8 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         return false;
     }
 
-    Log("[CustomTapes] prepared albums=%zu tracks=%zu\n", preparedAlbums.size(), preparedTracks.size());
-
     if (preparedAlbums.empty() && preparedTracks.empty())
     {
-        Log("[CustomTapes] Nothing valid to inject\n");
         return true;
     }
 
@@ -795,15 +746,6 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 
         std::memset(dst.fileName, 0, sizeof(dst.fileName));
         strncpy_s(dst.fileName, sizeof(dst.fileName), src.fileName.c_str(), _TRUNCATE);
-
-        Log(
-            "[CustomTapes] Injected track fileName=%s directPlayTrackId=%u albumTrackIndex=%d saveIndex=%d unlocked=%d persistent=%d\n",
-            dst.fileName,
-            dst.directPlayTrackId,
-            static_cast<int>(dst.albumTrackIndex),
-            static_cast<int>(dst.saveIndex),
-            src.unlocked ? 1 : 0,
-            src.usePersistentSaveIndex ? 1 : 0);
     }
 
     if (oldTracks && oldTrackTailCount > 0)
@@ -830,13 +772,6 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         GameFree(newTracks);
         return false;
     }
-
-    Log(
-        "[CustomTapes] Injected albums=%u tracks=%u newLuaAlbumCount=%u newLuaTrackCount=%u\n",
-        customAlbumCount,
-        customTrackCount,
-        newLuaAlbumCount,
-        newLuaTrackCount);
 
     return true;
 }
@@ -886,7 +821,6 @@ static bool ApplyToCachedSoundMusicPlayer()
 
     if (!soundMusicPlayer)
     {
-        Log("[CustomTapes] ApplyToCachedSoundMusicPlayer: no cached player, trying direct resolve\n");
         soundMusicPlayer = ResolveSoundMusicPlayerFromMusicManager();
     }
 
@@ -897,7 +831,6 @@ static bool ApplyToCachedSoundMusicPlayer()
     }
 
     g_LastSoundMusicPlayer = soundMusicPlayer;
-    Log("[CustomTapes] ApplyToCachedSoundMusicPlayer using %p\n", soundMusicPlayer);
 
     return ApplyCustomTapesToPlayer(soundMusicPlayer);
 }
@@ -910,19 +843,13 @@ static void __fastcall hkSetupMusicInfos(void* thisPtr)
 
     g_LastSoundMusicPlayer = thisPtr;
 
-    Log("[CustomTapes] hkSetupMusicInfos thisPtr=%p\n", thisPtr);
-
     g_OrigSetupMusicInfos(thisPtr);
     ApplyCustomTapesToPlayer(thisPtr);
-
-    Log("[CustomTapes] hkSetupMusicInfos apply finished\n");
 }
 
 
 bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
 {
-    Log("[CustomTapes] Install_SoundMusicPlayer_SetupMusicInfos_Hook begin\n");
-
     void* target = ResolveGameAddress(gAddr.SetupMusicInfos);
     if (!target)
     {
@@ -965,8 +892,6 @@ bool Register_CustomTapes(
     const std::vector<CustomTapeAlbumDefinition>& albums,
     const std::vector<CustomTapeTrackDefinition>& tracks)
 {
-    Log("[CustomTapes] Register_CustomTapes called albums=%zu tracks=%zu\n", albums.size(), tracks.size());
-
     if (albums.empty() && tracks.empty())
         return false;
 

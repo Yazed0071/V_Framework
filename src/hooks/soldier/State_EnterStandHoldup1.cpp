@@ -254,12 +254,6 @@ static void RunCowardlyReactionOverride(
     SafeWriteByte(entry + 0x3Full, flags3F);
 
 
-    Log("[HoldUpReactionCowardly][%s] actor=%u flags3F=0x%02X customHash=0x%08X\n",
-        stateTag,
-        actorId,
-        static_cast<unsigned>(flags3F),
-        static_cast<unsigned>(HASH_HOLDUP_REACTION_COWARDLY));
-
     DispatchHoldupReaction(self, actorId, HASH_HOLDUP_REACTION_COWARDLY);
     CallHoldupAddNoise(self, actorId);
 }

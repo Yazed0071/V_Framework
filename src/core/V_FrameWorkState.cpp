@@ -86,8 +86,7 @@ namespace V_FrameWorkState
             CreateDirectoryA("mod\\V_FrameWork", nullptr);
 
             if (MoveFileA(kLegacyPath, kSavePath))
-                Log("[V_FrameWorkState] Migrated legacy state '%s' -> '%s'\n",
-                    kLegacyPath, kSavePath);
+                ;
             else
                 Log("[V_FrameWorkState] Migration failed (err=%lu): '%s' -> '%s'\n",
                     GetLastError(), kLegacyPath, kSavePath);
@@ -219,9 +218,6 @@ namespace V_FrameWorkState
                         g_State.tapes[key] = entry;
                 }
             }
-
-            Log("[V_FrameWorkState] Loaded %zu equips, %zu tapes from '%s'\n",
-                g_State.equips.size(), g_State.tapes.size(), kSavePath);
         }
 
         static void SaveToDisk_NoLock()
@@ -286,9 +282,6 @@ namespace V_FrameWorkState
 
             out << "}\n";
             g_State.dirty = false;
-
-            Log("[V_FrameWorkState] Saved %zu equips, %zu tapes to '%s'\n",
-                g_State.equips.size(), g_State.tapes.size(), kSavePath);
         }
 
         static bool IsEquipIdInUse_NoLock(std::int32_t id)
@@ -402,8 +395,6 @@ namespace V_FrameWorkState
         g_SessionEquipIds[key] = newId;
         outEquipId = newId;
 
-        Log("[V_FrameWorkState] Assigned equipId=%d for '%s' (session-only)\n",
-            newId, key);
         return true;
     }
 
@@ -432,7 +423,6 @@ namespace V_FrameWorkState
 
         SaveToDisk_NoLock();
 
-        Log("[V_FrameWorkState] Assigned developId=%d for '%s'\n", newId, key);
         return true;
     }
 
@@ -461,7 +451,6 @@ namespace V_FrameWorkState
 
         SaveToDisk_NoLock();
 
-        Log("[V_FrameWorkState] Assigned flowIndex=%d for '%s'\n", newIdx, key);
         return true;
     }
 
@@ -492,8 +481,6 @@ namespace V_FrameWorkState
 
         SaveToDisk_NoLock();
 
-        Log("[V_FrameWorkState] Assigned saveIndex=%d for '%s'\n",
-            static_cast<int>(newIdx), key);
         return true;
     }
 
