@@ -204,7 +204,6 @@ std::uint32_t Set_AnnounceLogEvent(const char* announceLabel, const char* eventN
     g_ModVoices[seId].clear();
     g_ModDialogue[seId] = {};
     g_ModSfx[seId]      = 0;
-    Log("[AnnounceLog] '%s' -> event 0x%08X via seId 0x%02X\n", announceLabel, eventId, seId);
     return announceType;
 }
 
@@ -220,7 +219,6 @@ std::uint32_t Set_AnnounceLogVoice(const char* announceLabel, const char* voiceN
     g_ModEvents[seId]   = 0;
     g_ModDialogue[seId] = {};
     g_ModSfx[seId]      = 0;
-    Log("[AnnounceLog] '%s' -> voice '%s' via seId 0x%02X\n", announceLabel, voiceName, seId);
     return announceType;
 }
 
@@ -237,8 +235,6 @@ std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t c
     g_ModEvents[seId]   = 0;
     g_ModVoices[seId].clear();
     g_ModSfx[seId]      = 0;
-    Log("[AnnounceLog] '%s' -> dialogue cond 0x%08X chara 0x%08X evt 0x%08X via seId 0x%02X\n",
-        announceLabel, condition, chara, dialogueEvent, seId);
     return announceType;
 }
 
@@ -257,7 +253,6 @@ std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventNam
     g_ModEvents[seId]   = 0;
     g_ModVoices[seId].clear();
     g_ModDialogue[seId] = {};
-    Log("[AnnounceLog] '%s' -> gameplay sfx 0x%08X via seId 0x%02X (daemon)\n", announceLabel, eventId, seId);
     return announceType;
 }
 
@@ -300,8 +295,6 @@ bool Unset_AnnounceLogSE(const char* announceLabel)
         }
     }
 
-    if (had)
-        Log("[AnnounceLog] '%s' override cleared (vanilla restored)\n", announceLabel);
     return had;
 }
 

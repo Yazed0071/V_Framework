@@ -319,12 +319,6 @@ void Set_UpdateOptCamoEnableMappedIndex(std::uint32_t mappedIndex, bool enabled)
     {
         SetMappedIndexMode_NoLock(soldierIndex, OptCamoForceMode::ForceOff);
     }
-
-    Log(
-        "[OptCamo] EnableMappedIndex: gameObjectId=%u soldierIndex=%u enabled=%s\n",
-        static_cast<unsigned int>(mappedIndex),
-        static_cast<unsigned int>(soldierIndex),
-        enabled ? "true" : "false");
 }
 
 
@@ -332,6 +326,4 @@ void Clear_UpdateOptCamoMappedIndexOverrides()
 {
     std::lock_guard<std::mutex> lock(g_UpdateOptCamoMutex);
     g_MappedIndexModes.clear();
-
-    Log("[OptCamo] Cleared all mappedIndex overrides\n");
 }

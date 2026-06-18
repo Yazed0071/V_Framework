@@ -246,59 +246,50 @@ void EquipBg_SetDefaultTexture(uint64_t textureHash, bool colored, float opacity
 {
     g_Default = { textureHash, colored, opacity };
     Prefetch(textureHash);
-    Log("[EquipBg] DefaultTexture = 0x%llX colored=%d opacity=%.2f\n", static_cast<unsigned long long>(textureHash), colored ? 1 : 0, opacity);
 }
 
 void EquipBg_ClearDefaultTexture()
 {
     g_Default = {};
-    Log("[EquipBg] DefaultTexture cleared\n");
 }
 
 void EquipBg_SetEquipTexture(int equipId, uint64_t textureHash, bool colored, float opacity)
 {
     g_PerEquipTextures[equipId] = { textureHash, colored, opacity };
     Prefetch(textureHash);
-    Log("[EquipBg] EquipId %d -> 0x%llX colored=%d opacity=%.2f\n", equipId, static_cast<unsigned long long>(textureHash), colored ? 1 : 0, opacity);
 }
 
 void EquipBg_ClearEquipTexture(int equipId)
 {
     g_PerEquipTextures.erase(equipId);
-    Log("[EquipBg] EquipId %d cleared\n", equipId);
 }
 
 void EquipBg_SetEnemyWeaponTexture(uint64_t textureHash, bool colored, float opacity)
 {
     g_EnemyDefault = { textureHash, colored, opacity };
     Prefetch(textureHash);
-    Log("[EquipBg] EnemyWeaponTexture = 0x%llX colored=%d opacity=%.2f\n", static_cast<unsigned long long>(textureHash), colored ? 1 : 0, opacity);
 }
 
 void EquipBg_ClearEnemyWeaponTexture()
 {
     g_EnemyDefault = {};
-    Log("[EquipBg] EnemyWeaponTexture cleared\n");
 }
 
 void EquipBg_SetEnemyEquipTexture(int equipId, uint64_t textureHash, bool colored, float opacity)
 {
     g_PerEnemyEquipTextures[equipId] = { textureHash, colored, opacity };
     Prefetch(textureHash);
-    Log("[EquipBg][Enemy] EquipId %d -> 0x%llX colored=%d opacity=%.2f\n", equipId, static_cast<unsigned long long>(textureHash), colored ? 1 : 0, opacity);
 }
 
 void EquipBg_ClearEnemyEquipTexture(int equipId)
 {
     g_PerEnemyEquipTextures.erase(equipId);
-    Log("[EquipBg][Enemy] EquipId %d cleared\n", equipId);
 }
 
 void EquipBg_ClearAllEquipTextures()
 {
     g_PerEquipTextures.clear();
     g_PerEnemyEquipTextures.clear();
-    Log("[EquipBg] All per-equip textures cleared\n");
 }
 
 

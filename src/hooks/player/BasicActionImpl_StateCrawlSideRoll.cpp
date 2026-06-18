@@ -122,10 +122,6 @@ static void __fastcall hkStateCrawlSideRoll(
 {
     if (kVerboseEveryCallLog)
     {
-        Log("[CrawlSideRoll] LOGGING: playerIndex=%u phase=%u param3=%p\n",
-            playerIndex,
-            phase,
-            param3);
     }
 
     if (g_OrigStateCrawlSideRoll)

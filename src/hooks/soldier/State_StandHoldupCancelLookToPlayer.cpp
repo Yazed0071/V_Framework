@@ -204,8 +204,6 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
     const uint64_t n = ++gDetourHits;
     if (n == 1 || (n % 50) == 0)
     {
-        Log("[Holdup] SPEAK attempt #%llu phase=1 holdupId=%u soldierIndex=%u line=0x%08X this=%p slot=%p\n",
-            (unsigned long long)n, holdupId, soldierIndex, lineId, holdupThis, (void*)slot);
     }
 }
 
@@ -218,9 +216,6 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
     const uintptr_t target = reinterpret_cast<uintptr_t>(
         ResolveGameAddress(gAddr.State_StandHoldupCancelLookToPlayer));
 
-    Log("[Holdup] base=%p target=%p (abs=0x%llX)\n",
-        (void*)gBase, (void*)target, (unsigned long long)gAddr.State_StandHoldupCancelLookToPlayer);
-
     uint8_t pro[16]{};
     __try { std::memcpy(pro, (void*)target, sizeof(pro)); }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -229,16 +224,12 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
         return false;
     }
 
-    Log("[Holdup] prologue: ");
-    for (int i = 0; i < 16; i++) Log("%02X ", pro[i]);
-    Log("\n");
+    for (int i = 0; i < 16; i++) ;
 
     MH_STATUS s1 = MH_CreateHook((LPVOID)target, (LPVOID)&Hook_State, (LPVOID*)&gOrig_State);
-    Log("[Holdup] MH_CreateHook -> %d orig=%p\n", (int)s1, (void*)gOrig_State);
     if (s1 != MH_OK) return false;
 
     MH_STATUS s2 = MH_EnableHook((LPVOID)target);
-    Log("[Holdup] MH_EnableHook -> %d\n", (int)s2);
     if (s2 != MH_OK) return false;
 
     Log("[Holdup] Hook installed OK.\n");

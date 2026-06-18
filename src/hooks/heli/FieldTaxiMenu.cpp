@@ -126,10 +126,6 @@ namespace
     {
         if (IsTaxiEnabled())
         {
-            static unsigned long long s_lastCanLog = 0;
-            if (Throttle(s_lastCanLog, 3000))
-                Log("[Taxi] CanHeliTaxi FORCED=1 missionCode=%u (enabledCount=%d)\n",
-                    static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()), g_taxiMissionCount);
             return 1;
         }
         if (g_OrigCanHeliTaxi) return g_OrigCanHeliTaxi(self, param2);
@@ -242,13 +238,6 @@ namespace
             return;
         if (!g_taxiRequested)
         {
-            if (g_taxiRideLog)
-            {
-                static unsigned long long s_lastSkipLog = 0;
-                if (Throttle(s_lastSkipLog, 2000))
-                    Log("[Ride] taxi SKIP (no LZ chosen): loc=%u mapOpen=%d carryWaiting=%d poseLocked=%d\n",
-                        static_cast<unsigned>(CurrentLocationId()), g_taxiMapOpen ? 1 : 0, g_carryWaiting ? 1 : 0, g_taxiPoseLocked ? 1 : 0);
-            }
             return;
         }
         __try
@@ -266,7 +255,6 @@ namespace
             {
                 g_taxiRideState = g_taxiPose;
                 g_taxiPoseLocked = true;
-                if (g_taxiRideLog) Log("[Ride] taxi pose locked: 0x%X (cur=0x%X relay=0x%X next=0x%X)\n", static_cast<unsigned int>(g_taxiRideState), cur, relay, next);
             }
             const std::uintptr_t stepArr = *reinterpret_cast<std::uintptr_t*>(S + 0x88);
             auto nextStep = reinterpret_cast<unsigned char*>(stepArr + static_cast<std::uintptr_t>(idx) * 0x14 + 0x12);
@@ -378,9 +366,6 @@ namespace
         unsigned int usePhase = phase;
         if (phase == 0x16)
         {
-            Log("[Taxi] map request 0x16: missionCode=%u taxiEnabled=%d (enabledCount=%d)\n",
-                static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()),
-                IsTaxiEnabled() ? 1 : 0, g_taxiMissionCount);
             if (IsTaxiEnabled())
             {
                 usePhase = 5;
@@ -436,31 +421,6 @@ namespace
             const unsigned char  st     = *reinterpret_cast<unsigned char*>(plv + 0x10);
             const unsigned int   want   = g_taxiRideState;
 
-            if (g_taxiRideLog)
-            {
-                static unsigned char s_lastSt = 0xFF;
-                static int           s_lastCarry = -1;
-                static unsigned int  s_lastWant = 0xFFFFFFFF;
-                static unsigned long long s_lastMotion = 0;
-                const unsigned long long motion = *reinterpret_cast<unsigned long long*>(plv + 0x70);
-                const unsigned char       sub    = *reinterpret_cast<unsigned char*>(plv + 0x81);
-                if (want != s_lastWant)
-                {
-                    s_lastWant = want;
-                    Log("[Ride] >>> POSE-SELECT want=0x%X (now st=0x%X sub=0x%X carry=%d motion=0x%llX)\n", want, st, sub, nowCarry ? 1 : 0, motion);
-                }
-                if (st != s_lastSt || (nowCarry ? 1 : 0) != s_lastCarry)
-                {
-                    Log("[Ride] STATE 0x%X -> 0x%X | carry=%d want=0x%X req=%d locked=%d loc=%u cur=0x%X next=0x%X motion=0x%llX idx=%u\n", s_lastSt, st, nowCarry ? 1 : 0, want, g_taxiRequested ? 1 : 0, g_taxiPoseLocked ? 1 : 0, static_cast<unsigned>(CurrentLocationId()), g_dbgCur, g_dbgNext, motion, idx);
-                    s_lastSt = st; s_lastCarry = nowCarry ? 1 : 0;
-                }
-                else if (motion != s_lastMotion)
-                {
-                    Log("[Ride]   motion 0x%llX -> 0x%llX (st=0x%X want=0x%X)\n", s_lastMotion, motion, st, want);
-                }
-                s_lastMotion = motion;
-            }
-
             static int s_nullFrames = 0;
             if (st == 0x00) { if (++s_nullFrames > 20) { g_carryActive = false; g_taxiRequested = false; } }
             else s_nullFrames = 0;
@@ -469,13 +429,11 @@ namespace
                 if (g_taxiPoseLocked && want != 0 && st != want && st == 0x08)
                 {
                     ForceRideState(S, plv, idx, static_cast<unsigned char>(want), StateFnViaMapper(S, want));
-                    if (g_taxiRideLog) Log("[Ride] settle: forced ride state 0x%X -> 0x%X\n", st, want);
                 }
             }
             else if (s_prevCarry && (st == 0x0A || st == 0x0B))
             {
                 ForceRideState(S, plv, idx, 0x0C, StateFnViaMapper(S, 0x0C));
-                if (g_taxiRideLog) Log("[Ride] arrival: chair 0x%X -> get-up/open-door (0xC)\n", st);
             }
 
             if (nowCarry && g_taxiPoseLocked && want != 0 && want != 0x03)
@@ -487,7 +445,6 @@ namespace
                     if (st == 0x03 && (*doorCtrl & 0x40) == 0)
                     {
                         *doorCtrl |= 0x40;
-                        if (g_taxiRideLog) Log("[Ride] MB: set climb bit (0x40 @ +0x1bc) -> engine runs its own 0x3->0x7->0x8 climb\n");
                     }
                     *doorCtrl = static_cast<unsigned short>(*doorCtrl & ~0x80);
                 }
@@ -529,7 +486,6 @@ namespace
                     play(reinterpret_cast<void*>(motionMgr), idx, 0, s_edgeMotion, 0.5f);
                     *reinterpret_cast<unsigned long long*>(plv + 0x70) = s_edgeMotion;
                     if (nodeSlot && s_edgeNode) *nodeSlot = s_edgeNode;
-                    if (g_taxiRideLog) Log("[Ride] state 0x%X: re-played edge motion 0x%llX (disguise)\n", st, s_edgeMotion);
                 }
             }
         }
@@ -553,7 +509,6 @@ namespace
                         if (reqIdx >= 0 && reqIdx < 0x40)
                         {
                             g_taxiRequested = true;
-                            if (g_taxiRideLog) Log("[Ride] MB taxi pick -> arm pose (reqIdx=%d)\n", reqIdx);
                         }
                     }
                 }
@@ -679,7 +634,6 @@ void FieldTaxi_SetMissionEnabled(unsigned int missionCode, bool enabled)
 void FieldTaxi_SetTaxiRideState(unsigned int state)
 {
     g_taxiPose = state;
-    if (g_taxiRideLog) Log("[Ride] SetTaxiRideState -> g_taxiPose=0x%X (locked=%d)\n", state, g_taxiPoseLocked ? 1 : 0);
 }
 
 void FieldTaxi_SetTaxiRideLog(bool enabled)

@@ -190,8 +190,6 @@ void Set_SahelanFovaPath(const char* path)
     }
 
     const std::uint64_t hash = FoxHashes::PathCode64Ext(path);
-    Log("[SahelanFova] hashing path \"%s\" -> 0x%016llX\n",
-        path, static_cast<unsigned long long>(hash));
 
     Set_SahelanFovaHash(hash);
 }

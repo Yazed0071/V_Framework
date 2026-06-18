@@ -94,20 +94,11 @@ namespace
         {
             if (g_DiscoEnabled.load(std::memory_order_relaxed))
             {
-                Log("[EyeLamp] engine mode=%d (disco active — rainbow @ %.2f Hz)\n",
-                    mode, g_DiscoSpeed.load(std::memory_order_relaxed));
             }
             else if (mode >= 0 && mode < kMaxModes)
             {
                 const bool active =
                     g_PerModeEnabled[mode].load(std::memory_order_relaxed);
-                Log("[EyeLamp] engine mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
-                    mode,
-                    g_PerModeR[mode].load(std::memory_order_relaxed),
-                    g_PerModeG[mode].load(std::memory_order_relaxed),
-                    g_PerModeB[mode].load(std::memory_order_relaxed),
-                    g_PerModeA[mode].load(std::memory_order_relaxed),
-                    active ? "" : "  (no override — engine color)");
             }
             else
             {
@@ -240,16 +231,6 @@ namespace
                 outA = g_PerModeA[useMode].load(std::memory_order_relaxed);
                 haveColor = true;
             }
-        }
-
-        if (g_LoggingEnabled.load(std::memory_order_relaxed))
-        {
-            static int s_updThrottle = 0;
-            if ((s_updThrottle++ % 120) == 0)
-                Log("[EyeLamp] Update fired: lastMode=%d haveColor=%d disco=%d self=%p slot=%d out=(%.3f,%.3f,%.3f,%.3f)\n",
-                    g_LastMode.load(std::memory_order_relaxed), haveColor ? 1 : 0,
-                    g_DiscoEnabled.load(std::memory_order_relaxed) ? 1 : 0,
-                    self, static_cast<int>(slot), outR, outG, outB, outA);
         }
 
         if (self)

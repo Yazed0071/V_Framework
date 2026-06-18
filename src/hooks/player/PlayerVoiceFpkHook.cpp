@@ -91,13 +91,6 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
         return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);
     }
 
-    Log(
-        "[PlayerVoiceFpk] Override hit: playerType=%u faceId=%u pathCode64Ext=0x%016llX\n",
-        playerType,
-        playerFaceId,
-        static_cast<unsigned long long>(slot.pathCode64Ext)
-    );
-
     WritePlayerVoicePath(fileSlotPath, slot.pathCode64Ext);
     return fileSlotPath;
 }

@@ -318,10 +318,6 @@ void Add_CallSignExtraSoldier(std::uint32_t gameObjectId)
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_ExtraSoldierIndices.insert(soldierIndex);
     }
-
-    Log("[CallSignExtra] Added soldier: gameObjectId=0x%08X soldierIndex=0x%04X\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex));
 }
 
 
@@ -340,10 +336,6 @@ void Remove_CallSignExtraSoldier(std::uint32_t gameObjectId)
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_ExtraSoldierIndices.erase(soldierIndex);
     }
-
-    Log("[CallSignExtra] Removed soldier: gameObjectId=0x%08X soldierIndex=0x%04X\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex));
 }
 
 
@@ -353,8 +345,6 @@ void Clear_CallSignExtraSoldiers()
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_ExtraSoldierIndices.clear();
     }
-
-    Log("[CallSignExtra] Cleared all soldiers\n");
 }
 
 

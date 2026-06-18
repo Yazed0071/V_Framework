@@ -69,32 +69,27 @@ namespace
 void GameOverSplash_SetMainTexture(uint64_t textureHash)
 {
     g_MainTexture = textureHash;
-    Log("[GameOverSplash] MainTexture = 0x%llX\n", static_cast<unsigned long long>(textureHash));
 }
 
 void GameOverSplash_ClearMainTexture()
 {
     g_MainTexture = 0;
-    Log("[GameOverSplash] MainTexture cleared\n");
 }
 
 void GameOverSplash_SetBlurTexture(uint64_t textureHash)
 {
     g_BlurTexture = textureHash;
-    Log("[GameOverSplash] BlurTexture = 0x%llX\n", static_cast<unsigned long long>(textureHash));
 }
 
 void GameOverSplash_ClearBlurTexture()
 {
     g_BlurTexture = 0;
-    Log("[GameOverSplash] BlurTexture cleared\n");
 }
 
 void GameOverSplash_ClearTextures()
 {
     g_MainTexture = 0;
     g_BlurTexture = 0;
-    Log("[GameOverSplash] All textures cleared\n");
 }
 
 

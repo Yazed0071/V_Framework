@@ -500,13 +500,6 @@ void Add_LostHostageDiscovery(std::uint32_t gameObjectId, int hostageType)
         std::lock_guard<std::mutex> lock(g_LHD_Mutex);
         g_LHD_TrackedHostagesByRawId[rawGameObjectId] = info;
     }
-
-    Log(
-        "[LostHostageDiscovery] Added tracked hostage: inputGameObjectId=0x%08X rawGameObjectId=0x%04X hostageType=%s speechLabel=0x%08X\n",
-        gameObjectId,
-        static_cast<unsigned>(rawGameObjectId),
-        LostHostageDiscovery_HostageTypeName(hostageType),
-        static_cast<unsigned>(speechLabel));
 }
 
 void Remove_LostHostageDiscovery(std::uint32_t gameObjectId)
@@ -526,11 +519,6 @@ void Remove_LostHostageDiscovery(std::uint32_t gameObjectId)
                 ++it;
         }
     }
-
-    Log(
-        "[LostHostageDiscovery] Removed tracked hostage: inputGameObjectId=0x%08X rawGameObjectId=0x%04X\n",
-        gameObjectId,
-        static_cast<unsigned>(rawGameObjectId));
 }
 
 void Clear_LostHostageDiscovery()
@@ -540,26 +528,15 @@ void Clear_LostHostageDiscovery()
         g_LHD_TrackedHostagesByRawId.clear();
         LostHostageDiscovery_ResetRuntimeState_NoLock();
     }
-
-    Log("[LostHostageDiscovery] Cleared all tracked hostages\n");
 }
 
 void Dump_LostHostageDiscovery()
 {
     std::lock_guard<std::mutex> lock(g_LHD_Mutex);
 
-    Log(
-        "[LostHostageDiscovery] Dump tracked hostages: count=%u\n",
-        static_cast<unsigned>(g_LHD_TrackedHostagesByRawId.size()));
-
     for (const auto& kv : g_LHD_TrackedHostagesByRawId)
     {
         const LostHostageDiscoveryInfo& info = kv.second;
-        Log(
-            "[LostHostageDiscovery]   rawGameObjectId=0x%04X hostageType=%s speechLabel=0x%08X\n",
-            static_cast<unsigned>(info.rawGameObjectId),
-            LostHostageDiscovery_HostageTypeName(info.hostageType),
-            static_cast<unsigned>(info.speechLabel));
     }
 }
 

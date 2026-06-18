@@ -100,10 +100,6 @@ bool Install_GetGameObjectIdWithIndex()
     g_GetGameObjectIdWithIndex =
         reinterpret_cast<GetGameObjectIdWithIndex_t>(target);
 
-    Log("[GetGameObjectIdWithIndex] installed. target=%p abs=0x%llX\n",
-        target,
-        static_cast<unsigned long long>(gAddr.GetGameObjectIdWithIndex));
-
     return true;
 }
 

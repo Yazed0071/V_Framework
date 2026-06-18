@@ -414,13 +414,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
             if (overrideLabel)
             {
-                Log("[LostHostageRadio] Override radioType=0x%02X default=0x%08X override=0x%08X source-label=%s soldierIndex=%u source=%s hostageObjId=0x%04X type=%s slot=%d playerTook=%s\n",
-                    static_cast<unsigned>(radioType), static_cast<unsigned>(defaultLabel), static_cast<unsigned>(overrideLabel),
-                    (report.customLostLabel != 0) ? "custom" : "builtin",
-                    static_cast<unsigned>(report.soldierIndex), SourceName(report.source),
-                    static_cast<unsigned>(report.hostageObjId), HostageTypeName(report.hostageType),
-                    report.slotIndex, YesNo(report.playerTookIt));
-
                 return overrideLabel;
             }
         }
@@ -458,10 +451,6 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType, std::uint3
     g_HostagesByObjectId[rawId] = h;
     if (nameId != -1)
         g_HostagesByNameId[nameId] = h;
-
-    Log("[LostHostage] Add_LostHostage: tracking objectId=0x%04X type=%s nameId=%d customLostLabel=0x%08X\n",
-        static_cast<unsigned>(rawId), HostageTypeName(hostageType), nameId,
-        static_cast<unsigned>(customLostLabel));
 }
 
 void Remove_LostHostageTrap(std::uint32_t gameObjectId)
@@ -483,8 +472,6 @@ void Remove_LostHostageTrap(std::uint32_t gameObjectId)
 
     if (g_SelectedReport.active && g_SelectedReport.hostageObjId == rawId)
         ClearSelectedReport("hostage removed");
-
-    Log("[LostHostage] Remove_LostHostage: objectId=0x%04X\n", static_cast<unsigned>(rawId));
 }
 
 void Clear_LostHostagesTrap()
@@ -494,7 +481,6 @@ void Clear_LostHostagesTrap()
     g_HostagesByNameId.clear();
     g_PendingBySoldier.clear();
     g_SelectedReport = {};
-    Log("[LostHostage] Clear_LostHostages\n");
 }
 
 void PlayerTookHostage(std::uint32_t gameObjectId, bool playerTookIt)
@@ -525,8 +511,6 @@ void PlayerTookHostage(std::uint32_t gameObjectId, bool playerTookIt)
 
     if (g_SelectedReport.active && g_SelectedReport.hostageObjId == rawId)
         g_SelectedReport.playerTookIt = playerTookIt;
-
-    Log("[LostHostage] PlayerTookHostage: objectId=0x%08X playerTook=%s\n", gameObjectId, YesNo(playerTookIt));
 }
 
 bool Install_LostHostage_Hooks()

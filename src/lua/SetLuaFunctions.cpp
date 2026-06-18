@@ -884,9 +884,6 @@ static void AppendToEmergencyMissionList(lua_State* L, int missionCode)
     g_lua_rawset(L, -3);
 
     g_lua_settop(L, top0);
-
-    Log("[MissionEmergency] appended %d to TppDefine.EMERGENCY_MISSION_LIST\n",
-        missionCode);
 }
 
 
@@ -942,9 +939,6 @@ static void RemoveFromEmergencyMissionList(lua_State* L, int missionCode)
     g_lua_rawset(L, -3);
 
     g_lua_settop(L, top0);
-
-    Log("[MissionEmergency] removed %d from TppDefine.EMERGENCY_MISSION_LIST\n",
-        missionCode);
 }
 
 
@@ -966,9 +960,6 @@ static int __cdecl l_VFI_AcceptEmergencyMissionOverride(lua_State* L)
 
     const int       nargs       = g_lua_gettop(L);
     const long long missionCode = (nargs >= 1 && g_lua_isnumber(L, 1)) ? g_lua_tointeger(L, 1) : 0;
-
-    Log("[MissionEmergency] AcceptEmergencyMission OVERRIDE mc=%lld -> forward to original\n",
-        missionCode);
 
     g_lua_pushvalue(L, LUA_UPVALUEINDEX_51_1);
     for (int i = 1; i <= nargs; ++i)
@@ -1101,9 +1092,6 @@ static int __cdecl l_VFI_GoToEmergencyMissionOverride(lua_State* L)
     g_lua_pushnumber(L, static_cast<lua_Number>(clusterId));
     g_lua_settable(L, -3);
 
-    Log("[MissionEmergency] GoToEmergencyMission OVERRIDE mc=%lld -> ReserveMissionClear(cluster=%lld%s)\n",
-        mc, clusterId, hasRoute ? ", heli" : ", on-foot");
-
     const int err = g_lua_pcall(L, 1, 0, 0);
     if (err != 0)
     {
@@ -1214,9 +1202,6 @@ int __cdecl l_SetMissionEmergency(lua_State* L)
             missionCodeRaw);
         return 0;
     }
-
-    Log("[MissionEmergency] SetMissionEmergency mc=%d enabled=%d\n",
-        missionCodeRaw, enabled ? 1 : 0);
 
     const std::uint16_t missionCode = static_cast<std::uint16_t>(missionCodeRaw);
 
@@ -1461,6 +1446,22 @@ static int __cdecl l_Log(lua_State* L)
         Log("%s\n", msg);
     }
     return 0;
+}
+
+
+static int __cdecl l_ShowConsole(lua_State* L)
+{
+    const bool show = (GetLuaTop(L) >= 1) ? GetLuaBool(L, 1) : true;
+
+    if (show)
+        EnsureConsole();
+
+    HWND console = GetConsoleWindow();
+    if (console)
+        ShowWindow(console, show ? SW_SHOW : SW_HIDE);
+
+    PushLuaBool(L, console != nullptr);
+    return 1;
 }
 
 
@@ -1785,6 +1786,7 @@ int __cdecl l_RegisterCustomTapes(lua_State* L)
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
+    { "ShowConsole",                            l_ShowConsole },
 
     { nullptr, nullptr }
 };
@@ -1816,8 +1818,6 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
 
 static void __fastcall hkSetLuaFunctions(lua_State* L)
 {
-    Log("[Hook] SetLuaFunctions invoked: L=%p\n", L);
-
     if (g_OrigSetLuaFunctions)
     {
         g_OrigSetLuaFunctions(L);

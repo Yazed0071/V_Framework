@@ -212,7 +212,6 @@ namespace
                 static_cast<std::int32_t>(ReadCommandNumber(L, 2, "phase"));
             g_lua_settop(L, top);
             ::Set_SahelanForcePhase(phase);
-            Log("[SendCommand] SetSahelanPhase phase=%d\n", phase);
             return 0;
         }
         if (idStr == "GetSahelanPhase")
@@ -232,8 +231,6 @@ namespace
             const bool enable = ReadCommandBool(L, 2, "enable");
             g_lua_settop(L, top);
             ::PlayerTookHostage(gameObjectId, enable);
-            Log("[SendCommand] SetEscapeState gameObjectId=0x%08X enable=%d\n",
-                gameObjectId, enable ? 1 : 0);
             return 0;
         }
         if (idStr == "SetOccasionalChatList")
@@ -242,7 +239,6 @@ namespace
             const std::size_t n = ReadLabelArray(L, 2, labels, "labels");
             g_lua_settop(L, top);
             ::SetOccasionalChatList(labels, n);
-            Log("[SendCommand] SetOccasionalChatList count=%u\n", static_cast<unsigned>(n));
             return 0;
         }
         if (idStr == "InsertToOccasionalChatList")
@@ -251,7 +247,6 @@ namespace
             const std::size_t n = ReadLabelArray(L, 2, labels, "labels");
             g_lua_settop(L, top);
             ::InsertToOccasionalChatList(labels, n);
-            Log("[SendCommand] InsertToOccasionalChatList count=%u\n", static_cast<unsigned>(n));
             return 0;
         }
         if (idStr == "RemoveFromOccasionalChatList")
@@ -260,14 +255,12 @@ namespace
             const std::size_t n = ReadLabelArray(L, 2, labels, "labels");
             g_lua_settop(L, top);
             ::RemoveFromOccasionalChatList(labels, n);
-            Log("[SendCommand] RemoveFromOccasionalChatList count=%u\n", static_cast<unsigned>(n));
             return 0;
         }
         if (idStr == "ResetOccasionalChatList")
         {
             g_lua_settop(L, top);
             ::ClearOccasionalChatListOverride();
-            Log("[SendCommand] ResetOccasionalChatList\n");
             return 0;
         }
 
@@ -292,12 +285,10 @@ namespace
             if (isPerCp)
             {
                 ::Set_PendingCautionDurationForCp(static_cast<float>(duration));
-                Log("[SendCommand] SetCautionPhaseDuration (per-cp) duration=%.2f -> passthrough\n", duration);
                 return g_OrigSendCommand(L);
             }
 
             ::Set_CautionStepNormalDurationSeconds(static_cast<float>(duration));
-            Log("[SendCommand] SetCautionPhaseDuration (global) duration=%.2f\n", duration);
             return 0;
         }
         if (idStr == "GetCautionPhaseDuration")
@@ -309,7 +300,6 @@ namespace
                 const std::uint32_t cp = ::Take_CautionCpIndex();
                 g_lua_settop(L, top);
                 g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSecondsForCp(cp)));
-                Log("[SendCommand] GetCautionPhaseDuration (per-cp) cp=%u\n", cp);
                 return 1;
             }
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSeconds()));
@@ -324,12 +314,10 @@ namespace
                 const std::uint32_t cp = ::Take_CautionCpIndex();
                 ::Unset_CautionStepNormalDurationSecondsForCp(cp);
                 g_lua_settop(L, top);
-                Log("[SendCommand] UnsetCautionPhaseDuration (per-cp) cp=%u\n", cp);
                 return 0;
             }
             g_lua_settop(L, top);
             ::Unset_CautionStepNormalDurationSeconds();
-            Log("[SendCommand] UnsetCautionPhaseDuration (global)\n");
             return 0;
         }
         if (idStr == "GetCautionPhaseRemaining")
@@ -341,7 +329,6 @@ namespace
                 const std::uint32_t cp = ::Take_CautionCpIndex();
                 g_lua_settop(L, top);
                 g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSecondsForCp(cp)));
-                Log("[SendCommand] GetCautionPhaseRemaining (per-cp) cp=%u\n", cp);
                 return 1;
             }
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalRemainingSeconds()));
@@ -357,7 +344,6 @@ namespace
             ::Add_VIPSleepFaintImportantGameObjectId(id, isOfficer);
             ::Add_VIPHoldupImportantGameObjectId(id, isOfficer);
             ::Add_VIPRadioImportantGameObjectId(id, isOfficer, deadBodyLabel);
-            Log("[SendCommand] SetVIPImportant id=0x%08X isOfficer=%d\n", id, isOfficer ? 1 : 0);
             return 0;
         }
         if (idStr == "RemoveVIPImportant")
@@ -367,7 +353,6 @@ namespace
             ::Remove_VIPSleepFaintImportantGameObjectId(id);
             ::Remove_VIPHoldupImportantGameObjectId(id);
             ::Remove_VIPRadioImportantGameObjectId(id);
-            Log("[SendCommand] RemoveVIPImportant id=0x%08X\n", id);
             return 0;
         }
         if (idStr == "ClearVIPImportant")
@@ -376,7 +361,6 @@ namespace
             ::Clear_VIPSleepFaintImportantGameObjectIds();
             ::Clear_VIPHoldupImportantGameObjectIds();
             ::Clear_VIPRadioImportantGameObjectIds();
-            Log("[SendCommand] ClearVIPImportant\n");
             return 0;
         }
         if (idStr == "SetUseConcernedHoldupRecovery")
@@ -384,7 +368,6 @@ namespace
             const bool enable = ReadCommandBool(L, 2, "enable");
             g_lua_settop(L, top);
             ::Set_UseCustomNonVipHoldupRecovery(enable);
-            Log("[SendCommand] SetUseConcernedHoldupRecovery enable=%d\n", enable ? 1 : 0);
             return 0;
         }
         if (idStr == "AddCallSignPatrolSoldier")
@@ -392,7 +375,6 @@ namespace
             const std::uint32_t id = ReadCommandTargetId(L);
             g_lua_settop(L, top);
             ::Add_CallSignExtraSoldier(id);
-            Log("[SendCommand] AddCallSignPatrolSoldier id=0x%08X\n", id);
             return 0;
         }
         if (idStr == "RemoveCallSignPatrolSoldier")
@@ -400,14 +382,12 @@ namespace
             const std::uint32_t id = ReadCommandTargetId(L);
             g_lua_settop(L, top);
             ::Remove_CallSignExtraSoldier(id);
-            Log("[SendCommand] RemoveCallSignPatrolSoldier id=0x%08X\n", id);
             return 0;
         }
         if (idStr == "ClearCallSignPatrolSoldiers")
         {
             g_lua_settop(L, top);
             ::Clear_CallSignExtraSoldiers();
-            Log("[SendCommand] ClearCallSignPatrolSoldiers\n");
             return 0;
         }
         if (idStr == "SetLostHostage")
@@ -418,7 +398,6 @@ namespace
             g_lua_settop(L, top);
             ::Add_LostHostageTrap(id, hostageType, customLostLabel);
             ::Add_LostHostageDiscovery(id, hostageType);
-            Log("[SendCommand] SetLostHostage id=0x%08X type=%d\n", id, hostageType);
             return 0;
         }
         if (idStr == "RemoveLostHostage")
@@ -427,7 +406,6 @@ namespace
             g_lua_settop(L, top);
             ::Remove_LostHostageTrap(id);
             ::Remove_LostHostageDiscovery(id);
-            Log("[SendCommand] RemoveLostHostage id=0x%08X\n", id);
             return 0;
         }
         if (idStr == "ClearLostHostages")
@@ -435,7 +413,6 @@ namespace
             g_lua_settop(L, top);
             ::Clear_LostHostagesTrap();
             ::Clear_LostHostageDiscovery();
-            Log("[SendCommand] ClearLostHostages\n");
             return 0;
         }
         if (idStr == "EnableSoldierStealthCamo")
@@ -444,14 +421,12 @@ namespace
             const bool enable = ReadCommandBool(L, 2, "enable");
             g_lua_settop(L, top);
             ::Set_UpdateOptCamoEnableMappedIndex(mappedIndex, enable);
-            Log("[SendCommand] EnableSoldierStealthCamo mappedIndex=%u enable=%d\n", mappedIndex, enable ? 1 : 0);
             return 0;
         }
         if (idStr == "ClearSoldierStealthCamoOverrides")
         {
             g_lua_settop(L, top);
             ::Clear_UpdateOptCamoMappedIndexOverrides();
-            Log("[SendCommand] ClearSoldierStealthCamoOverrides\n");
             return 0;
         }
         if (idStr == "SetSahelanFova")
@@ -466,14 +441,12 @@ namespace
             }
             g_lua_settop(L, top);
             ::Set_SahelanFovaPath(fv2.c_str());
-            Log("[SendCommand] SetSahelanFova fv2=%s\n", fv2.c_str());
             return 0;
         }
         if (idStr == "ClearSahelanFova")
         {
             g_lua_settop(L, top);
             ::Clear_SahelanFovaOverride();
-            Log("[SendCommand] ClearSahelanFova\n");
             return 0;
         }
         if (idStr == "SetEyeLampColor")
@@ -483,14 +456,12 @@ namespace
             const int   mode = static_cast<int>(ReadCommandNumberOr(L, 2, "phase", -1.0));
             g_lua_settop(L, top);
             ::Set_EyeLampColor(mode, r, g, b, a);
-            Log("[SendCommand] SetEyeLampColor r=%.2f g=%.2f b=%.2f a=%.2f mode=%d\n", r, g, b, a, mode);
             return 0;
         }
         if (idStr == "ClearEyeLampColor")
         {
             g_lua_settop(L, top);
             ::Clear_EyeLampColor();
-            Log("[SendCommand] ClearEyeLampColor\n");
             return 0;
         }
         if (idStr == "SetEyeLampDisco")
@@ -500,7 +471,6 @@ namespace
             const float a       = SmartScaleA(static_cast<float>(ReadCommandNumberOr(L, 2, "a", 1.0)));
             g_lua_settop(L, top);
             ::Set_EyeLampDisco(enabled, speed, a);
-            Log("[SendCommand] SetEyeLampDisco enabled=%d speed=%.2f a=%.2f\n", enabled ? 1 : 0, speed, a);
             return 0;
         }
         if (idStr == "SetHeartLightColor")
@@ -510,14 +480,12 @@ namespace
             const int mode = static_cast<int>(ReadCommandNumberOr(L, 2, "phase", -1.0));
             g_lua_settop(L, top);
             ::Set_HeartLightColor(mode, r, g, b, a);
-            Log("[SendCommand] SetHeartLightColor r=%.2f g=%.2f b=%.2f a=%.2f phase=%d\n", r, g, b, a, mode);
             return 0;
         }
         if (idStr == "ClearHeartLightColor")
         {
             g_lua_settop(L, top);
             ::Clear_HeartLightColor();
-            Log("[SendCommand] ClearHeartLightColor\n");
             return 0;
         }
         if (idStr == "SetHeartLightDisco")
@@ -527,7 +495,6 @@ namespace
             const float a       = SmartScaleA(static_cast<float>(ReadCommandNumberOr(L, 2, "a", 1.0)));
             g_lua_settop(L, top);
             ::Set_HeartLightDisco(enabled, speed, a);
-            Log("[SendCommand] SetHeartLightDisco enabled=%d speed=%.2f a=%.2f\n", enabled ? 1 : 0, speed, a);
             return 0;
         }
 

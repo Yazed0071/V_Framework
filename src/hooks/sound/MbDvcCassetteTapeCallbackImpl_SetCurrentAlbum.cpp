@@ -139,11 +139,6 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
 
             if (currentAlbumId == albumId)
             {
-                Log(
-                    "[CassetteMenu] FindLiveAlbumRecordByAlbumId: found albumId=%016llX at index=%u record=%p\n",
-                    static_cast<unsigned long long>(albumId),
-                    static_cast<unsigned int>(i),
-                    recordBase);
                 return const_cast<std::uint8_t*>(recordBase);
             }
 
@@ -243,33 +238,16 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 
         std::uint32_t acceptedCount = 0;
 
-        Log(
-            "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: begin this=%p menuRoot=%p soundPlayer=%p albumRecord=%p albumId=%016llX trackCount=%u albumType=%u\n",
-            thisPtr,
-            menuRoot,
-            soundPlayer,
-            albumRecord,
-            static_cast<unsigned long long>(albumId),
-            static_cast<unsigned int>(trackCount),
-            static_cast<unsigned int>(albumType));
-
         for (std::uint32_t trackIndex = 0; trackIndex < trackCount; ++trackIndex)
         {
             void* trackInfo = getTrackInfoByAlbumIndex(soundPlayer, albumId, trackIndex);
             if (!trackInfo)
             {
-                Log(
-                    "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: trackInfo null at trackIndex=%u\n",
-                    static_cast<unsigned int>(trackIndex));
                 continue;
             }
 
             if (!IsTrackAcceptedForMenu(thisPtr, albumType, trackInfo))
             {
-                Log(
-                    "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: track rejected at trackIndex=%u trackInfo=%p\n",
-                    static_cast<unsigned int>(trackIndex),
-                    trackInfo);
                 continue;
             }
 
@@ -284,21 +262,10 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 
             directPlayTrackIdTable[acceptedCount] = directPlayTrackId;
 
-            Log(
-                "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: accepted trackIndex=%u directPlayTrackId=%u acceptedSlot=%u\n",
-                static_cast<unsigned int>(trackIndex),
-                static_cast<unsigned int>(directPlayTrackId),
-                static_cast<unsigned int>(acceptedCount));
-
             ++acceptedCount;
         }
 
         *reinterpret_cast<std::uint32_t*>(base + 0xF80ull) = acceptedCount;
-
-        Log(
-            "[CassetteMenu] SetCurrentAlbum rebuild: albumId=%016llX acceptedCount=%u\n",
-            static_cast<unsigned long long>(albumId),
-            static_cast<unsigned int>(acceptedCount));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -308,12 +275,6 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 
 static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
 {
-    Log(
-        "[CassetteMenu] hkSetCurrentAlbum entered this=%p albumId=%016llX orig=%p\n",
-        thisPtr,
-        static_cast<unsigned long long>(albumId),
-        g_OrigSetCurrentAlbum);
-
     if (!g_OrigSetCurrentAlbum)
     {
         Log("[CassetteMenu] hkSetCurrentAlbum: orig is null\n");
@@ -321,8 +282,6 @@ static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
     }
 
     g_OrigSetCurrentAlbum(thisPtr, albumId);
-
-    Log("[CassetteMenu] hkSetCurrentAlbum: original call finished\n");
 
     Sync_CustomTapeStateToLiveTable();
     RebuildAcceptedTrackIdsForCurrentAlbum(thisPtr, albumId);

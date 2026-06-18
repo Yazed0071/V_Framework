@@ -504,11 +504,6 @@ void Add_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId, bool isOffic
         std::lock_guard<std::mutex> lock(g_HoldupMutex);
         g_ImportantTargetsBySoldierIndex[soldierIndex] = info;
     }
-
-    Log("[Holdup] Added important target: gameObjectId=0x%08X soldierIndex=0x%04X officer=%s\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex),
-        isOfficer ? "YES" : "NO");
 }
 
 
@@ -530,10 +525,6 @@ void Remove_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId)
         g_CustomNonVipRecoveryPendingTargets.clear();
         g_RecentNonVipSuppressByTarget.clear();
     }
-
-    Log("[Holdup] Removed important target: gameObjectId=0x%08X soldierIndex=0x%04X\n",
-        gameObjectId,
-        static_cast<unsigned>(soldierIndex));
 }
 
 
@@ -546,8 +537,6 @@ void Clear_VIPHoldupImportantGameObjectIds()
         g_CustomNonVipRecoveryPendingTargets.clear();
         g_RecentNonVipSuppressByTarget.clear();
     }
-
-    Log("[Holdup] Cleared all important targets\n");
 }
 
 

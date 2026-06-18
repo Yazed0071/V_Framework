@@ -64,32 +64,27 @@ namespace
 void LoadingSplash_SetMainTexture(uint64_t textureHash)
 {
     g_MainTexture = textureHash;
-    Log("[LoadingSplash] MainTexture = 0x%llX\n", static_cast<unsigned long long>(textureHash));
 }
 
 void LoadingSplash_ClearMainTexture()
 {
     g_MainTexture = 0;
-    Log("[LoadingSplash] MainTexture cleared\n");
 }
 
 void LoadingSplash_SetBlurTexture(uint64_t textureHash)
 {
     g_BlurTexture = textureHash;
-    Log("[LoadingSplash] BlurTexture = 0x%llX\n", static_cast<unsigned long long>(textureHash));
 }
 
 void LoadingSplash_ClearBlurTexture()
 {
     g_BlurTexture = 0;
-    Log("[LoadingSplash] BlurTexture cleared\n");
 }
 
 void LoadingSplash_ClearTextures()
 {
     g_MainTexture = 0;
     g_BlurTexture = 0;
-    Log("[LoadingSplash] All textures cleared\n");
 }
 
 

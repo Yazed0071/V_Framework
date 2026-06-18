@@ -51,18 +51,10 @@ void MissionEmergency_SetEnabled(std::uint16_t missionCode, bool enabled)
     if (enabled)
     {
         const auto inserted = g_EmergencyMissionAllowlist.insert(missionCode);
-        Log("[MissionEmergency] MissionEmergency_SetEnabled mc=%u enabled=true %s (allowlist size=%zu)\n",
-            static_cast<unsigned>(missionCode),
-            inserted.second ? "ADDED" : "already present",
-            g_EmergencyMissionAllowlist.size());
     }
     else
     {
         const auto erased = g_EmergencyMissionAllowlist.erase(missionCode);
-        Log("[MissionEmergency] MissionEmergency_SetEnabled mc=%u enabled=false %s (allowlist size=%zu)\n",
-            static_cast<unsigned>(missionCode),
-            erased > 0 ? "REMOVED" : "was not present",
-            g_EmergencyMissionAllowlist.size());
     }
 }
 
@@ -80,7 +72,6 @@ void MissionEmergency_ClearAll()
     if (!g_EmergencyMissionAllowlist.empty())
     {
         g_EmergencyMissionAllowlist.clear();
-        Log("[MissionEmergency] allowlist cleared\n");
     }
 }
 
@@ -89,7 +80,6 @@ bool Install_MissionEmergency_Hook()
 {
     if (g_MissionEmergencyHookInstalled)
     {
-        Log("[MissionEmergency] hook already installed\n");
         return true;
     }
 

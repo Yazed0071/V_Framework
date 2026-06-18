@@ -25,10 +25,6 @@ void EquipIcon_SetEquipIdIconFtexPath(int equipId, uint64_t texturePathHash)
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
     g_PerEquipIconPaths[equipId] = texturePathHash;
-
-    Log("[EquipIcon] EquipId %d -> 0x%llX\n",
-        equipId,
-        static_cast<unsigned long long>(texturePathHash));
 }
 
 
@@ -36,7 +32,6 @@ void EquipIcon_ClearIconFtexPath(int equipId)
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
     g_PerEquipIconPaths.erase(equipId);
-    Log("[EquipIcon] EquipId %d cleared\n", equipId);
 }
 
 
@@ -44,7 +39,6 @@ void EquipIcon_ClearAllIconFtexPaths()
 {
     std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
     g_PerEquipIconPaths.clear();
-    Log("[EquipIcon] All per-equip icon paths cleared\n");
 }
 
 
@@ -68,7 +62,6 @@ bool Install_EquipIconFtexPath_Hook()
 {
     if (g_EquipIconFtexPathHookInstalled)
     {
-        Log("[EquipIcon] hook already installed\n");
         return true;
     }
 
