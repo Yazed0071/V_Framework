@@ -6,7 +6,7 @@
 
 V Framework is a DLL that loads into the running game, installs function-entry hooks across the FoxEngine via [MinHook](https://github.com/TsudaKageyu/minhook), and exposes the hooked behavior to game-side Lua through a set of custom native libraries. It is built to sit on top of **Infinite Heaven**.
 More details can be found in the Wiki
-https://mgsvmoddingwiki.github.io/V_FrameWork/
+https://mgsvmoddingwiki.github.io/V_Framework/
 ---
 
 ## Installing
