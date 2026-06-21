@@ -26,6 +26,8 @@ this.DEBUG_strCode32List={
   "NoticeNoise",
   "AntiAir",
   "OffBinocularsMode",
+  "OnPlayerLockPickStart",
+  "OnPlayerLockPickEnd",
 }
 
 this.CassettePlay={
@@ -172,6 +174,17 @@ this.signatureTypes={
 
   OffBinocularsMode={
   },
+
+  OnPlayerLockPickStart={
+    {argName="playerIndex",argType="number"},
+    {argName="gimmickId",argType="number"},
+    {argName="doorSide",argType="number"},
+  },
+  OnPlayerLockPickEnd={
+    {argName="playerIndex",argType="number"},
+    {argName="gimmickId",argType="number"},
+    {argName="doorSide",argType="number"},
+  },
 }
 
 this.messageSignatures={
@@ -186,6 +199,8 @@ this.messageSignatures={
   Player={
     CrawlSideRoll=this.signatureTypes.CrawlSideRoll,
     OffBinocularsMode=this.signatureTypes.OffBinocularsMode,
+    OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart,
+    OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd,
   },
 
   UI={
@@ -414,6 +429,8 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.AnnounceLog=this.signatureTypes.AnnounceLog
   InfLookup.signatureTypes.AntiAir=this.signatureTypes.AntiAir
   InfLookup.signatureTypes.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
+  InfLookup.signatureTypes.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
+  InfLookup.signatureTypes.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -428,6 +445,8 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.GameObject.AntiAir=this.signatureTypes.AntiAir
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.messageSignatures.Player.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
+  InfLookup.messageSignatures.Player.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
+  InfLookup.messageSignatures.Player.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart

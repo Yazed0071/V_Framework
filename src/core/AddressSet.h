@@ -252,6 +252,9 @@ namespace AddressSetRuntime
         uintptr_t AddCassetteTapeTrackByIndex        = 0;
         uintptr_t RadioCassette_ActivateUnit         = 0;
         uintptr_t RadioCassette_IsSameSaveIndexFromName = 0;
+
+        uintptr_t SearchLightActionPluginImpl_StateDoorStart = 0;
+        uintptr_t SearchLightActionPluginImpl_StateDoorEnd   = 0;
     };
 
     inline GameBuild& GetGameBuild()

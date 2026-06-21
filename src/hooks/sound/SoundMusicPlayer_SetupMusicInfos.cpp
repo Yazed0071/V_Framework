@@ -288,6 +288,25 @@ static TapeAlbumRecord* FindMutableAlbumRecordByHash(
 }
 
 
+static const TapeTrackRecord* FindTrackRecordByHash(
+    const TapeTrackRecord* tracks,
+    std::uint32_t count,
+    std::uint64_t albumIdHash,
+    std::uint64_t langIdHash)
+{
+    if (!tracks || count == 0 || albumIdHash == 0 || langIdHash == 0)
+        return nullptr;
+
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        if (tracks[i].albumId == albumIdHash && tracks[i].langId == langIdHash)
+            return &tracks[i];
+    }
+
+    return nullptr;
+}
+
+
 static void CopyCustomTapeRegistry(CustomTapeRegistry& outRegistry)
 {
     std::lock_guard<std::mutex> lock(g_CustomTapeMutex);
@@ -423,6 +442,8 @@ static void PrepareCustomTracks(
     bool isJapaneseVoice,
     const TapeAlbumRecord* existingAlbums,
     std::uint32_t existingAlbumCount,
+    const TapeTrackRecord* existingTracks,
+    std::uint32_t existingTrackCount,
     const std::vector<PreparedCustomAlbum>& validAlbums,
     std::vector<PreparedCustomTrack>& outTracks)
 {
@@ -475,6 +496,12 @@ static void PrepareCustomTracks(
                 "[CustomTapes] Skipping track %s because its album was not accepted: %s\n",
                 def.fileName.c_str(),
                 def.albumId.c_str());
+            continue;
+        }
+
+        if (FindTrackRecordByHash(existingTracks, existingTrackCount, albumIdHash, langIdHash) != nullptr)
+        {
+            Log("[CustomTapes] Skipping track duplicate with existing data: %s\n", def.fileName.c_str());
             continue;
         }
 
@@ -603,6 +630,8 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         isJapaneseVoice,
         oldAlbums,
         oldTotalAlbumCount,
+        oldTracks,
+        oldTotalTrackCount,
         preparedAlbums,
         preparedTracks);
 

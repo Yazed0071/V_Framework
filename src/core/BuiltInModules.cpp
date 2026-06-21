@@ -118,6 +118,9 @@ bool Uninstall_EnemyLangIdOverride_Hooks();
 bool Install_BasicActionImpl_StateCrawlSideRoll_Hook();
 bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
 
+bool Install_SearchLightActionPluginImpl_StateDoor_Hook();
+bool Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
+
 bool Install_PhaseSneakAiImpl_PreUpdate_Hook();
 bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook();
 
@@ -156,6 +159,39 @@ bool Uninstall_AnnounceLogHook();
 
 bool Install_TornadoDualPatch();
 void Uninstall_TornadoDualPatch();
+
+bool Install_EquipCrossSetEquipItemPatch();
+void Uninstall_EquipCrossSetEquipItemPatch();
+
+bool Install_IsWeaponNoUseInPlaceActionPatch();
+void Uninstall_IsWeaponNoUseInPlaceActionPatch();
+
+bool Install_IsItemNoUsePatch();
+void Uninstall_IsItemNoUsePatch();
+
+bool Install_BarrierItemUsablePatch();
+void Uninstall_BarrierItemUsablePatch();
+
+bool Install_BarrierEffectLoadPatch();
+void Uninstall_BarrierEffectLoadPatch();
+
+bool Install_BarrierEffectDiag();
+void Uninstall_BarrierEffectDiag();
+
+bool Install_BarrierEffectSpawn();
+void Uninstall_BarrierEffectSpawn();
+
+bool Install_ForceFobModePatch();
+void Uninstall_ForceFobModePatch();
+
+bool Install_BarrierEffectActivatePatch();
+void Uninstall_BarrierEffectActivatePatch();
+
+bool Install_BarrierUseDiag();
+void Uninstall_BarrierUseDiag();
+
+bool Install_SupportAttackCrashGuard();
+void Uninstall_SupportAttackCrashGuard();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
@@ -870,6 +906,26 @@ namespace
         }
     };
 
+    class PlayerLockPickModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PlayerLockPick";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SearchLightActionPluginImpl_StateDoor_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
+        }
+    };
+
     class PhaseSneakAiImpl_PreUpdateModule final : public IFeatureModule
     {
     public:
@@ -973,6 +1029,94 @@ namespace
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_TornadoDualPatch(); }
         void Uninstall() override { Uninstall_TornadoDualPatch(); }
     };
+
+    class EquipCrossSetEquipItemModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "EquipCrossSetEquipItem"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_EquipCrossSetEquipItemPatch(); }
+        void Uninstall() override { Uninstall_EquipCrossSetEquipItemPatch(); }
+    };
+
+    class IsWeaponNoUseInPlaceActionModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "IsWeaponNoUseInPlaceAction"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_IsWeaponNoUseInPlaceActionPatch(); }
+        void Uninstall() override { Uninstall_IsWeaponNoUseInPlaceActionPatch(); }
+    };
+
+    class IsItemNoUseModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "IsItemNoUse"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_IsItemNoUsePatch(); }
+        void Uninstall() override { Uninstall_IsItemNoUsePatch(); }
+    };
+
+    class BarrierItemUsableModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierItemUsable"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierItemUsablePatch(); }
+        void Uninstall() override { Uninstall_BarrierItemUsablePatch(); }
+    };
+
+    class BarrierEffectLoadModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectLoad"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectLoadPatch(); }
+        void Uninstall() override { Uninstall_BarrierEffectLoadPatch(); }
+    };
+
+    class BarrierEffectDiagModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectDiag"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectDiag(); }
+        void Uninstall() override { Uninstall_BarrierEffectDiag(); }
+    };
+
+    class BarrierEffectSpawnModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectSpawn"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectSpawn(); }
+        void Uninstall() override { Uninstall_BarrierEffectSpawn(); }
+    };
+
+    class ForceFobModeModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "ForceFobMode"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_ForceFobModePatch(); }
+        void Uninstall() override { Uninstall_ForceFobModePatch(); }
+    };
+
+    class BarrierEffectActivateModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectActivate"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectActivatePatch(); }
+        void Uninstall() override { Uninstall_BarrierEffectActivatePatch(); }
+    };
+
+    class BarrierUseDiagModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierUseDiag"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierUseDiag(); }
+        void Uninstall() override { Uninstall_BarrierUseDiag(); }
+    };
+
+    class SupportAttackCrashGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "SupportAttackCrashGuard"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SupportAttackCrashGuard(); }
+        void Uninstall() override { Uninstall_SupportAttackCrashGuard(); }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -1015,6 +1159,7 @@ void RegisterBuiltInFeatureModules()
     static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
     static CrawlSideRollModule s_CrawlSideRollModule;
+    static PlayerLockPickModule s_PlayerLockPickModule;
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
     static MissionEmergencyModule s_MissionEmergencyModule;
     static ShowMissionIconModule s_ShowMissionIconModule;
@@ -1028,6 +1173,17 @@ void RegisterBuiltInFeatureModules()
     static HeliSoundControllerModule s_HeliSoundControllerModule;
     static AnnounceLogModule s_AnnounceLogModule;
     static TornadoDualPatchModule s_TornadoDualPatchModule;
+    static EquipCrossSetEquipItemModule s_EquipCrossSetEquipItemModule;
+    static IsWeaponNoUseInPlaceActionModule s_IsWeaponNoUseInPlaceActionModule;
+    static IsItemNoUseModule s_IsItemNoUseModule;
+    static BarrierItemUsableModule s_BarrierItemUsableModule;
+    static BarrierEffectLoadModule s_BarrierEffectLoadModule;
+    static BarrierEffectDiagModule s_BarrierEffectDiagModule;
+    static BarrierEffectSpawnModule s_BarrierEffectSpawnModule;
+    static ForceFobModeModule s_ForceFobModeModule;
+    static BarrierEffectActivateModule s_BarrierEffectActivateModule;
+    static BarrierUseDiagModule s_BarrierUseDiagModule;
+    static SupportAttackCrashGuardModule s_SupportAttackCrashGuardModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -1069,6 +1225,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_CrawlSideRollModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerLockPickModule);
             FeatureModuleRegistry::Instance().Register(&s_PhaseSneakAiImpl_PreUpdateModule);
             FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);
             FeatureModuleRegistry::Instance().Register(&s_ShowMissionIconModule);
@@ -1082,5 +1239,42 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_HeliSoundControllerModule);
             FeatureModuleRegistry::Instance().Register(&s_AnnounceLogModule);
             FeatureModuleRegistry::Instance().Register(&s_TornadoDualPatchModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipCrossSetEquipItemModule);
+            FeatureModuleRegistry::Instance().Register(&s_IsWeaponNoUseInPlaceActionModule);
+            FeatureModuleRegistry::Instance().Register(&s_IsItemNoUseModule);
+            // Cut DarkMatter / StunDarkMatter support-attack weapons: skip the missing support-attack
+            // slot so they fire (their normal slots) instead of crashing. Affects only weapons whose
+            // [weapon+0x100] support-attack array is null.
+            FeatureModuleRegistry::Instance().Register(&s_SupportAttackCrashGuardModule);
+            // Energy Wall (EQP_IT_Barrier 0x1E9) outside FOB -- DESCRIPTOR-FILL approach (2026-06-20),
+            // applying the DarkMatter solve. The shield's per-slot descriptor [mgr+0x18][0x13/0x14]
+            // (read by FUN_140af4a40, the prior "final wall") is registered by Player2Impl::
+            // InitializeWithoutParts via mgr->vtable[0](slot, loadedResource) -- but gated off for the
+            // Barrier, and the register only runs if FUN_1404a6a50 actually loads the FX (bit31 clear).
+            //   * BarrierEffectLoad NOPs the two load gates so the game attempts load+register itself.
+            //   * BarrierEffectDiag logs FUN_1404a6a50's result -> is the shield FX mounted outside FOB?
+            //   * BarrierEffectSpawn forces the spawn + dumps slots 0x12/0x13/0x14's descriptors+hash.
+            // One outside-FOB test answers: FX mounted? descriptor registered into the spawn's manager?
+            // renders? -- which decides whether we (a) are done, (b) must fill the descriptor ourselves
+            // (DarkMatter-style: load via FUN_1404a6a50 + register into the spawn's mgr), or (c) must
+            // first mount the FX archive.
+            // NATIVE-PATH CAPTURE (2026-06-20): the shield is applied by the game's own
+            // StartFOBInvincible(effectId, duration) -> ActionCoreImpl::vtable[0x68] (no FOB check).
+            // BarrierEffectDiag now hooks that (+ the renderer) to capture the shield's effectId + the
+            // per-grade durations in a FOB. The old fake force-path (Load/Spawn) is OFF -- we'll replay
+            // the captured native apply on use instead.
+            // effect 0 confirmed = the Energy Wall's real effect (clean FOB capture: activates duration
+            // ~29.928 on each USE). Provide renderer storage + follow while active; let the game's own
+            // USE fire the apply (test whether the native use works outside FOB).
+            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectLoadModule);
+            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectSpawnModule);
+            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectDiagModule); // FOB-safe collision capture (gated: real FOB + Wall equipped)
+            // Still OFF: BarrierItemUsable (equip handled by the 3 broad usability patches above),
+            // BarrierUseDiag, BarrierEffectActivate (gate NOPs), ForceFobMode (null-derefs absent FOB
+            // infra @ 0x141354152). Re-add a Register line to re-enable.
+            // FeatureModuleRegistry::Instance().Register(&s_BarrierItemUsableModule);
+            // FeatureModuleRegistry::Instance().Register(&s_BarrierUseDiagModule);
+            // FeatureModuleRegistry::Instance().Register(&s_BarrierEffectActivateModule);
+            // FeatureModuleRegistry::Instance().Register(&s_ForceFobModeModule);
         });
 }

@@ -215,6 +215,8 @@ namespace AddressSetRuntime
             0x1466A5A50ull, // AddCassetteTapeTrackByIndex
             0x1451FCC50ull, // RadioCassette_ActivateUnit
             0x1405D56D0ull, // RadioCassette_IsSameSaveIndexFromName
+            0x14126C060ull, // SearchLightActionPluginImpl_StateDoorStart
+            0x14126B560ull, // SearchLightActionPluginImpl_StateDoorEnd
         };
         return value;
     }
@@ -465,6 +467,8 @@ namespace AddressSetRuntime
             0x1482D7CB0ull, // AddCassetteTapeTrackByIndex
             0x1451E1DF0ull, // RadioCassette_ActivateUnit
             0x1405A69E0ull, // RadioCassette_IsSameSaveIndexFromName
+            0x14126C190ull, // SearchLightActionPluginImpl_StateDoorStart
+            0x14126B690ull, // SearchLightActionPluginImpl_StateDoorEnd
         };
 
         return value;

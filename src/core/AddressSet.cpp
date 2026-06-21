@@ -253,15 +253,17 @@ namespace AddressSetRuntime
             0x140AACC00ull, // SetCassetteTapeTrackNewFlag
             0x140EF7481ull, // SetCurrentAlbum (body)
             0x140975580ull, // SetupMusicInfos
-            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  (EN 1.0.15.4)
-            0x1405D6560ull, // RadioCassette_GetCassetteMusic   (EN 1.0.15.4)
-            0x1405D65B0ull, // RadioCassette_IsGotCassette      (EN 1.0.15.4)
-            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex (EN 1.0.15.4)
-            0x1405FC750ull, // RadioCassette_SdPostEvent          (EN 1.0.15.4, diagnostic)
-            0x1406433D0ull, // RadioCassette_RadioUpdate          (EN 1.0.15.4)
-            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        (EN 1.0.15.4)
-            0x1406424C0ull, // RadioCassette_ActivateUnit         (EN 1.0.15.4)
-            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName (EN 1.0.15.4)
+            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  
+            0x1405D6560ull, // RadioCassette_GetCassetteMusic   
+            0x1405D65B0ull, // RadioCassette_IsGotCassette      
+            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex 
+            0x1405FC750ull, // RadioCassette_SdPostEvent
+            0x1406433D0ull, // RadioCassette_RadioUpdate          
+            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        
+            0x1406424C0ull, // RadioCassette_ActivateUnit         
+            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName 
+            0x14126B610ull, // SearchLightActionPluginImpl_StateDoorStart 
+            0x14126AB10ull, // SearchLightActionPluginImpl_StateDoorEnd   
         };
 
         return value;
@@ -469,15 +471,17 @@ namespace AddressSetRuntime
             0x140AACBA0ull, // SetCassetteTapeTrackNewFlag
             0x140EF74B0ull, // SetCurrentAlbum (body)
             0x1409754D0ull, // SetupMusicInfos
-            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  (JP 1.0.15.4)
-            0x1405D6820ull, // RadioCassette_GetCassetteMusic   (JP 1.0.15.4)
-            0x1405D6870ull, // RadioCassette_IsGotCassette      (JP 1.0.15.4)
-            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex (JP 1.0.15.4)
-            0x1405FC7E0ull, // RadioCassette_SdPostEvent          (JP 1.0.15.4, diagnostic)
-            0x140643400ull, // RadioCassette_RadioUpdate          (JP 1.0.15.4)
-            0x140A87D50ull, // AddCassetteTapeTrackByIndex        (JP 1.0.15.4)
-            0x1406424F0ull, // RadioCassette_ActivateUnit         (JP 1.0.15.4)
-            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName (JP 1.0.15.4)
+            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  
+            0x1405D6820ull, // RadioCassette_GetCassetteMusic   
+            0x1405D6870ull, // RadioCassette_IsGotCassette      
+            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex 
+            0x1405FC7E0ull, // RadioCassette_SdPostEvent   
+            0x140643400ull, // RadioCassette_RadioUpdate          
+            0x140A87D50ull, // AddCassetteTapeTrackByIndex        
+            0x1406424F0ull, // RadioCassette_ActivateUnit         
+            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName 
+            0x14126B640ull, // SearchLightActionPluginImpl_StateDoorStart 
+            0x14126AB40ull, // SearchLightActionPluginImpl_StateDoorEnd   
         };
         return value;
     }
