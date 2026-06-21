@@ -8,6 +8,7 @@
 #include "log.h"
 #include "TppPickableRuntime.h"
 #include "AddressSet.h"
+#include "HookUtils.h"
 
 namespace
 {
@@ -203,7 +204,7 @@ bool Install_TppPickableHooks()
         return false;
     }
 
-    if (MH_EnableHook(target) != MH_OK)
+    if (EnableOrQueueHook(target) != MH_OK)
     {
         MH_RemoveHook(target);
         g_OrigCopyAndAdjustInfo = nullptr;
