@@ -57,6 +57,8 @@ namespace
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
     static constexpr std::int16_t kCustomSaveIndexMax = 1999;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
+    // Vanilla cassette owned/new bits occupy the shared game-data flag buffer slice [0xB7,0x193)
+    static constexpr std::uint16_t kVanillaCassetteFlagRegionEndExclusive = 0x193u;
 
 
     struct CustomTapePersistEntry
@@ -318,6 +320,9 @@ static bool TryReadLiveCassetteState(std::int16_t saveIndex, bool& outOwned, boo
         static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
 
     if (tableIndex == 0xFFFFu)
+        return false;
+
+    if (tableIndex < kVanillaOwnedIndexBias || tableIndex >= kVanillaCassetteFlagRegionEndExclusive)
         return false;
 
     __try
@@ -897,6 +902,9 @@ static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, 
 
     const std::uint16_t tableIndex = static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
     if (tableIndex == 0xFFFFu)
+        return;
+
+    if (tableIndex < kVanillaOwnedIndexBias || tableIndex >= kVanillaCassetteFlagRegionEndExclusive)
         return;
 
     __try

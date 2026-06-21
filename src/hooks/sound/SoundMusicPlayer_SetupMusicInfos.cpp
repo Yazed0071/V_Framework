@@ -27,7 +27,6 @@ namespace
     using GetVoiceLanguage_t = int(__fastcall*)(void* subtitleManager);
 
     static constexpr std::uint32_t kFoxAllocTag = 0x5006Fu;
-    static constexpr std::size_t kFileNameMaxChars = 15u;
 
     static SetupMusicInfos_t g_OrigSetupMusicInfos = nullptr;
     static void* g_LastSoundMusicPlayer = nullptr;
@@ -460,15 +459,6 @@ static void PrepareCustomTracks(
         if (def.albumId.empty() || def.langId.empty() || def.fileName.empty())
         {
             Log("[CustomTapes] Skipping track with missing field\n");
-            continue;
-        }
-
-        if (def.fileName.size() > kFileNameMaxChars)
-        {
-            Log(
-                "[CustomTapes] Skipping track %s because fileName is longer than %zu chars\n",
-                def.fileName.c_str(),
-                kFileNameMaxChars);
             continue;
         }
 
