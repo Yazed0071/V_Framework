@@ -9,6 +9,9 @@
 #include "FeatureModule.h"
 #include "AddressSet.h"
 #include "V_FrameWorkState.h"
+#include "HookUtils.h"
+
+bool g_HookBatchMode = false;
 
 bool Install_SetLuaFunctions_Hook();
 
@@ -59,8 +62,13 @@ static DWORD WINAPI InitThread(LPVOID)
     RegisterBuiltInFeatureModules();
 
     V_FrameWorkState::Load();
+
+    g_HookBatchMode = true;
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
+    g_HookBatchMode = false;
+    const MH_STATUS applySt = MH_ApplyQueued();
     Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
+    Log("[DLL] MH_ApplyQueued -> %d\n", static_cast<int>(applySt));
 
     Log("[DLL] InitThread done.\n");
     return 0;

@@ -229,7 +229,7 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
     MH_STATUS s1 = MH_CreateHook((LPVOID)target, (LPVOID)&Hook_State, (LPVOID*)&gOrig_State);
     if (s1 != MH_OK) return false;
 
-    MH_STATUS s2 = MH_EnableHook((LPVOID)target);
+    MH_STATUS s2 = EnableOrQueueHook((LPVOID)target);
     if (s2 != MH_OK) return false;
 
     Log("[Holdup] Hook installed OK.\n");
