@@ -221,7 +221,6 @@
     <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
     <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
-    <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
@@ -325,7 +324,6 @@
     <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
     <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
-    <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />

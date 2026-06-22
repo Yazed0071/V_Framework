@@ -156,23 +156,6 @@ static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
 }
 
 
-static bool TryCopyBytes(const void* source, void* dest, std::size_t size)
-{
-    if (!source || !dest || size == 0)
-        return false;
-
-    __try
-    {
-        std::memcpy(dest, source, size);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-
 static bool TryCopyTapeIdTableFromCassetteCallback(void* cassetteCallbackBase, std::uint8_t* outBuffer)
 {
     if (!cassetteCallbackBase || !outBuffer)
@@ -676,12 +659,6 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
         g_OrigMusicPlayerPlay = nullptr;
         g_LastCassetteCallbackBase = nullptr;
         g_LastMusicPlayer = nullptr;
-        g_LastTapeIdTable = nullptr;
-        g_LastAlbumIndex = 0;
-        g_LastSelectedTrackIndex = 0;
-        g_LastPlayMode = 0;
-        g_LastFlag1 = 0;
-        g_LastFlag2 = 0;
 
         std::memset(g_CachedTapeIdTable, 0, sizeof(g_CachedTapeIdTable));
         g_HasCopiedTapeIdTable = false;
