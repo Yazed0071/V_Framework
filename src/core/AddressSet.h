@@ -252,6 +252,34 @@ namespace AddressSetRuntime
         uintptr_t AddCassetteTapeTrackByIndex        = 0;
         uintptr_t RadioCassette_ActivateUnit         = 0;
         uintptr_t RadioCassette_IsSameSaveIndexFromName = 0;
+
+        uintptr_t SearchLightActionPluginImpl_StateDoorStart = 0;
+        uintptr_t SearchLightActionPluginImpl_StateDoorEnd   = 0;
+
+        uintptr_t SoundControl_PostExternalEvent = 0;
+        uintptr_t MusicPlayerPlayWrapper = 0;
+
+        uintptr_t Barrier_GetItemId        = 0;
+        uintptr_t Barrier_EquipItemCallRet = 0;
+        uintptr_t Barrier_Updater          = 0;
+        uintptr_t Barrier_Pool             = 0;
+        uintptr_t Barrier_IsFobMode        = 0;
+        uintptr_t Barrier_LoadGate1        = 0;
+        uintptr_t Barrier_LoadGate2        = 0;
+
+        uintptr_t Dm_FireLoop         = 0;
+        uintptr_t Dm_Classify         = 0;
+        uintptr_t Dm_VfxFactory       = 0;
+        uintptr_t Dm_ComponentFactory = 0;
+        uintptr_t Dm_Alloc            = 0;
+        uintptr_t Dm_BackLinkPool     = 0;
+        uintptr_t Dm_OneShot          = 0;
+
+        uintptr_t EquipCrossEvCall_IsItemNoUse = 0;
+        uintptr_t AttackActionImpl_IsWeaponNoUseInPlaceAction = 0;
+        uintptr_t EquipCrossSetEquipItem_Site1 = 0;
+        uintptr_t EquipCrossSetEquipItem_Site2 = 0;
+        uintptr_t EquipCrossSetEquipItem_Site3 = 0;
     };
 
     inline GameBuild& GetGameBuild()
@@ -272,6 +300,7 @@ namespace AddressSetRuntime
     const AddressSet& Get_mst_jp_day1820_AddressSet();   // 1.0.15.3 japanese
     GameBuild DetectGameBuildFromVersionInfo(HMODULE hGame);
     bool ResolveAddressSet(HMODULE hGame);
+    void InstallCrashHandler();
 
     inline const char* GetGameBuildName(GameBuild build)
     {
@@ -292,4 +321,5 @@ namespace AddressSetRuntime
 #define gGameBuild (::AddressSetRuntime::GetGameBuild())
 #define gAddr (::AddressSetRuntime::GetAddressSet())
 #define ResolveAddressSet (::AddressSetRuntime::ResolveAddressSet)
+#define InstallCrashHandler (::AddressSetRuntime::InstallCrashHandler)
 #define GetGameBuildName (::AddressSetRuntime::GetGameBuildName)

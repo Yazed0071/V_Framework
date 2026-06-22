@@ -56,12 +56,6 @@ namespace
     static void* g_MusicPlayerPlayTarget = nullptr;
     static void* g_LastCassetteCallbackBase = nullptr;
     static void* g_LastMusicPlayer = nullptr;
-    static void* g_LastTapeIdTable = nullptr;
-    static std::uint32_t g_LastAlbumIndex = 0;
-    static std::uint32_t g_LastSelectedTrackIndex = 0;
-    static std::uint32_t g_LastPlayMode = 0;
-    static std::uint8_t g_LastFlag1 = 0;
-    static std::uint8_t g_LastFlag2 = 0;
 
     static std::uint8_t g_CachedTapeIdTable[kTapeIdTableSize] = {};
     static bool g_HasCopiedTapeIdTable = false;
@@ -108,7 +102,6 @@ static void* ResolveMusicPlayerFromCassetteCallback(void* cassetteCallbackBase)
 }
 
 
-// MEM_PRIVATE, so this cleanly rejects a music-player object whose "vtable" is actually heap data.
 static bool IsModuleImagePtr(const void* p, bool requireExec)
 {
     if (!p)
@@ -163,23 +156,6 @@ static void* ResolveMusicPlayerPlayTarget(void* musicPlayer)
 }
 
 
-static bool TryCopyBytes(const void* source, void* dest, std::size_t size)
-{
-    if (!source || !dest || size == 0)
-        return false;
-
-    __try
-    {
-        std::memcpy(dest, source, size);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-
 static bool TryCopyTapeIdTableFromCassetteCallback(void* cassetteCallbackBase, std::uint8_t* outBuffer)
 {
     if (!cassetteCallbackBase || !outBuffer)
@@ -210,7 +186,7 @@ static void CacheTapeIdTableFromCassetteCallback(void* cassetteCallbackBase)
 
     if (!ok)
     {
-        Log("[CassettePlay] CacheTapeIdTableFromCassetteCallback: exception\n");
+        Log("[CassettePlay] WARN: could not read the cassette tape-id table — cassette track selection may be wrong this session.\n");
         return;
     }
 
@@ -218,181 +194,15 @@ static void CacheTapeIdTableFromCassetteCallback(void* cassetteCallbackBase)
         std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
 
         std::memcpy(g_CachedTapeIdTable, tempBuffer, kTapeIdTableSize);
-        g_LastTapeIdTable = g_CachedTapeIdTable;
         g_HasCopiedTapeIdTable = true;
     }
 }
 
 
-static void LogHexRow(const char* prefix, std::size_t baseOffset, const std::uint8_t* rowBytes)
+static void InstallMusicPlayerPlayHookOnTarget(void* targetPtr)
 {
-}
-
-
-static void LogCassetteCallbackState(void* cassetteCallbackBase)
-{
-    if (!cassetteCallbackBase)
-    {
-        Log("[CassetteState] callback is null\n");
-        return;
-    }
-
-    __try
-    {
-        const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(cassetteCallbackBase);
-
-        const std::uintptr_t pD20 = *reinterpret_cast<const std::uintptr_t*>(base + 0xD20ull);
-        const std::uint32_t  cD28 = *reinterpret_cast<const std::uint32_t*>(base + 0xD28ull);
-
-        const std::uintptr_t pD30 = *reinterpret_cast<const std::uintptr_t*>(base + 0xD30ull);
-        const std::uint32_t  cD38 = *reinterpret_cast<const std::uint32_t*>(base + 0xD38ull);
-
-        const std::uintptr_t pD40 = *reinterpret_cast<const std::uintptr_t*>(base + 0xD40ull);
-        const std::uint32_t  cD48 = *reinterpret_cast<const std::uint32_t*>(base + 0xD48ull);
-
-        const std::uint32_t  curD50 = *reinterpret_cast<const std::uint32_t*>(base + 0xD50ull);
-        const std::uint32_t  f64 = *reinterpret_cast<const std::uint32_t*>(base + 0xF64ull);
-        const std::uint32_t  f80 = *reinterpret_cast<const std::uint32_t*>(base + 0xF80ull);
-        const std::uint32_t  f84 = *reinterpret_cast<const std::uint32_t*>(base + 0xF84ull);
-
-        if (pD20 && cD28)
-        {
-            const std::size_t elementCount = (cD28 > 8u) ? 8u : static_cast<std::size_t>(cD28);
-            const std::size_t bytes = elementCount * sizeof(std::uint64_t);
-
-            if (bytes > 0)
-            {
-                std::uint8_t temp[8 * sizeof(std::uint64_t)] = {};
-                if (TryCopyBytes(reinterpret_cast<const void*>(pD20), temp, bytes))
-                {
-                    for (std::size_t i = 0; i < bytes; i += 0x10)
-                    {
-                        LogHexRow("[CassetteState][D20]", i, &temp[i]);
-                    }
-                }
-            }
-        }
-
-        if (pD30 && cD38)
-        {
-            const std::size_t elementCount = (cD38 > 8u) ? 8u : static_cast<std::size_t>(cD38);
-            const std::size_t bytes = elementCount * sizeof(std::uint64_t);
-
-            if (bytes > 0)
-            {
-                std::uint8_t temp[8 * sizeof(std::uint64_t)] = {};
-                if (TryCopyBytes(reinterpret_cast<const void*>(pD30), temp, bytes))
-                {
-                    for (std::size_t i = 0; i < bytes; i += 0x10)
-                    {
-                        LogHexRow("[CassetteState][D30]", i, &temp[i]);
-                    }
-                }
-            }
-        }
-
-        if (pD40 && cD48)
-        {
-            const std::size_t elementCount = (cD48 > 8u) ? 8u : static_cast<std::size_t>(cD48);
-            const std::size_t bytes = elementCount * sizeof(std::uint64_t);
-
-            if (bytes > 0)
-            {
-                std::uint8_t temp[8 * sizeof(std::uint64_t)] = {};
-                if (TryCopyBytes(reinterpret_cast<const void*>(pD40), temp, bytes))
-                {
-                    for (std::size_t i = 0; i < bytes; i += 0x10)
-                    {
-                        LogHexRow("[CassetteState][D40]", i, &temp[i]);
-                    }
-                }
-            }
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        Log("[CassetteState] exception while reading callback state\n");
-    }
-}
-
-
-static void LogCassetteSelectionTrace(void* tapeIdTable, std::uint32_t albumIndex, std::uint32_t selectedTrackIndex)
-{
-    if (!tapeIdTable)
-    {
-        Log("[CassetteTrace] tapeIdTable is null\n");
-        return;
-    }
-
-    {
-        std::uint8_t block[0x100] = {};
-        if (TryCopyBytes(tapeIdTable, block, sizeof(block)))
-        {
-            for (std::size_t i = 0; i < sizeof(block); i += 0x10)
-            {
-                LogHexRow("[CassetteTrace][Head]", i, &block[i]);
-            }
-        }
-        else
-        {
-            Log("[CassetteTrace] failed to copy table head\n");
-        }
-    }
-
-    {
-        const std::size_t centerOffset = static_cast<std::size_t>(selectedTrackIndex) * sizeof(std::uint32_t);
-        const std::size_t startOffset = (centerOffset >= 0x40) ? (centerOffset - 0x40) : 0;
-
-        std::uint8_t block[0x80] = {};
-        const void* startPtr = reinterpret_cast<const void*>(
-            reinterpret_cast<std::uintptr_t>(tapeIdTable) + startOffset);
-
-        if (TryCopyBytes(startPtr, block, sizeof(block)))
-        {
-            for (std::size_t i = 0; i < sizeof(block); i += 0x10)
-            {
-                LogHexRow("[CassetteTrace][TrackWindow]", startOffset + i, &block[i]);
-            }
-        }
-        else
-        {
-            Log("[CassetteTrace] failed to copy track window\n");
-        }
-    }
-
-    {
-        const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(tapeIdTable);
-
-        std::uint32_t selectedTrackId = 0;
-        std::uint32_t selectedAlbumValue = 0;
-
-        const void* selectedTrackPtr = reinterpret_cast<const void*>(
-            base + static_cast<std::size_t>(selectedTrackIndex) * sizeof(std::uint32_t));
-        const void* selectedAlbumPtr = reinterpret_cast<const void*>(
-            base + static_cast<std::size_t>(albumIndex) * sizeof(std::uint32_t));
-
-        if (TryCopyBytes(selectedTrackPtr, &selectedTrackId, sizeof(selectedTrackId)))
-        {
-        }
-
-        if (TryCopyBytes(selectedAlbumPtr, &selectedAlbumValue, sizeof(selectedAlbumValue)))
-        {
-        }
-    }
-}
-
-
-static void TryInstallMusicPlayerPlayHook(void* musicPlayer)
-{
-    if (!musicPlayer)
-        return;
-
-    void* targetPtr = ResolveMusicPlayerPlayTarget(musicPlayer);
     if (!targetPtr)
-    {
-        Log("[CassettePlay] MusicPlayer vf+0xF0 hook: failed to resolve target\n");
         return;
-    }
 
     std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
 
@@ -406,16 +216,27 @@ static void TryInstallMusicPlayerPlayHook(void* musicPlayer)
 
     if (!ok)
     {
-        Log("[CassettePlay] MusicPlayer vf+0xF0 hook: FAIL target=%p\n", targetPtr);
+        Log("[CassettePlay] ERROR: failed to hook the music player's play function (target=%p) — direct cassette playback will not work.\n", targetPtr);
         return;
     }
 
     g_MusicPlayerPlayTarget = targetPtr;
+}
 
-    Log(
-        "[CassettePlay] MusicPlayer vf+0xF0 hook: OK player=%p target=%p\n",
-        musicPlayer,
-        targetPtr);
+
+static void TryInstallMusicPlayerPlayHook(void* musicPlayer)
+{
+    if (!musicPlayer)
+        return;
+
+    void* targetPtr = ResolveMusicPlayerPlayTarget(musicPlayer);
+    if (!targetPtr)
+    {
+        Log("[CassettePlay] WARN: could not resolve the music player's play function from its vtable — direct cassette playback unavailable until the Music Player screen is opened.\n");
+        return;
+    }
+
+    InstallMusicPlayerPlayHookOnTarget(targetPtr);
 }
 
 
@@ -433,16 +254,7 @@ static void __fastcall hkMusicPlayerPlay(
     {
         std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
         g_LastMusicPlayer = player;
-        g_LastTapeIdTable = tapeIdTable;
-        g_LastAlbumIndex = albumIndex;
-        g_LastSelectedTrackIndex = selectedTrackIndex;
-        g_LastPlayMode = playMode;
-        g_LastFlag1 = flag1;
-        g_LastFlag2 = flag2;
     }
-
-    LogCassetteCallbackState(g_LastCassetteCallbackBase);
-    LogCassetteSelectionTrace(tapeIdTable, albumIndex, selectedTrackIndex);
 
     if (g_OrigMusicPlayerPlay)
     {
@@ -463,7 +275,7 @@ static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
 {
     if (!g_OrigCassetteStart)
     {
-        Log("[CassettePlay] hkCassetteStart: orig is null\n");
+        Log("[CassettePlay] ERROR: Cassette Start trampoline is null — the hook failed to install; cassette playback control is broken.\n");
         return;
     }
 
@@ -486,7 +298,7 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
 {
     if (!g_OrigPlayOrPauseSelectedTrack)
     {
-        Log("[CassettePlay] hkPlayOrPauseSelectedTrack: orig is null\n");
+        Log("[CassettePlay] ERROR: PlayOrPauseSelectedTrack trampoline is null — the hook failed to install; cassette playback control is broken.\n");
         return false;
     }
 
@@ -509,7 +321,7 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
     }
     else
     {
-        Log("[CassettePlay] ResolveMusicPlayerFromCassetteCallback: FAIL callback=%p\n", cassetteCallbackBase);
+        Log("[CassettePlay] WARN: could not resolve the music player from the cassette callback (callback=%p) — direct cassette playback may be unavailable.\n", cassetteCallbackBase);
     }
 
     return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
@@ -594,20 +406,20 @@ bool IsCassetteSpeakerEnabled(bool& outEnabled)
     void* player = nullptr;
     if (!ResolveCachedCassetteCallbackAndPlayer(callbackBase, player))
     {
-        Log("[CassetteSpeaker] Get: cached callback/player not ready\n");
+        Log("[CassetteSpeaker] WARN: cassette player not captured yet — open the in-game Music Player once before reading speaker mode.\n");
         return false;
     }
 
     if (!CanSwitchCassetteSpeakerMode(player))
     {
-        Log("[CassetteSpeaker] Get: player state does not allow switching callback=%p player=%p\n", callbackBase, player);
+        Log("[CassetteSpeaker] WARN: cassette player state does not allow speaker switching right now (callback=%p player=%p) — try while a tape is playing.\n", callbackBase, player);
         return false;
     }
 
     void* fnAddr = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetSpeakerModeVtableOffset);
     if (!fnAddr)
     {
-        Log("[CassetteSpeaker] Get: mode getter not resolved\n");
+        Log("[CassetteSpeaker] ERROR: could not resolve the speaker-mode getter from the player vtable — speaker toggle will not work on this build.\n");
         return false;
     }
 
@@ -620,7 +432,7 @@ bool IsCassetteSpeakerEnabled(bool& outEnabled)
         if (currentMode != static_cast<int>(kCassetteSpeakerModeDisabled) &&
             currentMode != static_cast<int>(kCassetteSpeakerModeEnabled))
         {
-            Log("[CassetteSpeaker] Get: unexpected mode=%d callback=%p player=%p\n", currentMode, callbackBase, player);
+            Log("[CassetteSpeaker] WARN: speaker getter returned unexpected mode=%d (callback=%p player=%p) — cannot report speaker state.\n", currentMode, callbackBase, player);
             return false;
         }
 
@@ -630,7 +442,7 @@ bool IsCassetteSpeakerEnabled(bool& outEnabled)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteSpeaker] Get: exception while reading mode\n");
+        Log("[CassetteSpeaker] ERROR: exception while reading speaker mode — speaker toggle may be unsupported on this build.\n");
         return false;
     }
 }
@@ -645,13 +457,13 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     void* player = nullptr;
     if (!ResolveCachedCassetteCallbackAndPlayer(callbackBase, player))
     {
-        Log("[CassetteSpeaker] Set: cached callback/player not ready enabled=%d\n", enabled ? 1 : 0);
+        Log("[CassetteSpeaker] WARN: cassette player not captured yet — open the in-game Music Player once before changing speaker mode.\n");
         return false;
     }
 
     if (!CanSwitchCassetteSpeakerMode(player))
     {
-        Log("[CassetteSpeaker] Set: player state does not allow switching callback=%p player=%p enabled=%d\n", callbackBase, player, enabled ? 1 : 0);
+        Log("[CassetteSpeaker] WARN: cassette player state does not allow speaker switching right now (callback=%p player=%p) — try while a tape is playing.\n", callbackBase, player);
         return false;
     }
 
@@ -667,7 +479,7 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     void* fnAddr = ResolveCassettePlayerVtableFunction(player, kCassettePlayerSetSpeakerModeVtableOffset);
     if (!fnAddr)
     {
-        Log("[CassetteSpeaker] Set: setter not resolved enabled=%d\n", enabled ? 1 : 0);
+        Log("[CassetteSpeaker] ERROR: could not resolve the speaker-mode setter from the player vtable — speaker toggle will not work on this build.\n");
         return false;
     }
 
@@ -682,7 +494,7 @@ bool SetCassetteSpeakerEnabled(bool enabled)
         std::uint32_t* result = setSpeakerMode(player, resultStorage, targetMode);
         if (!result)
         {
-            Log("[CassetteSpeaker] Set: setter returned null enabled=%d\n", enabled ? 1 : 0);
+            Log("[CassetteSpeaker] WARN: speaker-mode setter returned null (enabled=%d) — speaker mode was not changed.\n", enabled ? 1 : 0);
             return false;
         }
 
@@ -692,7 +504,7 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteSpeaker] Set: exception while calling setter enabled=%d\n", enabled ? 1 : 0);
+        Log("[CassetteSpeaker] ERROR: exception while setting speaker mode (enabled=%d) — speaker toggle may be unsupported on this build.\n", enabled ? 1 : 0);
         return false;
     }
 }
@@ -780,10 +592,8 @@ static bool ResolveDirectPlayState(MusicPlayerPlay_t& outPlayFn, void*& outPlaye
 
     if (outPlayFn == nullptr || outPlayer == nullptr)
     {
-        Log("[CassettePlay] resolve FAIL: chosenPlayer=%p chosenFn=%p | callbackBase=%p callbackPlayer=%p(fn=%p) soundMusicPlayer=%p(fn=%p)\n",
-            outPlayer, reinterpret_cast<void*>(outPlayFn), callbackBase,
-            callbackPlayer, callbackPlayer ? ResolveMusicPlayerPlayTarget(callbackPlayer) : nullptr,
-            smp, smp ? ResolveMusicPlayerPlayTarget(smp) : nullptr);
+        Log("[CassettePlay] WARN: no play-capable cassette player resolved (player=%p playFn=%p) — open the in-game Music Player once so it gets captured.\n",
+            outPlayer, reinterpret_cast<void*>(outPlayFn));
     }
 
     return (outPlayFn != nullptr && outPlayer != nullptr);
@@ -795,14 +605,14 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
     void* startTarget = ResolveGameAddress(gAddr.CassetteStart);
     if (!startTarget)
     {
-        Log("[Hook] Cassette Start: address resolve failed\n");
+        Log("[CassettePlay] ERROR: Cassette Start address unavailable for this build — cassette playback control is disabled.\n");
         return false;
     }
 
     void* playTarget = ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack);
     if (!playTarget)
     {
-        Log("[Hook] Cassette PlayOrPauseSelectedTrack: address resolve failed\n");
+        Log("[CassettePlay] ERROR: PlayOrPauseSelectedTrack address unavailable for this build — cassette playback control is disabled.\n");
         return false;
     }
 
@@ -816,8 +626,14 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
         reinterpret_cast<void*>(&hkPlayOrPauseSelectedTrack),
         reinterpret_cast<void**>(&g_OrigPlayOrPauseSelectedTrack));
 
-    Log("[Hook] Cassette Start: %s\n", okStart ? "OK" : "FAIL");
-    Log("[Hook] Cassette PlayOrPauseSelectedTrack: %s\n", okPlay ? "OK" : "FAIL");
+    if (!okStart)
+        Log("[CassettePlay] ERROR: failed to hook Cassette Start — cassette playback control will not work.\n");
+    if (!okPlay)
+        Log("[CassettePlay] ERROR: failed to hook PlayOrPauseSelectedTrack — cassette playback control will not work.\n");
+
+    void* playWrapper = ResolveGameAddress(gAddr.MusicPlayerPlayWrapper);
+    if (playWrapper)
+        InstallMusicPlayerPlayHookOnTarget(playWrapper);
 
     return okStart && okPlay;
 }
@@ -843,12 +659,6 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
         g_OrigMusicPlayerPlay = nullptr;
         g_LastCassetteCallbackBase = nullptr;
         g_LastMusicPlayer = nullptr;
-        g_LastTapeIdTable = nullptr;
-        g_LastAlbumIndex = 0;
-        g_LastSelectedTrackIndex = 0;
-        g_LastPlayMode = 0;
-        g_LastFlag1 = 0;
-        g_LastFlag2 = 0;
 
         std::memset(g_CachedTapeIdTable, 0, sizeof(g_CachedTapeIdTable));
         g_HasCopiedTapeIdTable = false;
@@ -873,9 +683,9 @@ bool PlayCassetteByTrackId(
 
     if (!ResolveDirectPlayState(playFn, player))
     {
-        Log("[CassettePlay] PlayCassetteByTrackId: no play-capable player. Open the in-game Music Player"
-            " once so the cassette player gets captured — the cold *(MM+0xA8) object is track-info-only,"
-            " not a vtable play target.\n");
+        Log("[CassettePlay] WARN: cannot play tape — no play-capable cassette player. Open the in-game Music Player"
+            " once so the cassette player gets captured (the cold *(MM+0xA8) object is track-info-only,"
+            " not a vtable play target).\n");
         return false;
     }
 
@@ -910,10 +720,8 @@ bool PlayCassetteByTrackId(
 
     const std::int32_t playResult =
         static_cast<std::int32_t>(static_cast<std::uint32_t>(outHandle));
-    Log(
-        "[CassettePlay] DirectPlayByTrackId result handle=%d %s\n",
-        playResult,
-        (playResult < 0) ? "FAILED (-1: play fn rejected it — music subsystem not ready / state gate)" : "OK (playing)");
+    if (playResult < 0)
+        Log("[CassettePlay] WARN: the play function rejected tape trackId=%u (handle=%d) — music subsystem not ready or blocked by game state.\n", trackId, playResult);
 
     return true;
 }

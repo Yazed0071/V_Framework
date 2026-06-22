@@ -105,6 +105,26 @@ void Log(const char* fmt, ...)
         fflush(g_LogFile);
 }
 
+void CrashLogf(const char* fmt, ...)
+{
+    char buf[2048];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (len < 0)
+        return;
+    if (len >= static_cast<int>(sizeof(buf)))
+        len = static_cast<int>(sizeof(buf)) - 1;
+
+    if (g_LogFile)
+    {
+        fwrite(buf, 1, static_cast<size_t>(len), g_LogFile);
+        fflush(g_LogFile);
+    }
+    ConsoleWrite(buf, len);
+}
+
 void CloseLog()
 {
     std::lock_guard<std::mutex> lock(g_LogMutex);

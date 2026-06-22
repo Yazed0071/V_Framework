@@ -59,6 +59,8 @@ static DWORD WINAPI InitThread(LPVOID)
         return 0;
     }
 
+    InstallCrashHandler();
+
     RegisterBuiltInFeatureModules();
 
     V_FrameWorkState::Load();

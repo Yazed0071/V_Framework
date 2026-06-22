@@ -1,4 +1,0 @@
-#pragma once
-
-bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook();
-bool Uninstall_SoundMusicPlayer_GetTrackInfoByName_Hook();

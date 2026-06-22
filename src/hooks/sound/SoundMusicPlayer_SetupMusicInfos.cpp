@@ -17,6 +17,7 @@
 #include "SoundMusicPlayer_SetupMusicInfos.h"
 #include "CustomTapeOwnership.h"
 #include "AddressSet.h"
+#include "Control_PostExternalEvent.h"
 
 namespace
 {
@@ -28,6 +29,7 @@ namespace
 
     static constexpr std::uint32_t kFoxAllocTag = 0x5006Fu;
     static constexpr std::size_t kFileNameMaxChars = 15u;
+    static constexpr std::size_t kFileNameMaxCharsLong = 27u;
 
     static SetupMusicInfos_t g_OrigSetupMusicInfos = nullptr;
     static void* g_LastSoundMusicPlayer = nullptr;
@@ -288,6 +290,25 @@ static TapeAlbumRecord* FindMutableAlbumRecordByHash(
 }
 
 
+static const TapeTrackRecord* FindTrackRecordByHash(
+    const TapeTrackRecord* tracks,
+    std::uint32_t count,
+    std::uint64_t albumIdHash,
+    std::uint64_t langIdHash)
+{
+    if (!tracks || count == 0 || albumIdHash == 0 || langIdHash == 0)
+        return nullptr;
+
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        if (tracks[i].albumId == albumIdHash && tracks[i].langId == langIdHash)
+            return &tracks[i];
+    }
+
+    return nullptr;
+}
+
+
 static void CopyCustomTapeRegistry(CustomTapeRegistry& outRegistry)
 {
     std::lock_guard<std::mutex> lock(g_CustomTapeMutex);
@@ -338,7 +359,7 @@ static void PrepareCustomAlbums(
     {
         if (def.albumId.empty() || def.langId.empty())
         {
-            Log("[CustomTapes] Skipping album with missing albumId/langId\n");
+            Log("[CustomTapes] WARN: album skipped — albumId or langId is missing; the album will not appear.\n");
             continue;
         }
 
@@ -347,19 +368,17 @@ static void PrepareCustomAlbums(
 
         if (albumIdHash == 0 || langIdHash == 0)
         {
-            Log("[CustomTapes] Skipping album hash failure: %s\n", def.albumId.c_str());
+            Log("[CustomTapes] WARN: album '%s' skipped — albumId/langId hashed to 0; the album will not appear.\n", def.albumId.c_str());
             continue;
         }
 
         if (FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr)
         {
-            Log("[CustomTapes] Skipping album duplicate with existing data: %s\n", def.albumId.c_str());
             continue;
         }
 
         if (!seenCustomAlbumIds.insert(albumIdHash).second)
         {
-            Log("[CustomTapes] Skipping duplicate custom album in request: %s\n", def.albumId.c_str());
             continue;
         }
 
@@ -377,7 +396,7 @@ static void PrepareCustomAlbums(
             if (!stockAlbumId)
             {
                 Log(
-                    "[CustomTapes] Skipping album %s because type is unsupported: %s\n",
+                    "[CustomTapes] WARN: album '%s' skipped — unsupported type '%s'; the album will not appear.\n",
                     def.albumId.c_str(),
                     def.type.c_str());
                 continue;
@@ -390,7 +409,7 @@ static void PrepareCustomAlbums(
             if (!stockAlbum)
             {
                 Log(
-                    "[CustomTapes] Skipping album %s because stock type exemplar was not found: %s -> %s\n",
+                    "[CustomTapes] WARN: album '%s' skipped — stock type exemplar '%s' (%s) not found in game data; the album will not appear.\n",
                     def.albumId.c_str(),
                     def.type.c_str(),
                     stockAlbumId);
@@ -403,7 +422,7 @@ static void PrepareCustomAlbums(
 
         if (!hasResolvedType)
         {
-            Log("[CustomTapes] Skipping album %s because no type/typeValue was provided\n", def.albumId.c_str());
+            Log("[CustomTapes] WARN: album '%s' skipped — no type/typeValue provided; the album will not appear.\n", def.albumId.c_str());
             continue;
         }
 
@@ -423,6 +442,8 @@ static void PrepareCustomTracks(
     bool isJapaneseVoice,
     const TapeAlbumRecord* existingAlbums,
     std::uint32_t existingAlbumCount,
+    const TapeTrackRecord* existingTracks,
+    std::uint32_t existingTrackCount,
     const std::vector<PreparedCustomAlbum>& validAlbums,
     std::vector<PreparedCustomTrack>& outTracks)
 {
@@ -438,18 +459,17 @@ static void PrepareCustomTracks(
     {
         if (def.albumId.empty() || def.langId.empty() || def.fileName.empty())
         {
-            Log("[CustomTapes] Skipping track with missing field\n");
+            Log("[CustomTapes] WARN: tape track skipped — albumId, langId, or fileName is missing; the track will not appear.\n");
             continue;
         }
 
-        if (def.fileName.size() > kFileNameMaxChars)
-        {
-            Log(
-                "[CustomTapes] Skipping track %s because fileName is longer than %zu chars\n",
-                def.fileName.c_str(),
-                kFileNameMaxChars);
+        const std::size_t fileNameCap =
+            IsCustomTapeLongFilenameHookActive() ? kFileNameMaxCharsLong : kFileNameMaxChars;
+        if (def.fileName.size() > fileNameCap)
             continue;
-        }
+
+        if (def.fileName.size() > kFileNameMaxChars)
+            Register_CustomTapeLongFilename(FoxHashes::StrCode32(def.fileName), def.fileName.c_str());
 
         const std::uint64_t albumIdHash = FoxHashes::StrCode64(def.albumId);
         const std::uint64_t langIdHash = FoxHashes::StrCode64(def.langId);
@@ -457,24 +477,27 @@ static void PrepareCustomTracks(
 
         if (albumIdHash == 0 || langIdHash == 0 || fileNameStrCode == 0)
         {
-            Log("[CustomTapes] Skipping track hash failure: %s\n", def.fileName.c_str());
+            Log("[CustomTapes] WARN: tape track '%s' skipped — albumId/langId/fileName hashed to 0; the track will not appear.\n", def.fileName.c_str());
             continue;
         }
 
         const bool acceptedCustomAlbum =
             validAlbumIds.find(albumIdHash) != validAlbumIds.end();
 
-        // Accept a track aimed at any album that already exists (vanilla or
-        // previously-injected), not just custom albums registered in this call.
         const bool acceptedExistingAlbum =
             FindAlbumRecordByHash(existingAlbums, existingAlbumCount, albumIdHash) != nullptr;
 
         if (!acceptedCustomAlbum && !acceptedExistingAlbum)
         {
             Log(
-                "[CustomTapes] Skipping track %s because its album was not accepted: %s\n",
+                "[CustomTapes] WARN: tape track '%s' skipped — its album '%s' does not exist and was not registered; the track will not appear.\n",
                 def.fileName.c_str(),
                 def.albumId.c_str());
+            continue;
+        }
+
+        if (FindTrackRecordByHash(existingTracks, existingTrackCount, albumIdHash, langIdHash) != nullptr)
+        {
             continue;
         }
 
@@ -527,7 +550,7 @@ static bool ResolvePreparedTrackSaveIndices(std::vector<PreparedCustomTrack>& pr
         if (!ok || resolvedSaveIndex < 0)
         {
             Log(
-                "[CustomTapes] Failed resolving saveIndex for albumId=%s fileName=%s requested=%d\n",
+                "[CustomTapes] ERROR: could not assign a save-index for tape albumId=%s fileName=%s requested=%d — custom-tape injection aborted; no custom tapes added this load.\n",
                 track.albumId.c_str(),
                 track.fileName.c_str(),
                 static_cast<int>(track.requestedSaveIndex));
@@ -570,7 +593,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     SoundMusicPlayerSnapshot snapshot;
     if (!ReadSoundMusicPlayerSnapshot(soundMusicPlayer, snapshot))
     {
-        Log("[CustomTapes] Failed reading SoundMusicPlayer fields\n");
+        Log("[CustomTapes] ERROR: could not read SoundMusicPlayer track/album fields — custom tapes cannot be injected this load.\n");
         return false;
     }
 
@@ -584,7 +607,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
     if (oldTotalAlbumCount < oldLuaAlbumCount || oldTotalTrackCount < oldLuaTrackCount)
     {
         Log(
-            "[CustomTapes] Invalid counters oldLuaAlbumCount=%u oldTotalAlbumCount=%u oldLuaTrackCount=%u oldTotalTrackCount=%u\n",
+            "[CustomTapes] ERROR: SoundMusicPlayer counters are inconsistent (luaAlbums=%u totalAlbums=%u luaTracks=%u totalTracks=%u) — custom tapes cannot be injected this load.\n",
             oldLuaAlbumCount,
             oldTotalAlbumCount,
             oldLuaTrackCount,
@@ -603,12 +626,13 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         isJapaneseVoice,
         oldAlbums,
         oldTotalAlbumCount,
+        oldTracks,
+        oldTotalTrackCount,
         preparedAlbums,
         preparedTracks);
 
     if (!ResolvePreparedTrackSaveIndices(preparedTracks))
     {
-        Log("[CustomTapes] ResolvePreparedTrackSaveIndices failed\n");
         return false;
     }
 
@@ -637,7 +661,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 
         if (!newAlbums)
         {
-            Log("[CustomTapes] Album allocation failed\n");
+            Log("[CustomTapes] ERROR: album buffer allocation failed (count=%u) — out of game heap; custom tapes cannot be injected this load.\n", newTotalAlbumCount);
             return false;
         }
 
@@ -653,7 +677,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 
         if (!newTracks)
         {
-            Log("[CustomTapes] Track allocation failed\n");
+            Log("[CustomTapes] ERROR: track buffer allocation failed (count=%u) — out of game heap; custom tapes cannot be injected this load.\n", newTotalTrackCount);
             GameFree(newAlbums);
             return false;
         }
@@ -674,7 +698,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 
     if (customAlbumCount > 0 && newAlbums == nullptr)
     {
-        Log("[CustomTapes] newAlbums is null before custom album injection\n");
+        Log("[CustomTapes] ERROR: album buffer is null before injection — internal state inconsistent; custom tapes cannot be injected this load.\n");
         GameFree(newTracks);
         return false;
     }
@@ -709,7 +733,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
 
     if (customTrackCount > 0 && newTracks == nullptr)
     {
-        Log("[CustomTapes] newTracks is null before custom track injection\n");
+        Log("[CustomTapes] ERROR: track buffer is null before injection — internal state inconsistent; custom tapes cannot be injected this load.\n");
         GameFree(newAlbums);
         return false;
     }
@@ -767,7 +791,7 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         newLuaTrackCount,
         newTotalTrackCount))
     {
-        Log("[CustomTapes] Failed writing rebuilt SoundMusicPlayer arrays\n");
+        Log("[CustomTapes] ERROR: failed writing rebuilt track/album arrays back to SoundMusicPlayer — custom tapes will not appear this load.\n");
         GameFree(newAlbums);
         GameFree(newTracks);
         return false;
@@ -782,7 +806,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
     {
-        Log("[CustomTapes] MusicManager::s_instance address resolve failed\n");
+        Log("[CustomTapes] ERROR: MusicManager::s_instance address unavailable for this build — custom tapes cannot be injected.\n");
         return nullptr;
     }
 
@@ -791,7 +815,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
         void* musicManagerInstance = *reinterpret_cast<void**>(musicManagerGlobalAddr);
         if (!musicManagerInstance)
         {
-            Log("[CustomTapes] MusicManager::s_instance is null\n");
+            Log("[CustomTapes] WARN: MusicManager not initialized yet — custom tapes will be injected once the sound system is up.\n");
             return nullptr;
         }
 
@@ -801,7 +825,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
 
         if (!soundMusicPlayer)
         {
-            Log("[CustomTapes] SoundMusicPlayer is null\n");
+            Log("[CustomTapes] WARN: SoundMusicPlayer not initialized yet — custom tapes will be injected once the sound system is up.\n");
             return nullptr;
         }
 
@@ -809,7 +833,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CustomTapes] Exception while resolving MusicManager::s_instance\n");
+        Log("[CustomTapes] ERROR: exception while resolving SoundMusicPlayer — custom tapes cannot be injected this load.\n");
         return nullptr;
     }
 }
@@ -826,7 +850,6 @@ static bool ApplyToCachedSoundMusicPlayer()
 
     if (!soundMusicPlayer)
     {
-        Log("[CustomTapes] ApplyToCachedSoundMusicPlayer: direct resolve failed\n");
         return true;
     }
 
@@ -853,7 +876,7 @@ bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
     void* target = ResolveGameAddress(gAddr.SetupMusicInfos);
     if (!target)
     {
-        Log("[CustomTapes] SetupMusicInfos address resolve failed\n");
+        Log("[CustomTapes] ERROR: SetupMusicInfos address unavailable for this build — custom tapes cannot be injected.\n");
         return false;
     }
 
@@ -862,11 +885,8 @@ bool Install_SoundMusicPlayer_SetupMusicInfos_Hook()
         reinterpret_cast<void*>(&hkSetupMusicInfos),
         reinterpret_cast<void**>(&g_OrigSetupMusicInfos));
 
-    Log(
-        "[CustomTapes] SetupMusicInfos hook result: %s target=%p orig=%p\n",
-        ok ? "OK" : "FAIL",
-        target,
-        g_OrigSetupMusicInfos);
+    if (!ok)
+        Log("[CustomTapes] ERROR: failed to hook SetupMusicInfos (target=%p) — custom tapes cannot be injected.\n", target);
 
     return ok;
 }

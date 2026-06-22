@@ -57,6 +57,8 @@ namespace
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
     static constexpr std::int16_t kCustomSaveIndexMax = 1999;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
+    // Cassette slice of a shared flag buffer; writing past it corrupts other save data (dispatch).
+    static constexpr std::uint16_t kVanillaCassetteFlagRegionEndExclusive = 0x193u;
 
 
     struct CustomTapePersistEntry
@@ -320,6 +322,9 @@ static bool TryReadLiveCassetteState(std::int16_t saveIndex, bool& outOwned, boo
     if (tableIndex == 0xFFFFu)
         return false;
 
+    if (tableIndex < kVanillaOwnedIndexBias || tableIndex >= kVanillaCassetteFlagRegionEndExclusive)
+        return false;
+
     __try
     {
         const std::uint8_t value = liveTable[tableIndex];
@@ -376,7 +381,7 @@ static bool SaveCustomTapeStateToDisk()
     std::ofstream file(path, std::ios::out | std::ios::trunc);
     if (!file.is_open())
     {
-        Log("[CustomTapeState] Save failed path=%s\n", path.c_str());
+        Log("[CustomTapeState] ERROR: could not write '%s' — custom-tape owned/new state will not persist across launches.\n", path.c_str());
         return false;
     }
 
@@ -399,11 +404,6 @@ static bool SaveCustomTapeStateToDisk()
     file << "    }\n";
     file << "}\n";
 
-    Log(
-        "[CustomTapeState] Saved %zu tape entries to %s\n",
-        entries.size(),
-        path.c_str());
-
     return true;
 }
 
@@ -423,7 +423,6 @@ static bool LoadCustomTapeStateFromDisk()
             CustomTapePersistEntry entry;
             entry.saveIndex = saveIndex;
 
-            // "albumId:fileName".
             const auto colon = key.find(':');
             if (colon != std::string::npos)
             {
@@ -452,12 +451,6 @@ static bool LoadCustomTapeStateFromDisk()
         g_ActiveSessionTrackKeyToSaveIndex.clear();
         g_NewlyCreatedThisSessionSaveIndices.clear();
     }
-
-    Log(
-        "[CustomTapeState] Loaded owned=%zu new=%zu metadata=%zu from V_FrameWork_State.lua\n",
-        g_CustomOwnedTapeSaveIndices.size(),
-        g_CustomNewTapeSaveIndices.size(),
-        g_CustomTapePersistEntries.size());
 
     return true;
 }
@@ -513,11 +506,6 @@ void Register_CustomTapeStateTrackMetadata(std::int16_t saveIndex, const char* a
     if (changed)
     {
         SaveCustomTapeStateToDisk();
-        Log(
-            "[CustomTapeState] Metadata saveIndex=%d albumId=%s fileName=%s\n",
-            static_cast<int>(saveIndex),
-            albumId ? albumId : "",
-            fileName ? fileName : "");
     }
 }
 
@@ -684,14 +672,6 @@ bool ResolveOrCreateCustomTapeSaveIndex(
         SaveCustomTapeStateToDisk();
     }
 
-    Log(
-        "[CustomTapeState] ResolveOrCreateCustomTapeSaveIndex albumId=%s fileName=%s requested=%d resolved=%d created=%d\n",
-        albumId,
-        fileName,
-        static_cast<int>(requestedSaveIndex),
-        static_cast<int>(outResolvedSaveIndex),
-        outWasCreated ? 1 : 0);
-
     return true;
 }
 
@@ -740,12 +720,6 @@ void InitializeCustomTapeStateIfMissing(
 
     V_FrameWorkState::SetTapeOwnedBySaveIndex(saveIndex, owned);
     V_FrameWorkState::SetTapeNewBySaveIndex(saveIndex, isNew);
-
-    Log(
-        "[CustomTapeState] InitializeCustomTapeStateIfMissing saveIndex=%d owned=%d new=%d\n",
-        static_cast<int>(saveIndex),
-        owned ? 1 : 0,
-        isNew ? 1 : 0);
 }
 
 
@@ -899,6 +873,9 @@ static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, 
     if (tableIndex == 0xFFFFu)
         return;
 
+    if (tableIndex < kVanillaOwnedIndexBias || tableIndex >= kVanillaCassetteFlagRegionEndExclusive)
+        return;
+
     __try
     {
         std::uint8_t& value = liveTable[tableIndex];
@@ -999,7 +976,6 @@ static void SyncAllCustomTapeStateToLiveTable()
     if (saveNeeded)
     {
         SaveCustomTapeStateToDisk();
-        Log("[CustomTapeState] Adopted live new-flag changes from cassette table and saved.\n");
     }
 }
 
@@ -1134,14 +1110,6 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrack(lua_State* luaState)
     ApplyCustomTapeStateToLiveTable(saveIndex, true, true);
     FlushCustomTapeStateIfChanged(ownedChanged, newChanged, metadataChanged);
 
-    Log(
-        "[CustomTapeState] AddCassetteTapeTrack custom track=%s saveIndex=%d owned=1 new=1 ownedChanged=%d newChanged=%d metadataChanged=%d\n",
-        trackName,
-        static_cast<int>(saveIndex),
-        ownedChanged ? 1 : 0,
-        newChanged ? 1 : 0,
-        metadataChanged ? 1 : 0);
-
     return 0ull;
 }
 
@@ -1156,11 +1124,6 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrackByIndex(lua_State* luaState)
             const bool newChanged   = SetCustomTapeNewFlagSaveIndex(saveIndex, true);
             ApplyCustomTapeStateToLiveTable(saveIndex, true, true);
             FlushCustomTapeStateIfChanged(ownedChanged, newChanged, false);
-
-            Log("[CustomTapeState] AddCassetteTapeTrackByIndex custom saveIndex=%d owned=1 new=1 ownedChanged=%d newChanged=%d\n",
-                static_cast<int>(saveIndex),
-                ownedChanged ? 1 : 0,
-                newChanged ? 1 : 0);
         }
     }
 
@@ -1182,12 +1145,6 @@ static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
 
     const bool owned = IsCustomTapeOwnedSaveIndex(saveIndex);
     PushLuaBool(luaState, owned);
-
-    Log(
-        "[CustomTapeState] IsGotCassetteTapeTrack custom track=%s saveIndex=%d owned=%d\n",
-        trackName,
-        static_cast<int>(saveIndex),
-        owned ? 1 : 0);
 
     return 1;
 }
@@ -1217,14 +1174,6 @@ static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
     const bool changed = SetCustomTapeNewFlagSaveIndex(saveIndex, isNew);
     ApplyCustomTapeStateToLiveTable(saveIndex, IsCustomTapeOwnedSaveIndex(saveIndex), isNew);
     FlushCustomTapeStateIfChanged(false, changed, metadataChanged);
-
-    Log(
-        "[CustomTapeState] SetCassetteTapeTrackNewFlag custom track=%s saveIndex=%d isNew=%d changed=%d metadataChanged=%d\n",
-        trackName,
-        static_cast<int>(saveIndex),
-        isNew ? 1 : 0,
-        changed ? 1 : 0,
-        metadataChanged ? 1 : 0);
 
     return 0;
 }
@@ -1367,11 +1316,16 @@ bool Install_CustomTapeOwnership_Hooks()
             reinterpret_cast<void**>(&g_OrigCollectGotTapes));
     }
 
-    Log("[Hook] CustomTapeState AddCassetteTapeTrack: %s\n", okAdd ? "OK" : "FAIL");
-    Log("[Hook] CustomTapeState AddCassetteTapeTrackByIndex: %s\n", okAddByIndex ? "OK" : "FAIL");
-    Log("[Hook] CustomTapeState IsGotCassetteTapeTrack: %s\n", okIsGot ? "OK" : "FAIL");
-    Log("[Hook] CustomTapeState SetCassetteTapeTrackNewFlag: %s\n", okSetNew ? "OK" : "FAIL");
-    Log("[Hook] CustomTapeState CollectGotTapes: %s\n", okCollect ? "OK" : "FAIL");
+    if (!okAdd)
+        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrack — custom tapes cannot be marked owned when picked up.\n");
+    if (!okAddByIndex)
+        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrackByIndex — custom tapes cannot be granted by save-index.\n");
+    if (!okIsGot)
+        Log("[CustomTapes] ERROR: failed to hook IsGotCassetteTapeTrack — custom tapes will report wrong owned state.\n");
+    if (!okSetNew)
+        Log("[CustomTapes] ERROR: failed to hook SetCassetteTapeTrackNewFlag — custom tapes' new-flag will not update.\n");
+    if (!okCollect)
+        Log("[CustomTapes] ERROR: failed to hook CollectGotTapes — owned custom tapes will not show in the cassette menu.\n");
 
     return okAdd && okIsGot && okSetNew && okCollect;
 }

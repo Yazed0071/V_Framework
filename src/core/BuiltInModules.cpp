@@ -57,9 +57,6 @@ bool Uninstall_VIPSoundRecovery_Hook();
 bool Install_VIPRadio_Hook();
 bool Uninstall_VIPRadio_Hook();
 
-bool Install_ConvertParameterIdLogger_Hook();
-bool Uninstall_ConvertParameterIdLogger_Hook();
-
 bool Install_HoldUpReactionCowardlyReactions_Hook();
 bool Uninstall_HoldUpReactionCowardlyReactions_Hook();
 
@@ -87,6 +84,9 @@ bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 
 bool Install_CustomRadioCassette_Hooks();
 bool Uninstall_CustomRadioCassette_Hooks();
+
+bool Install_Control_PostExternalEvent_Hook();
+bool Uninstall_Control_PostExternalEvent_Hook();
 
 bool Install_SoundSystem_BeginSoundSystem_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
@@ -117,6 +117,9 @@ bool Uninstall_EnemyLangIdOverride_Hooks();
 
 bool Install_BasicActionImpl_StateCrawlSideRoll_Hook();
 bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
+
+bool Install_SearchLightActionPluginImpl_StateDoor_Hook();
+bool Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
 
 bool Install_PhaseSneakAiImpl_PreUpdate_Hook();
 bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook();
@@ -156,6 +159,24 @@ bool Uninstall_AnnounceLogHook();
 
 bool Install_TornadoDualPatch();
 void Uninstall_TornadoDualPatch();
+
+bool Install_EquipCrossSetEquipItemPatch();
+void Uninstall_EquipCrossSetEquipItemPatch();
+
+bool Install_IsWeaponNoUseInPlaceActionPatch();
+void Uninstall_IsWeaponNoUseInPlaceActionPatch();
+
+bool Install_IsItemNoUsePatch();
+void Uninstall_IsItemNoUsePatch();
+
+bool Install_BarrierEffectLoadPatch();
+void Uninstall_BarrierEffectLoadPatch();
+
+bool Install_BarrierEffectSpawn();
+void Uninstall_BarrierEffectSpawn();
+
+bool Install_SupportAttackCrashGuard();
+void Uninstall_SupportAttackCrashGuard();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
@@ -501,26 +522,6 @@ namespace
         }
     };
 
-    class ConvertParameterIdLoggerModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "ConvertParameterIdLogger";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_ConvertParameterIdLogger_Hook();
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_ConvertParameterIdLogger_Hook();
-        }
-    };
-
     class HoldUpReactionCowardlyReactionsModule final : public IFeatureModule
     {
     public:
@@ -652,6 +653,14 @@ namespace
         const char* GetName() const override { return "CustomRadioCassette"; }
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CustomRadioCassette_Hooks(); }
         void Uninstall() override { Uninstall_CustomRadioCassette_Hooks(); }
+    };
+
+    class CustomTapeLongFilenameModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CustomTapeLongFilename"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_Control_PostExternalEvent_Hook(); }
+        void Uninstall() override { Uninstall_Control_PostExternalEvent_Hook(); }
     };
 
     class SoundSystemBeginModule final : public IFeatureModule
@@ -870,6 +879,26 @@ namespace
         }
     };
 
+    class PlayerLockPickModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PlayerLockPick";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_SearchLightActionPluginImpl_StateDoor_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
+        }
+    };
+
     class PhaseSneakAiImpl_PreUpdateModule final : public IFeatureModule
     {
     public:
@@ -973,6 +1002,54 @@ namespace
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_TornadoDualPatch(); }
         void Uninstall() override { Uninstall_TornadoDualPatch(); }
     };
+
+    class EquipCrossSetEquipItemModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "EquipCrossSetEquipItem"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_EquipCrossSetEquipItemPatch(); }
+        void Uninstall() override { Uninstall_EquipCrossSetEquipItemPatch(); }
+    };
+
+    class IsWeaponNoUseInPlaceActionModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "IsWeaponNoUseInPlaceAction"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_IsWeaponNoUseInPlaceActionPatch(); }
+        void Uninstall() override { Uninstall_IsWeaponNoUseInPlaceActionPatch(); }
+    };
+
+    class IsItemNoUseModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "IsItemNoUse"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_IsItemNoUsePatch(); }
+        void Uninstall() override { Uninstall_IsItemNoUsePatch(); }
+    };
+
+    class BarrierEffectLoadModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectLoad"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectLoadPatch(); }
+        void Uninstall() override { Uninstall_BarrierEffectLoadPatch(); }
+    };
+
+    class BarrierEffectSpawnModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BarrierEffectSpawn"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectSpawn(); }
+        void Uninstall() override { Uninstall_BarrierEffectSpawn(); }
+    };
+
+    class SupportAttackCrashGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "SupportAttackCrashGuard"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SupportAttackCrashGuard(); }
+        void Uninstall() override { Uninstall_SupportAttackCrashGuard(); }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -994,7 +1071,6 @@ void RegisterBuiltInFeatureModules()
     static VIPHoldupModule s_VIPHoldupModule;
     static VIPSoundRecoveryModule s_VIPSoundRecoveryModule;
     static VIPRadioModule s_VIPRadioModule;
-    static ConvertParameterIdLoggerModule s_ConvertParameterIdLoggerModule;
     static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
     static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
     static LostHostageModule s_LostHostageModule;
@@ -1004,6 +1080,7 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static CustomRadioCassetteModule s_CustomRadioCassetteModule;
+    static CustomTapeLongFilenameModule s_CustomTapeLongFilenameModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
@@ -1015,6 +1092,7 @@ void RegisterBuiltInFeatureModules()
     static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
     static CrawlSideRollModule s_CrawlSideRollModule;
+    static PlayerLockPickModule s_PlayerLockPickModule;
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
     static MissionEmergencyModule s_MissionEmergencyModule;
     static ShowMissionIconModule s_ShowMissionIconModule;
@@ -1028,6 +1106,12 @@ void RegisterBuiltInFeatureModules()
     static HeliSoundControllerModule s_HeliSoundControllerModule;
     static AnnounceLogModule s_AnnounceLogModule;
     static TornadoDualPatchModule s_TornadoDualPatchModule;
+    static EquipCrossSetEquipItemModule s_EquipCrossSetEquipItemModule;
+    static IsWeaponNoUseInPlaceActionModule s_IsWeaponNoUseInPlaceActionModule;
+    static IsItemNoUseModule s_IsItemNoUseModule;
+    static BarrierEffectLoadModule s_BarrierEffectLoadModule;
+    static BarrierEffectSpawnModule s_BarrierEffectSpawnModule;
+    static SupportAttackCrashGuardModule s_SupportAttackCrashGuardModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -1058,6 +1142,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapeLongFilenameModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
@@ -1069,6 +1154,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_CrawlSideRollModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerLockPickModule);
             FeatureModuleRegistry::Instance().Register(&s_PhaseSneakAiImpl_PreUpdateModule);
             FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);
             FeatureModuleRegistry::Instance().Register(&s_ShowMissionIconModule);
@@ -1082,5 +1168,11 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_HeliSoundControllerModule);
             FeatureModuleRegistry::Instance().Register(&s_AnnounceLogModule);
             FeatureModuleRegistry::Instance().Register(&s_TornadoDualPatchModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipCrossSetEquipItemModule);
+            FeatureModuleRegistry::Instance().Register(&s_IsWeaponNoUseInPlaceActionModule);
+            FeatureModuleRegistry::Instance().Register(&s_IsItemNoUseModule);
+            FeatureModuleRegistry::Instance().Register(&s_SupportAttackCrashGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectLoadModule);
+            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectSpawnModule);
         });
 }

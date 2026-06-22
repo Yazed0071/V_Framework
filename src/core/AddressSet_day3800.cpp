@@ -4,11 +4,246 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <cstring>
 #include <iterator>
 #include <string>
 
 #include "AddressSet.h"
 #include "log.h"
+
+static const char* const kAddrFieldNames[] = {
+    "AddNoise",
+    "AddNoticeInfo",
+    "ArrayBaseFree",
+    "BeginSoundSystem",
+    "CallImpl",
+    "CallWithRadioType",
+    "CassettePlayerVtable",
+    "CassetteStart",
+    "CheckSightNoticeHostage",
+    "ConvertRadioTypeToLabel",
+    "CopyAndAdjustInfo",
+    "DecrementPhaseCounter",
+    "ExecCallback",
+    "FoxLuaRegisterLibrary",
+    "FoxPath_Path",
+    "FoxStrHash32",
+    "FoxStrHash64",
+    "GameOverSetVisible",
+    "GetCurrentMissionCode",
+    "GetNameIdWithGameObjectId",
+    "GetGameObjectIdWithIndex",
+    "GetPlayingTime",
+    "GetPlayingTrackId",
+    "GetQuarkSystemTable",
+    "GetTrackInfoByName",
+    "GetUixUtilityToFeedQuarkEnvironment",
+    "GetVoiceLanguage",
+    "GetVoiceParamWithCallSign",
+    "KernelAllocAligned",
+    "LoadPlayerVoiceFpk",
+    "LoadingScreenOrGameOverSplash2",
+    "MusicManager_s_instance",
+    "PathHashCode",
+    "PauseMusicPlayer",
+    "PlayOrPauseSelectedTrack",
+    "RequestCorpse",
+    "ResumeMusicPlayer",
+    "SetEquipBackgroundTexture",
+    "SetLuaFunctions",
+    "SetTextureName",
+    "SoundSystemCtor",
+    "StateRadio",
+    "StateRadioRequest",
+    "State_ComradeAction",
+    "State_EnterDownHoldup",
+    "State_EnterStandHoldup1",
+    "State_EnterStandHoldupUnarmed",
+    "State_RecoveryKick",
+    "State_RecoveryTouch",
+    "State_StandEnterRecoverySleepFaintHoldupComradeBySound",
+    "State_StandHoldupCancelLookToPlayer",
+    "State_StandRecoveryHoldup",
+    "StepRadioDiscovery",
+    "StopMusicPlayer",
+    "SubtitleManager_Get",
+    "UpdateOptCamo",
+    "g_SoundSystem",
+    "lua_getfield",
+    "lua_gettop",
+    "lua_isnumber",
+    "lua_isstring",
+    "lua_objlen",
+    "lua_pushboolean",
+    "lua_pushnumber",
+    "lua_rawgeti",
+    "lua_settop",
+    "lua_toboolean",
+    "lua_tointeger",
+    "lua_tolstring",
+    "lua_tonumber",
+    "lua_type",
+    "lua_pushstring",
+    "lua_createtable",
+    "lua_rawset",
+    "lua_settable",
+    "lua_pushnil",
+    "lua_next",
+    "lua_gettable",
+    "lua_pushvalue",
+    "lua_pcall",
+    "lua_pushcclosure",
+    "GetIconFtexPath",
+    "LoadingTipsEv_UpdateActPhase",
+    "AK_SoundEngine_SetRTPCValue",
+    "Fox_Sd_ConvertParameterID",
+    "Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject",
+    "Fox_Sd_Object_Activate",
+    "Fox_Sd_Daemon_GetObject",
+    "Fox_Sd_Daemon_Singleton",
+    "SoundControllerImpl_CallInternal",
+    "TornadoDualPatch",
+    "RealizedSahelan2Impl_Realize",
+    "RealizedSahelan2Impl_SetFovaImpl",
+    "FormVariationFile2_ApplyOnlyMeshAndTextureVariation",
+    "Sahelan_ActionCoreImpl_SetEyeLampColor",
+    "Sahelan_ActionCoreImpl_UpdateEyeLampColor",
+    "Sahelan_ActionCoreImpl_UpdateHeartLight",
+    "Sahelan_PhaseSneakAi_PushEyeColor",
+    "Sahelan_EyeMeshHashTable",
+    "Sahelan_PhaseSneakAi_ColorTableBase",
+    "MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal",
+    "MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer",
+    "MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency",
+    "HudCommonDataManager_GetInstance",
+    "HudCommonDataManager_SetPopupType",
+    "HudCommonDataManager_SetPopupText",
+    "HudCommonDataManager_SetPopupErrorType",
+    "HudCommonDataManager_StartPopup",
+    "Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl",
+    "Soldier2SoundController_Activate",
+    "CAkResampler_SetPitch",
+    "FNVHash32",
+    "Play_bgm_gameover",
+    "Play_bgm_gameover_paradox",
+    "Play_bgm_gameover_perfectstealth",
+    "Play_bgm_s10010_gameover",
+    "Stop_bgm_gameover",
+    "Stop_bgm_gameover_paradox",
+    "Stop_bgm_gameover_perfectstealth",
+    "Stop_bgm_s10010_gameover",
+    "Play_bgm_gameover_paradox_soundId",
+    "Stop_bgm_gameover_paradox_soundId",
+    "DD_vox_SH_voice",
+    "DD_vox_SH_radio",
+    "DD_vox_SH_radio2",
+    "DD_vox_SH_radio3",
+    "MotherBaseMapCommonDataImpl_GetEnemyInformationLangId",
+    "TppUIBinoSubjectiveImpl_GetEnemyUnitName",
+    "BasicActionImpl_StateCrawlSideRoll",
+    "Sahelan_PhaseSneakAiImpl_PreUpdate",
+    "Sahelan_PhaseSneakAiImpl_StepFuncsTable",
+    "MessageResendCounter",
+    "GetMissionCodeCategory",
+    "TppUiCommand_ShowMissionIcon",
+    "IconTitleHashImm",
+    "IconTitleGetLangTextCall",
+    "GameObject_SendCommand",
+    "ModelNode_UpdateModelNodeParameter",
+    "UiControllerImpl_InitEquipHudData",
+    "NoticeControllerImpl_GetOccasionalChat",
+    "SoldierConversationService_ConvertSpeechLabelToConversationType",
+    "OccasionalChat_FactionTestNop",
+    "MbDvcReserveAnnouncePopup",
+    "MbDvcPopupGateFn",
+    "NoticeIndisAiImpl_StepCallHelp",
+    "NoticeNoiseAiImpl_StepCallHelp",
+    "NoticeNoiseAiImpl_StepResponse",
+    "NoticeNoiseAiImpl_StepAware",
+    "NoticeIndisAiImpl_StepAware",
+    "NoticeIndisAiImpl_StepResponse",
+    "NoticeControllerImpl_DoCheckSpreadNotice",
+    "NoticeControllerImpl_CheckSightNoticeSoldier",
+    "RealizedSoldier2Impl_ConvertHeadEquipModelType",
+    "RealizedSoldier2Impl_UpdateHeadEquipMesh",
+    "FovaController_GetActiveFovaResourceManager",
+    "Fv2ResourceManager_GetModel",
+    "TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi",
+    "HeliTaxi_CanHeliTaxi",
+    "HeliTaxi_CallRescueHeli",
+    "HeliTaxi_StepWithdraw",
+    "HeliTaxi_GetLocationId",
+    "HeliTaxi_RequestMapPhase",
+    "HeliTaxi_StepGoToNav",
+    "HeliTaxi_StepTaxiCurrentCluster",
+    "HeliTaxi_PassengerUpdate",
+    "MechaActionImpl_StateOff",
+    "MechaActionImpl_StateOn",
+    "PassengerControllerImpl_IsPassengerClosingDoor",
+    "PlacedSystemImpl_BindResource",
+    "UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate",
+    "HeliSoundControllerImpl_Update",
+    "HeliSoundControllerImpl_CallVoice",
+    "HeliFlightControllerImpl_Update",
+    "Hud_GetAnnounceLogSE",
+    "Ui_GetStringId",
+    "Hud_TypingLogActUpdate",
+    "Ui_SoundControlStart",
+    "Ui_UiCommonDataManagerGetInstance",
+    "Ui_EventNodeBodyGetGraphState",
+    "VoiceParam_PlayDialogue",
+    "Ui_AnnounceLogViewLangId",
+    "RideHeliActionPluginImpl_ExecPreMotionGraph",
+    "RideHeliActionPluginImpl_GetStateFn",
+    "SoundDaemon_Instance",
+    "SoundDaemon_PostEventQueue",
+    "Sd_kW_Select",
+    "UpdateAntiAir",
+    "ClearAntiAir",
+    "GetChangeLocationMenuParameterByLocationId",
+    "GetMbFreeChangeLocationMenuParameter",
+    "GetPhotoAdditionalTextLangId",
+    "UiControllerImpl_HideBinocle",
+    "AddCassetteTapeTrack",
+    "CollectGotTapes",
+    "IsGotCassetteTapeTrack",
+    "SetCassetteTapeTrackNewFlag",
+    "SetCurrentAlbum",
+    "SetupMusicInfos",
+    "RadioCassette_SearchCasseteInfo",
+    "RadioCassette_GetCassetteMusic",
+    "RadioCassette_IsGotCassette",
+    "RadioCassette_GetCassetteSaveIndex",
+    "RadioCassette_SdPostEvent",
+    "RadioCassette_RadioUpdate",
+    "AddCassetteTapeTrackByIndex",
+    "RadioCassette_ActivateUnit",
+    "RadioCassette_IsSameSaveIndexFromName",
+    "SearchLightActionPluginImpl_StateDoorStart",
+    "SearchLightActionPluginImpl_StateDoorEnd",
+    "SoundControl_PostExternalEvent",
+    "MusicPlayerPlayWrapper",
+    "Barrier_GetItemId",
+    "Barrier_EquipItemCallRet",
+    "Barrier_Updater",
+    "Barrier_Pool",
+    "Barrier_IsFobMode",
+    "Barrier_LoadGate1",
+    "Barrier_LoadGate2",
+    "Dm_FireLoop",
+    "Dm_Classify",
+    "Dm_VfxFactory",
+    "Dm_ComponentFactory",
+    "Dm_Alloc",
+    "Dm_BackLinkPool",
+    "Dm_OneShot",
+    "EquipCrossEvCall_IsItemNoUse",
+    "AttackActionImpl_IsWeaponNoUseInPlaceAction",
+    "EquipCrossSetEquipItem_Site1",
+    "EquipCrossSetEquipItem_Site2",
+    "EquipCrossSetEquipItem_Site3",
+};
+static const int kAddrFieldCount = 230;
 
 namespace AddressSetRuntime
 {
@@ -247,21 +482,44 @@ namespace AddressSetRuntime
             0x140926860ull, // GetMbFreeChangeLocationMenuParameter
             0x140926940ull, // GetPhotoAdditionalTextLangId
             0x140fe75a0ull, // UiControllerImpl_HideBinocle
-            0x140A87D11ull, // AddCassetteTapeTrack
+            0x140A87D10ull, // AddCassetteTapeTrack
             0x140EF5E00ull, // CollectGotTapes
             0x140A961C0ull, // IsGotCassetteTapeTrack
             0x140AACC00ull, // SetCassetteTapeTrackNewFlag
-            0x140EF7481ull, // SetCurrentAlbum (body)
+            0x140EF7480ull, // SetCurrentAlbum (body)
             0x140975580ull, // SetupMusicInfos
-            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  (EN 1.0.15.4)
-            0x1405D6560ull, // RadioCassette_GetCassetteMusic   (EN 1.0.15.4)
-            0x1405D65B0ull, // RadioCassette_IsGotCassette      (EN 1.0.15.4)
-            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex (EN 1.0.15.4)
-            0x1405FC750ull, // RadioCassette_SdPostEvent          (EN 1.0.15.4, diagnostic)
-            0x1406433D0ull, // RadioCassette_RadioUpdate          (EN 1.0.15.4)
-            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        (EN 1.0.15.4)
-            0x1406424C0ull, // RadioCassette_ActivateUnit         (EN 1.0.15.4)
-            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName (EN 1.0.15.4)
+            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  
+            0x1405D6560ull, // RadioCassette_GetCassetteMusic   
+            0x1405D65B0ull, // RadioCassette_IsGotCassette      
+            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex 
+            0x1405FC750ull, // RadioCassette_SdPostEvent
+            0x1406433D0ull, // RadioCassette_RadioUpdate          
+            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        
+            0x1406424C0ull, // RadioCassette_ActivateUnit         
+            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName 
+            0x14126B610ull, // SearchLightActionPluginImpl_StateDoorStart
+            0x14126AB10ull, // SearchLightActionPluginImpl_StateDoorEnd
+            0x140338820ull, // SoundControl_PostExternalEvent
+            0x14098A810ull, // MusicPlayerPlayWrapper
+            0x140931C10ull, // FUN_140931c10
+            0x1408B223Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x140FFFFE0ull, // FUN_140ffffe0
+            0x140AF3F10ull, // FUN_140af3f10
+            0x1405D76F0ull, // FUN_1405d76f0
+            0x1409C480Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
+            0x1409C4875ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x140FC35D0ull, // FUN_140fc35d0
+            0x140A2ABB0ull, // FUN_140a2abb0
+            0x141B18A10ull, // FUN_141b18a10
+            0x140C0BD10ull, // FUN_140c0bd10
+            0x140BFF0E0ull, // FUN_140bff0e0
+            0x140AF3E80ull, // FUN_140af3e80
+            0x1404ECD40ull, // FUN_1404ecd40
+            0x1408AE340ull, // EquipCrossEvCall_IsItemNoUse
+            0x141052820ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction
+            0x1408B2278ull, // EquipCrossSetEquipItem_Site1
+            0x1408B22D2ull, // EquipCrossSetEquipItem_Site2
+            0x1408B2314ull, // EquipCrossSetEquipItem_Site3
         };
 
         return value;
@@ -431,7 +689,7 @@ namespace AddressSetRuntime
             0x1408E6600ull, // HeliTaxi_CanHeliTaxi
             0x140F0D360ull, // HeliTaxi_CallRescueHeli
             0x140E0D3F0ull, // HeliTaxi_StepWithdraw
-            0x140911110ull, // HeliTaxi_GetLocationId
+            0x1409110B0ull, // HeliTaxi_GetLocationId
             0x140874E70ull, // HeliTaxi_RequestMapPhase
             0x140E09D40ull, // HeliTaxi_StepGoToNav
             0x140E0A950ull, // HeliTaxi_StepTaxiCurrentCluster
@@ -469,15 +727,38 @@ namespace AddressSetRuntime
             0x140AACBA0ull, // SetCassetteTapeTrackNewFlag
             0x140EF74B0ull, // SetCurrentAlbum (body)
             0x1409754D0ull, // SetupMusicInfos
-            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  (JP 1.0.15.4)
-            0x1405D6820ull, // RadioCassette_GetCassetteMusic   (JP 1.0.15.4)
-            0x1405D6870ull, // RadioCassette_IsGotCassette      (JP 1.0.15.4)
-            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex (JP 1.0.15.4)
-            0x1405FC7E0ull, // RadioCassette_SdPostEvent          (JP 1.0.15.4, diagnostic)
-            0x140643400ull, // RadioCassette_RadioUpdate          (JP 1.0.15.4)
-            0x140A87D50ull, // AddCassetteTapeTrackByIndex        (JP 1.0.15.4)
-            0x1406424F0ull, // RadioCassette_ActivateUnit         (JP 1.0.15.4)
-            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName (JP 1.0.15.4)
+            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  
+            0x1405D6820ull, // RadioCassette_GetCassetteMusic   
+            0x1405D6870ull, // RadioCassette_IsGotCassette      
+            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex 
+            0x1405FC7E0ull, // RadioCassette_SdPostEvent   
+            0x140643400ull, // RadioCassette_RadioUpdate          
+            0x140A87D50ull, // AddCassetteTapeTrackByIndex        
+            0x1406424F0ull, // RadioCassette_ActivateUnit         
+            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName 
+            0x14126B640ull, // SearchLightActionPluginImpl_StateDoorStart 
+            0x14126AB40ull, // SearchLightActionPluginImpl_StateDoorEnd
+            0x140338E00ull, // SoundControl_PostExternalEvent
+            0x14098A750ull, // MusicPlayerPlayWrapper
+            0x140931B10ull, // FUN_140931b10
+            0x1408B216Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x141000070ull, // FUN_141000070
+            0x140AF3E70ull, // FUN_140af3e70
+            0x1405D79B0ull, // FUN_1405d79b0
+            0x1409C471Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
+            0x1409C4785ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x140FC3620ull, // FUN_140fc3620
+            0x140A2A9F0ull, // FUN_140a2a9f0
+            0x141B187F0ull, // FUN_141b187f0
+            0x140C0BCA0ull, // FUN_140c0bca0
+            0x140BFF060ull, // FUN_140bff060
+            0x140AF3DE0ull, // FUN_140af3de0
+            0x1404ED130ull, // FUN_1404ed130
+            0x1408AE270ull, // EquipCrossEvCall_IsItemNoUse
+            0x1410528A0ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction
+            0x1408B21A8ull, // EquipCrossSetEquipItem_Site1
+            0x1408B2202ull, // EquipCrossSetEquipItem_Site2
+            0x1408B2244ull, // EquipCrossSetEquipItem_Site3
         };
         return value;
     }
@@ -523,5 +804,139 @@ namespace AddressSetRuntime
         }
         Log("[AddressSet] Selected %s address set.\n", GetGameBuildName(GetGameBuild()));
         return true;
+    }
+
+    namespace
+    {
+        LPTOP_LEVEL_EXCEPTION_FILTER g_PrevCrashFilter = nullptr;
+
+        void GetGameModuleRange(uintptr_t& base, uintptr_t& size)
+        {
+            base = 0; size = 0;
+            HMODULE h = GetModuleHandleW(nullptr);
+            if (!h) return;
+            base = reinterpret_cast<uintptr_t>(h);
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(h);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+                reinterpret_cast<const BYTE*>(h) + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE) return;
+            size = nt->OptionalHeader.SizeOfImage;
+        }
+
+        const char* ModuleNameFromAddr(const void* addr, uintptr_t& base)
+        {
+            base = 0;
+            HMODULE hm = nullptr;
+            if (GetModuleHandleExA(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCSTR>(addr), &hm) && hm)
+            {
+                base = reinterpret_cast<uintptr_t>(hm);
+                static char name[MAX_PATH];
+                if (GetModuleFileNameA(hm, name, MAX_PATH))
+                {
+                    const char* slash = strrchr(name, '\\');
+                    return slash ? slash + 1 : name;
+                }
+            }
+            return "<unknown-module>";
+        }
+
+        LONG WINAPI VfwCrashFilter(EXCEPTION_POINTERS* ep)
+        {
+            __try
+            {
+                const EXCEPTION_RECORD* er = ep->ExceptionRecord;
+                const CONTEXT* cx = ep->ContextRecord;
+                const uintptr_t fault = reinterpret_cast<uintptr_t>(er->ExceptionAddress);
+
+                uintptr_t gameBase = 0, gameSize = 0;
+                GetGameModuleRange(gameBase, gameSize);
+
+                uintptr_t modBase = 0;
+                const char* modName = ModuleNameFromAddr(er->ExceptionAddress, modBase);
+
+                CrashLogf("\n==================== V_FrameWork CRASH ====================\n");
+                CrashLogf("[CRASH] build=%s  exceptionCode=0x%08lX\n",
+                          GetGameBuildName(GetGameBuild()),
+                          static_cast<unsigned long>(er->ExceptionCode));
+                CrashLogf("[CRASH] faulting instruction @ 0x%llX  (%s + 0x%llX)\n",
+                          static_cast<unsigned long long>(fault), modName,
+                          static_cast<unsigned long long>(modBase ? fault - modBase : 0ull));
+
+                if (er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2)
+                {
+                    const ULONG_PTR kind = er->ExceptionInformation[0];
+                    const char* op = (kind == 0) ? "READ" : (kind == 1) ? "WRITE"
+                                   : (kind == 8) ? "EXECUTE" : "ACCESS";
+                    CrashLogf("[CRASH] access violation: tried to %s 0x%llX\n",
+                              op, static_cast<unsigned long long>(er->ExceptionInformation[1]));
+                }
+
+                const uintptr_t* vals = reinterpret_cast<const uintptr_t*>(&GetAddressSet());
+                const int n = static_cast<int>(sizeof(AddressSet) / sizeof(uintptr_t));
+                const char* bestName = nullptr; uintptr_t bestAddr = 0;
+                for (int i = 0; i < n && i < kAddrFieldCount; ++i)
+                {
+                    const uintptr_t a = vals[i];
+                    if (a && a <= fault && a > bestAddr) { bestAddr = a; bestName = kAddrFieldNames[i]; }
+                }
+                if (bestName)
+                    CrashLogf("[CRASH] nearest hooked address at/below the fault: %s @ 0x%llX  (fault = %s + 0x%llX)\n",
+                              bestName, static_cast<unsigned long long>(bestAddr),
+                              bestName, static_cast<unsigned long long>(fault - bestAddr));
+                else
+                    CrashLogf("[CRASH] the fault is below every resolved hooked address.\n");
+
+                CrashLogf("[CRASH] RIP=%016llX RSP=%016llX RBP=%016llX\n",
+                          (unsigned long long)cx->Rip, (unsigned long long)cx->Rsp, (unsigned long long)cx->Rbp);
+                CrashLogf("[CRASH] RAX=%016llX RBX=%016llX RCX=%016llX RDX=%016llX\n",
+                          (unsigned long long)cx->Rax, (unsigned long long)cx->Rbx,
+                          (unsigned long long)cx->Rcx, (unsigned long long)cx->Rdx);
+                CrashLogf("[CRASH] RSI=%016llX RDI=%016llX R8 =%016llX R9 =%016llX\n",
+                          (unsigned long long)cx->Rsi, (unsigned long long)cx->Rdi,
+                          (unsigned long long)cx->R8, (unsigned long long)cx->R9);
+                CrashLogf("[CRASH] R10=%016llX R11=%016llX R12=%016llX R13=%016llX\n",
+                          (unsigned long long)cx->R10, (unsigned long long)cx->R11,
+                          (unsigned long long)cx->R12, (unsigned long long)cx->R13);
+                CrashLogf("[CRASH] R14=%016llX R15=%016llX\n",
+                          (unsigned long long)cx->R14, (unsigned long long)cx->R15);
+
+                CrashLogf("[CRASH] stack return-address trail (game-module addrs == disassembly-dump addrs, no ASLR):\n");
+                if (gameSize)
+                {
+                    const uintptr_t* sp = reinterpret_cast<const uintptr_t*>(cx->Rsp);
+                    int shown = 0;
+                    for (int i = 0; i < 256 && shown < 12; ++i)
+                    {
+                        const uintptr_t v = sp[i];
+                        if (v >= gameBase && v < gameBase + gameSize)
+                        {
+                            CrashLogf("[CRASH]   [rsp+0x%03X] 0x%llX  (game+0x%llX)\n",
+                                      i * 8, (unsigned long long)v,
+                                      (unsigned long long)(v - gameBase));
+                            ++shown;
+                        }
+                    }
+                    if (shown == 0)
+                        CrashLogf("[CRASH]   (no game-module return addresses in the first 2KB of stack)\n");
+                }
+                CrashLogf("[CRASH] Look up the faulting address / game+offset in this build's disassembly dump.\n");
+                CrashLogf("===========================================================\n");
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                CrashLogf("[CRASH] (the crash logger itself faulted while writing the report)\n");
+            }
+
+            return g_PrevCrashFilter ? g_PrevCrashFilter(ep) : EXCEPTION_CONTINUE_SEARCH;
+        }
+    }
+
+    void InstallCrashHandler()
+    {
+        g_PrevCrashFilter = SetUnhandledExceptionFilter(VfwCrashFilter);
+        Log("[CRASH] Unhandled-exception crash logger installed (faults are written to V_FrameWork_log.txt).\n");
     }
 }
