@@ -112,7 +112,7 @@
     <ClCompile Include="src\core\pch.cpp">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\AddressSet.cpp">
+    <ClCompile Include="src\core\AddressSet_day3800.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\AddressSet_day1820.cpp">
