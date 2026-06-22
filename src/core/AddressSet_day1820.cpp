@@ -40,7 +40,7 @@ namespace AddressSetRuntime
             0x146867240ull, // LoadPlayerVoiceFpk
             0x145CD0630ull, // LoadingScreenOrGameOverSplash2
             0x142BFFAC8ull, // MusicManager_s_instance
-            0x14C1BD5D0ull, // PathHashCode
+            0x14006B2E0ull, // PathHashCode
             0x140972C70ull, // PauseMusicPlayer
             0x140EF6BD0ull, // PlayOrPauseSelectedTrack
             0x140A69070ull, // RequestCorpse
@@ -115,7 +115,7 @@ namespace AddressSetRuntime
             0x1408679B0ull, // HudCommonDataManager_SetPopupType
             0x1408678D0ull, // HudCommonDataManager_SetPopupText
             0x140867570ull, // HudCommonDataManager_SetPopupErrorType
-            0x147732010ull, // HudCommonDataManager_StartPopup
+            0x140868560ull, // HudCommonDataManager_StartPopup
             0x14158C290ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
             0x14158B520ull, // Soldier2SoundController_Activate
             0x1441DBB80ull, // CAkResampler_SetPitch
@@ -141,7 +141,7 @@ namespace AddressSetRuntime
             0x142C69AA0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
             0x142C1fD24ull, // MessageResendCounter
             0x145e642a0ull, // GetMissionCodeCategory
-            0x145DADFC1ull, // TppUiCommand_ShowMissionIcon
+            0x145DADFC0ull, // TppUiCommand_ShowMissionIcon
             0x14162135Cull, // IconTitleHashImm
             0x14162136Bull, // IconTitleGetLangTextCall
             0x146CC7170ull, // GameObject_SendCommand
@@ -217,6 +217,27 @@ namespace AddressSetRuntime
             0x1405D56D0ull, // RadioCassette_IsSameSaveIndexFromName
             0x14126C060ull, // SearchLightActionPluginImpl_StateDoorStart
             0x14126B560ull, // SearchLightActionPluginImpl_StateDoorEnd
+            0x140338B60ull, // SoundControl_PostExternalEvent
+            0x140989B20ull, // MusicPlayerPlayWrapper
+            0x145FA1510ull, // FUN_145fa1510
+            0x1408B1A0Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x141000780ull, // FUN_141000780
+            0x140AF3760ull, // FUN_140af3760
+            0x14504E090ull, // FUN_14504e090
+            0x1409C3B5Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
+            0x1409C3BC5ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x140FC3CC0ull, // FUN_140fc3cc0
+            0x140A2A480ull, // FUN_140a2a480
+            0x141B18900ull, // FUN_141b18900
+            0x140C0C0B0ull, // FUN_140c0c0b0
+            0x140BFF480ull, // FUN_140bff480
+            0x140AF36D0ull, // FUN_140af36d0
+            0x1404ECF80ull, // FUN_1404ecf80
+            0x145D0B630ull, // EquipCrossEvCall_IsItemNoUse (body; thunk 0x1408ADB10)
+            0x1497396C0ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction (body; thunk 0x141053060)
+            0x1408B1A48ull, // EquipCrossSetEquipItem_Site1
+            0x1408B1AA2ull, // EquipCrossSetEquipItem_Site2
+            0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
         };
         return value;
     }
@@ -238,7 +259,7 @@ namespace AddressSetRuntime
             0x140D6E810ull, // DecrementPhaseCounter
             0x140A18AF0ull, // ExecCallback
             0x1431CC520ull, // FoxLuaRegisterLibrary
-            0x1400856D0ull, // FoxPath_Path
+            0x143227580ull, // FoxPath_Path
             0x142EB6C10ull, // FoxStrHash32
             0x14C96BF00ull, // FoxStrHash64
             0x1477CFCB0ull, // GameOverSetVisible
@@ -257,10 +278,10 @@ namespace AddressSetRuntime
             0x1477ED2F0ull, // LoadingScreenOrGameOverSplash2
             0x142BFFAC8ull, // MusicManager_s_instance
             0x14C96C160ull, // PathHashCode
-            0x147DF6C00ull, // PauseMusicPlayer
+            0x147DEAC30ull, // PauseMusicPlayer
             0x140EF6D40ull, // PlayOrPauseSelectedTrack
             0x140A68B60ull, // RequestCorpse
-            0x147DFE3B0ull, // ResumeMusicPlayer
+            0x1409734D0ull, // ResumeMusicPlayer
             0x147A8C170ull, // SetEquipBackgroundTexture
             0x1408D72B0ull, // SetLuaFunctions
             0x141DC7930ull, // SetTextureName
@@ -420,7 +441,7 @@ namespace AddressSetRuntime
             0x1409102C0ull, // HeliTaxi_GetLocationId
             0x14779D2F0ull, // HeliTaxi_RequestMapPhase
             0x140E09790ull, // HeliTaxi_StepGoToNav
-            0x140E0E3A0ull, // HeliTaxi_StepTaxiCurrentCluster
+            0x140E0A3A0ull, // HeliTaxi_StepTaxiCurrentCluster
             0x14973F220ull, // HeliTaxi_PassengerUpdate
             0x140E14470ull, // MechaActionImpl_StateOff
             0x140E148B0ull, // MechaActionImpl_StateOn
@@ -429,7 +450,7 @@ namespace AddressSetRuntime
             0x14804A500ull, // PlacedSystemImpl_BindResource
             0x140935170ull, // UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate
 
-            0x140E24030ull, // HeliSoundControllerImpl_Update
+            0x140E24390ull, // HeliSoundControllerImpl_Update
             0x14975E670ull, // HeliSoundControllerImpl_CallVoice
             0x140DfD310ull, // HeliFlightControllerImpl_Update
             0x147718790ull, // Hud_GetAnnounceLogSE
@@ -466,9 +487,30 @@ namespace AddressSetRuntime
             0x140641AC0ull, // RadioCassette_RadioUpdate
             0x1482D7CB0ull, // AddCassetteTapeTrackByIndex
             0x1451E1DF0ull, // RadioCassette_ActivateUnit
-            0x1405A69E0ull, // RadioCassette_IsSameSaveIndexFromName
+            0x1405D5420ull, // RadioCassette_IsSameSaveIndexFromName
             0x14126C190ull, // SearchLightActionPluginImpl_StateDoorStart
             0x14126B690ull, // SearchLightActionPluginImpl_StateDoorEnd
+            0x1403385E0ull, // SoundControl_PostExternalEvent
+            0x140989600ull, // MusicPlayerPlayWrapper
+            0x147BB2DA0ull, // FUN_147bb2da0
+            0x1408B152Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1410007D0ull, // FUN_1410007d0
+            0x140AF32A0ull, // FUN_140af32a0
+            0x144EC3FF0ull, // FUN_144ec3ff0
+            0x1409C361Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
+            0x1409C3685ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x140FC3D90ull, // FUN_140fc3d90
+            0x140A29F50ull, // FUN_140a29f50
+            0x141B18A40ull, // FUN_141b18a40
+            0x140C0BC30ull, // FUN_140c0bc30
+            0x140BFF010ull, // FUN_140bff010
+            0x140AF3210ull, // FUN_140af3210
+            0x1404ECA60ull, // FUN_1404eca60
+            0x1478375C0ull, // EquipCrossEvCall_IsItemNoUse (body; thunk 0x1408AD630)
+            0x14A1AE850ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction (body; thunk 0x1410530B0)
+            0x1408B1568ull, // EquipCrossSetEquipItem_Site1
+            0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
+            0x1408B1604ull, // EquipCrossSetEquipItem_Site3
         };
 
         return value;

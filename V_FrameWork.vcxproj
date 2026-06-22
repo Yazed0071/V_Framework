@@ -203,21 +203,23 @@
     <ClInclude Include="src\hooks\soldier\SoldierVoiceTypeQuery.h" />
     <ClInclude Include="src\hooks\soldier\SoldierObjectRtpc.h" />
     <ClInclude Include="src\hooks\soldier\SoldierAkObjIdMap.h" />
-    <ClInclude Include="src\hooks\soldier\ConvertParameterIdLogger.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <!-- Hooks: Player -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
     <ClInclude Include="src\hooks\player\TornadoDualPatch.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
+    <ClInclude Include="src\hooks\player\SearchLightActionPluginImpl_StateDoor.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_HideBinocle.h" />
+    <ClInclude Include="src\hooks\player\AttackActionImpl_IsWeaponNoUseInPlaceAction.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
+    <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
@@ -238,6 +240,11 @@
     <ClInclude Include="src\hooks\ui\AnnounceLogHook.h" />
     <ClInclude Include="src\hooks\ui\ChangeLocationMenu.h" />
     <ClInclude Include="src\hooks\ui\GetPhotoAdditionalTextLangId.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossSetEquipItemPatch.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_IsItemNoUse.h" />
+    <ClInclude Include="src\hooks\ui\BarrierEffectLoadPatch.h" />
+    <ClInclude Include="src\hooks\ui\BarrierEffectSpawn.h" />
+    <ClInclude Include="src\hooks\ui\SupportAttackCrashGuard.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
@@ -300,21 +307,23 @@
     <ClCompile Include="src\hooks\soldier\SoldierVoiceTypeQuery.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierObjectRtpc.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierAkObjIdMap.cpp" />
-    <ClCompile Include="src\hooks\soldier\ConvertParameterIdLogger.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <!-- Hooks: Player -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
     <ClCompile Include="src\hooks\player\TornadoDualPatch.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
+    <ClCompile Include="src\hooks\player\SearchLightActionPluginImpl_StateDoor.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_HideBinocle.cpp" />
+    <ClCompile Include="src\hooks\player\AttackActionImpl_IsWeaponNoUseInPlaceAction.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
+    <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_GetTrackInfoByName.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />
@@ -335,6 +344,11 @@
     <ClCompile Include="src\hooks\ui\AnnounceLogHook.cpp" />
     <ClCompile Include="src\hooks\ui\ChangeLocationMenu.cpp" />
     <ClCompile Include="src\hooks\ui\GetPhotoAdditionalTextLangId.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossSetEquipItemPatch.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_IsItemNoUse.cpp" />
+    <ClCompile Include="src\hooks\ui\BarrierEffectLoadPatch.cpp" />
+    <ClCompile Include="src\hooks\ui\BarrierEffectSpawn.cpp" />
+    <ClCompile Include="src\hooks\ui\SupportAttackCrashGuard.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <!-- Hooks: Sahelan -->

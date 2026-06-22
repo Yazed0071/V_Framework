@@ -11,11 +11,10 @@
 #include "log.h"
 #include "AddressSet.h"
 #include "CustomRadioCassette.h"
-#include "CustomTapeOwnership.h"   // IsCustomTapeOwnedSaveIndex
+#include "CustomTapeOwnership.h"
 
 namespace
 {
-    // x64 __thiscall == __fastcall with `this` in RCX.
     using SearchCasseteInfo_t    = int          (__fastcall*)(void* thisPtr, std::uint64_t key);
     using GetCassetteMusic_t     = std::uint32_t (__fastcall*)(void* thisPtr, int slot);
     using IsGotCassette_t        = bool          (__fastcall*)(void* thisPtr, int slot, std::int16_t* outSaveIndex);
@@ -47,10 +46,10 @@ namespace
 
     struct CustomRadioCassetteEntry
     {
-        std::uint32_t nameHash     = 0;   // StrCode32(gimmickName);
+        std::uint32_t nameHash     = 0;
         std::uint32_t fox2PathHash = 0;
-        std::uint32_t wwiseEventId = 0;   // Ak event
-        std::uint32_t trackNameId  = 0;   // StrCode32(fileName);
+        std::uint32_t wwiseEventId = 0;
+        std::uint32_t trackNameId  = 0;
         std::string   fileName;
         std::int16_t  resolvedSaveIndex = kSaveIndexUnresolved;
     };
@@ -175,7 +174,7 @@ static int __fastcall hkSearchCasseteInfo(void* thisPtr, std::uint64_t key)
     {
         const int original = g_OrigSearchCasseteInfo(thisPtr, key);
         if (original >= 0)
-            return original;   // vanilla-registered radio
+            return original;
     }
 
     const std::uint32_t incomingNameHash = static_cast<std::uint32_t>(key & 0xFFFFFFFFu);
@@ -313,7 +312,6 @@ static void WriteMusicHandle(void* thisPtr, std::uint32_t handle)
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-// 0 = playing, 1 = broken, 2 = stopped.
 static std::uint32_t ReadRadioNibble(void* thisPtr)
 {
     __try { return *reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(thisPtr) + 0x68ull) & 0xFu; }
@@ -430,7 +428,7 @@ bool Install_CustomRadioCassette_Hooks()
 
     if (!searchTarget || !musicTarget)
     {
-        Log("[RadioCassette] addresses unavailable for this build (search=%p music=%p); feature disabled\n",
+        Log("[RadioCassette] ERROR: core addresses unavailable for this build (search=%p music=%p) — custom radio cassettes are disabled.\n",
             searchTarget, musicTarget);
         return false;
     }
@@ -451,11 +449,11 @@ bool Install_CustomRadioCassette_Hooks()
                 saveIdxTarget,
                 reinterpret_cast<void*>(&hkGetCassetteSaveIndex),
                 reinterpret_cast<void**>(&g_OrigGetCassetteSaveIndex)))
-            Log("[RadioCassette] GetCassetteSaveIndex hook failed (radio may stay silent)\n");
+            Log("[RadioCassette] ERROR: failed to hook GetCassetteSaveIndex — custom radio cassettes may stay silent.\n");
     }
     else
     {
-        Log("[RadioCassette] GetCassetteSaveIndex address unavailable (radio may stay silent)\n");
+        Log("[RadioCassette] ERROR: GetCassetteSaveIndex address unavailable for this build — custom radio cassettes may stay silent.\n");
     }
 
     if (isGotTarget)
@@ -464,7 +462,7 @@ bool Install_CustomRadioCassette_Hooks()
                 isGotTarget,
                 reinterpret_cast<void*>(&hkIsGotCassette),
                 reinterpret_cast<void**>(&g_OrigIsGotCassette)))
-            Log("[RadioCassette] IsGotCassette hook failed (radio may stay silent)\n");
+            Log("[RadioCassette] ERROR: failed to hook IsGotCassette — custom radio cassettes may stay silent.\n");
     }
 
     void* postTarget = ResolveGameAddress(gAddr.RadioCassette_SdPostEvent);
@@ -474,7 +472,7 @@ bool Install_CustomRadioCassette_Hooks()
                 postTarget,
                 reinterpret_cast<void*>(&hkSdPostEvent),
                 reinterpret_cast<void**>(&g_OrigSdPostEvent)))
-            Log("[RadioCassette] SdPostEvent diagnostic hook failed\n");
+            Log("[RadioCassette] WARN: failed to hook SdPostEvent (diagnostic only) — no functional impact on custom radio cassettes.\n");
     }
 
     void* radioUpdateTarget = ResolveGameAddress(gAddr.RadioCassette_RadioUpdate);
@@ -484,13 +482,11 @@ bool Install_CustomRadioCassette_Hooks()
                 radioUpdateTarget,
                 reinterpret_cast<void*>(&hkRadioUpdate),
                 reinterpret_cast<void**>(&g_OrigRadioUpdate)))
-            Log("[RadioCassette] radio Update hook failed (no ownership gating)\n");
-        else
-            Log("[RadioCassette] radio Update hook installed @ %p\n", radioUpdateTarget);
+            Log("[RadioCassette] ERROR: failed to hook radio Update — custom radio cassettes will not be ownership-gated.\n");
     }
     else
     {
-        Log("[RadioCassette] radio Update address unavailable (no ownership gating)\n");
+        Log("[RadioCassette] ERROR: radio Update address unavailable for this build — custom radio cassettes will not be ownership-gated.\n");
     }
 
     void* sameSaveIdxTarget = ResolveGameAddress(gAddr.RadioCassette_IsSameSaveIndexFromName);
@@ -500,19 +496,20 @@ bool Install_CustomRadioCassette_Hooks()
                 sameSaveIdxTarget,
                 reinterpret_cast<void*>(&hkIsSameSaveIndexFromName),
                 reinterpret_cast<void**>(&g_OrigIsSameSaveIndexFromName)))
-            Log("[RadioCassette] IsSameSaveIndexFromName hook failed (no cassette-take effect)\n");
+            Log("[RadioCassette] ERROR: failed to hook IsSameSaveIndexFromName — taking a custom radio cassette will not work.\n");
     }
     else
     {
-        Log("[RadioCassette] IsSameSaveIndexFromName address unavailable (no cassette-take effect)\n");
+        Log("[RadioCassette] ERROR: IsSameSaveIndexFromName address unavailable for this build — taking a custom radio cassette will not work.\n");
     }
 
     g_ActivateRadioUnit = reinterpret_cast<RadioActivateUnit_t>(
         ResolveGameAddress(gAddr.RadioCassette_ActivateUnit));
-    Log("[RadioCassette] activate-unit fn %s\n",
-        g_ActivateRadioUnit ? "resolved (auto-play on)" : "unavailable (auto-play off)");
+    if (!g_ActivateRadioUnit)
+        Log("[RadioCassette] WARN: activate-unit address unavailable for this build — custom radio cassettes will not auto-play.\n");
 
-    Log("[RadioCassette] hooks install -> %s\n", ok ? "OK" : "FAIL");
+    if (!ok)
+        Log("[RadioCassette] ERROR: one or more core radio-cassette hooks failed — custom radio cassettes are disabled.\n");
     return ok;
 }
 

@@ -2,8 +2,6 @@
 #include "V_FrameWorkState.h"
 #include "log.h"
 #include "AddressSet.h"
-// NOTE: equip-resolution deps (EquipIdCompression / EquipDevelopAdd) are stubbed below for the
-// Custom-Tapes-first port; they get restored when the Equipment system is ported back in.
 
 #include <algorithm>
 #include <cstdint>
@@ -11,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace V_FrameWorkState
@@ -26,6 +25,7 @@ namespace V_FrameWorkState
         static constexpr std::int32_t kFirstCustomFlowIndex = 922;
         static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
         static constexpr std::int16_t kMaxCustomTapeSaveIndex = 1999;
+        static constexpr std::int32_t kTapeOrphanGraceLaunches = 2;
 
         struct EquipEntry
         {
@@ -40,6 +40,7 @@ namespace V_FrameWorkState
             std::int16_t saveIndex = -1;
             bool owned = false;
             bool isNew = false;
+            std::int32_t misses = 0;
         };
 
         struct State
@@ -85,11 +86,7 @@ namespace V_FrameWorkState
             CreateDirectoryA("mod", nullptr);
             CreateDirectoryA("mod\\V_FrameWork", nullptr);
 
-            if (MoveFileA(kLegacyPath, kSavePath))
-                ;
-            else
-                Log("[V_FrameWorkState] Migration failed (err=%lu): '%s' -> '%s'\n",
-                    GetLastError(), kLegacyPath, kSavePath);
+            MoveFileA(kLegacyPath, kSavePath);
         }
 
 
@@ -156,8 +153,11 @@ namespace V_FrameWorkState
             out.saveIndex = static_cast<std::int16_t>(findIntField("saveIndex"));
             out.owned = line.find("owned = true") != std::string::npos;
             out.isNew = line.find("new = true") != std::string::npos;
+            out.misses = findIntField("misses");
             return !outKey.empty() && out.saveIndex > 0;
         }
+
+        static void SaveToDisk_NoLock();
 
         static void LoadFromDisk_NoLock()
         {
@@ -171,7 +171,6 @@ namespace V_FrameWorkState
             std::ifstream in(kSavePath);
             if (!in)
             {
-                Log("[V_FrameWorkState] No state file at '%s'\n", kSavePath);
                 return;
             }
 
@@ -215,8 +214,35 @@ namespace V_FrameWorkState
                     std::string key;
                     TapeEntry entry;
                     if (ParseTapeLine(trimmed, key, entry))
+                    {
                         g_State.tapes[key] = entry;
+                        Log("[CustomTapes] tape loaded: '%s' (saveIndex %d)\n", key.c_str(), static_cast<int>(entry.saveIndex));
+                    }
                 }
+            }
+
+            in.close();
+
+            bool gcChanged = false;
+            for (auto it = g_State.tapes.begin(); it != g_State.tapes.end(); )
+            {
+                if (it->second.misses >= kTapeOrphanGraceLaunches)
+                {
+                    Log("[CustomTapes] tape deleted: '%s' (saveIndex %d) — mod uninstalled; freeing the save slot.\n", it->first.c_str(), static_cast<int>(it->second.saveIndex));
+                    it = g_State.tapes.erase(it);
+                    gcChanged = true;
+                }
+                else
+                {
+                    ++it->second.misses;
+                    gcChanged = true;
+                    ++it;
+                }
+            }
+            if (gcChanged)
+            {
+                g_State.dirty = true;
+                SaveToDisk_NoLock();
             }
         }
 
@@ -227,7 +253,7 @@ namespace V_FrameWorkState
             std::ofstream out(kSavePath, std::ios::binary | std::ios::trunc);
             if (!out)
             {
-                Log("[V_FrameWorkState] Save failed: could not open '%s'\n", kSavePath);
+                Log("[V_FrameWorkState] ERROR: could not write '%s' — custom-tape ownership/save-index state will not persist.\n", kSavePath);
                 return;
             }
 
@@ -274,8 +300,10 @@ namespace V_FrameWorkState
                     out << "        [\"" << kv.first << "\"] = {"
                         << " saveIndex = " << static_cast<int>(kv.second.saveIndex)
                         << ", owned = " << (kv.second.owned ? "true" : "false")
-                        << ", new = " << (kv.second.isNew ? "true" : "false")
-                        << " },\n";
+                        << ", new = " << (kv.second.isNew ? "true" : "false");
+                    if (kv.second.misses != 0)
+                        out << ", misses = " << kv.second.misses;
+                    out << " },\n";
                 }
                 out << "    },\n";
             }
@@ -314,14 +342,14 @@ namespace V_FrameWorkState
 
             (void)minimum;
             (void)g_NativeTableSynced;
-            return -1;   // STUB: equip allocation disabled until the Equipment system is ported
+            return -1;
         }
 
 
         static std::int32_t AllocateNextFreeDevelopId_NoLock(std::int32_t minimum)
         {
             std::int32_t id = (minimum > kFirstCustomDevelopId) ? minimum : kFirstCustomDevelopId;
-            while (IsDevelopIdInUse_NoLock(id))   // STUB: stock-reservation check restored with the Equipment system
+            while (IsDevelopIdInUse_NoLock(id))
                 ++id;
             return id;
         }
@@ -336,7 +364,7 @@ namespace V_FrameWorkState
         static std::int32_t AllocateNextFreeFlowIndex_NoLock(std::int32_t minimum)
         {
             std::int32_t idx = (minimum > kFirstCustomFlowIndex) ? minimum : kFirstCustomFlowIndex;
-            while (IsFlowIndexInUse_NoLock(idx))   // STUB: stock-reservation check restored with the Equipment system
+            while (IsFlowIndexInUse_NoLock(idx))
                 ++idx;
             return idx;
         }
@@ -387,8 +415,6 @@ namespace V_FrameWorkState
 
 
             outEquipId = 0;
-            Log("[V_FrameWorkState] EquipId allocation FAILED for '%s' "
-                "(every in-bounds slot occupied)\n", key);
             return false;
         }
 
@@ -468,16 +494,27 @@ namespace V_FrameWorkState
         auto it = g_State.tapes.find(key);
         if (it != g_State.tapes.end() && it->second.saveIndex > 0)
         {
+            if (it->second.misses != 0)
+            {
+                it->second.misses = 0;
+                g_State.dirty = true;
+                SaveToDisk_NoLock();
+            }
             outSaveIndex = it->second.saveIndex;
             return true;
         }
 
         const std::int16_t newIdx = AllocateNextFreeTapeSaveIndex_NoLock(minimumIndex);
-        if (newIdx < 0) return false;
+        if (newIdx < 0)
+        {
+            Log("[CustomTapes] ERROR: custom-tape save-index pool [300-1999] is full — uninstall unused tape mods; no more custom tapes can be registered.\n");
+            return false;
+        }
 
         g_State.tapes[key].saveIndex = newIdx;
         g_State.dirty = true;
         outSaveIndex = newIdx;
+        Log("[CustomTapes] tape added: '%s' (saveIndex %d) — first time; saved to V_FrameWork_State.lua.\n", key, static_cast<int>(newIdx));
 
         SaveToDisk_NoLock();
 

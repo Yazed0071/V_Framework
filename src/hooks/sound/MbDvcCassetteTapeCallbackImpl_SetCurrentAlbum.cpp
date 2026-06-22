@@ -95,7 +95,7 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
         std::uintptr_t* vtbl = *reinterpret_cast<std::uintptr_t**>(soundPlayer);
         if (!vtbl)
         {
-            Log("[CassetteMenu] FindLiveAlbumRecordByAlbumId: vtbl is null soundPlayer=%p\n", soundPlayer);
+            Log("[CassetteMenu] WARN: SoundMusicPlayer vtable is null (soundPlayer=%p) — cannot list albums; custom tapes may not show in the menu.\n", soundPlayer);
             return nullptr;
         }
 
@@ -108,10 +108,8 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
         if (!getAlbumArray || !getAlbumCount)
         {
             Log(
-                "[CassetteMenu] FindLiveAlbumRecordByAlbumId: album accessors missing soundPlayer=%p getAlbumArray=%p getAlbumCount=%p\n",
-                soundPlayer,
-                getAlbumArray,
-                getAlbumCount);
+                "[CassetteMenu] WARN: album accessor vtable slots are null (soundPlayer=%p) — wrong build offsets; custom tapes may not show in the menu.\n",
+                soundPlayer);
             return nullptr;
         }
 
@@ -120,11 +118,6 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
 
         if (albumArrayBase == 0 || albumCount == 0)
         {
-            Log(
-                "[CassetteMenu] FindLiveAlbumRecordByAlbumId: album array empty soundPlayer=%p albumArrayBase=%p albumCount=%u\n",
-                soundPlayer,
-                reinterpret_cast<void*>(albumArrayBase),
-                static_cast<unsigned int>(albumCount));
             return nullptr;
         }
 
@@ -145,18 +138,12 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
             albumCursor += 0x18ull;
         }
 
-        Log(
-            "[CassetteMenu] FindLiveAlbumRecordByAlbumId: albumId=%016llX not found albumCount=%u soundPlayer=%p\n",
-            static_cast<unsigned long long>(albumId),
-            static_cast<unsigned int>(albumCount),
-            soundPlayer);
-
         return nullptr;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         Log(
-            "[CassetteMenu] FindLiveAlbumRecordByAlbumId: exception soundPlayer=%p albumId=%016llX\n",
+            "[CassetteMenu] WARN: exception while scanning the album list (soundPlayer=%p albumId=%016llX) — cassette menu may be incomplete.\n",
             soundPlayer,
             static_cast<unsigned long long>(albumId));
         return nullptr;
@@ -168,7 +155,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 {
     if (!thisPtr)
     {
-        Log("[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: thisPtr is null\n");
+        Log("[CassetteMenu] WARN: cassette callback is null — cannot rebuild the album's track list; custom tapes may not show.\n");
         return;
     }
 
@@ -180,8 +167,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
         if (!menuRoot)
         {
             Log(
-                "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: menuRoot is null this=%p albumId=%016llX\n",
-                thisPtr,
+                "[CassetteMenu] WARN: cassette menu root is null (albumId=%016llX) — cannot rebuild the album's track list; custom tapes may not show.\n",
                 static_cast<unsigned long long>(albumId));
             return;
         }
@@ -190,9 +176,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
         if (!soundPlayer)
         {
             Log(
-                "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: soundPlayer is null this=%p menuRoot=%p albumId=%016llX\n",
-                thisPtr,
-                menuRoot,
+                "[CassetteMenu] WARN: SoundMusicPlayer is null (albumId=%016llX) — cannot rebuild the album's track list; custom tapes may not show.\n",
                 static_cast<unsigned long long>(albumId));
             return;
         }
@@ -200,7 +184,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
         void** vtbl = *reinterpret_cast<void***>(soundPlayer);
         if (!vtbl)
         {
-            Log("[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: vtbl is null soundPlayer=%p\n", soundPlayer);
+            Log("[CassetteMenu] WARN: SoundMusicPlayer vtable is null (soundPlayer=%p) — cannot rebuild the album's track list; custom tapes may not show.\n", soundPlayer);
             return;
         }
 
@@ -209,7 +193,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 
         if (!getTrackInfoByAlbumIndex)
         {
-            Log("[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: getTrackInfoByAlbumIndex is null soundPlayer=%p\n", soundPlayer);
+            Log("[CassetteMenu] WARN: track accessor vtable slot is null (soundPlayer=%p) — wrong build offsets; custom tapes may not show in the menu.\n", soundPlayer);
             return;
         }
 
@@ -218,10 +202,6 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
         {
             *reinterpret_cast<std::uint32_t*>(base + 0xF80ull) = 0;
 
-            Log(
-                "[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: albumRecord not found soundPlayer=%p albumId=%016llX\n",
-                soundPlayer,
-                static_cast<unsigned long long>(albumId));
             return;
         }
 
@@ -253,7 +233,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
 
             if (acceptedCount >= 0x80u)
             {
-                Log("[CassetteMenu] RebuildAcceptedTrackIdsForCurrentAlbum: acceptedCount hit cap 0x80\n");
+                Log("[CassetteMenu] WARN: album has more than 128 owned tracks — extra tracks are dropped from the cassette menu.\n");
                 break;
             }
 
@@ -269,7 +249,7 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteMenu] SetCurrentAlbum rebuild crashed\n");
+        Log("[CassetteMenu] ERROR: exception while rebuilding the cassette menu track list — the album's track list may be wrong or empty.\n");
     }
 }
 
@@ -277,7 +257,7 @@ static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)
 {
     if (!g_OrigSetCurrentAlbum)
     {
-        Log("[CassetteMenu] hkSetCurrentAlbum: orig is null\n");
+        Log("[CassetteMenu] ERROR: SetCurrentAlbum trampoline is null — the hook failed to install; custom tapes will not show in the menu.\n");
         return;
     }
 
@@ -293,7 +273,7 @@ bool Install_CassetteTapeSetCurrentAlbum_Hook()
     void* target = ResolveGameAddress(gAddr.SetCurrentAlbum);
     if (!target)
     {
-        Log("[CassetteMenu] SetCurrentAlbum resolve failed\n");
+        Log("[CassetteMenu] ERROR: SetCurrentAlbum address unavailable for this build — custom tapes will not show in the cassette menu.\n");
         return false;
     }
 
@@ -302,7 +282,8 @@ bool Install_CassetteTapeSetCurrentAlbum_Hook()
         reinterpret_cast<void*>(&hkSetCurrentAlbum),
         reinterpret_cast<void**>(&g_OrigSetCurrentAlbum));
 
-    Log("[CassetteMenu] SetCurrentAlbum: %s\n", ok ? "OK" : "FAIL");
+    if (!ok)
+        Log("[CassetteMenu] ERROR: failed to hook SetCurrentAlbum — custom tapes will not show in the cassette menu.\n");
     return ok;
 }
 

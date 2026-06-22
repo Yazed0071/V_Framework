@@ -81,7 +81,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
     if (!musicManagerGlobalAddr)
     {
-        Log("[SoundMusicPlayer] MusicManager::s_instance address resolve failed\n");
+        Log("[SoundMusicPlayer] ERROR: MusicManager::s_instance address unavailable for this build — cassette control functions will not work.\n");
         return nullptr;
     }
 
@@ -90,7 +90,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
         void* musicManagerInstance = *reinterpret_cast<void**>(musicManagerGlobalAddr);
         if (!musicManagerInstance)
         {
-            Log("[SoundMusicPlayer] MusicManager::s_instance is null\n");
+            Log("[SoundMusicPlayer] WARN: MusicManager not initialized yet — cassette control unavailable until the sound system is up.\n");
             return nullptr;
         }
 
@@ -100,7 +100,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
 
         if (!soundMusicPlayer)
         {
-            Log("[SoundMusicPlayer] soundMusicPlayer is null\n");
+            Log("[SoundMusicPlayer] WARN: SoundMusicPlayer not initialized yet — cassette control unavailable until the sound system is up.\n");
             return nullptr;
         }
 
@@ -108,7 +108,7 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[SoundMusicPlayer] Exception while resolving MusicManager::s_instance\n");
+        Log("[SoundMusicPlayer] ERROR: exception while resolving SoundMusicPlayer — cassette control functions will not work.\n");
         return nullptr;
     }
 }
@@ -210,14 +210,14 @@ bool RefreshGlobalCassetteMusicPlayerFromSoundSystem()
 
     if (!soundSystem)
     {
-        Log("[SoundSystem] RefreshGlobalCassetteMusicPlayerFromSoundSystem: no cached sound system\n");
+        Log("[SoundSystem] WARN: sound system not initialized yet — cassette player not captured; open the in-game Music Player once it is.\n");
         return false;
     }
 
     void* cassettePlayer = FindCassettePlayerFromSoundSystemInternal(soundSystem);
     if (!cassettePlayer)
     {
-        Log("[SoundSystem] RefreshGlobalCassetteMusicPlayerFromSoundSystem: cassette player not found\n");
+        Log("[SoundSystem] WARN: could not locate the cassette player inside the sound system — direct cassette playback may be unavailable.\n");
         return false;
     }
 
@@ -253,7 +253,7 @@ std::uint32_t GetCassettePlayingTime()
     void* fnAddr = ResolveGameAddress(gAddr.GetPlayingTime);
     if (!fnAddr)
     {
-        Log("[CassettePlayTime] GetPlayingTime address resolve failed\n");
+        Log("[CassettePlayTime] ERROR: GetPlayingTime address unavailable for this build — cannot read cassette playback time.\n");
         return 0;
     }
 
@@ -268,7 +268,7 @@ std::uint32_t GetCassettePlayingTime()
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassettePlayTime] Exception while calling GetPlayingTime\n");
+        Log("[CassettePlayTime] ERROR: exception while reading cassette playback time.\n");
         return 0;
     }
 }
@@ -283,7 +283,7 @@ std::uint32_t GetCassettePlayingTrackId()
     void* fnAddr = ResolveGameAddress(gAddr.GetPlayingTrackId);
     if (!fnAddr)
     {
-        Log("[CassetteTrackId] GetPlayingTrackId address resolve failed\n");
+        Log("[CassetteTrackId] ERROR: GetPlayingTrackId address unavailable for this build — cannot read the playing cassette track.\n");
         return 0;
     }
 
@@ -298,7 +298,7 @@ std::uint32_t GetCassettePlayingTrackId()
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteTrackId] Exception while calling GetPlayingTrackId\n");
+        Log("[CassetteTrackId] ERROR: exception while reading the playing cassette track.\n");
         return 0;
     }
 }
@@ -313,7 +313,7 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
     void* fnAddr = ResolveGameAddress(gAddr.PauseMusicPlayer);
     if (!fnAddr)
     {
-        Log("[CassettePause] Pause address resolve failed\n");
+        Log("[CassettePause] ERROR: Pause address unavailable for this build — cannot pause cassette playback.\n");
         return -1;
     }
 
@@ -329,7 +329,7 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassettePause] Exception while calling Pause\n");
+        Log("[CassettePause] ERROR: exception while pausing cassette playback.\n");
         return -1;
     }
 }
@@ -344,7 +344,7 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     void* fnAddr = ResolveGameAddress(gAddr.ResumeMusicPlayer);
     if (!fnAddr)
     {
-        Log("[CassetteResume] Resume address resolve failed\n");
+        Log("[CassetteResume] ERROR: Resume address unavailable for this build — cannot resume cassette playback.\n");
         return -1;
     }
 
@@ -360,7 +360,7 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteResume] Exception while calling Resume\n");
+        Log("[CassetteResume] ERROR: exception while resuming cassette playback.\n");
         return -1;
     }
 }
@@ -375,7 +375,7 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
     void* fnAddr = ResolveGameAddress(gAddr.StopMusicPlayer);
     if (!fnAddr)
     {
-        Log("[CassetteStop] Stop address resolve failed\n");
+        Log("[CassetteStop] ERROR: Stop address unavailable for this build — cannot stop cassette playback.\n");
         return -1;
     }
 
@@ -391,7 +391,7 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[CassetteStop] Exception while calling Stop\n");
+        Log("[CassetteStop] ERROR: exception while stopping cassette playback.\n");
         return -1;
     }
 }
@@ -433,14 +433,14 @@ bool Install_SoundSystem_BeginSoundSystem_Hook()
     void* beginTarget = ResolveGameAddress(gAddr.BeginSoundSystem);
     if (!beginTarget)
     {
-        Log("[Hook] BeginSoundSystem: address resolve failed\n");
+        Log("[SoundSystem] ERROR: BeginSoundSystem address unavailable for this build — the cassette player cannot be captured; direct cassette playback disabled.\n");
         return false;
     }
 
     void* ctorTarget = ResolveGameAddress(gAddr.SoundSystemCtor);
     if (!ctorTarget)
     {
-        Log("[Hook] SoundSystemImpl ctor: address resolve failed\n");
+        Log("[SoundSystem] ERROR: SoundSystemImpl ctor address unavailable for this build — the cassette player cannot be captured; direct cassette playback disabled.\n");
         return false;
     }
 
@@ -454,8 +454,10 @@ bool Install_SoundSystem_BeginSoundSystem_Hook()
         reinterpret_cast<void*>(&hkSoundSystemCtor),
         reinterpret_cast<void**>(&g_OrigSoundSystemCtor));
 
-    Log("[Hook] BeginSoundSystem: %s\n", okBegin ? "OK" : "FAIL");
-    Log("[Hook] SoundSystemImpl ctor: %s\n", okCtor ? "OK" : "FAIL");
+    if (!okBegin)
+        Log("[SoundSystem] ERROR: failed to hook BeginSoundSystem — the cassette player cannot be captured; direct cassette playback disabled.\n");
+    if (!okCtor)
+        Log("[SoundSystem] ERROR: failed to hook SoundSystemImpl ctor — the cassette player cannot be captured; direct cassette playback disabled.\n");
 
     return okBegin && okCtor;
 }

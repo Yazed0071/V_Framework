@@ -57,9 +57,6 @@ bool Uninstall_VIPSoundRecovery_Hook();
 bool Install_VIPRadio_Hook();
 bool Uninstall_VIPRadio_Hook();
 
-bool Install_ConvertParameterIdLogger_Hook();
-bool Uninstall_ConvertParameterIdLogger_Hook();
-
 bool Install_HoldUpReactionCowardlyReactions_Hook();
 bool Uninstall_HoldUpReactionCowardlyReactions_Hook();
 
@@ -87,6 +84,9 @@ bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
 
 bool Install_CustomRadioCassette_Hooks();
 bool Uninstall_CustomRadioCassette_Hooks();
+
+bool Install_Control_PostExternalEvent_Hook();
+bool Uninstall_Control_PostExternalEvent_Hook();
 
 bool Install_SoundSystem_BeginSoundSystem_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
@@ -169,26 +169,11 @@ void Uninstall_IsWeaponNoUseInPlaceActionPatch();
 bool Install_IsItemNoUsePatch();
 void Uninstall_IsItemNoUsePatch();
 
-bool Install_BarrierItemUsablePatch();
-void Uninstall_BarrierItemUsablePatch();
-
 bool Install_BarrierEffectLoadPatch();
 void Uninstall_BarrierEffectLoadPatch();
 
-bool Install_BarrierEffectDiag();
-void Uninstall_BarrierEffectDiag();
-
 bool Install_BarrierEffectSpawn();
 void Uninstall_BarrierEffectSpawn();
-
-bool Install_ForceFobModePatch();
-void Uninstall_ForceFobModePatch();
-
-bool Install_BarrierEffectActivatePatch();
-void Uninstall_BarrierEffectActivatePatch();
-
-bool Install_BarrierUseDiag();
-void Uninstall_BarrierUseDiag();
 
 bool Install_SupportAttackCrashGuard();
 void Uninstall_SupportAttackCrashGuard();
@@ -537,26 +522,6 @@ namespace
         }
     };
 
-    class ConvertParameterIdLoggerModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override
-        {
-            return "ConvertParameterIdLogger";
-        }
-
-        bool Install(HMODULE hGame) override
-        {
-            UNREFERENCED_PARAMETER(hGame);
-            return Install_ConvertParameterIdLogger_Hook();
-        }
-
-        void Uninstall() override
-        {
-            Uninstall_ConvertParameterIdLogger_Hook();
-        }
-    };
-
     class HoldUpReactionCowardlyReactionsModule final : public IFeatureModule
     {
     public:
@@ -688,6 +653,14 @@ namespace
         const char* GetName() const override { return "CustomRadioCassette"; }
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CustomRadioCassette_Hooks(); }
         void Uninstall() override { Uninstall_CustomRadioCassette_Hooks(); }
+    };
+
+    class CustomTapeLongFilenameModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CustomTapeLongFilename"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_Control_PostExternalEvent_Hook(); }
+        void Uninstall() override { Uninstall_Control_PostExternalEvent_Hook(); }
     };
 
     class SoundSystemBeginModule final : public IFeatureModule
@@ -1054,14 +1027,6 @@ namespace
         void Uninstall() override { Uninstall_IsItemNoUsePatch(); }
     };
 
-    class BarrierItemUsableModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "BarrierItemUsable"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierItemUsablePatch(); }
-        void Uninstall() override { Uninstall_BarrierItemUsablePatch(); }
-    };
-
     class BarrierEffectLoadModule final : public IFeatureModule
     {
     public:
@@ -1070,44 +1035,12 @@ namespace
         void Uninstall() override { Uninstall_BarrierEffectLoadPatch(); }
     };
 
-    class BarrierEffectDiagModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "BarrierEffectDiag"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectDiag(); }
-        void Uninstall() override { Uninstall_BarrierEffectDiag(); }
-    };
-
     class BarrierEffectSpawnModule final : public IFeatureModule
     {
     public:
         const char* GetName() const override { return "BarrierEffectSpawn"; }
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectSpawn(); }
         void Uninstall() override { Uninstall_BarrierEffectSpawn(); }
-    };
-
-    class ForceFobModeModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "ForceFobMode"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_ForceFobModePatch(); }
-        void Uninstall() override { Uninstall_ForceFobModePatch(); }
-    };
-
-    class BarrierEffectActivateModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "BarrierEffectActivate"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierEffectActivatePatch(); }
-        void Uninstall() override { Uninstall_BarrierEffectActivatePatch(); }
-    };
-
-    class BarrierUseDiagModule final : public IFeatureModule
-    {
-    public:
-        const char* GetName() const override { return "BarrierUseDiag"; }
-        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_BarrierUseDiag(); }
-        void Uninstall() override { Uninstall_BarrierUseDiag(); }
     };
 
     class SupportAttackCrashGuardModule final : public IFeatureModule
@@ -1138,7 +1071,6 @@ void RegisterBuiltInFeatureModules()
     static VIPHoldupModule s_VIPHoldupModule;
     static VIPSoundRecoveryModule s_VIPSoundRecoveryModule;
     static VIPRadioModule s_VIPRadioModule;
-    static ConvertParameterIdLoggerModule s_ConvertParameterIdLoggerModule;
     static HoldUpReactionCowardlyReactionsModule s_HoldUpReactionCowardlyReactionsModule;
     static PerSoldierCallSignOverrideModule s_PerSoldierCallSignOverrideModule;
     static LostHostageModule s_LostHostageModule;
@@ -1148,6 +1080,7 @@ void RegisterBuiltInFeatureModules()
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static CustomRadioCassetteModule s_CustomRadioCassetteModule;
+    static CustomTapeLongFilenameModule s_CustomTapeLongFilenameModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
@@ -1176,13 +1109,8 @@ void RegisterBuiltInFeatureModules()
     static EquipCrossSetEquipItemModule s_EquipCrossSetEquipItemModule;
     static IsWeaponNoUseInPlaceActionModule s_IsWeaponNoUseInPlaceActionModule;
     static IsItemNoUseModule s_IsItemNoUseModule;
-    static BarrierItemUsableModule s_BarrierItemUsableModule;
     static BarrierEffectLoadModule s_BarrierEffectLoadModule;
-    static BarrierEffectDiagModule s_BarrierEffectDiagModule;
     static BarrierEffectSpawnModule s_BarrierEffectSpawnModule;
-    static ForceFobModeModule s_ForceFobModeModule;
-    static BarrierEffectActivateModule s_BarrierEffectActivateModule;
-    static BarrierUseDiagModule s_BarrierUseDiagModule;
     static SupportAttackCrashGuardModule s_SupportAttackCrashGuardModule;
 
     static std::once_flag s_Once;
@@ -1214,6 +1142,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
+            FeatureModuleRegistry::Instance().Register(&s_CustomTapeLongFilenameModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
@@ -1242,39 +1171,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EquipCrossSetEquipItemModule);
             FeatureModuleRegistry::Instance().Register(&s_IsWeaponNoUseInPlaceActionModule);
             FeatureModuleRegistry::Instance().Register(&s_IsItemNoUseModule);
-            // Cut DarkMatter / StunDarkMatter support-attack weapons: skip the missing support-attack
-            // slot so they fire (their normal slots) instead of crashing. Affects only weapons whose
-            // [weapon+0x100] support-attack array is null.
             FeatureModuleRegistry::Instance().Register(&s_SupportAttackCrashGuardModule);
-            // Energy Wall (EQP_IT_Barrier 0x1E9) outside FOB -- DESCRIPTOR-FILL approach (2026-06-20),
-            // applying the DarkMatter solve. The shield's per-slot descriptor [mgr+0x18][0x13/0x14]
-            // (read by FUN_140af4a40, the prior "final wall") is registered by Player2Impl::
-            // InitializeWithoutParts via mgr->vtable[0](slot, loadedResource) -- but gated off for the
-            // Barrier, and the register only runs if FUN_1404a6a50 actually loads the FX (bit31 clear).
-            //   * BarrierEffectLoad NOPs the two load gates so the game attempts load+register itself.
-            //   * BarrierEffectDiag logs FUN_1404a6a50's result -> is the shield FX mounted outside FOB?
-            //   * BarrierEffectSpawn forces the spawn + dumps slots 0x12/0x13/0x14's descriptors+hash.
-            // One outside-FOB test answers: FX mounted? descriptor registered into the spawn's manager?
-            // renders? -- which decides whether we (a) are done, (b) must fill the descriptor ourselves
-            // (DarkMatter-style: load via FUN_1404a6a50 + register into the spawn's mgr), or (c) must
-            // first mount the FX archive.
-            // NATIVE-PATH CAPTURE (2026-06-20): the shield is applied by the game's own
-            // StartFOBInvincible(effectId, duration) -> ActionCoreImpl::vtable[0x68] (no FOB check).
-            // BarrierEffectDiag now hooks that (+ the renderer) to capture the shield's effectId + the
-            // per-grade durations in a FOB. The old fake force-path (Load/Spawn) is OFF -- we'll replay
-            // the captured native apply on use instead.
-            // effect 0 confirmed = the Energy Wall's real effect (clean FOB capture: activates duration
-            // ~29.928 on each USE). Provide renderer storage + follow while active; let the game's own
-            // USE fire the apply (test whether the native use works outside FOB).
             FeatureModuleRegistry::Instance().Register(&s_BarrierEffectLoadModule);
             FeatureModuleRegistry::Instance().Register(&s_BarrierEffectSpawnModule);
-            FeatureModuleRegistry::Instance().Register(&s_BarrierEffectDiagModule); // FOB-safe collision capture (gated: real FOB + Wall equipped)
-            // Still OFF: BarrierItemUsable (equip handled by the 3 broad usability patches above),
-            // BarrierUseDiag, BarrierEffectActivate (gate NOPs), ForceFobMode (null-derefs absent FOB
-            // infra @ 0x141354152). Re-add a Register line to re-enable.
-            // FeatureModuleRegistry::Instance().Register(&s_BarrierItemUsableModule);
-            // FeatureModuleRegistry::Instance().Register(&s_BarrierUseDiagModule);
-            // FeatureModuleRegistry::Instance().Register(&s_BarrierEffectActivateModule);
-            // FeatureModuleRegistry::Instance().Register(&s_ForceFobModeModule);
         });
 }

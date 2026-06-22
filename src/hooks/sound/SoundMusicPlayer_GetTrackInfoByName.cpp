@@ -36,7 +36,6 @@ static void DumpTrackInfoRecord(void* trackInfo)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[TrackInfo] exception while copying record\n");
         return;
     }
 
@@ -84,7 +83,7 @@ bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
     void* target = ResolveGameAddress(gAddr.GetTrackInfoByName);
     if (!target)
     {
-        Log("[Hook] SoundMusicPlayer::GetTrackInfoByName: address resolve failed\n");
+        Log("[TrackInfo] ERROR: GetTrackInfoByName address unavailable for this build — cassette track lookups by name will not work.\n");
         return false;
     }
 
@@ -93,7 +92,8 @@ bool Install_SoundMusicPlayer_GetTrackInfoByName_Hook()
         reinterpret_cast<void*>(&hkGetTrackInfoByName),
         reinterpret_cast<void**>(&g_OrigGetTrackInfoByName));
 
-    Log("[Hook] SoundMusicPlayer::GetTrackInfoByName: %s\n", ok ? "OK" : "FAIL");
+    if (!ok)
+        Log("[TrackInfo] ERROR: failed to hook GetTrackInfoByName — cassette track lookups by name will not work.\n");
     return ok;
 }
 
