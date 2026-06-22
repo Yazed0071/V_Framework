@@ -238,6 +238,9 @@ namespace AddressSetRuntime
             0x1408B1A48ull, // EquipCrossSetEquipItem_Site1
             0x1408B1AA2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
+            0x1408A88E0ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAEF60ull, // Layout_GetLayout
+            0x141DAEFA0ull, // Layout_GetModel
         };
         return value;
     }
@@ -511,6 +514,9 @@ namespace AddressSetRuntime
             0x1408B1568ull, // EquipCrossSetEquipItem_Site1
             0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1604ull, // EquipCrossSetEquipItem_Site3
+            0x1408A8400ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAEF70ull, // Layout_GetLayout
+            0x141DAEFB0ull, // Layout_GetModel
         };
 
         return value;

@@ -12,6 +12,9 @@ bool Uninstall_SetLuaFunctions_Hook();
 bool Install_EquipBgTexture_Hook();
 bool Uninstall_EquipBgTexture_Hook();
 
+bool Install_MissionTelopBgTexture_Hook();
+bool Uninstall_MissionTelopBgTexture_Hook();
+
 bool Install_LoadingSplash_Hook();
 bool Uninstall_LoadingSplash_Hook();
 
@@ -220,6 +223,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_EquipBgTexture_Hook();
+        }
+    };
+
+    class MissionTelopBgTextureModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MissionTelopBgTexture";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MissionTelopBgTexture_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MissionTelopBgTexture_Hook();
         }
     };
 
@@ -1056,6 +1079,7 @@ void RegisterBuiltInFeatureModules()
 {
     static LuaBridgeModule s_LuaBridgeModule;
     static EquipBgTextureModule s_EquipBgTextureModule;
+    static MissionTelopBgTextureModule s_MissionTelopBgTextureModule;
     static LoadingSplashModule s_LoadingSplashModule;
     static GameOverSplashModule s_GameOverSplashModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
@@ -1118,6 +1142,7 @@ void RegisterBuiltInFeatureModules()
         {
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipBgTextureModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionTelopBgTextureModule);
             FeatureModuleRegistry::Instance().Register(&s_LoadingSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);

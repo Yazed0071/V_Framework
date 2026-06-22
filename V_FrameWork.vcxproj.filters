@@ -91,6 +91,7 @@
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
     <ClInclude Include="src\hooks\ui\EquipBgTexture.h" />
+    <ClInclude Include="src\hooks\ui\MissionTelopBgTexture.h" />
     <ClInclude Include="src\hooks\ui\LoadingSplash.h" />
     <ClInclude Include="src\hooks\ui\GameOverSplash.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
@@ -174,6 +175,7 @@
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />
     <ClCompile Include="src\hooks\ui\EquipBgTexture.cpp" />
+    <ClCompile Include="src\hooks\ui\MissionTelopBgTexture.cpp" />
     <ClCompile Include="src\hooks\ui\LoadingSplash.cpp" />
     <ClCompile Include="src\hooks\ui\GameOverSplash.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />

@@ -242,8 +242,11 @@ static const char* const kAddrFieldNames[] = {
     "EquipCrossSetEquipItem_Site1",
     "EquipCrossSetEquipItem_Site2",
     "EquipCrossSetEquipItem_Site3",
+    "TelopStartTitleEvCall_SetBgTexture",
+    "Layout_GetLayout",
+    "Layout_GetModel",
 };
-static const int kAddrFieldCount = 230;
+static const int kAddrFieldCount = 233;
 
 namespace AddressSetRuntime
 {
@@ -520,6 +523,9 @@ namespace AddressSetRuntime
             0x1408B2278ull, // EquipCrossSetEquipItem_Site1
             0x1408B22D2ull, // EquipCrossSetEquipItem_Site2
             0x1408B2314ull, // EquipCrossSetEquipItem_Site3
+            0x1408A9020ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAE4A0ull, // Layout_GetLayout
+            0x141DAE4E0ull, // Layout_GetModel
         };
 
         return value;
@@ -759,6 +765,9 @@ namespace AddressSetRuntime
             0x1408B21A8ull, // EquipCrossSetEquipItem_Site1
             0x1408B2202ull, // EquipCrossSetEquipItem_Site2
             0x1408B2244ull, // EquipCrossSetEquipItem_Site3
+            0x1408A8F50ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAE510ull, // Layout_GetLayout
+            0x141DAE550ull, // Layout_GetModel
         };
         return value;
     }

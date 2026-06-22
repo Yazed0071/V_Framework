@@ -280,6 +280,10 @@ namespace AddressSetRuntime
         uintptr_t EquipCrossSetEquipItem_Site1 = 0;
         uintptr_t EquipCrossSetEquipItem_Site2 = 0;
         uintptr_t EquipCrossSetEquipItem_Site3 = 0;
+
+        uintptr_t TelopStartTitleEvCall_SetBgTexture = 0;
+        uintptr_t Layout_GetLayout = 0;
+        uintptr_t Layout_GetModel = 0;
     };
 
     inline GameBuild& GetGameBuild()
