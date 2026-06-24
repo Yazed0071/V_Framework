@@ -292,7 +292,7 @@ namespace V_FrameWorkState
                 for (const auto& kv : g_State.tapes)
                     sorted.emplace_back(kv.first, kv.second);
                 std::sort(sorted.begin(), sorted.end(),
-                    [](const auto& a, const auto& b) { return a.first < b.first; });
+                    [](const auto& a, const auto& b) { return a.second.saveIndex < b.second.saveIndex; });
 
                 out << "    tapes = {\n";
                 for (const auto& kv : sorted)
