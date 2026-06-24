@@ -220,7 +220,7 @@ namespace AddressSetRuntime
             0x140338B60ull, // SoundControl_PostExternalEvent
             0x140989B20ull, // MusicPlayerPlayWrapper
             0x145FA1510ull, // FUN_145fa1510
-            0x1408B1A0Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1408B1A0Dull, // SetEquipItem GetItemId
             0x141000780ull, // FUN_141000780
             0x140AF3760ull, // FUN_140af3760
             0x14504E090ull, // FUN_14504e090
@@ -238,9 +238,18 @@ namespace AddressSetRuntime
             0x1408B1A48ull, // EquipCrossSetEquipItem_Site1
             0x1408B1AA2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
+            0x141393B8Eull, // Soldier_ShootOneBullet_GroupMaskCall
+            0x140D2DB6Dull, // Soldier_ActivateBulletAtEmptyWork_SameArmyJnz
             0x1408A88E0ull, // TelopStartTitleEvCall_SetBgTexture
             0x141DAEF60ull, // Layout_GetLayout
             0x141DAEFA0ull, // Layout_GetModel
+            0x146081DB0ull, // GetCassetteTapeUnreadInfo
+            0x1466EE5A0ull, // IsNewCassetteTapeTrack
+            0x149308D60ull, // CassetteMenuCheckNewFlag
+            0x1493087C0ull, // CassetteAlbumCheckNewFlag
+            0x149309C50ull, // CassetteCheckUnreadInfo
+            0x144A06660ull, // SubtitlesObjectSendMessage
+            0x142EF2BF0ull, // Fox_printf
         };
         return value;
     }
@@ -496,12 +505,12 @@ namespace AddressSetRuntime
             0x1403385E0ull, // SoundControl_PostExternalEvent
             0x140989600ull, // MusicPlayerPlayWrapper
             0x147BB2DA0ull, // FUN_147bb2da0
-            0x1408B152Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1408B152Dull, // SetEquipItem GetItemId call-return
             0x1410007D0ull, // FUN_1410007d0
             0x140AF32A0ull, // FUN_140af32a0
             0x144EC3FF0ull, // FUN_144ec3ff0
-            0x1409C361Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
-            0x1409C3685ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x1409C361Full, // InitializeWithoutParts itmsld01
+            0x1409C3685ull, // InitializeWithoutParts itmsld02
             0x140FC3D90ull, // FUN_140fc3d90
             0x140A29F50ull, // FUN_140a29f50
             0x141B18A40ull, // FUN_141b18a40
@@ -514,9 +523,18 @@ namespace AddressSetRuntime
             0x1408B1568ull, // EquipCrossSetEquipItem_Site1
             0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1604ull, // EquipCrossSetEquipItem_Site3
+            0x141393B6Eull, // Soldier_ShootOneBullet_GroupMaskCall
+            0x140D2D7CDull, // Soldier_ActivateBulletAtEmptyWork_SameArmyJnz
             0x1408A8400ull, // TelopStartTitleEvCall_SetBgTexture
             0x141DAEF70ull, // Layout_GetLayout
             0x141DAEFB0ull, // Layout_GetModel
+            0x147CB2BB0ull, // GetCassetteTapeUnreadInfo
+            0x140A95BA0ull, // IsNewCassetteTapeTrack
+            0x149CCDE50ull, // CassetteMenuCheckNewFlag
+            0x149CCD510ull, // CassetteAlbumCheckNewFlag
+            0x149CCF740ull, // CassetteCheckUnreadInfo
+            0x144868DF0ull, // SubtitlesObjectSendMessage
+            0x142EE2A90ull, // Fox_printf
         };
 
         return value;

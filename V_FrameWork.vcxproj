@@ -116,7 +116,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox;$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <WholeProgramOptimization>false</WholeProgramOptimization>
@@ -137,7 +137,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox;$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -218,6 +218,7 @@
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
+    <ClInclude Include="src\hooks\sound\SubtitlesEventMessage.h" />
     <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
     <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
@@ -246,6 +247,8 @@
     <ClInclude Include="src\hooks\ui\BarrierEffectSpawn.h" />
     <ClInclude Include="src\hooks\ui\SupportAttackCrashGuard.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
+    <!-- Hooks: Bullet -->
+    <ClInclude Include="src\hooks\bullet\Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h" />
     <!-- Hooks: Pickable -->
     <ClInclude Include="src\hooks\pickable\TppPickableRuntime.h" />
     <!-- Hooks: Sahelan -->
@@ -276,6 +279,7 @@
     <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
+    <ClCompile Include="src\hooks\bullet\Bullet3Impl_ActivateBulletAtEmptyWorkPatch.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\LuaApi.cpp" />
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
@@ -322,6 +326,7 @@
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
+    <ClCompile Include="src\hooks\sound\SubtitlesEventMessage.cpp" />
     <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
     <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
