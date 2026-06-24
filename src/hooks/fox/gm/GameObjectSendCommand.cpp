@@ -26,6 +26,7 @@ extern "C" {
 #include "../../soldier/ActionCoreImpl_UpdateOptCamo.h"
 #include "../../soldier/NoticeControllerImpl_GetOccasionalChat.h"
 #include "../../soldier/CautionStepNormalTimerHook.h"
+#include "../../bullet/Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
 #include "../../../core/FoxHashes.h"
 #include "../../../lua/LuaApi.h"
 
@@ -496,6 +497,20 @@ namespace
             g_lua_settop(L, top);
             ::Set_HeartLightDisco(enabled, speed, a);
             return 0;
+        }
+
+        if (idStr == "SetFriendlyFire")
+        {
+            const bool enable = ReadCommandBool(L, 2, "enable");
+            g_lua_settop(L, top);
+            ::Set_FriendlyFire(enable);
+            return 0;
+        }
+        if (idStr == "GetFriendlyFire")
+        {
+            g_lua_settop(L, top);
+            g_lua_pushnumber(L, ::Get_FriendlyFire() ? 1.0 : 0.0);
+            return 1;
         }
 
         return g_OrigSendCommand(L);
