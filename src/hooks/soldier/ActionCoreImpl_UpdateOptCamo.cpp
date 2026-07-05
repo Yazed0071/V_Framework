@@ -286,7 +286,12 @@ bool Install_UpdateOptCamo_Hook()
         reinterpret_cast<void*>(&hkUpdateOptCamo),
         reinterpret_cast<void**>(&g_OrigUpdateOptCamo));
 
+#ifdef _DEBUG
     Log("[Hook] UpdateOptCamo: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] UpdateOptCamo: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 

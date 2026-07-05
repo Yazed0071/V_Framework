@@ -46,7 +46,9 @@ bool Install_ChangeLocationMenu_Hook()
         reinterpret_cast<void*>(&hkGetChangeLocationMenuParameterByLocationId),
         reinterpret_cast<void**>(&g_OrigGetChangeLocationMenuParameterByLocationId));
 
+#ifdef _DEBUG
     Log("[Hook] ChangeLocationMenu %d installed at %p\n", okTarget, target);
+#endif
     return okTarget;
 }
 

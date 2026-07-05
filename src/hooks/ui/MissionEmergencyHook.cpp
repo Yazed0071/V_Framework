@@ -106,8 +106,10 @@ bool Install_MissionEmergency_Hook()
     }
 
     g_MissionEmergencyHookInstalled = true;
+#ifdef _DEBUG
     Log("[MissionEmergency] hook installed at 0x%llX\n",
         static_cast<unsigned long long>(gAddr.GetMissionCodeCategory));
+#endif
     return true;
 }
 
@@ -129,6 +131,8 @@ bool Uninstall_MissionEmergency_Hook()
 
     MissionEmergency_ClearAll();
 
+#ifdef _DEBUG
     Log("[MissionEmergency] hook removed\n");
+#endif
     return true;
 }

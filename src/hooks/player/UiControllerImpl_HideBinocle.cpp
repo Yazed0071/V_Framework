@@ -36,7 +36,12 @@ bool Install_HideBinocle_Hook()
     void* target = ResolveGameAddress(gAddr.UiControllerImpl_HideBinocle);
     const bool ok = CreateAndEnableHook(target, reinterpret_cast<void*>(&hkHideBinocle),
                                         reinterpret_cast<void**>(&g_Orig));
+#ifdef _DEBUG
     Log("[HideBinocle] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#else
+    if (!ok)
+        Log("[HideBinocle] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#endif
     return ok;
 }
 

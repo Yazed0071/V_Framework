@@ -573,7 +573,9 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
+#ifdef _DEBUG
             Log("[MbDvcCustomPopup][DIAG] dump raised; aborting diag\n");
+#endif
         }
     }
 
@@ -655,7 +657,9 @@ namespace
             if (ok)
             {
                 g_ReserveHookTarget = reserveFn;
+#ifdef _DEBUG
                 Log("[MbDvcCustomPopup] ReserveHook install: OK (target=%p)\n", reserveFn);
+#endif
             }
             else
             {
@@ -699,7 +703,9 @@ namespace
             if (ok)
             {
                 g_GateHookTarget = fn;
+#ifdef _DEBUG
                 Log("[MbDvcCustomPopup] GateHook install: OK (target=%p)\n", fn);
+#endif
             }
             else
             {
@@ -1019,16 +1025,20 @@ bool Set_MbDvcEmergencyPopup(const char* title, const char* body)
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
+#ifdef _DEBUG
         Log("[MbDvcCustomPopup] Emergency popup override cleared (Set called with both fields null)\n");
+#endif
         return true;
     }
 
     g_ActiveEmergencyOverride    = std::move(entry);
     g_HasActiveEmergencyOverride = true;
 
+#ifdef _DEBUG
     Log("[MbDvcCustomPopup] Emergency popup override set title=%s body=%s\n",
         g_ActiveEmergencyOverride.hasTitle ? "(literal)" : "(engine default)",
         g_ActiveEmergencyOverride.hasBody  ? "(literal)" : "(engine default)");
+#endif
     return true;
 }
 
@@ -1056,18 +1066,22 @@ bool Set_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabel
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
+#ifdef _DEBUG
         Log("[MbDvcCustomPopup] Emergency popup override cleared (SetLangId called with both labels empty)\n");
+#endif
         return true;
     }
 
     g_ActiveEmergencyOverride    = std::move(entry);
     g_HasActiveEmergencyOverride = true;
 
+#ifdef _DEBUG
     Log("[MbDvcCustomPopup] Emergency popup override set titleHash=0x%016llX bodyHash=0x%016llX\n",
         static_cast<unsigned long long>(g_ActiveEmergencyOverride.titleIsHash
             ? g_ActiveEmergencyOverride.titleHash : 0),
         static_cast<unsigned long long>(g_ActiveEmergencyOverride.bodyIsHash
             ? g_ActiveEmergencyOverride.bodyHash : 0));
+#endif
     return true;
 }
 
@@ -1079,7 +1093,9 @@ void Clear_MbDvcEmergencyPopupOverride()
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
+#ifdef _DEBUG
         Log("[MbDvcCustomPopup] Emergency popup override cleared\n");
+#endif
     }
 }
 
@@ -1100,8 +1116,12 @@ bool Install_MbDvcCustomPopup_Hook()
         targetN,
         reinterpret_cast<void*>(&hk_UpdateAnnounceNormal),
         reinterpret_cast<void**>(&g_OrigUpdateAnnounceNormal));
-    Log("[Hook] MbDvcCustomPopup Normal: %s (target=%p)\n",
-        okN ? "OK" : "FAIL", targetN);
+    if (!okN)
+        Log("[Hook] MbDvcCustomPopup Normal: FAIL (target=%p)\n", targetN);
+#ifdef _DEBUG
+    else
+        Log("[Hook] MbDvcCustomPopup Normal: OK (target=%p)\n", targetN);
+#endif
 
     if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer)
     {
@@ -1113,14 +1133,20 @@ bool Install_MbDvcCustomPopup_Hook()
                 targetS,
                 reinterpret_cast<void*>(&hk_UpdateAnnounceServer),
                 reinterpret_cast<void**>(&g_OrigUpdateAnnounceServer));
-            Log("[Hook] MbDvcCustomPopup Server: %s (target=%p)\n",
-                okS ? "OK" : "FAIL", targetS);
+            if (!okS)
+                Log("[Hook] MbDvcCustomPopup Server: FAIL (target=%p)\n", targetS);
+#ifdef _DEBUG
+            else
+                Log("[Hook] MbDvcCustomPopup Server: OK (target=%p)\n", targetS);
+#endif
         }
     }
+#ifdef _DEBUG
     else
     {
         Log("[Hook] MbDvcCustomPopup Server: skipped (no address for current build)\n");
     }
+#endif
 
     if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency)
     {
@@ -1133,14 +1159,20 @@ bool Install_MbDvcCustomPopup_Hook()
                 reinterpret_cast<void*>(&hk_UpdateAnnounceEmergency),
                 reinterpret_cast<void**>(&g_OrigUpdateAnnounceEmergency));
             if (okE) g_EmergencyHookTarget = targetE;
-            Log("[Hook] MbDvcCustomPopup Emergency: %s (target=%p)\n",
-                okE ? "OK" : "FAIL", targetE);
+            if (!okE)
+                Log("[Hook] MbDvcCustomPopup Emergency: FAIL (target=%p)\n", targetE);
+#ifdef _DEBUG
+            else
+                Log("[Hook] MbDvcCustomPopup Emergency: OK (target=%p)\n", targetE);
+#endif
         }
     }
+#ifdef _DEBUG
     else
     {
         Log("[Hook] MbDvcCustomPopup Emergency: skipped (no address for current build)\n");
     }
+#endif
 
     if (gAddr.MbDvcReserveAnnouncePopup)
     {
@@ -1156,8 +1188,12 @@ bool Install_MbDvcCustomPopup_Hook()
                 g_ReserveHookTarget = reserveFn;
                 std::call_once(g_ReserveHookInstallFlag, []() {});
             }
-            Log("[MbDvcCustomPopup] ReserveHook install: %s (target=%p)\n",
-                okR ? "OK" : "FAIL", reserveFn);
+            if (!okR)
+                Log("[MbDvcCustomPopup] ReserveHook install: FAIL (target=%p)\n", reserveFn);
+#ifdef _DEBUG
+            else
+                Log("[MbDvcCustomPopup] ReserveHook install: OK (target=%p)\n", reserveFn);
+#endif
         }
     }
 
@@ -1175,8 +1211,12 @@ bool Install_MbDvcCustomPopup_Hook()
                 g_GateHookTarget = gateFn;
                 std::call_once(g_GateHookInstallFlag, []() {});
             }
-            Log("[MbDvcCustomPopup] GateHook install: %s (target=%p)\n",
-                okG ? "OK" : "FAIL", gateFn);
+            if (!okG)
+                Log("[MbDvcCustomPopup] GateHook install: FAIL (target=%p)\n", gateFn);
+#ifdef _DEBUG
+            else
+                Log("[MbDvcCustomPopup] GateHook install: OK (target=%p)\n", gateFn);
+#endif
         }
     }
 
@@ -1234,7 +1274,9 @@ bool Uninstall_MbDvcCustomPopup_Hook()
         g_PendingQueue.clear();
     }
 
+#ifdef _DEBUG
     Log("[Hook] MbDvcCustomPopup: removed\n");
+#endif
     return true;
 }
 

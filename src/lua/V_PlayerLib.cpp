@@ -10,6 +10,7 @@ extern "C" {
 #include "LuaApi.h"
 #include "V_PlayerLib.h"
 #include "PlayerFunctions.h"
+#include "OutfitLuaBindings.h"
 
 namespace
 {
@@ -18,6 +19,10 @@ namespace
         { "SetPlayerVoiceFpkPathForType",             l_SetPlayerVoiceFpkPathForType },
         { "ClearPlayerVoiceFpkPathForType",           l_ClearPlayerVoiceFpkPathForType },
         { "ClearAllPlayerVoiceFpkOverrides",          l_ClearAllPlayerVoiceFpkOverrides },
+
+        { "RegisterOutfit",                           OutfitLua_RegisterOutfit },
+        { "RegisterHeadOption",                       OutfitLua_RegisterHeadOption },
+        { "GetOutfitInfo",                            OutfitLua_GetOutfitInfo },
 
         { nullptr,          nullptr }
     };

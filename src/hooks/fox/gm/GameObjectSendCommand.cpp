@@ -533,8 +533,10 @@ bool Install_GameObjectSendCommand_Hook()
     if (ok)
     {
         g_Installed = true;
+#ifdef _DEBUG
         Log("[GameObjectSendCommand] hook installed @ %p (orig=%p)\n",
             target, reinterpret_cast<void*>(g_OrigSendCommand));
+#endif
     }
     else
     {

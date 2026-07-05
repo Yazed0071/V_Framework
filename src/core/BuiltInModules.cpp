@@ -180,6 +180,38 @@ void Uninstall_SupportAttackCrashGuard();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
+// Custom-outfit prep-summary feed (EN-15.4). Index resolvers + developed-bit.
+namespace outfit
+{
+    bool Install_OutfitEquippedState_Hooks();
+    void Uninstall_OutfitEquippedState_Hooks();
+
+    bool Install_OutfitRuntimeParts_Hooks();
+    void Uninstall_OutfitRuntimeParts_Hooks();
+    bool Install_OutfitSuitConditionApply_Hook();
+    void Uninstall_OutfitSuitConditionApply_Hook();
+    bool Install_OutfitItemSelector_Hook();
+    void Uninstall_OutfitItemSelector_Hook();
+    bool Install_OutfitListInject_Hook();
+    void Uninstall_OutfitListInject_Hook();
+    bool Install_OutfitHeadOption_Hook();
+    void Uninstall_OutfitHeadOption_Hook();
+    bool Install_OutfitCamoBonus_Hook();
+    void Uninstall_OutfitCamoBonus_Hook();
+    bool Install_OutfitGetCamoufValue_Hook();
+    void Uninstall_OutfitGetCamoufValue_Hook();
+}
+namespace EquipDevelopAdd
+{
+    bool Install_TppMotherBaseManagement_EquipDevelopHooks();
+    bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+}
+void EquipDevelop_InstallDevelopSyncHooks();
+bool Install_TppEquip_RegisterConstant_Hook();
+bool Uninstall_TppEquip_RegisterConstant_Hook();
+bool Install_TppEquip_ReloadEquipIdTable_Hook();
+bool Uninstall_TppEquip_ReloadEquipIdTable_Hook();
+
 
 namespace
 {
@@ -1050,6 +1082,101 @@ namespace
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SupportAttackCrashGuard(); }
         void Uninstall() override { Uninstall_SupportAttackCrashGuard(); }
     };
+
+    class PlayerOutfitCoreModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "PlayerOutfitCore"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            const bool a = outfit::Install_OutfitEquippedState_Hooks();
+            const bool b = EquipDevelopAdd::Install_TppMotherBaseManagement_EquipDevelopHooks();
+
+            EquipDevelop_InstallDevelopSyncHooks();
+
+            const bool runtime = outfit::Install_OutfitRuntimeParts_Hooks();
+            (void)runtime;
+            return a && b;
+        }
+        void Uninstall() override
+        {
+            outfit::Uninstall_OutfitRuntimeParts_Hooks();
+            EquipDevelopAdd::Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
+            outfit::Uninstall_OutfitEquippedState_Hooks();
+        }
+    };
+
+    class PlayerOutfitEquipModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "PlayerOutfitEquip"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            const bool apply  = outfit::Install_OutfitSuitConditionApply_Hook();
+            const bool select = outfit::Install_OutfitItemSelector_Hook();
+            const bool list   = outfit::Install_OutfitListInject_Hook();
+            (void)apply; (void)select; (void)list;
+            return true;
+        }
+        void Uninstall() override
+        {
+            outfit::Uninstall_OutfitListInject_Hook();
+            outfit::Uninstall_OutfitItemSelector_Hook();
+            outfit::Uninstall_OutfitSuitConditionApply_Hook();
+        }
+    };
+
+    class PlayerOutfitExtrasModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "PlayerOutfitExtras"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            const bool head  = outfit::Install_OutfitHeadOption_Hook();
+            const bool camo  = outfit::Install_OutfitCamoBonus_Hook();
+            const bool value = outfit::Install_OutfitGetCamoufValue_Hook();
+            (void)head; (void)camo; (void)value;
+            return true;
+        }
+        void Uninstall() override
+        {
+            outfit::Uninstall_OutfitGetCamoufValue_Hook();
+            outfit::Uninstall_OutfitCamoBonus_Hook();
+            outfit::Uninstall_OutfitHeadOption_Hook();
+        }
+    };
+    class TppEquipConstInjectModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "TppEquipConstInject"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_TppEquip_RegisterConstant_Hook();
+        }
+        void Uninstall() override
+        {
+            Uninstall_TppEquip_RegisterConstant_Hook();
+        }
+    };
+
+    class EquipIdTableOverflowModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "EquipIdTableReload"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_TppEquip_ReloadEquipIdTable_Hook();
+        }
+        void Uninstall() override
+        {
+            Uninstall_TppEquip_ReloadEquipIdTable_Hook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -1112,6 +1239,11 @@ void RegisterBuiltInFeatureModules()
     static BarrierEffectLoadModule s_BarrierEffectLoadModule;
     static BarrierEffectSpawnModule s_BarrierEffectSpawnModule;
     static SupportAttackCrashGuardModule s_SupportAttackCrashGuardModule;
+    static PlayerOutfitCoreModule s_PlayerOutfitCoreModule;
+    static PlayerOutfitEquipModule s_PlayerOutfitEquipModule;
+    static PlayerOutfitExtrasModule s_PlayerOutfitExtrasModule;
+    static TppEquipConstInjectModule s_TppEquipConstInjectModule;
+    static EquipIdTableOverflowModule s_EquipIdTableOverflowModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -1174,5 +1306,10 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_SupportAttackCrashGuardModule);
             FeatureModuleRegistry::Instance().Register(&s_BarrierEffectLoadModule);
             FeatureModuleRegistry::Instance().Register(&s_BarrierEffectSpawnModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitCoreModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitEquipModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitExtrasModule);
+            FeatureModuleRegistry::Instance().Register(&s_TppEquipConstInjectModule);
+            FeatureModuleRegistry::Instance().Register(&s_EquipIdTableOverflowModule);
         });
 }

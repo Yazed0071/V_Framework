@@ -150,9 +150,11 @@ bool Install_RealizedSahelanFova_Hook()
         reinterpret_cast<void*>(&hkRealize),
         reinterpret_cast<void**>(&g_OrigRealize));
 
+#ifdef _DEBUG
     Log("[Hook] RealizedSahelanFova: SetFovaImpl=%s (target=%p), Realize=%s (target=%p)\n",
         okSetFova ? "OK" : "FAIL", setFovaTarget,
         okRealize ? "OK" : "FAIL", realizeTarget);
+#endif
 
     return okSetFova && okRealize;
 }
@@ -164,7 +166,9 @@ bool Uninstall_RealizedSahelanFova_Hook()
     g_OrigSetFovaImpl = nullptr;
     g_OrigRealize = nullptr;
 
+#ifdef _DEBUG
     Log("[Hook] RealizedSahelanFova: removed\n");
+#endif
     return true;
 }
 
@@ -176,9 +180,11 @@ void Set_SahelanFovaHash(std::uint64_t hash)
     if (hash != 0)
         g_BypassMissionCheck.store(true, std::memory_order_relaxed);
 
+#ifdef _DEBUG
     Log("[SahelanFova] hash override set to 0x%016llX (bypassMission=%s)\n",
         static_cast<unsigned long long>(hash),
         g_BypassMissionCheck.load() ? "ON" : "OFF");
+#endif
 }
 
 void Set_SahelanFovaPath(const char* path)
@@ -200,7 +206,9 @@ void Clear_SahelanFovaOverride()
     g_HasFovaOverride.store(false, std::memory_order_relaxed);
     g_BypassMissionCheck.store(false, std::memory_order_relaxed);
 
+#ifdef _DEBUG
     Log("[SahelanFova] override cleared (vanilla restored)\n");
+#endif
 }
 
 std::uint64_t Get_SahelanFovaHash()

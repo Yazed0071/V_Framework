@@ -103,6 +103,10 @@
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
     <ClInclude Include="src\hooks\ui\UiPalette.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
+    <ClInclude Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.h" />
+    <ClInclude Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h" />
+    <ClInclude Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.h" />
+    <ClInclude Include="src\hooks\outfit\ItemSelectorCallbackImpl_AddListSuit.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core sources -->
@@ -186,6 +190,10 @@
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
     <ClCompile Include="src\hooks\ui\UiPalette.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
+    <ClCompile Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.cpp" />
+    <ClCompile Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.cpp" />
+    <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.cpp" />
+    <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_AddListSuit.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

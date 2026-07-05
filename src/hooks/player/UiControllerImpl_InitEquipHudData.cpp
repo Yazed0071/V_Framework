@@ -41,7 +41,12 @@ bool Install_InitEquipHudData()
     void* target = ResolveGameAddress(gAddr.UiControllerImpl_InitEquipHudData);
     const bool ok = CreateAndEnableHook(target, reinterpret_cast<void*>(&hkInitEquipHudData),
                                         reinterpret_cast<void**>(&g_Orig));
+#ifdef _DEBUG
     Log("[InitEquipHudData] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#else
+    if (!ok)
+        Log("[InitEquipHudData] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#endif
     return ok;
 }
 

@@ -107,7 +107,9 @@ bool Uninstall_GetGameObjectIdWithIndex()
 {
     g_GetGameObjectIdWithIndex = nullptr;
 
+#ifdef _DEBUG
     Log("[GetGameObjectIdWithIndex] uninstalled.\n");
+#endif
     return true;
 }
 

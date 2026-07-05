@@ -403,7 +403,12 @@ bool Install_VIPRadio_Hook()
         reinterpret_cast<void*>(&hkCallWithRadioType),
         reinterpret_cast<void**>(&g_OrigCallWithRadioType));
 
+#ifdef _DEBUG
     Log("[Hook] VIPRadio: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] VIPRadio: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 

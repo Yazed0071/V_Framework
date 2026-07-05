@@ -92,11 +92,13 @@ bool Install_SoldierHairFova_Hook()
                             reinterpret_cast<void*>(&hk_UpdateFaceFovaMesh),
                             reinterpret_cast<void**>(&g_OrigFaceUpdate));
 
+#ifdef _DEBUG
     Log("[HairFova] install: FaceUpdate=%s GetHeadEquip=%s GetFovaMgr=%s GetFovaModel=%s\n",
         gAddr.RealizedSoldier2Impl_UpdateHeadEquipMesh ? "set" : "0",
         g_GetHeadEquipType ? "ok" : "NULL",
         g_GetFovaResMgr ? "ok" : "NULL",
         g_GetFovaModel ? "ok" : "NULL");
+#endif
     return ok;
 }
 

@@ -92,7 +92,12 @@ bool Install_SearchLightActionPluginImpl_StateDoor_Hook()
     const bool endOk = CreateAndEnableHook(
         endTarget, reinterpret_cast<void*>(&hkStateDoorEnd), reinterpret_cast<void**>(&g_OrigEnd));
 
+#ifdef _DEBUG
     Log("[LockPick] StateDoorStart:%s StateDoorEnd:%s\n", startOk ? "OK" : "FAIL", endOk ? "OK" : "FAIL");
+#else
+    if (!startOk || !endOk)
+        Log("[LockPick] StateDoorStart:%s StateDoorEnd:%s\n", startOk ? "OK" : "FAIL", endOk ? "OK" : "FAIL");
+#endif
     return startOk && endOk;
 }
 

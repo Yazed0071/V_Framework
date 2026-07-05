@@ -220,12 +220,12 @@ namespace AddressSetRuntime
             0x140338B60ull, // SoundControl_PostExternalEvent
             0x140989B20ull, // MusicPlayerPlayWrapper
             0x145FA1510ull, // FUN_145fa1510
-            0x1408B1A0Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1408B1A0Dull, // SetEquipItem GetItemId call-return
             0x141000780ull, // FUN_141000780
             0x140AF3760ull, // FUN_140af3760
             0x14504E090ull, // FUN_14504e090
-            0x1409C3B5Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
-            0x1409C3BC5ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x1409C3B5Full, // InitializeWithoutParts itmsld01
+            0x1409C3BC5ull, // InitializeWithoutParts itmsld02
             0x140FC3CC0ull, // FUN_140fc3cc0
             0x140A2A480ull, // FUN_140a2a480
             0x141B18900ull, // FUN_141b18900
@@ -238,6 +238,77 @@ namespace AddressSetRuntime
             0x1408B1A48ull, // EquipCrossSetEquipItem_Site1
             0x1408B1AA2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
+            0x1466f3b10ull, // TppMotherBaseManagement_RegCstDev
+            0x1466f4600ull, // TppMotherBaseManagement_RegFlwDev
+            0x0ull, // IsEquipDeveloped
+            0x140f6b660ull, // EquipDevCtrl_GetSuitDevelopInfoIndex
+            0x140f69f20ull, // EquipDevCtrl_GetFaceEquipDevelopInfoIndex
+            0x1416a1aa0ull, // AddListSuit
+            0x14691b460ull, // CamoufParamInfo_GetCamoufValue
+            0x140fdc5d0ull, // CamouflageController_ExecSuitCorrect
+            0x1411b0d10ull, // EquipController_SetHandSlotEnabled
+            0x141675600ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
+            0x14a56bfa0ull, // IsEnableCurrentSuit
+            0x1416a4280ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+            0x1416a51c0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+            0x1416a9b80ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x1416af270ull, // ItemSelectorRecordCallFunc_UpdateRecords
+            0x14a53c210ull, // ItemSelector_AddListBandana
+            0x140ae90f0ull, // LoadPlayerBionicArmFpk
+            0x140ae9040ull, // LoadPlayerBionicArmFv2
+            0x146864180ull, // LoadPlayerCamoFpk
+            0x146863f80ull, // LoadPlayerCamoFv2
+            0x146866c80ull, // LoadPlayerPartsFpk
+            0x146865f80ull, // LoadPlayerPartsParts
+            0x146864e30ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x146864c80ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x140ae8df0ull, // LoadPlayerSnakeFaceFpk
+            0x140ae8ce0ull, // LoadPlayerSnakeFaceFv2
+            0x1460b9fa0ull, // MissionPrepSystem_IsEnableHeadOptionSuit
+            0x14a56ba20ull, // MissionPrep_IsEnableCurrentHeadOption
+            0x146239160ull, // Player2BlockController_LoadPartsNew
+            0x1409c5d00ull, // Player2GameObjectImpl_ProcessSignal
+            0x1409ca560ull, // Player2Impl_SetUpParts
+            0x0ull, // Player2UtilityImpl_CommitWrapper
+            0x1462c93f0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
+            0x1462c7670ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
+            0x1409defe0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x14622a3b0ull, // Player_ConverFaceIdWithFaceEquipId
+            0x140ae84b0ull, // ResourceTable_DoesNeedFaceFova
+            0x140ae8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
+            0x0ull, // SuitList_FillDevelopedFlowIxs
+            0x0ull, // SuitList_GetDevelopedCount
+            0x0ull, // SuitList_GetSuitInfoTable
+            0x1416a7610ull, // SupplyDropSuitSetup
+            0x1409c45c0ull, // Sys_IsArtificialHandEnabled
+            0x141e02d80ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
+            0x1409cc380ull, // UpdatePartsStatus
+            0x1416a3670ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
+            0x142f6ad70ull, // Fox_Path_Exists
+            0x14319eb70ull, // Fox_Path_Dtor
+            0x146323c30ull, // GetSoldier2FaceSystem
+            0x0ull, // PluginFacial_ApplyMotion
+            0x140f6d8e0ull, // EquipDevCtrl_IsEquipVisile
+            0x14950ed50ull, // EquipDevCtrl_GetHeadBadgeCategory
+            0x1460b33f0ull, // MissionPrep_GetWornHeadCategory
+            0x142c1b0d0ull, // BlockControlModeValue
+            0x14a544d40ull, // MissionPrep_SetInitialSelectRecord
+            0x1464a0e00ull, // TppEquip_RegisterConstant
+            0x141e02930ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
+            0x140a29730ull, // TppEquip_AddToEquipIdTable
+            0x142c20fb0ull, // EquipIdTable_InfoList
+            0x142a70928ull, // EquipIdTable_TypeWords
+            0x1464b6740ull, // EquipIdTable_ReloadEquipIdTable
+            0x14950d190ull, // EquipDevelopCtrl_GetEquipDevelopIndex
+            0x149527750ull, // EquipDevelopCtrl_SetEquipUndeveloped
+            0x149519770ull, // EquipDevCtrl_GetSuitCamoType
+            0x149519990ull, // EquipDevCtrl_GetSuitLevel
+            0x140f6d7a0ull, // EquipDevCtrl_IsEquipSuit
+            0x140f6ed90ull, // EquipDevelopCtrl_SetEquipDeveloped
+            0x1412a2f80ull, // SupplyCboxActionPluginImpl_StateInBox
+            0x140863050ull, // HudCommonDataManager_AnnounceLogView
+            0x145e6ab60ull, // Ui_LangIdToKey
+            0x1409122d0ull, // Ui_GetLangText
         };
         return value;
     }
@@ -511,6 +582,77 @@ namespace AddressSetRuntime
             0x1408B1568ull, // EquipCrossSetEquipItem_Site1
             0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1604ull, // EquipCrossSetEquipItem_Site3
+            0x148332810ull, // TppMotherBaseManagement_RegCstDev (15.3 TBD; hooks no-op if unresolved)
+            0x148333ac0ull, // TppMotherBaseManagement_RegFlwDev
+            0x0ull, // IsEquipDeveloped (15.3 TBD)
+            0x140f6b760ull, // EquipDevCtrl_GetSuitDevelopInfoIndex
+            0x140f6a020ull, // EquipDevCtrl_GetFaceEquipDevelopInfoIndex
+            0x1416a1bf0ull, // AddListSuit
+            0x148508540ull, // CamoufParamInfo_GetCamoufValue
+            0x140fdc6a0ull, // CamouflageController_ExecSuitCorrect
+            0x1411b0e40ull, // EquipController_SetHandSlotEnabled
+            0x141675740ull, // EquipDevelopCallbackImpl_SetSupplyCBoxInfo
+            0x14b01a880ull, // IsEnableCurrentSuit
+            0x1416a43d0ull, // ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode
+            0x1416a5320ull, // ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode
+            0x1416a9cd0ull, // ItemSelectorCallbackImpl_SetupPrefabListElement
+            0x1416af3c0ull, // ItemSelectorRecordCallFunc_UpdateRecords
+            0x14afd6ea0ull, // ItemSelector_AddListBandana
+            0x140ae8c30ull, // LoadPlayerBionicArmFpk
+            0x140ae8b80ull, // LoadPlayerBionicArmFv2
+            0x14844b070ull, // LoadPlayerCamoFpk
+            0x14844aea0ull, // LoadPlayerCamoFv2
+            0x14844de90ull, // LoadPlayerPartsFpk
+            0x14844db10ull, // LoadPlayerPartsParts
+            0x14844cde0ull, // LoadPlayerSnakeBlackDiamondFpk
+            0x14844c6f0ull, // LoadPlayerSnakeBlackDiamondFv2
+            0x140ae8930ull, // LoadPlayerSnakeFaceFpk
+            0x140ae8820ull, // LoadPlayerSnakeFaceFv2
+            0x147cd7780ull, // MissionPrepSystem_IsEnableHeadOptionSuit
+            0x14b01a3f0ull, // MissionPrep_IsEnableCurrentHeadOption
+            0x147eeb520ull, // Player2BlockController_LoadPartsNew
+            0x1409c57c0ull, // Player2GameObjectImpl_ProcessSignal
+            0x147f47c60ull, // Player2Impl_SetUpParts
+            0x0ull, // Player2UtilityImpl_CommitWrapper
+            0x147f89ce0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
+            0x147f876f0ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
+            0x1409dead0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
+            0x147edbee0ull, // Player_ConverFaceIdWithFaceEquipId
+            0x140ae7ff0ull, // ResourceTable_DoesNeedFaceFova
+            0x140ae8040ull, // ResourceTable_DoesNeedFaceFovaForAvatar
+            0x0ull, // SuitList_FillDevelopedFlowIxs
+            0x0ull, // SuitList_GetDevelopedCount
+            0x0ull, // SuitList_GetSuitInfoTable
+            0x1416a7760ull, // SupplyDropSuitSetup
+            0x1409c4080ull, // Sys_IsArtificialHandEnabled
+            0x141e02db0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
+            0x1409cbe40ull, // UpdatePartsStatus
+            0x1416a37c0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
+            0x142f57d90ull, // Fox_Path_Exists
+            0x143227e40ull, // Fox_Path_Dtor
+            0x147fd3170ull, // GetSoldier2FaceSystem
+            0x0ull, // PluginFacial_ApplyMotion (JP-15.3 TBD)
+            0x140f6d9e0ull, // EquipDevCtrl_IsEquipVisile
+            0x149f28b70ull, // EquipDevCtrl_GetHeadBadgeCategory
+            0x147cd19f0ull, // MissionPrep_GetWornHeadCategory
+            0x142c1b0d0ull, // BlockControlModeValue
+            0x14afe4630ull, // MissionPrep_SetInitialSelectRecord
+            0x1480e0f70ull, // TppEquip_RegisterConstant
+            0x141e02960ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
+            0x140a29200ull, // TppEquip_AddToEquipIdTable
+            0x142c20fb0ull, // EquipIdTable_InfoList
+            0x142a70928ull, // EquipIdTable_TypeWords
+            0x1480f8110ull, // EquipIdTable_ReloadEquipIdTable
+            0x149f26dd0ull, // EquipDevelopCtrl_GetEquipDevelopIndex
+            0x149f44b70ull, // EquipDevelopCtrl_SetEquipUndeveloped
+            0x149f32490ull, // EquipDevCtrl_GetSuitCamoType
+            0x149f326c0ull, // EquipDevCtrl_GetSuitLevel
+            0x140f6d8a0ull, // EquipDevCtrl_IsEquipSuit
+            0x149f42df0ull, // EquipDevelopCtrl_SetEquipDeveloped
+            0x1412a30a0ull, // SupplyCboxActionPluginImpl_StateInBox
+            0x140862ce0ull, // HudCommonDataManager_AnnounceLogView
+            0x147a74800ull, // Ui_LangIdToKey
+            0x140911d00ull, // Ui_GetLangText
         };
 
         return value;

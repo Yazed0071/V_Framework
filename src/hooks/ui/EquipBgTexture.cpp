@@ -305,7 +305,12 @@ bool Install_EquipBgTexture_Hook()
         reinterpret_cast<void**>(&g_OrigSetWeaponPanelLogo));
 
     Resolve();
+#ifdef _DEBUG
     Log("[Hook] EquipBgTexture: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] EquipBgTexture: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
