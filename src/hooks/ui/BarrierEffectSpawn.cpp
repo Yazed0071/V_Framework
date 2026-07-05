@@ -26,6 +26,9 @@ namespace
     static std::atomic<bool> g_DesiredUp{ false };
     static std::atomic<bool> g_Failed{ false };
     static void* g_SetEquipItemCallRet = nullptr;
+    static std::atomic<bool> g_ShieldUpCache{ false };
+    static std::atomic<bool> g_ShieldDeployed{ false };
+    static std::atomic<bool> g_PrevShieldActive{ false };
 
     static void* g_GitAddr = nullptr;
     static void* g_UpdAddr = nullptr;
@@ -114,6 +117,21 @@ namespace
                     std::uint8_t* ab  = p60 ? *reinterpret_cast<std::uint8_t**>(p60 + 0x8) : nullptr;
                     if (ab)
                         shieldActive = *reinterpret_cast<float*>(ab + static_cast<std::size_t>(kShieldEffectId) * 0x4c + 0x3c) > 0.0f;
+                    g_ShieldUpCache.store(desired || shieldActive, std::memory_order_relaxed);
+                    g_ShieldDeployed.store(shieldActive, std::memory_order_relaxed);
+
+                    const bool prevShield = g_PrevShieldActive.exchange(shieldActive,
+                                                                         std::memory_order_relaxed);
+                    if (prevShield && !shieldActive)
+                    {
+                        __try
+                        {
+                            *reinterpret_cast<std::uint32_t*>(sub + 0x204) &= ~kBit18;
+                            *reinterpret_cast<std::uint8_t*>(sub + 0x3C0)   &= 0xFEu; // clear bit 0
+                            Log("[Barrier] shield down - cleared sticky bit18 of [sub+0x204] + bit 0 of [sub+0x3C0]\n");
+                        }
+                        __except (EXCEPTION_EXECUTE_HANDLER) {}
+                    }
 
                     if (desired || shieldActive)
                     {
@@ -236,4 +254,14 @@ void Uninstall_BarrierEffectSpawn()
     g_OrigGetItemId = nullptr;
     g_OrigSpawn     = nullptr;
     g_GitAddr = g_UpdAddr = g_SpnAddr = nullptr;
+}
+
+bool BarrierEffect_IsShieldActive()
+{
+    return g_ShieldUpCache.load(std::memory_order_relaxed);
+}
+
+bool BarrierEffect_IsShieldDeployed()
+{
+    return g_ShieldDeployed.load(std::memory_order_relaxed);
 }

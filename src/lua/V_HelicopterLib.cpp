@@ -82,6 +82,12 @@ namespace
         return 0;
     }
 
+    static int __cdecl l_ResetTaxiState(lua_State* /*L*/)
+    {
+        FieldTaxi_ResetTaxiState();
+        return 0;
+    }
+
     static luaL_Reg g_VHelicopterLib[] =
     {
         { "SetEnableHeliVoice",                    l_SetEnableHeliVoice },
@@ -92,6 +98,7 @@ namespace
         { "SetTaxiLandingZoneHidden",              l_SetTaxiLandingZoneHidden },
         { "SetTaxiRideState",                      l_SetTaxiRideState },
         { "SetTaxiRideLog",                        l_SetTaxiRideLog },
+        { "ResetTaxiState",                        l_ResetTaxiState },
 
         { nullptr, nullptr }
     };

@@ -62,7 +62,7 @@ namespace
     using lua_tointeger_t = std::intptr_t(__fastcall*)(lua_State* luaState, int idx);
 
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
-    static constexpr std::int16_t kCustomSaveIndexMax = 1999;
+    static constexpr std::int16_t kCustomSaveIndexMax = 32000;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
     static constexpr std::uint16_t kVanillaCassetteFlagRegionEndExclusive = 0x193u;
 
@@ -101,6 +101,7 @@ namespace
     static std::unordered_set<int> g_ActiveSessionCustomTapeSaveIndices;
     static std::unordered_map<std::string, int> g_ActiveSessionTrackKeyToSaveIndex;
     static std::unordered_set<int> g_NewlyCreatedThisSessionSaveIndices;
+    static std::unordered_set<int> g_HiddenTapeSaveIndices;
     static std::once_flag g_CustomTapeStateLoadOnce;
 }
 
@@ -392,7 +393,7 @@ static bool SaveCustomTapeStateToDisk()
     std::ofstream file(path, std::ios::out | std::ios::trunc);
     if (!file.is_open())
     {
-        Log("[CustomTapeState] ERROR: could not write '%s' — custom-tape owned/new state will not persist across launches.\n", path.c_str());
+        Log("[CustomTapeState] ERROR: could not write '%s' - custom-tape owned/new state will not persist across launches.\n", path.c_str());
         return false;
     }
 
@@ -686,6 +687,7 @@ bool ResolveOrCreateCustomTapeSaveIndex(
     return true;
 }
 
+
 void InitializeCustomTapeStateIfMissing(
     std::int16_t saveIndex,
     bool owned,
@@ -747,6 +749,15 @@ bool IsCustomTapeOwnedInLiveTable(std::int16_t saveIndex)
     bool owned = false;
     bool isNew = false;
     return TryReadLiveCassetteState(saveIndex, owned, isNew) && owned;
+}
+
+
+bool IsTapeSaveIndexHidden(std::int16_t saveIndex)
+{
+    if (saveIndex < 0)
+        return false;
+    std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+    return g_HiddenTapeSaveIndices.find(static_cast<int>(saveIndex)) != g_HiddenTapeSaveIndices.end();
 }
 
 
@@ -1031,6 +1042,9 @@ static bool IsTrackOwnedForCassetteMenu(void* trackInfo, std::intptr_t cassetteC
     if (saveIndex < 0)
         return false;
 
+    if (IsTapeSaveIndexHidden(saveIndex))
+        return false;
+
     if (IsCustomTapeSaveIndex(saveIndex))
         return IsCustomTapeOwnedSaveIndex(saveIndex);
 
@@ -1151,7 +1165,16 @@ static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
     void* trackInfo = ResolveTrackInfoByName(trackName);
     std::int16_t saveIndex = -1;
 
-    if (!TryGetTrackSaveIndex(trackInfo, saveIndex) || !IsCustomTapeSaveIndex(saveIndex))
+    if (!TryGetTrackSaveIndex(trackInfo, saveIndex))
+        return g_OrigIsGotCassetteTapeTrack ? g_OrigIsGotCassetteTapeTrack(luaState) : 1;
+
+    if (IsTapeSaveIndexHidden(saveIndex))
+    {
+        PushLuaBool(luaState, false);
+        return 1;
+    }
+
+    if (!IsCustomTapeSaveIndex(saveIndex))
         return g_OrigIsGotCassetteTapeTrack ? g_OrigIsGotCassetteTapeTrack(luaState) : 1;
 
     const bool owned = IsCustomTapeOwnedSaveIndex(saveIndex);
@@ -1231,6 +1254,110 @@ static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
 }
 
 
+static void WriteVanillaLiveTapeFlag(std::int16_t saveIndex, std::uint8_t bitMask, bool set)
+{
+    std::uint8_t* liveTable = ResolveLiveCassetteFlagTable();
+    if (!liveTable)
+        return;
+
+    const std::uint16_t tableIndex =
+        static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
+
+    if (tableIndex == 0xFFFFu)
+        return;
+
+    if (tableIndex < kVanillaOwnedIndexBias || tableIndex >= kVanillaCassetteFlagRegionEndExclusive)
+        return;
+
+    __try
+    {
+        if (set)
+            liveTable[tableIndex] |= bitMask;
+        else
+            liveTable[tableIndex] &= static_cast<std::uint8_t>(~bitMask);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+
+std::int16_t ResolveCassetteSaveIndexByTrackName(const char* trackName)
+{
+    void* trackInfo = ResolveTrackInfoByName(trackName);
+    std::int16_t saveIndex = -1;
+    if (TryGetTrackSaveIndex(trackInfo, saveIndex))
+        return saveIndex;
+    return -1;
+}
+
+
+void Set_CassetteTapeOwned(std::int16_t saveIndex, bool owned)
+{
+    if (saveIndex < 0)
+        return;
+
+    if (!IsCustomTapeSaveIndex(saveIndex))
+        return;
+
+    const bool changed = SetCustomTapeOwnedSaveIndex(saveIndex, owned);
+    ApplyCustomTapeStateToLiveTable(saveIndex, owned, IsCustomTapeNewFlagSaveIndex(saveIndex));
+    if (changed)
+        SaveCustomTapeStateToDisk();
+
+    NudgeCassetteBadgeRefresh();
+}
+
+
+void Set_CassetteTapeNewFlag(std::int16_t saveIndex, bool isNew)
+{
+    if (saveIndex < 0)
+        return;
+
+    if (IsCustomTapeSaveIndex(saveIndex))
+    {
+        const bool changed = SetCustomTapeNewFlagSaveIndex(saveIndex, isNew);
+        ApplyCustomTapeStateToLiveTable(saveIndex, IsCustomTapeOwnedSaveIndex(saveIndex), isNew);
+        if (changed)
+            SaveCustomTapeStateToDisk();
+    }
+    else
+    {
+        WriteVanillaLiveTapeFlag(saveIndex, 0x01u, isNew);
+    }
+
+    NudgeCassetteBadgeRefresh();
+}
+
+
+void Hide_CassetteTape(std::int16_t saveIndex)
+{
+    if (saveIndex < 0)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+        g_HiddenTapeSaveIndices.insert(static_cast<int>(saveIndex));
+    }
+
+    NudgeCassetteBadgeRefresh();
+}
+
+
+void Show_CassetteTape(std::int16_t saveIndex)
+{
+    if (saveIndex < 0)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+        g_HiddenTapeSaveIndices.erase(static_cast<int>(saveIndex));
+    }
+
+    NudgeCassetteBadgeRefresh();
+}
+
+
 static bool TryGetTrackId(void* trackInfo, std::uint32_t& outTrackId)
 {
     outTrackId = 0;
@@ -1285,6 +1412,25 @@ void OnCassetteTrackPlayedByTrackId(std::uint32_t playedTrackId)
 }
 
 
+static bool IsListedTopAlbumId(std::uint64_t albumId)
+{
+    static const std::unordered_set<std::uint64_t> ids = [] {
+        static const char* const kNames[] = {
+            "tp_chico_01", "tp_chico_02", "tp_chico_03", "tp_chico_04",
+            "tp_chico_05", "tp_chico_06", "tp_chico_07", "tp_chico_08",
+            "tp_bf20010_01", "tp_pw_01", "tp_it20030_01", "tp_it20030_02",
+            "tp_bgm_01", "tp_bgm_02", "tp_bgm_03", "tp_bgm_04", "tp_bgm_05",
+            "tp_archCD_01", "tp_archDiary_01",
+        };
+        std::unordered_set<std::uint64_t> s;
+        for (const char* n : kNames)
+            s.insert(FoxHashes::StrCode64(n));
+        return s;
+    }();
+    return ids.find(albumId) != ids.end();
+}
+
+
 static std::uint64_t __cdecl hkCollectGotTapes(
     std::uint32_t albumType,
     std::intptr_t outAlbumIds,
@@ -1315,47 +1461,52 @@ static std::uint64_t __cdecl hkCollectGotTapes(
         if (albumArrayBase == 0 || albumCount == 0)
             return 0ull;
 
-        const std::uint8_t* albumCursor = reinterpret_cast<const std::uint8_t*>(albumArrayBase + 0x10ull);
         std::uint64_t writtenCount = 0;
 
-        for (std::uint32_t albumIndex = 0; albumIndex < albumCount; ++albumIndex)
+        for (int pass = 0; pass < 2; ++pass)
         {
-            const std::uint16_t trackCount = *reinterpret_cast<const std::uint16_t*>(albumCursor + 0x00ull);
-            const std::uint16_t currentAlbumType = *reinterpret_cast<const std::uint16_t*>(albumCursor + 0x02ull);
-            const std::uint64_t albumId = *reinterpret_cast<const std::uint64_t*>(albumCursor - 0x10ull);
+            const bool wantListed = (pass == 0);
+            const std::uint8_t* albumCursor = reinterpret_cast<const std::uint8_t*>(albumArrayBase + 0x10ull);
 
-            if (currentAlbumType == albumType)
+            for (std::uint32_t albumIndex = 0; albumIndex < albumCount; ++albumIndex)
             {
-                bool includeAlbum = false;
+                const std::uint16_t trackCount = *reinterpret_cast<const std::uint16_t*>(albumCursor + 0x00ull);
+                const std::uint16_t currentAlbumType = *reinterpret_cast<const std::uint16_t*>(albumCursor + 0x02ull);
+                const std::uint64_t albumId = *reinterpret_cast<const std::uint64_t*>(albumCursor - 0x10ull);
 
-                if (currentAlbumType == 10)
+                if (currentAlbumType == albumType && IsListedTopAlbumId(albumId) == wantListed)
                 {
-                    includeAlbum = true;
-                }
-                else if (trackCount != 0)
-                {
-                    for (std::uint32_t trackIndex = 0; trackIndex < trackCount; ++trackIndex)
+                    bool includeAlbum = false;
+
+                    if (currentAlbumType == 10)
                     {
-                        void* trackInfo = CallGetTrackInfoByAlbumAndIndex(soundMusicPlayer, albumId, trackIndex);
-                        if (trackInfo && IsTrackOwnedForCassetteMenu(trackInfo, cassetteCallbackThis))
+                        includeAlbum = true;
+                    }
+                    else if (trackCount != 0)
+                    {
+                        for (std::uint32_t trackIndex = 0; trackIndex < trackCount; ++trackIndex)
                         {
-                            includeAlbum = true;
-                            break;
+                            void* trackInfo = CallGetTrackInfoByAlbumAndIndex(soundMusicPlayer, albumId, trackIndex);
+                            if (trackInfo && IsTrackOwnedForCassetteMenu(trackInfo, cassetteCallbackThis))
+                            {
+                                includeAlbum = true;
+                                break;
+                            }
                         }
+                    }
+
+                    if (includeAlbum)
+                    {
+                        if (writtenCount >= outCapacity)
+                            return writtenCount;
+
+                        *reinterpret_cast<std::uint64_t*>(outAlbumIds + static_cast<std::intptr_t>(writtenCount * 8ull)) = albumId;
+                        ++writtenCount;
                     }
                 }
 
-                if (includeAlbum)
-                {
-                    if (writtenCount >= outCapacity)
-                        return writtenCount;
-
-                    *reinterpret_cast<std::uint64_t*>(outAlbumIds + static_cast<std::intptr_t>(writtenCount * 8ull)) = albumId;
-                    ++writtenCount;
-                }
+                albumCursor += 0x18ull;
             }
-
-            albumCursor += 0x18ull;
         }
 
         return writtenCount;
@@ -1750,15 +1901,15 @@ bool Install_CustomTapeOwnership_Hooks()
     }
 
     if (!okAdd)
-        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrack — custom tapes cannot be marked owned when picked up.\n");
+        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrack - custom tapes cannot be marked owned when picked up.\n");
     if (!okAddByIndex)
-        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrackByIndex — custom tapes cannot be granted by save-index.\n");
+        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrackByIndex - custom tapes cannot be granted by save-index.\n");
     if (!okIsGot)
-        Log("[CustomTapes] ERROR: failed to hook IsGotCassetteTapeTrack — custom tapes will report wrong owned state.\n");
+        Log("[CustomTapes] ERROR: failed to hook IsGotCassetteTapeTrack - custom tapes will report wrong owned state.\n");
     if (!okSetNew)
-        Log("[CustomTapes] ERROR: failed to hook SetCassetteTapeTrackNewFlag — custom tapes' new-flag will not update.\n");
+        Log("[CustomTapes] ERROR: failed to hook SetCassetteTapeTrackNewFlag - custom tapes' new-flag will not update.\n");
     if (!okCollect)
-        Log("[CustomTapes] ERROR: failed to hook CollectGotTapes — owned custom tapes will not show in the cassette menu.\n");
+        Log("[CustomTapes] ERROR: failed to hook CollectGotTapes - owned custom tapes will not show in the cassette menu.\n");
 
     return okAdd && okIsGot && okSetNew && okCollect;
 }

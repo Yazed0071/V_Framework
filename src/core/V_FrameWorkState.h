@@ -15,6 +15,10 @@ namespace V_FrameWorkState
     void Save();
 
 
+    void BeginBatch();
+    void EndBatch();
+
+
     bool ResolveOrCreateEquipId(
         const char* key,
         std::int32_t minimumId,

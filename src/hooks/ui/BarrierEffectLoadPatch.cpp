@@ -11,7 +11,7 @@
 
 namespace
 {
-    constexpr std::size_t kNumSites = 2;
+    constexpr std::size_t kNumSites = 3;
     static void*        g_PatchAddr[kNumSites] = {};
     static std::uint8_t g_Original[kNumSites][2] = {};
     static bool         g_Applied = false;
@@ -38,6 +38,7 @@ bool Install_BarrierEffectLoadPatch()
         return true;
 
     const struct { uintptr_t gate; const char* name; } sites[kNumSites] = {
+        { gAddr.Barrier_LoadGate0, "slot12" },
         { gAddr.Barrier_LoadGate1, "itmsld01" },
         { gAddr.Barrier_LoadGate2, "itmsld02" },
     };

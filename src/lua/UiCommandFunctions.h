@@ -57,5 +57,5 @@ int __cdecl l_RegisterAnnounceLogSfx(lua_State* L);
 int __cdecl l_UnsetAnnounceLogSE(lua_State* L);
 int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L);
 
-int __cdecl l_SetMissionTelopTexture(lua_State* L);
-int __cdecl l_UnsetMissionTelopTexture(lua_State* L);
+int __cdecl l_SetMissionTelopSplashTexturePath(lua_State* L);
+int __cdecl l_UnsetMissionTelopSplashTexturePath(lua_State* L);

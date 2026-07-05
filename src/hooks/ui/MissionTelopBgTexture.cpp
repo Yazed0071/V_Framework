@@ -170,7 +170,7 @@ namespace
     }
 }
 
-void Set_MissionTelopTexture(const char* path)
+void Set_MissionTelopSplashTexturePath(const char* path)
 {
     if (!path || !path[0])
         return;
@@ -181,7 +181,7 @@ void Set_MissionTelopTexture(const char* path)
     g_Override.store(true, std::memory_order_relaxed);
 }
 
-void Unset_MissionTelopTexture()
+void Unset_MissionTelopSplashTexturePath()
 {
     g_Override.store(false, std::memory_order_relaxed);
 }

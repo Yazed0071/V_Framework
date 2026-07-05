@@ -32,6 +32,7 @@ extern "C" {
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "SoundMusicPlayer_SetupMusicInfos.h"
+#include "CustomTapeOwnership.h"
 #include "GetTapeTrackDirectPlayId.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
 #include "CustomRadioCassette.h"
@@ -78,20 +79,11 @@ namespace
 {
     using SetLuaFunctions_t = void(__fastcall*)(lua_State* L);
 
-
-    static constexpr uintptr_t BOOTSTRAP_EN_SetLuaFunctions = 0x1408D78A0ull;
-
     static SetLuaFunctions_t       g_OrigSetLuaFunctions = nullptr;
 
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
     static bool g_SetLuaFunctionsHookInstalled = false;
-}
-
-
-static uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr, uintptr_t bootstrapAddr)
-{
-    return resolvedAddr ? resolvedAddr : bootstrapAddr;
 }
 
 
@@ -1437,21 +1429,21 @@ int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
 }
 
 
-int __cdecl l_SetMissionTelopTexture(lua_State* L)
+int __cdecl l_SetMissionTelopSplashTexturePath(lua_State* L)
 {
     const char* path = GetLuaString(L, 1);
     const bool ok = (path != nullptr && path[0] != '\0');
     if (ok)
-        Set_MissionTelopTexture(path);
+        Set_MissionTelopSplashTexturePath(path);
     PushLuaBool(L, ok);
     return 1;
 }
 
 
-int __cdecl l_UnsetMissionTelopTexture(lua_State* L)
+int __cdecl l_UnsetMissionTelopSplashTexturePath(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
-    Unset_MissionTelopTexture();
+    Unset_MissionTelopSplashTexturePath();
     return 0;
 }
 
@@ -1803,6 +1795,50 @@ int __cdecl l_RegisterCustomTapes(lua_State* L)
     return 1;
 }
 
+
+static bool CT_ResolveTapeSaveIndexArg(lua_State* L, std::int16_t& outSaveIndex)
+{
+    outSaveIndex = -1;
+    const int t = LuaType(L, 1);
+    if (t == LUA_TSTRING)
+        outSaveIndex = ResolveCassetteSaveIndexByTrackName(GetLuaString(L, 1));
+    else if (t == LUA_TNUMBER)
+        outSaveIndex = static_cast<std::int16_t>(GetLuaInt(L, 1));
+    return outSaveIndex >= 0;
+}
+
+int __cdecl l_HideCassetteTape(lua_State* L)
+{
+    std::int16_t saveIndex = -1;
+    if (CT_ResolveTapeSaveIndexArg(L, saveIndex))
+        Hide_CassetteTape(saveIndex);
+    return 0;
+}
+
+int __cdecl l_ShowCassetteTape(lua_State* L)
+{
+    std::int16_t saveIndex = -1;
+    if (CT_ResolveTapeSaveIndexArg(L, saveIndex))
+        Show_CassetteTape(saveIndex);
+    return 0;
+}
+
+int __cdecl l_SetOwnershipCassetteTape(lua_State* L)
+{
+    std::int16_t saveIndex = -1;
+    if (CT_ResolveTapeSaveIndexArg(L, saveIndex))
+        Set_CassetteTapeOwned(saveIndex, GetLuaBool(L, 2));
+    return 0;
+}
+
+int __cdecl l_SetNewFlagCassetteTape(lua_State* L)
+{
+    std::int16_t saveIndex = -1;
+    if (CT_ResolveTapeSaveIndexArg(L, saveIndex))
+        Set_CassetteTapeNewFlag(saveIndex, GetLuaBool(L, 2));
+    return 0;
+}
+
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
@@ -1883,9 +1919,7 @@ bool Install_SetLuaFunctions_Hook()
 
     ResolveLuaApi();
 
-
-    const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
-    void* target = ResolveGameAddress(setLuaFunctionsAddr);
+    void* target = ResolveGameAddress(gAddr.SetLuaFunctions);
     if (!target)
         return false;
 
@@ -1909,8 +1943,7 @@ bool Install_SetLuaFunctions_Hook()
 
 bool Uninstall_SetLuaFunctions_Hook()
 {
-    const uintptr_t setLuaFunctionsAddr = GetLuaBridgeAddress(gAddr.SetLuaFunctions, BOOTSTRAP_EN_SetLuaFunctions);
-    DisableAndRemoveHook(ResolveGameAddress(setLuaFunctionsAddr));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.SetLuaFunctions));
     g_OrigSetLuaFunctions = nullptr;
     ClearTrackedLuaStates();
     return true;

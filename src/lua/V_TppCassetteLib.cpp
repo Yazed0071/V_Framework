@@ -31,6 +31,11 @@ namespace
         { "RegisterRadioCassette",                    l_RegisterRadioCassette },
         { "RegisterCustomTapes",                      l_RegisterCustomTapes },
 
+        { "HideCassetteTape",                         l_HideCassetteTape },
+        { "ShowCassetteTape",                         l_ShowCassetteTape },
+        { "SetOwnershipCassetteTape",                 l_SetOwnershipCassetteTape },
+        { "SetNewFlagCassetteTape",                   l_SetNewFlagCassetteTape },
+
         { nullptr,          nullptr }
     };
 }

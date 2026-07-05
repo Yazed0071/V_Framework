@@ -422,8 +422,7 @@ namespace
             const unsigned int   want   = g_taxiRideState;
 
             static int s_nullFrames = 0;
-            if (st == 0x00) { if (++s_nullFrames > 20) { g_carryActive = false; g_taxiRequested = false; } }
-            else s_nullFrames = 0;
+            if (st == 0x00) { ++s_nullFrames; } else s_nullFrames = 0;
             if (nowCarry)
             {
                 if (g_taxiPoseLocked && want != 0 && st != want && st == 0x08)
@@ -431,7 +430,8 @@ namespace
                     ForceRideState(S, plv, idx, static_cast<unsigned char>(want), StateFnViaMapper(S, want));
                 }
             }
-            else if (s_prevCarry && (st == 0x0A || st == 0x0B))
+            else if (s_prevCarry && IsTaxiEnabled() && g_doorOpenAtDest && g_taxiRideState != 0x03
+                     && (st == 0x0A || st == 0x0B))
             {
                 ForceRideState(S, plv, idx, 0x0C, StateFnViaMapper(S, 0x0C));
             }
@@ -498,22 +498,6 @@ namespace
 
         if (!IsTaxiEnabled())
         {
-            if (CurrentLocationId() == 0x32)
-            {
-                __try
-                {
-                    const std::uintptr_t ct = ClusterTableFromUtil(reinterpret_cast<std::uintptr_t>(utilTable));
-                    if (ct)
-                    {
-                        const int reqIdx = *reinterpret_cast<int*>(ct + 0xC24);
-                        if (reqIdx >= 0 && reqIdx < 0x40)
-                        {
-                            g_taxiRequested = true;
-                        }
-                    }
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER) {}
-            }
             return;
         }
         g_lastFieldLoc = CurrentLocationId();
@@ -634,6 +618,18 @@ void FieldTaxi_SetMissionEnabled(unsigned int missionCode, bool enabled)
 void FieldTaxi_SetTaxiRideState(unsigned int state)
 {
     g_taxiPose = state;
+}
+
+void FieldTaxi_ResetTaxiState()
+{
+    g_carryActive    = false;
+    g_carryWaiting   = false;
+    g_taxiRequested  = false;
+    g_taxiPoseLocked = false;
+    g_taxiRideState  = 0x08;
+    g_doorOpenAtDest = false;
+    g_disembarkReady = false;
+    g_taxiMapOpen    = false;
 }
 
 void FieldTaxi_SetTaxiRideLog(bool enabled)

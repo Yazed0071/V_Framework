@@ -264,6 +264,7 @@ namespace AddressSetRuntime
         uintptr_t Barrier_Updater          = 0;
         uintptr_t Barrier_Pool             = 0;
         uintptr_t Barrier_IsFobMode        = 0;
+        uintptr_t Barrier_LoadGate0        = 0; 
         uintptr_t Barrier_LoadGate1        = 0;
         uintptr_t Barrier_LoadGate2        = 0;
 

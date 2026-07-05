@@ -224,8 +224,9 @@ namespace AddressSetRuntime
             0x141000780ull, // FUN_141000780
             0x140AF3760ull, // FUN_140af3760
             0x14504E090ull, // FUN_14504e090
-            0x1409C3B5Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
-            0x1409C3BC5ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x1409C3AF5ull, // Barrier_LoadGate0 (EN15.3 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
+            0x1409C3B5Full, // Barrier_LoadGate1
+            0x1409C3BC5ull, // Barrier_LoadGate2
             0x140FC3CC0ull, // FUN_140fc3cc0
             0x140A2A480ull, // FUN_140a2a480
             0x141B18900ull, // FUN_141b18900
@@ -509,8 +510,9 @@ namespace AddressSetRuntime
             0x1410007D0ull, // FUN_1410007d0
             0x140AF32A0ull, // FUN_140af32a0
             0x144EC3FF0ull, // FUN_144ec3ff0
-            0x1409C361Full, // InitializeWithoutParts itmsld01
-            0x1409C3685ull, // InitializeWithoutParts itmsld02
+            0x1409C35B5ull, // Barrier_LoadGate0 (JP15.3 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
+            0x1409C361Full, // Barrier_LoadGate1
+            0x1409C3685ull, // Barrier_LoadGate2
             0x140FC3D90ull, // FUN_140fc3d90
             0x140A29F50ull, // FUN_140a29f50
             0x141B18A40ull, // FUN_141b18a40

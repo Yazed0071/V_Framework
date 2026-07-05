@@ -68,8 +68,8 @@ namespace
         { "UnsetAnnounceLogSE",                        l_UnsetAnnounceLogSE },
         { "UnregisterAnnounceLogSfx",                  l_UnregisterAnnounceLogSfx },
 
-        { "SetMissionTelopTexture",                    l_SetMissionTelopTexture },
-        { "UnsetMissionTelopTexture",                  l_UnsetMissionTelopTexture },
+        { "SetMissionTelopSplashTexturePath",          l_SetMissionTelopSplashTexturePath },
+        { "UnsetMissionTelopSplashTexturePath",        l_UnsetMissionTelopSplashTexturePath },
 
         { nullptr,          nullptr }
     };

@@ -30,33 +30,13 @@ namespace
 
     static constexpr int LUA_GLOBALSINDEX_51 = -10002;
 
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pcall = 0x141A11AB0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushnumber = 0x141A11BC0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushstring = 0x14C1E7EE0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushboolean = 0x14C1DB230ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushnil = 0x14C1E7CC0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_gettop = 0x14C1D7D40ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_settop = 0x14C1EBBE0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_getfield = 0x14C1D7320ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_type = 0x14C1ED760ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring = 0x141A123C0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue = 0x14C1E87E0ull;
-    static constexpr uintptr_t BOOTSTRAP_EN_lua_rawset    = 0x14C1E9CF0ull;
-
-    static uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr,
-        uintptr_t bootstrapAddr)
-    {
-        return resolvedAddr ? resolvedAddr : bootstrapAddr;
-    }
-
     template <typename Fn>
-    static Fn ResolveLua(uintptr_t resolvedAddr, uintptr_t bootstrapAddr)
+    static Fn ResolveLua(uintptr_t resolvedAddr)
     {
-        const uintptr_t addr = GetLuaBridgeAddress(resolvedAddr, bootstrapAddr);
-        if (!addr)
+        if (!resolvedAddr)
             return nullptr;
 
-        return reinterpret_cast<Fn>(ResolveGameAddress(addr));
+        return reinterpret_cast<Fn>(ResolveGameAddress(resolvedAddr));
     }
 
     struct LuaApi
@@ -77,53 +57,18 @@ namespace
 
     static bool ResolveLuaApi(LuaApi& lua)
     {
-        lua.pcall = ResolveLua<lua_pcall_t>(
-            gAddr.lua_pcall,
-            BOOTSTRAP_EN_lua_pcall);
-
-        lua.pushnumber = ResolveLua<lua_pushnumber_t>(
-            gAddr.lua_pushnumber,
-            BOOTSTRAP_EN_lua_pushnumber);
-
-        lua.pushstring = ResolveLua<lua_pushstring_t>(
-            gAddr.lua_pushstring,
-            BOOTSTRAP_EN_lua_pushstring);
-
-        lua.pushboolean = ResolveLua<lua_pushboolean_t>(
-            gAddr.lua_pushboolean,
-            BOOTSTRAP_EN_lua_pushboolean);
-
-        lua.pushnil = ResolveLua<lua_pushnil_t>(
-            gAddr.lua_pushnil,
-            BOOTSTRAP_EN_lua_pushnil);
-
-        lua.settop = ResolveLua<lua_settop_t>(
-            gAddr.lua_settop,
-            BOOTSTRAP_EN_lua_settop);
-
-        lua.gettop = ResolveLua<lua_gettop_t>(
-            gAddr.lua_gettop,
-            BOOTSTRAP_EN_lua_gettop);
-
-        lua.getfield = ResolveLua<lua_getfield_t>(
-            gAddr.lua_getfield,
-            BOOTSTRAP_EN_lua_getfield);
-
-        lua.type = ResolveLua<lua_type_t>(
-            gAddr.lua_type,
-            BOOTSTRAP_EN_lua_type);
-
-        lua.tolstring = ResolveLua<lua_tolstring_t>(
-            gAddr.lua_tolstring,
-            BOOTSTRAP_EN_lua_tolstring);
-
-        lua.pushvalue = ResolveLua<lua_pushvalue_t>(
-            gAddr.lua_pushvalue,
-            BOOTSTRAP_EN_lua_pushvalue);
-
-        lua.rawset = ResolveLua<lua_rawset_t>(
-            gAddr.lua_rawset,
-            BOOTSTRAP_EN_lua_rawset);
+        lua.pcall       = ResolveLua<lua_pcall_t>(gAddr.lua_pcall);
+        lua.pushnumber  = ResolveLua<lua_pushnumber_t>(gAddr.lua_pushnumber);
+        lua.pushstring  = ResolveLua<lua_pushstring_t>(gAddr.lua_pushstring);
+        lua.pushboolean = ResolveLua<lua_pushboolean_t>(gAddr.lua_pushboolean);
+        lua.pushnil     = ResolveLua<lua_pushnil_t>(gAddr.lua_pushnil);
+        lua.settop      = ResolveLua<lua_settop_t>(gAddr.lua_settop);
+        lua.gettop      = ResolveLua<lua_gettop_t>(gAddr.lua_gettop);
+        lua.getfield    = ResolveLua<lua_getfield_t>(gAddr.lua_getfield);
+        lua.type        = ResolveLua<lua_type_t>(gAddr.lua_type);
+        lua.tolstring   = ResolveLua<lua_tolstring_t>(gAddr.lua_tolstring);
+        lua.pushvalue   = ResolveLua<lua_pushvalue_t>(gAddr.lua_pushvalue);
+        lua.rawset      = ResolveLua<lua_rawset_t>(gAddr.lua_rawset);
 
         return lua.pcall &&
             lua.pushnumber &&

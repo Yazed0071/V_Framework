@@ -63,11 +63,14 @@ static bool IsTrackAcceptedForMenu(void* thisPtr, std::uint16_t albumType, void*
     if (!trackInfo)
         return false;
 
-    if (albumType == 10)
-        return true;
-
     const std::int16_t saveIndex =
         *reinterpret_cast<std::int16_t*>(reinterpret_cast<std::uintptr_t>(trackInfo) + 0x1Cull);
+
+    if (saveIndex >= 0 && IsTapeSaveIndexHidden(saveIndex))
+        return false;
+
+    if (albumType == 10)
+        return true;
 
     if (saveIndex < 0)
         return false;

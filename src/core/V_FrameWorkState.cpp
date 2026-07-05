@@ -24,7 +24,7 @@ namespace V_FrameWorkState
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
         static constexpr std::int32_t kFirstCustomFlowIndex = 922;
         static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
-        static constexpr std::int16_t kMaxCustomTapeSaveIndex = 1999;
+        static constexpr std::int16_t kMaxCustomTapeSaveIndex = 32000;
         static constexpr std::int32_t kTapeOrphanGraceLaunches = 2;
 
         struct EquipEntry
@@ -53,6 +53,8 @@ namespace V_FrameWorkState
 
         static State g_State;
         static std::mutex g_Mutex;
+        static int g_BatchDepth = 0;
+        static std::unordered_set<std::int16_t> g_TapeSaveIndexInUse;
 
 
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
@@ -165,6 +167,7 @@ namespace V_FrameWorkState
             g_State.loaded = true;
             g_State.equips.clear();
             g_State.tapes.clear();
+            g_TapeSaveIndexInUse.clear();
 
             MigrateLegacyStateFile_NoLock();
 
@@ -216,6 +219,7 @@ namespace V_FrameWorkState
                     if (ParseTapeLine(trimmed, key, entry))
                     {
                         g_State.tapes[key] = entry;
+                        g_TapeSaveIndexInUse.insert(entry.saveIndex);
                         Log("[CustomTapes] tape loaded: '%s' (saveIndex %d)\n", key.c_str(), static_cast<int>(entry.saveIndex));
                     }
                 }
@@ -248,6 +252,9 @@ namespace V_FrameWorkState
 
         static void SaveToDisk_NoLock()
         {
+            if (g_BatchDepth > 0)
+                return;
+
             EnsureSaveDirectory();
 
             std::ofstream out(kSavePath, std::ios::binary | std::ios::trunc);
@@ -328,9 +335,7 @@ namespace V_FrameWorkState
 
         static bool IsTapeSaveIndexInUse_NoLock(std::int16_t idx)
         {
-            for (const auto& kv : g_State.tapes)
-                if (kv.second.saveIndex == idx) return true;
-            return false;
+            return g_TapeSaveIndexInUse.find(idx) != g_TapeSaveIndexInUse.end();
         }
 
 
@@ -387,6 +392,21 @@ namespace V_FrameWorkState
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         if (g_State.dirty)
+            SaveToDisk_NoLock();
+    }
+
+    void BeginBatch()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        ++g_BatchDepth;
+    }
+
+    void EndBatch()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        if (g_BatchDepth > 0)
+            --g_BatchDepth;
+        if (g_BatchDepth == 0 && g_State.dirty)
             SaveToDisk_NoLock();
     }
 
@@ -507,11 +527,12 @@ namespace V_FrameWorkState
         const std::int16_t newIdx = AllocateNextFreeTapeSaveIndex_NoLock(minimumIndex);
         if (newIdx < 0)
         {
-            Log("[CustomTapes] ERROR: custom-tape save-index pool [300-1999] is full — uninstall unused tape mods; no more custom tapes can be registered.\n");
+            Log("[CustomTapes] ERROR: custom-tape save-index pool [300-32000] is full — uninstall unused tape mods; no more custom tapes can be registered.\n");
             return false;
         }
 
         g_State.tapes[key].saveIndex = newIdx;
+        g_TapeSaveIndexInUse.insert(newIdx);
         g_State.dirty = true;
         outSaveIndex = newIdx;
         Log("[CustomTapes] tape added: '%s' (saveIndex %d) — first time; saved to V_FrameWork_State.lua.\n", key, static_cast<int>(newIdx));
@@ -610,5 +631,6 @@ namespace V_FrameWorkState
         g_State.dirty = false;
         g_State.equips.clear();
         g_State.tapes.clear();
+        g_TapeSaveIndexInUse.clear();
     }
 }

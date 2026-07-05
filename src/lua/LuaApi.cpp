@@ -32,92 +32,58 @@ lua_pushvalue_t    g_lua_pushvalue    = nullptr;
 lua_pushcclosure_t g_lua_pushcclosure = nullptr;
 lua_pcall_t        g_lua_pcall        = nullptr;
 
-namespace
-{
-    constexpr uintptr_t BOOTSTRAP_EN_FoxLuaRegisterLibrary = 0x14006B6D0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_tolstring    = 0x141A123C0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_tointeger    = 0x141A12390ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_tonumber     = 0x141A12460ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushnumber   = 0x141A11BC0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_toboolean    = 0x141A12330ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_gettop       = 0x14C1D7D40ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_settop       = 0x14C1EBBE0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_getfield     = 0x14C1D7320ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_rawgeti      = 0x14C1E9320ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_type         = 0x14C1ED760ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_isstring     = 0x14C1D9250ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_isnumber     = 0x14C1D8C90ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_objlen       = 0x14C1DA960ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushboolean  = 0x14C1DB230ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushstring   = 0x14C1E7EE0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_createtable  = 0x14C1D6320ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_rawset       = 0x14C1E9CF0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_settable     = 0x14C1EB2B0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushnil      = 0x14C1E7CC0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_next         = 0x14C1DA770ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_gettable     = 0x14C1D7C10ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushvalue    = 0x14C1E87E0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pushcclosure = 0x14C1E67B0ull;
-    constexpr uintptr_t BOOTSTRAP_EN_lua_pcall        = 0x141A11930ull;
-
-    uintptr_t GetLuaBridgeAddress(uintptr_t resolvedAddr, uintptr_t bootstrapAddr)
-    {
-        return resolvedAddr ? resolvedAddr : bootstrapAddr;
-    }
-}
-
 bool ResolveLuaApi()
 {
     if (!g_FoxLuaRegisterLibrary)
-        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.FoxLuaRegisterLibrary, BOOTSTRAP_EN_FoxLuaRegisterLibrary)));
+        g_FoxLuaRegisterLibrary = reinterpret_cast<FoxLuaRegisterLibrary_t>(ResolveGameAddress(gAddr.FoxLuaRegisterLibrary));
     if (!g_lua_tolstring)
-        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tolstring, BOOTSTRAP_EN_lua_tolstring)));
+        g_lua_tolstring = reinterpret_cast<lua_tolstring_t>(ResolveGameAddress(gAddr.lua_tolstring));
     if (!g_lua_tointeger)
-        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tointeger, BOOTSTRAP_EN_lua_tointeger)));
+        g_lua_tointeger = reinterpret_cast<lua_tointeger_t>(ResolveGameAddress(gAddr.lua_tointeger));
     if (!g_lua_tonumber)
-        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_tonumber, BOOTSTRAP_EN_lua_tonumber)));
+        g_lua_tonumber = reinterpret_cast<lua_tonumber_t>(ResolveGameAddress(gAddr.lua_tonumber));
     if (!g_lua_toboolean)
-        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_toboolean, BOOTSTRAP_EN_lua_toboolean)));
+        g_lua_toboolean = reinterpret_cast<lua_toboolean_t>(ResolveGameAddress(gAddr.lua_toboolean));
     if (!g_lua_pushnumber)
-        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushnumber, BOOTSTRAP_EN_lua_pushnumber)));
+        g_lua_pushnumber = reinterpret_cast<lua_pushnumber_t>(ResolveGameAddress(gAddr.lua_pushnumber));
     if (!g_lua_gettop)
-        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_gettop, BOOTSTRAP_EN_lua_gettop)));
+        g_lua_gettop = reinterpret_cast<lua_gettop_t>(ResolveGameAddress(gAddr.lua_gettop));
     if (!g_lua_settop)
-        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_settop, BOOTSTRAP_EN_lua_settop)));
+        g_lua_settop = reinterpret_cast<lua_settop_t>(ResolveGameAddress(gAddr.lua_settop));
     if (!g_lua_getfield)
-        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_getfield, BOOTSTRAP_EN_lua_getfield)));
+        g_lua_getfield = reinterpret_cast<lua_getfield_t>(ResolveGameAddress(gAddr.lua_getfield));
     if (!g_lua_rawgeti)
-        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_rawgeti, BOOTSTRAP_EN_lua_rawgeti)));
+        g_lua_rawgeti = reinterpret_cast<lua_rawgeti_t>(ResolveGameAddress(gAddr.lua_rawgeti));
     if (!g_lua_type)
-        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_type, BOOTSTRAP_EN_lua_type)));
+        g_lua_type = reinterpret_cast<lua_type_t>(ResolveGameAddress(gAddr.lua_type));
     if (!g_lua_isstring)
-        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_isstring, BOOTSTRAP_EN_lua_isstring)));
+        g_lua_isstring = reinterpret_cast<lua_isstring_t>(ResolveGameAddress(gAddr.lua_isstring));
     if (!g_lua_isnumber)
-        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_isnumber, BOOTSTRAP_EN_lua_isnumber)));
+        g_lua_isnumber = reinterpret_cast<lua_isnumber_t>(ResolveGameAddress(gAddr.lua_isnumber));
     if (!g_lua_objlen)
-        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_objlen, BOOTSTRAP_EN_lua_objlen)));
+        g_lua_objlen = reinterpret_cast<lua_objlen_t>(ResolveGameAddress(gAddr.lua_objlen));
     if (!g_lua_pushboolean)
-        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushboolean, BOOTSTRAP_EN_lua_pushboolean)));
+        g_lua_pushboolean = reinterpret_cast<lua_pushboolean_t>(ResolveGameAddress(gAddr.lua_pushboolean));
     if (!g_lua_pushstring)
-        g_lua_pushstring = reinterpret_cast<lua_pushstring_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushstring, BOOTSTRAP_EN_lua_pushstring)));
+        g_lua_pushstring = reinterpret_cast<lua_pushstring_t>(ResolveGameAddress(gAddr.lua_pushstring));
     if (!g_lua_createtable)
-        g_lua_createtable = reinterpret_cast<lua_createtable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_createtable, BOOTSTRAP_EN_lua_createtable)));
+        g_lua_createtable = reinterpret_cast<lua_createtable_t>(ResolveGameAddress(gAddr.lua_createtable));
     if (!g_lua_rawset)
-        g_lua_rawset = reinterpret_cast<lua_rawset_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_rawset, BOOTSTRAP_EN_lua_rawset)));
+        g_lua_rawset = reinterpret_cast<lua_rawset_t>(ResolveGameAddress(gAddr.lua_rawset));
     if (!g_lua_settable)
-        g_lua_settable = reinterpret_cast<lua_settable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_settable, BOOTSTRAP_EN_lua_settable)));
+        g_lua_settable = reinterpret_cast<lua_settable_t>(ResolveGameAddress(gAddr.lua_settable));
     if (!g_lua_pushnil)
-        g_lua_pushnil = reinterpret_cast<lua_pushnil_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushnil, BOOTSTRAP_EN_lua_pushnil)));
+        g_lua_pushnil = reinterpret_cast<lua_pushnil_t>(ResolveGameAddress(gAddr.lua_pushnil));
     if (!g_lua_next)
-        g_lua_next = reinterpret_cast<lua_next_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_next, BOOTSTRAP_EN_lua_next)));
+        g_lua_next = reinterpret_cast<lua_next_t>(ResolveGameAddress(gAddr.lua_next));
     if (!g_lua_gettable)
-        g_lua_gettable = reinterpret_cast<lua_gettable_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_gettable, BOOTSTRAP_EN_lua_gettable)));
+        g_lua_gettable = reinterpret_cast<lua_gettable_t>(ResolveGameAddress(gAddr.lua_gettable));
     if (!g_lua_pushvalue)
-        g_lua_pushvalue = reinterpret_cast<lua_pushvalue_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushvalue, BOOTSTRAP_EN_lua_pushvalue)));
+        g_lua_pushvalue = reinterpret_cast<lua_pushvalue_t>(ResolveGameAddress(gAddr.lua_pushvalue));
     if (!g_lua_pushcclosure)
-        g_lua_pushcclosure = reinterpret_cast<lua_pushcclosure_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pushcclosure, BOOTSTRAP_EN_lua_pushcclosure)));
+        g_lua_pushcclosure = reinterpret_cast<lua_pushcclosure_t>(ResolveGameAddress(gAddr.lua_pushcclosure));
     if (!g_lua_pcall)
-        g_lua_pcall = reinterpret_cast<lua_pcall_t>(ResolveGameAddress(GetLuaBridgeAddress(gAddr.lua_pcall, BOOTSTRAP_EN_lua_pcall)));
+        g_lua_pcall = reinterpret_cast<lua_pcall_t>(ResolveGameAddress(gAddr.lua_pcall));
 
     return g_FoxLuaRegisterLibrary &&
         g_lua_tolstring && g_lua_tointeger && g_lua_tonumber && g_lua_toboolean && g_lua_pushnumber &&

@@ -13,3 +13,8 @@ int __cdecl l_IsCassetteSpeakerEnabled(lua_State* L);
 int __cdecl l_SetCassetteSpeakerEnabled(lua_State* L);
 int __cdecl l_RegisterRadioCassette(lua_State* L);
 int __cdecl l_RegisterCustomTapes(lua_State* L);
+
+int __cdecl l_HideCassetteTape(lua_State* L);
+int __cdecl l_ShowCassetteTape(lua_State* L);
+int __cdecl l_SetOwnershipCassetteTape(lua_State* L);
+int __cdecl l_SetNewFlagCassetteTape(lua_State* L);

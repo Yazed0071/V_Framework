@@ -228,6 +228,7 @@ static const char* const kAddrFieldNames[] = {
     "Barrier_Updater",
     "Barrier_Pool",
     "Barrier_IsFobMode",
+    "Barrier_LoadGate0",
     "Barrier_LoadGate1",
     "Barrier_LoadGate2",
     "Dm_FireLoop",
@@ -255,7 +256,7 @@ static const char* const kAddrFieldNames[] = {
     "SubtitlesObjectSendMessage",
     "Fox_printf",
 };
-static const int kAddrFieldCount = 242;
+static const int kAddrFieldCount = 243;
 
 namespace AddressSetRuntime
 {
@@ -518,8 +519,9 @@ namespace AddressSetRuntime
             0x140FFFFE0ull, // FUN_140ffffe0
             0x140AF3F10ull, // FUN_140af3f10
             0x1405D76F0ull, // FUN_1405d76f0
-            0x1409C480Full, // InitializeWithoutParts itmsld01
-            0x1409C4875ull, // InitializeWithoutParts itmsld02
+            0x1409C47A5ull, // Barrier_LoadGate0 (EN15.4 — slot 0x12 FOB gate; TEST AL,AL at 0x47A5 + JZ at 0x47A7; unlocks asset 0xc7e22027817c)
+            0x1409C480Full, // Barrier_LoadGate1 — InitializeWithoutParts itmsld01 (slot 0x13)
+            0x1409C4875ull, // Barrier_LoadGate2 — InitializeWithoutParts itmsld02 (slot 0x14)
             0x140FC35D0ull, // FUN_140fc35d0
             0x140A2ABB0ull, // FUN_140a2abb0
             0x141B18A10ull, // FUN_141b18a10
@@ -769,8 +771,9 @@ namespace AddressSetRuntime
             0x141000070ull, // FUN_141000070
             0x140AF3E70ull, // FUN_140af3e70
             0x1405D79B0ull, // FUN_1405d79b0
-            0x1409C471Full, // InitializeWithoutParts itmsld01
-            0x1409C4785ull, // InitializeWithoutParts itmsld02
+            0x1409C46B5ull, // Barrier_LoadGate0 (JP15.4 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
+            0x1409C471Full, // Barrier_LoadGate1 — InitializeWithoutParts itmsld01
+            0x1409C4785ull, // Barrier_LoadGate2 — InitializeWithoutParts itmsld02
             0x140FC3620ull, // FUN_140fc3620
             0x140A2A9F0ull, // FUN_140a2a9f0
             0x141B187F0ull, // FUN_141b187f0
