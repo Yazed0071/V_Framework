@@ -22,7 +22,6 @@ namespace
 
         { "RegisterOutfit",                           l_RegisterOutfit },
         { "RegisterHeadOption",                       l_RegisterHeadOption },
-        { "GetOutfitInfo",                            l_GetOutfitInfo },
 
         { nullptr,          nullptr }
     };

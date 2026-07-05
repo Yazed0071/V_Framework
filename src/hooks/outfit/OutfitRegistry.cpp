@@ -535,12 +535,6 @@ namespace outfit
     }
 
 
-    std::uint64_t OutfitEntry::GetLangEquipNameHashFor(std::uint8_t playerType) const
-    {
-        const auto* d = GetPTData(playerType);
-        return d ? d->langEquipNameHash : std::uint64_t{0};
-    }
-
     std::uint8_t OutfitEntry::GetCamoBonusType(std::uint8_t playerType) const
     {
         const auto* d = GetPTData(playerType);

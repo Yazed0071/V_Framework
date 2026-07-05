@@ -77,7 +77,6 @@ namespace outfit
         std::uint8_t   variantCount                    = 0;
         bool           enableArm              = true;
         bool           enableHead             = false;
-        std::uint64_t  langEquipNameHash      = 0;
         std::uint16_t  headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t   headOptionCount                              = 0;
         bool           supportsHeadOptions                          = false;
@@ -168,8 +167,6 @@ namespace outfit
 
         std::uint8_t  GetVariantCountFor(std::uint8_t playerType) const;
 
-
-        std::uint64_t GetLangEquipNameHashFor(std::uint8_t playerType) const;
 
         std::uint8_t  GetCamoBonusType(std::uint8_t playerType) const;
         bool          HasCamoBonusValuesFor(std::uint8_t playerType) const;

@@ -279,6 +279,45 @@ namespace
         return -1;
     }
 
+    static constexpr const char* k_CamoTypeNames[] = {
+        "OLIVEDRAB", "SPLITTER", "SQUARE", "TIGERSTRIPE", "GOLDTIGER", "FOXTROT",       // 0-5
+        "WOODLAND", "WETWORK", "ARBANGRAY", "ARBANBLUE", "SANDSTORM", "REALTREE",       // 6-11
+        "INVISIBLE", "BLACK", "SNEAKING_SUIT_GZ", "SNEAKING_SUIT_TPP", "BATTLEDRESS",   // 12-16
+        "PARASITE", "NAKED", "LEATHER", "SOLIDSNAKE", "NINJA", "RAIDEN", "HOSPITAL",    // 17-23
+        "GOLD", "SILVER", "PANTHER", "AVATAR_EDIT_MAN", "MGS3", "MGS3_NAKED",           // 24-29
+        "MGS3_SNEAKING", "MGS3_TUXEDO", "EVA_CLOSE", "EVA_OPEN", "BOSS_CLOSE",          // 30-34
+        "BOSS_OPEN",                                                                    // 35
+        "C23", "C24", "C27", "C29", "C30", "C35", "C38", "C39", "C42", "C46", "C49",    // 36-46
+        "C52", "C16", "C17", "C18", "C19", "C20", "C22", "C25", "C26", "C28", "C31",    // 47-57
+        "C32", "C33", "C36", "C37", "C40", "C41", "C43", "C44", "C45", "C47", "C48",    // 58-68
+        "C50", "C51", "C53", "C54", "C55", "C56", "C57", "C58", "C59", "C60",           // 69-78
+        "SWIMWEAR_C00", "SWIMWEAR_C01", "SWIMWEAR_C02", "SWIMWEAR_C03", "SWIMWEAR_C05", // 79-83
+        "SWIMWEAR_C06", "SWIMWEAR_C38", "SWIMWEAR_C39", "SWIMWEAR_C44", "SWIMWEAR_C46", // 84-88
+        "SWIMWEAR_C48", "SWIMWEAR_C53",                                                 // 89-90
+        "SWIMWEAR_G_C00", "SWIMWEAR_G_C01", "SWIMWEAR_G_C02", "SWIMWEAR_G_C03",         // 91-94
+        "SWIMWEAR_G_C05", "SWIMWEAR_G_C06", "SWIMWEAR_G_C38", "SWIMWEAR_G_C39",         // 95-98
+        "SWIMWEAR_G_C44", "SWIMWEAR_G_C46", "SWIMWEAR_G_C48", "SWIMWEAR_G_C53",         // 99-102
+        "SWIMWEAR_H_C00", "SWIMWEAR_H_C01", "SWIMWEAR_H_C02", "SWIMWEAR_H_C03",         // 103-106
+        "SWIMWEAR_H_C05", "SWIMWEAR_H_C06", "SWIMWEAR_H_C38", "SWIMWEAR_H_C39",         // 107-110
+        "SWIMWEAR_H_C44", "SWIMWEAR_H_C46", "SWIMWEAR_H_C48", "SWIMWEAR_H_C53",         // 111-114
+        "OCELOT", "QUIET",                                                              // 115-116
+    };
+    static_assert(sizeof(k_CamoTypeNames) / sizeof(k_CamoTypeNames[0])
+                  == static_cast<std::size_t>(outfit::kVanillaCamoTypeMax) + 1,
+                  "k_CamoTypeNames must list all 117 vanilla camo types (0..116)");
+
+    static std::int32_t ResolveCamoTypeNameToIndex(const char* name)
+    {
+        if (!name || !name[0]) return -1;
+        for (std::size_t i = 0;
+             i < sizeof(k_CamoTypeNames) / sizeof(k_CamoTypeNames[0]); ++i)
+        {
+            if (_stricmp(k_CamoTypeNames[i], name) == 0)
+                return static_cast<std::int32_t>(i);
+        }
+        return -1;
+    }
+
     bool ReadHeadOptionsArrayInto(
         lua_State* L, int tableIndex,
         std::uint16_t* outIds, std::uint8_t& outCount,
@@ -512,17 +551,6 @@ namespace
         branch.enableHead = TryReadTableBoolField(L, branchTblIdx, "enableHead", true);
 
 
-        {
-            const char* langEquipName = nullptr;
-            if (TryReadTableStringField(L, branchTblIdx, "langEquipName",
-                                        langEquipName)
-                && langEquipName && langEquipName[0] != '\0')
-            {
-                branch.langEquipNameHash = FoxHashes::StrCode64(langEquipName);
-            }
-        }
-
-
         LuaGetField(L, branchTblIdx, "displayName");
         if (LuaType(L, -1) == LUA_TSTRING)
         {
@@ -556,12 +584,26 @@ namespace
 
 
         {
-            int rawBonusType = 0;
-            if (TryReadTableIntField(L, branchTblIdx, "camoBonusType", rawBonusType)
-                && rawBonusType >= 0 && rawBonusType <= 116)
+            LuaGetField(L, branchTblIdx, "camoBonusType");
+            const int cbtType = LuaType(L, -1);
+            std::int32_t camoIdx = -1;
+            if (cbtType == LUA_TNUMBER)
             {
-                branch.camoBonusType = static_cast<std::uint8_t>(rawBonusType);
+                const int n = GetLuaInt(L, -1);
+                if (n >= 0 && n <= outfit::kVanillaCamoTypeMax) camoIdx = n;
             }
+            else if (cbtType == LUA_TSTRING)
+            {
+                const char* nm = GetLuaString(L, -1);
+                camoIdx = ResolveCamoTypeNameToIndex(nm);
+                if (camoIdx < 0)
+                    Log("[OutfitLua] camoBonusType: unknown camo name '%s' — ignored "
+                        "(use a playerCamoTypes name like \"RAIDEN\" or a number "
+                        "0..116)\n", nm ? nm : "(null)");
+            }
+            SetLuaTop(L, -2);
+            if (camoIdx >= 0 && camoIdx <= outfit::kVanillaCamoTypeMax)
+                branch.camoBonusType = static_cast<std::uint8_t>(camoIdx);
         }
         ReadBranchCamoBonusValues(L, branchTblIdx, branch);
 
@@ -799,67 +841,6 @@ int __cdecl l_RegisterHeadOption(lua_State* L)
     return 1;
 }
 
-
-int __cdecl l_GetOutfitInfo(lua_State* L)
-{
-    const int developIdRaw = GetLuaInt(L, 1);
-    if (developIdRaw <= 0 || developIdRaw > 0xFFFF)
-        return 0;
-
-    const outfit::OutfitEntry* entry = nullptr;
-    if (!outfit::TryGetOutfitByDevelopId(
-            static_cast<std::uint16_t>(developIdRaw), &entry) || !entry)
-        return 0;
-
-    if (!ResolveLuaApi() || !g_lua_createtable || !g_lua_settable
-        || !g_lua_pushstring || !g_lua_pushnumber || !g_lua_pushboolean)
-        return 0;
-
-    g_lua_createtable(L, 0, 7);
-
-    g_lua_pushstring(L, const_cast<char*>("partsType"));
-    g_lua_pushnumber(L, static_cast<float>(entry->partsType));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("selectorCode"));
-    g_lua_pushnumber(L, static_cast<float>(entry->selectorCode));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("flowIndex"));
-    g_lua_pushnumber(L, static_cast<float>(entry->flowIndex));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsSnake"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Snake) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsDDMale"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDMale) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsDDFemale"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_DDFemale) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsAvatar"));
-    g_lua_pushboolean(L, entry->IsPlayerTypeSupported(outfit::kPlayerType_Avatar) ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("variantCount"));
-    g_lua_pushnumber(L, static_cast<float>(entry->variantCount));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("activeVariant"));
-    g_lua_pushnumber(L, static_cast<float>(
-        outfit::GetActiveVariant(entry->partsType)));
-    g_lua_settable(L, -3);
-
-    g_lua_pushstring(L, const_cast<char*>("supportsHeadOptions"));
-    g_lua_pushboolean(L, entry->HasAnyHeadOptions() ? 1 : 0);
-    g_lua_settable(L, -3);
-
-    return 1;
-}
 
 
 namespace
