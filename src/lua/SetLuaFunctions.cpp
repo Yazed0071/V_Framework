@@ -19,6 +19,7 @@ extern "C" {
 #include "log.h"
 #include "FoxHashes.h"
 #include "EquipBgTexture.h"
+#include "MissionTelopBgTexture.h"
 #include "LoadingSplash.h"
 #include "GameOverSplash.h"
 #include "VIPSleepFaintHook.h"
@@ -1443,6 +1444,25 @@ int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
     const bool ok = Unregister_AnnounceLogSfx(name);
     PushLuaBool(L, ok);
     return 1;
+}
+
+
+int __cdecl l_SetMissionTelopTexture(lua_State* L)
+{
+    const char* path = GetLuaString(L, 1);
+    const bool ok = (path != nullptr && path[0] != '\0');
+    if (ok)
+        Set_MissionTelopTexture(path);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_UnsetMissionTelopTexture(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Unset_MissionTelopTexture();
+    return 0;
 }
 
 

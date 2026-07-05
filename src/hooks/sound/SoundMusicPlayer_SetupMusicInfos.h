@@ -37,3 +37,6 @@ bool Uninstall_SoundMusicPlayer_SetupMusicInfos_Hook();
 bool Register_CustomTapes(
     const std::vector<CustomTapeAlbumDefinition>& albums,
     const std::vector<CustomTapeTrackDefinition>& tracks);
+
+
+bool IsCustomTapeImportantBySaveIndex(std::int16_t saveIndex);

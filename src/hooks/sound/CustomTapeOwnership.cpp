@@ -18,6 +18,7 @@
 
 #include "AddressSet.h"
 #include "V_FrameWorkState.h"
+#include "SoundMusicPlayer_SetupMusicInfos.h"
 
 extern "C"
 {
@@ -39,6 +40,12 @@ namespace
 
 
     using CollectGotTapes_t = std::uint64_t(__cdecl*)(std::uint32_t albumType, std::intptr_t outAlbumIds, std::uint32_t outCapacity, std::intptr_t cassetteCallbackThis);
+    using GetCassetteTapeUnreadInfo_t = void(__fastcall*)(void* menuSystem, std::uint32_t* outUnreadCount, std::uint8_t* outHasNew);
+    using IsNewCassetteTapeTrack_t = int(__cdecl*)(lua_State* luaState);
+    using CassetteMenuCheckNewFlag_t = unsigned char(__fastcall*)(void* trackInfo, void* uiUtilityTable);
+    using CassetteAlbumCheckNewFlag_t = unsigned char(__fastcall*)(void* albumInfo, void* uiUtilityTable);
+    using CassetteTrackRecordGetter_t = void*(__fastcall*)(void* recordSource, void* albumFirst, unsigned int trackIndex);
+    using CassetteCheckUnreadInfo_t = void(__fastcall*)(void* albumInfo, void* uiUtilityTable, unsigned int* outCount, unsigned char* outFlag);
 
 
     using GetQuarkSystemTable_t = void* (__cdecl*)();
@@ -57,7 +64,6 @@ namespace
     static constexpr std::int16_t kCustomSaveIndexMin = 300;
     static constexpr std::int16_t kCustomSaveIndexMax = 1999;
     static constexpr std::uint16_t kVanillaOwnedIndexBias = 0x00B7u;
-    // Cassette slice of a shared flag buffer; writing past it corrupts other save data (dispatch).
     static constexpr std::uint16_t kVanillaCassetteFlagRegionEndExclusive = 0x193u;
 
 
@@ -75,6 +81,11 @@ namespace
     static IsGotCassetteTapeTrack_t g_OrigIsGotCassetteTapeTrack = nullptr;
     static SetCassetteTapeTrackNewFlag_t g_OrigSetCassetteTapeTrackNewFlag = nullptr;
     static CollectGotTapes_t g_OrigCollectGotTapes = nullptr;
+    static GetCassetteTapeUnreadInfo_t g_OrigGetCassetteTapeUnreadInfo = nullptr;
+    static IsNewCassetteTapeTrack_t g_OrigIsNewCassetteTapeTrack = nullptr;
+    static CassetteMenuCheckNewFlag_t g_OrigCassetteMenuCheckNewFlag = nullptr;
+    static CassetteAlbumCheckNewFlag_t g_OrigCassetteAlbumCheckNewFlag = nullptr;
+    static CassetteCheckUnreadInfo_t g_OrigCassetteCheckUnreadInfo = nullptr;
 
     static lua_isstring_t g_lua_isstring = nullptr;
     static lua_type_t g_lua_type = nullptr;
@@ -1150,6 +1161,44 @@ static int __cdecl hkIsGotCassetteTapeTrack(lua_State* luaState)
 }
 
 
+static int __cdecl hkIsNewCassetteTapeTrack(lua_State* luaState)
+{
+    const char* trackName = GetLuaTrackNameArg(luaState);
+    if (!trackName)
+        return g_OrigIsNewCassetteTapeTrack ? g_OrigIsNewCassetteTapeTrack(luaState) : 1;
+
+    void* trackInfo = ResolveTrackInfoByName(trackName);
+    std::int16_t saveIndex = -1;
+
+    if (!TryGetTrackSaveIndex(trackInfo, saveIndex) || !IsCustomTapeSaveIndex(saveIndex))
+        return g_OrigIsNewCassetteTapeTrack ? g_OrigIsNewCassetteTapeTrack(luaState) : 1;
+
+    const bool isNew = IsCustomTapeNewFlagSaveIndex(saveIndex);
+    PushLuaBool(luaState, isNew);
+
+    return 1;
+}
+
+
+static void NudgeCassetteBadgeRefresh()
+{
+    if (!g_OrigGetCassetteTapeUnreadInfo)
+        return;
+
+    std::uint8_t* liveTable = ResolveLiveCassetteFlagTable();
+    if (!liveTable)
+        return;
+
+    __try
+    {
+        liveTable[kVanillaOwnedIndexBias] ^= 0x80u;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+
 static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
 {
     const char* trackName = GetLuaTrackNameArg(luaState);
@@ -1175,7 +1224,64 @@ static int __cdecl hkSetCassetteTapeTrackNewFlag(lua_State* luaState)
     ApplyCustomTapeStateToLiveTable(saveIndex, IsCustomTapeOwnedSaveIndex(saveIndex), isNew);
     FlushCustomTapeStateIfChanged(false, changed, metadataChanged);
 
+    if (changed)
+        NudgeCassetteBadgeRefresh();
+
     return 0;
+}
+
+
+static bool TryGetTrackId(void* trackInfo, std::uint32_t& outTrackId)
+{
+    outTrackId = 0;
+    if (!trackInfo)
+        return false;
+
+    __try
+    {
+        outTrackId = *reinterpret_cast<const std::uint32_t*>(reinterpret_cast<const std::uintptr_t>(trackInfo) + 0x14ull);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outTrackId = 0;
+        return false;
+    }
+}
+
+
+void OnCassetteTrackPlayedByTrackId(std::uint32_t playedTrackId)
+{
+    if (playedTrackId == 0)
+        return;
+
+    std::int16_t playedSaveIndex = -1;
+    {
+        std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+        for (const auto& kv : g_CustomTapePersistEntries)
+        {
+            const CustomTapePersistEntry& entry = kv.second;
+            if (!entry.isNew || !IsCustomTapeSaveIndex(entry.saveIndex) || entry.fileName.empty())
+                continue;
+
+            void* trackInfo = ResolveTrackInfoByName(entry.fileName.c_str());
+            if (!trackInfo)
+                continue;
+
+            std::uint32_t trackId = 0;
+            if (TryGetTrackId(trackInfo, trackId) && trackId == playedTrackId)
+            {
+                playedSaveIndex = entry.saveIndex;
+                break;
+            }
+        }
+    }
+
+    if (playedSaveIndex < 0)
+        return;
+
+    SetCustomTapeNewFlagSaveIndex(playedSaveIndex, false);
+    NudgeCassetteBadgeRefresh();
 }
 
 
@@ -1263,6 +1369,278 @@ static std::uint64_t __cdecl hkCollectGotTapes(
 }
 
 
+static bool CustomTapeFlagByteOwnedAndNew(const std::uint8_t* liveTable, std::uint16_t tableIndex)
+{
+    __try
+    {
+        const std::uint8_t flagByte = liveTable[tableIndex];
+        return (flagByte & 0x03u) == 0x03u;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static void __fastcall hkGetCassetteTapeUnreadInfo(void* menuSystem, std::uint32_t* outUnreadCount, std::uint8_t* outHasNew)
+{
+    if (g_OrigGetCassetteTapeUnreadInfo)
+        g_OrigGetCassetteTapeUnreadInfo(menuSystem, outUnreadCount, outHasNew);
+
+    if (!outUnreadCount)
+        return;
+
+    std::uint8_t* liveTable = ResolveLiveCassetteFlagTable();
+    if (!liveTable)
+        return;
+
+    int delta = 0;
+    bool customImportantUnread = false;
+    {
+        std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+        for (const auto& kv : g_CustomTapePersistEntries)
+        {
+            const std::int16_t saveIndex = kv.second.saveIndex;
+            if (!IsCustomTapeSaveIndex(saveIndex))
+                continue;
+
+            const std::uint16_t tableIndex =
+                static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
+
+            const bool strayCounted = CustomTapeFlagByteOwnedAndNew(liveTable, tableIndex);
+            const bool realCounted = kv.second.owned && kv.second.isNew;
+            delta += (realCounted ? 1 : 0) - (strayCounted ? 1 : 0);
+
+            if (realCounted && IsCustomTapeImportantBySaveIndex(saveIndex))
+                customImportantUnread = true;
+        }
+    }
+
+    if (customImportantUnread && outHasNew)
+        *outHasNew = 1;
+
+    if (delta == 0)
+        return;
+
+    long corrected = static_cast<long>(*outUnreadCount) + delta;
+    if (corrected < 0)
+        corrected = 0;
+    *outUnreadCount = static_cast<std::uint32_t>(corrected);
+}
+
+
+static bool ReadTrackIconSelector(void* trackInfo, std::uint16_t& outSelector)
+{
+    outSelector = 0;
+    if (!trackInfo)
+        return false;
+
+    __try
+    {
+        outSelector = *reinterpret_cast<const std::uint16_t*>(reinterpret_cast<const std::uintptr_t>(trackInfo) + 0x24ull);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outSelector = 0;
+        return false;
+    }
+}
+
+
+static unsigned char __fastcall hkCassetteMenuCheckNewFlag(void* trackInfo, void* uiUtilityTable)
+{
+    std::int16_t saveIndex = -1;
+    if (TryGetTrackSaveIndex(trackInfo, saveIndex) && IsCustomTapeSaveIndex(saveIndex))
+    {
+        if (!IsCustomTapeOwnedSaveIndex(saveIndex) || !IsCustomTapeNewFlagSaveIndex(saveIndex))
+            return 0;
+
+        std::uint16_t selector = 0;
+        ReadTrackIconSelector(trackInfo, selector);
+        return (selector != 0) ? 0x08u : 0x80u;
+    }
+
+    return g_OrigCassetteMenuCheckNewFlag ? g_OrigCassetteMenuCheckNewFlag(trackInfo, uiUtilityTable) : 0;
+}
+
+
+static bool TryComputeAlbumNewMark(void* albumInfo, void* uiUtilityTable, unsigned char& outMark)
+{
+    outMark = 0;
+    if (!albumInfo || !uiUtilityTable)
+        return false;
+
+    __try
+    {
+        unsigned int trackCount = *reinterpret_cast<const std::uint16_t*>(reinterpret_cast<const std::uintptr_t>(albumInfo) + 0x10ull);
+        if (trackCount == 0)
+            return true;
+
+        void* recordSource = *reinterpret_cast<void* const*>(reinterpret_cast<const std::uintptr_t>(uiUtilityTable) + 0xd8ull);
+        if (!recordSource)
+            return false;
+
+        void** recordSourceVtable = *reinterpret_cast<void** const*>(recordSource);
+        CassetteTrackRecordGetter_t getRecord =
+            reinterpret_cast<CassetteTrackRecordGetter_t>(recordSourceVtable[0x188 / sizeof(void*)]);
+        void* albumFirst = *reinterpret_cast<void* const*>(albumInfo);
+        const std::uint8_t* flagTable = ResolveLiveCassetteFlagTable();
+
+        unsigned char mark = 0;
+        for (unsigned int i = 0; i < trackCount; ++i)
+        {
+            void* record = getRecord(recordSource, albumFirst, i);
+            if (!record)
+                continue;
+
+            std::int16_t saveIndex =
+                *reinterpret_cast<const std::int16_t*>(reinterpret_cast<const std::uintptr_t>(record) + 0x1cull);
+            if (saveIndex < 0)
+                continue;
+
+            bool owned = false;
+            bool isNew = false;
+            if (IsCustomTapeSaveIndex(saveIndex))
+            {
+                owned = IsCustomTapeOwnedSaveIndex(saveIndex);
+                isNew = IsCustomTapeNewFlagSaveIndex(saveIndex);
+            }
+            else if (flagTable)
+            {
+                std::uint16_t tableIndex =
+                    static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
+                if (tableIndex >= kVanillaOwnedIndexBias && tableIndex < kVanillaCassetteFlagRegionEndExclusive)
+                {
+                    std::uint8_t flagByte = flagTable[tableIndex];
+                    owned = ((flagByte >> 1) & 1u) != 0;
+                    isNew = (flagByte & 1u) != 0;
+                }
+            }
+
+            if (owned && isNew)
+            {
+                std::int16_t selector =
+                    *reinterpret_cast<const std::int16_t*>(reinterpret_cast<const std::uintptr_t>(record) + 0x24ull);
+                mark |= (selector != 0) ? 0x08u : 0x80u;
+            }
+        }
+
+        outMark = mark;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outMark = 0;
+        return false;
+    }
+}
+
+
+static unsigned char __fastcall hkCassetteAlbumCheckNewFlag(void* albumInfo, void* uiUtilityTable)
+{
+    unsigned char mark = 0;
+    if (TryComputeAlbumNewMark(albumInfo, uiUtilityTable, mark))
+        return mark;
+
+    return g_OrigCassetteAlbumCheckNewFlag ? g_OrigCassetteAlbumCheckNewFlag(albumInfo, uiUtilityTable) : 0;
+}
+
+
+static bool TryComputeAlbumUnreadInfo(void* albumInfo, void* uiUtilityTable, unsigned int* outCount, unsigned char* outFlag)
+{
+    if (!albumInfo || !uiUtilityTable || !outCount || !outFlag)
+        return false;
+
+    __try
+    {
+        *outCount = 0;
+        *outFlag = 0;
+
+        unsigned int trackCount = *reinterpret_cast<const std::uint16_t*>(reinterpret_cast<const std::uintptr_t>(albumInfo) + 0x10ull);
+        if (trackCount == 0)
+            return true;
+
+        void* recordSource = *reinterpret_cast<void* const*>(reinterpret_cast<const std::uintptr_t>(uiUtilityTable) + 0xd8ull);
+        if (!recordSource)
+            return false;
+
+        void** recordSourceVtable = *reinterpret_cast<void** const*>(recordSource);
+        CassetteTrackRecordGetter_t getRecord =
+            reinterpret_cast<CassetteTrackRecordGetter_t>(recordSourceVtable[0x188 / sizeof(void*)]);
+        void* albumFirst = *reinterpret_cast<void* const*>(albumInfo);
+        const std::uint8_t* flagTable = ResolveLiveCassetteFlagTable();
+
+        unsigned int newCount = 0;
+        unsigned char mark = 0;
+        for (unsigned int i = 0; i < trackCount; ++i)
+        {
+            void* record = getRecord(recordSource, albumFirst, i);
+            if (!record)
+                continue;
+
+            std::int16_t saveIndex =
+                *reinterpret_cast<const std::int16_t*>(reinterpret_cast<const std::uintptr_t>(record) + 0x1cull);
+            if (saveIndex < 0)
+                continue;
+
+            bool owned = false;
+            bool isNew = false;
+            if (IsCustomTapeSaveIndex(saveIndex))
+            {
+                owned = IsCustomTapeOwnedSaveIndex(saveIndex);
+                isNew = IsCustomTapeNewFlagSaveIndex(saveIndex);
+            }
+            else if (flagTable)
+            {
+                std::uint16_t tableIndex =
+                    static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
+                if (tableIndex >= kVanillaOwnedIndexBias && tableIndex < kVanillaCassetteFlagRegionEndExclusive)
+                {
+                    std::uint8_t flagByte = flagTable[tableIndex];
+                    owned = ((flagByte >> 1) & 1u) != 0;
+                    isNew = (flagByte & 1u) != 0;
+                }
+            }
+
+            if (owned && isNew)
+            {
+                std::int16_t selector =
+                    *reinterpret_cast<const std::int16_t*>(reinterpret_cast<const std::uintptr_t>(record) + 0x24ull);
+                mark |= (selector != 0) ? 0x04u : 0x40u;
+                ++newCount;
+            }
+        }
+
+        *outCount = newCount;
+        *outFlag = mark;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+
+static void __fastcall hkCassetteCheckUnreadInfo(void* albumInfo, void* uiUtilityTable, unsigned int* outCount, unsigned char* outFlag)
+{
+    if (TryComputeAlbumUnreadInfo(albumInfo, uiUtilityTable, outCount, outFlag))
+        return;
+
+    if (g_OrigCassetteCheckUnreadInfo)
+    {
+        g_OrigCassetteCheckUnreadInfo(albumInfo, uiUtilityTable, outCount, outFlag);
+        return;
+    }
+
+    if (outCount)
+        *outCount = 0;
+    if (outFlag)
+        *outFlag = 0;
+}
+
+
 bool Install_CustomTapeOwnership_Hooks()
 {
     EnsureCustomTapeStateLoaded();
@@ -1316,6 +1694,61 @@ bool Install_CustomTapeOwnership_Hooks()
             reinterpret_cast<void**>(&g_OrigCollectGotTapes));
     }
 
+    if (void* target = ResolveGameAddress(gAddr.IsNewCassetteTapeTrack))
+    {
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkIsNewCassetteTapeTrack),
+                reinterpret_cast<void**>(&g_OrigIsNewCassetteTapeTrack)))
+        {
+            Log("[CustomTapes] ERROR: failed to hook IsNewCassetteTapeTrack - custom tapes' per-track 'new' tags and in-menu new-count will be wrong.\n");
+        }
+    }
+
+    if (void* target = ResolveGameAddress(gAddr.CassetteMenuCheckNewFlag))
+    {
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkCassetteMenuCheckNewFlag),
+                reinterpret_cast<void**>(&g_OrigCassetteMenuCheckNewFlag)))
+        {
+            Log("[CustomTapes] ERROR: failed to hook CheckNewFlag - custom tapes will not show the per-track NEW tag in the menu.\n");
+        }
+    }
+
+    if (void* target = ResolveGameAddress(gAddr.CassetteAlbumCheckNewFlag))
+    {
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkCassetteAlbumCheckNewFlag),
+                reinterpret_cast<void**>(&g_OrigCassetteAlbumCheckNewFlag)))
+        {
+            Log("[CustomTapes] ERROR: failed to hook album CheckNewFlag - custom albums will not show the category NEW mark.\n");
+        }
+    }
+
+    if (void* target = ResolveGameAddress(gAddr.CassetteCheckUnreadInfo))
+    {
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkCassetteCheckUnreadInfo),
+                reinterpret_cast<void**>(&g_OrigCassetteCheckUnreadInfo)))
+        {
+            Log("[CustomTapes] ERROR: failed to hook CheckUnreadInfo - custom tapes will not show the category tab unread count.\n");
+        }
+    }
+
+    if (void* target = ResolveGameAddress(gAddr.GetCassetteTapeUnreadInfo))
+    {
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkGetCassetteTapeUnreadInfo),
+                reinterpret_cast<void**>(&g_OrigGetCassetteTapeUnreadInfo)))
+        {
+            Log("[CustomTapes] ERROR: failed to hook GetCassetteTapeUnreadInfo - unowned custom tapes may show a phantom 'new' badge in the cassette menu.\n");
+        }
+    }
+
     if (!okAdd)
         Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrack — custom tapes cannot be marked owned when picked up.\n");
     if (!okAddByIndex)
@@ -1339,12 +1772,22 @@ bool Uninstall_CustomTapeOwnership_Hooks()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.IsGotCassetteTapeTrack));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetCassetteTapeTrackNewFlag));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectGotTapes));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.GetCassetteTapeUnreadInfo));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.IsNewCassetteTapeTrack));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteMenuCheckNewFlag));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteAlbumCheckNewFlag));
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteCheckUnreadInfo));
 
     g_OrigAddCassetteTapeTrack = nullptr;
     g_OrigAddCassetteTapeTrackByIndex = nullptr;
     g_OrigIsGotCassetteTapeTrack = nullptr;
     g_OrigSetCassetteTapeTrackNewFlag = nullptr;
     g_OrigCollectGotTapes = nullptr;
+    g_OrigGetCassetteTapeUnreadInfo = nullptr;
+    g_OrigIsNewCassetteTapeTrack = nullptr;
+    g_OrigCassetteMenuCheckNewFlag = nullptr;
+    g_OrigCassetteAlbumCheckNewFlag = nullptr;
+    g_OrigCassetteCheckUnreadInfo = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
         g_CustomOwnedTapeSaveIndices.clear();

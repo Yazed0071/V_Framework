@@ -315,6 +315,20 @@ static const char* const kAddrFieldNames[] = {
     "Ui_GetLangText",
 };
 static const int kAddrFieldCount = 301;
+    "Soldier_ShootOneBullet_GroupMaskCall",
+    "Soldier_ActivateBulletAtEmptyWork_SameArmyJnz",
+    "TelopStartTitleEvCall_SetBgTexture",
+    "Layout_GetLayout",
+    "Layout_GetModel",
+    "GetCassetteTapeUnreadInfo",
+    "IsNewCassetteTapeTrack",
+    "CassetteMenuCheckNewFlag",
+    "CassetteAlbumCheckNewFlag",
+    "CassetteCheckUnreadInfo",
+    "SubtitlesObjectSendMessage",
+    "Fox_printf",
+};
+static const int kAddrFieldCount = 242;
 
 namespace AddressSetRuntime
 {
@@ -573,12 +587,12 @@ namespace AddressSetRuntime
             0x140338820ull, // SoundControl_PostExternalEvent
             0x14098A810ull, // MusicPlayerPlayWrapper
             0x140931C10ull, // FUN_140931c10
-            0x1408B223Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1408B223Dull, // SetEquipItem GetItemId
             0x140FFFFE0ull, // FUN_140ffffe0
             0x140AF3F10ull, // FUN_140af3f10
             0x1405D76F0ull, // FUN_1405d76f0
-            0x1409C480Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
-            0x1409C4875ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x1409C480Full, // InitializeWithoutParts itmsld01
+            0x1409C4875ull, // InitializeWithoutParts itmsld02
             0x140FC35D0ull, // FUN_140fc35d0
             0x140A2ABB0ull, // FUN_140a2abb0
             0x141B18A10ull, // FUN_141b18a10
@@ -662,6 +676,18 @@ namespace AddressSetRuntime
             0x140863C60ull, // HudCommonDataManager_AnnounceLogView
             0x1409140E0ull, // Ui_LangIdToKey
             0x140912C10ull, // Ui_GetLangText
+            0x141392A2Eull, // Soldier_ShootOneBullet_GroupMaskCall
+            0x140D2DCADull, // Soldier_ActivateBulletAtEmptyWork_SameArmyJnz
+            0x1408A9020ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAE4A0ull, // Layout_GetLayout
+            0x141DAE4E0ull, // Layout_GetModel
+            0x14094E4E0ull, // GetCassetteTapeUnreadInfo
+            0x140A96620ull, // IsNewCassetteTapeTrack
+            0x140EF5B30ull, // CassetteMenuCheckNewFlag
+            0x140EF5A30ull, // CassetteAlbumCheckNewFlag
+            0x140EF5CE0ull, // CassetteCheckUnreadInfo
+            0x1404D6E90ull, // SubtitlesObjectSendMessage
+            0x14002AB70ull, // Fox_printf
         };
 
         return value;
@@ -887,8 +913,8 @@ namespace AddressSetRuntime
             0x141000070ull, // FUN_141000070
             0x140AF3E70ull, // FUN_140af3e70
             0x1405D79B0ull, // FUN_1405d79b0
-            0x1409C471Full, // InitializeWithoutParts itmsld01 load-gate (patch site; module NOPs +2)
-            0x1409C4785ull, // InitializeWithoutParts itmsld02 load-gate (patch site; module NOPs +2)
+            0x1409C471Full, // InitializeWithoutParts itmsld01
+            0x1409C4785ull, // InitializeWithoutParts itmsld02
             0x140FC3620ull, // FUN_140fc3620
             0x140A2A9F0ull, // FUN_140a2a9f0
             0x141B187F0ull, // FUN_141b187f0
@@ -973,6 +999,18 @@ namespace AddressSetRuntime
             0x140863d00ull, // HudCommonDataManager_AnnounceLogView
             0x140913fc0ull, // Ui_LangIdToKey
             0x140912af0ull, // Ui_GetLangText
+            0x141392A3Eull, // Soldier_ShootOneBullet_GroupMaskCall
+            0x140D2DC5Dull, // Soldier_ActivateBulletAtEmptyWork_SameArmyJnz
+            0x1408A8F50ull, // TelopStartTitleEvCall_SetBgTexture
+            0x141DAE510ull, // Layout_GetLayout
+            0x141DAE550ull, // Layout_GetModel
+            0x14094E410ull, // GetCassetteTapeUnreadInfo
+            0x140A965C0ull, // IsNewCassetteTapeTrack
+            0x140EF5B60ull, // CassetteMenuCheckNewFlag
+            0x140EF5A60ull, // CassetteAlbumCheckNewFlag
+            0x140EF5D10ull, // CassetteCheckUnreadInfo
+            0x1404D72B0ull, // SubtitlesObjectSendMessage
+            0x14002ABC0ull, // Fox_printf
         };
         return value;
     }

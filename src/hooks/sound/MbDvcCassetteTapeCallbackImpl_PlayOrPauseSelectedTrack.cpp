@@ -9,6 +9,7 @@
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
+#include "CustomTapeOwnership.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
 #include "AddressSet.h"
 #include <LuaBroadcaster.h>
@@ -75,6 +76,22 @@ static void __fastcall hkMusicPlayerPlay(
     std::uint32_t reservedZero,
     std::uint8_t flag1,
     std::uint8_t flag2);
+
+
+static std::uint32_t ReadTapeIdTableEntry(const void* tapeIdTable, std::uint32_t index)
+{
+    if (!tapeIdTable || index >= 0x1000u)
+        return 0;
+
+    __try
+    {
+        return reinterpret_cast<const std::uint32_t*>(tapeIdTable)[index];
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return 0;
+    }
+}
 
 
 static void* ResolveMusicPlayerFromCassetteCallback(void* cassetteCallbackBase)
@@ -268,6 +285,13 @@ static void __fastcall hkMusicPlayerPlay(
             reservedZero,
             flag1,
             flag2);
+    }
+
+    if (!MissionCodeGuard::ShouldBypassHooks())
+    {
+        const std::uint32_t playedTrackId = ReadTapeIdTableEntry(tapeIdTable, selectedTrackIndex);
+        if (playedTrackId != 0)
+            OnCassetteTrackPlayedByTrackId(playedTrackId);
     }
 }
 

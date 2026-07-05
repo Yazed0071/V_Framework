@@ -167,8 +167,10 @@ function this.LoadLibraries()
         end
 
         local powerLoadout = mvars.ene_soldierPowerSettings[soldierId]
-        if powerLoadout.RADIO then
-            GameObject.SendCommand(soldierId, { id = "AddCallSignPatrolSoldier" })
+        local hasRadio = (powerLoadout and powerLoadout.RADIO)
+                      or (mvars.ene_soldierLrrp and mvars.ene_soldierLrrp[soldierId])
+        if hasRadio then
+            this.AddCallSignPatrolSoldier(soldierId)
         end
     end
 end

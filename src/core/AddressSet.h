@@ -355,6 +355,21 @@ namespace AddressSetRuntime
         uintptr_t HudCommonDataManager_AnnounceLogView = 0;
         uintptr_t Ui_LangIdToKey = 0;
         uintptr_t Ui_GetLangText = 0;
+        uintptr_t Soldier_ShootOneBullet_GroupMaskCall = 0;
+        uintptr_t Soldier_ActivateBulletAtEmptyWork_SameArmyJnz = 0;
+
+        uintptr_t TelopStartTitleEvCall_SetBgTexture = 0;
+        uintptr_t Layout_GetLayout = 0;
+        uintptr_t Layout_GetModel = 0;
+
+        uintptr_t GetCassetteTapeUnreadInfo = 0;
+        uintptr_t IsNewCassetteTapeTrack = 0;
+        uintptr_t CassetteMenuCheckNewFlag = 0;
+        uintptr_t CassetteAlbumCheckNewFlag = 0;
+        uintptr_t CassetteCheckUnreadInfo = 0;
+        uintptr_t SubtitlesObjectSendMessage = 0;
+
+        uintptr_t Fox_printf = 0;
     };
 
     inline GameBuild& GetGameBuild()

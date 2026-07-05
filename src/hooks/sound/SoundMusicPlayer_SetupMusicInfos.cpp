@@ -131,6 +131,17 @@ namespace
 }
 
 
+static std::unordered_map<std::int16_t, bool> g_CustomTapeImportantBySaveIndex;
+static std::mutex g_CustomTapeImportantMutex;
+
+bool IsCustomTapeImportantBySaveIndex(std::int16_t saveIndex)
+{
+    std::lock_guard<std::mutex> lock(g_CustomTapeImportantMutex);
+    const auto it = g_CustomTapeImportantBySaveIndex.find(saveIndex);
+    return it != g_CustomTapeImportantBySaveIndex.end() && it->second;
+}
+
+
 static void* GameAllocAligned(std::uint64_t sizeBytes, std::uint64_t alignment)
 {
     void* fnAddr = ResolveGameAddress(gAddr.KernelAllocAligned);
@@ -754,6 +765,11 @@ static bool ApplyCustomTapesToPlayer(void* soundMusicPlayer)
         dst.important = src.important;
         dst.reserved[0] = 0;
         dst.reserved[1] = 0;
+
+        {
+            std::lock_guard<std::mutex> lock(g_CustomTapeImportantMutex);
+            g_CustomTapeImportantBySaveIndex[src.resolvedSaveIndex] = (src.important != 0);
+        }
 
         TapeAlbumRecord* targetAlbum =
             FindMutableAlbumRecordByHash(newAlbums, newTotalAlbumCount, src.albumIdHash);

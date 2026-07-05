@@ -28,6 +28,8 @@ this.DEBUG_strCode32List={
   "OffBinocularsMode",
   "OnPlayerLockPickStart",
   "OnPlayerLockPickEnd",
+  "Subtitles",
+  "SubtitlesEventMessage",
 }
 
 this.CassettePlay={
@@ -185,6 +187,9 @@ this.signatureTypes={
     {argName="gimmickId",argType="number"},
     {argName="doorSide",argType="number"},
   },
+  SubtitlesEventMessage={
+    {argName="message",argType="str32"},
+  },
 }
 
 this.messageSignatures={
@@ -218,6 +223,10 @@ this.messageSignatures={
 
   HUD={
     AnnounceLog=this.signatureTypes.AnnounceLog,
+  },
+
+  Subtitles={
+    SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage,
   },
 }
 
@@ -431,12 +440,14 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
   InfLookup.signatureTypes.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
   InfLookup.signatureTypes.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
+  InfLookup.signatureTypes.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
   InfLookup.messageSignatures.Terminal=InfLookup.messageSignatures.Terminal or {}
   InfLookup.messageSignatures.Radio=InfLookup.messageSignatures.Radio or {}
   InfLookup.messageSignatures.HUD=InfLookup.messageSignatures.HUD or {}
+  InfLookup.messageSignatures.Subtitles=InfLookup.messageSignatures.Subtitles or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
@@ -452,6 +463,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart
   InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliStart
   InfLookup.messageSignatures.HUD.AnnounceLog=this.signatureTypes.AnnounceLog
+  InfLookup.messageSignatures.Subtitles.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
 end
 
 function this.GetMessageSignature(sender,messageId)

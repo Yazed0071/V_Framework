@@ -12,6 +12,9 @@ bool Uninstall_SetLuaFunctions_Hook();
 bool Install_EquipBgTexture_Hook();
 bool Uninstall_EquipBgTexture_Hook();
 
+bool Install_MissionTelopBgTexture_Hook();
+bool Uninstall_MissionTelopBgTexture_Hook();
+
 bool Install_LoadingSplash_Hook();
 bool Uninstall_LoadingSplash_Hook();
 
@@ -120,6 +123,9 @@ bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
 
 bool Install_SearchLightActionPluginImpl_StateDoor_Hook();
 bool Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
+
+bool Install_SubtitlesEventMessage_Hook();
+bool Uninstall_SubtitlesEventMessage_Hook();
 
 bool Install_PhaseSneakAiImpl_PreUpdate_Hook();
 bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook();
@@ -252,6 +258,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_EquipBgTexture_Hook();
+        }
+    };
+
+    class MissionTelopBgTextureModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MissionTelopBgTexture";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MissionTelopBgTexture_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MissionTelopBgTexture_Hook();
         }
     };
 
@@ -931,6 +957,14 @@ namespace
         }
     };
 
+    class SubtitlesEventMessageModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "SubtitlesEventMessage"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_SubtitlesEventMessage_Hook(); }
+        void Uninstall() override { Uninstall_SubtitlesEventMessage_Hook(); }
+    };
+
     class PhaseSneakAiImpl_PreUpdateModule final : public IFeatureModule
     {
     public:
@@ -1183,6 +1217,7 @@ void RegisterBuiltInFeatureModules()
 {
     static LuaBridgeModule s_LuaBridgeModule;
     static EquipBgTextureModule s_EquipBgTextureModule;
+    static MissionTelopBgTextureModule s_MissionTelopBgTextureModule;
     static LoadingSplashModule s_LoadingSplashModule;
     static GameOverSplashModule s_GameOverSplashModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
@@ -1220,6 +1255,7 @@ void RegisterBuiltInFeatureModules()
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
     static CrawlSideRollModule s_CrawlSideRollModule;
     static PlayerLockPickModule s_PlayerLockPickModule;
+    static SubtitlesEventMessageModule s_SubtitlesEventMessageModule;
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
     static MissionEmergencyModule s_MissionEmergencyModule;
     static ShowMissionIconModule s_ShowMissionIconModule;
@@ -1250,6 +1286,7 @@ void RegisterBuiltInFeatureModules()
         {
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipBgTextureModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionTelopBgTextureModule);
             FeatureModuleRegistry::Instance().Register(&s_LoadingSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
@@ -1272,6 +1309,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapePlayHookModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
+            FeatureModuleRegistry::Instance().Register(&s_SubtitlesEventMessageModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeLongFilenameModule);

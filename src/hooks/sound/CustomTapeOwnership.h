@@ -33,3 +33,6 @@ void InitializeCustomTapeStateIfMissing(
 
 
 void Sync_CustomTapeStateToLiveTable();
+
+
+void OnCassetteTrackPlayedByTrackId(std::uint32_t playedTrackId);

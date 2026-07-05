@@ -45,6 +45,18 @@ function this.ClearDefaultEquipBgTexture()
     V_TppUiCommand.ClearDefaultEquipBgTexture()
 end
 
+function this.SetMissionTelopTexture(path)
+    if not IsTypeString(path) then
+        V_FrameWork.Log("V_TppUiCommand.SetMissionTelopTexture: path is not a string.")
+        return
+    end
+    return V_TppUiCommand.SetMissionTelopTexture(path)
+end
+
+function this.UnsetMissionTelopTexture()
+    V_TppUiCommand.UnsetMissionTelopTexture()
+end
+
 function this.SetEquipBgTexturePath(equipId, path, colored, opacity)
     if equipId == nil then
         V_FrameWork.Log("V_TppUiCommand.SetEquipBgTexturePath: equipId is nil.")
