@@ -30,7 +30,12 @@ bool FeatureModuleRegistry::InstallAll(HMODULE hGame)
             continue;
 
         const bool ok = module->Install(hGame);
+#ifdef _DEBUG
         Log("[FeatureModule] Install %s -> %s\n", module->GetName(), ok ? "OK" : "FAIL");
+#else
+        if (!ok)
+            Log("[FeatureModule] Install %s -> %s\n", module->GetName(), ok ? "OK" : "FAIL");
+#endif
 
         if (!ok)
             allOk = false;

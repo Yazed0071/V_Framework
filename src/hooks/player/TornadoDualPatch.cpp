@@ -60,7 +60,9 @@ bool Install_TornadoDualPatch()
         return false;
 
     g_Applied = true;
+#ifdef _DEBUG
     Log("[TornadoDual] enabled by default (wrote 90 90 at %p)\n", target);
+#endif
     return true;
 }
 

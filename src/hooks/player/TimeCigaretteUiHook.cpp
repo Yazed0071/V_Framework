@@ -179,7 +179,12 @@ bool Install_TimeCigaretteUi_Hook()
     if (ok)
         g_Installed = true;
 
+#ifdef _DEBUG
     Log("[TimeCigaretteUi] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#else
+    if (!ok)
+        Log("[TimeCigaretteUi] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#endif
     return ok;
 }
 

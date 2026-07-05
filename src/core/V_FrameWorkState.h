@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace V_FrameWorkState
 {
@@ -24,7 +25,22 @@ namespace V_FrameWorkState
     bool ResolveOrCreateDevelopId(
         const char* key,
         std::int32_t minimumId,
-        std::int32_t& outDevelopId);
+        std::int32_t& outDevelopId,
+        bool* outCreated = nullptr);   // outCreated: true = new id minted (added), false = existing (loaded)
+
+
+    std::vector<std::int32_t> TakePendingDevelopedResets();
+
+    bool ResolveDevelopedFlag(const char* key, bool defaultDeveloped);
+    bool IsManagedDevelopId(std::int32_t developId);
+    void SetDevelopedByDevelopId(std::int32_t developId, bool developed);
+    bool GetDevelopedByDevelopId(std::int32_t developId);
+
+    void ForEachManagedDevelop(
+        const std::function<void(std::int32_t developId, bool developed, bool isNew)>& callback);
+
+    void SetNewByDevelopId(std::int32_t developId, bool isNew);
+    bool GetNewByDevelopId(std::int32_t developId);
 
 
     bool ResolveOrCreateFlowIndex(
@@ -37,6 +53,32 @@ namespace V_FrameWorkState
         const char* key,
         std::int16_t minimumIndex,
         std::int16_t& outSaveIndex);
+
+    bool ResolveOrCreateConstantValue(
+        const char* spaceTag,
+        const char* name,
+        std::int32_t minimumValue,
+        std::int32_t& outValue);
+
+
+    std::uint8_t GetPersistedOutfitPartsType(const char* key);
+    std::uint8_t GetPersistedOutfitSelector(const char* key);
+    void         SetPersistedOutfitIds(const char* key,
+                                       std::uint8_t partsType,
+                                       std::uint8_t selector);
+
+    std::size_t GetPersistedOutfitVariantSelectors(const char* key,
+                                                   std::uint8_t* out,
+                                                   std::size_t cap);
+    void        SetPersistedOutfitVariantSelectors(const char* key,
+                                                   const std::uint8_t* selectors,
+                                                   std::size_t count);
+
+    void ForEachPersistedOutfit(
+        const std::function<void(const std::string& key,
+                                 std::uint8_t partsType,
+                                 std::uint8_t selector,
+                                 const std::uint8_t* variants)>& callback);
 
 
     void SetTapeOwned(const char* key, bool owned);

@@ -216,8 +216,18 @@ bool Install_HeliSoundController_Hook()
     if (ok)
         g_Installed = true;
 
-    Log("[HeliSoundController] hook: %s (Update=%p, CallVoice=%p, trampoline=%p)\n",
-        ok ? "OK" : "FAIL", target, reinterpret_cast<void*>(g_CallVoice), reinterpret_cast<void*>(g_OrigCallVoice));
+    if (!ok)
+    {
+        Log("[HeliSoundController] hook: FAIL (Update=%p, CallVoice=%p, trampoline=%p)\n",
+            target, reinterpret_cast<void*>(g_CallVoice), reinterpret_cast<void*>(g_OrigCallVoice));
+    }
+#ifdef _DEBUG
+    else
+    {
+        Log("[HeliSoundController] hook: OK (Update=%p, CallVoice=%p, trampoline=%p)\n",
+            target, reinterpret_cast<void*>(g_CallVoice), reinterpret_cast<void*>(g_OrigCallVoice));
+    }
+#endif
     return ok;
 }
 

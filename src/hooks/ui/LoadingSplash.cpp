@@ -109,7 +109,12 @@ bool Install_LoadingSplash_Hook()
                 reinterpret_cast<void**>(&g_OrigTips));
     }
 
+#ifdef _DEBUG
     Log("[Hook] LoadingSplash: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] LoadingSplash: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 

@@ -128,10 +128,12 @@ namespace
 
         SahelanPhaseForce::g_ForcedPhase.store(-1, std::memory_order_relaxed);
 
+#ifdef _DEBUG
         Log("[Sahelan] Phase: %u -> %u (Exit=%s Enter=%s)\n",
             currentByte, forcedByte,
             okExit  ? "ok" : "fail",
             okEnter ? "ok" : "fail");
+#endif
     }
 }
 
@@ -142,8 +144,10 @@ bool Install_PhaseSneakAiImpl_PreUpdate_Hook()
         reinterpret_cast<void*>(&hk_PreUpdate),
         reinterpret_cast<void**>(&g_OrigPreUpdate));
 
+#ifdef _DEBUG
     Log("[Hook] PhaseSneakAiImpl::PreUpdate: %s target=%p\n",
         ok ? "OK" : "FAIL", target);
+#endif
     return ok;
 }
 
@@ -164,7 +168,9 @@ void Set_SahelanForcePhase(std::int32_t phase)
         return;
     }
     SahelanPhaseForce::g_ForcedPhase.store(phase, std::memory_order_relaxed);
+#ifdef _DEBUG
     Log("[Sahelan] ForcePhase: queued phase=%d (single-shot Exit/Enter on next PreUpdate)\n", phase);
+#endif
 }
 
 std::int32_t Get_SahelanCurrentPhase()

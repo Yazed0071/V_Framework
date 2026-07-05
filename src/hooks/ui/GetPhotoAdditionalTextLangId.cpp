@@ -44,7 +44,9 @@ bool Install_PhotoAdditionalText_Hook()
         reinterpret_cast<void*>(&hkGetPhotoAdditionalTextLangId),
         reinterpret_cast<void**>(&g_OrigGetPhotoAdditionalTextLangIdHook));
 
+#ifdef _DEBUG
     Log("[Hook] PhotoAdditionalText %d installed at %p\n", okTarget, target);
+#endif
     return okTarget;
 }
 

@@ -94,8 +94,10 @@ bool Install_IsItemNoUsePatch()
     if (!WriteBytes(target, site->write, site->writeLen))
         return false;
 
+#ifdef _DEBUG
     Log("[IsItemNoUse] patched %p (%zu bytes) -> EquipCrossEvCall::IsItemNoUse always returns false\n",
         target, site->writeLen);
+#endif
 
     g_Applied = true;
     return true;

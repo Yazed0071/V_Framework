@@ -213,7 +213,9 @@ bool Install_TppPickableHooks()
     }
 
     g_TppPickableHooksInstalled = true;
+#ifdef _DEBUG
     Log("[TppPickable] Install hooks: OK\n");
+#endif
     return true;
 }
 
@@ -234,6 +236,8 @@ bool Uninstall_TppPickableHooks()
 
     Clear_TppPickableCountRawOverrides();
 
+#ifdef _DEBUG
     Log("[TppPickable] Uninstall hooks: OK\n");
+#endif
     return true;
 }

@@ -102,7 +102,9 @@ namespace
             }
             else
             {
+#ifdef _DEBUG
                 Log("[EyeLamp] engine mode=%d (out of range — no override)\n", mode);
+#endif
             }
         }
         (void)self; (void)slot;
@@ -305,15 +307,19 @@ void Set_EyeLampColor(int mode, float r, float g, float b, float a)
     {
         if (allModes)
         {
+#ifdef _DEBUG
             Log("[EyeLamp] SetEyeLampColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
                 r, g, b, a,
                 wasDisco ? "  (disco auto-disabled)" : "");
+#endif
         }
         else
         {
+#ifdef _DEBUG
             Log("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
                 mode, r, g, b, a,
                 wasDisco ? "  (disco auto-disabled)" : "");
+#endif
         }
     }
 }
@@ -327,8 +333,10 @@ void Clear_EyeLampColor()
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
+#ifdef _DEBUG
         Log("[EyeLamp] ClearEyeLampColor: cleared all overrides%s\n",
             wasDisco ? " (incl. disco)" : "");
+#endif
     }
 }
 
@@ -355,15 +363,19 @@ void Set_HeartLightColor(int mode, float r, float g, float b, float a)
     {
         if (allModes)
         {
+#ifdef _DEBUG
             Log("[EyeLamp] SetHeartLightColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
                 r, g, b, a,
                 wasHeartDisco ? "  (heart disco auto-disabled)" : "");
+#endif
         }
         else
         {
+#ifdef _DEBUG
             Log("[EyeLamp] SetHeartLightColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
                 mode, r, g, b, a,
                 wasHeartDisco ? "  (heart disco auto-disabled)" : "");
+#endif
         }
     }
 }
@@ -377,8 +389,10 @@ void Clear_HeartLightColor()
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
+#ifdef _DEBUG
         Log("[EyeLamp] ClearHeartLightColor: HP-driven heart color resumed%s\n",
             wasHeartDisco ? " (incl. heart disco)" : "");
+#endif
     }
 }
 
@@ -402,9 +416,11 @@ void Set_EyeLampDisco(bool enabled, float speed, float a)
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
+#ifdef _DEBUG
         Log("[EyeLamp] Disco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
             enabled ? "ENABLED" : "DISABLED", speed, a,
             clearedPerMode ? " (per-mode overrides cleared)" : "");
+#endif
     }
 }
 
@@ -426,9 +442,11 @@ void Set_HeartLightDisco(bool enabled, float speed, float a)
 
     if (g_LoggingEnabled.load(std::memory_order_relaxed))
     {
+#ifdef _DEBUG
         Log("[EyeLamp] HeartDisco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
             enabled ? "ENABLED" : "DISABLED", speed, a,
             clearedFixed ? " (fixed heart color cleared)" : "");
+#endif
     }
 }
 

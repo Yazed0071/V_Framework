@@ -368,7 +368,12 @@ bool Install_EnemyLangIdOverride_Hooks()
             mapTarget,
             reinterpret_cast<void*>(&hkGetEnemyInformationLangId),
             reinterpret_cast<void**>(&g_OrigGetEnemyInformationLangId));
+#ifdef _DEBUG
         Log("[Hook] EnemyLangId Map: %s\n", okMap ? "OK" : "FAIL");
+#else
+        if (!okMap)
+            Log("[Hook] EnemyLangId Map: %s\n", okMap ? "OK" : "FAIL");
+#endif
     }
 
     if (binoTarget)
@@ -377,7 +382,12 @@ bool Install_EnemyLangIdOverride_Hooks()
             binoTarget,
             reinterpret_cast<void*>(&hkGetEnemyUnitName),
             reinterpret_cast<void**>(&g_OrigGetEnemyUnitName));
+#ifdef _DEBUG
         Log("[Hook] EnemyLangId Bino: %s\n", okBino ? "OK" : "FAIL");
+#else
+        if (!okBino)
+            Log("[Hook] EnemyLangId Bino: %s\n", okBino ? "OK" : "FAIL");
+#endif
     }
 
     return okMap || okBino;

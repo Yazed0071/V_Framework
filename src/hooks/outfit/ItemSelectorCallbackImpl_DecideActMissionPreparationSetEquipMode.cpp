@@ -1,0 +1,577 @@
+#include "pch.h"
+
+#include "ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.h"
+#include "OutfitRegistry.h"
+#include "ItemSelectorCallbackImpl_AddListSuit.h"
+#include "Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h"
+#include "CustomHeadRegistry.h"
+
+#include <cstdint>
+
+#include "AddressSet.h"
+#include "HookUtils.h"
+#include "log.h"
+
+namespace
+{
+
+
+    using DecideActMissionPrep_t = void* (__fastcall*)(
+        void* self, void* out, void* p3, void* p4);
+
+    static DecideActMissionPrep_t g_OrigDecideActMissionPrep = nullptr;
+    static DecideActMissionPrep_t g_OrigDecideActSupplyDrop  = nullptr;
+    static DecideActMissionPrep_t g_OrigDecideActCustomize   = nullptr;
+    static bool                    g_Installed                = false;
+    static bool                    g_InstalledSupplyDrop      = false;
+    static bool                    g_InstalledCustomize       = false;
+
+
+    using SetSupplyCBoxInfo_t = void (__fastcall*)(
+        void* self, std::uint16_t flowIndex);
+
+    static SetSupplyCBoxInfo_t g_OrigSetSupplyCBoxInfo = nullptr;
+    static bool                g_InstalledSetSupplyCBox = false;
+
+
+    constexpr std::uint32_t kEquipKindMissionPrepSuit = 0x80;
+
+
+    constexpr std::uint32_t kEquipKindSupplyDropSuit = 0x100;
+    constexpr std::uint32_t kEquipKindArm            = 0x40;
+
+    struct SelectionSample
+    {
+        bool          haveSample   = false;
+        std::uint32_t equipKind    = 0;
+        std::uint16_t selectedId   = 0xFFFF;
+        std::uint8_t  selectorCode = 0xFF;
+        std::size_t   cellIndex    = 0;
+    };
+
+    static bool TryReadSelection(void* self, SelectionSample& out)
+    {
+        out = {};
+        if (!self) return false;
+
+        auto* base = reinterpret_cast<std::uint8_t*>(self);
+
+        __try
+        {
+            const std::uint32_t equipKind = *reinterpret_cast<std::uint32_t*>(base + 0x4434);
+
+
+            const std::uint32_t count    = *reinterpret_cast<std::uint32_t*>(base + 0x104);
+            const std::int32_t baseRow   = *reinterpret_cast<std::int32_t*>(base + 0x10C);
+            const std::int32_t cursorRow = *reinterpret_cast<std::int32_t*>(base + 0x110);
+
+            const std::int32_t row = (count != 0)
+                ? static_cast<std::int32_t>(
+                      static_cast<std::uint32_t>(baseRow + cursorRow) % count)
+                : 0;
+
+            if (row < 0 || row > 0x3F) return false;
+
+            const std::uint8_t variant = *(base + 0xC040 + row);
+            if (variant > 14) return false;
+
+            const std::size_t cellIndex = static_cast<std::size_t>(row) * 15 + variant;
+            if (cellIndex >= 0x3C00) return false;
+
+            const std::uint16_t selectedId =
+                *reinterpret_cast<std::uint16_t*>(base + 0x4440 + cellIndex * 2);
+
+            const std::uint32_t selectorCodeU32 =
+                *reinterpret_cast<std::uint32_t*>(base + 0xCC40 + cellIndex * 12);
+
+            out.haveSample    = true;
+            out.equipKind     = equipKind;
+            out.selectedId    = selectedId;
+            out.selectorCode  = static_cast<std::uint8_t>(selectorCodeU32 & 0xFF);
+            out.cellIndex     = cellIndex;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+
+    static std::uint16_t MatchSelectionToOutfit(const SelectionSample& s)
+    {
+
+
+        if (s.selectorCode >= outfit::kCustomSelectorStart
+            && s.selectorCode <= outfit::kCustomSelectorEnd)
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            std::uint8_t variantIdx = 0;
+            if (outfit::TryGetOutfitByVariantSelector(
+                    s.selectorCode, &entry, &variantIdx) && entry)
+            {
+
+                outfit::SetActiveVariant(entry->partsType, variantIdx);
+                return entry->developId;
+            }
+        }
+
+
+        const outfit::OutfitEntry* byFlow = nullptr;
+        if (outfit::TryGetOutfitByFlowIndex(s.selectedId, &byFlow) && byFlow)
+        {
+            outfit::SetActiveVariant(byFlow->partsType, 0);
+            return byFlow->developId;
+        }
+
+
+        const outfit::OutfitEntry* byDev = nullptr;
+        if (outfit::TryGetOutfitByDevelopId(s.selectedId, &byDev) && byDev)
+        {
+            outfit::SetActiveVariant(byDev->partsType, 0);
+            return byDev->developId;
+        }
+
+        return 0;
+    }
+
+
+    constexpr std::uint32_t kEquipKindHeadOption = 0x201;
+
+
+    static SelectionSample ProcessSelectionAndPublish(void* self, const char* tag)
+    {
+        SelectionSample s{};
+        const bool haveSample = TryReadSelection(self, s) && s.haveSample;
+
+        if (haveSample)
+        {
+            const bool isSuitClick = (s.equipKind == kEquipKindMissionPrepSuit
+                                   || s.equipKind == kEquipKindSupplyDropSuit);
+            const bool isHeadOption = (s.equipKind == kEquipKindHeadOption);
+            const std::uint16_t devId =
+                isSuitClick ? MatchSelectionToOutfit(s) : 0;
+
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:%s] fire: equipKind=0x%X selectedId=%u "
+                "selector=0x%02X -> matched developId=%u\n",
+                tag,
+                s.equipKind,
+                static_cast<unsigned>(s.selectedId),
+                static_cast<unsigned>(s.selectorCode),
+                static_cast<unsigned>(devId));
+#endif
+
+            if (devId != 0)
+                outfit::SetPendingOutfitDevelopId(devId);
+            else if (isSuitClick)
+                outfit::ClearPendingOutfitDevelopId();
+
+
+            if (isHeadOption && s.selectedId != 0xFFFF)
+            {
+                outfit::SetPendingHeadOptionEquipId(s.selectedId);
+#ifdef _DEBUG
+                Log("[OutfitItemSelector:%s] head-option stash: "
+                    "equipId=0x%X (will be re-injected into faceEquipId "
+                    "during apply if orig drops it)\n",
+                    tag,
+                    static_cast<unsigned>(s.selectedId));
+#endif
+            }
+        }
+        else
+        {
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:%s] fire: selection-state read failed\n", tag);
+#endif
+        }
+        return s;
+    }
+
+    static void FixupSupplyCellSelector(void* self, const SelectionSample& s,
+                                        const char* tag)
+    {
+        if (!self || !s.haveSample) return;
+        if (s.selectorCode != 0xFF) return;
+        if (s.equipKind != 0xFF) return;
+
+        const outfit::OutfitEntry* entry = nullptr;
+        const bool resolves =
+            outfit::TryGetOutfitByFlowIndex(s.selectedId, &entry) && entry;
+
+        constexpr std::uint16_t kCustomFlowFirst = 922;
+        constexpr std::uint16_t kCustomFlowLast  = 1023;
+        std::uint8_t newSelector = 0;
+        const char*  why         = nullptr;
+        if (resolves)
+        {
+            newSelector = entry->selectorCode;
+            why = "single custom outfit";
+        }
+        else if (s.selectedId >= kCustomFlowFirst && s.selectedId <= kCustomFlowLast)
+        {
+            newSelector = 0x4F;
+            why = "UNREGISTERED custom row - degraded to coherent VANILLA crate";
+        }
+        else
+        {
+            return;
+        }
+
+        __try
+        {
+            auto* cell = reinterpret_cast<std::uint32_t*>(
+                reinterpret_cast<std::uint8_t*>(self)
+                + 0xCC40 + s.cellIndex * 12);
+            const std::uint32_t prev = *cell;
+            *cell = (prev & 0xFFFFFF00u)
+                  | static_cast<std::uint32_t>(newSelector);
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:%s] supply-cell selector fixup: "
+                "flowIndex=%u cell=%zu 0x%08X -> 0x%08X (%s: crate payload "
+                "now carries selector 0x%02X so the pickup camo->partsType "
+                "resolver produces a coherent suit)\n",
+                tag,
+                static_cast<unsigned>(s.selectedId),
+                s.cellIndex, prev, *cell,
+                why,
+                static_cast<unsigned>(newSelector));
+#endif
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[OutfitItemSelector:%s] SEH writing supply-cell selector "
+                "(cell=%zu) — skipped\n", tag, s.cellIndex);
+        }
+    }
+
+    static void* __fastcall hkDecideActMissionPrep(
+        void* self, void* out, void* p3, void* p4)
+    {
+        const SelectionSample sPrep = ProcessSelectionAndPublish(self, "prep");
+        FixupSupplyCellSelector(self, sPrep, "prep");
+        outfit::SetHeadEquipDecideActive(true);
+        void* r = g_OrigDecideActMissionPrep(self, out, p3, p4);
+        outfit::SetHeadEquipDecideActive(false);
+        return r;
+    }
+
+    static void* __fastcall hkDecideActCustomize(
+        void* self, void* out, void* p3, void* p4)
+    {
+        const SelectionSample s = ProcessSelectionAndPublish(self, "customize");
+        outfit::SetHeadEquipDecideActive(true);
+        void* r = g_OrigDecideActCustomize(self, out, p3, p4);
+        outfit::SetHeadEquipDecideActive(false);
+
+        (void)s;
+        return r;
+    }
+
+    static void* __fastcall hkDecideActSupplyDrop(
+        void* self, void* out, void* p3, void* p4)
+    {
+        const SelectionSample sSup = ProcessSelectionAndPublish(self, "supply");
+        FixupSupplyCellSelector(self, sSup, "supply");
+
+
+        outfit::SetSupplyDropClickLatch();
+
+
+        SelectionSample s{};
+        if (TryReadSelection(self, s) && s.haveSample)
+        {
+
+
+            const bool isSuitClick = (s.equipKind == kEquipKindMissionPrepSuit
+                                   || s.equipKind == kEquipKindSupplyDropSuit);
+            const bool isCustomSelector =
+                (s.selectorCode >= outfit::kCustomSelectorStart
+                 && s.selectorCode <= outfit::kCustomSelectorEnd);
+
+            if (isSuitClick || isCustomSelector)
+            {
+
+
+                const outfit::OutfitEntry* entry = nullptr;
+                std::uint8_t variantIdx = 0;
+                bool matched = false;
+
+                if (isCustomSelector
+                    && outfit::TryGetOutfitByVariantSelector(
+                        s.selectorCode, &entry, &variantIdx)
+                    && entry)
+                {
+                    matched = true;
+                }
+                else if (outfit::TryGetOutfitByFlowIndex(
+                             s.selectedId, &entry) && entry)
+                {
+                    matched = true;
+                    variantIdx = 0;
+                }
+                else if (outfit::TryGetOutfitByDevelopId(
+                             s.selectedId, &entry) && entry)
+                {
+                    matched = true;
+                    variantIdx = 0;
+                }
+
+                if (matched && entry)
+                {
+                    outfit::SetPendingSupplyDropDevelopId(entry->developId);
+                    outfit::SetPendingSupplyDropVariantIdx(variantIdx);
+
+
+                    outfit::SetPendingOutfitDevelopId(entry->developId);
+
+#ifdef _DEBUG
+                    Log("[OutfitItemSelector:supply] also stashed "
+                        "pendingSupplyDropDevelopId=%u variantIdx=%u "
+                        "(equipKind=0x%X, isSuitClick=%d, "
+                        "isCustomSelector=%d) for crate-pickup "
+                        "force-equip\n",
+                        static_cast<unsigned>(entry->developId),
+                        static_cast<unsigned>(variantIdx),
+                        s.equipKind,
+                        isSuitClick ? 1 : 0,
+                        isCustomSelector ? 1 : 0);
+#endif
+                }
+            }
+        }
+
+        outfit::SetHeadEquipDecideActive(true);
+        void* r = g_OrigDecideActSupplyDrop(self, out, p3, p4);
+        outfit::SetHeadEquipDecideActive(false);
+        return r;
+    }
+
+
+    static void __fastcall hkSetSupplyCBoxInfo(
+        void* self, std::uint16_t flowIndex)
+    {
+        const outfit::OutfitEntry* entry = nullptr;
+        const bool isCustom =
+            outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+
+        if (isCustom)
+        {
+            outfit::SetPendingOutfitDevelopId(entry->developId);
+            outfit::SetPendingSupplyDropDevelopId(entry->developId);
+
+
+            outfit::SetPendingSupplyDropVariantIdx(0);
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:devmenu] R&D request for custom outfit "
+                "flowIndex=%u developId=%u partsType=0x%02X selector=0x%02X "
+                "— stashed both pendingOutfitDevelopId AND "
+                "pendingSupplyDropDevelopId (variantIdx=0) for crate-pickup "
+                "recovery\n",
+                static_cast<unsigned>(flowIndex),
+                static_cast<unsigned>(entry->developId),
+                static_cast<unsigned>(entry->partsType),
+                static_cast<unsigned>(entry->selectorCode));
+#endif
+        }
+
+        if (g_OrigSetSupplyCBoxInfo)
+            g_OrigSetSupplyCBoxInfo(self, flowIndex);
+
+        if (outfit::IsCustomHeadEquipId(flowIndex) && self)
+        {
+            __try
+            {
+                *reinterpret_cast<std::uint32_t*>(
+                    reinterpret_cast<std::uint8_t*>(self) + 0x23A0) = 0xFFFFFFFFu;
+#ifdef _DEBUG
+                Log("[OutfitItemSelector:devmenu] custom HEAD row flowIndex=%u "
+                    "is not orderable — drop request neutralized (heads equip "
+                    "via the HEAD OPTION submenu, not supply crates)\n",
+                    static_cast<unsigned>(flowIndex));
+#endif
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitItemSelector:devmenu] SEH neutralizing head-row "
+                    "drop request (self=%p)\n", self);
+            }
+            return;
+        }
+
+        const bool isUnregisteredCustom =
+            !isCustom && flowIndex >= 922 && flowIndex <= 1023;
+
+        if ((isCustom || isUnregisteredCustom) && self)
+        {
+            __try
+            {
+                auto* base = reinterpret_cast<std::uint8_t*>(self);
+                auto* reqType = reinterpret_cast<std::uint32_t*>(base + 0x23A0);
+                auto* flags   = reinterpret_cast<std::uint32_t*>(base + 0x246C);
+                auto* payload = base + 0x23B0;
+
+                const std::uint32_t prevType  = *reqType;
+                const std::uint32_t prevFlags = *flags;
+                const std::uint8_t  prevCamo  = payload[1];
+
+                *reqType   = 3;
+                *flags     = 0x1u | 0x80u;
+                payload[0] = 0;
+                payload[1] = isCustom ? entry->selectorCode : std::uint8_t(0x4F);
+                payload[2] = 0;
+                payload[3] = 0;
+
+#ifdef _DEBUG
+                Log("[OutfitItemSelector:devmenu] post-orig SupplyCboxDropRequest "
+                    "repair: type 0x%X->3 flags 0x%X->0x81 camo 0x%02X->0x%02X "
+                    "(flowIndex=%u, %s) — coherent suit crate; pickup resolves "
+                    "identity from the camo byte\n",
+                    prevType, prevFlags, prevCamo, payload[1],
+                    static_cast<unsigned>(flowIndex),
+                    isCustom ? "registered custom outfit"
+                             : "UNREGISTERED custom row - vanilla degrade");
+#endif
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitItemSelector:devmenu] SEH writing SupplyCboxDropRequest "
+                    "at self+0x23A0..0x246C (self=%p) — offset assumption may be "
+                    "wrong\n", self);
+            }
+        }
+    }
+}
+
+namespace outfit
+{
+    bool Install_OutfitItemSelector_Hook()
+    {
+        if (g_Installed && g_InstalledSupplyDrop) return true;
+
+        if (!g_Installed)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode);
+            if (!target)
+            {
+                Log("[OutfitItemSelector] prep target unresolved; module disabled\n");
+                return false;
+            }
+
+            g_Installed = CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkDecideActMissionPrep),
+                reinterpret_cast<void**>(&g_OrigDecideActMissionPrep));
+
+            Log("[OutfitItemSelector] prep installed: %s (target=%p)\n",
+                g_Installed ? "OK" : "FAIL", target);
+        }
+
+        if (!g_InstalledSupplyDrop)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode);
+            if (!target)
+            {
+                Log("[OutfitItemSelector] supply-drop target unresolved; "
+                    "supply-drop hook disabled\n");
+            }
+            else
+            {
+                g_InstalledSupplyDrop = CreateAndEnableHook(
+                    target,
+                    reinterpret_cast<void*>(&hkDecideActSupplyDrop),
+                    reinterpret_cast<void**>(&g_OrigDecideActSupplyDrop));
+
+                Log("[OutfitItemSelector] supply installed: %s (target=%p)\n",
+                    g_InstalledSupplyDrop ? "OK" : "FAIL", target);
+            }
+        }
+
+        if (!g_InstalledCustomize)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseCustomize);
+            if (!target)
+            {
+                Log("[OutfitItemSelector] customize target unresolved; "
+                    "Mother-Base customize hook disabled\n");
+            }
+            else
+            {
+                g_InstalledCustomize = CreateAndEnableHook(
+                    target,
+                    reinterpret_cast<void*>(&hkDecideActCustomize),
+                    reinterpret_cast<void**>(&g_OrigDecideActCustomize));
+
+                Log("[OutfitItemSelector] customize installed: %s (target=%p)\n",
+                    g_InstalledCustomize ? "OK" : "FAIL", target);
+            }
+        }
+
+        if (!g_InstalledSetSupplyCBox)
+        {
+            void* target = ResolveGameAddress(
+                gAddr.EquipDevelopCallbackImpl_SetSupplyCBoxInfo);
+            if (!target)
+            {
+                Log("[OutfitItemSelector] R&D dev-menu SetSupplyCBoxInfo "
+                    "target unresolved; R&D-menu request hook disabled\n");
+            }
+            else
+            {
+                g_InstalledSetSupplyCBox = CreateAndEnableHook(
+                    target,
+                    reinterpret_cast<void*>(&hkSetSupplyCBoxInfo),
+                    reinterpret_cast<void**>(&g_OrigSetSupplyCBoxInfo));
+
+                Log("[OutfitItemSelector] devmenu SetSupplyCBoxInfo installed: "
+                    "%s (target=%p)\n",
+                    g_InstalledSetSupplyCBox ? "OK" : "FAIL", target);
+            }
+        }
+
+        return g_Installed;
+    }
+
+    void Uninstall_OutfitItemSelector_Hook()
+    {
+        if (g_Installed)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode))
+                DisableAndRemoveHook(t);
+            g_OrigDecideActMissionPrep = nullptr;
+            g_Installed                = false;
+        }
+        if (g_InstalledSupplyDrop)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode))
+                DisableAndRemoveHook(t);
+            g_OrigDecideActSupplyDrop = nullptr;
+            g_InstalledSupplyDrop     = false;
+        }
+        if (g_InstalledCustomize)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseCustomize))
+                DisableAndRemoveHook(t);
+            g_OrigDecideActCustomize = nullptr;
+            g_InstalledCustomize     = false;
+        }
+        if (g_InstalledSetSupplyCBox)
+        {
+            if (void* t = ResolveGameAddress(
+                    gAddr.EquipDevelopCallbackImpl_SetSupplyCBoxInfo))
+                DisableAndRemoveHook(t);
+            g_OrigSetSupplyCBoxInfo  = nullptr;
+            g_InstalledSetSupplyCBox = false;
+        }
+#ifdef _DEBUG
+        Log("[OutfitItemSelector] removed\n");
+#endif
+    }
+}

@@ -519,7 +519,9 @@ bool Install_LostHostage_Hooks()
     void* addrNotice = ResolveGameAddress(gAddr.AddNoticeInfo);
     void* addrRadio = ResolveGameAddress(gAddr.StateRadioRequest);
 
+#ifdef _DEBUG
     Log("======== LOSTHOSTAGE BUILD MARKER ========\n");
+#endif
 
     if (!addrConvert || !addrNotice || !addrRadio)
     {
@@ -535,10 +537,20 @@ bool Install_LostHostage_Hooks()
     const bool okNotice = CreateAndEnableHook(addrNotice, reinterpret_cast<void*>(&hkAddNoticeInfo), reinterpret_cast<void**>(&g_OrigAddNoticeInfo));
     const bool okRadio = CreateAndEnableHook(addrRadio, reinterpret_cast<void*>(&hkStateRadioRequest), reinterpret_cast<void**>(&g_OrigRadioRequest));
 
+#ifdef _DEBUG
     Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
     Log("[LostHostage] Hook AddNoticeInfo:  %s\n", okNotice ? "OK" : "FAIL");
     Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
         okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
+#else
+    if (!okConvert)
+        Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
+    if (!okNotice)
+        Log("[LostHostage] Hook AddNoticeInfo:  %s\n", okNotice ? "OK" : "FAIL");
+    if (!okRadio)
+        Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
+            okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
+#endif
 
     return okConvert && okNotice && okRadio;
 }
@@ -559,6 +571,8 @@ bool Uninstall_LostHostage_Hooks()
     g_PendingBySoldier.clear();
     g_SelectedReport = {};
 
+#ifdef _DEBUG
     Log("[LostHostage] Uninstall_LostHostage_Hooks\n");
+#endif
     return true;
 }

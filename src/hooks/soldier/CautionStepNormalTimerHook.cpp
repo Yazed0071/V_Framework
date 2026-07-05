@@ -265,6 +265,7 @@ namespace
 
             if (g_LogEveryAppliedDrain)
             {
+#ifdef _DEBUG
                 LogCautionPhaseTimer(
                     "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f localTimer=%.3f override=OFF delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f\n",
                     phaseIndex,
@@ -279,6 +280,7 @@ namespace
                     predictedVanillaDrain,
                     vanillaDrain
                 );
+#endif
             }
 
             return;
@@ -304,6 +306,7 @@ namespace
 
             if (g_LogEveryAppliedDrain)
             {
+#ifdef _DEBUG
                 LogCautionPhaseTimer(
                     "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f localTimer=%.3f seconds=%.3f normalized=%.6f delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f -> keeping vanilla\n",
                     phaseIndex,
@@ -320,6 +323,7 @@ namespace
                     predictedVanillaDrain,
                     vanillaDrain
                 );
+#endif
             }
 
             return;
@@ -356,6 +360,7 @@ namespace
 
         if (g_LogEveryAppliedDrain)
         {
+#ifdef _DEBUG
             LogCautionPhaseTimer(
                 "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f -> custom %.3f localTimer=%.3f seconds=%.3f normalized=%.6f delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f customDrain=%.6f remaining=%.3f\n",
                 phaseIndex,
@@ -375,6 +380,7 @@ namespace
                 customDrain,
                 g_LastObservedRemainingSeconds
             );
+#endif
         }
     }
 
@@ -448,6 +454,7 @@ bool Install_CautionStepNormalTimerHook()
         reinterpret_cast<void**>(&g_OrigDecrementPhaseCounter)
     );
 
+#ifdef _DEBUG
     LogCautionPhaseTimer(
         "[Hook] CautionPhaseTimer: %s (target=%p, seconds=%.3f, normalized=%.6f, override=%s)\n",
         ok ? "OK" : "FAIL",
@@ -456,6 +463,7 @@ bool Install_CautionStepNormalTimerHook()
         g_NormalizedDrainRate,
         g_EnableOverride ? "ON" : "OFF"
     );
+#endif
 
     g_HashSetCautionPhaseDuration = FoxHashes::StrCode32("SetCautionPhaseDuration");
     if (Addr_TppCp2LuaCommands() != 0)
@@ -465,7 +473,9 @@ bool Install_CautionStepNormalTimerHook()
             cp2,
             reinterpret_cast<void*>(&hkTppCp2LuaCommands),
             reinterpret_cast<void**>(&g_OrigTppCp2LuaCommands));
+#ifdef _DEBUG
         LogCautionPhaseTimer("[Hook] TppCp2LuaCommands (per-cp caution): %s @ %p\n", ok2 ? "OK" : "FAIL", cp2);
+#endif
     }
 
     return ok;
@@ -482,7 +492,9 @@ bool Uninstall_CautionStepNormalTimerHook()
         g_OrigTppCp2LuaCommands = nullptr;
     }
 
+#ifdef _DEBUG
     LogCautionPhaseTimer("[Hook] CautionPhaseTimer: removed\n");
+#endif
     return true;
 }
 
@@ -493,11 +505,13 @@ void Set_CautionStepNormalDurationSeconds(float seconds)
     SyncCautionStepNormalDrainFromDuration();
     g_EnableOverride = true;
 
+#ifdef _DEBUG
     LogCautionPhaseTimer(
         "[CautionPhaseTimer] duration set to %.3f seconds -> normalized drain %.6f (override enabled)\n",
         g_DurationSeconds,
         g_NormalizedDrainRate
     );
+#endif
 }
 
 
@@ -511,9 +525,11 @@ void Unset_CautionStepNormalDurationSeconds()
 {
     g_EnableOverride = false;
 
+#ifdef _DEBUG
     LogCautionPhaseTimer(
         "[CautionPhaseTimer] custom duration override disabled -> vanilla behavior restored\n"
     );
+#endif
 }
 
 
@@ -527,10 +543,12 @@ void Set_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex, float seco
     g_CpNormalizedDrain[cpIndex] = 1.0f / seconds;
     g_CpEnable[cpIndex] = true;
 
+#ifdef _DEBUG
     LogCautionPhaseTimer(
         "[CautionPhaseTimer] cp=%u duration set to %.3f seconds -> normalized drain %.6f (override enabled)\n",
         cpIndex, seconds, g_CpNormalizedDrain[cpIndex]
     );
+#endif
 }
 
 

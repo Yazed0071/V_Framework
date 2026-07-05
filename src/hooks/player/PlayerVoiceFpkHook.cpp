@@ -113,7 +113,12 @@ bool Install_PlayerVoiceFpk_Hook()
         reinterpret_cast<void**>(&g_OrigLoadPlayerVoiceFpk)
     );
 
+#ifdef _DEBUG
     Log("[Hook] PlayerVoiceFpk: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] PlayerVoiceFpk: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
@@ -130,7 +135,9 @@ bool Uninstall_PlayerVoiceFpk_Hook()
         g_FallbackOverride = {};
     }
 
+#ifdef _DEBUG
     Log("[Hook] PlayerVoiceFpk: removed\n");
+#endif
     return true;
 }
 
@@ -156,12 +163,14 @@ void Set_PlayerVoiceFpkPathForType(std::uint32_t playerType, const char* rawPath
         g_FallbackOverride.pathCode64Ext = pathCode64Ext;
     }
 
+#ifdef _DEBUG
     Log(
         "[PlayerVoiceFpk] Type override set: playerType=%u path=%s -> 0x%016llX\n",
         playerType,
         rawPath,
         static_cast<unsigned long long>(pathCode64Ext)
     );
+#endif
 }
 
 
@@ -178,7 +187,9 @@ void Clear_PlayerVoiceFpkPathForType(std::uint32_t playerType)
         g_FallbackOverride = {};
     }
 
+#ifdef _DEBUG
     Log("[PlayerVoiceFpk] Type override cleared: playerType=%u\n", playerType);
+#endif
 }
 
 
@@ -189,5 +200,7 @@ void Clear_AllPlayerVoiceFpkOverrides()
     g_TypeOverrides.clear();
     g_FallbackOverride = {};
 
+#ifdef _DEBUG
     Log("[PlayerVoiceFpk] All overrides cleared\n");
+#endif
 }

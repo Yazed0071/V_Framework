@@ -214,8 +214,10 @@ bool Install_VIPSoundRecovery_Hook()
         reinterpret_cast<void*>(&hkState_SoundRecovery),
         reinterpret_cast<void**>(&g_OrigState_SoundRecovery));
 
+#ifdef _DEBUG
     Log("[SoundRecovery] Install State_StandEnterRecoverySleepFaintHoldupComradeBySound: %s\n",
         ok ? "OK" : "FAIL");
+#endif
 
     return ok;
 }
@@ -228,6 +230,8 @@ bool Uninstall_VIPSoundRecovery_Hook()
 
     g_OrigState_SoundRecovery = nullptr;
 
+#ifdef _DEBUG
     Log("[SoundRecovery] Hook removed\n");
+#endif
     return true;
 }

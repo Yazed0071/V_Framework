@@ -82,7 +82,9 @@ bool Install_EquipIconFtexPath_Hook()
     }
 
     g_EquipIconFtexPathHookInstalled = true;
+#ifdef _DEBUG
     Log("[EquipIcon] hook installed\n");
+#endif
     return true;
 }
 
@@ -99,6 +101,8 @@ bool Uninstall_EquipIconFtexPath_Hook()
     g_OrigGetIconFtexPath = nullptr;
     g_EquipIconFtexPathHookInstalled = false;
 
+#ifdef _DEBUG
     Log("[EquipIcon] hook removed\n");
+#endif
     return true;
 }

@@ -362,7 +362,12 @@ bool Install_CallSignExtra_Hook()
         reinterpret_cast<void*>(&hkGetVoiceParamWithCallSign),
         reinterpret_cast<void**>(&g_OrigGetVoiceParamWithCallSign));
 
+#ifdef _DEBUG
     Log("[Hook] CallSignExtra: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] CallSignExtra: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
@@ -377,6 +382,8 @@ bool Uninstall_CallSignExtra_Hook()
         g_ExtraSoldierIndices.clear();
     }
 
+#ifdef _DEBUG
     Log("[Hook] CallSignExtra: removed\n");
+#endif
     return true;
 }

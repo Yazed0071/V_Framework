@@ -203,7 +203,12 @@ bool Install_State_EnterDownHoldupForceVoice_Hook()
         reinterpret_cast<void*>(&hkState_EnterDownHoldup),
         reinterpret_cast<void**>(&g_OrigState_EnterDownHoldup));
 
+#ifdef _DEBUG
     Log("[HoldupDownForce] Install: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[HoldupDownForce] Install: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
@@ -213,6 +218,8 @@ bool Uninstall_State_EnterDownHoldupForceVoice_Hook()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterDownHoldup));
     g_OrigState_EnterDownHoldup = nullptr;
 
+#ifdef _DEBUG
     Log("[HoldupDownForce] Removed\n");
+#endif
     return true;
 }
