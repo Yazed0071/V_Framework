@@ -220,8 +220,10 @@ bool Install_OccasionalChatList_Hook()
     }
 
     g_Installed = true;
+#ifdef _DEBUG
     Log("[OccasionalChatList] installed (get=%p convert=%p)\n",
         getTarget, reinterpret_cast<void*>(g_OrigConvert));
+#endif
     return true;
 }
 

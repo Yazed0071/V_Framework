@@ -15,6 +15,7 @@ extern "C" {
 #include "FoxFunctions.h"
 #include <TppPickableRuntime.h>
 #include "LuaApi.h"
+#include "FoxPath.h"
 
 namespace
 {
@@ -48,6 +49,12 @@ namespace
         }
 
         PushLuaNumber(L, static_cast<float>(countRaw));
+        return 1;
+    }
+    static int __cdecl l_PathExists(lua_State* L)
+    {
+        const char* path = GetLuaString(L, 1);
+        PushLuaBool(L, fox::PathExists(path));
         return 1;
     }
 
@@ -110,6 +117,7 @@ namespace
         { "FNVHash32",                  l_FNVHash32 },
         { "SetPickableCountRawByIndex", l_SetPickableCountRawByIndex },
         { "GetPickableCountRawByIndex", l_GetPickableCountRawByIndex },
+        { "PathExists",                 l_PathExists },
         { "ShowConsole",                l_ShowConsole },
 
         { nullptr,          nullptr }

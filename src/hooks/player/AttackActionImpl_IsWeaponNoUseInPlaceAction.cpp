@@ -94,8 +94,10 @@ bool Install_IsWeaponNoUseInPlaceActionPatch()
     if (!WriteBytes(target, site->write, site->writeLen))
         return false;
 
+#ifdef _DEBUG
     Log("[IsWeaponNoUseInPlace] patched %p (%zu bytes) -> IsWeaponNoUseInPlaceAction always returns false\n",
         target, site->writeLen);
+#endif
 
     g_Applied = true;
     return true;

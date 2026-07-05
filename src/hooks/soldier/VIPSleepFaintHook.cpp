@@ -622,9 +622,18 @@ bool Install_VIPSleepFaint_Hook()
         reinterpret_cast<void*>(&hkState_RecoveryKick),
         reinterpret_cast<void**>(&g_OrigState_RecoveryKick));
 
+#ifdef _DEBUG
     Log("[SleepFaint] Install State_ComradeAction: %s\n", okComrade ? "OK" : "FAIL");
     Log("[SleepFaint] Install State_RecoveryTouch: %s\n", okTouch ? "OK" : "FAIL");
     Log("[SleepFaint] Install State_RecoveryKick:  %s\n", okKick ? "OK" : "FAIL");
+#else
+    if (!okComrade)
+        Log("[SleepFaint] Install State_ComradeAction: %s\n", okComrade ? "OK" : "FAIL");
+    if (!okTouch)
+        Log("[SleepFaint] Install State_RecoveryTouch: %s\n", okTouch ? "OK" : "FAIL");
+    if (!okKick)
+        Log("[SleepFaint] Install State_RecoveryKick:  %s\n", okKick ? "OK" : "FAIL");
+#endif
 
     return okComrade && okTouch && okKick;
 }
@@ -646,6 +655,8 @@ bool Uninstall_VIPSleepFaint_Hook()
         g_PendingWakeByActor.clear();
     }
 
+#ifdef _DEBUG
     Log("[SleepFaint] Hooks removed and state cleared\n");
+#endif
     return true;
 }

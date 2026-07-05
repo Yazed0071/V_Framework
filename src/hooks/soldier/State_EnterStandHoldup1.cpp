@@ -312,7 +312,12 @@ bool Install_HoldUpReactionCowardlyReactions_Hook()
 
     const bool ok = okA && okB;
 
+#ifdef _DEBUG
     Log("[HoldUpReactionCowardly] Install: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[HoldUpReactionCowardly] Install: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
@@ -331,6 +336,8 @@ bool Uninstall_HoldUpReactionCowardlyReactions_Hook()
         g_CowardlyChoiceByActor.clear();
     }
 
+#ifdef _DEBUG
     Log("[HoldUpReactionCowardly] removed\n");
+#endif
     return true;
 }

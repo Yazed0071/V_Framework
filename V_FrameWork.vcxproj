@@ -116,6 +116,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice;$(SolutionDir)\src\hooks\outfit;$(SolutionDir)\src\hooks\equip</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox;$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -137,6 +138,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice;$(SolutionDir)\src\hooks\outfit;$(SolutionDir)\src\hooks\equip</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox;$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -146,6 +148,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateMapFile>true</GenerateMapFile>
       <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
@@ -160,6 +163,8 @@
     <ClInclude Include="src\core\BuiltInModules.h" />
     <ClInclude Include="src\core\MissionCodeGuard.h" />
     <ClInclude Include="src\core\FoxHashes.h" />
+    <ClInclude Include="src\core\FoxPath.h" />
+    <ClInclude Include="src\core\FoxPathInternal.h" />
     <ClInclude Include="src\core\LuaBroadcaster.h" />
     <ClInclude Include="src\core\log.h" />
     <!-- Lua bridge -->
@@ -226,6 +231,52 @@
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
+    <!-- Hooks: Outfit + Equip (custom-outfit prep-summary feed) -->
+    <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\CustomHeadRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\ShadowState.h" />
+    <ClInclude Include="src\hooks\outfit\EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h" />
+    <ClInclude Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.h" />
+    <ClInclude Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h" />
+    <ClInclude Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.h" />
+    <ClInclude Include="src\hooks\outfit\ItemSelectorCallbackImpl_AddListSuit.h" />
+    <ClInclude Include="src\hooks\outfit\MissionPreparationSystemImpl_IsEnableHeadOptionSuit.h" />
+    <ClInclude Include="src\hooks\outfit\CamouflageControllerImpl_ExecSuitCorrect.h" />
+    <ClInclude Include="src\hooks\outfit\CamoufParamInfoImpl_GetCamoufValue.h" />
+    <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
+    <ClInclude Include="src\hooks\equip\TppEquipConstRegistry.h" />
+    <ClInclude Include="src\hooks\equip\TppEquip_RegisterConstant.h" />
+    <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
+    <ClInclude Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.h" />
+    <ClInclude Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.h" />
+    <ClInclude Include="src\lua\V_TppEquipLib.h" />
+    <ClInclude Include="src\lua\equip\RegisterConstantEquipId.h" />
+    <ClInclude Include="src\lua\equip\DeclareEQPTypes.h" />
+    <ClInclude Include="src\lua\equip\DeclareSWPTypes.h" />
+    <ClInclude Include="src\lua\equip\DeclareEQPBlocks.h" />
+    <ClInclude Include="src\lua\equip\DeclareSWPs.h" />
+    <ClInclude Include="src\lua\equip\DeclareBLs.h" />
+    <ClInclude Include="src\lua\equip\DeclareBLAs.h" />
+    <ClInclude Include="src\lua\equip\DeclareCasings.h" />
+    <ClInclude Include="src\lua\equip\DeclareMZs.h" />
+    <ClInclude Include="src\lua\equip\DeclareLTLS.h" />
+    <ClInclude Include="src\lua\equip\DeclareWPs.h" />
+    <ClInclude Include="src\lua\equip\DeclareMOs.h" />
+    <ClInclude Include="src\lua\equip\DeclareUBs.h" />
+    <ClInclude Include="src\lua\equip\DeclareAMs.h" />
+    <ClInclude Include="src\lua\equip\DeclareSTs.h" />
+    <ClInclude Include="src\lua\equip\DeclareRCs.h" />
+    <ClInclude Include="src\lua\equip\DeclareBAs.h" />
+    <ClInclude Include="src\lua\equip\DeclareSKs.h" />
+    <ClInclude Include="src\lua\equip\DeclareReticleUIs.h" />
+    <ClInclude Include="src\lua\equip\DeclareScopeUIs.h" />
+    <ClInclude Include="src\lua\equip\DeclareBarrelLengths.h" />
+    <ClInclude Include="src\lua\equip\DeclareRicochetSizes.h" />
+    <ClInclude Include="src\lua\equip\DeclareBulletTypes.h" />
+    <ClInclude Include="src\lua\equip\DeclarePenetrateLevels.h" />
+    <ClInclude Include="src\lua\equip\DeclareTriggers.h" />
+    <ClInclude Include="src\lua\equip\DeclareWeaponPaints.h" />
+    <ClInclude Include="src\lua\OutfitLuaBindings.h" />
     <!-- Hooks: Heli -->
     <ClInclude Include="src\hooks\heli\FieldTaxiMenu.h" />
     <ClInclude Include="src\hooks\heli\HeliSoundController.h" />
@@ -273,6 +324,52 @@
     <ClCompile Include="src\core\AddressSet_day1820.cpp" />
     <ClCompile Include="src\core\BuiltInModules.cpp" />
     <ClCompile Include="src\core\FeatureModule.cpp" />
+    <ClCompile Include="src\core\FoxPath.cpp" />
+    <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\CustomHeadRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\ShadowState.cpp" />
+    <ClCompile Include="src\hooks\outfit\EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.cpp" />
+    <ClCompile Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.cpp" />
+    <ClCompile Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.cpp" />
+    <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.cpp" />
+    <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_AddListSuit.cpp" />
+    <ClCompile Include="src\hooks\outfit\MissionPreparationSystemImpl_IsEnableHeadOptionSuit.cpp" />
+    <ClCompile Include="src\hooks\outfit\CamouflageControllerImpl_ExecSuitCorrect.cpp" />
+    <ClCompile Include="src\hooks\outfit\CamoufParamInfoImpl_GetCamoufValue.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
+    <ClCompile Include="src\hooks\equip\TppEquipConstRegistry.cpp" />
+    <ClCompile Include="src\hooks\equip\TppEquip_RegisterConstant.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
+    <ClCompile Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.cpp" />
+    <ClCompile Include="src\lua\V_TppEquipLib.cpp" />
+    <ClCompile Include="src\lua\equip\RegisterConstantEquipId.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareEQPTypes.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareSWPTypes.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareEQPBlocks.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareSWPs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareBLs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareBLAs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareCasings.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareMZs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareLTLS.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareWPs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareMOs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareUBs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareAMs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareSTs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareRCs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareBAs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareSKs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareReticleUIs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareScopeUIs.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareBarrelLengths.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareRicochetSizes.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareBulletTypes.cpp" />
+    <ClCompile Include="src\lua\equip\DeclarePenetrateLevels.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareTriggers.cpp" />
+    <ClCompile Include="src\lua\equip\DeclareWeaponPaints.cpp" />
+    <ClCompile Include="src\lua\OutfitLuaBindings.cpp" />
     <ClCompile Include="src\core\MissionCodeGuard.cpp" />
     <ClCompile Include="src\core\FoxHashes.cpp" />
     <ClCompile Include="src\core\LuaBroadcaster.cpp" />

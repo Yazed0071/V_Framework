@@ -1,0 +1,225 @@
+#include "pch.h"
+#include "TppEquip_ReloadEquipIdTable.h"
+
+#include <Windows.h>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "AddressSet.h"
+#include "HookUtils.h"
+#include "log.h"
+#include "FoxHashes.h"
+#include "LuaApi.h"
+#include "EquipIdCompression.h"
+
+namespace
+{
+    static constexpr size_t kRowStride = 0x18;
+
+    struct EquipIdRow
+    {
+        std::int32_t equipId = 0;
+        std::int32_t equipType = 0;
+        std::int32_t subId = 0;
+        std::int32_t block = 0;
+        std::uint64_t partsHash = 0;
+        std::uint64_t packHash = 0;
+    };
+
+    using ReloadEquipIdTable_t = int(__fastcall*)(lua_State* L);
+    static ReloadEquipIdTable_t g_OrigReloadEquipIdTable = nullptr;
+
+    static std::mutex g_Mutex;
+    static std::vector<EquipIdRow> g_Rows;
+
+    static void WriteNativeRow(const EquipIdRow& row)
+    {
+        const std::int32_t index = EquipIdCompression::ComputeCompressed(row.equipId);
+        if (!EquipIdCompression::IsCompressedInBounds(index))
+        {
+            Log("[EquipIdTable] REFUSED write: equipId=%d compresses to 0x%X, "
+                "out of the 0x%X-slot native table — would corrupt adjacent "
+                "memory. Row dropped.\n",
+                row.equipId, index, EquipIdCompression::kCompressedSlotBound);
+            return;
+        }
+
+        auto* infoList = static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_InfoList));
+        auto* typeWords = static_cast<std::uint16_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+        if (!infoList || !typeWords)
+        {
+            Log("[EquipIdTable] native table address(es) not resolved; write skipped\n");
+            return;
+        }
+
+        std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
+        *reinterpret_cast<std::uint64_t*>(dst + 0x00) = row.partsHash;
+        *reinterpret_cast<std::uint64_t*>(dst + 0x08) = row.packHash;
+        dst[0x10] = static_cast<std::uint8_t>(row.block);
+
+        typeWords[index] = static_cast<std::uint16_t>(
+            (row.equipType & 0x3F) | ((row.subId & 0x3FF) << 6));
+
+        EquipIdCompression::MarkCompressedSlotUsed(index);
+    }
+
+    static bool ReadRowNumber(lua_State* L, int n, double& out)
+    {
+        out = 0.0;
+        g_lua_rawgeti(L, -1, n);
+        const bool ok = g_lua_isnumber(L, -1) != 0;
+        if (ok)
+            out = static_cast<double>(g_lua_tonumber(L, -1));
+        g_lua_settop(L, -2);
+        return ok;
+    }
+
+    static bool ReadRowPathHash(lua_State* L, int n, std::uint64_t& out)
+    {
+        out = 0;
+        g_lua_rawgeti(L, -1, n);
+        const bool ok = g_lua_type(L, -1) == LUA_TSTRING;
+        if (ok)
+        {
+            const char* path = g_lua_tolstring(L, -1, nullptr);
+            if (path && path[0])
+                out = FoxHashes::PathCode64Ext(path);
+        }
+        g_lua_settop(L, -2);
+        return ok;
+    }
+
+    static void QueueAndWrite(const EquipIdRow& row)
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            bool replaced = false;
+            for (auto& existing : g_Rows)
+            {
+                if (existing.equipId == row.equipId)
+                {
+                    existing = row;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced)
+                g_Rows.push_back(row);
+        }
+
+        WriteNativeRow(row);
+#ifdef _DEBUG
+        Log("[EquipIdTable] custom row: equipId=%d type=%d subId=%d block=%d "
+            "parts=%016llX pack=%016llX\n",
+            row.equipId, row.equipType, row.subId, row.block,
+            static_cast<unsigned long long>(row.partsHash),
+            static_cast<unsigned long long>(row.packHash));
+#endif
+    }
+
+    static void ReapplyAll()
+    {
+        std::vector<EquipIdRow> snapshot;
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            snapshot = g_Rows;
+        }
+        for (const auto& row : snapshot)
+            WriteNativeRow(row);
+#ifdef _DEBUG
+        if (!snapshot.empty())
+            Log("[EquipIdTable] re-applied %zu custom row(s) after reload\n",
+                snapshot.size());
+#endif
+    }
+
+    static int __fastcall hkReloadEquipIdTable(lua_State* L)
+    {
+        const int ret = g_OrigReloadEquipIdTable ? g_OrigReloadEquipIdTable(L) : 0;
+        ReapplyAll();
+        return ret;
+    }
+}
+
+int __cdecl l_AddToEquipIdTable(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_objlen || !g_lua_rawgeti)
+        return 0;
+    if (g_lua_type(L, 1) != LUA_TTABLE)
+    {
+        Log("[EquipIdTable] AddToEquipIdTable: argument #1 must be a table\n");
+        return 0;
+    }
+
+    const int rowCount = static_cast<int>(g_lua_objlen(L, 1));
+    for (int i = 1; i <= rowCount; ++i)
+    {
+        g_lua_rawgeti(L, 1, i);
+        if (g_lua_type(L, -1) == LUA_TTABLE)
+        {
+            double idN, typeN, subN, blockN;
+            EquipIdRow row;
+            if (ReadRowNumber(L, 1, idN) &&
+                ReadRowNumber(L, 2, typeN) &&
+                ReadRowNumber(L, 3, subN) &&
+                ReadRowNumber(L, 4, blockN) &&
+                ReadRowPathHash(L, 5, row.partsHash) &&
+                ReadRowPathHash(L, 6, row.packHash))
+            {
+                row.equipId   = static_cast<std::int32_t>(idN);
+                row.equipType = static_cast<std::int32_t>(typeN);
+                row.subId     = static_cast<std::int32_t>(subN);
+                row.block     = static_cast<std::int32_t>(blockN);
+                if (row.equipId > 0)
+                    QueueAndWrite(row);
+            }
+            else
+            {
+                Log("[EquipIdTable] AddToEquipIdTable: ignored malformed row %d\n", i);
+            }
+        }
+        g_lua_settop(L, -2);
+    }
+
+    return 0;
+}
+
+bool Install_TppEquip_ReloadEquipIdTable_Hook()
+{
+    void* target = ResolveGameAddress(gAddr.EquipIdTable_ReloadEquipIdTable);
+    if (!target)
+    {
+        Log("[EquipIdTable] ReloadEquipIdTable address not set for this build - skipped\n");
+        return true;
+    }
+
+    const bool ok = CreateAndEnableHook(
+        target, &hkReloadEquipIdTable,
+        reinterpret_cast<void**>(&g_OrigReloadEquipIdTable));
+    if (!ok)
+    {
+        Log("[EquipIdTable] Reload hook Install -> FAIL (target=%p)\n", target);
+    }
+#ifdef _DEBUG
+    else
+    {
+        Log("[EquipIdTable] Reload hook Install -> OK (target=%p)\n", target);
+    }
+#endif
+    return ok;
+}
+
+bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
+{
+    if (gAddr.EquipIdTable_ReloadEquipIdTable)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipIdTable_ReloadEquipIdTable));
+    g_OrigReloadEquipIdTable = nullptr;
+
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    g_Rows.clear();
+    return true;
+}

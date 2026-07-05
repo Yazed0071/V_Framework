@@ -241,8 +241,10 @@ bool Install_BasicActionImpl_StateCrawlSideRoll_Hook()
         reinterpret_cast<void*>(&hkStateCrawlSideRoll),
         reinterpret_cast<void**>(&g_OrigStateCrawlSideRoll));
 
+#ifdef _DEBUG
     Log("[Hook] BasicActionImpl::StateCrawlSideRoll: %s\n",
         ok ? "OK" : "FAIL");
+#endif
 
     return ok;
 }

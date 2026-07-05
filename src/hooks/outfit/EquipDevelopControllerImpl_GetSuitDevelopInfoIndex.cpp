@@ -1,0 +1,598 @@
+#include "pch.h"
+
+#include "EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
+#include "OutfitRegistry.h"
+#include "CustomHeadRegistry.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <mutex>
+#include <unordered_set>
+#include <vector>
+
+#include "AddressSet.h"
+#include "HookUtils.h"
+#include "log.h"
+#include "../equip/EquipDevelop_SetEquipUndeveloped.h"
+
+namespace
+{
+    using IsEquipDeveloped_t =
+        std::uint8_t (__fastcall*)(void* self, std::uint32_t flowIndex);
+
+    using EdcGetSuitIndex_t =
+        std::uint32_t (__fastcall*)(void* self, std::uint32_t outfitByte,
+                                    std::uint32_t camoByte);
+    using EdcGetFaceIndex_t =
+        std::uint32_t (__fastcall*)(void* self, std::uint32_t faceVal);
+
+    using IsEquipVisile_t =
+        std::uint8_t (__fastcall*)(void* self, std::uint16_t idx);
+
+    using EdcGetSuitCamoType_t =
+        std::uint32_t (__fastcall*)(void* self, std::uint32_t devIndex);
+    using EdcGetSuitLevel_t =
+        std::uint8_t  (__fastcall*)(void* self, std::uint32_t devIndex);
+
+    using EdcIsEquipSuit_t =
+        std::uint8_t (__fastcall*)(void* self, std::uint32_t playerType,
+                                   std::uint32_t devIndex);
+
+    static IsEquipDeveloped_t g_OrigIsEquipDeveloped   = nullptr;
+    static EdcGetSuitIndex_t  g_OrigEdcGetSuitIndex     = nullptr;
+    static EdcGetFaceIndex_t  g_OrigEdcGetFaceIndex     = nullptr;
+    static IsEquipVisile_t    g_OrigIsEquipVisile       = nullptr;
+    static EdcGetSuitCamoType_t g_OrigEdcGetSuitCamoType = nullptr;
+    static EdcGetSuitLevel_t    g_OrigEdcGetSuitLevel    = nullptr;
+    static EdcIsEquipSuit_t     g_OrigEdcIsEquipSuit     = nullptr;
+
+    static bool g_InstalledIsDeveloped     = false;
+    static bool g_InstalledEdcGetSuitIndex = false;
+    static bool g_InstalledEdcGetFaceIndex = false;
+    static bool g_InstalledIsEquipVisile   = false;
+    static bool g_InstalledGetSuitCamoType = false;
+    static bool g_InstalledGetSuitLevel    = false;
+    static bool g_InstalledIsEquipSuit     = false;
+
+    constexpr std::size_t kDevelopHiddenCap = 0x800;
+    static std::uint8_t g_DevelopHiddenBits[kDevelopHiddenCap] = {};
+
+    static void* g_CachedEDC = nullptr;
+
+    constexpr std::uint32_t kDevelopIndexSentinel = 0x400;
+    constexpr std::uint32_t kEdcRowCapacity       = 0x400;
+
+    constexpr std::size_t kDevelopedBitsOffset = 0x1e008;
+
+    std::mutex                  g_PendingDevelopedMutex;
+    std::vector<std::uint16_t>  g_PendingDeveloped;
+
+    std::unordered_set<std::uint16_t>  g_SuppressedDeveloped;
+
+    static bool IsEnBuild()
+    {
+        return gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex != 0
+            || gAddr.EquipDevCtrl_GetFaceEquipDevelopInfoIndex != 0;
+    }
+
+    static void MarkDevelopedNow(void* edc, std::uint16_t flowIndex)
+    {
+        if (!edc || flowIndex >= kEdcRowCapacity)
+            return;
+        if (!IsEnBuild())
+            return;
+
+        __try
+        {
+            std::uint8_t** bitsPtr = reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(edc) + kDevelopedBitsOffset);
+            std::uint8_t* bits = *bitsPtr;
+            if (!bits)
+                return;
+            bits[flowIndex] |= 1u;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void ClearDevelopedNow(void* edc, std::uint16_t flowIndex)
+    {
+        if (!edc || flowIndex >= kEdcRowCapacity)
+            return;
+        if (!IsEnBuild())
+            return;
+
+        __try
+        {
+            std::uint8_t** bitsPtr = reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(edc) + kDevelopedBitsOffset);
+            std::uint8_t* bits = *bitsPtr;
+            if (!bits)
+                return;
+            bits[flowIndex] &= ~static_cast<std::uint8_t>(1u);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void DrainPendingDeveloped(void* edc)
+    {
+        if (!edc)
+            return;
+
+        std::vector<std::uint16_t> drain;
+        std::vector<std::uint16_t> suppressed;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingDevelopedMutex);
+            drain.swap(g_PendingDeveloped);
+            suppressed.assign(g_SuppressedDeveloped.begin(),
+                              g_SuppressedDeveloped.end());
+        }
+
+        for (std::uint16_t idx : drain)
+            MarkDevelopedNow(edc, idx);
+
+        for (std::uint16_t idx : suppressed)
+            ClearDevelopedNow(edc, idx);
+
+        EquipDevelop_DrainPendingUndevelops();
+    }
+
+    static std::uint8_t __fastcall hkIsEquipDeveloped(void* self, std::uint32_t flowIndex)
+    {
+        if (!g_CachedEDC && self)
+        {
+            g_CachedEDC = self;
+            DrainPendingDeveloped(self);
+        }
+
+        if (flowIndex >= kEdcRowCapacity)
+            return 0;
+
+        return g_OrigIsEquipDeveloped(self, flowIndex);
+    }
+
+    static std::uint32_t __fastcall hkEdcGetSuitIndex(
+        void* self, std::uint32_t camoType, std::uint32_t level)
+    {
+        if (!g_CachedEDC && self)
+        {
+            g_CachedEDC = self;
+            DrainPendingDeveloped(self);
+        }
+
+        const std::uint32_t ret = g_OrigEdcGetSuitIndex
+            ? g_OrigEdcGetSuitIndex(self, camoType, level)
+            : kDevelopIndexSentinel;
+
+        std::uint8_t partsType = 0;
+        std::uint8_t selector  = 0;
+        const bool haveLive =
+            outfit::GetCurrentEquippedSuitBytes(&partsType, &selector);
+
+        if (ret != kDevelopIndexSentinel)
+        {
+            if (haveLive
+                && partsType >= outfit::kCustomPartsTypeStart
+                && partsType <= outfit::kCustomPartsTypeEnd
+                && selector == static_cast<std::uint8_t>(camoType))
+            {
+                const outfit::OutfitEntry* worn = nullptr;
+                std::uint8_t wvi = 0;
+                if (!outfit::TryGetOutfitByVariantSelector(selector, &worn, &wvi))
+                    outfit::TryGetOutfitByPartsType(partsType, &worn);
+                if (worn && worn->flowIndex != 0
+                    && worn->flowIndex < kEdcRowCapacity)
+                {
+                    return worn->flowIndex;
+                }
+            }
+            return ret;
+        }
+
+        if (!haveLive)
+            return ret;
+
+        const outfit::OutfitEntry* suit = nullptr;
+        std::uint8_t vi = 0;
+
+        if (selector >= outfit::kCustomSelectorStart &&
+            selector <= outfit::kCustomSelectorEnd)
+        {
+            outfit::TryGetOutfitByVariantSelector(selector, &suit, &vi);
+        }
+        if (!suit &&
+            partsType >= outfit::kCustomPartsTypeStart &&
+            partsType <= outfit::kCustomPartsTypeEnd)
+        {
+            outfit::TryGetOutfitByPartsType(partsType, &suit);
+        }
+
+        if (suit && suit->flowIndex != 0 && suit->flowIndex < kEdcRowCapacity)
+            return suit->flowIndex;
+
+        return ret;
+    }
+
+    static std::uint32_t __fastcall hkEdcGetFaceIndex(void* self, std::uint32_t faceVal)
+    {
+        if (!g_CachedEDC && self)
+        {
+            g_CachedEDC = self;
+            DrainPendingDeveloped(self);
+        }
+
+        const std::uint32_t ret = g_OrigEdcGetFaceIndex
+            ? g_OrigEdcGetFaceIndex(self, faceVal)
+            : kDevelopIndexSentinel;
+
+        if (ret != kDevelopIndexSentinel)
+        {
+            if (faceVal >= 1 && faceVal <= 5)
+            {
+                const std::uint8_t livePT = outfit::ReadLivePartsType();
+                if (livePT >= outfit::kCustomPartsTypeStart
+                    && livePT <= outfit::kCustomPartsTypeEnd)
+                {
+                    const outfit::OutfitEntry* oe = nullptr;
+                    const std::uint16_t vanEquipId =
+                        static_cast<std::uint16_t>(faceVal + 0x20D);
+                    if (outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
+                        && !oe->HasHeadOptionAnyVariant(
+                               vanEquipId, outfit::ReadLivePlayerType()))
+                        return kDevelopIndexSentinel;
+                }
+            }
+            return ret;
+        }
+
+        std::uint32_t out = ret;
+        const outfit::CustomHeadEntry* bySlot =
+            outfit::TryGetCustomHeadBySlot(static_cast<std::uint8_t>(faceVal));
+        const outfit::CustomHeadEntry* head = bySlot
+            ? bySlot
+            : outfit::TryGetCustomHeadByEquipId(
+                  static_cast<std::uint16_t>(faceVal));
+        if (head && head->equipId && head->equipId < kEdcRowCapacity)
+        {
+            bool resolve = true;
+            if (bySlot)
+            {
+                const std::uint8_t livePT  = outfit::ReadLivePartsType();
+                const std::uint8_t livePly = outfit::ReadLivePlayerType();
+                const outfit::OutfitEntry* oe = nullptr;
+                resolve =
+                    livePT >= outfit::kCustomPartsTypeStart
+                    && livePT <= outfit::kCustomPartsTypeEnd
+                    && outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
+                    && oe->HasHeadOptionAnyVariant(head->equipId, livePly);
+            }
+            if (resolve)
+                out = head->equipId;
+        }
+
+        return out;
+    }
+
+    static std::uint16_t ResolveWornCustomFlowIndex(std::uint8_t* outLiveSelector)
+    {
+        std::uint8_t partsType = 0;
+        std::uint8_t selector  = 0;
+        if (!outfit::GetCurrentEquippedSuitBytes(&partsType, &selector))
+            return 0;
+
+        const outfit::OutfitEntry* suit = nullptr;
+        std::uint8_t vi = 0;
+        if (selector >= outfit::kCustomSelectorStart &&
+            selector <= outfit::kCustomSelectorEnd)
+        {
+            outfit::TryGetOutfitByVariantSelector(selector, &suit, &vi);
+        }
+        if (!suit &&
+            partsType >= outfit::kCustomPartsTypeStart &&
+            partsType <= outfit::kCustomPartsTypeEnd)
+        {
+            outfit::TryGetOutfitByPartsType(partsType, &suit);
+        }
+
+        if (!suit || suit->flowIndex == 0 || suit->flowIndex >= kEdcRowCapacity)
+            return 0;
+        if (outLiveSelector)
+            *outLiveSelector = selector;
+        return suit->flowIndex;
+    }
+
+    static std::uint8_t ReadLiveSuitLevelClamped(void* edc)
+    {
+        std::uint8_t lvl = 1;
+        __try
+        {
+            auto* svm = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(edc) + 0x1e010);
+            if (svm)
+            {
+                const std::uint8_t v = svm[0xBA0];
+                lvl = v ? v : std::uint8_t{1};
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { lvl = 1; }
+        return lvl;
+    }
+
+    static std::uint32_t __fastcall hkEdcGetSuitCamoType(
+        void* self, std::uint32_t devIndex)
+    {
+        const std::uint32_t r = g_OrigEdcGetSuitCamoType
+            ? g_OrigEdcGetSuitCamoType(self, devIndex)
+            : 0xFFu;
+        if (r != 0xFFu)
+            return r;
+
+        const outfit::OutfitEntry* rowOutfit = nullptr;
+        if (!outfit::TryGetOutfitByFlowIndex(
+                static_cast<std::uint16_t>(devIndex), &rowOutfit) || !rowOutfit)
+            return r;
+
+        std::uint8_t liveSel = 0;
+        if (ResolveWornCustomFlowIndex(&liveSel) ==
+                static_cast<std::uint16_t>(devIndex))
+            return liveSel;
+        return r;
+    }
+
+    static std::uint8_t __fastcall hkEdcGetSuitLevel(
+        void* self, std::uint32_t devIndex)
+    {
+        const std::uint8_t r = g_OrigEdcGetSuitLevel
+            ? g_OrigEdcGetSuitLevel(self, devIndex)
+            : std::uint8_t{0};
+        if (r != 0)
+            return r;
+
+        const outfit::OutfitEntry* rowOutfit = nullptr;
+        if (!outfit::TryGetOutfitByFlowIndex(
+                static_cast<std::uint16_t>(devIndex), &rowOutfit) || !rowOutfit)
+            return r;
+
+        if (ResolveWornCustomFlowIndex(nullptr) !=
+                static_cast<std::uint16_t>(devIndex))
+            return r;
+        return IsEnBuild() ? ReadLiveSuitLevelClamped(self) : std::uint8_t{1};
+    }
+
+    static std::uint8_t __fastcall hkEdcIsEquipSuit(
+        void* self, std::uint32_t playerType, std::uint32_t devIndex)
+    {
+        if (outfit::IsCustomHeadEquipId(static_cast<std::uint16_t>(devIndex)))
+            return 0;
+
+        const outfit::OutfitEntry* e = nullptr;
+        if (playerType <= 3
+            && outfit::TryGetOutfitByFlowIndex(
+                   static_cast<std::uint16_t>(devIndex), &e) && e
+            && !e->IsPlayerTypeSupported(static_cast<std::uint8_t>(playerType)))
+        {
+            return 0;
+        }
+        return g_OrigEdcIsEquipSuit
+            ? g_OrigEdcIsEquipSuit(self, playerType, devIndex)
+            : std::uint8_t{0};
+    }
+
+    static std::uint8_t __fastcall hkIsEquipVisile(void* self, std::uint16_t idx)
+    {
+        if (!g_CachedEDC && self)
+        {
+            g_CachedEDC = self;
+            DrainPendingDeveloped(self);
+        }
+
+        if (idx < kDevelopHiddenCap && g_DevelopHiddenBits[idx] != 0)
+            return 0;
+        return g_OrigIsEquipVisile ? g_OrigIsEquipVisile(self, idx) : 0;
+    }
+}
+
+namespace outfit
+{
+    bool Install_OutfitEquippedState_Hooks()
+    {
+        void* tDeveloped = ResolveGameAddress(gAddr.IsEquipDeveloped);
+        void* tEdcSuit   = ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex);
+        void* tEdcFace   = ResolveGameAddress(gAddr.EquipDevCtrl_GetFaceEquipDevelopInfoIndex);
+
+        if (gAddr.IsEquipDeveloped && tDeveloped)
+        {
+            g_InstalledIsDeveloped = CreateAndEnableHook(
+                tDeveloped,
+                reinterpret_cast<void*>(&hkIsEquipDeveloped),
+                reinterpret_cast<void**>(&g_OrigIsEquipDeveloped));
+        }
+
+        if (gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex && tEdcSuit)
+        {
+            g_InstalledEdcGetSuitIndex = CreateAndEnableHook(
+                tEdcSuit,
+                reinterpret_cast<void*>(&hkEdcGetSuitIndex),
+                reinterpret_cast<void**>(&g_OrigEdcGetSuitIndex));
+        }
+
+        if (gAddr.EquipDevCtrl_GetFaceEquipDevelopInfoIndex && tEdcFace)
+        {
+            g_InstalledEdcGetFaceIndex = CreateAndEnableHook(
+                tEdcFace,
+                reinterpret_cast<void*>(&hkEdcGetFaceIndex),
+                reinterpret_cast<void**>(&g_OrigEdcGetFaceIndex));
+        }
+
+        if (void* tVisile = ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipVisile);
+            gAddr.EquipDevCtrl_IsEquipVisile && tVisile)
+        {
+            g_InstalledIsEquipVisile = CreateAndEnableHook(
+                tVisile,
+                reinterpret_cast<void*>(&hkIsEquipVisile),
+                reinterpret_cast<void**>(&g_OrigIsEquipVisile));
+        }
+
+        if (void* tCamo = ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitCamoType);
+            gAddr.EquipDevCtrl_GetSuitCamoType && tCamo)
+        {
+            g_InstalledGetSuitCamoType = CreateAndEnableHook(
+                tCamo,
+                reinterpret_cast<void*>(&hkEdcGetSuitCamoType),
+                reinterpret_cast<void**>(&g_OrigEdcGetSuitCamoType));
+        }
+
+        if (void* tLevel = ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitLevel);
+            gAddr.EquipDevCtrl_GetSuitLevel && tLevel)
+        {
+            g_InstalledGetSuitLevel = CreateAndEnableHook(
+                tLevel,
+                reinterpret_cast<void*>(&hkEdcGetSuitLevel),
+                reinterpret_cast<void**>(&g_OrigEdcGetSuitLevel));
+        }
+
+        if (void* tSuitGate = ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipSuit);
+            gAddr.EquipDevCtrl_IsEquipSuit && tSuitGate)
+        {
+            g_InstalledIsEquipSuit = CreateAndEnableHook(
+                tSuitGate,
+                reinterpret_cast<void*>(&hkEdcIsEquipSuit),
+                reinterpret_cast<void**>(&g_OrigEdcIsEquipSuit));
+        }
+
+        return g_InstalledIsDeveloped || !gAddr.IsEquipDeveloped;
+    }
+
+    void Uninstall_OutfitEquippedState_Hooks()
+    {
+        if (g_InstalledIsDeveloped)
+            DisableAndRemoveHook(ResolveGameAddress(gAddr.IsEquipDeveloped));
+        if (g_InstalledEdcGetSuitIndex)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex));
+        if (g_InstalledEdcGetFaceIndex)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_GetFaceEquipDevelopInfoIndex));
+        if (g_InstalledIsEquipVisile)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipVisile));
+        if (g_InstalledGetSuitCamoType)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitCamoType));
+        if (g_InstalledGetSuitLevel)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitLevel));
+        if (g_InstalledIsEquipSuit)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipSuit));
+
+        g_OrigIsEquipDeveloped = nullptr;
+        g_OrigEdcGetSuitIndex  = nullptr;
+        g_OrigEdcGetFaceIndex  = nullptr;
+        g_OrigIsEquipVisile    = nullptr;
+        g_OrigEdcGetSuitCamoType = nullptr;
+        g_OrigEdcGetSuitLevel    = nullptr;
+        g_OrigEdcIsEquipSuit     = nullptr;
+        g_CachedEDC            = nullptr;
+        g_InstalledIsDeveloped = false;
+        g_InstalledEdcGetSuitIndex = false;
+        g_InstalledEdcGetFaceIndex = false;
+        g_InstalledIsEquipVisile   = false;
+        g_InstalledGetSuitCamoType = false;
+        g_InstalledGetSuitLevel    = false;
+        g_InstalledIsEquipSuit     = false;
+    }
+
+    void SetDevelopHidden(unsigned short index)
+    {
+        if (index < kDevelopHiddenCap)
+            g_DevelopHiddenBits[index] = 1;
+    }
+
+    void* GetCachedEquipDevelopController()
+    {
+        return g_CachedEDC;
+    }
+
+    bool IsFlowIndexDevelopedByOrig(unsigned short flowIndex)
+    {
+        if (!g_CachedEDC || !g_OrigIsEquipDeveloped) return false;
+        if (flowIndex >= 0x400) return false;
+        return g_OrigIsEquipDeveloped(g_CachedEDC, flowIndex) != 0;
+    }
+
+    void MarkDeveloped(unsigned short flowIndex)
+    {
+        if (flowIndex == 0 || flowIndex >= kEdcRowCapacity)
+            return;
+        if (!IsEnBuild())
+            return;
+
+        {
+            std::lock_guard<std::mutex> lock(g_PendingDevelopedMutex);
+            if (g_SuppressedDeveloped.count(flowIndex) != 0)
+                return;
+        }
+
+        void* edc = g_CachedEDC;
+        if (edc)
+        {
+            MarkDevelopedNow(edc, flowIndex);
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(g_PendingDevelopedMutex);
+        g_PendingDeveloped.push_back(flowIndex);
+    }
+
+    void SuppressDeveloped(unsigned short flowIndex)
+    {
+        if (flowIndex == 0 || flowIndex >= kEdcRowCapacity)
+            return;
+        if (!IsEnBuild())
+            return;
+
+        {
+            std::lock_guard<std::mutex> lock(g_PendingDevelopedMutex);
+            g_SuppressedDeveloped.insert(flowIndex);
+            g_PendingDeveloped.erase(
+                std::remove(g_PendingDeveloped.begin(), g_PendingDeveloped.end(), flowIndex),
+                g_PendingDeveloped.end());
+        }
+
+        if (g_CachedEDC)
+            ClearDevelopedNow(g_CachedEDC, flowIndex);
+    }
+
+    void ClearDevelopedInController(void* controller, unsigned short index)
+    {
+        if (!controller)
+            return;
+        ClearDevelopedNow(controller, index);
+    }
+
+    constexpr std::size_t kDevelopRecordStride = 0x68;
+    void MakeDevelopRecordNonRoot(void* controller, unsigned short index,
+                                  unsigned short baseDevelopId)
+    {
+        if (!controller || index >= kDevelopHiddenCap
+            || index == kDevelopIndexSentinel || baseDevelopId == 0)
+            return;
+        if (!IsEnBuild())
+            return;
+
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint16_t*>(
+                reinterpret_cast<std::uint8_t*>(controller)
+                + static_cast<std::size_t>(index) * kDevelopRecordStride + 0x10);
+            *base = baseDevelopId;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+}

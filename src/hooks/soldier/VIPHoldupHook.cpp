@@ -550,9 +550,11 @@ void Set_UseCustomNonVipHoldupRecovery(bool enabled)
         ClearAllCustomNonVipRecoverySuppressWindows();
     }
 
+#ifdef _DEBUG
     Log("[Holdup] Custom non-VIP holdup recovery: %s (hash=0x%08X)\n",
         enabled ? "ON" : "OFF",
         static_cast<unsigned>(HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM));
+#endif
 }
 
 
@@ -569,7 +571,12 @@ bool Install_VIPHoldup_Hook()
         reinterpret_cast<void*>(&hkState_StandRecoveryHoldup),
         reinterpret_cast<void**>(&g_OrigState_StandRecoveryHoldup));
 
+#ifdef _DEBUG
     Log("[Holdup] Install State_StandRecoveryHoldup: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Holdup] Install State_StandRecoveryHoldup: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 
@@ -587,6 +594,8 @@ bool Uninstall_VIPHoldup_Hook()
         g_RecentNonVipSuppressByTarget.clear();
     }
 
+#ifdef _DEBUG
     Log("[Holdup] Hooks removed and state cleared\n");
+#endif
     return true;
 }

@@ -569,8 +569,15 @@ bool Install_LostHostageDiscovery_Hooks()
         reinterpret_cast<void*>(&hkLostHostageDiscovery_StepRadioDiscovery),
         reinterpret_cast<void**>(&g_LHD_OrigStepRadioDiscovery));
 
+#ifdef _DEBUG
     Log("[LostHostageDiscovery] Install CheckSightNoticeHostage: %s\n", okCheckSight ? "OK" : "FAIL");
     Log("[LostHostageDiscovery] Install StepRadioDiscovery: %s\n", okStep ? "OK" : "FAIL");
+#else
+    if (!okCheckSight)
+        Log("[LostHostageDiscovery] Install CheckSightNoticeHostage: %s\n", okCheckSight ? "OK" : "FAIL");
+    if (!okStep)
+        Log("[LostHostageDiscovery] Install StepRadioDiscovery: %s\n", okStep ? "OK" : "FAIL");
+#endif
 
     return okCheckSight && okStep;
 }
@@ -589,6 +596,8 @@ bool Uninstall_LostHostageDiscovery_Hooks()
         LostHostageDiscovery_ResetRuntimeState_NoLock();
     }
 
+#ifdef _DEBUG
     Log("[LostHostageDiscovery] removed\n");
+#endif
     return true;
 }

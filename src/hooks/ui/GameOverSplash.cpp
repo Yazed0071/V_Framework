@@ -104,7 +104,12 @@ bool Install_GameOverSplash_Hook()
         reinterpret_cast<void*>(&hkGameOverSetVisible),
         reinterpret_cast<void**>(&g_OrigGameOverSetVisible));
 
+#ifdef _DEBUG
     Log("[Hook] GameOverSplash: %s\n", ok ? "OK" : "FAIL");
+#else
+    if (!ok)
+        Log("[Hook] GameOverSplash: %s\n", ok ? "OK" : "FAIL");
+#endif
     return ok;
 }
 

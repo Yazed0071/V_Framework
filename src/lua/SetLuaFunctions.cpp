@@ -40,6 +40,8 @@ extern "C" {
 
 #include "AddressSet.h"
 #include "LuaApi.h"
+#include "OutfitLuaBindings.h"
+#include "V_TppEquipLib.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
 #include "SoldierVoiceTypeQuery.h"
@@ -714,6 +716,7 @@ int __cdecl l_RegisterRadioCassette(lua_State* L)
 
     const bool ok = Register_CustomRadioCassette(nameHash, fox2PathHash, wwiseEventId, trackNameId, fileName);
 
+#ifdef _DEBUG
     Log("[RadioCassette] RegisterRadioCassette name='%s' fox2='%s' nameHash=%08X fox2Hash=%08X wwise=%08X track=%08X -> %s\n",
         gimmickName,
         fox2Path ? fox2Path : "(none)",
@@ -722,6 +725,7 @@ int __cdecl l_RegisterRadioCassette(lua_State* L)
         static_cast<unsigned int>(wwiseEventId),
         static_cast<unsigned int>(trackNameId),
         ok ? "OK" : "FAIL");
+#endif
 
     PushLuaBool(L, ok);
     return 1;
@@ -838,7 +842,9 @@ static bool InstallIsEmergencyMissionOverride(lua_State* L)
     g_lua_settop(L, top0);
 
     g_VFI_IsEmergencyMissionOverrideInstalled = true;
+#ifdef _DEBUG
     Log("[MissionEmergency] InstallIsEmergencyMissionOverride: installed\n");
+#endif
     return true;
 }
 
@@ -1136,7 +1142,9 @@ static bool InstallAcceptEmergencyMissionOverride(lua_State* L)
     g_lua_settop(L, top0);
 
     g_VFI_AcceptEmergencyMissionOverrideInstalled = true;
+#ifdef _DEBUG
     Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: installed\n");
+#endif
     return true;
 }
 
@@ -1179,7 +1187,9 @@ static bool InstallGoToEmergencyMissionOverride(lua_State* L)
     g_lua_settop(L, top0);
 
     g_VFI_GoToEmergencyMissionOverrideInstalled = true;
+#ifdef _DEBUG
     Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: installed\n");
+#endif
     return true;
 }
 
@@ -1789,8 +1799,10 @@ int __cdecl l_RegisterCustomTapes(lua_State* L)
     g_lua_settop(L, g_lua_gettop(L) - 1);
 
     const bool ok = Register_CustomTapes(albums, tracks);
+#ifdef _DEBUG
     Log("[CustomTapes] RegisterCustomTapes albums=%zu tracks=%zu -> %s\n",
         albums.size(), tracks.size(), ok ? "OK" : "FAIL");
+#endif
     PushLuaBool(L, ok);
     return 1;
 }
@@ -1843,7 +1855,6 @@ static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
     { "ShowConsole",                            l_ShowConsole },
-
     { nullptr, nullptr }
 };
 
@@ -1856,17 +1867,21 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
     if (IsLuaStateRegistered(L))
         return;
 
+    OutfitLua_EnsureEquipDevelopBound();
+
     if (RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
     {
         Register_V_TppUiCommandLibrary(L);
         Register_V_TppSoundDaemonLibrary(L);
         Register_V_TppGameObjectConstants(L);
+        Register_V_TppMbDevConstants(L);
         Register_V_TppCassetteLibrary(L);
         Register_V_TppSahelanLibrary(L);
         Register_V_TppPlayerLibrary(L);
         Register_V_FoxLibrary(L);
         Register_V_HelicopterLibrary(L);
         Register_V_TppMotherBaseManagementLibrary(L);
+        Register_V_TppEquipLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -1891,15 +1906,19 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     if (IsLuaStateRegistered(L))
         return 0;
 
+    OutfitLua_EnsureEquipDevelopBound();
+
     Register_V_TppUiCommandLibrary(L);
     Register_V_TppSoundDaemonLibrary(L);
     Register_V_TppGameObjectConstants(L);
+    Register_V_TppMbDevConstants(L);
     Register_V_TppCassetteLibrary(L);
     Register_V_TppSahelanLibrary(L);
     Register_V_TppPlayerLibrary(L);
     Register_V_FoxLibrary(L);
     Register_V_HelicopterLibrary(L);
     Register_V_TppMotherBaseManagementLibrary(L);
+    Register_V_TppEquipLibrary(L);
 
     if (!RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
         return 0;
@@ -1913,7 +1932,9 @@ bool Install_SetLuaFunctions_Hook()
 {
     if (g_SetLuaFunctionsHookInstalled)
     {
+#ifdef _DEBUG
         Log("[Hook] SetLuaFunctions: already installed\n");
+#endif
         return true;
     }
 

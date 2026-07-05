@@ -331,7 +331,12 @@ bool Install_AnnounceLogHook()
     if (ok)
         g_Installed = true;
 
+#ifdef _DEBUG
     Log("[AnnounceLog] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#else
+    if (!ok)
+        Log("[AnnounceLog] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+#endif
 
     if (ok && gAddr.Hud_TypingLogActUpdate)
     {
@@ -370,10 +375,18 @@ bool Install_AnnounceLogHook()
             }
         }
 
+#ifdef _DEBUG
         Log("[AnnounceLog] TypingLogAct::Update hook: %s | event=%s voice/dialogue=%s\n",
             g_UpdateInstalled ? "OK" : "FAIL",
             g_SoundControlStart ? "ready" : "off",
             (g_GetInstance && g_GetGraphState && g_VoicePlay) ? "ready" : "off");
+#else
+        if (!g_UpdateInstalled)
+            Log("[AnnounceLog] TypingLogAct::Update hook: %s | event=%s voice/dialogue=%s\n",
+                g_UpdateInstalled ? "OK" : "FAIL",
+                g_SoundControlStart ? "ready" : "off",
+                (g_GetInstance && g_GetGraphState && g_VoicePlay) ? "ready" : "off");
+#endif
     }
     else if (ok)
     {

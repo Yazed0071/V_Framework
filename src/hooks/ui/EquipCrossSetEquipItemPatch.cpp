@@ -106,10 +106,12 @@ bool Install_EquipCrossSetEquipItemPatch()
         if (!WriteBytes(targets[i], sites[i].patched, sizeof(sites[i].patched)))
             return false;
 
+#ifdef _DEBUG
         Log("[EquipCrossSetEquipItem] patched %p: %02X %02X -> %02X %02X\n",
             targets[i],
             sites[i].original[0], sites[i].original[1],
             sites[i].patched[0], sites[i].patched[1]);
+#endif
     }
 
     g_Applied = true;

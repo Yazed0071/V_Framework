@@ -10,6 +10,8 @@ extern "C" {
 #include "V_TppMotherBaseManagementLib.h"
 #include "ChangeLocationMenu.h"
 #include "GetPhotoAdditionalTextLangId.h"
+#include "OutfitLuaBindings.h"
+#include "../hooks/equip/EquipDevelop_SetEquipUndeveloped.h"
 
 namespace
 {
@@ -81,6 +83,15 @@ namespace
     {
         { "AddToChangeLocationMenu", l_AddToChangeLocationMenu },
         { "AddPhotoAdditionalText",  l_AddPhotoAdditionalText },
+
+        { "AddToEquipDevelopTable",  OutfitLua_AddToEquipDevelopTable },
+        { "SetEquipDeveloped",       l_SetEquipDeveloped },
+        { "SetEquipUndeveloped",     l_SetEquipUndeveloped },
+        { "IsEquipDevelopable",      l_IsEquipDevelopable },
+        { "IsEquipDeveloped",        l_IsEquipDeveloped },
+
+        { "SetEquipNew",             l_SetEquipNew },
+        { "IsEquipNew",              l_IsEquipNew },
 
         { nullptr, nullptr }
     };

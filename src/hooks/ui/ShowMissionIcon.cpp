@@ -191,10 +191,12 @@ bool Install_ShowMissionIcon_Hook()
     g_PatchedCallSite = callSite;
     g_Installed = true;
 
+#ifdef _DEBUG
     Log("[ShowMissionIcon] title detour installed: callsite=%p thunk=%p continuation=0x%llX\n",
         static_cast<void*>(callSite),
         static_cast<void*>(g_Thunk),
         static_cast<unsigned long long>(continuationAddr));
+#endif
     return true;
 }
 
@@ -225,6 +227,8 @@ bool Uninstall_ShowMissionIcon_Hook()
     }
 
     g_Installed = false;
+#ifdef _DEBUG
     Log("[ShowMissionIcon] title detour uninstalled\n");
+#endif
     return true;
 }

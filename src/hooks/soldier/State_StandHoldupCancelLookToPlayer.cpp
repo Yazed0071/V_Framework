@@ -232,7 +232,9 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
     MH_STATUS s2 = EnableOrQueueHook((LPVOID)target);
     if (s2 != MH_OK) return false;
 
+#ifdef _DEBUG
     Log("[Holdup] Hook installed OK.\n");
+#endif
     return true;
 }
 
@@ -252,6 +254,8 @@ bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook()
     gFireIdx.store(0);
     std::memset(gFireRing, 0, sizeof(gFireRing));
 
+#ifdef _DEBUG
     Log("[Holdup] Hook removed.\n");
+#endif
     return true;
 }
