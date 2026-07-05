@@ -11,6 +11,8 @@
 #include "PlayerVoiceFpkHook.h"
 #include "MissionCodeGuard.h"
 #include "AddressSet.h"
+#include "OutfitRegistry.h"
+#include "ShadowState.h"
 
 namespace
 {
@@ -77,6 +79,36 @@ static void* WritePlayerVoicePath(void* outPath, std::uint64_t pathCode64Ext)
     return g_FoxPath_Path(outPath, pathCode64Ext);
 }
 
+
+static bool ResolveWornOutfitVoice(std::uint32_t playerType, std::uint64_t* outVoiceCode)
+{
+    if (!outfit::shadow::HasCurrentSlot())
+        return false;
+
+    outfit::shadow::Slot s;
+    if (!outfit::shadow::Get(outfit::shadow::GetCurrentSlot(), &s))
+        return false;
+
+    const std::uint8_t pt = static_cast<std::uint8_t>(playerType & 0xFF);
+    if (s.realPlayerType != pt)
+        return false;
+
+    const outfit::OutfitEntry* entry = nullptr;
+    if (!outfit::TryGetOutfitByPartsType(s.realPartsType, &entry) || !entry)
+        return false;
+    if (!entry->IsPlayerTypeSupported(pt))
+        return false;
+
+    const std::uint8_t variant = entry->HasVariants()
+        ? outfit::GetActiveVariant(entry->partsType) : 0;
+    const std::uint64_t code = entry->GetVariantVoiceFpk(pt, variant);
+    if (code <= outfit::kSubAssetUseVanilla)
+        return false;
+
+    if (outVoiceCode) *outVoiceCode = code;
+    return true;
+}
+
 static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t playerType, std::uint32_t playerFaceId)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
@@ -84,6 +116,16 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
         return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);
     }
 
+    std::uint64_t outfitVoice = 0;
+    if (ResolveWornOutfitVoice(playerType, &outfitVoice))
+    {
+#ifdef _DEBUG
+        Log("[PlayerVoiceFpk] per-outfit voice applied (playerType=%u code=0x%016llX)\n",
+            playerType, static_cast<unsigned long long>(outfitVoice));
+#endif
+        WritePlayerVoicePath(fileSlotPath, outfitVoice);
+        return fileSlotPath;
+    }
 
     const VoiceOverrideSlot slot = GetEffectiveOverrideForType(playerType);
     if (!slot.enabled || slot.pathCode64Ext == 0)

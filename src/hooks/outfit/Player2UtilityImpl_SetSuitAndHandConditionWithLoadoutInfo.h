@@ -10,10 +10,5 @@ namespace outfit
     void Uninstall_OutfitSuitConditionApply_Hook();
 
 
-    bool ForceLiveSuitReload(std::uint8_t playerType,
-                             std::uint8_t partsType,
-                             std::uint8_t selectorCode,
-                             std::uint8_t variantIndex);
-
     bool ReplayCapturedSuitEquip();
 }

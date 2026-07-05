@@ -28,7 +28,6 @@ namespace AddressSetRuntime
         uintptr_t ConvertRadioTypeToLabel = 0;
         uintptr_t CopyAndAdjustInfo = 0;
         uintptr_t DecrementPhaseCounter = 0;
-        uintptr_t ExecCallback = 0;
         uintptr_t FoxLuaRegisterLibrary = 0;
         uintptr_t FoxPath_Path = 0;
         uintptr_t FoxStrHash32 = 0;
@@ -57,7 +56,6 @@ namespace AddressSetRuntime
         uintptr_t SetLuaFunctions = 0;
         uintptr_t SetTextureName = 0;
         uintptr_t SoundSystemCtor = 0;
-        uintptr_t StateRadio = 0;
         uintptr_t StateRadioRequest = 0;
         uintptr_t State_ComradeAction = 0;
         uintptr_t State_EnterDownHoldup = 0;
@@ -99,7 +97,6 @@ namespace AddressSetRuntime
         uintptr_t lua_pushcclosure = 0;
         uintptr_t GetIconFtexPath = 0;
         uintptr_t LoadingTipsEv_UpdateActPhase = 0;
-        uintptr_t AK_SoundEngine_SetRTPCValue = 0;
         uintptr_t Fox_Sd_ConvertParameterID = 0;
         uintptr_t Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject = 0;
         uintptr_t Fox_Sd_Object_Activate = 0;
@@ -110,21 +107,13 @@ namespace AddressSetRuntime
         uintptr_t RealizedSahelan2Impl_Realize      = 0;
         uintptr_t RealizedSahelan2Impl_SetFovaImpl  = 0;
         uintptr_t FormVariationFile2_ApplyOnlyMeshAndTextureVariation = 0;
-        uintptr_t Sahelan_ActionCoreImpl_SetEyeLampColor = 0;
         uintptr_t Sahelan_ActionCoreImpl_UpdateEyeLampColor = 0;
         uintptr_t Sahelan_ActionCoreImpl_UpdateHeartLight = 0;
         uintptr_t Sahelan_PhaseSneakAi_PushEyeColor = 0;
-        uintptr_t Sahelan_EyeMeshHashTable = 0;
-        uintptr_t Sahelan_PhaseSneakAi_ColorTableBase = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal    = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer    = 0;
         uintptr_t MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency = 0;
         uintptr_t HudCommonDataManager_GetInstance       = 0;
-        uintptr_t HudCommonDataManager_SetPopupType      = 0;
-        uintptr_t HudCommonDataManager_SetPopupText      = 0;
-        uintptr_t HudCommonDataManager_SetPopupErrorType = 0;
-        uintptr_t HudCommonDataManager_StartPopup        = 0;
-        uintptr_t Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl = 0;
         uintptr_t Soldier2SoundController_Activate = 0;
         uintptr_t CAkResampler_SetPitch = 0;
         uintptr_t FNVHash32                         = 0;
@@ -155,15 +144,12 @@ namespace AddressSetRuntime
 
         uintptr_t GetMissionCodeCategory                                = 0;
 
-        uintptr_t TppUiCommand_ShowMissionIcon                          = 0;
 
-        uintptr_t IconTitleHashImm                                      = 0;
 
         uintptr_t IconTitleGetLangTextCall                              = 0;
 
         uintptr_t GameObject_SendCommand                                = 0;
 
-        uintptr_t ModelNode_UpdateModelNodeParameter                    = 0;
 
         uintptr_t UiControllerImpl_InitEquipHudData                     = 0;
 
@@ -176,12 +162,8 @@ namespace AddressSetRuntime
         uintptr_t MbDvcReserveAnnouncePopup                             = 0;
         uintptr_t MbDvcPopupGateFn                                      = 0;
 
-        uintptr_t NoticeIndisAiImpl_StepCallHelp                        = 0;
-        uintptr_t NoticeNoiseAiImpl_StepCallHelp                        = 0;
-        uintptr_t NoticeNoiseAiImpl_StepResponse                        = 0;
         uintptr_t NoticeNoiseAiImpl_StepAware                           = 0;
         uintptr_t NoticeIndisAiImpl_StepAware                           = 0;
-        uintptr_t NoticeIndisAiImpl_StepResponse                        = 0;
         uintptr_t NoticeControllerImpl_DoCheckSpreadNotice              = 0;
         uintptr_t NoticeControllerImpl_CheckSightNoticeSoldier          = 0;
 
@@ -211,14 +193,12 @@ namespace AddressSetRuntime
         uintptr_t HeliSoundControllerImpl_CallVoice = 0;
         uintptr_t HeliFlightControllerImpl_Update   = 0;
         uintptr_t Hud_GetAnnounceLogSE              = 0;
-        uintptr_t Ui_GetStringId                    = 0;
 
         uintptr_t Hud_TypingLogActUpdate            = 0;
         uintptr_t Ui_SoundControlStart              = 0;
         uintptr_t Ui_UiCommonDataManagerGetInstance = 0;
         uintptr_t Ui_EventNodeBodyGetGraphState     = 0;
         uintptr_t VoiceParam_PlayDialogue                 = 0;
-        uintptr_t Ui_AnnounceLogViewLangId          = 0;
 
         uintptr_t RideHeliActionPluginImpl_ExecPreMotionGraph = 0;
         uintptr_t RideHeliActionPluginImpl_GetStateFn         = 0;
@@ -285,7 +265,6 @@ namespace AddressSetRuntime
         // --- Custom-outfit prep-summary feed (EN-15.4 only; 0 elsewhere) ---
         uintptr_t TppMotherBaseManagement_RegCstDev = 0;
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
-        uintptr_t IsEquipDeveloped = 0;
         uintptr_t EquipDevCtrl_GetSuitDevelopInfoIndex = 0;
         uintptr_t EquipDevCtrl_GetFaceEquipDevelopInfoIndex = 0;
 
@@ -316,33 +295,25 @@ namespace AddressSetRuntime
         uintptr_t Player2BlockController_LoadPartsNew = 0;
         uintptr_t Player2GameObjectImpl_ProcessSignal = 0;
         uintptr_t Player2Impl_SetUpParts = 0;
-        uintptr_t Player2UtilityImpl_CommitWrapper = 0;
         uintptr_t Player2UtilityImpl_LoadoutApplyAfterSetSuit = 0;
         uintptr_t Player2UtilityImpl_SetInitialConditionWithLoadoutInfo = 0;
         uintptr_t Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo = 0;
         uintptr_t Player_ConverFaceIdWithFaceEquipId = 0;
         uintptr_t ResourceTable_DoesNeedFaceFova = 0;
         uintptr_t ResourceTable_DoesNeedFaceFovaForAvatar = 0;
-        uintptr_t SuitList_FillDevelopedFlowIxs = 0;
-        uintptr_t SuitList_GetDevelopedCount = 0;
-        uintptr_t SuitList_GetSuitInfoTable = 0;
-        uintptr_t SupplyDropSuitSetup = 0;
         uintptr_t Sys_IsArtificialHandEnabled = 0;
         uintptr_t Sys_IsArtificialHandEnabledForCurrentPlayerType = 0;
         uintptr_t UpdatePartsStatus = 0;
         uintptr_t ItemSelectorCallbackImpl_DecideActMotherBaseCustomize = 0;
         uintptr_t Fox_Path_Exists = 0;
         uintptr_t Fox_Path_Dtor   = 0;
-        uintptr_t GetSoldier2FaceSystem = 0;
         uintptr_t PluginFacial_ApplyMotion = 0;
         uintptr_t EquipDevCtrl_IsEquipVisile = 0;
         uintptr_t EquipDevCtrl_GetHeadBadgeCategory = 0;
         uintptr_t MissionPrep_GetWornHeadCategory = 0;
-        uintptr_t BlockControlModeValue = 0;
         uintptr_t MissionPrep_SetInitialSelectRecord = 0;
         uintptr_t TppEquip_RegisterConstant = 0;
         uintptr_t PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType = 0;
-        uintptr_t TppEquip_AddToEquipIdTable = 0;
         uintptr_t EquipIdTable_InfoList = 0;
         uintptr_t EquipIdTable_TypeWords = 0;
         uintptr_t EquipIdTable_ReloadEquipIdTable = 0;
@@ -370,7 +341,7 @@ namespace AddressSetRuntime
         uintptr_t CassetteCheckUnreadInfo = 0;
         uintptr_t SubtitlesObjectSendMessage = 0;
 
-        uintptr_t Fox_printf = 0;
+        uintptr_t EquipDevCtrl_IsEquipDevelopable = 0;
     };
 
     inline GameBuild& GetGameBuild()

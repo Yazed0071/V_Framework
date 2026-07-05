@@ -27,9 +27,6 @@ namespace outfit
 
         std::uint16_t  TppEnemyFaceId[kPlayerTypeMax] = {};
 
-
-        std::uint64_t  langNameHash = 0;
-        std::uint64_t  iconFtexCode = 0;
         char           name[64]     = { 0 };
     };
 
@@ -37,10 +34,10 @@ namespace outfit
     std::uint16_t RegisterHeadOption(
         const char* name,
         const std::uint16_t* TppEnemyFaceIdsPerPt,
-        std::uint64_t langNameHash = 0,
-        std::uint64_t iconFtexCode = 0,
-        std::uint16_t explicitDevelopId = 0,
         bool showInDevelopMenu = false);
+
+
+    int DrainPendingHeads();
 
 
     const CustomHeadEntry* TryGetCustomHeadByName(const char* name);
@@ -51,10 +48,6 @@ namespace outfit
 
     const CustomHeadEntry* TryGetCustomHeadBySlot(std::uint8_t slotByte);
 
-
-    void SetCustomHeadSummaryDisplay(std::uint16_t developId,
-                                     std::uint64_t nameHash,
-                                     std::uint64_t iconHash);
 
     std::uint16_t GetCurrentWornHeadEquipId();
 

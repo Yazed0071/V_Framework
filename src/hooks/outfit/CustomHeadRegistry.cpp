@@ -3,9 +3,11 @@
 #include "CustomHeadRegistry.h"
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include <HookUtils.h>
 
@@ -25,13 +27,14 @@ namespace outfit
         std::mutex                                    g_Mutex;
 
 
-        struct PendingSummaryDisplay
+        struct PendingHead
         {
-            std::uint64_t nameHash = 0;
-            std::uint64_t iconHash = 0;
+            char           name[64]                = { 0 };
+            std::uint16_t  faceIds[kPlayerTypeMax] = {};
+            bool           showInDevelopMenu       = false;
         };
-        std::unordered_map<std::uint16_t, PendingSummaryDisplay>
-            g_PendingSummaryDisplay;
+        std::vector<PendingHead>  g_PendingHeads;
+        std::atomic<bool>         g_HasPendingHeads{ false };
 
         using GetQuarkSystemTable_t = void* (__fastcall*)();
         static GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
@@ -122,14 +125,99 @@ namespace outfit
                 return -1;
             }
         }
+
+
+        static bool IsResolvedRowValidUnlocked(std::int32_t row)
+        {
+            if (row <= 0 || row >= 0xFFFF) return false;
+            if (row == static_cast<std::int32_t>(kHeadOption_None)) return false;
+            for (const CustomHeadEntry& e : g_Heads)
+                if (e.used && e.equipId == static_cast<std::uint16_t>(row))
+                    return false;
+            return true;
+        }
+
+        static std::uint16_t CompleteHeadRegistrationUnlocked(
+            const char* name, const std::uint16_t* faceIds,
+            std::uint16_t developId, std::uint16_t rowIndex,
+            bool showInDevelopMenu)
+        {
+            const std::int32_t idx = AllocateUnlocked();
+            if (idx < 0)
+            {
+                Log("[CustomHead] complete: registry full (max=%zu, name=%s)\n",
+                    kMaxCustomHeads, name);
+                return 0;
+            }
+
+            const std::uint8_t slotByte = AllocateSlotUnlocked();
+            if (slotByte < kCustomHeadSlotBase)
+            {
+                Log("[CustomHead] complete: head slot space full (name=%s)\n", name);
+                return 0;
+            }
+
+            CustomHeadEntry& e = g_Heads[idx];
+            e.used         = true;
+            e.equipId      = rowIndex;
+            e.developId    = developId;
+            e.flowIndex    = 0;
+            e.slotByte     = slotByte;
+            for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+                e.TppEnemyFaceId[i] = faceIds[i];
+
+            const std::size_t nameLen = std::strlen(name);
+            const std::size_t copyLen = nameLen < (sizeof(e.name) - 1)
+                ? nameLen : (sizeof(e.name) - 1);
+            std::memcpy(e.name, name, copyLen);
+            e.name[copyLen] = '\0';
+
+            Log("[CustomHead] registered '%s' equipId=%u (rowIndex=0x%X) "
+                "developId=%u slot=0x%02X%s\n",
+                e.name, static_cast<unsigned>(e.equipId),
+                static_cast<unsigned>(e.equipId),
+                static_cast<unsigned>(e.developId),
+                static_cast<unsigned>(e.slotByte),
+                showInDevelopMenu ? "" : " (hidden from R&D)");
+
+            if (!showInDevelopMenu)
+                SetDevelopHidden(e.equipId);
+
+            ResolvePendingHeadName(FoxHashes::StrCode64(e.name), e.equipId);
+            return e.equipId;
+        }
+
+        static void StorePendingHeadUnlocked(
+            const char* name, const std::uint16_t* faceIds,
+            bool showInDevelopMenu)
+        {
+            for (PendingHead& p : g_PendingHeads)
+            {
+                if (std::strcmp(p.name, name) == 0)
+                {
+                    for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+                        p.faceIds[i] = faceIds[i];
+                    p.showInDevelopMenu = showInDevelopMenu;
+                    return;
+                }
+            }
+            PendingHead p{};
+            const std::size_t nameLen = std::strlen(name);
+            const std::size_t copyLen = nameLen < (sizeof(p.name) - 1)
+                ? nameLen : (sizeof(p.name) - 1);
+            std::memcpy(p.name, name, copyLen);
+            p.name[copyLen] = '\0';
+            for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+                p.faceIds[i] = faceIds[i];
+            p.showInDevelopMenu = showInDevelopMenu;
+            g_PendingHeads.push_back(p);
+            g_HasPendingHeads.store(true, std::memory_order_release);
+        }
     }
 
     std::uint16_t RegisterHeadOption(
         const char* name,
         const std::uint16_t* TppEnemyFaceIdsPerPt,
-        std::uint64_t langNameHash,
-        std::uint64_t iconFtexCode,
-        std::uint16_t explicitDevelopId,
         bool showInDevelopMenu)
     {
         static_assert(kPlayerTypeMax == 4,
@@ -155,26 +243,11 @@ namespace outfit
             CustomHeadEntry& e = g_Heads[existing];
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
                 e.TppEnemyFaceId[i] = faceIds[i];
-            if (langNameHash != 0)  e.langNameHash = langNameHash;
-            if (iconFtexCode != 0)  e.iconFtexCode = iconFtexCode;
             return e.equipId;
         }
 
-        const std::int32_t idx = AllocateUnlocked();
-        if (idx < 0)
-        {
-            Log("[CustomHead] RegisterHeadOption: registry full "
-                "(max=%zu, name=%s)\n", kMaxCustomHeads, name);
-            return 0;
-        }
-
-
         std::int32_t developId = 0;
-        if (explicitDevelopId != 0)
-        {
-            developId = explicitDevelopId;
-        }
-        else if (!V_FrameWorkState::ResolveOrCreateDevelopId(name, 0, developId)
+        if (!V_FrameWorkState::ResolveOrCreateDevelopId(name, 0, developId)
             || developId <= 0 || developId > 0xFFFF)
         {
             Log("[CustomHead] RegisterHeadOption: developId allocation "
@@ -182,118 +255,68 @@ namespace outfit
             return 0;
         }
 
-
-        const std::int32_t flowIndex = 0;
-
-
         const std::int32_t rowIndex =
             TranslateDevelopIdToRowIndex(static_cast<std::uint32_t>(developId));
-        if (rowIndex < 0)
+        if (IsResolvedRowValidUnlocked(rowIndex))
         {
-            Log("[CustomHead] RegisterHeadOption: orig translator returned "
-                "no row for developId=%d (name=%s). Either V_TppEquip."
-                "AddToEquipDevelopTable wasn't called for this name, or "
-                "the EquipDevelopController isn't reachable yet. Skipping "
-                "registration.\n", developId, name);
+            return CompleteHeadRegistrationUnlocked(
+                name, faceIds, static_cast<std::uint16_t>(developId),
+                static_cast<std::uint16_t>(rowIndex), showInDevelopMenu);
+        }
+
+        StorePendingHeadUnlocked(name, faceIds, showInDevelopMenu);
+        Log("[CustomHead] '%s' develop row not committed yet (developId=%d, "
+            "getIdx=0x%X) — DEFERRED; resolves order-independently when an "
+            "equip/develop menu opens\n",
+            name, developId, static_cast<unsigned>(rowIndex));
+        return 0;
+    }
+
+    int DrainPendingHeads()
+    {
+        if (!g_HasPendingHeads.load(std::memory_order_acquire))
+            return 0;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        if (g_PendingHeads.empty())
+        {
+            g_HasPendingHeads.store(false, std::memory_order_release);
             return 0;
         }
-        if (rowIndex > 0xFFFF)
+
+        int resolved = 0;
+        for (auto it = g_PendingHeads.begin(); it != g_PendingHeads.end(); )
         {
-            Log("[CustomHead] RegisterHeadOption: row index %d exceeds "
-                "uint16 (name=%s); refusing\n", rowIndex, name);
-            return 0;
+            const std::int32_t developId =
+                V_FrameWorkState::GetDevelopIdByKey(it->name);
+            const std::int32_t rowIndex =
+                (developId > 0 && developId <= 0xFFFF)
+                    ? TranslateDevelopIdToRowIndex(
+                          static_cast<std::uint32_t>(developId))
+                    : -1;
+            if (IsResolvedRowValidUnlocked(rowIndex))
+            {
+                CompleteHeadRegistrationUnlocked(
+                    it->name, it->faceIds,
+                    static_cast<std::uint16_t>(developId),
+                    static_cast<std::uint16_t>(rowIndex),
+                    it->showInDevelopMenu);
+                it = g_PendingHeads.erase(it);
+                ++resolved;
+            }
+            else
+            {
+                ++it;
+            }
         }
 
-        const std::uint8_t slotByte = AllocateSlotUnlocked();
-        if (slotByte < kCustomHeadSlotBase)
-        {
-            Log("[CustomHead] RegisterHeadOption: head slot space full "
-                "(name=%s) — refusing rather than wrapping/aliasing a "
-                "vanilla slot\n", name);
-            return 0;
-        }
+        if (g_PendingHeads.empty())
+            g_HasPendingHeads.store(false, std::memory_order_release);
 
-        CustomHeadEntry& e = g_Heads[idx];
-        e.used           = true;
-        e.equipId        = static_cast<std::uint16_t>(rowIndex);
-        e.developId      = static_cast<std::uint16_t>(developId);
-        e.flowIndex      = static_cast<std::uint16_t>(flowIndex);
-        e.slotByte       = slotByte;
-        for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
-            e.TppEnemyFaceId[i] = faceIds[i];
-        e.langNameHash   = langNameHash;
-        e.iconFtexCode   = iconFtexCode;
-
-        const std::size_t nameLen = std::strlen(name);
-        const std::size_t copyLen = nameLen < (sizeof(e.name) - 1)
-            ? nameLen
-            : (sizeof(e.name) - 1);
-        std::memcpy(e.name, name, copyLen);
-        e.name[copyLen] = '\0';
-
-
-        if (const auto it = g_PendingSummaryDisplay.find(e.developId);
-            it != g_PendingSummaryDisplay.end())
-        {
-            if (it->second.nameHash != 0) e.langNameHash = it->second.nameHash;
-            if (it->second.iconHash != 0) e.iconFtexCode = it->second.iconHash;
-            g_PendingSummaryDisplay.erase(it);
-#ifdef _DEBUG
-            Log("[CustomHead] drained pending summary display for "
-                "developId=%u (nameHash=0x%016llX iconHash=0x%016llX)\n",
-                static_cast<unsigned>(e.developId),
-                static_cast<unsigned long long>(e.langNameHash),
-                static_cast<unsigned long long>(e.iconFtexCode));
-#endif
-        }
-
-#ifdef _DEBUG
-        Log("[CustomHead] registered '%s' equipId=%u (rowIndex=0x%X) "
-            "developId=%u flowIndex=%u slot=0x%02X "
-            "TppEnemyFaceId[S/M/F/A]=0x%X/0x%X/0x%X/0x%X\n",
-            e.name,
-            static_cast<unsigned>(e.equipId),
-            static_cast<unsigned>(e.equipId),
-            static_cast<unsigned>(e.developId),
-            static_cast<unsigned>(e.flowIndex),
-            static_cast<unsigned>(e.slotByte),
-            static_cast<unsigned>(e.TppEnemyFaceId[0]),
-            static_cast<unsigned>(e.TppEnemyFaceId[1]),
-            static_cast<unsigned>(e.TppEnemyFaceId[2]),
-            static_cast<unsigned>(e.TppEnemyFaceId[3]));
-#endif
-
-        if (!showInDevelopMenu)
-        {
-            outfit::SetDevelopHidden(e.equipId);
-#ifdef _DEBUG
-            Log("[CustomHead] '%s' showInDevelopMenu=false: flagged record index=%u "
-                "(0x%X) for IsEquipVisile hide -> hidden from R&D Develop\n",
-                e.name, static_cast<unsigned>(e.equipId),
-                static_cast<unsigned>(e.equipId));
-#endif
-        }
-        else
-        {
-#ifdef _DEBUG
-            Log("[CustomHead] '%s' showInDevelopMenu=true: lists in the R&D Develop "
-                "browser (index=%u)\n",
-                e.name, static_cast<unsigned>(e.equipId));
-#endif
-        }
-
-        if (const int filled = outfit::ResolvePendingHeadName(
-                FoxHashes::StrCode64(e.name), e.equipId);
-            filled > 0)
-        {
-#ifdef _DEBUG
-            Log("[CustomHead] back-filled deferred head '%s' (equipId=%u) into "
-                "%d outfit head slot(s)\n",
-                e.name, static_cast<unsigned>(e.equipId), filled);
-#endif
-        }
-
-        return e.equipId;
+        if (resolved > 0)
+            Log("[CustomHead] DrainPendingHeads: resolved %d deferred head(s); "
+                "%zu still pending\n", resolved, g_PendingHeads.size());
+        return resolved;
     }
 
     const CustomHeadEntry* TryGetCustomHeadByName(const char* name)
@@ -326,40 +349,6 @@ namespace outfit
                 return &e;
         }
         return nullptr;
-    }
-
-    void SetCustomHeadSummaryDisplay(std::uint16_t developId,
-                                     std::uint64_t nameHash,
-                                     std::uint64_t iconHash)
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-
-        for (CustomHeadEntry& e : g_Heads)
-        {
-            if (!e.used || e.developId != developId) continue;
-            if (nameHash != 0) e.langNameHash = nameHash;
-            if (iconHash != 0) e.iconFtexCode = iconHash;
-#ifdef _DEBUG
-            Log("[CustomHead] summary display set developId=%u "
-                "nameHash=0x%016llX iconHash=0x%016llX\n",
-                static_cast<unsigned>(developId),
-                static_cast<unsigned long long>(e.langNameHash),
-                static_cast<unsigned long long>(e.iconFtexCode));
-#endif
-            return;
-        }
-
-
-        PendingSummaryDisplay& p = g_PendingSummaryDisplay[developId];
-        if (nameHash != 0) p.nameHash = nameHash;
-        if (iconHash != 0) p.iconHash = iconHash;
-#ifdef _DEBUG
-        Log("[CustomHead] summary display stashed (pending) developId=%u "
-            "nameHash=0x%016llX iconHash=0x%016llX\n",
-            static_cast<unsigned>(developId),
-            static_cast<unsigned long long>(p.nameHash),
-            static_cast<unsigned long long>(p.iconHash));
-#endif
     }
 
     std::uint16_t GetCurrentWornHeadEquipId()

@@ -17,9 +17,6 @@
 
 namespace
 {
-    using IsEquipDeveloped_t =
-        std::uint8_t (__fastcall*)(void* self, std::uint32_t flowIndex);
-
     using EdcGetSuitIndex_t =
         std::uint32_t (__fastcall*)(void* self, std::uint32_t outfitByte,
                                     std::uint32_t camoByte);
@@ -38,7 +35,6 @@ namespace
         std::uint8_t (__fastcall*)(void* self, std::uint32_t playerType,
                                    std::uint32_t devIndex);
 
-    static IsEquipDeveloped_t g_OrigIsEquipDeveloped   = nullptr;
     static EdcGetSuitIndex_t  g_OrigEdcGetSuitIndex     = nullptr;
     static EdcGetFaceIndex_t  g_OrigEdcGetFaceIndex     = nullptr;
     static IsEquipVisile_t    g_OrigIsEquipVisile       = nullptr;
@@ -46,7 +42,6 @@ namespace
     static EdcGetSuitLevel_t    g_OrigEdcGetSuitLevel    = nullptr;
     static EdcIsEquipSuit_t     g_OrigEdcIsEquipSuit     = nullptr;
 
-    static bool g_InstalledIsDeveloped     = false;
     static bool g_InstalledEdcGetSuitIndex = false;
     static bool g_InstalledEdcGetFaceIndex = false;
     static bool g_InstalledIsEquipVisile   = false;
@@ -138,20 +133,6 @@ namespace
             ClearDevelopedNow(edc, idx);
 
         EquipDevelop_DrainPendingUndevelops();
-    }
-
-    static std::uint8_t __fastcall hkIsEquipDeveloped(void* self, std::uint32_t flowIndex)
-    {
-        if (!g_CachedEDC && self)
-        {
-            g_CachedEDC = self;
-            DrainPendingDeveloped(self);
-        }
-
-        if (flowIndex >= kEdcRowCapacity)
-            return 0;
-
-        return g_OrigIsEquipDeveloped(self, flowIndex);
     }
 
     static std::uint32_t __fastcall hkEdcGetSuitIndex(
@@ -365,6 +346,7 @@ namespace
     static std::uint8_t __fastcall hkEdcIsEquipSuit(
         void* self, std::uint32_t playerType, std::uint32_t devIndex)
     {
+        outfit::DrainPendingHeads();
         if (outfit::IsCustomHeadEquipId(static_cast<std::uint16_t>(devIndex)))
             return 0;
 
@@ -383,6 +365,7 @@ namespace
 
     static std::uint8_t __fastcall hkIsEquipVisile(void* self, std::uint16_t idx)
     {
+        outfit::DrainPendingHeads();
         if (!g_CachedEDC && self)
         {
             g_CachedEDC = self;
@@ -399,17 +382,8 @@ namespace outfit
 {
     bool Install_OutfitEquippedState_Hooks()
     {
-        void* tDeveloped = ResolveGameAddress(gAddr.IsEquipDeveloped);
         void* tEdcSuit   = ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex);
         void* tEdcFace   = ResolveGameAddress(gAddr.EquipDevCtrl_GetFaceEquipDevelopInfoIndex);
-
-        if (gAddr.IsEquipDeveloped && tDeveloped)
-        {
-            g_InstalledIsDeveloped = CreateAndEnableHook(
-                tDeveloped,
-                reinterpret_cast<void*>(&hkIsEquipDeveloped),
-                reinterpret_cast<void**>(&g_OrigIsEquipDeveloped));
-        }
 
         if (gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex && tEdcSuit)
         {
@@ -463,13 +437,11 @@ namespace outfit
                 reinterpret_cast<void**>(&g_OrigEdcIsEquipSuit));
         }
 
-        return g_InstalledIsDeveloped || !gAddr.IsEquipDeveloped;
+        return true;
     }
 
     void Uninstall_OutfitEquippedState_Hooks()
     {
-        if (g_InstalledIsDeveloped)
-            DisableAndRemoveHook(ResolveGameAddress(gAddr.IsEquipDeveloped));
         if (g_InstalledEdcGetSuitIndex)
             DisableAndRemoveHook(
                 ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitDevelopInfoIndex));
@@ -489,7 +461,6 @@ namespace outfit
             DisableAndRemoveHook(
                 ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipSuit));
 
-        g_OrigIsEquipDeveloped = nullptr;
         g_OrigEdcGetSuitIndex  = nullptr;
         g_OrigEdcGetFaceIndex  = nullptr;
         g_OrigIsEquipVisile    = nullptr;
@@ -497,7 +468,6 @@ namespace outfit
         g_OrigEdcGetSuitLevel    = nullptr;
         g_OrigEdcIsEquipSuit     = nullptr;
         g_CachedEDC            = nullptr;
-        g_InstalledIsDeveloped = false;
         g_InstalledEdcGetSuitIndex = false;
         g_InstalledEdcGetFaceIndex = false;
         g_InstalledIsEquipVisile   = false;
@@ -517,11 +487,9 @@ namespace outfit
         return g_CachedEDC;
     }
 
-    bool IsFlowIndexDevelopedByOrig(unsigned short flowIndex)
+    bool IsFlowIndexDevelopedByOrig(unsigned short)
     {
-        if (!g_CachedEDC || !g_OrigIsEquipDeveloped) return false;
-        if (flowIndex >= 0x400) return false;
-        return g_OrigIsEquipDeveloped(g_CachedEDC, flowIndex) != 0;
+        return false;
     }
 
     void MarkDeveloped(unsigned short flowIndex)

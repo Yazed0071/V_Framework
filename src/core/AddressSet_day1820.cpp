@@ -20,7 +20,6 @@ namespace AddressSetRuntime
             0x140D685C0ull, // ConvertRadioTypeToLabel
             0x140FB9000ull, // CopyAndAdjustInfo
             0x140D6EAA0ull, // DecrementPhaseCounter
-            0x140A19030ull, // ExecCallback
             0x14006B6D0ull, // FoxLuaRegisterLibrary
             0x1400855B0ull, // FoxPath_Path
             0x142ECE7F0ull, // FoxStrHash32
@@ -49,7 +48,6 @@ namespace AddressSetRuntime
             0x1408D78A0ull, // SetLuaFunctions
             0x141DC78F0ull, // SetTextureName
             0x140989120ull, // SoundSystemCtor
-            0x140D69140ull, // StateRadio
             0x14A2ACC00ull, // StateRadioRequest
             0x1414B8D20ull, // State_ComradeAction
             0x14A140940ull, // State_EnterDownHoldup
@@ -91,7 +89,6 @@ namespace AddressSetRuntime
             0x14C1E67B0ull, // lua_pushcclosure
             0x145E62540ull, // GetIconFtexPath
             0x145CCFCC0ull, // LoadingTipsEv_UpdateActPhase
-            0x14033d520ull, // AK_SoundEngine_SetRTPCValue
             0x14032ADF0ull, // Fox_Sd_ConvertParameterID
             0x143F42540ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject
             0x14032B040ull, // Fox_Sd_Object_Activate
@@ -102,21 +99,13 @@ namespace AddressSetRuntime
             0x146ACC210ull, // RealizedSahelan2Impl_Realize
             0x146ACC650ull, // RealizedSahelan2Impl_SetFovaImpl
             0x144A3CBD0ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation
-            0x14BBC1B10ull, // Sahelan_ActionCoreImpl_SetEyeLampColor
             0x14BBC3630ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor
             0x14BBC37A0ull, // Sahelan_ActionCoreImpl_UpdateHeartLight
             0x14BCA4b70ull, // Sahelan_PhaseSneakAi_PushEyeColor
-            0x142B40000ull, // Sahelan_EyeMeshHashTable
-            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase
             0x140EF2EE0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal
             0x140EF32A0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer
             0x140EF2CC0ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency
             0x145C0A890ull, // HudCommonDataManager_GetInstance
-            0x1408679B0ull, // HudCommonDataManager_SetPopupType
-            0x1408678D0ull, // HudCommonDataManager_SetPopupText
-            0x140867570ull, // HudCommonDataManager_SetPopupErrorType
-            0x140868560ull, // HudCommonDataManager_StartPopup
-            0x14158C290ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
             0x14158B520ull, // Soldier2SoundController_Activate
             0x1441DBB80ull, // CAkResampler_SetPitch
             0x143F33A20ull, // FNVHash32
@@ -141,23 +130,16 @@ namespace AddressSetRuntime
             0x142C69AA0ull, // Sahelan_PhaseSneakAiImpl_StepFuncsTable
             0x142C1fD24ull, // MessageResendCounter
             0x145e642a0ull, // GetMissionCodeCategory
-            0x145DADFC0ull, // TppUiCommand_ShowMissionIcon
-            0x14162135Cull, // IconTitleHashImm
             0x14162136Bull, // IconTitleGetLangTextCall
             0x146CC7170ull, // GameObject_SendCommand
-            0x14D71DB50ull, // ModelNode_UpdateModelNodeParameter
             0x1496A8070ull, // UiControllerImpl_InitEquipHudData
             0x1414E6110ull, // NoticeControllerImpl_GetOccasionalChat
             0x140D83480ull, // SoldierConversationService_ConvertSpeechLabelToConversationType
             0x1414E6229ull, // OccasionalChat_FactionTestNop
             0x140932BE0ull, // MbDvcReserveAnnouncePopup
             0x140939EE0ull, // MbDvcPopupGateFn
-            0x1415144E0ull, // NoticeIndisAiImpl_StepCallHelp
-            0x141520910ull, // NoticeNoiseAiImpl_StepCallHelp
-            0x141522A00ull, // NoticeNoiseAiImpl_StepResponse
             0x14151FE30ull, // NoticeNoiseAiImpl_StepAware
             0x141513B00ull, // NoticeIndisAiImpl_StepAware
-            0x1415162D0ull, // NoticeIndisAiImpl_StepResponse
             0x1414E5830ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E3070ull, // NoticeControllerImpl_CheckSightNoticeSoldier
             0x140B15B00ull, // RealizedSoldier2Impl_ConvertHeadEquipModelType
@@ -182,13 +164,11 @@ namespace AddressSetRuntime
             0x148FABEA0ull, // HeliSoundControllerImpl_CallVoice
             0x140DFD240ull, // HeliFlightControllerImpl_Update
             0x145C096B0ull, // Hud_GetAnnounceLogSE
-            0x1409137A0ull, // Ui_GetStringId
             0x1408A2EA0ull, // Hud_TypingLogActUpdate
             0x141DC9ED0ull, // Ui_SoundControlStart
             0x14085F0C0ull, // Ui_UiCommonDataManagerGetInstance
             0x14085F190ull, // Ui_EventNodeBodyGetGraphState
             0x145F804D0ull, // VoiceParam_PlayDialogue
-            0x1408CC280ull, // Ui_AnnounceLogViewLangId
             0x149B603F0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
             0x14121EB90ull, // RideHeliActionPluginImpl_GetStateFn
             0x142BFF960ull, // SoundDaemon_Instance
@@ -220,12 +200,11 @@ namespace AddressSetRuntime
             0x140338B60ull, // SoundControl_PostExternalEvent
             0x140989B20ull, // MusicPlayerPlayWrapper
             0x145FA1510ull, // FUN_145fa1510
-            0x1408B1A0Dull, // SetEquipItem GetItemId call-return
             0x1408B1A0Dull, // SetEquipItem GetItemId
             0x141000780ull, // FUN_141000780
             0x140AF3760ull, // FUN_140af3760
             0x14504E090ull, // FUN_14504e090
-            0x1409C3AF5ull, // Barrier_LoadGate0 (EN15.3 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
+            0x1409C3AF5ull, // Barrier_LoadGate0
             0x1409C3B5Full, // Barrier_LoadGate1
             0x1409C3BC5ull, // Barrier_LoadGate2
             0x140FC3CC0ull, // FUN_140fc3cc0
@@ -242,7 +221,6 @@ namespace AddressSetRuntime
             0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
             0x1466f3b10ull, // TppMotherBaseManagement_RegCstDev
             0x1466f4600ull, // TppMotherBaseManagement_RegFlwDev
-            0x0ull, // IsEquipDeveloped
             0x140f6b660ull, // EquipDevCtrl_GetSuitDevelopInfoIndex
             0x140f69f20ull, // EquipDevCtrl_GetFaceEquipDevelopInfoIndex
             0x1416a1aa0ull, // AddListSuit
@@ -271,33 +249,25 @@ namespace AddressSetRuntime
             0x146239160ull, // Player2BlockController_LoadPartsNew
             0x1409c5d00ull, // Player2GameObjectImpl_ProcessSignal
             0x1409ca560ull, // Player2Impl_SetUpParts
-            0x0ull, // Player2UtilityImpl_CommitWrapper
             0x1462c93f0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
             0x1462c7670ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
             0x1409defe0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
             0x14622a3b0ull, // Player_ConverFaceIdWithFaceEquipId
             0x140ae84b0ull, // ResourceTable_DoesNeedFaceFova
             0x140ae8500ull, // ResourceTable_DoesNeedFaceFovaForAvatar
-            0x0ull, // SuitList_FillDevelopedFlowIxs
-            0x0ull, // SuitList_GetDevelopedCount
-            0x0ull, // SuitList_GetSuitInfoTable
-            0x1416a7610ull, // SupplyDropSuitSetup
             0x1409c45c0ull, // Sys_IsArtificialHandEnabled
             0x141e02d80ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409cc380ull, // UpdatePartsStatus
             0x1416a3670ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
             0x142f6ad70ull, // Fox_Path_Exists
             0x14319eb70ull, // Fox_Path_Dtor
-            0x146323c30ull, // GetSoldier2FaceSystem
-            0x0ull, // PluginFacial_ApplyMotion
+            0x14d9aa3d0ull, // PluginFacial_ApplyMotion
             0x140f6d8e0ull, // EquipDevCtrl_IsEquipVisile
             0x14950ed50ull, // EquipDevCtrl_GetHeadBadgeCategory
             0x1460b33f0ull, // MissionPrep_GetWornHeadCategory
-            0x142c1b0d0ull, // BlockControlModeValue
             0x14a544d40ull, // MissionPrep_SetInitialSelectRecord
             0x1464a0e00ull, // TppEquip_RegisterConstant
             0x141e02930ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
-            0x140a29730ull, // TppEquip_AddToEquipIdTable
             0x142c20fb0ull, // EquipIdTable_InfoList
             0x142a70928ull, // EquipIdTable_TypeWords
             0x1464b6740ull, // EquipIdTable_ReloadEquipIdTable
@@ -322,7 +292,7 @@ namespace AddressSetRuntime
             0x1493087C0ull, // CassetteAlbumCheckNewFlag
             0x149309C50ull, // CassetteCheckUnreadInfo
             0x144A06660ull, // SubtitlesObjectSendMessage
-            0x142EF2BF0ull, // Fox_printf
+            0x14951ed70ull, // EquipDevCtrl_IsEquipDevelopable
         };
         return value;
     }
@@ -342,7 +312,6 @@ namespace AddressSetRuntime
             0x140D68330ull, // ConvertRadioTypeToLabel
             0x140FB90D0ull, // CopyAndAdjustInfo
             0x140D6E810ull, // DecrementPhaseCounter
-            0x140A18AF0ull, // ExecCallback
             0x1431CC520ull, // FoxLuaRegisterLibrary
             0x143227580ull, // FoxPath_Path
             0x142EB6C10ull, // FoxStrHash32
@@ -371,7 +340,6 @@ namespace AddressSetRuntime
             0x1408D72B0ull, // SetLuaFunctions
             0x141DC7930ull, // SetTextureName
             0x140988C00ull, // SoundSystemCtor
-            0x140D68EB0ull, // StateRadio
             0x14ACA5E60ull, // StateRadioRequest
             0x1414B8CF0ull, // State_ComradeAction
             0x14AB05B80ull, // State_EnterDownHoldup
@@ -415,7 +383,6 @@ namespace AddressSetRuntime
 
             0x147A6BD40ull, // GetIconFtexPath
             0x1477EC6F0ull, // LoadingTipsEv_UpdateActPhase
-            0x14033CFC0ull, // AK_SoundEngine_SetRTPCValue
             0x14032A870ull, // Fox_Sd_ConvertParameterID
             0x143F7BCA0ull, // Fox_Sd_Ad_AudioSoundEngine_RegisterGameObject
             0x14032AAC0ull, // Fox_Sd_Object_Activate
@@ -430,12 +397,9 @@ namespace AddressSetRuntime
             0x148655E70ull, // RealizedSahelan2Impl_Realize
             0x148656360ull, // RealizedSahelan2Impl_SetFovaImpl
             0x1448A0190ull, // FormVariationFile2_ApplyOnlyMeshAndTextureVariation
-            0x14B77E550ull, // Sahelan_ActionCoreImpl_SetEyeLampColor
             0x14B7801D0ull, // Sahelan_ActionCoreImpl_UpdateEyeLampColor
             0x14B7807B0ull, // Sahelan_ActionCoreImpl_UpdateHeartLight
             0x14B84DEC0ull, // Sahelan_PhaseSneakAi_PushEyeColor
-            0x142B40000ull, // Sahelan_EyeMeshHashTable
-            0x142C69A50ull, // Sahelan_PhaseSneakAi_ColorTableBase
 
 
             0x140EF3050ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal
@@ -443,12 +407,7 @@ namespace AddressSetRuntime
             0x140EF2E30ull, // MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency
 
             0x147719930ull, // HudCommonDataManager_GetInstance
-            0x140867630ull, // HudCommonDataManager_SetPopupType
-            0x140867550ull, // HudCommonDataManager_SetPopupText
-            0x1408671F0ull, // HudCommonDataManager_SetPopupErrorType
-            0x147732010ull, // HudCommonDataManager_StartPopup
 
-            0x14158C270ull, // Soldier2SoundController_GetVoiceTypeFromSoldierTypeImpl
             0x14158B4F0ull, // Soldier2SoundController_Activate
             0x14418D980ull, // CAkResampler_SetPitch
 
@@ -483,17 +442,14 @@ namespace AddressSetRuntime
 
             0x147a6cfe0ull, // GetMissionCodeCategory
 
-            0x1478EB990ull, // TppUiCommand_ShowMissionIcon
 
-            0x1416214aaull, // IconTitleHashImm
 
             0x1416214bbull, // IconTitleGetLangTextCall
 
             0x148b0e440ull, // GameObject_SendCommand
 
-            0x14ddb9ac0ull, // ModelNode_UpdateModelNodeParameter
 
-            0x14A10B530ull, // UiControllerImpl_InitEquipHudData (JP address not yet found)
+            0x14A10B530ull, // UiControllerImpl_InitEquipHudData
 
             0x1414E60E0ull, // NoticeControllerImpl_GetOccasionalChat
 
@@ -504,12 +460,8 @@ namespace AddressSetRuntime
             0x1409325E0ull, // MbDvcReserveAnnouncePopup
             0x140915150ull, // MbDvcPopupGateFn
 
-            0x1415144B0ull, // NoticeIndisAiImpl_StepCallHelp
-            0x1415208E0ull, // NoticeNoiseAiImpl_StepCallHelp
-            0x1415229D0ull, // NoticeNoiseAiImpl_StepResponse
             0x14151FE00ull, // NoticeNoiseAiImpl_StepAware
             0x141513AD0ull, // NoticeIndisAiImpl_StepAware
-            0x1415162A0ull, // NoticeIndisAiImpl_StepResponse
             0x1414E5800ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E3040ull, // NoticeControllerImpl_CheckSightNoticeSoldier
 
@@ -539,13 +491,11 @@ namespace AddressSetRuntime
             0x14975E670ull, // HeliSoundControllerImpl_CallVoice
             0x140DfD310ull, // HeliFlightControllerImpl_Update
             0x147718790ull, // Hud_GetAnnounceLogSE
-            0x148108C90ull, // Ui_GetStringId
             0x1408a29c0ull, // Hud_TypingLogActUpdate
             0x141DC9F10ull, // Ui_SoundControlStart
             0x1476cda70ull, // Ui_UiCommonDataManagerGetInstance
             0x1404b2220ull, // Ui_EventNodeBodyGetGraphState
             0x147b92a30ull, // VoiceParam_PlayDialogue
-            0x1408cbcb0ull, // Ui_AnnounceLogViewLangId
             0x14a4979a0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
             0x14121ecb0ull, // RideHeliActionPluginImpl_GetStateFn
 
@@ -582,7 +532,7 @@ namespace AddressSetRuntime
             0x1410007D0ull, // FUN_1410007d0
             0x140AF32A0ull, // FUN_140af32a0
             0x144EC3FF0ull, // FUN_144ec3ff0
-            0x1409C35B5ull, // Barrier_LoadGate0 (JP15.3 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
+            0x1409C35B5ull, // Barrier_LoadGate0
             0x1409C361Full, // Barrier_LoadGate1
             0x1409C3685ull, // Barrier_LoadGate2
             0x140FC3D90ull, // FUN_140fc3d90
@@ -597,9 +547,8 @@ namespace AddressSetRuntime
             0x1408B1568ull, // EquipCrossSetEquipItem_Site1
             0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1604ull, // EquipCrossSetEquipItem_Site3
-            0x148332810ull, // TppMotherBaseManagement_RegCstDev (15.3 TBD; hooks no-op if unresolved)
+            0x148332810ull, // TppMotherBaseManagement_RegCstDev
             0x148333ac0ull, // TppMotherBaseManagement_RegFlwDev
-            0x0ull, // IsEquipDeveloped (15.3 TBD)
             0x140f6b760ull, // EquipDevCtrl_GetSuitDevelopInfoIndex
             0x140f6a020ull, // EquipDevCtrl_GetFaceEquipDevelopInfoIndex
             0x1416a1bf0ull, // AddListSuit
@@ -628,33 +577,25 @@ namespace AddressSetRuntime
             0x147eeb520ull, // Player2BlockController_LoadPartsNew
             0x1409c57c0ull, // Player2GameObjectImpl_ProcessSignal
             0x147f47c60ull, // Player2Impl_SetUpParts
-            0x0ull, // Player2UtilityImpl_CommitWrapper
             0x147f89ce0ull, // Player2UtilityImpl_LoadoutApplyAfterSetSuit
             0x147f876f0ull, // Player2UtilityImpl_SetInitialConditionWithLoadoutInfo
             0x1409dead0ull, // Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo
             0x147edbee0ull, // Player_ConverFaceIdWithFaceEquipId
             0x140ae7ff0ull, // ResourceTable_DoesNeedFaceFova
             0x140ae8040ull, // ResourceTable_DoesNeedFaceFovaForAvatar
-            0x0ull, // SuitList_FillDevelopedFlowIxs
-            0x0ull, // SuitList_GetDevelopedCount
-            0x0ull, // SuitList_GetSuitInfoTable
-            0x1416a7760ull, // SupplyDropSuitSetup
             0x1409c4080ull, // Sys_IsArtificialHandEnabled
             0x141e02db0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409cbe40ull, // UpdatePartsStatus
             0x1416a37c0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
             0x142f57d90ull, // Fox_Path_Exists
             0x143227e40ull, // Fox_Path_Dtor
-            0x147fd3170ull, // GetSoldier2FaceSystem
-            0x0ull, // PluginFacial_ApplyMotion (JP-15.3 TBD)
+            0x14e02b500ull, // PluginFacial_ApplyMotion
             0x140f6d9e0ull, // EquipDevCtrl_IsEquipVisile
             0x149f28b70ull, // EquipDevCtrl_GetHeadBadgeCategory
             0x147cd19f0ull, // MissionPrep_GetWornHeadCategory
-            0x142c1b0d0ull, // BlockControlModeValue
             0x14afe4630ull, // MissionPrep_SetInitialSelectRecord
             0x1480e0f70ull, // TppEquip_RegisterConstant
             0x141e02960ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
-            0x140a29200ull, // TppEquip_AddToEquipIdTable
             0x142c20fb0ull, // EquipIdTable_InfoList
             0x142a70928ull, // EquipIdTable_TypeWords
             0x1480f8110ull, // EquipIdTable_ReloadEquipIdTable
@@ -679,7 +620,7 @@ namespace AddressSetRuntime
             0x149CCD510ull, // CassetteAlbumCheckNewFlag
             0x149CCF740ull, // CassetteCheckUnreadInfo
             0x144868DF0ull, // SubtitlesObjectSendMessage
-            0x142EE2A90ull, // Fox_printf
+            0x149f38f70ull, // EquipDevCtrl_IsEquipDevelopable
         };
 
         return value;

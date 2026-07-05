@@ -30,7 +30,9 @@ namespace V_FrameWorkState
         const char* key,
         std::int32_t minimumId,
         std::int32_t& outDevelopId,
-        bool* outCreated = nullptr);   // outCreated: true = new id minted (added), false = existing (loaded)
+        bool* outCreated = nullptr);
+
+    std::int32_t GetDevelopIdByKey(const char* key);
 
 
     std::vector<std::int32_t> TakePendingDevelopedResets();

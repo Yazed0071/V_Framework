@@ -577,7 +577,7 @@ namespace
     }
 }
 
-int __cdecl OutfitLua_RegisterOutfit(lua_State* L)
+int __cdecl l_RegisterOutfit(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
     {
@@ -736,7 +736,7 @@ int __cdecl OutfitLua_RegisterOutfit(lua_State* L)
 }
 
 
-int __cdecl OutfitLua_RegisterHeadOption(lua_State* L)
+int __cdecl l_RegisterHeadOption(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
     {
@@ -745,11 +745,11 @@ int __cdecl OutfitLua_RegisterHeadOption(lua_State* L)
         return 1;
     }
 
-    const char* name = nullptr;
-    TryReadTableStringField(L, 1, "name", name);
-    if (!name || !name[0])
+    const char* key = nullptr;
+    TryReadTableStringField(L, 1, "key", key);
+    if (!key || !key[0])
     {
-        Log("[CustomHead] RegisterHeadOption: missing 'name'\n");
+        Log("[CustomHead] RegisterHeadOption: missing 'key'\n");
         PushLuaNumber(L, 0);
         return 1;
     }
@@ -784,22 +784,6 @@ int __cdecl OutfitLua_RegisterHeadOption(lua_State* L)
         }
     }
 
-    const char* langName = nullptr;
-    TryReadTableStringField(L, 1, "langName", langName);
-    const std::uint64_t langNameHash =
-        (langName && langName[0]) ? FoxHashes::StrCode64(langName) : 0;
-
-    const std::uint64_t iconFtexCode =
-        ReadRequiredPathField(L, 1, "iconFtex");
-
-    int rawDevelopId = 0;
-    std::uint16_t explicitDevelopId = 0;
-    if (TryReadTableIntField(L, 1, "developId", rawDevelopId)
-        && rawDevelopId > 0 && rawDevelopId <= 0xFFFF)
-    {
-        explicitDevelopId = static_cast<std::uint16_t>(rawDevelopId);
-    }
-
     bool showInDevelopMenu = false;
     {
         LuaGetField(L, 1, "showInDevelopMenu");
@@ -809,15 +793,14 @@ int __cdecl OutfitLua_RegisterHeadOption(lua_State* L)
     }
 
     const std::uint16_t equipId = outfit::RegisterHeadOption(
-        name, faceIds, langNameHash, iconFtexCode, explicitDevelopId,
-        showInDevelopMenu);
+        key, faceIds, showInDevelopMenu);
 
     PushLuaNumber(L, static_cast<float>(equipId));
     return 1;
 }
 
 
-int __cdecl OutfitLua_GetOutfitInfo(lua_State* L)
+int __cdecl l_GetOutfitInfo(lua_State* L)
 {
     const int developIdRaw = GetLuaInt(L, 1);
     if (developIdRaw <= 0 || developIdRaw > 0xFFFF)
@@ -931,7 +914,7 @@ void OutfitLua_EnsureEquipDevelopBound()
 #endif
 }
 
-int __cdecl OutfitLua_AddToEquipDevelopTable(lua_State* L)
+int __cdecl l_AddToEquipDevelopTable(lua_State* L)
 {
     OutfitLua_EnsureEquipDevelopBound();
     return EquipDevelopAdd::Lua_AddToEquipDevelopTable(L);

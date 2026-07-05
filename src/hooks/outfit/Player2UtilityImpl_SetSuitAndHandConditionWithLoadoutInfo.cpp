@@ -22,11 +22,6 @@ namespace
     static bool g_Installed = false;
 
 
-    using RequestToChangeLoadout_t =
-        void (__fastcall*)(void* self, void* loadoutInfo, std::uint8_t apply);
-
-    static RequestToChangeLoadout_t g_OrigReqLoadout    = nullptr;
-    static bool                     g_InstalledReqLoadout = false;
 
 
     using LoadoutApplyAfterSetSuit_t =
@@ -655,11 +650,6 @@ namespace
         g_Orig(self, info);
     }
 
-    static void __fastcall hkReqLoadout(void* self, void* info, std::uint8_t apply)
-    {
-        InspectAndRewriteLoadout(info, "ReqLoadout");
-        g_OrigReqLoadout(self, info, apply);
-    }
 
 
     static void __fastcall hkLoadoutApplyAfterSetSuit(void* self, void* info)
@@ -810,78 +800,6 @@ namespace
 
 namespace outfit
 {
-    bool ForceLiveSuitReload(std::uint8_t playerType,
-                             std::uint8_t partsType,
-                             std::uint8_t selectorCode,
-                             std::uint8_t variantIndex)
-    {
-        if (!g_OrigReqLoadout)
-        {
-            Log("[OutfitSuitConditionApply] ForceLiveSuitReload: "
-                "ReqLoadout trampoline not yet captured (hook not "
-                "installed?) — skipping\n");
-            return false;
-        }
-
-        {
-            const bool customPT =
-                partsType >= kCustomPartsTypeStart && partsType <= kCustomPartsTypeEnd;
-            const bool customSel =
-                selectorCode >= kCustomSelectorStart && selectorCode <= kCustomSelectorEnd;
-            const OutfitEntry* e = nullptr;
-            std::uint8_t vi = 0;
-            const bool resolves =
-                (customPT && TryGetOutfitByPartsType(partsType, &e) && e) ||
-                (customSel && TryGetOutfitByVariantSelector(selectorCode, &e, &vi) && e);
-            if ((customPT || customSel) && !resolves)
-            {
-                Log("[OutfitSuitConditionApply] ForceLiveSuitReload: refusing "
-                    "unresolved custom suit partsType=0x%02X selector=0x%02X\n",
-                    static_cast<unsigned>(partsType),
-                    static_cast<unsigned>(selectorCode));
-                return false;
-            }
-        }
-
-
-        alignas(8) std::uint8_t info[256] = {};
-
-        info[kInfoOff_PartsType] = partsType;
-        info[kInfoOff_CamoType]  = selectorCode;
-
-
-        info[0x02] = variantIndex;
-
-
-        (void)playerType;
-
-
-        *reinterpret_cast<std::uint32_t*>(info + kInfoOff_Flags) =
-            0x001u;
-
-#ifdef _DEBUG
-        Log("[OutfitSuitConditionApply] ForceLiveSuitReload: "
-            "playerType=%u partsType=0x%02X selector=0x%02X variant=%u\n",
-            static_cast<unsigned>(playerType),
-            static_cast<unsigned>(partsType),
-            static_cast<unsigned>(selectorCode),
-            static_cast<unsigned>(variantIndex));
-#endif
-
-        __try
-        {
-
-
-            g_OrigReqLoadout(nullptr, info, 1);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitSuitConditionApply] ForceLiveSuitReload: SEH "
-                "calling ReqLoadout trampoline\n");
-            return false;
-        }
-    }
 
     bool ReplayCapturedSuitEquip()
     {
@@ -947,26 +865,6 @@ namespace outfit
             }
         }
 
-        if (!g_InstalledReqLoadout)
-        {
-            void* target = ResolveGameAddress(
-                gAddr.Player2UtilityImpl_CommitWrapper);
-            if (target)
-            {
-                g_InstalledReqLoadout = CreateAndEnableHook(
-                    target,
-                    reinterpret_cast<void*>(&hkReqLoadout),
-                    reinterpret_cast<void**>(&g_OrigReqLoadout));
-#ifdef _DEBUG
-                Log("[OutfitSuitConditionApply] ReqLoadout installed: %s (target=%p)\n",
-                    g_InstalledReqLoadout ? "OK" : "FAIL", target);
-#endif
-            }
-            else
-            {
-                Log("[OutfitSuitConditionApply] ReqLoadout target unresolved\n");
-            }
-        }
 
         if (!g_InstalledLoadoutApply)
         {
@@ -1014,7 +912,7 @@ namespace outfit
             }
         }
 
-        return g_Installed || g_InstalledReqLoadout
+        return g_Installed
             || g_InstalledLoadoutApply || g_InstalledSetInitial;
     }
 
@@ -1027,14 +925,6 @@ namespace outfit
                 DisableAndRemoveHook(t);
             g_Orig      = nullptr;
             g_Installed = false;
-        }
-        if (g_InstalledReqLoadout)
-        {
-            if (void* t = ResolveGameAddress(
-                    gAddr.Player2UtilityImpl_CommitWrapper))
-                DisableAndRemoveHook(t);
-            g_OrigReqLoadout      = nullptr;
-            g_InstalledReqLoadout = false;
         }
         if (g_InstalledLoadoutApply)
         {

@@ -20,9 +20,9 @@ namespace
         { "ClearPlayerVoiceFpkPathForType",           l_ClearPlayerVoiceFpkPathForType },
         { "ClearAllPlayerVoiceFpkOverrides",          l_ClearAllPlayerVoiceFpkOverrides },
 
-        { "RegisterOutfit",                           OutfitLua_RegisterOutfit },
-        { "RegisterHeadOption",                       OutfitLua_RegisterHeadOption },
-        { "GetOutfitInfo",                            OutfitLua_GetOutfitInfo },
+        { "RegisterOutfit",                           l_RegisterOutfit },
+        { "RegisterHeadOption",                       l_RegisterHeadOption },
+        { "GetOutfitInfo",                            l_GetOutfitInfo },
 
         { nullptr,          nullptr }
     };

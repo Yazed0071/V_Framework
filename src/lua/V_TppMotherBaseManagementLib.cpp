@@ -12,6 +12,7 @@ extern "C" {
 #include "GetPhotoAdditionalTextLangId.h"
 #include "OutfitLuaBindings.h"
 #include "../hooks/equip/EquipDevelop_SetEquipUndeveloped.h"
+#include "../core/V_FrameWorkState.h"
 
 namespace
 {
@@ -79,12 +80,32 @@ namespace
         return 0;
     }
 
+    // V_TppMotherBaseManagement.GetDevelopId(key)
+    static int __cdecl l_GetDevelopId(lua_State* L)
+    {
+        std::int32_t developId = 0;
+        if (LuaType(L, 1) == LUA_TSTRING)
+        {
+            const char* key = GetLuaString(L, 1);
+            if (key && key[0])
+                developId = V_FrameWorkState::GetDevelopIdByKey(key);
+        }
+
+        if (developId > 0)
+            PushLuaNumber(L, static_cast<float>(developId));
+        else
+            g_lua_pushnil(L);
+        return 1;
+    }
+
     static luaL_Reg g_VTppMotherBaseManagementLib[] =
     {
         { "AddToChangeLocationMenu", l_AddToChangeLocationMenu },
         { "AddPhotoAdditionalText",  l_AddPhotoAdditionalText },
 
-        { "AddToEquipDevelopTable",  OutfitLua_AddToEquipDevelopTable },
+        { "GetDevelopId",            l_GetDevelopId },
+
+        { "AddToEquipDevelopTable",  l_AddToEquipDevelopTable },
         { "SetEquipDeveloped",       l_SetEquipDeveloped },
         { "SetEquipUndeveloped",     l_SetEquipUndeveloped },
         { "IsEquipDevelopable",      l_IsEquipDevelopable },

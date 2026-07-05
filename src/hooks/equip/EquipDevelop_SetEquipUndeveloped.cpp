@@ -352,6 +352,20 @@ namespace
         }
     }
 
+    using IsEquipDevelopable_t = std::uint8_t (__fastcall*)(void* controller, std::uint16_t index);
+
+    static bool IsDevelopRequirementsMet(void* controller, std::uint16_t index)
+    {
+        if (!controller || index >= kInvalidDevelopIndex)
+            return false;
+        auto fn = reinterpret_cast<IsEquipDevelopable_t>(
+            ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipDevelopable));
+        if (!fn)
+            return false;
+        __try { return fn(controller, index) != 0; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
     static int ReconcileOneManaged(
         void* controller,
         GetEquipDevelopIndex_t getIndex,
@@ -534,7 +548,7 @@ void EquipDevelop_DrainPendingUndevelops()
         {
             if (hudCdm)
             {
-                if (!row.developed)
+                if (!row.developed && IsDevelopRequirementsMet(controller, index))
                     FireDevRequirementsMet(hudCdm, row.developId);
                 V_FrameWorkState::SetNewByDevelopId(row.developId, false);
             }

@@ -95,6 +95,9 @@ namespace
     constexpr std::uint32_t kBootstrapFlowIndexStart = 922;
     constexpr std::uint32_t kMaxAllocId = 0xFFFEu;
 
+    constexpr int kMinGrade = 1;
+    constexpr int kMaxGrade = 15;
+
     static const NamedFieldSpec k_ConstFieldSpecs[] =
     {
         { "p01", "equipID" },
@@ -675,7 +678,21 @@ namespace
         g_Deps.LuaSetTop(L, 0);
         BuildFlowRowTable(L, flowIndex, req.flowFields);
 
-        SetIntField(L, g_Deps.GetLuaTop(L), "p62", 0);
+        const int flowRowIndex = g_Deps.GetLuaTop(L);
+        SetIntField(L, flowRowIndex, "p62", 0);
+        SetIntField(L, flowRowIndex, "p72", 0);
+        SetIntField(L, flowRowIndex, "p74", 0);
+
+        int grade = kMinGrade;
+        for (const FieldValue& f : req.flowFields)
+            if (f.type == FieldValue::Type::Number && f.name == "p52")
+                grade = f.numberValue;
+        if (grade < kMinGrade)
+            grade = kMinGrade;
+        else if (grade > kMaxGrade)
+            grade = kMaxGrade;
+        SetIntField(L, flowRowIndex, "p52", grade);
+
         g_OrigRegFlwDev(L);
         ObserveFlowIndex(flowIndex);
 

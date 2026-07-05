@@ -21,11 +21,6 @@ namespace
 
 
     using SetupPrefabListElement_t = void  (__fastcall*)(void* thisPtr);
-    using GetDevelopedCount_t      = std::uint16_t (__fastcall*)(void* sub);
-    using FillDevelopedFlowIxs_t   = void  (__fastcall*)(void* sub,
-                                                          std::uint16_t count,
-                                                          std::uint16_t* outArr);
-    using GetSuitInfoTable_t       = std::uint8_t* (__fastcall*)(void* sub58);
     using AddListSuit_t            = void  (__fastcall*)(
                                             void* thisPtr,
                                             std::uint32_t* rowCounter,
@@ -45,9 +40,6 @@ namespace
     using UpdateRecords_t          = void  (__fastcall*)(void* thisPtr);
 
     static SetupPrefabListElement_t g_OrigSetupPrefab    = nullptr;
-    static GetDevelopedCount_t      g_OrigGetCount       = nullptr;
-    static FillDevelopedFlowIxs_t   g_OrigFill           = nullptr;
-    static GetSuitInfoTable_t       g_OrigGetTable       = nullptr;
 
 
     static AddListSuit_t            g_OrigAddListSuit    = nullptr;
@@ -93,11 +85,6 @@ namespace
     }
 
 
-    static void*           g_GetCountFunc = nullptr;
-    static void*           g_FillFunc     = nullptr;
-    static void*           g_GetTableFunc = nullptr;
-    static std::atomic_bool g_DeepHooksOK{false};
-    static std::atomic_int  g_DeepInstallAttempts{0};
     static constexpr int    kMaxInstallAttempts = 16;
 
 
@@ -106,134 +93,12 @@ namespace
     constexpr std::size_t kVtblIx_GetTable = 0x718 / sizeof(void*);
 
 
-    constexpr std::size_t kSuitInfoEntrySize = 0x68;
 
 
-    constexpr std::size_t kProxyTableEntries = 0x400;
-    constexpr std::size_t kVanillaCopyEntries = 0x300;
-    constexpr std::size_t kProxyTableBytes   = kProxyTableEntries * kSuitInfoEntrySize;
-
-
-    alignas(16) static std::uint8_t g_ExtendedTable[kProxyTableBytes] = {};
-    static std::atomic_bool g_TableInitialized{false};
-
-
-    static bool ShouldInjectOutfit(const outfit::OutfitEntry* e, std::uint8_t livePT)
-    {
-        if (!e) return false;
-        if (!e->IsPlayerTypeSupported(livePT)) return false;
-        if (e->flowIndex == 0 || e->flowIndex >= kProxyTableEntries) return false;
-        if (!outfit::IsFlowIndexDevelopedByOrig(e->flowIndex)) return false;
-        return true;
-    }
-
-
-    static std::uint16_t CountInjectionsForLivePT()
-    {
-        const std::uint8_t pt = outfit::ReadLivePlayerType();
-        if (pt == 0xFF) return 0;
-        const outfit::OutfitEntry* entries[outfit::kMaxOutfits] = {};
-        const std::size_t n = outfit::GetAllOutfits(entries, outfit::kMaxOutfits);
-        std::uint16_t count = 0;
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            if (ShouldInjectOutfit(entries[i], pt))
-                ++count;
-        }
-        return count;
-    }
-
-
-    static void EnsureExtendedTable(const std::uint8_t* origTable)
-    {
-        if (!g_TableInitialized.load(std::memory_order_acquire))
-        {
-            __try
-            {
-                std::memcpy(g_ExtendedTable, origTable,
-                            kVanillaCopyEntries * kSuitInfoEntrySize);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-
-
-                std::memset(g_ExtendedTable, 0, kProxyTableBytes);
-            }
-            g_TableInitialized.store(true, std::memory_order_release);
-        }
-
-
-        const outfit::OutfitEntry* entries[outfit::kMaxOutfits] = {};
-        const std::size_t n = outfit::GetAllOutfits(entries, outfit::kMaxOutfits);
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            if (!entries[i]) continue;
-            const std::uint16_t fi = entries[i]->flowIndex;
-            if (fi == 0 || fi >= kProxyTableEntries) continue;
-
-
-            const std::size_t off = fi * kSuitInfoEntrySize;
-
-
-            if (fi < kVanillaCopyEntries
-             && g_ExtendedTable[off + 0x36] != 0) continue;
-            g_ExtendedTable[off + 0x36] = 0x14;
-            g_ExtendedTable[off + 0x37] = 0;
-        }
-    }
-
-
-    static std::uint16_t __fastcall hkGetDevelopedCount(void* sub)
-    {
-        const std::uint16_t orig = g_OrigGetCount ? g_OrigGetCount(sub) : 0;
-        if (!t_InsideSetupPrefab) return orig;
-        return static_cast<std::uint16_t>(orig + CountInjectionsForLivePT());
-    }
-
-    static void __fastcall hkFillDevelopedFlowIxs(
-        void* sub, std::uint16_t count, std::uint16_t* outArr)
-    {
-        if (!t_InsideSetupPrefab)
-        {
-            if (g_OrigFill) g_OrigFill(sub, count, outArr);
-            return;
-        }
-
-        const std::uint16_t injCount = CountInjectionsForLivePT();
-        const std::uint16_t origCount =
-            (count >= injCount) ? static_cast<std::uint16_t>(count - injCount)
-                                : count;
-
-        if (g_OrigFill) g_OrigFill(sub, origCount, outArr);
-
-
-        const std::uint8_t pt = outfit::ReadLivePlayerType();
-        if (pt == 0xFF) return;
-
-        const outfit::OutfitEntry* entries[outfit::kMaxOutfits] = {};
-        const std::size_t n = outfit::GetAllOutfits(entries, outfit::kMaxOutfits);
-        std::uint16_t writeIdx = origCount;
-        for (std::size_t i = 0; i < n && writeIdx < count; ++i)
-        {
-            if (!ShouldInjectOutfit(entries[i], pt)) continue;
-            outArr[writeIdx++] = entries[i]->flowIndex;
-        }
-    }
-
-    static std::uint8_t* __fastcall hkGetSuitInfoTable(void* sub58)
-    {
-        std::uint8_t* origTable = g_OrigGetTable ? g_OrigGetTable(sub58) : nullptr;
-        if (!origTable) return origTable;
-        if (!t_InsideSetupPrefab) return origTable;
-
-        EnsureExtendedTable(origTable);
-        return g_ExtendedTable;
-    }
 
 
     static bool g_VariantInjectEnabled    = true;
     static bool g_HeadOptionInjectEnabled = true;
-    static bool g_DeepTableInjectEnabled  = false;
 
     static void __fastcall hkAddListSuit(
         void* thisPtr,
@@ -414,169 +279,6 @@ namespace
     }
 
 
-    static bool TryInstallDeepHooks(void* thisPtr)
-    {
-        if (!thisPtr) return false;
-        if (g_DeepHooksOK.load(std::memory_order_acquire)) return true;
-
-        const int attempt =
-            g_DeepInstallAttempts.fetch_add(1, std::memory_order_relaxed);
-        if (attempt >= kMaxInstallAttempts)
-        {
-
-            return false;
-        }
-
-        auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
-
-
-        void* sub50 = nullptr;
-        __try { sub50 = *reinterpret_cast<void**>(base + 0x50); }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step1 SEH reading "
-                "*(this+0x50)\n", attempt);
-            return false;
-        }
-        if (!LooksLikeValidPtr(sub50))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step1 sub50=%p invalid\n",
-                attempt, sub50);
-            return false;
-        }
-
-
-        void* subAC8 = nullptr;
-        __try
-        {
-            subAC8 = *reinterpret_cast<void**>(
-                reinterpret_cast<std::uint8_t*>(sub50) + 0xAC8);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step2 SEH reading "
-                "*(sub50+0xAC8); sub50=%p\n", attempt, sub50);
-            return false;
-        }
-        if (!LooksLikeValidPtr(subAC8))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step2 subAC8=%p invalid "
-                "(sub50=%p)\n", attempt, subAC8, sub50);
-            return false;
-        }
-
-
-        void* getCount = nullptr;
-        void* fill     = nullptr;
-        __try
-        {
-            void** vtbl = *reinterpret_cast<void***>(subAC8);
-            if (!LooksLikeValidPtr(vtbl))
-            {
-                Log("[OutfitListInject:Deep] attempt=%d step3 vtbl=%p "
-                    "invalid (subAC8=%p)\n", attempt, vtbl, subAC8);
-                return false;
-            }
-            getCount = vtbl[kVtblIx_GetCount];
-            fill     = vtbl[kVtblIx_Fill];
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step3 SEH reading "
-                "vtable slots; subAC8=%p\n", attempt, subAC8);
-            return false;
-        }
-        if (!LooksLikeValidPtr(getCount) || !LooksLikeValidPtr(fill))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step3 vtable slots "
-                "invalid: getCount=%p fill=%p\n", attempt, getCount, fill);
-            return false;
-        }
-
-
-        void* sub58 = nullptr;
-        __try { sub58 = *reinterpret_cast<void**>(base + 0x58); }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step4a SEH reading "
-                "*(this+0x58)\n", attempt);
-            return false;
-        }
-        if (!LooksLikeValidPtr(sub58))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step4a sub58=%p invalid\n",
-                attempt, sub58);
-            return false;
-        }
-        void* getTable = nullptr;
-        __try
-        {
-            void** vtbl = *reinterpret_cast<void***>(sub58);
-            if (!LooksLikeValidPtr(vtbl))
-            {
-                Log("[OutfitListInject:Deep] attempt=%d step4b vtbl=%p "
-                    "invalid (sub58=%p)\n", attempt, vtbl, sub58);
-                return false;
-            }
-            getTable = vtbl[kVtblIx_GetTable];
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step4b SEH reading "
-                "vtable[0x718]; sub58=%p\n", attempt, sub58);
-            return false;
-        }
-        if (!LooksLikeValidPtr(getTable))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d step4b getTable=%p "
-                "invalid\n", attempt, getTable);
-            return false;
-        }
-
-
-#ifdef _DEBUG
-        Log("[OutfitListInject:Deep] attempt=%d resolved: GetCount=%p "
-            "Fill=%p GetTable=%p; installing\n",
-            attempt, getCount, fill, getTable);
-#endif
-
-        const bool h1 = CreateAndEnableHook(
-            getCount,
-            reinterpret_cast<void*>(&hkGetDevelopedCount),
-            reinterpret_cast<void**>(&g_OrigGetCount));
-        const bool h2 = CreateAndEnableHook(
-            fill,
-            reinterpret_cast<void*>(&hkFillDevelopedFlowIxs),
-            reinterpret_cast<void**>(&g_OrigFill));
-        const bool h3 = CreateAndEnableHook(
-            getTable,
-            reinterpret_cast<void*>(&hkGetSuitInfoTable),
-            reinterpret_cast<void**>(&g_OrigGetTable));
-
-        if (!(h1 && h2 && h3))
-        {
-            Log("[OutfitListInject:Deep] attempt=%d hooks FAILED: GetCount=%s "
-                "Fill=%s GetTable=%s\n",
-                attempt,
-                h1 ? "OK" : "FAIL",
-                h2 ? "OK" : "FAIL",
-                h3 ? "OK" : "FAIL");
-
-            if (h1) DisableAndRemoveHook(getCount);
-            if (h2) DisableAndRemoveHook(fill);
-            if (h3) DisableAndRemoveHook(getTable);
-            g_OrigGetCount = nullptr;
-            g_OrigFill     = nullptr;
-            g_OrigGetTable = nullptr;
-            return false;
-        }
-
-        g_GetCountFunc        = getCount;
-        g_FillFunc            = fill;
-        g_GetTableFunc = getTable;
-        g_DeepHooksOK.store(true, std::memory_order_release);
-        return true;
-    }
 
 
     using GetTextByHash_t  = void* (__fastcall*)(void* manager,
@@ -723,6 +425,7 @@ namespace
 
     static void TryInjectHeadOptionList(void* thisPtr)
     {
+        outfit::DrainPendingHeads();
         if (!thisPtr || !g_AddListBandana) return;
 
         const auto base = reinterpret_cast<std::uintptr_t>(thisPtr);
@@ -947,11 +650,6 @@ namespace
     {
 
 
-        if (g_DeepTableInjectEnabled
-            && !g_DeepHooksOK.load(std::memory_order_acquire))
-        {
-            (void)TryInstallDeepHooks(thisPtr);
-        }
 
 
         const bool prevBadge = g_HeadBadgeBuildActive;
@@ -1041,65 +739,6 @@ namespace outfit
     }
 
 
-    static bool TryInstallDeepHooksFromStaticAddresses()
-    {
-        if (g_DeepHooksOK.load(std::memory_order_acquire))
-            return true;
-
-        void* getCount = ResolveGameAddress(gAddr.SuitList_GetDevelopedCount);
-        void* fill     = ResolveGameAddress(gAddr.SuitList_FillDevelopedFlowIxs);
-        void* getTable = ResolveGameAddress(gAddr.SuitList_GetSuitInfoTable);
-
-        if (!getCount || !fill || !getTable)
-        {
-            Log("[OutfitListInject:Deep] static-address install: one or "
-                "more targets unresolved (GetCount=%p Fill=%p GetTable=%p) "
-                "— falling back to deferred-on-first-fire path\n",
-                getCount, fill, getTable);
-            return false;
-        }
-
-#ifdef _DEBUG
-        Log("[OutfitListInject:Deep] static-address install: GetCount=%p "
-            "Fill=%p GetTable=%p; installing\n",
-            getCount, fill, getTable);
-#endif
-
-        const bool h1 = CreateAndEnableHook(
-            getCount,
-            reinterpret_cast<void*>(&hkGetDevelopedCount),
-            reinterpret_cast<void**>(&g_OrigGetCount));
-        const bool h2 = CreateAndEnableHook(
-            fill,
-            reinterpret_cast<void*>(&hkFillDevelopedFlowIxs),
-            reinterpret_cast<void**>(&g_OrigFill));
-        const bool h3 = CreateAndEnableHook(
-            getTable,
-            reinterpret_cast<void*>(&hkGetSuitInfoTable),
-            reinterpret_cast<void**>(&g_OrigGetTable));
-
-        if (!(h1 && h2 && h3))
-        {
-            Log("[OutfitListInject:Deep] static-address hooks FAILED: GetCount=%s "
-                "Fill=%s GetTable=%s\n",
-                h1 ? "OK" : "FAIL",
-                h2 ? "OK" : "FAIL",
-                h3 ? "OK" : "FAIL");
-            if (h1) DisableAndRemoveHook(getCount);
-            if (h2) DisableAndRemoveHook(fill);
-            if (h3) DisableAndRemoveHook(getTable);
-            g_OrigGetCount = nullptr;
-            g_OrigFill     = nullptr;
-            g_OrigGetTable = nullptr;
-            return false;
-        }
-
-        g_GetCountFunc = getCount;
-        g_FillFunc     = fill;
-        g_GetTableFunc = getTable;
-        g_DeepHooksOK.store(true, std::memory_order_release);
-        return true;
-    }
 
     bool Install_OutfitListInject_Hook()
     {
@@ -1172,9 +811,6 @@ namespace outfit
 #endif
 
 
-        const bool deepStatic = g_DeepTableInjectEnabled
-            ? TryInstallDeepHooksFromStaticAddresses()
-            : false;
 
 
         if (void* urTarget = ResolveGameAddress(
@@ -1199,10 +835,9 @@ namespace outfit
 
 #ifdef _DEBUG
         Log("[OutfitListInject] installed: setup=%s addListSuit=%s "
-            "deepHooks=%s (target=%p addListSuitAddr=%p)\n",
+            "(target=%p addListSuitAddr=%p)\n",
             setupHooked ? "OK" : "FAIL",
             addListSuitHooked ? "OK" : (g_AddListSuitAddr ? "FAIL" : "UNRESOLVED"),
-            deepStatic ? "static-OK" : "deferred-to-first-fire",
             target, g_AddListSuitAddr);
 #endif
         return g_Installed;
@@ -1213,17 +848,6 @@ namespace outfit
         if (!g_Installed) return;
 
 
-        if (g_GetCountFunc) DisableAndRemoveHook(g_GetCountFunc);
-        if (g_FillFunc)     DisableAndRemoveHook(g_FillFunc);
-        if (g_GetTableFunc) DisableAndRemoveHook(g_GetTableFunc);
-        g_GetCountFunc = nullptr;
-        g_FillFunc     = nullptr;
-        g_GetTableFunc = nullptr;
-        g_OrigGetCount = nullptr;
-        g_OrigFill     = nullptr;
-        g_OrigGetTable = nullptr;
-        g_DeepHooksOK.store(false, std::memory_order_release);
-        g_TableInitialized.store(false, std::memory_order_release);
 
         if (g_AddListSuitAddr) DisableAndRemoveHook(g_AddListSuitAddr);
         g_AddListSuitAddr = nullptr;

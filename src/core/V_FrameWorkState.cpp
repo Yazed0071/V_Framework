@@ -68,6 +68,7 @@ namespace V_FrameWorkState
 
         static State g_State;
         static std::mutex g_Mutex;
+        static std::vector<std::int32_t> g_PendingDevelopedResets;
         static int g_BatchDepth = 0;
         static std::unordered_set<std::int16_t> g_TapeSaveIndexInUse;
 
@@ -671,6 +672,15 @@ namespace V_FrameWorkState
         SaveToDisk_NoLock();
 
         return true;
+    }
+
+    std::int32_t GetDevelopIdByKey(const char* key)
+    {
+        if (!key || !key[0]) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        auto it = g_State.equips.find(key);
+        return (it != g_State.equips.end()) ? it->second.developId : 0;
     }
 
     std::vector<std::int32_t> TakePendingDevelopedResets()
