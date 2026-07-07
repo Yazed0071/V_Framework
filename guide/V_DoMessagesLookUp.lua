@@ -30,6 +30,7 @@ this.DEBUG_strCode32List={
   "OnPlayerLockPickEnd",
   "Subtitles",
   "SubtitlesEventMessage",
+  "BarrierDamage",
 }
 
 this.CassettePlay={
@@ -190,6 +191,11 @@ this.signatureTypes={
   SubtitlesEventMessage={
     {argName="message",argType="str32"},
   },
+  BarrierDamage={
+    {argName="playerIndex",argType="number"},
+    {argName="previousHealth",argType="number"},
+    {argName="currentHealth",argType="number"},
+  },
 }
 
 this.messageSignatures={
@@ -206,6 +212,7 @@ this.messageSignatures={
     OffBinocularsMode=this.signatureTypes.OffBinocularsMode,
     OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart,
     OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd,
+    BarrierDamage=this.signatureTypes.BarrierDamage,
   },
 
   UI={
@@ -441,6 +448,7 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
   InfLookup.signatureTypes.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
   InfLookup.signatureTypes.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
+  InfLookup.signatureTypes.BarrierDamage=this.signatureTypes.BarrierDamage
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -458,6 +466,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Player.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
   InfLookup.messageSignatures.Player.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
   InfLookup.messageSignatures.Player.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
+  InfLookup.messageSignatures.Player.BarrierDamage=this.signatureTypes.BarrierDamage
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart
