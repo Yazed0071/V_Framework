@@ -20,6 +20,8 @@ namespace
         { "ClearPlayerVoiceFpkPathForType",           l_ClearPlayerVoiceFpkPathForType },
         { "ClearAllPlayerVoiceFpkOverrides",          l_ClearAllPlayerVoiceFpkOverrides },
 
+        { "IsBarrierActive",                          l_IsBarrierActive },
+
         { "RegisterOutfit",                           l_RegisterOutfit },
         { "RegisterHeadOption",                       l_RegisterHeadOption },
 

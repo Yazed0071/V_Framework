@@ -38,6 +38,12 @@ namespace
     using LoadPlayerSnakeFace_t = std::uint64_t* (__fastcall*)(
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerFaceId, char playerFaceEquipId);
+    using LoadAvatarFace_t = std::uint64_t* (__fastcall*)(
+        std::uint64_t* outPath, std::uint32_t avatarFaceA, std::uint32_t avatarFaceB);
+    using LoadAvatarHeadOption_t = std::uint64_t* (__fastcall*)(
+        std::uint64_t* outPath, std::uint32_t faceEquipId);
+    using AvatarFaceEditUpdate_t = void (__fastcall*)(
+        void* self, void* blockGroup, std::uint32_t blockIndex);
 
     struct LoadPartsPlayerInfo
     {
@@ -96,6 +102,11 @@ namespace
     static LoadPlayerBionicArm_t                g_OrigLoadBionicArmFpk               = nullptr;
     static LoadPlayerSnakeFace_t                g_OrigLoadSnakeFaceFv2               = nullptr;
     static LoadPlayerSnakeFace_t                g_OrigLoadSnakeFaceFpk               = nullptr;
+    static LoadAvatarFace_t                     g_OrigLoadAvatarFaceFv2              = nullptr;
+    static LoadAvatarFace_t                     g_OrigLoadAvatarFaceFpk              = nullptr;
+    static LoadAvatarHeadOption_t               g_OrigLoadAvatarHeadOptionFv2        = nullptr;
+    static LoadAvatarHeadOption_t               g_OrigLoadAvatarHeadOptionFpk        = nullptr;
+    static AvatarFaceEditUpdate_t               g_OrigAvatarFaceEditUpdate           = nullptr;
     static LoadPartsNew_t                       g_OrigLoadPartsNew                   = nullptr;
     static DoesNeedFaceFova_t                   g_OrigDoesNeedFaceFova               = nullptr;
     static DoesNeedFaceFova_t                   g_OrigDoesNeedFaceFovaForAvatar      = nullptr;
@@ -118,6 +129,11 @@ namespace
     static bool g_InstalledBionicArmFpk          = false;
     static bool g_InstalledSnakeFaceFv2          = false;
     static bool g_InstalledSnakeFaceFpk          = false;
+    static bool g_InstalledAvatarFaceFv2         = false;
+    static bool g_InstalledAvatarFaceFpk         = false;
+    static bool g_InstalledAvatarHeadOptionFv2   = false;
+    static bool g_InstalledAvatarHeadOptionFpk   = false;
+    static bool g_InstalledAvatarFaceEdit        = false;
     static bool g_InstalledLpn                   = false;
     static bool g_InstalledDoesNeedFace          = false;
     static bool g_InstalledDoesNeedFaceForAvatar = false;
@@ -131,6 +147,38 @@ namespace
     static bool g_InstalledPartsAtCamo           = false;
 
     static void* g_CapturedBlockController = nullptr;
+
+    static thread_local std::uint8_t t_ActiveCustomFaceSlot = 0;
+
+    static std::atomic<std::uint8_t> g_LastCustomFaceSlot{ 0 };
+
+    static std::atomic<void*>         g_AvatarHideBc{ nullptr };
+    static std::atomic<std::uint32_t> g_AvatarHideSlotMask{ 0 };
+
+    static const outfit::CustomHeadEntry* ResolveAvatarCustomHead();
+
+    static bool ResolveImplBcAndSlot(void* outerSelf, std::uint32_t outerSlot,
+                                     void** outImpl, std::uint32_t* outSlot)
+    {
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(outerSelf);
+            void* impl = *reinterpret_cast<void**>(base + 0x10);
+            if (!impl) return false;
+            const std::uint32_t pivot =
+                *reinterpret_cast<std::uint32_t*>(base + 0x18);
+            std::uint32_t implSlot = outerSlot;
+            if (outerSlot == pivot)     implSlot = 0;
+            else if (outerSlot < pivot) implSlot = outerSlot + 1;
+            *outImpl = impl;
+            *outSlot = implSlot;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 
     static bool         g_CaseDArmUnpinActive = false;
     static void*        g_CaseDTrampoline     = nullptr;
@@ -181,7 +229,7 @@ namespace
         __try { ok = (std::memcmp(reinterpret_cast<void*>(site), kExpect, 9) == 0); }
         __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
         if (!ok)
-        { Log("[CaseDArmUnpin] site bytes mismatch @%p — build differs, skip\n",
+        { Log("[CaseDArmUnpin] site bytes mismatch @%p - build differs, skip\n",
               reinterpret_cast<void*>(site)); return false; }
 
         std::uint8_t* tr = reinterpret_cast<std::uint8_t*>(AllocExecNear(site, 0x100));
@@ -241,7 +289,7 @@ namespace
 #ifdef _DEBUG
         Log("[CaseDArmUnpin] installed: site=%p tramp=%p armTable=%p (arm-enabled "
             "custom partsType decodes the REAL tier; enableArm=false routes to the "
-            "engine's own armless path — tier 0, hand slot off, flesh knock)\n",
+            "engine's own armless path - tier 0, hand slot off, flesh knock)\n",
             reinterpret_cast<void*>(site), tr, tr + 0x80);
 #endif
         return true;
@@ -379,7 +427,7 @@ namespace
                 if (ShouldFallBackOnMissingAsset(path))
                 {
                     Log("[OutfitRuntimeParts] BRICK-GUARD: custom .parts asset "
-                        "missing (code=0x%016llX pt=%u) — loading vanilla\n",
+                        "missing (code=0x%016llX pt=%u) - loading vanilla\n",
                         static_cast<unsigned long long>(path),
                         static_cast<unsigned>(playerType));
                     return g_OrigLoadPartsParts(outPath, playerType,
@@ -408,7 +456,7 @@ namespace
                 if (ShouldFallBackOnMissingAsset(path))
                 {
                     Log("[OutfitRuntimeParts] BRICK-GUARD: custom .fpk asset "
-                        "missing (code=0x%016llX pt=%u) — loading vanilla\n",
+                        "missing (code=0x%016llX pt=%u) - loading vanilla\n",
                         static_cast<unsigned long long>(path),
                         static_cast<unsigned>(playerType));
                     return g_OrigLoadPartsFpk(outPath, playerType,
@@ -428,7 +476,7 @@ namespace
         {
             s_log.store(n + 1, std::memory_order_relaxed);
             Log("[OutfitRuntimeParts] CAMO-CLAMP: out-of-table camo 0x%02X on a "
-                "vanilla realize — clamping to 0 (vanilla camo path table has "
+                "vanilla realize - clamping to 0 (vanilla camo path table has "
                 "0x75 entries, unbounded in the engine; prevents fatal load)\n",
                 camo);
         }
@@ -445,6 +493,7 @@ namespace
         if (ResolveCustomEntry(playerType, effectivePartsType, &entry))
         {
             const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
+
             const std::uint8_t v = entry->HasVariants()
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
             const std::uint64_t camo = entry->GetVariantCamoFpk(pt, v);
@@ -456,6 +505,7 @@ namespace
             }
             return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
+
         return g_OrigLoadCamoFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -495,6 +545,7 @@ namespace
         if (ResolveCustomEntry(playerType, effectivePartsType, &entry))
         {
             const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
+
             const std::uint8_t v = entry->HasVariants()
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
             const std::uint64_t camo = entry->GetVariantCamoFv2(pt, v);
@@ -507,6 +558,7 @@ namespace
             if (camo == outfit::kSubAssetDisabled)
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
+
         return g_OrigLoadCamoFv2(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -594,9 +646,64 @@ namespace
         {
             if (!entry->IsHeadEnabled(pt))
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
-            return g_OrigLoadSnakeFaceFv2(outPath, playerType,
+
+            const outfit::CustomHeadEntry* head =
+                outfit::TryGetCustomHeadBySlot(static_cast<std::uint8_t>(playerFaceEquipId));
+            if (!head)
+                head = outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
+            if (!head)
+                head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
+            if (!head)
+            {
+                if (const std::uint16_t worn = outfit::GetCurrentWornHeadEquipId(); worn != 0)
+                    head = outfit::TryGetCustomHeadByEquipId(worn);
+            }
+
+#ifdef _DEBUG
+            {
+                static int s_snakeHeadDiag = 0;
+                if (s_snakeHeadDiag < 24)
+                {
+                    ++s_snakeHeadDiag;
+                    Log("[SnakeHead] Fv2 hook: pt=%u faceEquipId=0x%02X activeSlot=0x%02X "
+                        "-> resolved '%s' (fv2Code=0x%016llX)\n",
+                        static_cast<unsigned>(pt),
+                        static_cast<unsigned>(static_cast<std::uint8_t>(playerFaceEquipId)),
+                        static_cast<unsigned>(t_ActiveCustomFaceSlot),
+                        head ? head->name : "(none)",
+                        head ? static_cast<unsigned long long>(head->faceFv2Code[pt]) : 0ull);
+                }
+            }
+#endif
+
+            if (head && pt < outfit::kPlayerTypeMax)
+            {
+                std::uint64_t code = head->faceFv2Code[pt];
+                if (pt == outfit::kPlayerType_Snake)
+                    if (const std::uint64_t st = outfit::GetCustomHeadSnakeStageFv2(
+                            head->name, playerFaceId); st != 0)
+                        code = st;
+                if (code != 0)
+                    return WriteFoxPath(outPath, code);
+            }
+
+            std::uint64_t* origFv2 = g_OrigLoadSnakeFaceFv2(outPath, playerType,
                                           kBionicArmVanillaPartsTypeSubstitute,
                                           playerFaceId, playerFaceEquipId);
+#ifdef _DEBUG
+            {
+                static int s_fv2OrigDiag = 0;
+                if (s_fv2OrigDiag < 12)
+                {
+                    ++s_fv2OrigDiag;
+                    Log("[SnakeHead] Fv2 ORIG: faceEquipId=0x%02X faceId=%u -> code=0x%016llX\n",
+                        static_cast<unsigned>(static_cast<std::uint8_t>(playerFaceEquipId)),
+                        static_cast<unsigned>(playerFaceId),
+                        origFv2 ? static_cast<unsigned long long>(origFv2[0]) : 0ull);
+                }
+            }
+#endif
+            return origFv2;
         }
         return g_OrigLoadSnakeFaceFv2(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                       playerFaceId, playerFaceEquipId);
@@ -613,12 +720,214 @@ namespace
         {
             if (!entry->IsHeadEnabled(pt))
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
-            return g_OrigLoadSnakeFaceFpk(outPath, playerType,
+
+
+            const std::uint8_t activeSlot = t_ActiveCustomFaceSlot;
+            const outfit::CustomHeadEntry* head =
+                outfit::TryGetCustomHeadBySlot(activeSlot);
+            if (!head)
+                head = outfit::TryGetCustomHeadBySlot(
+                    static_cast<std::uint8_t>(playerFaceEquipId));
+            if (!head)
+                head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
+            if (!head)
+            {
+                if (const std::uint16_t worn = outfit::GetCurrentWornHeadEquipId(); worn != 0)
+                    head = outfit::TryGetCustomHeadByEquipId(worn);
+            }
+
+#ifdef _DEBUG
+            {
+                static int s_snakeHeadFpkDiag = 0;
+                if (s_snakeHeadFpkDiag < 24)
+                {
+                    ++s_snakeHeadFpkDiag;
+                    Log("[SnakeHead] Fpk hook: pt=%u faceEquipId=0x%02X activeSlot=0x%02X "
+                        "-> resolved '%s' (fpkCode=0x%016llX)\n",
+                        static_cast<unsigned>(pt),
+                        static_cast<unsigned>(static_cast<std::uint8_t>(playerFaceEquipId)),
+                        static_cast<unsigned>(activeSlot),
+                        head ? head->name : "(none)",
+                        head ? static_cast<unsigned long long>(head->faceFpkCode[pt]) : 0ull);
+                }
+            }
+#endif
+
+            if (head && pt < outfit::kPlayerTypeMax)
+            {
+                std::uint64_t code = head->faceFpkCode[pt];
+                if (pt == outfit::kPlayerType_Snake)
+                    if (const std::uint64_t st = outfit::GetCustomHeadSnakeStageFpk(
+                            head->name, playerFaceId); st != 0)
+                        code = st;
+                if (code != 0)
+                    return WriteFoxPath(outPath, code);
+            }
+
+            std::uint64_t* origFpk = g_OrigLoadSnakeFaceFpk(outPath, playerType,
                                           kBionicArmVanillaPartsTypeSubstitute,
                                           playerFaceId, playerFaceEquipId);
+#ifdef _DEBUG
+            {
+                static int s_fpkOrigDiag = 0;
+                if (s_fpkOrigDiag < 12)
+                {
+                    ++s_fpkOrigDiag;
+                    Log("[SnakeHead] Fpk ORIG: faceEquipId=0x%02X faceId=%u -> code=0x%016llX\n",
+                        static_cast<unsigned>(static_cast<std::uint8_t>(playerFaceEquipId)),
+                        static_cast<unsigned>(playerFaceId),
+                        origFpk ? static_cast<unsigned long long>(origFpk[0]) : 0ull);
+                }
+            }
+#endif
+            return origFpk;
         }
         return g_OrigLoadSnakeFaceFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                       playerFaceId, playerFaceEquipId);
+    }
+
+    using FoxModelFromHandle_t = long long (__fastcall*)(long long handle,
+                                                         std::uint32_t idx);
+    static FoxModelFromHandle_t g_FoxModelFromHandle = nullptr;
+    constexpr std::uint32_t kFoxModelHidden  = 0xFFFFFFFFu;
+
+    static const outfit::CustomHeadEntry* ResolveAvatarCustomHead()
+    {
+        if (!g_InstalledAvatarHeadOptionFv2 || !g_InstalledAvatarHeadOptionFpk)
+            return nullptr;
+
+        const outfit::CustomHeadEntry* head =
+            outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
+        if (!head)
+            head = outfit::TryGetCustomHeadBySlot(
+                g_LastCustomFaceSlot.load(std::memory_order_relaxed));
+
+        if (head
+            && (head->faceFv2Code[outfit::kPlayerType_Avatar] == 0
+                || head->faceFpkCode[outfit::kPlayerType_Avatar] == 0))
+            return nullptr;
+        return head;
+    }
+
+    static std::uint64_t* __fastcall hkLoadAvatarFaceFv2(
+        std::uint64_t* outPath, std::uint32_t avatarFaceA, std::uint32_t avatarFaceB)
+    {
+        return g_OrigLoadAvatarFaceFv2(outPath, avatarFaceA, avatarFaceB);
+    }
+
+    static std::uint64_t* __fastcall hkLoadAvatarFaceFpk(
+        std::uint64_t* outPath, std::uint32_t avatarFaceA, std::uint32_t avatarFaceB)
+    {
+        return g_OrigLoadAvatarFaceFpk(outPath, avatarFaceA, avatarFaceB);
+    }
+
+    static std::uint64_t* __fastcall hkLoadAvatarHeadOptionFv2(
+        std::uint64_t* outPath, std::uint32_t faceId)
+    {
+        if (const outfit::CustomHeadEntry* head = ResolveAvatarCustomHead())
+        {
+#ifdef _DEBUG
+            static int s_diag = 0;
+            if (s_diag < 8)
+            {
+                ++s_diag;
+                Log("[SnakeHead] HeadOptionFv2 hook: avatar head '%s' replaces "
+                    "the headwear fova (faceId=%u, fv2Code=0x%016llX)\n",
+                    head->name, faceId,
+                    static_cast<unsigned long long>(
+                        head->faceFv2Code[outfit::kPlayerType_Avatar]));
+            }
+#endif
+            return WriteFoxPath(outPath,
+                head->faceFv2Code[outfit::kPlayerType_Avatar]);
+        }
+        return g_OrigLoadAvatarHeadOptionFv2(outPath, faceId);
+    }
+
+    static std::uint64_t* __fastcall hkLoadAvatarHeadOptionFpk(
+        std::uint64_t* outPath, std::uint32_t faceId)
+    {
+        if (const outfit::CustomHeadEntry* head = ResolveAvatarCustomHead())
+        {
+#ifdef _DEBUG
+            static int s_diag = 0;
+            if (s_diag < 8)
+            {
+                ++s_diag;
+                Log("[SnakeHead] HeadOptionFpk hook: avatar head '%s' pack "
+                    "mounted in the head-option slot (fpkCode=0x%016llX)\n",
+                    head->name,
+                    static_cast<unsigned long long>(
+                        head->faceFpkCode[outfit::kPlayerType_Avatar]));
+            }
+#endif
+            return WriteFoxPath(outPath,
+                head->faceFpkCode[outfit::kPlayerType_Avatar]);
+        }
+        return g_OrigLoadAvatarHeadOptionFpk(outPath, faceId);
+    }
+
+    static void __fastcall hkAvatarFaceEditUpdate(
+        void* self, void* blockGroup, std::uint32_t blockIndex)
+    {
+        if (g_OrigAvatarFaceEditUpdate)
+            g_OrigAvatarFaceEditUpdate(self, blockGroup, blockIndex);
+    }
+
+    static void HideAvatarCreatorFacesPerFrame()
+    {
+        void* bcv = g_AvatarHideBc.load(std::memory_order_relaxed);
+        const std::uint32_t mask =
+            g_AvatarHideSlotMask.load(std::memory_order_relaxed);
+        if (!bcv || mask == 0 || !g_FoxModelFromHandle)
+            return;
+        if (ResolveAvatarCustomHead() == nullptr)
+            return;
+
+        __try
+        {
+            auto* bc = reinterpret_cast<std::uint8_t*>(bcv);
+            for (std::uint32_t i = 0; i < 32; ++i)
+            {
+                if ((mask & (1u << i)) == 0)
+                    continue;
+
+                const std::uint32_t seqState =
+                    *reinterpret_cast<std::uint32_t*>(bc + 0x10c0 + i * 4);
+#ifdef _DEBUG
+                {
+                    static std::uint32_t s_lastState[32] = {};
+                    if (s_lastState[i] != seqState + 1)
+                    {
+                        s_lastState[i] = seqState + 1;
+                        Log("[SnakeHead] hide gate: bcSlot=%u seqState=%u "
+                            "armFlag=%u (hide fires on 1 or 3)\n",
+                            i, seqState,
+                            *reinterpret_cast<std::uint32_t*>(bc + 0x1080 + i * 4));
+                    }
+                }
+#endif
+                if (seqState != 3u && seqState != 1u)
+                    continue;
+                long long controller =
+                    reinterpret_cast<long long>(bc + 0x228 + i * 0x98);
+                long long handle = *reinterpret_cast<long long*>(controller + 0x60);
+                if (!handle) continue;
+                long long model = g_FoxModelFromHandle(handle, 0);
+                if (!model) continue;
+                *reinterpret_cast<std::uint32_t*>(model + 0x1a4) = kFoxModelHidden;
+#ifdef _DEBUG
+                static int s_hideDiag = 0;
+                if (s_hideDiag < 4)
+                {
+                    ++s_hideDiag;
+                    Log("[SnakeHead] creator face hidden (bcSlot %u, custom "
+                        "head worn)\n", i);
+                }
+#endif
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
 
@@ -842,7 +1151,7 @@ namespace
                                     Log("[OutfitRuntimeParts] camo/partsType "
                                         "collision guard: slot=%zu partsType=0x%02X "
                                         "camo=0x%02X ply=%u (vanilla camo in custom "
-                                        "partsType range) — not a real custom slot, "
+                                        "partsType range) - not a real custom slot, "
                                         "skipping to prevent mis-resolve hang\n",
                                         i, static_cast<unsigned>(pt),
                                         static_cast<unsigned>(camo),
@@ -910,6 +1219,8 @@ namespace
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
+
+        HideAvatarCreatorFacesPerFrame();
     }
 
 
@@ -972,7 +1283,8 @@ namespace
                     ResolveGameAddress(gAddr.SupplyCboxActionPluginImpl_StateInBox));
                 const bool fromCratePickup =
                     stateInBox != 0 && ra >= stateInBox && ra < stateInBox + 0xB90;
-                if (fromCratePickup)
+                const bool activate = fromCratePickup || variantIdx != 0;
+                if (activate)
                     outfit::SetActiveVariant(entry->partsType, variantIdx);
 #ifdef _DEBUG
                 static std::atomic<int> s_log{0};
@@ -987,14 +1299,15 @@ namespace
                         static_cast<unsigned>(entry->partsType),
                         static_cast<unsigned>(entry->developId),
                         static_cast<unsigned>(variantIdx),
-                        fromCratePickup ? "ACTIVATED (crate pickup)"
-                                        : "resolved only (non-crate caller)");
+                        activate ? "ACTIVATED variant"
+                                 : "resolved only (base, deferred to active)");
                 }
 #endif
                 return entry->partsType;
             }
+
             Log("[OutfitRuntimeParts] SupplyCbox camo->partsType: custom camo "
-                "0x%02X UNRESOLVED — leaving vanilla 0 (dangling guard will "
+                "0x%02X UNRESOLVED - leaving vanilla 0 (dangling guard will "
                 "degrade to vanilla suit, no hang)\n", camo);
         }
 
@@ -1040,12 +1353,14 @@ namespace
                     && entry
                     && entry->IsPlayerTypeSupported(info->playerType))
                 {
+                    const std::uint8_t persistSel =
+                        entry->GetVariantSelectorCode(variantIdx);
                     info->playerPartsType = entry->partsType;
-                    info->playerCamoType  = entry->selectorCode;
+                    info->playerCamoType  = persistSel;
                     outfit::SetActiveVariant(entry->partsType, variantIdx);
                     if (isRealPlayerSlot)
                         outfit::WriteLivePlayerOutfit(entry->partsType,
-                                                      entry->selectorCode,
+                                                      persistSel,
                                                       info->playerType);
                     feedShadow(entry, variantIdx);
                     outfit::ClearPendingOutfitDevelopId();
@@ -1062,21 +1377,25 @@ namespace
                     && outfit::TryGetOutfitByDevelopId(pendingDevId, &byPending) && byPending
                     && byPending->IsPlayerTypeSupported(info->playerType))
                 {
+                    const std::uint8_t pendVar = byPending->HasVariants()
+                        ? outfit::GetActiveVariant(byPending->partsType)
+                        : std::uint8_t{0};
+                    const std::uint8_t persistSel =
+                        byPending->GetVariantSelectorCode(pendVar);
                     info->playerPartsType = byPending->partsType;
-                    info->playerCamoType  = byPending->selectorCode;
+                    info->playerCamoType  = persistSel;
                     if (isRealPlayerSlot)
                         outfit::WriteLivePlayerOutfit(byPending->partsType,
-                                                      byPending->selectorCode,
+                                                      persistSel,
                                                       info->playerType);
-                    feedShadow(byPending, byPending->HasVariants()
-                                          ? outfit::GetActiveVariant(byPending->partsType) : 0);
+                    feedShadow(byPending, pendVar);
                     outfit::ClearPendingOutfitDevelopId();
                 }
                 else
                 {
                     Log("[OutfitRuntimeParts] BRICK-GUARD: broken-custom signal "
                         "(partsType=0 camo=0xFF) with no pending developId "
-                        "(pt=%u) — healing to vanilla NORMAL (0x01), no hang\n",
+                        "(pt=%u) - healing to vanilla NORMAL (0x01), no hang\n",
                         static_cast<unsigned>(info->playerType));
                     info->playerPartsType    = kBionicArmVanillaPartsTypeSubstitute;
                     info->playerCamoType     = 0;
@@ -1104,8 +1423,8 @@ namespace
                     && mixEntry
                     && mixEntry->IsPlayerTypeSupported(info->playerType))
                 {
-                    Log("[OutfitRuntimeParts] MIX-REINTERPRET: vanilla "
-                        "partsType=0x%02X + custom camo=0x%02X (pt=%u) — "
+                    LogDebug("[OutfitRuntimeParts] MIX-REINTERPRET: vanilla "
+                        "partsType=0x%02X + custom camo=0x%02X (pt=%u) - "
                         "persisted mixed pair; reinterpreting as custom outfit "
                         "developId=%u partsType=0x%02X variantIdx=%u\n",
                         static_cast<unsigned>(info->playerPartsType),
@@ -1114,12 +1433,14 @@ namespace
                         static_cast<unsigned>(mixEntry->developId),
                         static_cast<unsigned>(mixEntry->partsType),
                         static_cast<unsigned>(variantIdx));
+                    const std::uint8_t persistSel =
+                        mixEntry->GetVariantSelectorCode(variantIdx);
                     info->playerPartsType = mixEntry->partsType;
-                    info->playerCamoType  = mixEntry->selectorCode;
+                    info->playerCamoType  = persistSel;
                     outfit::SetActiveVariant(mixEntry->partsType, variantIdx);
                     if (isRealPlayerSlot)
                         outfit::WriteLivePlayerOutfit(mixEntry->partsType,
-                                                      mixEntry->selectorCode,
+                                                      persistSel,
                                                       info->playerType);
                     feedShadow(mixEntry, variantIdx);
                     outfit::ClearPendingOutfitDevelopId();
@@ -1155,7 +1476,7 @@ namespace
             {
                 Log("[OutfitRuntimeParts] BRICK-GUARD: resolved custom outfit "
                     "developId=%u partsType=0x%02X has a BAD asset path "
-                    "(parts=%s fpk=%s; pt=%u; evidence=%s) — degrading to "
+                    "(parts=%s fpk=%s; pt=%u; evidence=%s) - degrading to "
                     "vanilla NORMAL (0x01) to prevent infinite load\n",
                     static_cast<unsigned>(entry->developId),
                     static_cast<unsigned>(entry->partsType),
@@ -1181,8 +1502,10 @@ namespace
         {
             const std::uint8_t pt  = info->playerPartsType;
             const std::uint8_t sel = info->playerCamoType;
-            const bool danglingPT =
+            const bool ptIsCustomRange =
                 pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd;
+
+            const bool danglingPT = ptIsCustomRange;
             const bool danglingSel =
                 sel >= outfit::kCustomSelectorStart && sel <= outfit::kCustomSelectorEnd;
             if (danglingPT || danglingSel)
@@ -1191,7 +1514,7 @@ namespace
                     (!danglingPT && pt != 0)
                         ? pt : kBionicArmVanillaPartsTypeSubstitute;
                 Log("[OutfitRuntimeParts] BRICK-GUARD: unresolved custom suit "
-                    "partsType=0x%02X selector=0x%02X (pt=%u) — healing to "
+                    "partsType=0x%02X selector=0x%02X (pt=%u) - healing to "
                     "vanilla partsType=0x%02X / camo=0 / faceEquip=0x00 to "
                     "prevent infinite load\n",
                     static_cast<unsigned>(pt), static_cast<unsigned>(sel),
@@ -1246,8 +1569,9 @@ namespace
             {
                 const outfit::CustomHeadEntry* h =
                     outfit::TryGetCustomHeadBySlot(wornHead);
-                const bool offered = isCustom && entry && h
-                    && entry->HasHeadOptionAnyVariant(h->equipId, info->playerType);
+                const bool offered = h && isCustom && entry
+                    && entry->HasHeadOptionAnyVariant(h->equipId,
+                                                      info->playerType);
                 if (!offered)
                 {
                     info->playerFaceEquipId  = 0;
@@ -1271,6 +1595,53 @@ namespace
 
         if (info->playerArmType != 0)
             outfit::shadow::SetArmTier(info->playerType, info->playerArmType);
+
+        t_ActiveCustomFaceSlot = 0;
+        if (info->playerType == outfit::kPlayerType_Snake
+            || info->playerType == outfit::kPlayerType_Avatar)
+        {
+            if (info->playerFaceEquipId >= outfit::kCustomHeadSlotBase
+                && outfit::IsCustomHeadSlot(info->playerFaceEquipId))
+            {
+#ifdef _DEBUG
+                Log("[SnakeHead] LoadPartsNew: normalized custom head faceEquipId "
+                    "0x%02X -> 0x01 (bandana variation) for pt=%u; real slot kept "
+                    "for the face hooks\n",
+                    static_cast<unsigned>(info->playerFaceEquipId),
+                    static_cast<unsigned>(info->playerType));
+#endif
+                t_ActiveCustomFaceSlot = info->playerFaceEquipId;
+                g_LastCustomFaceSlot.store(info->playerFaceEquipId,
+                                           std::memory_order_relaxed);
+                info->playerFaceEquipId = 1;
+            }
+            else
+            {
+                g_LastCustomFaceSlot.store(0, std::memory_order_relaxed);
+            }
+
+            constexpr bool kHideAvatarCreatorFace = false;
+            if (info->playerType == outfit::kPlayerType_Avatar)
+            {
+                void* implBc = nullptr;
+                std::uint32_t implSlot = 0;
+                if (ResolveImplBcAndSlot(self, playerIndex, &implBc, &implSlot)
+                    && implSlot < 32)
+                {
+                    if (kHideAvatarCreatorFace && t_ActiveCustomFaceSlot != 0)
+                    {
+                        g_AvatarHideBc.store(implBc, std::memory_order_relaxed);
+                        g_AvatarHideSlotMask.fetch_or(1u << implSlot,
+                                                      std::memory_order_relaxed);
+                    }
+                    else
+                    {
+                        g_AvatarHideSlotMask.fetch_and(~(1u << implSlot),
+                                                       std::memory_order_relaxed);
+                    }
+                }
+            }
+        }
 
         const bool             spoofPartsType = isCustom && entry;
         const std::uint8_t     origPartsType  = info->playerPartsType;
@@ -1302,6 +1673,8 @@ namespace
         }
 
         g_OrigLoadPartsNew(self, playerIndex, info, flags);
+
+        t_ActiveCustomFaceSlot = 0;
 
         if (spoofPartsType)
         {
@@ -1348,7 +1721,7 @@ namespace outfit
             const std::uint32_t n = s_skips.fetch_add(1) + 1;
             if (n <= 8 || (n % 256) == 0)
                 Log("[OutfitFacialGuard] skipped facial apply with a wild AnimControl "
-                    "binding (self=%p skip#%u) — prevented SetMotionDataCore AV from a "
+                    "binding (self=%p skip#%u) - prevented SetMotionDataCore AV from a "
                     "custom-outfit identity mismatch; face left unchanged (never-brick).\n",
                     self, static_cast<unsigned>(n));
             return;
@@ -1426,11 +1799,29 @@ namespace outfit
             { ResolveGameAddress(gAddr.PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType),
               reinterpret_cast<void*>(&hkGetPartsTypeAtCamoType),
               reinterpret_cast<void**>(&g_OrigGetPartsTypeAtCamoType), &g_InstalledPartsAtCamo },
+            { ResolveGameAddress(gAddr.LoadAvatarFaceFv2),
+              reinterpret_cast<void*>(&hkLoadAvatarFaceFv2),
+              reinterpret_cast<void**>(&g_OrigLoadAvatarFaceFv2), &g_InstalledAvatarFaceFv2 },
+            { ResolveGameAddress(gAddr.LoadAvatarFaceFpk),
+              reinterpret_cast<void*>(&hkLoadAvatarFaceFpk),
+              reinterpret_cast<void**>(&g_OrigLoadAvatarFaceFpk), &g_InstalledAvatarFaceFpk },
+            { ResolveGameAddress(gAddr.AvatarFaceEditUpdate),
+              reinterpret_cast<void*>(&hkAvatarFaceEditUpdate),
+              reinterpret_cast<void**>(&g_OrigAvatarFaceEditUpdate), &g_InstalledAvatarFaceEdit },
+            { ResolveGameAddress(gAddr.LoadAvatarHeadOptionFv2),
+              reinterpret_cast<void*>(&hkLoadAvatarHeadOptionFv2),
+              reinterpret_cast<void**>(&g_OrigLoadAvatarHeadOptionFv2), &g_InstalledAvatarHeadOptionFv2 },
+            { ResolveGameAddress(gAddr.LoadAvatarHeadOptionFpk),
+              reinterpret_cast<void*>(&hkLoadAvatarHeadOptionFpk),
+              reinterpret_cast<void**>(&g_OrigLoadAvatarHeadOptionFpk), &g_InstalledAvatarHeadOptionFpk },
         };
         for (auto& h : hooks)
         {
             if (h.tgt) *h.installed = CreateAndEnableHook(h.tgt, h.hk, h.orig);
         }
+
+        g_FoxModelFromHandle = reinterpret_cast<FoxModelFromHandle_t>(
+            ResolveGameAddress(gAddr.Fox_ModelFromHandle));
 
         if (g_InstalledUpdatePartsStatus)
             InstallCaseDArmUnpin();
@@ -1439,6 +1830,8 @@ namespace outfit
         Log("[OutfitRuntimeParts] installed: parts=%s fpk=%s camo=%s diamond=%s "
             "camoFv2=%s diamondFv2=%s "
             "bionicArmFv2=%s bionicArmFpk=%s snakeFaceFv2=%s snakeFaceFpk=%s "
+            "avatarFaceFv2=%s avatarFaceFpk=%s avatarFaceEdit=%s "
+            "avatarHeadOptFv2=%s avatarHeadOptFpk=%s "
             "lpn=%s doesNeedFace=%s doesNeedFaceAvatar=%s setHandSlotEnabled=%s "
             "isArtificialHandEnabled=%s isArtHandForCurrent=%s processSignal=%s "
             "updatePartsStatus=%s setUpParts=%s facialCrashGuard=%s "
@@ -1453,6 +1846,11 @@ namespace outfit
             g_InstalledBionicArmFpk          ? "OK" : "skip",
             g_InstalledSnakeFaceFv2          ? "OK" : "skip",
             g_InstalledSnakeFaceFpk          ? "OK" : "skip",
+            g_InstalledAvatarFaceFv2         ? "OK" : "skip",
+            g_InstalledAvatarFaceFpk         ? "OK" : "skip",
+            g_InstalledAvatarFaceEdit        ? "OK" : "skip",
+            g_InstalledAvatarHeadOptionFv2   ? "OK" : "skip",
+            g_InstalledAvatarHeadOptionFpk   ? "OK" : "skip",
             g_InstalledLpn                   ? "OK" : "skip",
             g_InstalledDoesNeedFace          ? "OK" : "skip",
             g_InstalledDoesNeedFaceForAvatar ? "OK" : "skip",
@@ -1485,6 +1883,11 @@ namespace outfit
             { &g_InstalledBionicArmFpk,          ResolveGameAddress(gAddr.LoadPlayerBionicArmFpk) },
             { &g_InstalledSnakeFaceFv2,          ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFv2) },
             { &g_InstalledSnakeFaceFpk,          ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFpk) },
+            { &g_InstalledAvatarFaceFv2,         ResolveGameAddress(gAddr.LoadAvatarFaceFv2) },
+            { &g_InstalledAvatarFaceFpk,         ResolveGameAddress(gAddr.LoadAvatarFaceFpk) },
+            { &g_InstalledAvatarFaceEdit,        ResolveGameAddress(gAddr.AvatarFaceEditUpdate) },
+            { &g_InstalledAvatarHeadOptionFv2,   ResolveGameAddress(gAddr.LoadAvatarHeadOptionFv2) },
+            { &g_InstalledAvatarHeadOptionFpk,   ResolveGameAddress(gAddr.LoadAvatarHeadOptionFpk) },
             { &g_InstalledLpn,                   ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew) },
             { &g_InstalledDoesNeedFace,          ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFova) },
             { &g_InstalledDoesNeedFaceForAvatar, ResolveGameAddress(gAddr.ResourceTable_DoesNeedFaceFovaForAvatar) },
@@ -1513,6 +1916,12 @@ namespace outfit
         g_OrigLoadBionicArmFpk          = nullptr;
         g_OrigLoadSnakeFaceFv2          = nullptr;
         g_OrigLoadSnakeFaceFpk          = nullptr;
+        g_OrigLoadAvatarFaceFv2         = nullptr;
+        g_OrigLoadAvatarFaceFpk         = nullptr;
+        g_OrigLoadAvatarHeadOptionFv2   = nullptr;
+        g_OrigLoadAvatarHeadOptionFpk   = nullptr;
+        g_OrigAvatarFaceEditUpdate      = nullptr;
+        g_FoxModelFromHandle            = nullptr;
         g_OrigLoadPartsNew              = nullptr;
         g_OrigDoesNeedFaceFova          = nullptr;
         g_OrigDoesNeedFaceFovaForAvatar = nullptr;

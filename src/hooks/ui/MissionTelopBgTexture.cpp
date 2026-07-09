@@ -9,6 +9,7 @@
 #include "FoxHashes.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -126,6 +127,8 @@ namespace
 
     static void __fastcall hk_SetTextureName(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigSetTextureName, node, textureHash, slotHash, type);
+
         std::uint64_t mainTex = 0;
         if (textureHash == VANILLA_TELOP_BG &&
             g_InTelop.load(std::memory_order_relaxed) && g_Override.load(std::memory_order_relaxed))
@@ -153,6 +156,8 @@ namespace
 
     static void __fastcall hk_SetBgTexture(void* self)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigSetBgTexture, self);
+
         g_InTelop.store(true, std::memory_order_relaxed);
         if (g_OrigSetBgTexture)
             g_OrigSetBgTexture(self);

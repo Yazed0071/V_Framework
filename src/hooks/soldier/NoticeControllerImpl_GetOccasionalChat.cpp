@@ -12,6 +12,7 @@
 #include "log.h"
 #include "AddressSet.h"
 #include "NoticeControllerImpl_GetOccasionalChat.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -40,6 +41,9 @@ namespace
 
     static std::uint8_t __fastcall hk_ConvertType(std::uint32_t speechLabel)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigConvert ? g_OrigConvert(speechLabel) : 0;
+
         if (tl_active && tl_hashes)
         {
             for (std::size_t i = 0; i < tl_count; ++i)
@@ -60,6 +64,9 @@ namespace
 
     static void ApplyFactionTestNop(bool enable)
     {
+        if (enable && MissionCodeGuard::ShouldBypassHooks())
+            enable = false;
+
         if (!gAddr.OccasionalChat_FactionTestNop)
             return;
         void* target = ResolveGameAddress(gAddr.OccasionalChat_FactionTestNop);
@@ -163,6 +170,8 @@ namespace
     {
         if (!g_OrigGet)
             return 0;
+
+        MISSION_GUARD_ORIGINAL_RET(g_OrigGet, self, p1, p2);
 
         int mode = 0;
         std::vector<std::uint32_t> hashes;

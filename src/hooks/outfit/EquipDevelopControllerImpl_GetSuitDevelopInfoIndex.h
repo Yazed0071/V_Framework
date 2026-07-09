@@ -22,9 +22,7 @@ namespace outfit
 
     void ClearDevelopedInController(void* controller, unsigned short index);
 
-    void MakeDevelopRecordNonRoot(void* controller, unsigned short index,
-                                  unsigned short baseDevelopId);
 
-
-    void SetDevelopHidden(unsigned short index);
+    void SetDevelopHidden(unsigned short index, bool hidden = true);
+    bool IsDevelopHidden(unsigned short index);
 }

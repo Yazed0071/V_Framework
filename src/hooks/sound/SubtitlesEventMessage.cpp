@@ -10,6 +10,7 @@
 #include "HookUtils.h"
 #include "LuaBroadcaster.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -51,6 +52,8 @@ namespace
 
     static void __fastcall hkSendMessage(void* self)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigSendMessage, self);
+
         if (g_OrigSendMessage)
             g_OrigSendMessage(self);
 
@@ -78,7 +81,10 @@ bool Install_SubtitlesEventMessage_Hook()
     const bool ok = CreateAndEnableHook(
         target, reinterpret_cast<void*>(&hkSendMessage), reinterpret_cast<void**>(&g_OrigSendMessage));
 
-    Log("[SubtitlesEvent] SubtitlesObjectSendMessage:%s\n", ok ? "OK" : "FAIL");
+    if (ok)
+        LogDebug("[SubtitlesEvent] SubtitlesObjectSendMessage:OK\n");
+    else
+        Log("[SubtitlesEvent] SubtitlesObjectSendMessage:FAIL\n");
     return ok;
 }
 

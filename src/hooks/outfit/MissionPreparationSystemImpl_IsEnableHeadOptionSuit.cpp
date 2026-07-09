@@ -10,6 +10,9 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
+#include "../equip/EquipDevelop_SetEquipUndeveloped.h"
+#include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 namespace
 {
@@ -158,9 +161,153 @@ namespace
             : kNoHeadEquipModelType;
     }
 
+    constexpr std::size_t kVtblSlot_PrepIsFobSortie     = 0x4F0 / 8;
+    constexpr std::size_t kVtblSlot_PrepGetWeapon       = 0x180 / 8;
+    constexpr std::size_t kVtblSlot_PrepGetItem         = 0x1C8 / 8;
+    constexpr std::size_t kVtblSlot_PrepGetSupport      = 0x1D8 / 8;
+    constexpr std::size_t kVtblSlot_DevIdxFromEquipId   = 0xF0 / 8;
+    constexpr std::size_t kVtblSlot_DevIsFobAvailable   = 0x478 / 8;
+    constexpr std::size_t kCallback_PrepSystemOffset    = 0x48;
+
+    static bool IsFobSortieContext(void* self)
+    {
+        __try
+        {
+            void* sys = *reinterpret_cast<void**>(
+                reinterpret_cast<std::uint8_t*>(self) + kCallback_PrepSystemOffset);
+            if (!sys)
+                return false;
+            using Ctx_t = std::uint8_t (__fastcall*)(void*);
+            auto ctx = reinterpret_cast<Ctx_t>(
+                (*reinterpret_cast<void***>(sys))[kVtblSlot_PrepIsFobSortie]);
+            return ctx && ctx(sys) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    using PrepGetU16_t = std::uint16_t (__fastcall*)(void*, std::uint8_t);
+
+    static std::uint16_t SafeCallPrepGetU16(PrepGetU16_t fn, void* sys,
+                                            std::uint8_t i)
+    {
+        __try { return fn(sys, i); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return 0xEEEE; }
+    }
+
+    constexpr std::size_t kQuark_AppOffset          = 0x98;
+    constexpr std::size_t kApp_LoadoutHolderOffset  = 0x130;
+
+    static void* ResolveLoadoutHolder()
+    {
+        using GetQuark_t = void* (__fastcall*)();
+        auto getQuark = reinterpret_cast<GetQuark_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        if (!getQuark)
+            return nullptr;
+        __try
+        {
+            auto* quark = static_cast<std::uint8_t*>(getQuark());
+            if (!quark)
+                return nullptr;
+            auto* app = *reinterpret_cast<std::uint8_t**>(
+                quark + kQuark_AppOffset);
+            if (!app)
+                return nullptr;
+            return *reinterpret_cast<void**>(app + kApp_LoadoutHolderOffset);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+    }
+
+    static bool FobLoadoutHasBannedManagedEquip(void* self)
+    {
+        static_cast<void>(self);
+        __try
+        {
+            void* sys = ResolveLoadoutHolder();
+            if (!sys)
+                return false;
+            void** sysVt = *reinterpret_cast<void***>(sys);
+
+            void* ctrl = EquipDevelop_ResolveDevelopController();
+            if (!ctrl)
+                return false;
+            void** ctrlVt = *reinterpret_cast<void***>(ctrl);
+
+            using GetU16_t = PrepGetU16_t;
+            using MapIdx_t = std::uint16_t (__fastcall*)(void*, std::uint16_t,
+                                                         std::uint8_t);
+            using FobBit_t = std::uint8_t (__fastcall*)(void*, std::uint16_t);
+
+            auto mapIdx = reinterpret_cast<MapIdx_t>(
+                ctrlVt[kVtblSlot_DevIdxFromEquipId]);
+            auto fobBit = reinterpret_cast<FobBit_t>(
+                ctrlVt[kVtblSlot_DevIsFobAvailable]);
+            if (!mapIdx || !fobBit)
+                return false;
+
+            struct SlotRange { std::size_t slot; std::uint8_t count; };
+            const SlotRange ranges[] = {
+                { kVtblSlot_PrepGetWeapon,  3 },
+                { kVtblSlot_PrepGetItem,    8 },
+                { kVtblSlot_PrepGetSupport, 8 },
+            };
+
+            for (const SlotRange& r : ranges)
+            {
+                auto get = reinterpret_cast<GetU16_t>(sysVt[r.slot]);
+                if (!get)
+                    continue;
+                for (std::uint8_t i = 0; i < r.count; ++i)
+                {
+                    const std::uint16_t equipId = SafeCallPrepGetU16(get, sys, i);
+#ifdef _DEBUG
+                    {
+                        static int s_scan = 0;
+                        if (s_scan < 48)
+                        {
+                            ++s_scan;
+                            Log("[FobDeploy] scan slot=0x%zX i=%u raw=%u (0x%X)\n",
+                                r.slot * 8, static_cast<unsigned>(i),
+                                static_cast<unsigned>(equipId),
+                                static_cast<unsigned>(equipId));
+                        }
+                    }
+#endif
+                    if (equipId == 0 || equipId >= 0x2FC)
+                        continue;
+                    const std::uint16_t idx = mapIdx(ctrl, equipId, 0);
+                    if (idx >= 0x400)
+                        continue;
+                    if (!EquipDevelopAdd::IsManagedFlowIndex(idx))
+                        continue;
+                    if (fobBit(ctrl, idx))
+                        continue;
+#ifdef _DEBUG
+                    static int s_log = 0;
+                    if (s_log < 8)
+                    {
+                        ++s_log;
+                        Log("[OutfitHeadOption] FOB deploy blocked: managed "
+                            "equipId=%u (flowIndex=%u) is equipped and not "
+                            "FOB-available\n",
+                            static_cast<unsigned>(equipId),
+                            static_cast<unsigned>(idx));
+                    }
+#endif
+                    return true;
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+        return false;
+    }
+
     static std::uint8_t __fastcall hkIsEnableHeadOptionSuit(
         void* self, std::uint16_t param2)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigIsEnableHeadOptionSuit(self, param2);
+
         const std::uint8_t pt     = outfit::ReadLivePartsType();
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
@@ -173,12 +320,17 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
-
         return g_OrigIsEnableHeadOptionSuit(self, param2);
     }
 
     static std::uint8_t __fastcall hkIsEnableCurrentHeadOption(void* self)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigIsEnableHead(self);
+
+        if (IsFobSortieContext(self))
+            return g_OrigIsEnableHead(self);
+
         const std::uint8_t pt     = outfit::ReadLivePartsType();
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
@@ -191,12 +343,35 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
-
         return g_OrigIsEnableHead(self);
     }
 
     static std::uint8_t __fastcall hkIsEnableCurrentSuit(void* self)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigIsEnableCurrentSuit(self);
+
+        {
+            const bool fobCtx = IsFobSortieContext(self);
+#ifdef _DEBUG
+            {
+                static int s_calls = 0;
+                if (s_calls < 24)
+                {
+                    ++s_calls;
+                    Log("[FobDeploy] IsEnableCurrentSuit called: fobCtx=%d\n",
+                        fobCtx ? 1 : 0);
+                }
+            }
+#endif
+            if (fobCtx)
+            {
+                if (FobLoadoutHasBannedManagedEquip(self))
+                    return 0;
+                return g_OrigIsEnableCurrentSuit(self);
+            }
+        }
+
         const std::uint8_t pt     = outfit::ReadLivePartsType();
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
@@ -209,7 +384,6 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
-
         return g_OrigIsEnableCurrentSuit(self);
     }
 }
@@ -227,8 +401,12 @@ namespace outfit
                 target,
                 reinterpret_cast<void*>(&hkIsEnableCurrentHeadOption),
                 reinterpret_cast<void**>(&g_OrigIsEnableHead));
-            Log("[OutfitHeadOption] enable-gate hook: %s (target=%p)\n",
-                g_Installed ? "OK" : "FAIL", target);
+            if (g_Installed)
+                LogDebug("[OutfitHeadOption] enable-gate hook installed OK "
+                         "(target=%p)\n", target);
+            else
+                Log("[OutfitHeadOption] enable-gate hook install FAILED "
+                    "(target=%p)\n", target);
         }
         else
         {
@@ -243,9 +421,12 @@ namespace outfit
                 suitTarget,
                 reinterpret_cast<void*>(&hkIsEnableCurrentSuit),
                 reinterpret_cast<void**>(&g_OrigIsEnableCurrentSuit));
-            Log("[OutfitHeadOption:SuitGate] override hook %s (target=%p)\n",
-                g_IsEnableCurrentSuitInstalled ? "installed" : "FAILED",
-                suitTarget);
+            if (g_IsEnableCurrentSuitInstalled)
+                LogDebug("[OutfitHeadOption:SuitGate] override hook installed "
+                         "(target=%p)\n", suitTarget);
+            else
+                Log("[OutfitHeadOption:SuitGate] override hook install FAILED "
+                    "(target=%p)\n", suitTarget);
         }
         else
         {
@@ -260,9 +441,12 @@ namespace outfit
                 hosTarget,
                 reinterpret_cast<void*>(&hkIsEnableHeadOptionSuit),
                 reinterpret_cast<void**>(&g_OrigIsEnableHeadOptionSuit));
-            Log("[OutfitHeadOption:HOSuit] override hook %s (target=%p)\n",
-                g_IsEnableHeadOptionSuitInstalled ? "installed" : "FAILED",
-                hosTarget);
+            if (g_IsEnableHeadOptionSuitInstalled)
+                LogDebug("[OutfitHeadOption:HOSuit] override hook installed "
+                         "(target=%p)\n", hosTarget);
+            else
+                Log("[OutfitHeadOption:HOSuit] override hook install FAILED "
+                    "(target=%p)\n", hosTarget);
         }
         else
         {
@@ -277,8 +461,12 @@ namespace outfit
                 cfTarget,
                 reinterpret_cast<void*>(&hkConverFaceIdWithFaceEquipId),
                 reinterpret_cast<void**>(&g_OrigConverFaceId));
-            Log("[OutfitHeadOption:ConverFace] hook %s (target=%p)\n",
-                g_ConverFaceIdInstalled ? "installed" : "FAILED", cfTarget);
+            if (g_ConverFaceIdInstalled)
+                LogDebug("[OutfitHeadOption:ConverFace] hook installed "
+                         "(target=%p)\n", cfTarget);
+            else
+                Log("[OutfitHeadOption:ConverFace] hook install FAILED "
+                    "(target=%p)\n", cfTarget);
         }
         else
         {
@@ -293,8 +481,12 @@ namespace outfit
                 heTarget,
                 reinterpret_cast<void*>(&hkConvertHeadEquipModelType),
                 reinterpret_cast<void**>(&g_OrigConvertHeadEquip));
-            Log("[OutfitHeadOption:HeadEquipType] hook %s (target=%p)\n",
-                g_ConvertHeadEquipInstalled ? "installed" : "FAILED", heTarget);
+            if (g_ConvertHeadEquipInstalled)
+                LogDebug("[OutfitHeadOption:HeadEquipType] hook installed "
+                         "(target=%p)\n", heTarget);
+            else
+                Log("[OutfitHeadOption:HeadEquipType] hook install FAILED "
+                    "(target=%p)\n", heTarget);
         }
         else
         {

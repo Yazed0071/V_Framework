@@ -1,117 +1,65 @@
 #include "pch.h"
 #include "AttackActionImpl_IsWeaponNoUseInPlaceAction.h"
 
-#include <Windows.h>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
-    struct ReturnFalsePatchSite
+    using IsWeaponNoUseInPlaceAction_t =
+        std::uint64_t(__fastcall*)(void* self, void* param2, int param3);
+
+    static IsWeaponNoUseInPlaceAction_t g_Orig       = nullptr;
+    static void*                        g_HookTarget = nullptr;
+
+    static std::uint64_t __fastcall hk_IsWeaponNoUseInPlaceAction(void* self, void* param2, int param3)
     {
-        std::uintptr_t address;
-        std::uint8_t   expect[12];
-        std::size_t    expectLen;
-        std::uint8_t   write[8];
-        std::size_t    writeLen;
-    };
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_Orig ? g_Orig(self, param2, param3) : 0;
 
-    // tpp::gm::player::impl::attack::AttackActionImpl::IsWeaponNoUseInPlaceAction
-    static const ReturnFalsePatchSite* GetPatchSiteForCurrentBuild()
-    {
-        if (!gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction)
-            return nullptr;
-
-        static ReturnFalsePatchSite site =
-        {
-            0, // holder
-            { 0x48,0x89,0x5C,0x24,0x08,0x57,0x48,0x83,0xEC,0x20 }, 10,
-            { 0x31,0xC0,0xC3 }, 3,     // xor eax,eax ; ret  -> return false
-        };
-        site.address = gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction;
-        return &site;
-    }
-
-    static bool        g_Applied      = false;
-    static void*       g_PatchTarget  = nullptr;
-    static std::uint8_t g_OriginalBytes[8] = {};
-    static std::size_t g_OriginalLen  = 0;
-
-    static bool WriteBytes(void* target, const std::uint8_t* src, std::size_t size)
-    {
-        DWORD oldProtect = 0;
-        if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect))
-        {
-            Log("[IsWeaponNoUseInPlace] VirtualProtect failed (err=%lu)\n", GetLastError());
-            return false;
-        }
-        std::memcpy(target, src, size);
-        DWORD restored = 0;
-        VirtualProtect(target, size, oldProtect, &restored);
-        FlushInstructionCache(GetCurrentProcess(), target, size);
-        return true;
+        return 0;
     }
 }
 
 bool Install_IsWeaponNoUseInPlaceActionPatch()
 {
-    if (g_Applied)
+    if (g_HookTarget)
         return true;
 
-    const ReturnFalsePatchSite* site = GetPatchSiteForCurrentBuild();
-    if (!site)
+    if (!gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction)
     {
-        Log("[IsWeaponNoUseInPlace] no patch address for current build\n");
+        Log("[IsWeaponNoUseInPlace] no address for current build\n");
         return false;
     }
 
-    void* target = ResolveGameAddress(site->address);
+    void* target = ResolveGameAddress(gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction);
     if (!target)
     {
         Log("[IsWeaponNoUseInPlace] ResolveGameAddress returned null\n");
         return false;
     }
 
-    const auto* cur = static_cast<const std::uint8_t*>(target);
-    if (std::memcmp(cur, site->expect, site->expectLen) != 0)
+    if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_IsWeaponNoUseInPlaceAction),
+                             reinterpret_cast<void**>(&g_Orig)))
     {
-        Log("[IsWeaponNoUseInPlace] unexpected bytes at %p (have %02X %02X %02X %02X %02X, "
-            "expected %02X %02X %02X %02X %02X) - not patching\n",
-            target, cur[0], cur[1], cur[2], cur[3], cur[4],
-            site->expect[0], site->expect[1], site->expect[2], site->expect[3], site->expect[4]);
+        Log("[IsWeaponNoUseInPlace] hook FAILED @ %p\n", target);
         return false;
     }
 
-    g_OriginalLen = site->writeLen;
-    std::memcpy(g_OriginalBytes, cur, g_OriginalLen);
-    g_PatchTarget = target;
-
-    if (!WriteBytes(target, site->write, site->writeLen))
-        return false;
-
-#ifdef _DEBUG
-    Log("[IsWeaponNoUseInPlace] patched %p (%zu bytes) -> IsWeaponNoUseInPlaceAction always returns false\n",
-        target, site->writeLen);
-#endif
-
-    g_Applied = true;
+    g_HookTarget = target;
     return true;
 }
 
 void Uninstall_IsWeaponNoUseInPlaceActionPatch()
 {
-    if (!g_Applied)
-        return;
-
-    if (g_PatchTarget && g_OriginalLen)
-        WriteBytes(g_PatchTarget, g_OriginalBytes, g_OriginalLen);
-
-    g_Applied = false;
-    g_PatchTarget = nullptr;
-    g_OriginalLen = 0;
+    if (g_HookTarget)
+    {
+        DisableAndRemoveHook(g_HookTarget);
+        g_HookTarget = nullptr;
+        g_Orig       = nullptr;
+    }
 }

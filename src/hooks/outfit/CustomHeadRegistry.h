@@ -27,6 +27,9 @@ namespace outfit
 
         std::uint16_t  TppEnemyFaceId[kPlayerTypeMax] = {};
 
+        std::uint64_t  faceFv2Code[kPlayerTypeMax] = {};
+        std::uint64_t  faceFpkCode[kPlayerTypeMax] = {};
+
         char           name[64]     = { 0 };
     };
 
@@ -34,7 +37,19 @@ namespace outfit
     std::uint16_t RegisterHeadOption(
         const char* name,
         const std::uint16_t* TppEnemyFaceIdsPerPt,
+        const std::uint64_t* faceFv2CodesPerPt = nullptr,
+        const std::uint64_t* faceFpkCodesPerPt = nullptr,
         bool showInDevelopMenu = false);
+
+    constexpr std::uint8_t kSnakeFaceStageCount = 3;
+
+    void SetCustomHeadSnakeFaceStages(const char* name,
+                                      const std::uint64_t* fv2ByStage,
+                                      const std::uint64_t* fpkByStage);
+    std::uint64_t GetCustomHeadSnakeStageFv2(const char* name,
+                                             std::uint32_t stage);
+    std::uint64_t GetCustomHeadSnakeStageFpk(const char* name,
+                                             std::uint32_t stage);
 
 
     int DrainPendingHeads();

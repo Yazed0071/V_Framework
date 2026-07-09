@@ -9,6 +9,7 @@
 #include "HookUtils.h"
 #include "SoldierObjectRtpc.h"
 #include "SoldierVoiceTypeQuery.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -44,6 +45,8 @@ namespace
 
     static void __fastcall hk_Activate(void* self, std::uint32_t slot, std::int32_t soundIndex)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigActivate, self, slot, soundIndex);
+
         if (g_OrigActivate)
             g_OrigActivate(self, slot, soundIndex);
 

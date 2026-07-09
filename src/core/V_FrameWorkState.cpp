@@ -330,7 +330,7 @@ namespace V_FrameWorkState
             {
                 if (it->second.misses >= kTapeOrphanGraceLaunches)
                 {
-                    Log("[CustomTapes] tape deleted: '%s' (saveIndex %d) — mod uninstalled; freeing the save slot.\n", it->first.c_str(), static_cast<int>(it->second.saveIndex));
+                    Log("[CustomTapes] tape deleted: '%s' (saveIndex %d) - mod uninstalled; freeing the save slot.\n", it->first.c_str(), static_cast<int>(it->second.saveIndex));
                     it = g_State.tapes.erase(it);
                     gcChanged = true;
                 }
@@ -347,10 +347,10 @@ namespace V_FrameWorkState
                 if (it->second.misses >= kEquipOrphanGraceLaunches)
                 {
                     if (it->second.partsType != 0)
-                        Log("[Outfit] Removed \"%s\" (developId %d, partsType 0x%02X) — not registered for %d launches; freeing the id.\n",
+                        Log("[Outfit] Removed \"%s\" (developId %d, partsType 0x%02X) - not registered for %d launches; freeing the id.\n",
                             it->first.c_str(), it->second.developId, it->second.partsType, kEquipOrphanGraceLaunches);
                     else
-                        Log("[Equip] Removed \"%s\" (developId %d) — not registered for %d launches; freeing the id.\n",
+                        Log("[Equip] Removed \"%s\" (developId %d) - not registered for %d launches; freeing the id.\n",
                             it->first.c_str(), it->second.developId, kEquipOrphanGraceLaunches);
 
                     if (it->second.developId != 0)
@@ -383,7 +383,7 @@ namespace V_FrameWorkState
             std::ofstream out(kSavePath, std::ios::binary | std::ios::trunc);
             if (!out)
             {
-                Log("[V_FrameWorkState] ERROR: could not write '%s' — custom-tape ownership/save-index state will not persist.\n", kSavePath);
+                Log("[V_FrameWorkState] ERROR: could not write '%s' - custom-tape ownership/save-index state will not persist.\n", kSavePath);
                 return;
             }
 
@@ -857,7 +857,7 @@ namespace V_FrameWorkState
             ++value;
         if (value > kMaxCustomConstantValue)
         {
-            Log("[Constants] ERROR: no free value for '%s' — space '%s' pool [%d..%d] is full.\n",
+            Log("[Constants] ERROR: no free value for '%s' - space '%s' pool [%d..%d] is full.\n",
                 name, spaceTag, minimumValue, kMaxCustomConstantValue);
             return false;
         }
@@ -931,6 +931,12 @@ namespace V_FrameWorkState
         auto it = g_State.equips.find(key);
         if (it == g_State.equips.end()) return 0;
 
+        if (it->second.misses != 0)
+        {
+            it->second.misses = 0;
+            g_State.dirty = true;
+        }
+
         std::size_t nonZero = 0;
         const std::size_t n = (cap < 14) ? cap : std::size_t{14};
         for (std::size_t i = 0; i < n; ++i)
@@ -950,6 +956,12 @@ namespace V_FrameWorkState
 
         auto& e = g_State.equips[key];
         bool changed = false;
+
+        if (e.misses != 0)
+        {
+            e.misses = 0;
+            changed = true;
+        }
         for (std::size_t i = 0; i < 14; ++i)
         {
             const std::uint8_t v =
@@ -1017,7 +1029,7 @@ namespace V_FrameWorkState
         const std::int16_t newIdx = AllocateNextFreeTapeSaveIndex_NoLock(minimumIndex);
         if (newIdx < 0)
         {
-            Log("[CustomTapes] ERROR: custom-tape save-index pool [300-32000] is full — uninstall unused tape mods; no more custom tapes can be registered.\n");
+            Log("[CustomTapes] ERROR: custom-tape save-index pool [300-32000] is full - uninstall unused tape mods; no more custom tapes can be registered.\n");
             return false;
         }
 
@@ -1026,7 +1038,7 @@ namespace V_FrameWorkState
         g_State.dirty = true;
         outSaveIndex = newIdx;
 #ifdef _DEBUG
-        Log("[CustomTapes] tape added: '%s' (saveIndex %d) — first time; saved to V_FrameWork_State.lua.\n", key, static_cast<int>(newIdx));
+        Log("[CustomTapes] tape added: '%s' (saveIndex %d) - first time; saved to V_FrameWork_State.lua.\n", key, static_cast<int>(newIdx));
 #endif
 
         SaveToDisk_NoLock();

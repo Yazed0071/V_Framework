@@ -244,7 +244,7 @@ bool Install_Control_PostExternalEvent_Hook()
     void* target = ResolveGameAddress(gAddr.SoundControl_PostExternalEvent);
     if (!target)
     {
-        Log("[CustomTapeLongName] ERROR: PostExternalEvent address unavailable for this build — custom-tape long filenames will be truncated.\n");
+        Log("[CustomTapeLongName] ERROR: PostExternalEvent address unavailable for this build - custom-tape long filenames will be truncated.\n");
         return false;
     }
 
@@ -255,7 +255,7 @@ bool Install_Control_PostExternalEvent_Hook()
 
     g_HookActive = ok;
     if (!ok)
-        Log("[CustomTapeLongName] ERROR: failed to hook PostExternalEvent — custom-tape long filenames will be truncated.\n");
+        Log("[CustomTapeLongName] ERROR: failed to hook PostExternalEvent - custom-tape long filenames will be truncated.\n");
     return ok;
 }
 

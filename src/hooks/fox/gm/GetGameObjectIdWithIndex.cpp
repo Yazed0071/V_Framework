@@ -1,5 +1,9 @@
 #include "pch.h"
 
+extern "C" {
+    #include "lua.h"
+}
+
 #include <cstdint>
 #include <cstring>
 
@@ -7,6 +11,7 @@
 #include "HookUtils.h"
 #include "FoxHashes.h"
 #include "log.h"
+#include "LuaBroadcaster.h"
 #include "GetGameObjectIdWithIndex.h"
 
 namespace
@@ -46,6 +51,91 @@ namespace
     {
         return (static_cast<std::uint32_t>(typeIndex) << 9) |
             (index & 0x1FFu);
+    }
+
+    using lua_getfield_t   = void(__fastcall*)(lua_State*, int, char*);
+    using lua_type_t       = int(__fastcall*)(lua_State*, int);
+    using lua_pushstring_t = void(__fastcall*)(lua_State*, char*);
+    using lua_pcall_t      = int(__fastcall*)(lua_State*, int, int, int);
+    using lua_tointeger_t  = std::intptr_t(__fastcall*)(lua_State*, int);
+    using lua_gettop_t     = int(__fastcall*)(lua_State*);
+    using lua_settop_t     = void(__fastcall*)(lua_State*, int);
+
+    static constexpr int kLuaGlobalsIndex51 = -10002;
+
+    template <typename Fn>
+    static Fn ResolveLuaFn(std::uintptr_t resolvedAddr)
+    {
+        if (!resolvedAddr)
+            return nullptr;
+        return reinterpret_cast<Fn>(ResolveGameAddress(resolvedAddr));
+    }
+
+    static bool TryResolveByNameViaLua(const char* typeName,
+        const char* instanceName,
+        std::uint32_t& gameObjectIdOut)
+    {
+        lua_State* L = V_FrameWork_AnyLuaState();
+        if (!L)
+            return false;
+
+        auto getfield   = ResolveLuaFn<lua_getfield_t>(gAddr.lua_getfield);
+        auto luatype    = ResolveLuaFn<lua_type_t>(gAddr.lua_type);
+        auto pushstring = ResolveLuaFn<lua_pushstring_t>(gAddr.lua_pushstring);
+        auto pcall      = ResolveLuaFn<lua_pcall_t>(gAddr.lua_pcall);
+        auto tointeger  = ResolveLuaFn<lua_tointeger_t>(gAddr.lua_tointeger);
+        auto gettop     = ResolveLuaFn<lua_gettop_t>(gAddr.lua_gettop);
+        auto settop     = ResolveLuaFn<lua_settop_t>(gAddr.lua_settop);
+
+        if (!getfield || !luatype || !pushstring || !pcall || !tointeger ||
+            !gettop || !settop)
+            return false;
+
+        bool ok = false;
+
+        __try
+        {
+            const int savedTop = gettop(L);
+
+            getfield(L, kLuaGlobalsIndex51, const_cast<char*>("GameObject"));
+            if (luatype(L, -1) != LUA_TTABLE)
+            {
+                settop(L, savedTop);
+                return false;
+            }
+
+            getfield(L, -1, const_cast<char*>("GetGameObjectId"));
+            if (luatype(L, -1) != LUA_TFUNCTION)
+            {
+                settop(L, savedTop);
+                return false;
+            }
+
+            pushstring(L, const_cast<char*>(typeName));
+            pushstring(L, const_cast<char*>(instanceName));
+
+            const int err = pcall(L, 2, 1, 0);
+            if (err == 0 && luatype(L, -1) == LUA_TNUMBER)
+            {
+                const std::uint32_t id =
+                    static_cast<std::uint32_t>(tointeger(L, -1)) & 0x1FFFFu;
+                if (id != 0xFFFFu)
+                {
+                    gameObjectIdOut = id;
+                    ok = true;
+                }
+            }
+
+            settop(L, savedTop);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[GetGameObjectIdWithIndex] SEH in by-name resolve type=%s name=%s\n",
+                typeName, instanceName);
+            return false;
+        }
+
+        return ok;
     }
 
     static bool TryNativeWithStrCode32(const char* typeName,
@@ -140,7 +230,7 @@ bool GetGameObjectIdWithIndex(const char* typeName,
     if (TryNativeWithStrCode32(typeName, index, gameObjectIdOut))
         return true;
 
-    Log("[GetGameObjectIdWithIndex] unmapped type=%s index=%u (add it to TppGameObjectType)\n",
+    LogDebug("[GetGameObjectIdWithIndex] unmapped type=%s index=%u (add it to TppGameObjectType)\n",
         typeName,
         index);
 
@@ -160,4 +250,16 @@ std::uint32_t GetGameObjectIdByIndex(const char* typeName,
 {
     std::uint32_t out = 0;
     return GetGameObjectIdWithIndex(typeName, index, out) ? out : 0;
+}
+
+bool GetGameObjectIdByName(const char* typeName,
+    const char* instanceName,
+    std::uint32_t& gameObjectIdOut)
+{
+    gameObjectIdOut = kInvalidGameObjectId;
+
+    if (!typeName || !typeName[0] || !instanceName || !instanceName[0])
+        return false;
+
+    return TryResolveByNameViaLua(typeName, instanceName, gameObjectIdOut);
 }

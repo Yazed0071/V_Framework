@@ -104,15 +104,16 @@ namespace
         { "AddPhotoAdditionalText",  l_AddPhotoAdditionalText },
 
         { "GetDevelopId",            l_GetDevelopId },
-
-        { "AddToEquipDevelopTable",  l_AddToEquipDevelopTable },
         { "SetEquipDeveloped",       l_SetEquipDeveloped },
         { "SetEquipUndeveloped",     l_SetEquipUndeveloped },
         { "IsEquipDevelopable",      l_IsEquipDevelopable },
         { "IsEquipDeveloped",        l_IsEquipDeveloped },
-
         { "SetEquipNew",             l_SetEquipNew },
         { "IsEquipNew",              l_IsEquipNew },
+        { "SetEquipDevelopVisible",  l_SetEquipDevelopVisible },
+
+        { "AddToEquipDevelopTable",  l_AddToEquipDevelopTable },
+
 
         { nullptr, nullptr }
     };

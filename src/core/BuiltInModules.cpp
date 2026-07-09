@@ -124,6 +124,9 @@ bool Uninstall_BasicActionImpl_StateCrawlSideRoll_Hook();
 bool Install_SearchLightActionPluginImpl_StateDoor_Hook();
 bool Uninstall_SearchLightActionPluginImpl_StateDoor_Hook();
 
+bool Install_PlacedSystemImpl_Insert_Hook();
+void Uninstall_PlacedSystemImpl_Insert_Hook();
+
 bool Install_SubtitlesEventMessage_Hook();
 bool Uninstall_SubtitlesEventMessage_Hook();
 
@@ -937,6 +940,26 @@ namespace
         }
     };
 
+    class WormholeNearDeathWarpModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "WormholeNearDeathWarp";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_PlacedSystemImpl_Insert_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_PlacedSystemImpl_Insert_Hook();
+        }
+    };
+
     class PlayerLockPickModule final : public IFeatureModule
     {
     public:
@@ -1254,6 +1277,7 @@ void RegisterBuiltInFeatureModules()
     static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
     static CrawlSideRollModule s_CrawlSideRollModule;
+    static WormholeNearDeathWarpModule s_WormholeNearDeathWarpModule;
     static PlayerLockPickModule s_PlayerLockPickModule;
     static SubtitlesEventMessageModule s_SubtitlesEventMessageModule;
     static PhaseSneakAiImpl_PreUpdateModule s_PhaseSneakAiImpl_PreUpdateModule;
@@ -1324,6 +1348,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_CrawlSideRollModule);
+            FeatureModuleRegistry::Instance().Register(&s_WormholeNearDeathWarpModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerLockPickModule);
             FeatureModuleRegistry::Instance().Register(&s_PhaseSneakAiImpl_PreUpdateModule);
             FeatureModuleRegistry::Instance().Register(&s_MissionEmergencyModule);

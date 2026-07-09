@@ -3,7 +3,11 @@
 
 #include <Windows.h>
 #include <cstdint>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -11,6 +15,7 @@
 #include "LuaApi.h"
 #include "V_FrameWorkState.h"
 #include "EquipDevelop_AddToEquipDevelopTable.h"
+#include "../outfit/EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 
 namespace
 {
@@ -29,10 +34,14 @@ namespace
     using GetEquipDevelopIndex_t = std::uint16_t (__fastcall*)(void* controller, std::uint32_t developId);
     using SetEquipUndeveloped_t  = void (__fastcall*)(void* controller, std::uint16_t index, char notify);
     using SetEquipDeveloped_t    = void (__fastcall*)(void* controller, std::uint16_t index);
+    using SetEnableDevelop_t     = void (__fastcall*)(void* controller, std::uint16_t index, char enable);
 
     static SetEquipDeveloped_t   g_OrigSetEquipDeveloped   = nullptr;
     static SetEquipUndeveloped_t g_OrigSetEquipUndeveloped = nullptr;
     static bool g_DevelopSyncArmed = false;
+
+    std::mutex                                       g_DevelopParentMutex;
+    std::unordered_map<std::uint32_t, std::uint32_t> g_DevelopParent;
 
     static GetEquipDevelopIndex_t NativeGetIndex()
     {
@@ -53,6 +62,13 @@ namespace
             : reinterpret_cast<SetEquipUndeveloped_t>(
                   ResolveGameAddress(gAddr.EquipDevelopCtrl_SetEquipUndeveloped));
     }
+    static SetEnableDevelop_t NativeSetEnable()
+    {
+        return reinterpret_cast<SetEnableDevelop_t>(
+            ResolveGameAddress(gAddr.EquipDevelopCtrl_SetEnableDevelop));
+    }
+
+    static void AnnounceNewlyDevelopable(void* controller, GetEquipDevelopIndex_t getIndex);
 
     using HudGetInstance_t   = void* (__fastcall*)();
     using LangIdToKey_t      = void* (__fastcall*)(std::uint64_t* out, const char* langId);
@@ -199,6 +215,18 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return kInvalidDevelopIndex; }
     }
 
+    static std::uint8_t SafeReadDevRecordByte(void* controller,
+                                              std::uint16_t index,
+                                              std::uint32_t byteOffset)
+    {
+        __try
+        {
+            return *(reinterpret_cast<const std::uint8_t*>(controller)
+                     + static_cast<std::size_t>(index) * 0x68 + byteOffset);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return 0xEE; }
+    }
+
     static void SyncFlagFromNativeDevelop(void* controller, std::uint16_t index, bool developed)
     {
         if (!controller || index >= kInvalidDevelopIndex)
@@ -221,12 +249,91 @@ namespace
         }
     }
 
+    static bool IsDevelopIdDeveloped(void* controller, GetEquipDevelopIndex_t getIndex,
+                                     std::uint32_t developId)
+    {
+        if (developId == 0)
+            return false;
+        if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
+            return V_FrameWorkState::GetDevelopedByDevelopId(static_cast<std::int32_t>(developId));
+        if (!controller || !getIndex)
+            return false;
+        __try
+        {
+            const std::uint16_t index = getIndex(controller, developId);
+            if (index >= kInvalidDevelopIndex)
+                return false;
+            std::uint8_t* bits = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(controller) + kDevelopedBitsOffset);
+            if (!bits)
+                return false;
+            return (bits[index] & 1u) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    static void SafeSetEnableForDevelopId(GetEquipDevelopIndex_t getIndex,
+                                          SetEnableDevelop_t setEnable,
+                                          void* controller,
+                                          std::uint32_t childDevelopId,
+                                          char enable)
+    {
+        __try
+        {
+            const std::uint16_t childIndex = getIndex(controller, childDevelopId);
+            if (childIndex < kInvalidDevelopIndex)
+                setEnable(controller, childIndex, enable);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void SyncDevelopPrereqGates(void* controller, GetEquipDevelopIndex_t getIndex)
+    {
+        if (!controller || !getIndex)
+            return;
+        auto setEnable = NativeSetEnable();
+        if (!setEnable)
+            return;
+
+        std::unordered_map<std::uint32_t, std::uint32_t> parents;
+        {
+            std::lock_guard<std::mutex> lock(g_DevelopParentMutex);
+            parents = g_DevelopParent;
+        }
+
+        std::vector<std::uint32_t> managedIds;
+        V_FrameWorkState::ForEachManagedDevelop(
+            [&](std::int32_t id, bool, bool)
+            {
+                managedIds.push_back(static_cast<std::uint32_t>(id));
+            });
+
+        for (std::uint32_t childDevelopId : managedIds)
+        {
+            const auto it = parents.find(childDevelopId);
+            const bool enable = (it == parents.end() || it->second == 0)
+                ? true
+                : IsDevelopIdDeveloped(controller, getIndex, it->second);
+
+            SafeSetEnableForDevelopId(getIndex, setEnable, controller,
+                                      childDevelopId,
+                                      enable ? static_cast<char>(1)
+                                             : static_cast<char>(0));
+        }
+    }
+
     static void __fastcall hkSetEquipDeveloped(void* controller, std::uint16_t index)
     {
         if (g_OrigSetEquipDeveloped)
             g_OrigSetEquipDeveloped(controller, index);
         if (g_DevelopSyncArmed)
+        {
             SyncFlagFromNativeDevelop(controller, index, true);
+            SyncDevelopPrereqGates(controller, NativeGetIndex());
+            AnnounceNewlyDevelopable(controller, NativeGetIndex());
+        }
     }
 
     static void __fastcall hkSetEquipUndeveloped(void* controller, std::uint16_t index, char notify)
@@ -234,7 +341,10 @@ namespace
         if (g_OrigSetEquipUndeveloped)
             g_OrigSetEquipUndeveloped(controller, index, notify);
         if (g_DevelopSyncArmed)
+        {
             SyncFlagFromNativeDevelop(controller, index, false);
+            SyncDevelopPrereqGates(controller, NativeGetIndex());
+        }
     }
 
     static void* ResolveController()
@@ -364,6 +474,37 @@ namespace
             return false;
         __try { return fn(controller, index) != 0; }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    static void AnnounceNewlyDevelopable(void* controller, GetEquipDevelopIndex_t getIndex)
+    {
+        if (!controller || !getIndex)
+            return;
+        void* hudCdm = ResolveHudCdm();
+        if (!hudCdm)
+            return;
+
+        std::vector<std::int32_t> candidates;
+        V_FrameWorkState::ForEachManagedDevelop(
+            [&](std::int32_t developId, bool developed, bool isNew)
+            {
+                if (isNew && !developed)
+                    candidates.push_back(developId);
+            });
+
+        for (std::int32_t developId : candidates)
+        {
+            const std::uint16_t index =
+                SafeGetIndex(getIndex, controller, static_cast<std::uint32_t>(developId));
+            if (index >= kInvalidDevelopIndex)
+                continue;
+            if (outfit::IsDevelopHidden(index))
+                continue;
+            if (!IsDevelopRequirementsMet(controller, index))
+                continue;
+            FireDevRequirementsMet(hudCdm, developId);
+            V_FrameWorkState::SetNewByDevelopId(developId, false);
+        }
     }
 
     static int ReconcileOneManaged(
@@ -512,7 +653,7 @@ void EquipDevelop_DrainPendingUndevelops()
     void* controller = ResolveController();
     if (!controller)
     {
-        Log("[EquipDevelop] reconcile: controller not resolved — skipped\n");
+        Log("[EquipDevelop] reconcile: controller not resolved - skipped\n");
         return;
     }
 
@@ -520,7 +661,7 @@ void EquipDevelop_DrainPendingUndevelops()
     auto setUndeveloped = NativeUndevelop();
     if (!getIndex)
     {
-        Log("[EquipDevelop] reconcile: GetEquipDevelopIndex addr unset — skipped\n");
+        Log("[EquipDevelop] reconcile: GetEquipDevelopIndex addr unset - skipped\n");
         return;
     }
 
@@ -532,8 +673,6 @@ void EquipDevelop_DrainPendingUndevelops()
             managed.push_back({ developId, developed, isNew });
         });
 
-    void* hudCdm = ResolveHudCdm();
-
     for (const auto& row : managed)
     {
         std::uint16_t index = 0xFFFF;
@@ -542,19 +681,42 @@ void EquipDevelop_DrainPendingUndevelops()
             controller, getIndex, setUndeveloped,
             static_cast<std::uint32_t>(row.developId), row.developed, &index, &bitBefore);
 
-        if (PokeNewBit(controller, getIndex, static_cast<std::uint32_t>(row.developId),
-                       row.isNew, row.developed)
-            && row.isNew)
-        {
-            if (hudCdm)
-            {
-                if (!row.developed && IsDevelopRequirementsMet(controller, index))
-                    FireDevRequirementsMet(hudCdm, row.developId);
-                V_FrameWorkState::SetNewByDevelopId(row.developId, false);
-            }
-        }
+        PokeNewBit(controller, getIndex, static_cast<std::uint32_t>(row.developId),
+                   row.isNew, row.developed);
     }
+
+    SyncDevelopPrereqGates(controller, getIndex);
+    AnnounceNewlyDevelopable(controller, getIndex);
+
+#ifdef _DEBUG
+    for (const auto& row : managed)
+    {
+        const std::uint16_t idx = SafeGetIndex(getIndex, controller,
+            static_cast<std::uint32_t>(row.developId));
+        if (idx >= kInvalidDevelopIndex)
+        {
+            Log("[FobDiag] developId=%d -> index UNRESOLVED\n", row.developId);
+            continue;
+        }
+        const std::uint8_t fobByte = SafeReadDevRecordByte(controller, idx, 0x58);
+        Log("[FobDiag] developId=%d index=%u recByte58=0x%02X fobBit7=%d\n",
+            row.developId, static_cast<unsigned>(idx),
+            static_cast<unsigned>(fobByte), (fobByte >> 7) & 1);
+    }
+#endif
+
     g_DevelopSyncArmed = true;
+}
+
+void EquipDevelop_SetDevelopParent(std::uint32_t developId, std::uint32_t baseDevelopId)
+{
+    if (developId == 0)
+        return;
+    std::lock_guard<std::mutex> lock(g_DevelopParentMutex);
+    if (baseDevelopId == 0)
+        g_DevelopParent.erase(developId);
+    else
+        g_DevelopParent[developId] = baseDevelopId;
 }
 
 void EquipDevelop_InstallDevelopSyncHooks()
@@ -660,6 +822,37 @@ bool EquipDevelop_IsNewByDevelopId(std::uint32_t developId)
     return V_FrameWorkState::GetNewByDevelopId(static_cast<std::int32_t>(developId));
 }
 
+bool EquipDevelop_SetVisibleByDevelopId(std::uint32_t developId, bool visible)
+{
+    if (developId == 0)
+        return false;
+    if (!V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
+        return false;
+
+    std::uint16_t flowIndex = 0;
+    if (!EquipDevelopAdd::TryGetFlowIndexForDevelopId(
+            static_cast<std::uint16_t>(developId), flowIndex))
+        return false;
+
+    outfit::SetDevelopHidden(flowIndex, !visible);
+
+    if (visible)
+    {
+        void* controller = ResolveController();
+        if (controller)
+            AnnounceNewlyDevelopable(controller, NativeGetIndex());
+    }
+
+    return true;
+}
+
+void EquipDevelop_TriggerRequirementsMetAnnounce()
+{
+    void* controller = ResolveController();
+    if (controller)
+        AnnounceNewlyDevelopable(controller, NativeGetIndex());
+}
+
 int __cdecl l_SetEquipNew(lua_State* L)
 {
     const std::uint32_t developId =
@@ -667,6 +860,16 @@ int __cdecl l_SetEquipNew(lua_State* L)
 
     const bool isNew = (LuaType(L, 2) == 1  ) ? GetLuaBool(L, 2) : true;
     PushLuaBool(L, developId != 0 && EquipDevelop_SetNewByDevelopId(developId, isNew));
+    return 1;
+}
+
+int __cdecl l_SetEquipDevelopVisible(lua_State* L)
+{
+    const std::uint32_t developId =
+        LuaIsNumber(L, 1) ? static_cast<std::uint32_t>(GetLuaInt64(L, 1)) : 0u;
+
+    const bool visible = (LuaType(L, 2) == 1) ? GetLuaBool(L, 2) : true;
+    PushLuaBool(L, developId != 0 && EquipDevelop_SetVisibleByDevelopId(developId, visible));
     return 1;
 }
 
@@ -716,4 +919,94 @@ int __cdecl l_IsEquipDevelopable(lua_State* L)
         LuaIsNumber(L, 1) ? static_cast<std::uint32_t>(GetLuaInt64(L, 1)) : 0u;
     PushLuaBool(L, developId != 0 && EquipDevelop_IsDevelopableByDevelopId(developId));
     return 1;
+}
+
+namespace
+{
+    struct FobSuppressEntry
+    {
+        std::uint16_t index;
+        std::uint8_t  savedBits;
+    };
+    static std::vector<FobSuppressEntry> g_FobSuppressSaved;
+    static bool g_FobSuppressActive = false;
+
+    static bool SafeSuppressOne(void* controller, std::uint16_t index,
+                                std::uint8_t* outSaved)
+    {
+        __try
+        {
+            std::uint8_t* bits = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(controller) + kDevelopedBitsOffset);
+            if (!bits)
+                return false;
+            *outSaved = bits[index];
+            if ((bits[index] & 1u) == 0)
+                return false;
+            bits[index] = static_cast<std::uint8_t>(bits[index] & ~1u);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    static void SafeRestoreOne(void* controller, std::uint16_t index,
+                               std::uint8_t saved)
+    {
+        __try
+        {
+            std::uint8_t* bits = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(controller) + kDevelopedBitsOffset);
+            if (bits)
+                bits[index] = saved;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+}
+
+void* EquipDevelop_ResolveDevelopController()
+{
+    return ResolveController();
+}
+
+int EquipDevelop_BeginFobListSuppress()
+{
+    if (g_FobSuppressActive)
+        return static_cast<int>(g_FobSuppressSaved.size());
+
+    void* controller = ResolveController();
+    auto getIndex = NativeGetIndex();
+    if (!controller || !getIndex)
+        return 0;
+
+    std::vector<std::int32_t> ids;
+    V_FrameWorkState::ForEachManagedDevelop(
+        [&](std::int32_t id, bool, bool) { ids.push_back(id); });
+
+    g_FobSuppressSaved.clear();
+    for (std::int32_t id : ids)
+    {
+        const std::uint16_t index =
+            SafeGetIndex(getIndex, controller, static_cast<std::uint32_t>(id));
+        if (index >= kInvalidDevelopIndex)
+            continue;
+        std::uint8_t saved = 0;
+        if (SafeSuppressOne(controller, index, &saved))
+            g_FobSuppressSaved.push_back({ index, saved });
+    }
+
+    g_FobSuppressActive = true;
+    return static_cast<int>(g_FobSuppressSaved.size());
+}
+
+void EquipDevelop_EndFobListSuppress()
+{
+    if (!g_FobSuppressActive)
+        return;
+
+    if (void* controller = ResolveController())
+        for (const FobSuppressEntry& e : g_FobSuppressSaved)
+            SafeRestoreOne(controller, e.index, e.savedBits);
+
+    g_FobSuppressSaved.clear();
+    g_FobSuppressActive = false;
 }

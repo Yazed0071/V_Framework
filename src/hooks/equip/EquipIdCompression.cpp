@@ -78,7 +78,7 @@ namespace EquipIdCompression
         if (!readOk)
         {
             Log("[EquipIdCompression] SyncFromNativeTable: SEH while reading "
-                "native table at 0x%p — address may be wrong or page "
+                "native table at 0x%p - address may be wrong or page "
                 "unmapped. Skipping scan.\n", tableBase);
             return 0;
         }

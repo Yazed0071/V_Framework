@@ -36,3 +36,11 @@ namespace MissionCodeGuard
         if (MissionCodeGuard::ShouldBypassHooks())       \
             return false;                                \
     } while (0)
+
+
+#define MISSION_GUARD_ORIGINAL_RET(origFn, ...)          \
+    do                                                   \
+    {                                                    \
+        if (MissionCodeGuard::ShouldBypassHooks())       \
+            return (origFn)(__VA_ARGS__);                \
+    } while (0)

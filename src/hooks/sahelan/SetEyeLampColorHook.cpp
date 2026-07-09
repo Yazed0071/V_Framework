@@ -103,7 +103,7 @@ namespace
             else
             {
 #ifdef _DEBUG
-                Log("[EyeLamp] engine mode=%d (out of range — no override)\n", mode);
+                Log("[EyeLamp] engine mode=%d (out of range - no override)\n", mode);
 #endif
             }
         }

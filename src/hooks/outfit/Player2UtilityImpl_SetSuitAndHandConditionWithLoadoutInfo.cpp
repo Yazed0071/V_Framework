@@ -10,6 +10,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -95,12 +96,18 @@ namespace
             __try
             {
                 const std::uint8_t curFaceSlot = base[kInfoOff_FaceId];
-                if (curFaceSlot == 0)
+                if (curFaceSlot != 0)
                 {
-                    const std::uint8_t livePT = outfit::ReadLivePartsType();
+                    outfit::ClearPendingHeadOptionEquipId();
+                }
+                else
+                {
+                    const std::uint8_t livePT   = outfit::ReadLivePartsType();
+                    const std::uint8_t liveType = outfit::ReadLivePlayerType();
                     const bool liveIsCustom =
                         (livePT >= outfit::kCustomPartsTypeStart
                          && livePT <= outfit::kCustomPartsTypeEnd);
+                    (void)liveType;
                     if (liveIsCustom)
                     {
                         const std::uint16_t pendingHead =
@@ -113,6 +120,14 @@ namespace
                             if (pendingHead == outfit::kHeadOption_None)
                             {
                                 slot = 0;
+                            }
+                            else if (pendingHead == 0x20E)
+                            {
+                                slot = 1;
+                            }
+                            else if (pendingHead == 0x20F)
+                            {
+                                slot = 2;
                             }
                             else if (pendingHead == 0x210)
                             {
@@ -144,7 +159,7 @@ namespace
                                     Log("[OutfitSuitConditionApply:%s] "
                                         "pending custom head equipId 0x%X "
                                         "in framework range but not "
-                                        "registered — falling back to "
+                                        "registered - falling back to "
                                         "NONE\n",
                                         tag,
                                         static_cast<unsigned>(pendingHead));
@@ -175,12 +190,13 @@ namespace
                             Log("[OutfitSuitConditionApply:%s] head-option "
                                 "rewrite: info[3] = 0x%02X (translated from "
                                 "equipId 0x%X via pending stash; live "
-                                "partsType=0x%02X is custom and orig "
+                                "partsType=0x%02X is %s and orig "
                                 "dropped the click)\n",
                                 tag,
                                 static_cast<unsigned>(slot),
                                 static_cast<unsigned>(pendingHead),
-                                static_cast<unsigned>(livePT));
+                                static_cast<unsigned>(livePT),
+                                liveIsCustom ? "custom" : "vanilla+ext");
 #endif
                         }
                     }
@@ -202,7 +218,7 @@ namespace
                 base[kInfoOff_FaceId] = 0;
                 outfit::ClearWornCustomHeadSlot();
                 Log("[OutfitSuitConditionApply:%s] dangling custom head slot "
-                    "0x%02X not registered — reset to vanilla NONE\n",
+                    "0x%02X not registered - reset to vanilla NONE\n",
                     tag, static_cast<unsigned>(faceSlot));
             }
         }
@@ -236,7 +252,7 @@ namespace
                     outfit::WriteLivePlayerOutfit(remParts, remSel, playerType);
 #ifdef _DEBUG
                     Log("[OutfitSuitConditionApply:%s] PT-RESTORE: partsType=0x%02X "
-                        "unsupported for pt=%u — restored this PT's last outfit "
+                        "unsupported for pt=%u - restored this PT's last outfit "
                         "0x%02X selector=0x%02X (real equip)\n",
                         tag, static_cast<unsigned>(partsType),
                         static_cast<unsigned>(playerType),
@@ -262,7 +278,7 @@ namespace
                     outfit::ClearWornCustomHeadSlot();
 #ifdef _DEBUG
                     Log("[OutfitSuitConditionApply:%s] PT-RELEASE: partsType=0x%02X "
-                        "unsupported for pt=%u, nothing remembered — released to "
+                        "unsupported for pt=%u, nothing remembered - released to "
                         "vanilla default 0x00/0x00 + head cleared (matches vanilla "
                         "cross-body)\n",
                         tag, static_cast<unsigned>(partsType),
@@ -308,7 +324,7 @@ namespace
 #ifdef _DEBUG
                     Log("[OutfitSuitConditionApply:%s] HEAD-GATE: worn custom head "
                         "slot 0x%02X not offered by current outfit "
-                        "(partsType=0x%02X pt=%u) — dropped + head-apply flag set\n",
+                        "(partsType=0x%02X pt=%u) - dropped + head-apply flag set\n",
                         tag, static_cast<unsigned>(worn),
                         static_cast<unsigned>(partsType),
                         static_cast<unsigned>(gatePT));
@@ -401,7 +417,7 @@ namespace
                     outfit::ClearWornCustomHeadSlot();
 #ifdef _DEBUG
                     Log("[OutfitSuitConditionApply:%s] head-sync: vanilla suit "
-                        "apply — dropped worn custom head slot 0x%02X + cleared "
+                        "apply - dropped worn custom head slot 0x%02X + cleared "
                         "tracker\n", tag, static_cast<unsigned>(worn));
 #endif
                 }
@@ -414,7 +430,7 @@ namespace
                 __try
                 {
                     base[kInfoOff_CamoType] = 0x00;
-                    Log("[OutfitSuitConditionApply:%s] cleared stale "
+                    LogDebug("[OutfitSuitConditionApply:%s] cleared stale "
                         "broken-custom signal (no pendingDevId) -> vanilla "
                         "NORMAL\n",
                         tag);
@@ -436,7 +452,7 @@ namespace
                     base[kInfoOff_CamoType]  = 0x00;
                     Log("[OutfitSuitConditionApply:%s] BRICK-GUARD: dangling "
                         "custom suit partsType=0x%02X selector=0x%02X not "
-                        "registered — scrubbed to vanilla NORMAL\n",
+                        "registered - scrubbed to vanilla NORMAL\n",
                         tag, static_cast<unsigned>(partsType),
                         static_cast<unsigned>(camoType));
                 }
@@ -453,7 +469,7 @@ namespace
                         partsType, camoType, outfit::ReadLivePlayerType());
                     Log("[OutfitSuitConditionApply:%s] vanilla suit "
                         "(partsType=0x%02X camo=0x%02X) picked while live override "
-                        "was custom 0x%02X — released override to engine "
+                        "was custom 0x%02X - released override to engine "
                         "(anti-brick)\n",
                         tag, static_cast<unsigned>(partsType),
                         static_cast<unsigned>(camoType),
@@ -497,7 +513,7 @@ namespace
 
                 Log("[OutfitSuitConditionApply:%s] playerType not supported "
                     "(effective=%u via=%s developId=%u; "
-                    "livePT=%u info[0xC0]=%u flags=0x%X 0x100=%s) — applied "
+                    "livePT=%u info[0xC0]=%u flags=0x%X 0x100=%s) - applied "
                     "vanilla NORMAL upfront\n",
                     tag,
                     static_cast<unsigned>(effectivePT),
@@ -554,7 +570,7 @@ namespace
 #ifdef _DEBUG
                         Log("[OutfitSuitConditionApply:%s] head-sync: worn head slot "
                             "0x%02X (equipId 0x%X, %s) NOT in headOptions of "
-                            "partsType=0x%02X (pt=%u) — dropped\n",
+                            "partsType=0x%02X (pt=%u) - dropped\n",
                             tag, static_cast<unsigned>(worn),
                             static_cast<unsigned>(wornEquipId),
                             wornIsCustom ? "custom" : "vanilla",
@@ -624,6 +640,8 @@ namespace
 
     static void __fastcall hkSetSuit(void* self, void* info)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_Orig, self, info);
+
         InspectAndRewriteLoadout(info, "SetSuit");
 
         if (!g_InForcedReload && info)
@@ -648,12 +666,43 @@ namespace
         }
 
         g_Orig(self, info);
+
+#ifdef _DEBUG
+        if (info)
+        {
+            __try
+            {
+                auto* base = reinterpret_cast<std::uint8_t*>(info);
+                const std::uint32_t flags =
+                    *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags);
+                if ((flags & 0x80u) != 0)
+                {
+                    static int s_probe = 0;
+                    if (s_probe < 16)
+                    {
+                        ++s_probe;
+                        Log("[HeadSummaryProbe] after SetSuit: livePT=0x%02X "
+                            "info[3]=0x%02X flags=0x%X -> state[0xFA]=0x%02X "
+                            "state[0xFE]=0x%04X (0xFA renders, 0xFE = summary row)\n",
+                            static_cast<unsigned>(outfit::ReadLivePartsType()),
+                            static_cast<unsigned>(base[kInfoOff_FaceId]),
+                            flags,
+                            static_cast<unsigned>(outfit::ReadLiveHeadSlot()),
+                            static_cast<unsigned>(outfit::ReadLiveWornHeadCategory()));
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+#endif
     }
 
 
 
     static void __fastcall hkLoadoutApplyAfterSetSuit(void* self, void* info)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigLoadoutApply, self, info);
+
         if (!info || !g_OrigLoadoutApply)
         {
             if (g_OrigLoadoutApply) g_OrigLoadoutApply(self, info);
@@ -683,7 +732,7 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            Log("[OutfitLoadoutPreserve] SEH reading info — falling through to orig\n");
+            Log("[OutfitLoadoutPreserve] SEH reading info - falling through to orig\n");
             g_OrigLoadoutApply(self, info);
             return;
         }
@@ -730,6 +779,8 @@ namespace
     static void __fastcall hkSetInitialConditionWithLoadoutInfo(
         void* self, void* info, std::uint8_t preserve)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigSetInitial, self, info, preserve);
+
         if (!info || !g_OrigSetInitial)
         {
             if (g_OrigSetInitial) g_OrigSetInitial(self, info, preserve);
@@ -763,7 +814,7 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            Log("[OutfitSuitConditionApply:SetInitial] SEH reading info — "
+            Log("[OutfitSuitConditionApply:SetInitial] SEH reading info - "
                 "passing through to orig untouched\n");
             g_OrigSetInitial(self, info, preserve);
             return;
@@ -782,7 +833,7 @@ namespace
         {
 #ifdef _DEBUG
             Log("[OutfitSuitConditionApply:SetInitial] custom-outfit equip "
-                "(partsType=0x%02X camo=0x%02X flags=0x%X) — spoofing "
+                "(partsType=0x%02X camo=0x%02X flags=0x%X) - spoofing "
                 "preserve=1\n",
                 static_cast<unsigned>(partsType),
                 static_cast<unsigned>(camoType),
@@ -808,7 +859,7 @@ namespace outfit
         {
 #ifdef _DEBUG
             Log("[OutfitSuitConditionApply] ReplayCapturedSuitEquip: no captured "
-                "custom-suit descriptor yet (equip a custom suit once first) — "
+                "custom-suit descriptor yet (equip a custom suit once first) - "
                 "skipping arm reload\n");
 #endif
             return false;
@@ -833,7 +884,7 @@ namespace outfit
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             Log("[OutfitSuitConditionApply] ReplayCapturedSuitEquip: SEH calling "
-                "SetInitialConditionWithLoadoutInfo — replay aborted (no crash); "
+                "SetInitialConditionWithLoadoutInfo - replay aborted (no crash); "
                 "dropping the captured descriptor\n");
             g_HaveCapturedSuit = false;
             g_CapturedSuitSelf = nullptr;

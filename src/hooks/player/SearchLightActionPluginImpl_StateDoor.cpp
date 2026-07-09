@@ -8,6 +8,7 @@
 #include "HookUtils.h"
 #include "LuaBroadcaster.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -44,6 +45,8 @@ namespace
     // Started bit (work+0x46c bit0) goes 0 -> 1 when the lockpick begins.
     static void __fastcall hkStateDoorStart(void* self, std::uint32_t playerIndex, std::uint32_t proc, void* param3)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigStart, self, playerIndex, proc, param3);
+
         bool was = false; std::uint16_t gid; std::uint32_t side;
         const bool ok0 = ReadDoor(self, playerIndex, was, gid, side);
 
@@ -58,6 +61,8 @@ namespace
     // Started bit goes 1 -> 0 when the lockpick ends.
     static void __fastcall hkStateDoorEnd(void* self, std::uint32_t playerIndex, std::uint32_t proc, void* param3)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigEnd, self, playerIndex, proc, param3);
+
         bool was = false; std::uint16_t gid; std::uint32_t side;
         const bool ok0 = ReadDoor(self, playerIndex, was, gid, side);
 

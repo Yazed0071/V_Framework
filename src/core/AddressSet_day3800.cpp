@@ -297,8 +297,15 @@ static const char* const kAddrFieldNames[] = {
     "CassetteCheckUnreadInfo",
     "SubtitlesObjectSendMessage",
     "EquipDevCtrl_IsEquipDevelopable",
+    "LoadAvatarFaceFv2",
+    "LoadAvatarFaceFpk",
+    "AvatarFaceEditUpdate",
+    "Fox_ModelFromHandle",
+    "LoadAvatarHeadOptionFv2",
+    "LoadAvatarHeadOptionFpk",
+    "EquipDevelopCtrl_SetEnableDevelop",
 };
-static const int kAddrFieldCount = 285;
+static const int kAddrFieldCount = 292;
 
 namespace AddressSetRuntime
 {
@@ -542,8 +549,8 @@ namespace AddressSetRuntime
             0x140AF3F10ull, // FUN_140af3f10
             0x1405D76F0ull, // FUN_1405d76f0
             0x1409C47A5ull, // Barrier_LoadGate0
-            0x1409C480Full, // Barrier_LoadGate1 — InitializeWithoutParts itmsld01 (slot 0x13)
-            0x1409C4875ull, // Barrier_LoadGate2 — InitializeWithoutParts itmsld02 (slot 0x14)
+            0x1409C480Full, // Barrier_LoadGate1 - InitializeWithoutParts itmsld01 (slot 0x13)
+            0x1409C4875ull, // Barrier_LoadGate2 - InitializeWithoutParts itmsld02 (slot 0x14)
             0x140FC35D0ull, // FUN_140fc35d0
             0x140A2ABB0ull, // FUN_140a2abb0
             0x141B18A10ull, // FUN_141b18a10
@@ -596,7 +603,7 @@ namespace AddressSetRuntime
             0x141E02FF0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409CD030ull, // UpdatePartsStatus
             0x1416A2680ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
-            0x14003EF10ull, // Fox_Path_Exists (fox::fs::Path::Exists)
+            0x1400cce00ull, // Fox_Path_Exists
             0x140085760ull, // Fox_Path_Dtor (fox::Path::~Path)
             0x141E01FA0ull, // PluginFacial_ApplyMotion
             0x140f6d150ull, // EquipDevCtrl_IsEquipVisile
@@ -630,6 +637,13 @@ namespace AddressSetRuntime
             0x140EF5CE0ull, // CassetteCheckUnreadInfo
             0x1404D6E90ull, // SubtitlesObjectSendMessage
             0x140f6ccb0ull, // EquipDevCtrl_IsEquipDevelopable
+            0x140AE8180ull, // LoadAvatarFaceFv2
+            0x140AE81F0ull, // LoadAvatarFaceFpk
+            0x1409B63D0ull, // AvatarFaceEditUpdate
+            0x1404E6BA0ull, // Fox_ModelFromHandle
+            0x140AE73D0ull, // LoadAvatarHeadOptionFv2
+            0x140AE7440ull, // LoadAvatarHeadOptionFpk
+            0x140F6E5D0ull, // EquipDevelopCtrl_SetEnableDevelop
         };
 
         return value;
@@ -831,13 +845,13 @@ namespace AddressSetRuntime
             0x140338E00ull, // SoundControl_PostExternalEvent
             0x14098A750ull, // MusicPlayerPlayWrapper
             0x140931B10ull, // FUN_140931b10
-            0x1408B216Dull, // SetEquipItem GetItemId call-return (compare site, not a function entry)
+            0x1408B216Dull, // SetEquipItem
             0x141000070ull, // FUN_141000070
             0x140AF3E70ull, // FUN_140af3e70
             0x1405D79B0ull, // FUN_1405d79b0
-            0x1409C46B5ull, // Barrier_LoadGate0 (JP15.4 — slot 0x12 gate; TEST AL,AL = LoadGate1-0x6A)
-            0x1409C471Full, // Barrier_LoadGate1 — InitializeWithoutParts itmsld01
-            0x1409C4785ull, // Barrier_LoadGate2 — InitializeWithoutParts itmsld02
+            0x1409C46B5ull, // Barrier_LoadGate0
+            0x1409C471Full, // Barrier_LoadGate1 - InitializeWithoutParts itmsld01
+            0x1409C4785ull, // Barrier_LoadGate2 - InitializeWithoutParts itmsld02
             0x140FC3620ull, // FUN_140fc3620
             0x140A2A9F0ull, // FUN_140a2a9f0
             0x141B187F0ull, // FUN_141b187f0
@@ -850,11 +864,10 @@ namespace AddressSetRuntime
             0x1408B21A8ull, // EquipCrossSetEquipItem_Site1
             0x1408B2202ull, // EquipCrossSetEquipItem_Site2
             0x1408B2244ull, // EquipCrossSetEquipItem_Site3
-            0x140a97b20ull, // TppMotherBaseManagement_RegCstDev (JP TBD; hooks no-op if unresolved)
+            0x140a97b20ull, // TppMotherBaseManagement_RegCstDev
             0x140a98380ull, // TppMotherBaseManagement_RegFlwDev
             0x140f6af30ull, // EquipDevCtrl_GetSuitDevelopInfoIndex
             0x140f697f0ull, // EquipDevCtrl_GetFaceEquipDevelopInfoIndex
-            // --- Custom-outfit EQUIP + RENDER (JP-15.4 TBD; 0x0) ---
             0x1416a0a80ull, // AddListSuit
             0x140b10cb0ull, // CamoufParamInfo_GetCamoufValue
             0x140fdbdd0ull, // CamouflageController_ExecSuitCorrect
@@ -891,7 +904,7 @@ namespace AddressSetRuntime
             0x141e02fc0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409ccf30ull, // UpdatePartsStatus
             0x1416a2650ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
-            0x14003ef70ull, // Fox_Path_Exists
+            0x1400cd2f0ull, // Fox_Path_Exists
             0x1400857c0ull, // Fox_Path_Dtor
             0x141e01f70ull, // PluginFacial_ApplyMotion
             0x140f6d1b0ull, // EquipDevCtrl_IsEquipVisile
@@ -925,6 +938,13 @@ namespace AddressSetRuntime
             0x140EF5D10ull, // CassetteCheckUnreadInfo
             0x1404D72B0ull, // SubtitlesObjectSendMessage
             0x140f6cd10ull, // EquipDevCtrl_IsEquipDevelopable
+            0x140AE8100ull, // LoadAvatarFaceFv2
+            0x140AE8170ull, // LoadAvatarFaceFpk
+            0x1409B62E0ull, // AvatarFaceEditUpdate
+            0x1404E6F90ull, // Fox_ModelFromHandle
+            0x140AE7350ull, // LoadAvatarHeadOptionFv2
+            0x140AE73C0ull, // LoadAvatarHeadOptionFpk
+            0x140F6E630ull, // EquipDevelopCtrl_SetEnableDevelop
         };
         return value;
     }

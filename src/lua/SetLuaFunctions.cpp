@@ -57,6 +57,7 @@ extern "C" {
 #include "../hooks/ui/EnemyLangIdOverride.h"
 #include "../hooks/ui/MissionEmergencyHook.h"
 #include "../hooks/ui/ShowMissionIcon.h"
+#include "../hooks/ui/BarrierEffectSpawn.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
 #include "../hooks/player/TimeCigaretteUiHook.h"
 
@@ -513,6 +514,13 @@ int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 }
 
 
+int __cdecl l_IsBarrierActive(lua_State* L)
+{
+    PushLuaBool(L, BarrierEffect_IsShieldDeployed());
+    return 1;
+}
+
+
 int __cdecl l_SetSoldierVoicePitch(lua_State* L)
 {
     const std::uint32_t goId  = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
@@ -821,7 +829,7 @@ static bool InstallIsEmergencyMissionOverride(lua_State* L)
     if (g_lua_type(L, -1) != LUA_TTABLE)
     {
         g_lua_settop(L, top0);
-        Log("[MissionEmergency] InstallIsEmergencyMissionOverride: TppMission not loaded yet; deferred\n");
+        LogDebug("[MissionEmergency] InstallIsEmergencyMissionOverride: TppMission not loaded yet; deferred\n");
         return false;
     }
 
@@ -1121,7 +1129,7 @@ static bool InstallAcceptEmergencyMissionOverride(lua_State* L)
     if (g_lua_type(L, -1) != LUA_TTABLE)
     {
         g_lua_settop(L, top0);
-        Log("[MissionEmergency] InstallAcceptEmergencyMissionOverride: TppMission not loaded; deferred\n");
+        LogDebug("[MissionEmergency] InstallAcceptEmergencyMissionOverride: TppMission not loaded; deferred\n");
         return false;
     }
 
@@ -1166,7 +1174,7 @@ static bool InstallGoToEmergencyMissionOverride(lua_State* L)
     if (g_lua_type(L, -1) != LUA_TTABLE)
     {
         g_lua_settop(L, top0);
-        Log("[MissionEmergency] InstallGoToEmergencyMissionOverride: TppMission not loaded; deferred\n");
+        LogDebug("[MissionEmergency] InstallGoToEmergencyMissionOverride: TppMission not loaded; deferred\n");
         return false;
     }
 
@@ -1468,22 +1476,6 @@ static int __cdecl l_Log(lua_State* L)
         Log("%s\n", msg);
     }
     return 0;
-}
-
-
-static int __cdecl l_ShowConsole(lua_State* L)
-{
-    const bool show = (GetLuaTop(L) >= 1) ? GetLuaBool(L, 1) : true;
-
-    if (show)
-        EnsureConsole();
-
-    HWND console = GetConsoleWindow();
-    if (console)
-        ShowWindow(console, show ? SW_SHOW : SW_HIDE);
-
-    PushLuaBool(L, console != nullptr);
-    return 1;
 }
 
 
@@ -1854,7 +1846,6 @@ int __cdecl l_SetNewFlagCassetteTape(lua_State* L)
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
-    { "ShowConsole",                            l_ShowConsole },
     { nullptr, nullptr }
 };
 
@@ -1954,10 +1945,11 @@ bool Install_SetLuaFunctions_Hook()
         g_SetLuaFunctionsHookInstalled = true;
     }
 
-    Log("[Hook] SetLuaFunctions: %s target=%p orig=%p\n",
-        ok ? "OK" : "FAIL",
-        target,
-        g_OrigSetLuaFunctions);
+    if (ok)
+        LogDebug("[Hook] SetLuaFunctions: OK target=%p orig=%p\n",
+                 target, g_OrigSetLuaFunctions);
+    else
+        Log("[Hook] SetLuaFunctions: FAILED target=%p\n", target);
     return ok;
 }
 

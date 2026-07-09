@@ -9,6 +9,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -94,7 +95,7 @@ namespace
         {
             if (!g_FirstOverrideLogged.exchange(true))
             {
-                Log("[OutfitCamoBonus] SEH fault during peek — hook "
+                Log("[OutfitCamoBonus] SEH fault during peek - hook "
                     "no-op'd; check Info+0x%zx / Controller+0x%zx "
                     "offsets for build drift\n",
                     kInfoCamoBufferPtrOffset,
@@ -115,7 +116,7 @@ namespace
 
     static void __fastcall hkExecSuitCorrect(void* self, void* info)
     {
-
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigExecSuitCorrect, self, info);
 
         std::uint8_t saved = 0;
         std::uint8_t* writtenSlot = TryApplyPin_SEH(self, info, &saved);

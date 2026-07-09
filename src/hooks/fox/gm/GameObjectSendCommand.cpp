@@ -14,6 +14,7 @@ extern "C" {
 #include "log.h"
 #include "../../../core/AddressSet.h"
 #include "../../../core/HookUtils.h"
+#include "../../../core/MissionCodeGuard.h"
 #include "../../sahelan/PhaseSneakAiImpl_PreUpdate.h"
 #include "../../sahelan/RealizedSahelanFovaHook.h"
 #include "../../sahelan/SetEyeLampColorHook.h"
@@ -192,6 +193,9 @@ namespace
     static int __fastcall hk_SendCommand(lua_State* L)
     {
         if (!g_OrigSendCommand) return 0;
+
+        MISSION_GUARD_ORIGINAL_RET(g_OrigSendCommand, L);
+
         if (!ResolveLuaApi()) return g_OrigSendCommand(L);
 
         const int top = g_lua_gettop(L);
@@ -506,7 +510,7 @@ namespace
             ::Set_FriendlyFire(enable);
             return 0;
         }
-        if (idStr == "GetFriendlyFire")
+        if (idStr == "IsFriendlyFire")
         {
             g_lua_settop(L, top);
             g_lua_pushnumber(L, ::Get_FriendlyFire() ? 1.0 : 0.0);

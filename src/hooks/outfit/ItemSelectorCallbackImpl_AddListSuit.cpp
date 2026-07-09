@@ -4,6 +4,9 @@
 #include "OutfitRegistry.h"
 #include "EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 #include "CustomHeadRegistry.h"
+#include "MissionCodeGuard.h"
+#include "../equip/EquipDevelop_SetEquipUndeveloped.h"
+#include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 #include <array>
 #include <atomic>
@@ -106,6 +109,13 @@ namespace
         std::uint16_t flowIndex,
         void* entryBuf)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            if (g_OrigAddListSuit)
+                g_OrigAddListSuit(thisPtr, rowCounter, flowIndex, entryBuf);
+            return;
+        }
+
         if (outfit::IsCustomHeadEquipId(flowIndex))
         {
 #ifdef _DEBUG
@@ -171,17 +181,10 @@ namespace
         const std::uint32_t row = rowPost - 1;
         if (row > 0x3F) return;
 
-        const outfit::OutfitEntry* entry = nullptr;
-        if (!outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) || !entry)
-            return;
-
-
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
-        const std::uint8_t variantsForPT = (livePT != 0xFF)
-            ? entry->GetVariantCountFor(livePT)
-            : entry->variantCount;
-
-        if (variantsForPT < 2) return;
+        const outfit::OutfitEntry* entry = nullptr;
+        const bool isCustom =
+            outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
 
         __try
         {
@@ -197,65 +200,58 @@ namespace
                 return;
             }
 
-            for (std::uint8_t var = 0; var < variantsForPT; ++var)
+            if (isCustom)
             {
-                const std::size_t cellIndex =
-                    static_cast<std::size_t>(row) * 15 + var;
+                const std::uint8_t variantsForPT = (livePT != 0xFF)
+                    ? entry->GetVariantCountFor(livePT)
+                    : entry->variantCount;
+                if (variantsForPT < 2) return;
 
+                const std::uint8_t rowEnable =
+                    *(base + 0x548 + static_cast<std::size_t>(row) * 15);
 
-                *reinterpret_cast<std::uint16_t*>(
-                    base + 0x4440 + cellIndex * 2) = flowIndex;
-
-
-                std::uint8_t* cell = base + 0xCC40 + cellIndex * 12;
-                *reinterpret_cast<std::uint32_t*>(cell + 0) =
-                    static_cast<std::uint32_t>(
-                        entry->variantSelectorCodes[var]);
-                *reinterpret_cast<std::uint32_t*>(cell + 4) =
-                    (var == 0) ? 7u : 0u;
-                *(cell + 8) = 0;
-
-
-                *(base + 0x548   + cellIndex) = 1;
-                *(base + 0x425a4 + cellIndex) = 0;
-            }
-
-
-            *(base + 0xBC40 + row) = variantsForPT;
-
-
-            std::uint8_t activeVar =
-                outfit::GetActiveVariant(entry->partsType);
-            if (activeVar >= variantsForPT)
-                activeVar = static_cast<std::uint8_t>(variantsForPT - 1);
-            *(base + 0xC040 + row) = activeVar;
-
-
-#ifdef _DEBUG
-            char variantBuf[16 * 4 + 1] = {};
-            {
-                std::size_t pos = 0;
-                for (std::size_t i = 0;
-                     i < variantsForPT && pos + 4 < sizeof(variantBuf);
-                     ++i)
+                for (std::uint8_t var = 0; var < variantsForPT; ++var)
                 {
-                    pos += static_cast<std::size_t>(std::snprintf(
-                        variantBuf + pos, sizeof(variantBuf) - pos,
-                        (i == 0) ? "%02X" : ",%02X",
-                        static_cast<unsigned>(entry->variantSelectorCodes[i])));
-                }
-            }
+                    const std::size_t cellIndex =
+                        static_cast<std::size_t>(row) * 15 + var;
 
-            Log("[OutfitListInject:AddListSuit] post-orig variant cell "
-                "injection: flowIndex=%u developId=%u row=%u livePT=%u "
-                "variantsForPT=%u selectors=[%s]\n",
-                static_cast<unsigned>(flowIndex),
-                static_cast<unsigned>(entry->developId),
-                static_cast<unsigned>(row),
-                static_cast<unsigned>(livePT),
-                static_cast<unsigned>(variantsForPT),
-                variantBuf);
-#endif
+                    *reinterpret_cast<std::uint16_t*>(
+                        base + 0x4440 + cellIndex * 2) = flowIndex;
+
+                    std::uint8_t* cell = base + 0xCC40 + cellIndex * 12;
+                    *reinterpret_cast<std::uint32_t*>(cell + 0) =
+                        static_cast<std::uint32_t>(
+                            entry->variantSelectorCodes[var]);
+                    *reinterpret_cast<std::uint32_t*>(cell + 4) =
+                        (var == 0) ? 7u : 0u;
+                    *(cell + 8) = 0;
+
+                    *(base + 0x548   + cellIndex) = rowEnable;
+                    *(base + 0x425a4 + cellIndex) = 0;
+                }
+
+                *(base + 0xBC40 + row) = variantsForPT;
+
+                std::uint8_t wornPT = 0, wornSel = 0;
+                const bool equipped =
+                    outfit::GetCurrentEquippedSuitBytes(&wornPT, &wornSel)
+                    && wornPT == entry->partsType;
+
+                std::uint8_t displayVar;
+                if (equipped)
+                {
+                    displayVar = outfit::GetActiveVariant(entry->partsType);
+                }
+                else
+                {
+                    displayVar = entry->defaultVariant;
+                    outfit::SetActiveVariant(entry->partsType, displayVar);
+                }
+                if (displayVar >= variantsForPT)
+                    displayVar = static_cast<std::uint8_t>(variantsForPT - 1);
+                *(base + 0xC040 + row) = displayVar;
+                return;
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -290,9 +286,11 @@ namespace
 
     static void __fastcall hkUpdateRecords(void* thisPtr)
     {
+
         if (g_OrigUpdateRecords) g_OrigUpdateRecords(thisPtr);
 
         if (!thisPtr) return;
+        if (MissionCodeGuard::ShouldBypassHooks()) return;
 
         std::uint64_t variantHash = 0;
         std::uint8_t  variantIdx  = 0;
@@ -320,23 +318,20 @@ namespace
 
 
             const outfit::OutfitEntry* entry = nullptr;
-            if (!outfit::TryGetOutfitByFlowIndex(selectedId, &entry) || !entry)
-                return;
+            if (outfit::TryGetOutfitByFlowIndex(selectedId, &entry) && entry)
+            {
+                if (variantIdx >= outfit::kMaxVariantsPerOutfit)
+                    return;
 
-            if (variantIdx >= outfit::kMaxVariantsPerOutfit)
-                return;
-
-
-            const std::uint8_t livePT = outfit::ReadLivePlayerType();
-            const std::uint8_t labelPT =
-                (livePT != 0xFF && entry->IsPlayerTypeSupported(livePT))
-                    ? livePT
-                    : outfit::kPlayerType_Snake;
-            variantHash = entry->GetVariantDisplayNameHash(labelPT, variantIdx);
-
+                const std::uint8_t livePT = outfit::ReadLivePlayerType();
+                const std::uint8_t labelPT =
+                    (livePT != 0xFF && entry->IsPlayerTypeSupported(livePT))
+                        ? livePT
+                        : outfit::kPlayerType_Snake;
+                variantHash =
+                    entry->GetVariantDisplayNameHash(labelPT, variantIdx);
 
 #ifdef _DEBUG
-            {
                 static std::uint16_t s_lastMatchSelId  = 0xFFFF;
                 static std::uint8_t  s_lastMatchVarIdx = 0xFF;
                 static std::uint64_t s_lastMatchHash   = 0xFFFFFFFFFFFFFFFFull;
@@ -352,15 +347,14 @@ namespace
                         static_cast<unsigned>(variantIdx),
                         static_cast<unsigned long long>(variantHash),
                         variantHash == 0
-                            ? "(no displayName set in Lua — orig label kept)"
+                            ? "(no displayName set in Lua - orig label kept)"
                             : "(will override)");
                     s_lastMatchSelId  = selectedId;
                     s_lastMatchVarIdx = variantIdx;
                     s_lastMatchHash   = variantHash;
                 }
-            }
 #endif
-
+            }
             if (variantHash == 0) return;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -422,11 +416,10 @@ namespace
         }
     }
 
-
-    static void TryInjectHeadOptionList(void* thisPtr)
+    static bool TryInjectHeadOptionList(void* thisPtr)
     {
         outfit::DrainPendingHeads();
-        if (!thisPtr || !g_AddListBandana) return;
+        if (!thisPtr || !g_AddListBandana) return false;
 
         const auto base = reinterpret_cast<std::uintptr_t>(thisPtr);
 
@@ -437,28 +430,33 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            return;
+            return false;
         }
-        if (equipKind != 0x201) return;
+        if (equipKind != 0x201) return false;
 
-        const std::uint8_t pt = outfit::ReadLivePartsType();
-        if (!(pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd))
-            return;
+        const std::uint8_t pt     = outfit::ReadLivePartsType();
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
 
         const outfit::OutfitEntry* entry = nullptr;
-        if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry)
-            return;
+        const std::uint16_t*       headIds = nullptr;
+        std::uint8_t               headCount = 0;
 
-
-        const std::uint8_t      livePT  = outfit::ReadLivePlayerType();
-        const std::uint8_t      variant = outfit::GetActiveVariant(pt);
-        const std::uint16_t*    headIds = nullptr;
-        std::uint8_t            headCount = 0;
-        entry->GetHeadOptionsForVariant(livePT, variant, &headIds, &headCount);
+        if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
+        {
+            if (!outfit::TryGetOutfitByPartsType(pt, &entry) || !entry)
+                return false;
+            const std::uint8_t variant = outfit::GetActiveVariant(pt);
+            entry->GetHeadOptionsForVariant(livePT, variant, &headIds, &headCount);
+        }
+        else
+        {
+            return false;
+        }
         if (headCount > 0 && !headIds) headCount = 0;
 
 
         std::uint32_t count = 0;
+        bool listChanged = false;
         __try
         {
             if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
@@ -467,7 +465,7 @@ namespace
                 Log("[OutfitListInject:HeadOption] wrong-object guard: "
                     "base=%p is not the suit panel (+0x461b8 mismatch) -> "
                     "skipped head-marker writes\n", base);
-                return;
+                return false;
             }
 
             const std::uint32_t origCount =
@@ -515,23 +513,13 @@ namespace
             for (std::uint32_t i = 0; i < startCount && origAddedCount < 32; ++i)
             {
                 origAdded[origAddedCount++] =
-                    *reinterpret_cast<std::uint16_t*>(base + 0x4440 + i * 2);
+                    *reinterpret_cast<std::uint16_t*>(base + 0x4440 + i * 0x1E);
             }
 
             auto isAlreadyInList = [&](std::uint16_t equipId) -> bool {
                 for (std::uint8_t k = 0; k < origAddedCount; ++k)
                     if (origAdded[k] == equipId) return true;
                 return false;
-            };
-
-            const bool livePT_IsSnakeOrAvatar =
-                   (livePT == outfit::kPlayerType_Snake)
-                || (livePT == outfit::kPlayerType_Avatar);
-
-            auto isOrigLateBandana = [&](std::uint16_t equipId) -> bool {
-                if (!livePT_IsSnakeOrAvatar) return false;
-                return equipId == 0x20Eu
-                    || equipId == 0x20Fu;
             };
 
             for (std::uint8_t i = 0;
@@ -543,7 +531,6 @@ namespace
                 if (equipId == 0) continue;
                 if (count >= 32) break;
                 if (isAlreadyInList(equipId)) continue;
-                if (isOrigLateBandana(equipId)) continue;
 
 
                 if (const auto* head =
@@ -580,18 +567,19 @@ namespace
             {
                 *reinterpret_cast<std::uint32_t*>(base + 0x442c) = count;
                 *reinterpret_cast<std::uint32_t*>(base + 0x104)  = count;
+                listChanged = true;
             }
 
 #ifdef _DEBUG
             if (!g_HeadOptionInjectFirstFire.exchange(true))
             {
                 Log("[OutfitListInject:HeadOption] FIRST INJECT: "
-                    "partsType=0x%02X livePT=%u developId=%u declaredCount=%u "
-                    "origCount=%u finalCount=%u — "
+                    "partsType=0x%02X livePT=%u developId=%u "
+                    "declaredCount=%u origCount=%u finalCount=%u - "
                     "committed to this[0x442c] and this[0x104]\n",
                     static_cast<unsigned>(pt),
                     static_cast<unsigned>(livePT),
-                    static_cast<unsigned>(entry->developId),
+                    static_cast<unsigned>(entry ? entry->developId : 0),
                     static_cast<unsigned>(headCount),
                     static_cast<unsigned>(startCount),
                     static_cast<unsigned>(count));
@@ -605,6 +593,7 @@ namespace
                 static_cast<unsigned>(pt),
                 static_cast<unsigned>(count));
         }
+        return listChanged;
     }
 
     static bool IsHeadOptionList(void* thisPtr)
@@ -624,12 +613,24 @@ namespace
     static std::uint32_t __fastcall hkHeadBadgeCategory(void* self,
                                                         std::uint32_t equipId)
     {
-        if (g_HeadBadgeBuildActive || g_HeadEquipDecideActive)
+        const outfit::CustomHeadEntry* byEquip =
+            outfit::TryGetCustomHeadByEquipId(static_cast<std::uint16_t>(equipId));
+#ifdef _DEBUG
+        if (!g_HeadBadgeBuildActive && !g_HeadEquipDecideActive)
         {
-            if (const auto* head = outfit::TryGetCustomHeadByEquipId(
-                    static_cast<std::uint16_t>(equipId)))
-                return head->slotByte;
+            static int s_passive = 0;
+            if (s_passive < 12)
+            {
+                ++s_passive;
+                Log("[HeadSummary] GetFaceEquipId passive: arg=0x%X "
+                    "isCustomHeadEquipId=%d livePT=0x%02X\n",
+                    equipId, byEquip ? 1 : 0,
+                    static_cast<unsigned>(outfit::ReadLivePartsType()));
+            }
         }
+#endif
+        if (byEquip)
+            return byEquip->slotByte;
         return g_OrigHeadBadgeCategory
             ? g_OrigHeadBadgeCategory(self, equipId) : 0;
     }
@@ -646,11 +647,109 @@ namespace
         return g_OrigWornHeadCategory ? g_OrigWornHeadCategory(self) : 0;
     }
 
+    constexpr std::size_t kVtblSlot_PrepIsFobSortie   = 0x4F0 / 8;
+    constexpr std::size_t kVtblSlot_DevIsFobAvailable = 0x478 / 8;
+
+    static void ApplyFobAvailabilityToCustomRows(void* thisPtr)
+    {
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+            void* sys  = *reinterpret_cast<void**>(base + 0x70);
+            void* ctrl = *reinterpret_cast<void**>(base + 0x58);
+            if (!sys || !ctrl) return;
+
+            using CtxFn_t = std::uint8_t (__fastcall*)(void*);
+            using FobFn_t = std::uint8_t (__fastcall*)(void*, std::uint16_t);
+
+            auto ctx = reinterpret_cast<CtxFn_t>(
+                (*reinterpret_cast<void***>(sys))[kVtblSlot_PrepIsFobSortie]);
+            if (!ctx || !ctx(sys)) return;
+
+            auto fob = reinterpret_cast<FobFn_t>(
+                (*reinterpret_cast<void***>(ctrl))[kVtblSlot_DevIsFobAvailable]);
+            if (!fob) return;
+
+            const std::uint32_t rows =
+                *reinterpret_cast<std::uint32_t*>(base + 0x104);
+            if (rows == 0 || rows > 0x40) return;
+
+            int disabled = 0;
+            for (std::uint32_t row = 0; row < rows; ++row)
+            {
+                std::uint8_t vars = *(base + 0xBC40 + row);
+                if (vars == 0)  vars = 1;
+                if (vars > 15)  vars = 15;
+                for (std::uint8_t var = 0; var < vars; ++var)
+                {
+                    const std::size_t cell =
+                        static_cast<std::size_t>(row) * 15 + var;
+                    const std::uint16_t idx = *reinterpret_cast<std::uint16_t*>(
+                        base + 0x4440 + cell * 2);
+                    if (!EquipDevelopAdd::IsManagedFlowIndex(idx))
+                        continue;
+                    if (fob(ctrl, idx))
+                        continue;
+                    if (*(base + 0x548 + cell))
+                    {
+                        *(base + 0x548 + cell) = 0;
+                        ++disabled;
+                    }
+                }
+            }
+#ifdef _DEBUG
+            if (disabled > 0)
+            {
+                static int s_n = 0;
+                if (s_n < 12)
+                {
+                    ++s_n;
+                    Log("[OutfitListInject] FOB-sortie context: disabled %d "
+                        "custom cell(s) via the game's IsFobAvailable\n",
+                        disabled);
+                }
+            }
+#endif
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
     static void __fastcall hkSetupPrefabListElement(void* thisPtr)
     {
-
-
-
+#ifdef _DEBUG
+        {
+            static std::uint16_t s_lastCode = 0xFFFF;
+            const std::uint16_t code = MissionCodeGuard::GetCurrentMissionCode();
+            if (code != s_lastCode)
+            {
+                s_lastCode = code;
+                Log("[OutfitListInject] SetupPrefab: missionCode=%u fobBypass=%d\n",
+                    static_cast<unsigned>(code),
+                    MissionCodeGuard::ShouldBypassHooks() ? 1 : 0);
+            }
+        }
+#endif
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            const int suppressed = EquipDevelop_BeginFobListSuppress();
+            const bool prevFob = t_InsideSetupPrefab;
+            t_InsideSetupPrefab = true;
+            if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
+            t_InsideSetupPrefab = prevFob;
+            EquipDevelop_EndFobListSuppress();
+            ApplyFobAvailabilityToCustomRows(thisPtr);
+#ifdef _DEBUG
+            static int s_fobLog = 0;
+            if (s_fobLog < 8)
+            {
+                ++s_fobLog;
+                Log("[OutfitListInject] FOB mission: list built with %d custom "
+                    "develop row(s) suppressed; custom injection skipped\n",
+                    suppressed);
+            }
+#endif
+            return;
+        }
 
         const bool prevBadge = g_HeadBadgeBuildActive;
         g_HeadBadgeBuildActive = IsHeadOptionList(thisPtr);
@@ -661,11 +760,112 @@ namespace
         if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
         t_InsideSetupPrefab = prev;
 
+        bool headRowsChanged = false;
         if (!prev && g_HeadOptionInjectEnabled)
         {
 
 
-            TryInjectHeadOptionList(thisPtr);
+            headRowsChanged = TryInjectHeadOptionList(thisPtr);
+        }
+
+        if (!prev && g_HeadBadgeBuildActive)
+        {
+            __try
+            {
+                auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+                if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
+                        == 0xb8a0bf169f98ull)
+                {
+                    auto validSlot = [](std::uint8_t s) {
+                        return s >= outfit::kCustomHeadSlotBase
+                            && outfit::IsCustomHeadSlot(s);
+                    };
+                    const std::uint8_t srcTracker = outfit::GetWornCustomHeadSlot();
+                    const std::uint16_t srcCat = outfit::ReadLiveWornHeadCategory();
+                    const std::uint8_t srcHeadSlot = outfit::ReadLiveHeadSlot();
+                    std::uint8_t wornSlot = 0;
+                    if (validSlot(srcTracker))
+                        wornSlot = srcTracker;
+                    else if (validSlot(static_cast<std::uint8_t>(srcCat)))
+                        wornSlot = static_cast<std::uint8_t>(srcCat);
+                    else if (validSlot(srcHeadSlot))
+                        wornSlot = srcHeadSlot;
+                    const outfit::CustomHeadEntry* worn =
+                        validSlot(wornSlot)
+                            ? outfit::TryGetCustomHeadBySlot(wornSlot)
+                            : nullptr;
+
+                    std::uint16_t wornEquipId = worn ? worn->equipId : 0;
+                    if (wornEquipId == 0)
+                    {
+                        const std::uint16_t wid =
+                            outfit::GetCurrentWornHeadEquipId();
+                        if (wid != 0 && outfit::TryGetCustomHeadByEquipId(wid))
+                            wornEquipId = wid;
+                    }
+
+                    if (wornEquipId == 0)
+                    {
+                        std::uint8_t vslot = 0;
+                        if (srcCat >= 1 && srcCat <= 5)
+                            vslot = static_cast<std::uint8_t>(srcCat);
+                        else if (srcHeadSlot >= 1 && srcHeadSlot <= 5)
+                            vslot = srcHeadSlot;
+                        if (vslot != 0)
+                            wornEquipId =
+                                static_cast<std::uint16_t>(0x20D + vslot);
+                    }
+#ifdef _DEBUG
+                    Log("[OutfitListInject:HeadCursor] worn-head sources: "
+                        "tracker=0x%02X state[0xFE]=0x%02X state[0xFA]=0x%02X "
+                        "wornEquipTracker=0x%X -> equipId=0x%X "
+                        "(rowsChanged=%d)\n",
+                        static_cast<unsigned>(srcTracker),
+                        static_cast<unsigned>(srcCat),
+                        static_cast<unsigned>(srcHeadSlot),
+                        static_cast<unsigned>(outfit::GetCurrentWornHeadEquipId()),
+                        static_cast<unsigned>(wornEquipId),
+                        headRowsChanged ? 1 : 0);
+#endif
+                    const std::uint32_t rowCount =
+                        *reinterpret_cast<std::uint32_t*>(base + 0x442c);
+
+                    int targetRow = -1;
+                    if (wornEquipId != 0)
+                    {
+                        for (std::uint32_t r = 0; r < rowCount && r < 64; ++r)
+                            if (*reinterpret_cast<std::uint16_t*>(
+                                    base + 0x4440 + r * 0x1e) == wornEquipId)
+                            { targetRow = static_cast<int>(r); break; }
+#ifdef _DEBUG
+                        if (targetRow < 0)
+                            Log("[OutfitListInject:HeadCursor] equipId=0x%X NOT "
+                                "found in %u rows (0x4440 stride 0x1e)\n",
+                                static_cast<unsigned>(wornEquipId), rowCount);
+#endif
+                    }
+
+                    if (targetRow >= 0)
+                    {
+                        for (std::uint32_t r = 0; r < rowCount && r < 64; ++r)
+                            *(base + 0x425a4 + r * 0xf) =
+                                (static_cast<int>(r) == targetRow) ? 1 : 0;
+                    }
+
+                    if (targetRow >= 0 || headRowsChanged)
+                    {
+                        if (void* scan = ResolveGameAddress(
+                                gAddr.MissionPrep_SetInitialSelectRecord))
+                            reinterpret_cast<void(__fastcall*)(
+                                void*, std::uint32_t)>(scan)(thisPtr, rowCount);
+#ifdef _DEBUG
+                        Log("[OutfitListInject:HeadCursor] cursor pass re-run: "
+                            "targetRow=%d rowCount=%u\n", targetRow, rowCount);
+#endif
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
 
         if (!prev && !g_HeadBadgeBuildActive)
@@ -727,6 +927,9 @@ namespace
         }
 
         g_HeadBadgeBuildActive = prevBadge;
+
+        if (!prev)
+            ApplyFobAvailabilityToCustomRows(thisPtr);
     }
 }
 
@@ -777,7 +980,7 @@ namespace outfit
                 reinterpret_cast<AddListBandana_t>(addBandanaAddr);
 #ifdef _DEBUG
             Log("[OutfitListInject:HeadOption] AddListBandana resolved: "
-                "%p — post-orig HEAD OPTION (equipKind=0x201) list "
+                "%p - post-orig HEAD OPTION (equipKind=0x201) list "
                 "injection enabled for custom outfits with HasHeadOptions()\n",
                 addBandanaAddr);
 #endif
@@ -829,7 +1032,7 @@ namespace outfit
         else
         {
             Log("[OutfitListInject] UpdateRecords target unresolved "
-                "(JP build?) — variant cycle-button labels will fall "
+                "(JP build?) - variant cycle-button labels will fall "
                 "back to vanilla hardcoded mapping\n");
         }
 

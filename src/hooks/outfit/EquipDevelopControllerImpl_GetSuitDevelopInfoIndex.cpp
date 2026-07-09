@@ -14,6 +14,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
+#include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 namespace
 {
@@ -252,6 +253,20 @@ namespace
             }
             if (resolve)
                 out = head->equipId;
+#ifdef _DEBUG
+            {
+                static int s_probe = 0;
+                if (s_probe < 12)
+                {
+                    ++s_probe;
+                    Log("[HeadSummary] GetFaceEquipDevelopInfoIndex: faceVal=0x%X "
+                        "bySlot=%d livePT=0x%02X resolve=%d -> out=0x%X\n",
+                        faceVal, bySlot ? 1 : 0,
+                        static_cast<unsigned>(outfit::ReadLivePartsType()),
+                        resolve ? 1 : 0, out);
+                }
+            }
+#endif
         }
 
         return out;
@@ -363,6 +378,16 @@ namespace
             : std::uint8_t{0};
     }
 
+    constexpr DWORD kVisCacheTtlMs = 50;
+    constexpr std::size_t kVisCacheSize = 0x10000;
+    struct VisCacheEntry
+    {
+        DWORD        tick;
+        std::uint8_t valid;
+        std::uint8_t result;
+    };
+    static VisCacheEntry g_VisCache[kVisCacheSize] = {};
+
     static std::uint8_t __fastcall hkIsEquipVisile(void* self, std::uint16_t idx)
     {
         outfit::DrainPendingHeads();
@@ -372,9 +397,22 @@ namespace
             DrainPendingDeveloped(self);
         }
 
+        EquipDevelopAdd::MaybeRefreshDynamicGates();
+
         if (idx < kDevelopHiddenCap && g_DevelopHiddenBits[idx] != 0)
             return 0;
-        return g_OrigIsEquipVisile ? g_OrigIsEquipVisile(self, idx) : 0;
+
+        const DWORD now = GetTickCount();
+        VisCacheEntry& e = g_VisCache[idx];
+        if (e.valid && (now - e.tick) < kVisCacheTtlMs)
+            return e.result;
+
+        const std::uint8_t r =
+            g_OrigIsEquipVisile ? g_OrigIsEquipVisile(self, idx) : 0;
+        e.tick   = now;
+        e.result = r;
+        e.valid  = 1;
+        return r;
     }
 }
 
@@ -476,10 +514,15 @@ namespace outfit
         g_InstalledIsEquipSuit     = false;
     }
 
-    void SetDevelopHidden(unsigned short index)
+    void SetDevelopHidden(unsigned short index, bool hidden)
     {
         if (index < kDevelopHiddenCap)
-            g_DevelopHiddenBits[index] = 1;
+            g_DevelopHiddenBits[index] = hidden ? 1 : 0;
+    }
+
+    bool IsDevelopHidden(unsigned short index)
+    {
+        return index < kDevelopHiddenCap && g_DevelopHiddenBits[index] != 0;
     }
 
     void* GetCachedEquipDevelopController()
@@ -540,27 +583,5 @@ namespace outfit
         if (!controller)
             return;
         ClearDevelopedNow(controller, index);
-    }
-
-    constexpr std::size_t kDevelopRecordStride = 0x68;
-    void MakeDevelopRecordNonRoot(void* controller, unsigned short index,
-                                  unsigned short baseDevelopId)
-    {
-        if (!controller || index >= kDevelopHiddenCap
-            || index == kDevelopIndexSentinel || baseDevelopId == 0)
-            return;
-        if (!IsEnBuild())
-            return;
-
-        __try
-        {
-            auto* base = reinterpret_cast<std::uint16_t*>(
-                reinterpret_cast<std::uint8_t*>(controller)
-                + static_cast<std::size_t>(index) * kDevelopRecordStride + 0x10);
-            *base = baseDevelopId;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
     }
 }

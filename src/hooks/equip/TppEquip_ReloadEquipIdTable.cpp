@@ -40,7 +40,7 @@ namespace
         if (!EquipIdCompression::IsCompressedInBounds(index))
         {
             Log("[EquipIdTable] REFUSED write: equipId=%d compresses to 0x%X, "
-                "out of the 0x%X-slot native table — would corrupt adjacent "
+                "out of the 0x%X-slot native table - would corrupt adjacent "
                 "memory. Row dropped.\n",
                 row.equipId, index, EquipIdCompression::kCompressedSlotBound);
             return;

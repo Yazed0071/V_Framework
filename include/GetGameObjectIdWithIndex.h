@@ -21,3 +21,7 @@ bool GetSoldierGameObjectIdWithIndex(std::uint32_t soldierIndex,
 
 std::uint32_t GetGameObjectIdByIndex(const char* typeName,
     std::uint32_t index);
+
+bool GetGameObjectIdByName(const char* typeName,
+    const char* instanceName,
+    std::uint32_t& gameObjectIdOut);

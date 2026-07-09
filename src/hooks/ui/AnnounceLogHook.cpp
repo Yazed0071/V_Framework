@@ -133,7 +133,10 @@ namespace
         {
             auto* seIdPtr = reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(self) + kTLA_SeId);
             const std::uint32_t seId = *seIdPtr;
-            if (seId >= kModSeIdBase && seId <= kModSeIdMax)
+            const bool isModSlot = seId >= kModSeIdBase && seId <= kModSeIdMax &&
+                (g_ModSfx[seId] != 0 || g_ModDialogue[seId].condition != 0 ||
+                 !g_ModVoices[seId].empty() || g_ModEvents[seId] != 0);
+            if (isModSlot)
             {
                 if (!MissionCodeGuard::ShouldBypassHooks())
                 {

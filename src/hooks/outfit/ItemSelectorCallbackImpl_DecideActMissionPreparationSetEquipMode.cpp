@@ -11,6 +11,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -152,16 +153,6 @@ namespace
             const std::uint16_t devId =
                 isSuitClick ? MatchSelectionToOutfit(s) : 0;
 
-#ifdef _DEBUG
-            Log("[OutfitItemSelector:%s] fire: equipKind=0x%X selectedId=%u "
-                "selector=0x%02X -> matched developId=%u\n",
-                tag,
-                s.equipKind,
-                static_cast<unsigned>(s.selectedId),
-                static_cast<unsigned>(s.selectorCode),
-                static_cast<unsigned>(devId));
-#endif
-
             if (devId != 0)
                 outfit::SetPendingOutfitDevelopId(devId);
             else if (isSuitClick)
@@ -206,7 +197,7 @@ namespace
         const char*  why         = nullptr;
         if (resolves)
         {
-            newSelector = entry->selectorCode;
+            newSelector = entry->variantSelectorCodes[entry->defaultVariant];
             why = "single custom outfit";
         }
         else if (s.selectedId >= kCustomFlowFirst && s.selectedId <= kCustomFlowLast)
@@ -242,13 +233,16 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             Log("[OutfitItemSelector:%s] SEH writing supply-cell selector "
-                "(cell=%zu) — skipped\n", tag, s.cellIndex);
+                "(cell=%zu) - skipped\n", tag, s.cellIndex);
         }
     }
 
     static void* __fastcall hkDecideActMissionPrep(
         void* self, void* out, void* p3, void* p4)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigDecideActMissionPrep(self, out, p3, p4);
+
         const SelectionSample sPrep = ProcessSelectionAndPublish(self, "prep");
         FixupSupplyCellSelector(self, sPrep, "prep");
         outfit::SetHeadEquipDecideActive(true);
@@ -260,6 +254,9 @@ namespace
     static void* __fastcall hkDecideActCustomize(
         void* self, void* out, void* p3, void* p4)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigDecideActCustomize(self, out, p3, p4);
+
         const SelectionSample s = ProcessSelectionAndPublish(self, "customize");
         outfit::SetHeadEquipDecideActive(true);
         void* r = g_OrigDecideActCustomize(self, out, p3, p4);
@@ -272,6 +269,9 @@ namespace
     static void* __fastcall hkDecideActSupplyDrop(
         void* self, void* out, void* p3, void* p4)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigDecideActSupplyDrop(self, out, p3, p4);
+
         const SelectionSample sSup = ProcessSelectionAndPublish(self, "supply");
         FixupSupplyCellSelector(self, sSup, "supply");
 
@@ -352,6 +352,13 @@ namespace
     static void __fastcall hkSetSupplyCBoxInfo(
         void* self, std::uint16_t flowIndex)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            if (g_OrigSetSupplyCBoxInfo)
+                g_OrigSetSupplyCBoxInfo(self, flowIndex);
+            return;
+        }
+
         const outfit::OutfitEntry* entry = nullptr;
         const bool isCustom =
             outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
@@ -362,11 +369,11 @@ namespace
             outfit::SetPendingSupplyDropDevelopId(entry->developId);
 
 
-            outfit::SetPendingSupplyDropVariantIdx(0);
+            outfit::SetPendingSupplyDropVariantIdx(entry->defaultVariant);
 #ifdef _DEBUG
             Log("[OutfitItemSelector:devmenu] R&D request for custom outfit "
                 "flowIndex=%u developId=%u partsType=0x%02X selector=0x%02X "
-                "— stashed both pendingOutfitDevelopId AND "
+                "- stashed both pendingOutfitDevelopId AND "
                 "pendingSupplyDropDevelopId (variantIdx=0) for crate-pickup "
                 "recovery\n",
                 static_cast<unsigned>(flowIndex),
@@ -387,7 +394,7 @@ namespace
                     reinterpret_cast<std::uint8_t*>(self) + 0x23A0) = 0xFFFFFFFFu;
 #ifdef _DEBUG
                 Log("[OutfitItemSelector:devmenu] custom HEAD row flowIndex=%u "
-                    "is not orderable — drop request neutralized (heads equip "
+                    "is not orderable - drop request neutralized (heads equip "
                     "via the HEAD OPTION submenu, not supply crates)\n",
                     static_cast<unsigned>(flowIndex));
 #endif
@@ -419,14 +426,16 @@ namespace
                 *reqType   = 3;
                 *flags     = 0x1u | 0x80u;
                 payload[0] = 0;
-                payload[1] = isCustom ? entry->selectorCode : std::uint8_t(0x4F);
+                payload[1] = isCustom
+                    ? entry->variantSelectorCodes[entry->defaultVariant]
+                    : std::uint8_t(0x4F);
                 payload[2] = 0;
                 payload[3] = 0;
 
 #ifdef _DEBUG
                 Log("[OutfitItemSelector:devmenu] post-orig SupplyCboxDropRequest "
                     "repair: type 0x%X->3 flags 0x%X->0x81 camo 0x%02X->0x%02X "
-                    "(flowIndex=%u, %s) — coherent suit crate; pickup resolves "
+                    "(flowIndex=%u, %s) - coherent suit crate; pickup resolves "
                     "identity from the camo byte\n",
                     prevType, prevFlags, prevCamo, payload[1],
                     static_cast<unsigned>(flowIndex),
@@ -437,7 +446,7 @@ namespace
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
                 Log("[OutfitItemSelector:devmenu] SEH writing SupplyCboxDropRequest "
-                    "at self+0x23A0..0x246C (self=%p) — offset assumption may be "
+                    "at self+0x23A0..0x246C (self=%p) - offset assumption may be "
                     "wrong\n", self);
             }
         }
@@ -465,8 +474,12 @@ namespace outfit
                 reinterpret_cast<void*>(&hkDecideActMissionPrep),
                 reinterpret_cast<void**>(&g_OrigDecideActMissionPrep));
 
-            Log("[OutfitItemSelector] prep installed: %s (target=%p)\n",
-                g_Installed ? "OK" : "FAIL", target);
+            if (g_Installed)
+                LogDebug("[OutfitItemSelector] prep installed OK (target=%p)\n",
+                         target);
+            else
+                Log("[OutfitItemSelector] prep install FAILED (target=%p)\n",
+                    target);
         }
 
         if (!g_InstalledSupplyDrop)
@@ -485,8 +498,12 @@ namespace outfit
                     reinterpret_cast<void*>(&hkDecideActSupplyDrop),
                     reinterpret_cast<void**>(&g_OrigDecideActSupplyDrop));
 
-                Log("[OutfitItemSelector] supply installed: %s (target=%p)\n",
-                    g_InstalledSupplyDrop ? "OK" : "FAIL", target);
+                if (g_InstalledSupplyDrop)
+                    LogDebug("[OutfitItemSelector] supply installed OK "
+                             "(target=%p)\n", target);
+                else
+                    Log("[OutfitItemSelector] supply install FAILED "
+                        "(target=%p)\n", target);
             }
         }
 
@@ -506,8 +523,12 @@ namespace outfit
                     reinterpret_cast<void*>(&hkDecideActCustomize),
                     reinterpret_cast<void**>(&g_OrigDecideActCustomize));
 
-                Log("[OutfitItemSelector] customize installed: %s (target=%p)\n",
-                    g_InstalledCustomize ? "OK" : "FAIL", target);
+                if (g_InstalledCustomize)
+                    LogDebug("[OutfitItemSelector] customize installed OK "
+                             "(target=%p)\n", target);
+                else
+                    Log("[OutfitItemSelector] customize install FAILED "
+                        "(target=%p)\n", target);
             }
         }
 
@@ -527,9 +548,12 @@ namespace outfit
                     reinterpret_cast<void*>(&hkSetSupplyCBoxInfo),
                     reinterpret_cast<void**>(&g_OrigSetSupplyCBoxInfo));
 
-                Log("[OutfitItemSelector] devmenu SetSupplyCBoxInfo installed: "
-                    "%s (target=%p)\n",
-                    g_InstalledSetSupplyCBox ? "OK" : "FAIL", target);
+                if (g_InstalledSetSupplyCBox)
+                    LogDebug("[OutfitItemSelector] devmenu SetSupplyCBoxInfo "
+                             "installed OK (target=%p)\n", target);
+                else
+                    Log("[OutfitItemSelector] devmenu SetSupplyCBoxInfo install "
+                        "FAILED (target=%p)\n", target);
             }
         }
 

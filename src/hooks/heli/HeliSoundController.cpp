@@ -9,6 +9,7 @@
 #include "HookUtils.h"
 #include "LuaBroadcaster.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -96,6 +97,8 @@ namespace
 
     static void __fastcall hkUpdate(void* this_)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigUpdate, this_);
+
         if (this_)
             g_Controller.store(this_, std::memory_order_relaxed);
 
@@ -113,6 +116,8 @@ namespace
 
     static void __fastcall hkFlightUpdate(void* this_)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigFlightUpdate, this_);
+
         if (g_OrigFlightUpdate)
             g_OrigFlightUpdate(this_);
 
@@ -121,6 +126,8 @@ namespace
 
     static void __fastcall hkCallVoice(void* this_, std::uint32_t slot, std::uint32_t voiceId, std::uint32_t voiceType, std::uint32_t param4)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigCallVoice, this_, slot, voiceId, voiceType, param4);
+
         if (this_)
             g_Controller.store(this_, std::memory_order_relaxed);
 
@@ -147,6 +154,8 @@ namespace
 
 bool Play_PilotCallVoice(std::uint32_t voiceId, std::uint32_t slot, std::uint32_t voiceType, std::uint32_t param4)
 {
+    MISSION_GUARD_RETURN_FALSE();
+
     CallVoice_t fn = g_OrigCallVoice ? g_OrigCallVoice : g_CallVoice;
     if (!fn)
         return false;

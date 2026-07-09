@@ -29,12 +29,33 @@ namespace outfit
 
         struct PendingHead
         {
-            char           name[64]                = { 0 };
-            std::uint16_t  faceIds[kPlayerTypeMax] = {};
-            bool           showInDevelopMenu       = false;
+            char           name[64]                    = { 0 };
+            std::uint16_t  faceIds[kPlayerTypeMax]     = {};
+            std::uint64_t  faceFv2Code[kPlayerTypeMax] = {};
+            std::uint64_t  faceFpkCode[kPlayerTypeMax] = {};
+            bool           showInDevelopMenu           = false;
         };
         std::vector<PendingHead>  g_PendingHeads;
         std::atomic<bool>         g_HasPendingHeads{ false };
+
+
+        struct SnakeFaceStages
+        {
+            char          name[64]                       = { 0 };
+            std::uint64_t fv2[kSnakeFaceStageCount]      = {};
+            std::uint64_t fpk[kSnakeFaceStageCount]      = {};
+            bool          used                           = false;
+        };
+        std::array<SnakeFaceStages, 64> g_SnakeStages{};
+
+        const SnakeFaceStages* FindSnakeStagesUnlocked(const char* name)
+        {
+            if (!name || !name[0]) return nullptr;
+            for (const auto& s : g_SnakeStages)
+                if (s.used && std::strcmp(s.name, name) == 0)
+                    return &s;
+            return nullptr;
+        }
 
         using GetQuarkSystemTable_t = void* (__fastcall*)();
         static GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
@@ -139,6 +160,7 @@ namespace outfit
 
         static std::uint16_t CompleteHeadRegistrationUnlocked(
             const char* name, const std::uint16_t* faceIds,
+            const std::uint64_t* faceFv2Codes, const std::uint64_t* faceFpkCodes,
             std::uint16_t developId, std::uint16_t rowIndex,
             bool showInDevelopMenu)
         {
@@ -165,6 +187,11 @@ namespace outfit
             e.slotByte     = slotByte;
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
                 e.TppEnemyFaceId[i] = faceIds[i];
+            for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+            {
+                e.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
+                e.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+            }
 
             const std::size_t nameLen = std::strlen(name);
             const std::size_t copyLen = nameLen < (sizeof(e.name) - 1)
@@ -189,6 +216,7 @@ namespace outfit
 
         static void StorePendingHeadUnlocked(
             const char* name, const std::uint16_t* faceIds,
+            const std::uint64_t* faceFv2Codes, const std::uint64_t* faceFpkCodes,
             bool showInDevelopMenu)
         {
             for (PendingHead& p : g_PendingHeads)
@@ -196,7 +224,11 @@ namespace outfit
                 if (std::strcmp(p.name, name) == 0)
                 {
                     for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
-                        p.faceIds[i] = faceIds[i];
+                    {
+                        p.faceIds[i]     = faceIds[i];
+                        p.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
+                        p.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+                    }
                     p.showInDevelopMenu = showInDevelopMenu;
                     return;
                 }
@@ -208,7 +240,11 @@ namespace outfit
             std::memcpy(p.name, name, copyLen);
             p.name[copyLen] = '\0';
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
-                p.faceIds[i] = faceIds[i];
+            {
+                p.faceIds[i]     = faceIds[i];
+                p.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
+                p.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+            }
             p.showInDevelopMenu = showInDevelopMenu;
             g_PendingHeads.push_back(p);
             g_HasPendingHeads.store(true, std::memory_order_release);
@@ -218,6 +254,8 @@ namespace outfit
     std::uint16_t RegisterHeadOption(
         const char* name,
         const std::uint16_t* TppEnemyFaceIdsPerPt,
+        const std::uint64_t* faceFv2CodesPerPt,
+        const std::uint64_t* faceFpkCodesPerPt,
         bool showInDevelopMenu)
     {
         static_assert(kPlayerTypeMax == 4,
@@ -242,7 +280,11 @@ namespace outfit
         {
             CustomHeadEntry& e = g_Heads[existing];
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+            {
                 e.TppEnemyFaceId[i] = faceIds[i];
+                e.faceFv2Code[i] = faceFv2CodesPerPt ? faceFv2CodesPerPt[i] : 0;
+                e.faceFpkCode[i] = faceFpkCodesPerPt ? faceFpkCodesPerPt[i] : 0;
+            }
             return e.equipId;
         }
 
@@ -260,16 +302,73 @@ namespace outfit
         if (IsResolvedRowValidUnlocked(rowIndex))
         {
             return CompleteHeadRegistrationUnlocked(
-                name, faceIds, static_cast<std::uint16_t>(developId),
+                name, faceIds, faceFv2CodesPerPt, faceFpkCodesPerPt,
+                static_cast<std::uint16_t>(developId),
                 static_cast<std::uint16_t>(rowIndex), showInDevelopMenu);
         }
 
-        StorePendingHeadUnlocked(name, faceIds, showInDevelopMenu);
-        Log("[CustomHead] '%s' develop row not committed yet (developId=%d, "
-            "getIdx=0x%X) — DEFERRED; resolves order-independently when an "
+        StorePendingHeadUnlocked(name, faceIds, faceFv2CodesPerPt,
+                                 faceFpkCodesPerPt, showInDevelopMenu);
+        LogDebug("[CustomHead] '%s' develop row not committed yet (developId=%d, "
+            "getIdx=0x%X) - DEFERRED; resolves order-independently when an "
             "equip/develop menu opens\n",
             name, developId, static_cast<unsigned>(rowIndex));
         return 0;
+    }
+
+    void SetCustomHeadSnakeFaceStages(const char* name,
+                                      const std::uint64_t* fv2ByStage,
+                                      const std::uint64_t* fpkByStage)
+    {
+        if (!name || !name[0]) return;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        SnakeFaceStages* slot = nullptr;
+        for (auto& s : g_SnakeStages)
+            if (s.used && std::strcmp(s.name, name) == 0) { slot = &s; break; }
+        if (!slot)
+            for (auto& s : g_SnakeStages)
+                if (!s.used) { slot = &s; break; }
+        if (!slot)
+        {
+            Log("[CustomHead] SetCustomHeadSnakeFaceStages: table full "
+                "(name=%s)\n", name);
+            return;
+        }
+        slot->used = true;
+        strncpy_s(slot->name, name, _TRUNCATE);
+        for (std::uint8_t i = 0; i < kSnakeFaceStageCount; ++i)
+        {
+            slot->fv2[i] = fv2ByStage ? fv2ByStage[i] : 0;
+            slot->fpk[i] = fpkByStage ? fpkByStage[i] : 0;
+        }
+        LogDebug("[CustomHead] snake demon-stage fova set for '%s': "
+            "fv2=[%016llX %016llX %016llX] fpk=[%016llX %016llX %016llX]\n",
+            name,
+            static_cast<unsigned long long>(slot->fv2[0]),
+            static_cast<unsigned long long>(slot->fv2[1]),
+            static_cast<unsigned long long>(slot->fv2[2]),
+            static_cast<unsigned long long>(slot->fpk[0]),
+            static_cast<unsigned long long>(slot->fpk[1]),
+            static_cast<unsigned long long>(slot->fpk[2]));
+    }
+
+    std::uint64_t GetCustomHeadSnakeStageFv2(const char* name,
+                                             std::uint32_t stage)
+    {
+        if (stage >= kSnakeFaceStageCount) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const SnakeFaceStages* s = FindSnakeStagesUnlocked(name);
+        return s ? s->fv2[stage] : 0;
+    }
+
+    std::uint64_t GetCustomHeadSnakeStageFpk(const char* name,
+                                             std::uint32_t stage)
+    {
+        if (stage >= kSnakeFaceStageCount) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const SnakeFaceStages* s = FindSnakeStagesUnlocked(name);
+        return s ? s->fpk[stage] : 0;
     }
 
     int DrainPendingHeads()
@@ -297,7 +396,7 @@ namespace outfit
             if (IsResolvedRowValidUnlocked(rowIndex))
             {
                 CompleteHeadRegistrationUnlocked(
-                    it->name, it->faceIds,
+                    it->name, it->faceIds, it->faceFv2Code, it->faceFpkCode,
                     static_cast<std::uint16_t>(developId),
                     static_cast<std::uint16_t>(rowIndex),
                     it->showInDevelopMenu);
@@ -314,7 +413,7 @@ namespace outfit
             g_HasPendingHeads.store(false, std::memory_order_release);
 
         if (resolved > 0)
-            Log("[CustomHead] DrainPendingHeads: resolved %d deferred head(s); "
+            LogDebug("[CustomHead] DrainPendingHeads: resolved %d deferred head(s); "
                 "%zu still pending\n", resolved, g_PendingHeads.size());
         return resolved;
     }

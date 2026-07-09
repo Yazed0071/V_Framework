@@ -9,6 +9,7 @@
 #include "TppPickableRuntime.h"
 #include "AddressSet.h"
 #include "HookUtils.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -113,6 +114,8 @@ static bool TryGetStoredOverride(std::uint16_t locatorIndex, std::uint16_t& outC
 
 static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo, void* statusPtr, std::uint8_t* locatorParam)
 {
+    MISSION_GUARD_ORIGINAL_VOID(g_OrigCopyAndAdjustInfo, thisPtr, outInfo, statusPtr, locatorParam);
+
     g_LastPickableSystem = thisPtr;
 
     g_OrigCopyAndAdjustInfo(thisPtr, outInfo, statusPtr, locatorParam);
@@ -142,13 +145,13 @@ bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t co
         g_PickableCountOverrides[index16] = value16;
     }
 
-    std::uint16_t* liveInfo = nullptr;
-    if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
+    if (!MissionCodeGuard::ShouldBypassHooks())
     {
-        ApplyCountOverride(liveInfo, value16);
-    }
-    else
-    {
+        std::uint16_t* liveInfo = nullptr;
+        if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
+        {
+            ApplyCountOverride(liveInfo, value16);
+        }
     }
 
     return true;

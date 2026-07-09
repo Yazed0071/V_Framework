@@ -33,10 +33,7 @@ namespace
     static GetQuarkSystemTable_t                 g_GetQuarkSystemTable = nullptr;
 
 
-    static constexpr std::size_t kActiveVariantSize =
-        static_cast<std::size_t>(kCustomPartsTypeEnd) -
-        static_cast<std::size_t>(kCustomPartsTypeStart) + 1;
-    static std::uint8_t g_ActiveVariant[kActiveVariantSize] = {};
+    static std::uint8_t g_ActiveVariant[256] = {};
 
 
     static std::uint16_t g_PendingDevelopId            = 0;
@@ -139,7 +136,7 @@ namespace
             Log("[OutfitRegistry] reservation pass: %zu selector(s) + %zu "
                 "partsType(s) reserved for persisted outfit keys%s\n",
                 reservedSel, reservedPt,
-                conflicts ? " (persisted-value CONFLICTS detected — "
+                conflicts ? " (persisted-value CONFLICTS detected - "
                             "first-loaded key wins, later keys re-allocate)"
                           : "");
 #endif
@@ -175,7 +172,7 @@ namespace
         {
             const auto candidate = static_cast<std::uint8_t>(v);
             if (takenBy(candidate)) continue;
-            Log("[OutfitRegistry] partsType pool exhausted — consuming "
+            Log("[OutfitRegistry] partsType pool exhausted - consuming "
                 "reserved value 0x%02X from an absent key\n", candidate);
             return candidate;
         }
@@ -211,7 +208,7 @@ namespace
     {
         if (IsCustomSelector(hint) && !IsAllocatableSelector(hint))
             Log("[OutfitRegistry] selector hint 0x%02X is inside the vanilla "
-                "event-camo band 0x83-0x88 (legacy allocation) — migrating to "
+                "event-camo band 0x83-0x88 (legacy allocation) - migrating to "
                 "a clean selector\n", hint);
 
         if (IsAllocatableSelector(hint) && !IsSelectorTaken_NoLock(hint)
@@ -231,7 +228,7 @@ namespace
             const auto candidate = static_cast<std::uint8_t>(v);
             if (!IsAllocatableSelector(candidate)) continue;
             if (IsSelectorTaken_NoLock(candidate)) continue;
-            Log("[OutfitRegistry] selector pool exhausted — consuming reserved "
+            Log("[OutfitRegistry] selector pool exhausted - consuming reserved "
                 "value 0x%02X from an absent key\n", candidate);
             return candidate;
         }
@@ -316,13 +313,23 @@ namespace outfit
     bool OutfitEntry::IsArmEnabled(std::uint8_t playerType) const
     {
         const auto* d = GetPTData(playerType);
-        return d ? d->enableArm : false;
+        if (!d) return false;
+        const std::uint8_t vi = GetActiveVariant(partsType);
+        if (vi >= 1 && vi < kMaxVariantsPerOutfit
+            && d->variants[vi].used && d->variants[vi].hasEnableArm)
+            return d->variants[vi].enableArm;
+        return d->enableArm;
     }
 
     bool OutfitEntry::IsHeadEnabled(std::uint8_t playerType) const
     {
         const auto* d = GetPTData(playerType);
-        return d ? d->enableHead : false;
+        if (!d) return false;
+        const std::uint8_t vi = GetActiveVariant(partsType);
+        if (vi >= 1 && vi < kMaxVariantsPerOutfit
+            && d->variants[vi].used && d->variants[vi].hasEnableHead)
+            return d->variants[vi].enableHead;
+        return d->enableHead;
     }
 
     bool OutfitEntry::IsCamoCustom(std::uint8_t playerType) const
@@ -417,10 +424,10 @@ namespace outfit
     {
         const auto* d = GetPTData(playerType);
         if (d && variant >= 1 && variant < kMaxVariantsPerOutfit
-            && d->variants[variant].used
-            && d->variants[variant].headOptionsDeclared)
+            && d->variants[variant].used)
         {
-            if (d->variants[variant].headOptionCount > 0)
+            if (d->variants[variant].headOptionsDeclared
+                && d->variants[variant].headOptionCount > 0)
             {
                 if (outEquipIds) *outEquipIds = d->variants[variant].headOptionEquipIds;
                 if (outCount)    *outCount    = d->variants[variant].headOptionCount;
@@ -534,6 +541,17 @@ namespace outfit
         return d ? d->variantCount : std::uint8_t{0};
     }
 
+    std::uint8_t OutfitEntry::GetVariantSelectorCode(std::uint8_t variantIdx) const
+    {
+        if (variantIdx < kMaxVariantsPerOutfit)
+        {
+            const std::uint8_t sc = variantSelectorCodes[variantIdx];
+            if (sc != 0 && sc != 0xFF)
+                return sc;
+        }
+        return selectorCode;
+    }
+
 
     std::uint8_t OutfitEntry::GetCamoBonusType(std::uint8_t playerType) const
     {
@@ -588,8 +606,7 @@ namespace outfit
         if (variantIdx == 0 || variantIdx >= d->variantCount
             || !d->variants[variantIdx].used)
             return d->camoFpk;
-        const auto v = d->variants[variantIdx].camoFpk;
-        return v == kSubAssetUseVanilla ? d->camoFpk : v;
+        return d->variants[variantIdx].camoFpk;
     }
 
     std::uint64_t OutfitEntry::GetVariantCamoFv2(
@@ -600,8 +617,7 @@ namespace outfit
         if (variantIdx == 0 || variantIdx >= d->variantCount
             || !d->variants[variantIdx].used)
             return d->camoFv2;
-        const auto v = d->variants[variantIdx].camoFv2;
-        return v == kSubAssetUseVanilla ? d->camoFv2 : v;
+        return d->variants[variantIdx].camoFv2;
     }
 
     std::uint64_t OutfitEntry::GetVariantDiamondFpk(
@@ -612,9 +628,7 @@ namespace outfit
         if (variantIdx == 0 || variantIdx >= d->variantCount
             || !d->variants[variantIdx].used)
             return d->diamondFpk;
-        return d->variants[variantIdx].diamondFpk != kSubAssetDisabled
-             ? d->variants[variantIdx].diamondFpk
-             : d->diamondFpk;
+        return d->variants[variantIdx].diamondFpk;
     }
 
     std::uint64_t OutfitEntry::GetVariantDiamondFv2(
@@ -625,8 +639,7 @@ namespace outfit
         if (variantIdx == 0 || variantIdx >= d->variantCount
             || !d->variants[variantIdx].used)
             return d->diamondFv2;
-        const auto v = d->variants[variantIdx].diamondFv2;
-        return v == kSubAssetUseVanilla ? d->diamondFv2 : v;
+        return d->variants[variantIdx].diamondFv2;
     }
 
     std::uint64_t OutfitEntry::GetVariantVoiceFpk(
@@ -637,8 +650,7 @@ namespace outfit
         if (variantIdx == 0 || variantIdx >= d->variantCount
             || !d->variants[variantIdx].used)
             return d->voiceFpk;
-        const auto v = d->variants[variantIdx].voiceFpk;
-        return v == kSubAssetUseVanilla ? d->voiceFpk : v;
+        return d->variants[variantIdx].voiceFpk;
     }
 
     std::uint64_t OutfitEntry::GetVariantDisplayNameHash(
@@ -721,7 +733,7 @@ namespace outfit
             {
 #ifdef _DEBUG
                 Log("[OutfitRegistry] re-registration of same outfit "
-                    "developId=%u flowIndex=%u partsType=0x%02X — "
+                    "developId=%u flowIndex=%u partsType=0x%02X - "
                     "returning existing entry (idempotent)\n",
                     static_cast<unsigned>(e.developId),
                     static_cast<unsigned>(e.flowIndex),
@@ -816,7 +828,7 @@ namespace outfit
                     if (!IsAllocatableSelector(c)) continue;
                     if (IsSelectorTaken_NoLock(c)) continue;
                     if (usedEarlier(c)) continue;
-                    Log("[OutfitRegistry] selector pool exhausted — variant %u "
+                    Log("[OutfitRegistry] selector pool exhausted - variant %u "
                         "consumes reserved value 0x%02X from an absent key\n",
                         static_cast<unsigned>(vi), c);
                     alloc = c; break;
@@ -862,6 +874,18 @@ namespace outfit
         for (std::size_t i = 0; i < outfit::kMaxVariantsPerOutfit; ++i)
             slot->variantSelectorCodes[i] = variantSelectors[i];
 
+        std::uint8_t defVar = 0;
+        for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+        {
+            const auto& b = slot->perPlayerType[pt];
+            if (b.used && b.defaultVariant > defVar)
+                defVar = b.defaultVariant;
+        }
+        if (variantSlots == 0 || defVar >= variantSlots)
+            defVar = 0;
+        slot->defaultVariant       = defVar;
+        g_ActiveVariant[partsType] = defVar;
+
         for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
         {
             auto& b = slot->perPlayerType[pt];
@@ -871,7 +895,7 @@ namespace outfit
             if (vid == 0xFF)
             {
                 Log("[OutfitRegistry] camo virtual-id pool exhausted while "
-                    "registering PT=%u of '%s' — branch will run without a "
+                    "registering PT=%u of '%s' - branch will run without a "
                     "unique bonus row\n",
                     static_cast<unsigned>(pt),
                     def.key ? def.key : "(unkeyed)");
@@ -904,68 +928,6 @@ namespace outfit
 #endif
         }
 
-
-        char branchBuf[160] = {};
-        {
-            std::size_t pos = 0;
-            const char* names[kPlayerTypeMax] =
-                { "Snake", "DDMale", "DDFemale", "Avatar" };
-            for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
-            {
-                if (!slot->perPlayerType[pt].used) continue;
-                const auto& b = slot->perPlayerType[pt];
-
-                char camoBuf[24] = {};
-                if (b.hasCamoBonusValues)
-                    std::snprintf(camoBuf, sizeof(camoBuf),
-                        "vid=%u", static_cast<unsigned>(b.camoBonusType));
-                else if (b.camoBonusType != kCamoBonusTypeUnset)
-                    std::snprintf(camoBuf, sizeof(camoBuf),
-                        "pin=%u", static_cast<unsigned>(b.camoBonusType));
-                else
-                    std::snprintf(camoBuf, sizeof(camoBuf), "no-camo");
-
-                pos += static_cast<std::size_t>(std::snprintf(
-                    branchBuf + pos, sizeof(branchBuf) - pos,
-                    (pos == 0) ? "%s(v=%u,h=%u,arm=%d,head=%d,%s)"
-                               : ",%s(v=%u,h=%u,arm=%d,head=%d,%s)",
-                    names[pt],
-                    static_cast<unsigned>(b.variantCount),
-                    static_cast<unsigned>(b.headOptionCount),
-                    b.enableArm ? 1 : 0,
-                    b.enableHead ? 1 : 0,
-                    camoBuf));
-            }
-        }
-
-
-        char variantBuf[16 * 5 + 1] = {};
-        {
-            std::size_t pos = 0;
-            for (std::size_t i = 0;
-                 i < outfit::kMaxVariantsPerOutfit && pos + 5 < sizeof(variantBuf);
-                 ++i)
-            {
-                pos += static_cast<std::size_t>(std::snprintf(
-                    variantBuf + pos, sizeof(variantBuf) - pos,
-                    (i == 0) ? "0x%02X" : ",0x%02X",
-                    static_cast<unsigned>(slot->variantSelectorCodes[i])));
-            }
-        }
-
-#ifdef _DEBUG
-        Log("[OutfitRegistry] registered key=%s developId=%u flowIndex=%u "
-            "partsType=0x%02X selector=0x%02X branches=[%s] "
-            "variantCount=%u variantSelectors=[%s]\n",
-            def.key ? def.key : "(unkeyed)",
-            static_cast<unsigned>(def.developId),
-            static_cast<unsigned>(def.flowIndex),
-            static_cast<unsigned>(partsType),
-            static_cast<unsigned>(selector),
-            branchBuf,
-            static_cast<unsigned>(slot->variantCount),
-            variantBuf);
-#endif
 
         return true;
     }
@@ -1285,42 +1247,85 @@ namespace outfit
         }
     }
 
+    bool WriteLiveWornHeadCategory(std::uint16_t category)
+    {
+        auto* state = GetQuarkLiveState();
+        if (!state) return false;
+        __try
+        {
+            *reinterpret_cast<std::uint16_t*>(state + 0xFE) = category;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    std::uint16_t ReadLiveWornHeadCategory()
+    {
+        auto* state = GetQuarkLiveState();
+        if (!state) return 0xFFFF;
+        __try
+        {
+            return *reinterpret_cast<std::uint16_t*>(state + 0xFE);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0xFFFF;
+        }
+    }
+
+    std::uint8_t ReadLiveHeadSlot()
+    {
+        auto* state = GetQuarkLiveState();
+        if (!state) return 0xFF;
+        __try
+        {
+            return state[0xFA];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0xFF;
+        }
+    }
+
 
     void SetActiveVariant(std::uint8_t partsType, std::uint8_t variantIndex)
     {
-        if (partsType < kCustomPartsTypeStart || partsType > kCustomPartsTypeEnd)
-            return;
-
         std::uint8_t clamped = variantIndex;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
-        for (const auto& e : g_Entries)
+        if (IsCustomPartsType(partsType))
         {
-            if (e.used && e.partsType == partsType)
+            for (const auto& e : g_Entries)
             {
-                if (e.variantCount == 0) clamped = 0;
-                else if (clamped >= e.variantCount)
-                    clamped = static_cast<std::uint8_t>(e.variantCount - 1);
-                break;
+                if (e.used && e.partsType == partsType)
+                {
+                    if (e.variantCount == 0) clamped = 0;
+                    else if (clamped >= e.variantCount)
+                        clamped = static_cast<std::uint8_t>(e.variantCount - 1);
+                    break;
+                }
             }
         }
-        g_ActiveVariant[partsType - kCustomPartsTypeStart] = clamped;
+        else
+        {
+            clamped = 0;
+        }
+        g_ActiveVariant[partsType] = clamped;
     }
 
     std::uint8_t GetActiveVariant(std::uint8_t partsType)
     {
-        if (partsType < kCustomPartsTypeStart || partsType > kCustomPartsTypeEnd)
-            return 0;
         std::lock_guard<std::mutex> lock(g_Mutex);
-        return g_ActiveVariant[partsType - kCustomPartsTypeStart];
+        return g_ActiveVariant[partsType];
     }
 
     void ClearActiveVariant(std::uint8_t partsType)
     {
-        if (partsType < kCustomPartsTypeStart || partsType > kCustomPartsTypeEnd)
-            return;
         std::lock_guard<std::mutex> lock(g_Mutex);
-        g_ActiveVariant[partsType - kCustomPartsTypeStart] = 0;
+        g_ActiveVariant[partsType] = 0;
     }
 
 

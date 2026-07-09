@@ -214,6 +214,7 @@
     <ClInclude Include="src\hooks\player\TornadoDualPatch.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
     <ClInclude Include="src\hooks\player\SearchLightActionPluginImpl_StateDoor.h" />
+    <ClInclude Include="src\hooks\player\PlacedSystemImpl_Insert.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_HideBinocle.h" />
@@ -414,6 +415,7 @@
     <ClCompile Include="src\hooks\player\TornadoDualPatch.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
     <ClCompile Include="src\hooks\player\SearchLightActionPluginImpl_StateDoor.cpp" />
+    <ClCompile Include="src\hooks\player\PlacedSystemImpl_Insert.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_HideBinocle.cpp" />

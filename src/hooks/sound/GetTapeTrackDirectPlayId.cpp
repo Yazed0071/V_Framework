@@ -23,21 +23,21 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
     const std::uint32_t trackNameStrCode = FoxHashes::StrCode32(trackName);
     if (trackNameStrCode == 0)
     {
-        Log("[TapeDirectPlayId] WARN: track name '%s' hashed to 0 — cannot resolve its play id.\n", trackName);
+        Log("[TapeDirectPlayId] WARN: track name '%s' hashed to 0 - cannot resolve its play id.\n", trackName);
         return -1;
     }
 
     void* fnAddr = ResolveGameAddress(gAddr.GetTrackInfoByName);
     if (fnAddr == nullptr)
     {
-        Log("[TapeDirectPlayId] ERROR: GetTrackInfoByName address unavailable for this build — cannot resolve tape play ids.\n");
+        Log("[TapeDirectPlayId] ERROR: GetTrackInfoByName address unavailable for this build - cannot resolve tape play ids.\n");
         return -1;
     }
 
     void* musicManagerGlobalAddr = ResolveGameAddress(gAddr.MusicManager_s_instance);
     if (musicManagerGlobalAddr == nullptr)
     {
-        Log("[TapeDirectPlayId] ERROR: MusicManager::s_instance address unavailable for this build — cannot resolve tape play ids.\n");
+        Log("[TapeDirectPlayId] ERROR: MusicManager::s_instance address unavailable for this build - cannot resolve tape play ids.\n");
         return -1;
     }
 
@@ -49,7 +49,7 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
         void* musicManagerInstance = *reinterpret_cast<void**>(musicManagerGlobalAddr);
         if (musicManagerInstance == nullptr)
         {
-            Log("[TapeDirectPlayId] WARN: MusicManager not initialized yet — cannot resolve tape play id for '%s'.\n", trackName);
+            Log("[TapeDirectPlayId] WARN: MusicManager not initialized yet - cannot resolve tape play id for '%s'.\n", trackName);
             return -1;
         }
 
@@ -59,7 +59,7 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
 
         if (soundMusicPlayer == nullptr)
         {
-            Log("[TapeDirectPlayId] WARN: SoundMusicPlayer not initialized yet — cannot resolve tape play id for '%s'.\n", trackName);
+            Log("[TapeDirectPlayId] WARN: SoundMusicPlayer not initialized yet - cannot resolve tape play id for '%s'.\n", trackName);
             return -1;
         }
 
@@ -70,7 +70,7 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
         if (trackInfo == nullptr)
         {
             Log(
-                "[TapeDirectPlayId] WARN: no tape track named '%s' (strCode=%08X) — check the track is registered/loaded.\n",
+                "[TapeDirectPlayId] WARN: no tape track named '%s' (strCode=%08X) - check the track is registered/loaded.\n",
                 trackName,
                 static_cast<unsigned int>(trackNameStrCode));
             return -1;
@@ -85,7 +85,7 @@ std::int32_t ResolveTapeTrackDirectPlayId(const char* trackName)
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         Log(
-            "[TapeDirectPlayId] ERROR: exception while resolving tape play id for '%s' (strCode=%08X) — could not read track info.\n",
+            "[TapeDirectPlayId] ERROR: exception while resolving tape play id for '%s' (strCode=%08X) - could not read track info.\n",
             trackName,
             static_cast<unsigned int>(trackNameStrCode));
         return -1;

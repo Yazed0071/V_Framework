@@ -342,6 +342,16 @@ namespace AddressSetRuntime
         uintptr_t SubtitlesObjectSendMessage = 0;
 
         uintptr_t EquipDevCtrl_IsEquipDevelopable = 0;
+
+        uintptr_t LoadAvatarFaceFv2 = 0;
+        uintptr_t LoadAvatarFaceFpk = 0;
+        uintptr_t AvatarFaceEditUpdate = 0;
+        uintptr_t Fox_ModelFromHandle = 0;
+
+        uintptr_t LoadAvatarHeadOptionFv2 = 0;
+        uintptr_t LoadAvatarHeadOptionFpk = 0;
+
+        uintptr_t EquipDevelopCtrl_SetEnableDevelop = 0;
     };
 
     inline GameBuild& GetGameBuild()

@@ -10,6 +10,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "AddressSet.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -237,6 +238,7 @@ namespace
 
     uint8_t __fastcall hkSetWeaponPanelLogo(int equipId, void* node)
     {
+        MISSION_GUARD_ORIGINAL_RET(g_OrigSetWeaponPanelLogo, equipId, node);
         return EquipBgApply(equipId, node, g_OrigSetWeaponPanelLogo);
     }
 }

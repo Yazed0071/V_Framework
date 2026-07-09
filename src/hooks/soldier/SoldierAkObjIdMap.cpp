@@ -15,6 +15,7 @@
 #include "SoldierObjectRtpc.h"
 #include "SoldierVoiceTypeQuery.h"
 #include "../sound/VoicePitchOverride.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -117,6 +118,9 @@ namespace
                                               std::uint64_t a9,
                                               std::uint64_t a10)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return SehCallObjectActivate(self, errOut, a3, a4, a5, a6, a7, a8, a9, a10);
+
         const bool pushed = (self && t_ActiveObjectDepth < kActiveStackCap);
         if (pushed)
             t_ActiveObjectStack[t_ActiveObjectDepth++] = self;
@@ -164,6 +168,12 @@ namespace
     static void __fastcall hk_CallVoiceImpl(void* param_1, void* param_2,
                                             std::uint32_t slot)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            SehCallCallVoiceImpl(param_1, param_2, slot);
+            return;
+        }
+
         const std::uint32_t soldierIndex = GetSoldierIndexFromSoundSlot(slot);
 
         const std::uint32_t prev = t_CurrentSpeakingSlot;
@@ -197,6 +207,11 @@ namespace
         std::uint32_t*  outId,
         std::uint64_t   a6)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigRegisterGameObject
+                ? g_OrigRegisterGameObject(self, errOut, audioGameObject, name, outId, a6)
+                : 0u;
+
         const std::uint32_t result = g_OrigRegisterGameObject
             ? g_OrigRegisterGameObject(self, errOut, audioGameObject,
                                        name, outId, a6)

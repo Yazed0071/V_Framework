@@ -9,6 +9,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -64,7 +65,7 @@ static void PatchSite(std::uintptr_t addr,
         {
             savedSite = site;
             applied   = true;
-            Log("[FriendlyFire] %s ENABLED @ %p\n", name, site);
+            LogDebug("[FriendlyFire] %s ENABLED @ %p\n", name, site);
         }
     }
     else if (!enable && applied)
@@ -72,7 +73,7 @@ static void PatchSite(std::uintptr_t addr,
         if (WriteBytes(savedSite, orig, size))
         {
             applied = false;
-            Log("[FriendlyFire] %s DISABLED @ %p\n", name, savedSite);
+            LogDebug("[FriendlyFire] %s DISABLED @ %p\n", name, savedSite);
             savedSite = nullptr;
         }
     }
@@ -80,6 +81,9 @@ static void PatchSite(std::uintptr_t addr,
 
 void Set_FriendlyFire(bool enable)
 {
+    if (enable && MissionCodeGuard::ShouldBypassHooks())
+        enable = false;
+
     g_Enabled = enable;
 
     static const std::uint8_t kMaskOrig[3]  = { 0xFF, 0x50, 0x58 }; // CALL qword [RAX+0x58]

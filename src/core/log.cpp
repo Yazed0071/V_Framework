@@ -11,6 +11,7 @@
 static FILE* g_LogFile = nullptr;
 static std::mutex g_LogMutex;
 static bool g_AtLineStart = true;
+static DWORD g_LastFlushTick = 0;
 
 static inline void ConsoleWrite(const char* data, int len)
 {
@@ -102,7 +103,14 @@ void Log(const char* fmt, ...)
     }
 
     if (g_LogFile)
-        fflush(g_LogFile);
+    {
+        const DWORD now = GetTickCount();
+        if (now - g_LastFlushTick >= 100u)
+        {
+            fflush(g_LogFile);
+            g_LastFlushTick = now;
+        }
+    }
 }
 
 void CrashLogf(const char* fmt, ...)

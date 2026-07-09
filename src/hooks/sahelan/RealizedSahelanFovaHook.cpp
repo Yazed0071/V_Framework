@@ -191,7 +191,7 @@ void Set_SahelanFovaPath(const char* path)
 {
     if (!path || !*path)
     {
-        Log("[SahelanFova] SetSahelanFovaPath: ignoring empty path\n");
+        LogDebug("[SahelanFova] SetSahelanFovaPath: ignoring empty path\n");
         return;
     }
 

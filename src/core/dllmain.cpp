@@ -44,7 +44,7 @@ static DWORD WINAPI InitThread(LPVOID)
 
     InitLog();
 
-    Log("[DLL] InitThread started.\n");
+    LogDebug("[DLL] InitThread started.\n");
 
     HMODULE hGame = GetModuleHandleW(nullptr);
 
@@ -72,7 +72,10 @@ static DWORD WINAPI InitThread(LPVOID)
     g_HookBatchMode = false;
     const MH_STATUS applySt = MH_ApplyQueued();
     Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
-    Log("[DLL] MH_ApplyQueued -> %d\n", static_cast<int>(applySt));
+    if (applySt == MH_OK)
+        LogDebug("[DLL] MH_ApplyQueued -> OK\n");
+    else
+        Log("[DLL] MH_ApplyQueued -> %d (FAILED)\n", static_cast<int>(applySt));
 
 #ifdef _DEBUG
     Log("[DLL] InitThread done.\n");
@@ -88,7 +91,7 @@ static void UninstallAll(bool processTerminating)
 
 #ifdef _DEBUG
         Log("[DLL] DLL_PROCESS_DETACH: process terminating, skipping "
-            "FeatureModule uninstall (per MSDN guidance — other DLLs "
+            "FeatureModule uninstall (per MSDN guidance - other DLLs "
             "may already be unloaded). OS will reclaim address space.\n");
 #endif
         fflush(stdout);

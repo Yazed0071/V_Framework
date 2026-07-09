@@ -10,6 +10,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "VoicePitchOverride.h"
+#include "MissionCodeGuard.h"
 
 
 namespace
@@ -89,6 +90,8 @@ namespace
 
     static void __fastcall hk_SetPitch(void* self, float pitchCents)
     {
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigSetPitch, self, pitchCents);
+
         const float globalBias = g_PitchBiasCents.load(std::memory_order_relaxed);
         const bool  haveAnyPerObj =
             g_HavePerAkObjIdBias.load(std::memory_order_relaxed);

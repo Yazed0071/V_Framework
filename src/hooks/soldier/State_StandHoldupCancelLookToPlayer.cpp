@@ -11,6 +11,7 @@
 #include "LuaBroadcaster.h"
 #include "AddressSet.h"
 #include "GetGameObjectIdWithIndex.h"
+#include "MissionCodeGuard.h"
 
 extern void Log(const char* fmt, ...);
 
@@ -169,6 +170,8 @@ static std::atomic<uint64_t> gDetourHits{ 0 };
 
 static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
 {
+    MISSION_GUARD_ORIGINAL_VOID(gOrig_State, holdupThis, id, phase);
+
     if (gOrig_State)
         gOrig_State(holdupThis, id, phase);
 

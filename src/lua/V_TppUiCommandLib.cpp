@@ -34,6 +34,8 @@ namespace
         { "SetGameOverSplashMainTexturePath",         l_SetGameOverSplashMainTexturePath },
         { "SetGameOverSplashBlurTexturePath",         l_SetGameOverSplashBlurTexturePath },
         { "ClearGameOverSplashTextures",              l_ClearGameOverSplashTextures },
+        { "SetMissionTelopSplashTexturePath",         l_SetMissionTelopSplashTexturePath },
+        { "UnsetMissionTelopSplashTexturePath",       l_UnsetMissionTelopSplashTexturePath },
 
         { "SetEquipIdIconFtexPath",                   l_SetEquipIdIconFtexPath },
         { "ClearIconFtexPath",                        l_ClearIconFtexPath },
@@ -63,13 +65,10 @@ namespace
         { "ClearEnemyUnitNameForSoldier",             l_ClearEnemyUnitNameForSoldier },
         { "ClearAllEnemyUnitNameForSoldiers",         l_ClearAllEnemyUnitNameForSoldiers },
 
-        { "SetAnnounceLogSE",                          l_SetAnnounceLogSE },
-        { "RegisterAnnounceLogSfx",                    l_RegisterAnnounceLogSfx },
-        { "UnsetAnnounceLogSE",                        l_UnsetAnnounceLogSE },
-        { "UnregisterAnnounceLogSfx",                  l_UnregisterAnnounceLogSfx },
-
-        { "SetMissionTelopSplashTexturePath",          l_SetMissionTelopSplashTexturePath },
-        { "UnsetMissionTelopSplashTexturePath",        l_UnsetMissionTelopSplashTexturePath },
+        { "SetAnnounceLogSE",                         l_SetAnnounceLogSE },
+        { "RegisterAnnounceLogSfx",                   l_RegisterAnnounceLogSfx },
+        { "UnsetAnnounceLogSE",                       l_UnsetAnnounceLogSE },
+        { "UnregisterAnnounceLogSfx",                 l_UnregisterAnnounceLogSfx },
 
         { nullptr,          nullptr }
     };

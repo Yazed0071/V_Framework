@@ -259,7 +259,7 @@ namespace AddressSetRuntime
             0x141e02d80ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409cc380ull, // UpdatePartsStatus
             0x1416a3670ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
-            0x142f6ad70ull, // Fox_Path_Exists
+            0x143232490ull, // Fox_Path_Exists
             0x14319eb70ull, // Fox_Path_Dtor
             0x14d9aa3d0ull, // PluginFacial_ApplyMotion
             0x140f6d8e0ull, // EquipDevCtrl_IsEquipVisile
@@ -293,6 +293,13 @@ namespace AddressSetRuntime
             0x149309C50ull, // CassetteCheckUnreadInfo
             0x144A06660ull, // SubtitlesObjectSendMessage
             0x14951ed70ull, // EquipDevCtrl_IsEquipDevelopable
+            0x146860380ull, // LoadAvatarFaceFv2
+            0x1468606e0ull, // LoadAvatarFaceFpk
+            0x1409B56D0ull, // AvatarFaceEditUpdate
+            0x144A4A350ull, // Fox_ModelFromHandle
+            0x14685DA20ull, // LoadAvatarHeadOptionFv2
+            0x14685DD50ull, // LoadAvatarHeadOptionFpk
+            0x1495264F0ull, // EquipDevelopCtrl_SetEnableDevelop
         };
         return value;
     }
@@ -587,7 +594,7 @@ namespace AddressSetRuntime
             0x141e02db0ull, // Sys_IsArtificialHandEnabledForCurrentPlayerType
             0x1409cbe40ull, // UpdatePartsStatus
             0x1416a37c0ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
-            0x142f57d90ull, // Fox_Path_Exists
+            0x1432be400ull, // Fox_Path_Exists
             0x143227e40ull, // Fox_Path_Dtor
             0x14e02b500ull, // PluginFacial_ApplyMotion
             0x140f6d9e0ull, // EquipDevCtrl_IsEquipVisile
@@ -621,6 +628,13 @@ namespace AddressSetRuntime
             0x149CCF740ull, // CassetteCheckUnreadInfo
             0x144868DF0ull, // SubtitlesObjectSendMessage
             0x149f38f70ull, // EquipDevCtrl_IsEquipDevelopable
+            0x148446230ull, // LoadAvatarFaceFv2
+            0x148446630ull, // LoadAvatarFaceFpk
+            0x1409B51B0ull, // AvatarFaceEditUpdate
+            0x1448ACC50ull, // Fox_ModelFromHandle
+            0x148442AF0ull, // LoadAvatarHeadOptionFv2
+            0x148442EF0ull, // LoadAvatarHeadOptionFpk
+            0x149F42BE0ull, // EquipDevelopCtrl_SetEnableDevelop
         };
 
         return value;

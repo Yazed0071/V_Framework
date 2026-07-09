@@ -154,7 +154,9 @@ namespace
         if (g_pendingEmit)
         {
             g_pendingEmit = false;
-            const unsigned int heliId = GetGameObjectIdByIndex("TppHeli2", 0);
+            std::uint32_t heliId = 0;
+            if (!GetGameObjectIdByName("TppHeli2", "SupportHeli", heliId))
+                heliId = 0;
             EmitTaxiRequest(heliId, g_emitCur, g_emitDest);
         }
 

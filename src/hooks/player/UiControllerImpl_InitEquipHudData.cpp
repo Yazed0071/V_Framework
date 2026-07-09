@@ -8,6 +8,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "TimeCigaretteUiHook.h"
+#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -25,6 +26,9 @@ static void __fastcall hkInitEquipHudData(void* this_)
         g_Orig(this_);
 
     TimeCigaretteUi_SetUiController(this_);
+
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return;
 
     auto* inner = *reinterpret_cast<std::uint8_t**>(static_cast<std::uint8_t*>(this_) + kInnerPtrOffset);
     if (inner)

@@ -14,6 +14,7 @@ namespace EquipDevelopAdd
 
         int (*GetLuaTop)(lua_State* L) = nullptr;
         int (*LuaType)(lua_State* L, int idx) = nullptr;
+        bool (*LuaToBool)(lua_State* L, int idx) = nullptr;
         void (*LuaSetTop)(lua_State* L, int idx) = nullptr;
 
         const char* (*GetLuaString)(lua_State* L, int idx) = nullptr;
@@ -31,6 +32,10 @@ namespace EquipDevelopAdd
     int __cdecl Lua_AddToEquipDevelopTable(lua_State* L);
 
     bool TryGetFlowIndexForDevelopId(std::uint16_t developId, std::uint16_t& outFlowIndex);
+
+    bool IsManagedFlowIndex(std::uint16_t flowIndex);
+
+    void MaybeRefreshDynamicGates();
 
     bool GetDevelopNameLangId(std::int32_t developId,
                               bool& outHasHash,
