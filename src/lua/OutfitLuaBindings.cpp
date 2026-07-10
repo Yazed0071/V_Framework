@@ -1012,6 +1012,221 @@ void OutfitLua_EnsureEquipDevelopBound()
 #endif
 }
 
+static std::uint8_t ReadVanillaExtVariants(
+    lua_State* L, int branchTblIdx,
+    outfit::VanillaSuitVariantAsset* out, std::size_t cap)
+{
+    std::uint8_t filled = 0;
+    LuaGetField(L, branchTblIdx, "variants");
+    if (LuaType(L, -1) == LUA_TTABLE)
+    {
+        const std::size_t n   = LuaObjLen(L, -1);
+        const std::size_t lim = (n < cap) ? n : cap;
+        for (std::size_t i = 1; i <= lim; ++i)
+        {
+            LuaRawGetI(L, -1, static_cast<int>(i));
+            if (LuaType(L, -1) == LUA_TTABLE)
+            {
+                outfit::VanillaSuitVariantAsset v{};
+                v.partsPathCode64 = ReadRequiredPathField(L, -1, "partsPath");
+                v.fpkPathCode64   = ReadRequiredPathField(L, -1, "fpkPath");
+                v.camoFpk    = ReadSubAssetField(L, -1, "camoFpk",
+                                   outfit::kSubAssetUseVanilla);
+                v.camoFv2    = ReadSubAssetField(L, -1, "camoFv2",
+                                   outfit::kSubAssetUseVanilla);
+                v.diamondFpk = ReadSubAssetField(L, -1, "diamondFpk",
+                                   outfit::kSubAssetDisabled);
+                v.diamondFv2 = ReadSubAssetField(L, -1, "diamondFv2",
+                                   outfit::kSubAssetUseVanilla);
+                v.voiceFpk   = ReadSubAssetField(L, -1, "voiceFpk",
+                                   outfit::kSubAssetUseVanilla);
+
+                LuaGetField(L, -1, "displayName");
+                if (LuaType(L, -1) == LUA_TSTRING)
+                    if (const char* s = GetLuaString(L, -1); s && *s)
+                        v.displayNameHash = FoxHashes::StrCode64(s);
+                LuaPop(L, 1);
+                if (v.displayNameHash == 0)
+                {
+                    LuaGetField(L, -1, "displayNameHash");
+                    if (LuaType(L, -1) == LUA_TNUMBER)
+                        v.displayNameHash =
+                            static_cast<std::uint64_t>(GetLuaInt(L, -1));
+                    LuaPop(L, 1);
+                }
+
+                if (v.partsPathCode64 != 0 || v.fpkPathCode64 != 0)
+                    out[filled++] = v;
+            }
+            LuaPop(L, 1);
+        }
+    }
+    LuaPop(L, 1);
+    return filled;
+}
+
+int __cdecl l_ExtendVanillaOutfit(lua_State* L)
+{
+    if (LuaType(L, 1) != LUA_TTABLE)
+    {
+        Log("[OutfitLua] ExtendVanillaOutfit: arg 1 must be a table\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    std::uint8_t vanillaPartsType = 0xFF;
+    std::int32_t labelCamo        = -1;
+    const char*  outfitName       = nullptr;
+
+    if (TryReadTableStringField(L, 1, "outfit", outfitName)
+        && outfitName && outfitName[0])
+    {
+        labelCamo = ResolveCamoTypeNameToIndex(outfitName);
+        if (labelCamo < 0)
+        {
+            Log("[OutfitLua] ExtendVanillaOutfit: unknown outfit name '%s' - use "
+                "a vanilla camo name (e.g. BATTLEDRESS, SNEAKING_SUIT_TPP, "
+                "NAKED) or a raw partsType\n", outfitName);
+            PushLuaBool(L, false);
+            return 1;
+        }
+        vanillaPartsType = outfit::ResolveVanillaPartsTypeForCamo(
+            static_cast<std::uint8_t>(labelCamo));
+    }
+    else
+    {
+        int rawCamo  = -1;
+        int rawParts = -1;
+        if (TryReadTableIntField(L, 1, "outfit", rawCamo)
+            && rawCamo >= 0
+            && rawCamo <= static_cast<int>(outfit::kVanillaCamoTypeMax))
+        {
+            labelCamo = rawCamo;
+            vanillaPartsType = outfit::ResolveVanillaPartsTypeForCamo(
+                static_cast<std::uint8_t>(rawCamo));
+        }
+        else if (TryReadTableIntField(L, 1, "partsType", rawParts)
+                 && rawParts >= 0
+                 && rawParts < static_cast<int>(outfit::kCustomPartsTypeStart))
+        {
+            vanillaPartsType = static_cast<std::uint8_t>(rawParts);
+        }
+    }
+
+    if (vanillaPartsType == 0xFF)
+    {
+        Log("[OutfitLua] ExtendVanillaOutfit: could not resolve a vanilla "
+            "partsType (missing/invalid 'outfit' name/camoType or "
+            "'partsType'%s)\n",
+            labelCamo >= 0 ? "; engine camo->partsType map unavailable" : "");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    bool any = false;
+    for (const auto& bk : k_PtBranchKeys)
+    {
+        LuaGetField(L, 1, bk.key);
+        if (LuaType(L, -1) == LUA_TTABLE)
+        {
+            const int branchIdx = GetLuaTop(L);
+            std::uint16_t ids[outfit::kMaxHeadOptionsPerOutfit]  = {};
+            std::uint8_t  idCount = 0;
+            std::uint64_t pend[outfit::kMaxHeadOptionsPerOutfit] = {};
+            std::uint8_t  pendCount = 0;
+            ReadHeadOptionsArrayInto(L, branchIdx, ids, idCount, pend, pendCount);
+            if ((idCount > 0 || pendCount > 0)
+                && outfit::ExtendVanillaSuitHeadOptions(vanillaPartsType,
+                       bk.playerType, ids, idCount, pend, pendCount))
+            {
+                any = true;
+                Log("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
+                    "partsType 0x%02X: %s +%u head option(s) (+%u deferred)\n",
+                    outfitName ? outfitName : "(by number)",
+                    labelCamo,
+                    static_cast<unsigned>(vanillaPartsType),
+                    bk.key,
+                    static_cast<unsigned>(idCount),
+                    static_cast<unsigned>(pendCount));
+            }
+
+            outfit::VanillaSuitVariantAsset
+                vars[outfit::kMaxVariantsPerOutfit] = {};
+            const std::uint8_t vCount = ReadVanillaExtVariants(
+                L, branchIdx, vars, outfit::kMaxVariantsPerOutfit - 1);
+            if (vCount > 0 && labelCamo < 0)
+            {
+                Log("[OutfitLua] ExtendVanillaOutfit: variants require a "
+                    "camo-named outfit (got raw partsType 0x%02X) - variants "
+                    "skipped; use a camo name/number so each variant scopes to "
+                    "that suit\n", static_cast<unsigned>(vanillaPartsType));
+            }
+            else if (vCount > 0
+                && outfit::ExtendVanillaSuitVariants(vanillaPartsType,
+                       bk.playerType, static_cast<std::uint8_t>(labelCamo),
+                       vars, vCount))
+            {
+                any = true;
+                Log("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
+                    "partsType 0x%02X: %s +%u variant(s)\n",
+                    outfitName ? outfitName : "(by number)",
+                    labelCamo,
+                    static_cast<unsigned>(vanillaPartsType),
+                    bk.key,
+                    static_cast<unsigned>(vCount));
+            }
+        }
+        LuaPop(L, 1);
+    }
+
+    if (!any)
+    {
+        Log("[OutfitLua] ExtendVanillaOutfit: no playerType branch with a "
+            "headOptions or variants array - nothing registered\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    PushLuaNumber(L, static_cast<float>(vanillaPartsType));
+    return 1;
+}
+
+int __cdecl l_ForceVanillaVariant(lua_State* L)
+{
+    std::uint8_t vanillaPartsType = 0xFF;
+    if (LuaType(L, 1) == LUA_TSTRING)
+    {
+        const char* name = GetLuaString(L, 1);
+        const std::int32_t camo = ResolveCamoTypeNameToIndex(name);
+        if (camo >= 0)
+            vanillaPartsType = outfit::ResolveVanillaPartsTypeForCamo(
+                static_cast<std::uint8_t>(camo));
+    }
+    else if (LuaIsNumber(L, 1))
+    {
+        const int n = GetLuaInt(L, 1);
+        if (n >= 0 && n <= static_cast<int>(outfit::kVanillaCamoTypeMax))
+            vanillaPartsType = outfit::ResolveVanillaPartsTypeForCamo(
+                static_cast<std::uint8_t>(n));
+    }
+    if (vanillaPartsType == 0xFF)
+    {
+        Log("[OutfitLua] _ForceVanillaVariant: could not resolve a vanilla "
+            "partsType from arg 1 (use a camo name or camoType number)\n");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    int vi = LuaIsNumber(L, 2) ? GetLuaInt(L, 2) : 0;
+    if (vi < 0) vi = 0;
+    outfit::SetActiveVariant(vanillaPartsType, static_cast<std::uint8_t>(vi));
+    Log("[Outfit] _ForceVanillaVariant: vanilla partsType 0x%02X active "
+        "variant -> %d (re-equip the suit to reload its models)\n",
+        static_cast<unsigned>(vanillaPartsType), vi);
+    PushLuaNumber(L, static_cast<float>(vi));
+    return 1;
+}
+
 int __cdecl l_AddToEquipDevelopTable(lua_State* L)
 {
     OutfitLua_EnsureEquipDevelopBound();

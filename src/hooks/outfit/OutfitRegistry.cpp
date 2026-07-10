@@ -43,6 +43,33 @@ namespace
     static std::uint16_t g_PendingSupplyDropDevelopId  = 0;
     static std::uint8_t  g_PendingSupplyDropVariantIdx = 0;
 
+    static constexpr std::size_t kMaxVanillaExtVariants =
+        outfit::kMaxVariantsPerOutfit - 1;
+
+    struct VanillaSuitExtension
+    {
+        bool          used             = false;
+        std::uint8_t  vanillaPartsType = 0xFF;
+        outfit::VanillaSuitHeadExt perPlayerType[kPlayerTypeMax] = {};
+
+        std::uint8_t  variantCount[kPlayerTypeMax] = {};
+        outfit::VanillaSuitVariantAsset
+            variants[kPlayerTypeMax][kMaxVanillaExtVariants] = {};
+
+        std::uint8_t  variantSelectorCodes[kMaxVanillaExtVariants] = {};
+        std::uint8_t  variantSourceCamo[kMaxVanillaExtVariants] = {};
+        std::uint8_t  variantSelectorCount = 0;
+    };
+    static std::array<VanillaSuitExtension, outfit::kMaxVanillaSuitExtensions>
+        g_VanillaExts{};
+
+    static VanillaSuitExtension* FindVanillaExt_NoLock(std::uint8_t partsType)
+    {
+        for (auto& x : g_VanillaExts)
+            if (x.used && x.vanillaPartsType == partsType) return &x;
+        return nullptr;
+    }
+
     struct PendingSummaryDisplay
     {
         std::uint64_t nameHash = 0;
@@ -192,6 +219,12 @@ namespace
             {
                 if (e.variantSelectorCodes[k] == code) return true;
             }
+        }
+        for (const auto& x : g_VanillaExts)
+        {
+            if (!x.used) continue;
+            for (std::uint8_t k = 0; k < x.variantSelectorCount; ++k)
+                if (x.variantSelectorCodes[k] == code) return true;
         }
         return false;
     }
@@ -529,6 +562,18 @@ namespace outfit
                                   v.pendingHeadNameHashes, v.pendingHeadCount,
                                   nullptr);
                 }
+            }
+        }
+        for (auto& x : g_VanillaExts)
+        {
+            if (!x.used) continue;
+            for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+            {
+                auto& b = x.perPlayerType[pt];
+                if (!b.declared) continue;
+                total += fill(b.headOptionEquipIds, b.headOptionCount,
+                              b.pendingHeadNameHashes, b.pendingHeadCount,
+                              nullptr);
             }
         }
         return total;
@@ -938,6 +983,7 @@ namespace outfit
             std::lock_guard<std::mutex> lock(g_Mutex);
             for (auto& e : g_Entries)        e = OutfitEntry{};
             for (auto& v : g_ActiveVariant)  v = 0;
+            for (auto& x : g_VanillaExts)    x = VanillaSuitExtension{};
             g_PendingSummaryDisplay.clear();
             g_PendingDevelopId            = 0;
             g_PendingHeadOptionEquipId    = 0;
@@ -1311,7 +1357,15 @@ namespace outfit
         }
         else
         {
-            clamped = 0;
+            const VanillaSuitExtension* x = FindVanillaExt_NoLock(partsType);
+            std::uint8_t maxCount = 0;
+            if (x)
+                for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+                    if (x->variantCount[pt] > maxCount)
+                        maxCount = x->variantCount[pt];
+            if (maxCount == 0) clamped = 0;
+            else if (clamped >= maxCount)
+                clamped = static_cast<std::uint8_t>(maxCount - 1);
         }
         g_ActiveVariant[partsType] = clamped;
     }
@@ -1326,6 +1380,292 @@ namespace outfit
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_ActiveVariant[partsType] = 0;
+    }
+
+    bool ExtendVanillaSuitVariants(std::uint8_t vanillaPartsType,
+                                   std::uint8_t playerType,
+                                   std::uint8_t sourceCamo,
+                                   const VanillaSuitVariantAsset* variants,
+                                   std::uint8_t count)
+    {
+        if (IsCustomPartsType(vanillaPartsType) || vanillaPartsType == 0xFF)
+            return false;
+        if (playerType >= kPlayerTypeMax || !variants || count == 0)
+            return false;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        BuildReservations_NoLock();
+        VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x)
+        {
+            for (auto& c : g_VanillaExts)
+                if (!c.used) { x = &c; break; }
+            if (!x) return false;
+            x->used             = true;
+            x->vanillaPartsType = vanillaPartsType;
+            for (std::uint8_t i = 0; i < kMaxVanillaExtVariants; ++i)
+                x->variantSourceCamo[i] = 0xFF;
+        }
+
+        VanillaSuitVariantAsset incoming[kMaxVanillaExtVariants] = {};
+        std::uint8_t incomingCount = 0;
+        for (std::uint8_t i = 0;
+             i < count && incomingCount < kMaxVanillaExtVariants; ++i)
+        {
+            if (variants[i].partsPathCode64 == 0
+                && variants[i].fpkPathCode64 == 0)
+                continue;
+            incoming[incomingCount] = variants[i];
+            ++incomingCount;
+        }
+        if (incomingCount == 0) return false;
+
+        int base = -1;
+        std::uint8_t blockSize = 0;
+        for (std::uint8_t i = 0; i < x->variantSelectorCount; ++i)
+        {
+            if (x->variantSourceCamo[i] == sourceCamo)
+            {
+                if (base < 0) base = static_cast<int>(i);
+                ++blockSize;
+            }
+        }
+
+        const bool newBlock = (base < 0);
+        if (newBlock)
+        {
+            std::uint8_t room =
+                static_cast<std::uint8_t>(kMaxVanillaExtVariants
+                                          - x->variantSelectorCount);
+            if (room == 0) return false;
+            std::uint8_t take =
+                (incomingCount < room) ? incomingCount : room;
+
+            char keyBuf[24];
+            std::snprintf(keyBuf, sizeof(keyBuf), "__vext:0x%02X",
+                          vanillaPartsType);
+            const std::uint64_t keyHash = HashOutfitKey(keyBuf);
+
+            std::uint8_t persisted[14] = {};
+            V_FrameWorkState::GetPersistedOutfitVariantSelectors(keyBuf,
+                                                                 persisted, 14);
+            base = static_cast<int>(x->variantSelectorCount);
+            for (std::uint8_t j = 0; j < take; ++j)
+            {
+                const std::uint8_t slot =
+                    static_cast<std::uint8_t>(base + j);
+                std::uint8_t sel = (slot < 14) ? persisted[slot]
+                                               : std::uint8_t{0};
+                if (!IsAllocatableSelector(sel) || IsSelectorTaken_NoLock(sel)
+                    || IsSelectorReservedForOther_NoLock(sel, keyHash))
+                    sel = AllocateSelector_NoLock(sel, keyHash);
+                if (sel == 0xFF || sel == 0) continue;
+                x->variantSelectorCodes[slot] = sel;
+                x->variantSourceCamo[slot]    = sourceCamo;
+                ++blockSize;
+                x->variantSelectorCount =
+                    static_cast<std::uint8_t>(slot + 1);
+            }
+            x->variantSelectorCount =
+                static_cast<std::uint8_t>(base + blockSize);
+            if (blockSize == 0) return false;
+
+            V_FrameWorkState::SetPersistedOutfitVariantSelectors(
+                keyBuf, x->variantSelectorCodes, x->variantSelectorCount);
+        }
+
+        std::uint8_t filled = 0;
+        for (std::uint8_t j = 0; j < blockSize && j < incomingCount; ++j)
+        {
+            const std::uint8_t slot = static_cast<std::uint8_t>(base + j);
+            x->variants[playerType][slot] = incoming[j];
+            x->variants[playerType][slot].used = true;
+            ++filled;
+        }
+        if (filled == 0) return false;
+
+        x->variantCount[playerType] =
+            static_cast<std::uint8_t>(x->variantSelectorCount + 1);
+        return true;
+    }
+
+    std::uint8_t VanillaExtVariantCount(std::uint8_t vanillaPartsType,
+                                        std::uint8_t playerType)
+    {
+        if (playerType >= kPlayerTypeMax) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        return x ? x->variantCount[playerType] : std::uint8_t{0};
+    }
+
+    std::uint8_t VanillaExtVariantSlotCount(std::uint8_t vanillaPartsType)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        return x ? x->variantSelectorCount : std::uint8_t{0};
+    }
+
+    const VanillaSuitVariantAsset* VanillaExtGetVariant(
+        std::uint8_t vanillaPartsType, std::uint8_t playerType,
+        std::uint8_t variantIdx)
+    {
+        if (playerType >= kPlayerTypeMax || variantIdx == 0) return nullptr;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return nullptr;
+        const std::uint8_t slot = static_cast<std::uint8_t>(variantIdx - 1);
+        if (slot >= kMaxVanillaExtVariants) return nullptr;
+        const auto& v = x->variants[playerType][slot];
+        return v.used ? &v : nullptr;
+    }
+
+    std::uint8_t VanillaExtGetVariantSelector(std::uint8_t vanillaPartsType,
+                                              std::uint8_t variantIdx)
+    {
+        if (variantIdx == 0) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return 0;
+        const std::uint8_t i = static_cast<std::uint8_t>(variantIdx - 1);
+        if (i >= x->variantSelectorCount) return 0;
+        return x->variantSelectorCodes[i];
+    }
+
+    std::uint8_t VanillaExtGetVariantSourceCamo(std::uint8_t vanillaPartsType,
+                                                std::uint8_t variantIdx)
+    {
+        if (variantIdx == 0) return 0xFF;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return 0xFF;
+        const std::uint8_t i = static_cast<std::uint8_t>(variantIdx - 1);
+        if (i >= x->variantSelectorCount) return 0xFF;
+        return x->variantSourceCamo[i];
+    }
+
+    void ResetAllVanillaExtVariants(std::uint8_t exceptPartsType)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (auto& x : g_VanillaExts)
+        {
+            if (!x.used) continue;
+            if (x.vanillaPartsType == exceptPartsType) continue;
+            g_ActiveVariant[x.vanillaPartsType] = 0;
+        }
+    }
+
+    bool TryGetVanillaExtByVariantSelector(std::uint8_t selector,
+                                           std::uint8_t* outPartsType,
+                                           std::uint8_t* outVariantIdx)
+    {
+        if (!IsCustomSelector(selector)) return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const auto& x : g_VanillaExts)
+        {
+            if (!x.used) continue;
+            for (std::uint8_t i = 0; i < x.variantSelectorCount; ++i)
+            {
+                if (x.variantSelectorCodes[i] == selector)
+                {
+                    if (outPartsType)  *outPartsType  = x.vanillaPartsType;
+                    if (outVariantIdx) *outVariantIdx =
+                        static_cast<std::uint8_t>(i + 1);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool ExtendVanillaSuitHeadOptions(std::uint8_t vanillaPartsType,
+                                      std::uint8_t playerType,
+                                      const std::uint16_t* equipIds,
+                                      std::uint8_t idCount,
+                                      const std::uint64_t* pendingHashes,
+                                      std::uint8_t pendingCount)
+    {
+        if (IsCustomPartsType(vanillaPartsType) || vanillaPartsType == 0xFF)
+            return false;
+        if (playerType >= kPlayerTypeMax)
+            return false;
+        if (idCount == 0 && pendingCount == 0)
+            return false;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x)
+        {
+            for (auto& c : g_VanillaExts)
+                if (!c.used) { x = &c; break; }
+            if (!x) return false;
+            x->used             = true;
+            x->vanillaPartsType = vanillaPartsType;
+        }
+
+        auto& b = x->perPlayerType[playerType];
+        b.declared = true;
+        for (std::uint8_t i = 0; equipIds && i < idCount; ++i)
+        {
+            const std::uint16_t id = equipIds[i];
+            if (id == 0) continue;
+            bool dup = false;
+            for (std::uint8_t j = 0; j < b.headOptionCount; ++j)
+                if (b.headOptionEquipIds[j] == id) { dup = true; break; }
+            if (!dup && b.headOptionCount < kMaxHeadOptionsPerOutfit)
+                b.headOptionEquipIds[b.headOptionCount++] = id;
+        }
+        for (std::uint8_t i = 0; pendingHashes && i < pendingCount; ++i)
+        {
+            const std::uint64_t h = pendingHashes[i];
+            if (h == 0) continue;
+            bool dup = false;
+            for (std::uint8_t j = 0; j < b.pendingHeadCount; ++j)
+                if (b.pendingHeadNameHashes[j] == h) { dup = true; break; }
+            if (!dup && b.pendingHeadCount < kMaxHeadOptionsPerOutfit)
+                b.pendingHeadNameHashes[b.pendingHeadCount++] = h;
+        }
+        return true;
+    }
+
+    bool VanillaExtHasAnyHeadOptions(std::uint8_t vanillaPartsType,
+                                     std::uint8_t playerType)
+    {
+        if (playerType >= kPlayerTypeMax) return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        return x && x->perPlayerType[playerType].headOptionCount > 0;
+    }
+
+    bool VanillaExtHasHeadOption(std::uint8_t vanillaPartsType,
+                                 std::uint16_t equipId,
+                                 std::uint8_t playerType)
+    {
+        if (playerType >= kPlayerTypeMax || equipId == 0) return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return false;
+        const auto& b = x->perPlayerType[playerType];
+        for (std::uint8_t j = 0; j < b.headOptionCount; ++j)
+            if (b.headOptionEquipIds[j] == equipId) return true;
+        return false;
+    }
+
+    bool VanillaExtGetHeadOptions(std::uint8_t vanillaPartsType,
+                                  std::uint8_t playerType,
+                                  const std::uint16_t** outEquipIds,
+                                  std::uint8_t* outCount)
+    {
+        if (outEquipIds) *outEquipIds = nullptr;
+        if (outCount)    *outCount    = 0;
+        if (playerType >= kPlayerTypeMax) return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return false;
+        const auto& b = x->perPlayerType[playerType];
+        if (b.headOptionCount == 0) return false;
+        if (outEquipIds) *outEquipIds = b.headOptionEquipIds;
+        if (outCount)    *outCount    = b.headOptionCount;
+        return true;
     }
 
 

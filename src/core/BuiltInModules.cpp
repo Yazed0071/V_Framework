@@ -220,6 +220,10 @@ bool Install_TppEquip_RegisterConstant_Hook();
 bool Uninstall_TppEquip_RegisterConstant_Hook();
 bool Install_TppEquip_ReloadEquipIdTable_Hook();
 bool Uninstall_TppEquip_ReloadEquipIdTable_Hook();
+bool Install_TppEquip_ReloadEquipParameterTables2_Hook();
+bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
+bool Install_MotionLoader_ReceiverTypeHook();
+void Uninstall_MotionLoader_ReceiverTypeHook();
 
 
 namespace
@@ -1234,6 +1238,24 @@ namespace
             Uninstall_TppEquip_ReloadEquipIdTable_Hook();
         }
     };
+
+    class GunBasicInjectModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "GunBasicInject"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            bool ok = Install_TppEquip_ReloadEquipParameterTables2_Hook();
+            ok = Install_MotionLoader_ReceiverTypeHook() && ok;
+            return ok;
+        }
+        void Uninstall() override
+        {
+            Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
+            Uninstall_MotionLoader_ReceiverTypeHook();
+        }
+    };
 }
 
 void RegisterBuiltInFeatureModules()
@@ -1304,6 +1326,7 @@ void RegisterBuiltInFeatureModules()
     static PlayerOutfitExtrasModule s_PlayerOutfitExtrasModule;
     static TppEquipConstInjectModule s_TppEquipConstInjectModule;
     static EquipIdTableOverflowModule s_EquipIdTableOverflowModule;
+    static GunBasicInjectModule s_GunBasicInjectModule;
 
     static std::once_flag s_Once;
     std::call_once(s_Once, []()
@@ -1374,5 +1397,6 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_PlayerOutfitExtrasModule);
             FeatureModuleRegistry::Instance().Register(&s_TppEquipConstInjectModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIdTableOverflowModule);
+            FeatureModuleRegistry::Instance().Register(&s_GunBasicInjectModule);
         });
 }

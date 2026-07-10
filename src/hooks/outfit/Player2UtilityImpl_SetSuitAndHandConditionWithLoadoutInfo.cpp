@@ -107,8 +107,10 @@ namespace
                     const bool liveIsCustom =
                         (livePT >= outfit::kCustomPartsTypeStart
                          && livePT <= outfit::kCustomPartsTypeEnd);
-                    (void)liveType;
-                    if (liveIsCustom)
+                    const bool liveIsVanillaExt =
+                        livePT < outfit::kCustomPartsTypeStart
+                        && outfit::VanillaExtHasAnyHeadOptions(livePT, liveType);
+                    if (liveIsCustom || liveIsVanillaExt)
                     {
                         const std::uint16_t pendingHead =
                             outfit::GetPendingHeadOptionEquipId();
@@ -152,6 +154,10 @@ namespace
                                         pendingHead))
                                 {
                                     slot = head->slotByte;
+                                    if (liveIsVanillaExt
+                                        && !outfit::VanillaExtHasHeadOption(
+                                               livePT, pendingHead, liveType))
+                                        slot = 0;
                                 }
                                 else
                                 {
@@ -314,8 +320,12 @@ namespace
                     outfit::TryGetOutfitByVariantSelector(camoType, &oe, &vi);
                 }
                 const bool offered =
-                    head && oe
-                    && oe->HasHeadOptionAnyVariant(head->equipId, gatePT);
+                    head
+                    && ((oe && oe->HasHeadOptionAnyVariant(head->equipId, gatePT))
+                        || (!oe
+                            && partsType < outfit::kCustomPartsTypeStart
+                            && outfit::VanillaExtHasHeadOption(
+                                   partsType, head->equipId, gatePT)));
                 if (!offered)
                 {
                     base[kInfoOff_FaceId] = 0;
@@ -336,6 +346,41 @@ namespace
 
         const bool applySuit = (flags & 0x1u) != 0;
         if (!applySuit) return false;
+
+        {
+            std::uint8_t vExtPt = 0, vExtIdx = 0;
+            if (outfit::TryGetVanillaExtByVariantSelector(camoType, &vExtPt,
+                                                          &vExtIdx))
+            {
+                outfit::ResetAllVanillaExtVariants(vExtPt);
+                outfit::SetActiveVariant(vExtPt, vExtIdx);
+
+                if (partsType != vExtPt)
+                {
+                    __try
+                    {
+                        base[kInfoOff_PartsType] = vExtPt;
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER) {}
+#ifdef _DEBUG
+                    Log("[OutfitSuitConditionApply:%s] vanilla-ext variant "
+                        "apply: descriptor partsType 0x%02X -> 0x%02X\n",
+                        tag, static_cast<unsigned>(partsType),
+                        static_cast<unsigned>(vExtPt));
+#endif
+                    partsType = vExtPt;
+                }
+#ifdef _DEBUG
+                Log("[OutfitSuitConditionApply:%s] vanilla-ext variant apply: "
+                    "selector 0x%02X -> partsType 0x%02X variant=%u\n",
+                    tag, static_cast<unsigned>(camoType),
+                    static_cast<unsigned>(vExtPt),
+                    static_cast<unsigned>(vExtIdx));
+#endif
+                return true;
+            }
+            outfit::ResetAllVanillaExtVariants();
+        }
 
         const outfit::OutfitEntry* chosen = nullptr;
         const char*                via    = nullptr;
@@ -411,15 +456,39 @@ namespace
                 if (worn >= outfit::kCustomHeadSlotBase
                     && outfit::IsCustomHeadSlot(worn))
                 {
-                    base[kInfoOff_FaceId] = 0;
-                    *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags) |= 0x80u;
-                    outfit::WriteLiveHeadSlot(0);
-                    outfit::ClearWornCustomHeadSlot();
+                    const std::uint8_t syncPT =
+                        ((flags & 0x100u) != 0) ? playerType
+                                                : outfit::ReadLivePlayerType();
+                    const outfit::CustomHeadEntry* head =
+                        outfit::TryGetCustomHeadBySlot(worn);
+                    if (head
+                        && outfit::VanillaExtHasHeadOption(partsType,
+                                                           head->equipId,
+                                                           syncPT))
+                    {
+                        base[kInfoOff_FaceId] = worn;
+                        *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags) |= 0x80u;
+                        outfit::SetWornCustomHeadSlot(worn);
 #ifdef _DEBUG
-                    Log("[OutfitSuitConditionApply:%s] head-sync: vanilla suit "
-                        "apply - dropped worn custom head slot 0x%02X + cleared "
-                        "tracker\n", tag, static_cast<unsigned>(worn));
+                        Log("[OutfitSuitConditionApply:%s] head-sync: vanilla "
+                            "suit apply - kept worn custom head slot 0x%02X "
+                            "(offered by ExtendVanillaOutfit on partsType=0x%02X)\n",
+                            tag, static_cast<unsigned>(worn),
+                            static_cast<unsigned>(partsType));
 #endif
+                    }
+                    else
+                    {
+                        base[kInfoOff_FaceId] = 0;
+                        *reinterpret_cast<std::uint32_t*>(base + kInfoOff_Flags) |= 0x80u;
+                        outfit::WriteLiveHeadSlot(0);
+                        outfit::ClearWornCustomHeadSlot();
+#ifdef _DEBUG
+                        Log("[OutfitSuitConditionApply:%s] head-sync: vanilla suit "
+                            "apply - dropped worn custom head slot 0x%02X + cleared "
+                            "tracker\n", tag, static_cast<unsigned>(worn));
+#endif
+                    }
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -666,6 +735,39 @@ namespace
         }
 
         g_Orig(self, info);
+
+        if (info)
+        {
+            __try
+            {
+                const std::uint8_t livePT   = outfit::ReadLivePartsType();
+                const std::uint8_t liveType = outfit::ReadLivePlayerType();
+                if (livePT < outfit::kCustomPartsTypeStart)
+                {
+                    auto* base = reinterpret_cast<std::uint8_t*>(info);
+                    std::uint8_t slot = base[kInfoOff_FaceId];
+                    if (slot < outfit::kCustomHeadSlotBase)
+                        slot = outfit::ReadLiveHeadSlot();
+                    if (slot < outfit::kCustomHeadSlotBase)
+                        slot = outfit::GetWornCustomHeadSlot();
+
+                    if (slot >= outfit::kCustomHeadSlotBase
+                        && outfit::IsCustomHeadSlot(slot))
+                    {
+                        const outfit::CustomHeadEntry* head =
+                            outfit::TryGetCustomHeadBySlot(slot);
+                        if (head
+                            && outfit::VanillaExtHasHeadOption(livePT, head->equipId,
+                                                              liveType)
+                            && outfit::ReadLiveWornHeadCategory() != slot)
+                        {
+                            outfit::WriteLiveWornHeadCategory(slot);
+                        }
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
 
 #ifdef _DEBUG
         if (info)

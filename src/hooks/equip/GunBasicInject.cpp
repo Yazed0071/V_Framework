@@ -1,0 +1,389 @@
+#include "pch.h"
+#include "GunBasicInject.h"
+
+#include <Windows.h>
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <mutex>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "AddressSet.h"
+#include "HookUtils.h"
+#include "log.h"
+#include "LuaApi.h"
+
+namespace
+{
+    struct GunBasicRow
+    {
+        std::int32_t f[13];
+    };
+
+    using ReloadEquipParameterTables2_t = void(__fastcall*)(lua_State* L);
+    static ReloadEquipParameterTables2_t g_OrigReload = nullptr;
+
+    static std::recursive_mutex g_Mutex;
+    static std::vector<GunBasicRow> g_Rows;
+    static std::map<std::string, int> g_WpNameToId;
+    static std::set<int> g_ClaimedIds;
+
+    static constexpr int kNoneValue = 0;
+
+    static constexpr int kGunBasicMaxId = 1022;
+
+    static std::vector<std::uint8_t> g_GunBasicShadow;
+    static bool g_GunBasicShadowActive = false;
+
+    static void** GunBasicPtrLoc()
+    {
+        auto* impl = static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.EquipParameterTablesImpl_Instance));
+        if (!impl)
+            return nullptr;
+        return reinterpret_cast<void**>(impl + 0x08);
+    }
+
+    static std::uint8_t* ReadPtrSEH(void** loc)
+    {
+        if (!loc)
+            return nullptr;
+        __try
+        {
+            return static_cast<std::uint8_t*>(*loc);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static int RedirectShadowSEH(void** loc, std::uint8_t* shadow, size_t copyBytes)
+    {
+        __try
+        {
+            std::uint8_t* stock = static_cast<std::uint8_t*>(*loc);
+            if (!stock)
+                return 0;
+            std::memcpy(shadow, stock, copyBytes);
+            *loc = shadow;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int StockSlotCount()
+    {
+        return static_cast<int>(gAddr.GunBasicParameters2SlotCount);
+    }
+
+    static bool EnsureGunBasicShadow()
+    {
+        void** loc = GunBasicPtrLoc();
+        if (!loc)
+            return false;
+
+        const int stock = StockSlotCount();
+        if (stock <= 0 || stock > kGunBasicMaxId)
+            return false;
+
+        if (g_GunBasicShadow.empty())
+            g_GunBasicShadow.assign(static_cast<size_t>(kGunBasicMaxId) * 12, 0);
+
+        if (ReadPtrSEH(loc) == g_GunBasicShadow.data())
+        {
+            g_GunBasicShadowActive = true;
+            return true;
+        }
+
+        if (RedirectShadowSEH(loc, g_GunBasicShadow.data(),
+                              static_cast<size_t>(stock) * 12) != 1)
+        {
+            if (!g_GunBasicShadowActive)
+                g_GunBasicShadow.clear();
+            return false;
+        }
+
+        if (!g_GunBasicShadowActive)
+        {
+            g_GunBasicShadowActive = true;
+            Log("[GunBasic] buffer shadow active (stock %d -> %d slots; custom weaponIds up to %d)\n",
+                stock, kGunBasicMaxId, kGunBasicMaxId);
+        }
+        return true;
+    }
+
+    static std::uint8_t* BufferBase()
+    {
+        std::uint8_t* live = ReadPtrSEH(GunBasicPtrLoc());
+        if (live)
+            return live;
+        return static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.GunBasicParameters2Buffer));
+    }
+
+    static int BufferSlotCount()
+    {
+        if (g_GunBasicShadowActive)
+            return kGunBasicMaxId;
+        return StockSlotCount();
+    }
+
+    static int SlotIsZeroSEH(const std::uint8_t* buf, int idx)
+    {
+        __try
+        {
+            const std::uint8_t* p = buf + static_cast<size_t>(idx) * 12;
+            for (int k = 0; k < 12; ++k)
+                if (p[k] != 0)
+                    return 0;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static void WriteNativeRowSEH(std::uint8_t* buf, int weaponId, const std::int32_t* f12)
+    {
+        static const int kByteForField[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 10, 8, 9, 11 };
+        __try
+        {
+            std::uint8_t* p = buf + static_cast<size_t>(weaponId - 1) * 12;
+            for (int k = 0; k < 12; ++k)
+                p[kByteForField[k]] = static_cast<std::uint8_t>(f12[k] & 0xFF);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void ReapplyAllNative()
+    {
+        std::vector<GunBasicRow> snapshot;
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+            EnsureGunBasicShadow();
+            snapshot = g_Rows;
+        }
+
+        std::uint8_t* buf = BufferBase();
+        const int cap = BufferSlotCount();
+        if (!buf || cap <= 0)
+            return;
+
+        for (const GunBasicRow& row : snapshot)
+        {
+            if (row.f[0] >= 1 && row.f[0] <= cap)
+                WriteNativeRowSEH(buf, row.f[0], &row.f[1]);
+        }
+#ifdef _DEBUG
+        if (!snapshot.empty())
+            Log("[GunBasic] re-applied %zu native gunBasic row(s) after reload\n",
+                snapshot.size());
+#endif
+    }
+
+    static void __fastcall hkReloadEquipParameterTables2(lua_State* L)
+    {
+        if (g_OrigReload)
+            g_OrigReload(L);
+        ReapplyAllNative();
+    }
+
+    static bool ReadNamedInt(lua_State* L, int tableIdx, const char* name, int& out)
+    {
+        g_lua_getfield(L, tableIdx, const_cast<char*>(name));
+        const bool ok = g_lua_isnumber(L, -1) != 0;
+        if (ok)
+            out = static_cast<int>(g_lua_tointeger(L, -1));
+        g_lua_settop(L, -2);
+        return ok;
+    }
+}
+
+int GunBasic_AllocateWeaponIdForName(const char* name)
+{
+    if (!name || !name[0])
+        return 0;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+
+    auto it = g_WpNameToId.find(name);
+    if (it != g_WpNameToId.end())
+        return it->second;
+
+    EnsureGunBasicShadow();
+
+    std::uint8_t* buf = BufferBase();
+    const int cap = BufferSlotCount();
+    if (!buf || cap <= 1)
+        return 0;
+
+    for (int idx = cap - 1; idx >= 1; --idx)
+    {
+        const int weaponId = idx + 1;
+        if (g_ClaimedIds.count(weaponId))
+            continue;
+        if (SlotIsZeroSEH(buf, idx) != 1)
+            continue;
+
+        g_ClaimedIds.insert(weaponId);
+        g_WpNameToId[name] = weaponId;
+        Log("[GunBasic] '%s' -> weaponId %d (free native slot; cap=%d)\n",
+            name, weaponId, cap);
+        return weaponId;
+    }
+
+    Log("[GunBasic] no free native gunBasic slot for '%s' (cap=%d full) - "
+        "custom weapon behavior unavailable; falls back to the default id space\n",
+        name, cap);
+    return 0;
+}
+
+int __cdecl l_SetGunBasic(lua_State* L)
+{
+    if (!ResolveLuaApi())
+        return 0;
+
+    if (g_lua_type(L, 1) != LUA_TTABLE)
+    {
+        Log("[GunBasic] SetGunBasic: argument #1 must be a table\n");
+        return 0;
+    }
+
+    int weaponId = 0;
+    if (!ReadNamedInt(L, 1, "weaponId", weaponId) || weaponId <= 0)
+    {
+        Log("[GunBasic] SetGunBasic: missing/invalid weaponId\n");
+        return 0;
+    }
+
+    GunBasicRow row;
+    row.f[0] = weaponId;
+
+    static const char* const kSlotNames[11] =
+    {
+        "receiverId", "barrelId", "ammoId", "stockId", "muzzleId",
+        "muzzleOptionId", "scope1Id", "scope2Id", "underBarrelId",
+        "laserFlash1Id", "laserFlash2Id"
+    };
+
+    bool essentialsPresent = true;
+    for (int i = 0; i < 11; ++i)
+    {
+        int v = kNoneValue;
+        const bool present = ReadNamedInt(L, 1, kSlotNames[i], v);
+        if (i < 3 && !present)
+            essentialsPresent = false;
+        row.f[i + 1] = v;
+    }
+
+    if (!essentialsPresent)
+    {
+        Log("[GunBasic] SetGunBasic: weaponId=%d requires receiverId, barrelId, and "
+            "ammoId - a weapon cannot be assembled without all three. Row rejected.\n",
+            weaponId);
+        return 0;
+    }
+
+    int grade = 1;
+    ReadNamedInt(L, 1, "weaponGrade", grade);
+    if (grade < 1)
+        grade = 1;
+    else if (grade > 15)
+        grade = 15;
+    row.f[12] = grade;
+
+    for (int i = 1; i <= 12; ++i)
+    {
+        if (row.f[i] > 0xFF)
+        {
+            Log("[GunBasic] SetGunBasic: weaponId=%d field #%d value %d exceeds 255; "
+                "gunBasic part fields are one byte each - custom parts must reuse a "
+                "vanilla receiver/barrel/ammo id. Truncated.\n",
+                weaponId, i, row.f[i]);
+        }
+    }
+
+    const int cap = BufferSlotCount();
+    std::uint8_t* buf = BufferBase();
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        bool replaced = false;
+        for (auto& existing : g_Rows)
+        {
+            if (existing.f[0] == row.f[0])
+            {
+                existing = row;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced)
+            g_Rows.push_back(row);
+
+        if (buf && weaponId >= 1 && weaponId <= cap)
+        {
+            WriteNativeRowSEH(buf, weaponId, &row.f[1]);
+        }
+        else
+        {
+            Log("[GunBasic] SetGunBasic: weaponId=%d out of native buffer range [1,%d] "
+                "(or buffer unresolved for this build) - NOT written. A gunBasic weaponId "
+                "must be a WP declared via V_TppEquip.DeclareWPs so it gets an in-range "
+                "slot.\n", weaponId, cap);
+        }
+    }
+
+#ifdef _DEBUG
+    Log("[GunBasic] SetGunBasic weaponId=%d rc=%d ba=%d am=%d grade=%d -> native slot\n",
+        row.f[0], row.f[1], row.f[2], row.f[3], row.f[12]);
+#endif
+    return 0;
+}
+
+bool Install_TppEquip_ReloadEquipParameterTables2_Hook()
+{
+    void* target = ResolveGameAddress(gAddr.ReloadEquipParameterTables2);
+    if (!target)
+    {
+        Log("[GunBasic] ReloadEquipParameterTables2 address not set for this build - reapply guard skipped\n");
+        return true;
+    }
+
+    const bool ok = CreateAndEnableHook(
+        target, &hkReloadEquipParameterTables2,
+        reinterpret_cast<void**>(&g_OrigReload));
+    if (!ok)
+    {
+        Log("[GunBasic] Reload reapply-guard hook Install -> FAIL (target=%p)\n", target);
+    }
+#ifdef _DEBUG
+    else
+    {
+        Log("[GunBasic] Reload reapply-guard hook Install -> OK (target=%p)\n", target);
+    }
+#endif
+    return ok;
+}
+
+bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook()
+{
+    if (gAddr.ReloadEquipParameterTables2)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.ReloadEquipParameterTables2));
+    g_OrigReload = nullptr;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    g_Rows.clear();
+    g_WpNameToId.clear();
+    g_ClaimedIds.clear();
+    return true;
+}

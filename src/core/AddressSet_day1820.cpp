@@ -300,6 +300,14 @@ namespace AddressSetRuntime
             0x14685DA20ull, // LoadAvatarHeadOptionFv2
             0x14685DD50ull, // LoadAvatarHeadOptionFpk
             0x1495264F0ull, // EquipDevelopCtrl_SetEnableDevelop
+            0x1464C1180ull, // ReloadEquipParameterTables2
+            0x0ull,         // GunBasicParameters2Buffer (EN153 TBD)
+            0ull,           // GunBasicParameters2SlotCount (EN153 TBD)
+            0x0ull,         // MagazineParameters2Buffer (EN153 TBD)
+            0ull,           // MagazineParameters2SlotCount (EN153 TBD)
+            0x0ull,         // EquipParameterTablesImpl_Instance (EN153 TBD)
+            0x1423495C0ull, // MotionLoaderImpl_ReceiverTypeTable (EN153; 240 bytes)
+            0x147413D10ull, // MotionLoaderImpl_GetReceiverType (EN153; hot/cold-split body)
         };
         return value;
     }
@@ -635,6 +643,14 @@ namespace AddressSetRuntime
             0x148442AF0ull, // LoadAvatarHeadOptionFv2
             0x148442EF0ull, // LoadAvatarHeadOptionFpk
             0x149F42BE0ull, // EquipDevelopCtrl_SetEnableDevelop
+            0x140A40EC0ull, // ReloadEquipParameterTables2
+            0x0ull,         // GunBasicParameters2Buffer (JP153 TBD; cap 401 = 0x12cc/12)
+            0ull,           // GunBasicParameters2SlotCount (JP153 TBD)
+            0x0ull,         // MagazineParameters2Buffer (JP153 TBD)
+            0ull,           // MagazineParameters2SlotCount (JP153 TBD)
+            0x0ull,         // EquipParameterTablesImpl_Instance (JP153 TBD)
+            0x142349520ull, // MotionLoaderImpl_ReceiverTypeTable (JP153; 240 bytes)
+            0x14957D790ull, // MotionLoaderImpl_GetReceiverType (JP153; hot/cold-split body)
         };
 
         return value;

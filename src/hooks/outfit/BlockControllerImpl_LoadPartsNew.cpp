@@ -409,6 +409,67 @@ namespace
         return fallback;
     }
 
+    static const outfit::VanillaSuitVariantAsset* ResolveVanillaExtActiveVariant(
+        std::uint32_t playerType, std::uint32_t effectivePartsType)
+    {
+        const auto vpt = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+        if (vpt >= outfit::kCustomPartsTypeStart) return nullptr;
+        const std::uint8_t v = outfit::GetActiveVariant(vpt);
+        if (v == 0) return nullptr;
+        const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
+        return outfit::VanillaExtGetVariant(vpt, pt, v);
+    }
+
+    static std::uint64_t ResolveVanillaExtVariantParts(std::uint32_t playerType,
+                                                       std::uint32_t effectivePartsType)
+    {
+        const auto* var =
+            ResolveVanillaExtActiveVariant(playerType, effectivePartsType);
+        return var ? var->partsPathCode64 : 0;
+    }
+
+    static std::uint64_t ResolveVanillaExtVariantFpk(std::uint32_t playerType,
+                                                     std::uint32_t effectivePartsType)
+    {
+        const auto* var =
+            ResolveVanillaExtActiveVariant(playerType, effectivePartsType);
+        return var ? var->fpkPathCode64 : 0;
+    }
+
+    static const outfit::CustomHeadEntry* ResolveVanillaSuitCustomHead(
+        std::uint8_t pt, std::uint32_t playerPartsType, std::uint8_t faceEquipId)
+    {
+        const outfit::CustomHeadEntry* head =
+            outfit::TryGetCustomHeadBySlot(faceEquipId);
+        if (!head)
+            head = outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
+        if (!head)
+            head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
+        if (!head)
+        {
+            if (const std::uint16_t worn = outfit::GetCurrentWornHeadEquipId();
+                worn != 0)
+                head = outfit::TryGetCustomHeadByEquipId(worn);
+        }
+        if (!head || pt >= outfit::kPlayerTypeMax)
+            return nullptr;
+        if (!outfit::VanillaExtHasHeadOption(
+                static_cast<std::uint8_t>(playerPartsType & 0xFF),
+                head->equipId, pt))
+            return nullptr;
+        return head;
+    }
+
+    static std::uint8_t VanillaExtNeedsFaceFova(std::uint32_t effective)
+    {
+        if (effective >= outfit::kCustomPartsTypeStart)
+            return 0;
+        const auto livePT = outfit::ReadLivePlayerType();
+        const outfit::CustomHeadEntry* head = ResolveVanillaSuitCustomHead(
+            livePT, effective, t_ActiveCustomFaceSlot);
+        return head ? std::uint8_t{1} : std::uint8_t{0};
+    }
+
 
     static std::uint64_t* __fastcall hkLoadPlayerPartsParts(
         std::uint64_t* outPath, std::uint32_t playerType, std::uint32_t playerPartsType)
@@ -435,6 +496,13 @@ namespace
                 }
                 return WriteFoxPath(outPath, path);
             }
+        }
+        if (const std::uint64_t path = ResolveVanillaExtVariantParts(
+                playerType, effectivePartsType); path != 0)
+        {
+            if (!ShouldFallBackOnMissingAsset(path)
+                && fox::detail::PathExistsByCode(path))
+                return WriteFoxPath(outPath, path);
         }
         return g_OrigLoadPartsParts(outPath, playerType, VanillaClampPartsType(playerPartsType));
     }
@@ -464,6 +532,13 @@ namespace
                 }
                 return WriteFoxPath(outPath, path);
             }
+        }
+        if (const std::uint64_t path = ResolveVanillaExtVariantFpk(
+                playerType, effectivePartsType); path != 0)
+        {
+            if (!ShouldFallBackOnMissingAsset(path)
+                && fox::detail::PathExistsByCode(path))
+                return WriteFoxPath(outPath, path);
         }
         return g_OrigLoadPartsFpk(outPath, playerType, VanillaClampPartsType(playerPartsType));
     }
@@ -506,6 +581,31 @@ namespace
             return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
 
+        if (playerCamoType >= outfit::kCustomSelectorStart
+            && playerCamoType <= outfit::kCustomSelectorEnd)
+        {
+            std::uint8_t vselPt = 0, vselIdx = 0;
+            if (outfit::TryGetVanillaExtByVariantSelector(
+                    static_cast<std::uint8_t>(playerCamoType), &vselPt, &vselIdx)
+                && vselPt == static_cast<std::uint8_t>(effectivePartsType & 0xFF))
+            {
+                outfit::SetActiveVariant(vselPt, vselIdx);
+                if (const auto* var = outfit::VanillaExtGetVariant(
+                        vselPt, static_cast<std::uint8_t>(playerType & 0xFF), vselIdx))
+                {
+                    if (var->camoFpk > outfit::kSubAssetUseVanilla
+                        && !ShouldFallBackOnMissingAsset(var->camoFpk)
+                        && fox::detail::PathExistsByCode(var->camoFpk))
+                        return WriteFoxPath(outPath, var->camoFpk);
+                    const std::uint8_t vBaseCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vselPt, vselIdx);
+                    if (vBaseCamo != 0xFF)
+                        return g_OrigLoadCamoFpk(outPath, playerType,
+                                                 VanillaClampPartsType(playerPartsType),
+                                                 ClampVanillaCamo(vBaseCamo));
+                }
+            }
+        }
         return g_OrigLoadCamoFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -559,6 +659,31 @@ namespace
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
 
+        if (playerCamoType >= outfit::kCustomSelectorStart
+            && playerCamoType <= outfit::kCustomSelectorEnd)
+        {
+            std::uint8_t vselPt = 0, vselIdx = 0;
+            if (outfit::TryGetVanillaExtByVariantSelector(
+                    static_cast<std::uint8_t>(playerCamoType), &vselPt, &vselIdx)
+                && vselPt == static_cast<std::uint8_t>(effectivePartsType & 0xFF))
+            {
+                outfit::SetActiveVariant(vselPt, vselIdx);
+                if (const auto* var = outfit::VanillaExtGetVariant(
+                        vselPt, static_cast<std::uint8_t>(playerType & 0xFF), vselIdx))
+                {
+                    if (var->camoFv2 > outfit::kSubAssetUseVanilla
+                        && !ShouldFallBackOnMissingAsset(var->camoFv2)
+                        && fox::detail::PathExistsByCode(var->camoFv2))
+                        return WriteFoxPath(outPath, var->camoFv2);
+                    const std::uint8_t vBaseCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vselPt, vselIdx);
+                    if (vBaseCamo != 0xFF)
+                        return g_OrigLoadCamoFv2(outPath, playerType,
+                                                 VanillaClampPartsType(playerPartsType),
+                                                 ClampVanillaCamo(vBaseCamo));
+                }
+            }
+        }
         return g_OrigLoadCamoFv2(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -705,6 +830,17 @@ namespace
 #endif
             return origFv2;
         }
+        if (const outfit::CustomHeadEntry* head = ResolveVanillaSuitCustomHead(
+                pt, playerPartsType, static_cast<std::uint8_t>(playerFaceEquipId)))
+        {
+            std::uint64_t code = head->faceFv2Code[pt];
+            if (pt == outfit::kPlayerType_Snake)
+                if (const std::uint64_t st = outfit::GetCustomHeadSnakeStageFv2(
+                        head->name, playerFaceId); st != 0)
+                    code = st;
+            if (code != 0)
+                return WriteFoxPath(outPath, code);
+        }
         return g_OrigLoadSnakeFaceFv2(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                       playerFaceId, playerFaceEquipId);
     }
@@ -781,6 +917,17 @@ namespace
             }
 #endif
             return origFpk;
+        }
+        if (const outfit::CustomHeadEntry* head = ResolveVanillaSuitCustomHead(
+                pt, playerPartsType, static_cast<std::uint8_t>(playerFaceEquipId)))
+        {
+            std::uint64_t code = head->faceFpkCode[pt];
+            if (pt == outfit::kPlayerType_Snake)
+                if (const std::uint64_t st = outfit::GetCustomHeadSnakeStageFpk(
+                        head->name, playerFaceId); st != 0)
+                    code = st;
+            if (code != 0)
+                return WriteFoxPath(outPath, code);
         }
         return g_OrigLoadSnakeFaceFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                       playerFaceId, playerFaceEquipId);
@@ -942,7 +1089,11 @@ namespace
             if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry)
                 return entry->IsHeadEnabled(livePT) ? std::uint8_t{1} : std::uint8_t{0};
         }
-        return g_OrigDoesNeedFaceFova ? g_OrigDoesNeedFaceFova(playerPartsType) : 0;
+        const std::uint8_t orig =
+            g_OrigDoesNeedFaceFova ? g_OrigDoesNeedFaceFova(playerPartsType) : 0;
+        if (orig == 0)
+            return VanillaExtNeedsFaceFova(effective);
+        return orig;
     }
 
     static std::uint8_t __fastcall hkDoesNeedFaceFovaForAvatar(std::uint32_t playerPartsType)
@@ -956,8 +1107,11 @@ namespace
             if (outfit::TryGetOutfitByPartsType(pt, &entry) && entry)
                 return entry->IsHeadEnabled(livePT) ? std::uint8_t{1} : std::uint8_t{0};
         }
-        return g_OrigDoesNeedFaceFovaForAvatar
+        const std::uint8_t orig = g_OrigDoesNeedFaceFovaForAvatar
              ? g_OrigDoesNeedFaceFovaForAvatar(playerPartsType) : 0;
+        if (orig == 0)
+            return VanillaExtNeedsFaceFova(effective);
+        return orig;
     }
 
     static void __fastcall hkSetHandSlotEnabled(void* self_equipController,
@@ -1306,6 +1460,14 @@ namespace
                 return entry->partsType;
             }
 
+            std::uint8_t vpt = 0, vidx = 0;
+            if (outfit::TryGetVanillaExtByVariantSelector(
+                    static_cast<std::uint8_t>(camo), &vpt, &vidx))
+            {
+                outfit::SetActiveVariant(vpt, vidx);
+                return vpt;
+            }
+
             Log("[OutfitRuntimeParts] SupplyCbox camo->partsType: custom camo "
                 "0x%02X UNRESOLVED - leaving vanilla 0 (dangling guard will "
                 "degrade to vanilla suit, no hang)\n", camo);
@@ -1505,28 +1667,112 @@ namespace
             const bool ptIsCustomRange =
                 pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd;
 
-            const bool danglingPT = ptIsCustomRange;
-            const bool danglingSel =
-                sel >= outfit::kCustomSelectorStart && sel <= outfit::kCustomSelectorEnd;
-            if (danglingPT || danglingSel)
+            std::uint8_t vextPartsType = 0;
+            std::uint8_t vextVariantIdx = 0;
+            if (!ptIsCustomRange
+                && outfit::TryGetVanillaExtByVariantSelector(
+                       sel, &vextPartsType, &vextVariantIdx)
+                && (pt == vextPartsType
+                    || (pt == 0
+                        && outfit::GetActiveVariant(vextPartsType) != 0)))
             {
-                const std::uint8_t healPartsType =
-                    (!danglingPT && pt != 0)
-                        ? pt : kBionicArmVanillaPartsTypeSubstitute;
-                Log("[OutfitRuntimeParts] BRICK-GUARD: unresolved custom suit "
-                    "partsType=0x%02X selector=0x%02X (pt=%u) - healing to "
-                    "vanilla partsType=0x%02X / camo=0 / faceEquip=0x00 to "
-                    "prevent infinite load\n",
-                    static_cast<unsigned>(pt), static_cast<unsigned>(sel),
-                    static_cast<unsigned>(info->playerType),
-                    static_cast<unsigned>(healPartsType));
-                info->playerPartsType = healPartsType;
-                info->playerCamoType  = 0;
-                info->playerFaceEquipId  = 0;
-                info->playerFaceEquipUnk =
-                    static_cast<std::uint8_t>(info->playerFaceEquipUnk & 0xF8);
-                if (isRealPlayerSlot)
-                    outfit::WriteLivePlayerOutfit(healPartsType, 0, info->playerType);
+                const outfit::VanillaSuitVariantAsset* vextVar =
+                    outfit::VanillaExtGetVariant(
+                        vextPartsType,
+                        static_cast<std::uint8_t>(info->playerType & 0xFF),
+                        vextVariantIdx);
+                const std::uint64_t vp = vextVar ? vextVar->partsPathCode64 : 0;
+                const std::uint64_t vf = vextVar ? vextVar->fpkPathCode64 : 0;
+                const bool vpInvalid = vp && (vp >> 51) == 0;
+                const bool vfInvalid = vf && (vf >> 51) == 0;
+                const bool vpPresent =
+                    vp && !vpInvalid && fox::detail::PathExistsByCode(vp);
+                const bool vfPresent =
+                    vf && !vfInvalid && fox::detail::PathExistsByCode(vf);
+                const bool anyPresent = vpPresent || vfPresent;
+                if (anyPresent)
+                    g_AssetCheckTrusted.store(true, std::memory_order_relaxed);
+                const bool missing = (vp && !vpPresent) || (vf && !vfPresent);
+                const bool structurallyInvalid = vpInvalid || vfInvalid;
+                const bool assetsBad =
+                    !vextVar || (missing && (anyPresent || structurallyInvalid));
+                const std::uint64_t vcf = vextVar ? vextVar->camoFv2 : 0;
+                const std::uint64_t vcp = vextVar ? vextVar->camoFpk : 0;
+                const int vcfState = (vcf <= outfit::kSubAssetUseVanilla) ? 2
+                    : (fox::detail::PathExistsByCode(vcf) ? 1 : 0);
+                const int vcpState = (vcp <= outfit::kSubAssetUseVanilla) ? 2
+                    : (fox::detail::PathExistsByCode(vcp) ? 1 : 0);
+                LogDebug("[OutfitRuntimeParts:vextdiag] pt=%u idx=%u vextVar=%d "
+                         "vp=0x%016llX vf=0x%016llX vpPresent=%d vfPresent=%d "
+                         "camoFv2=0x%016llX(%d) camoFpk=0x%016llX(%d) assetsBad=%d\n",
+                         static_cast<unsigned>(info->playerType & 0xFF),
+                         static_cast<unsigned>(vextVariantIdx),
+                         vextVar ? 1 : 0,
+                         static_cast<unsigned long long>(vp),
+                         static_cast<unsigned long long>(vf),
+                         vpPresent ? 1 : 0, vfPresent ? 1 : 0,
+                         static_cast<unsigned long long>(vcf), vcfState,
+                         static_cast<unsigned long long>(vcp), vcpState,
+                         assetsBad ? 1 : 0);
+                if (assetsBad)
+                {
+                    const std::uint8_t srcCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vextPartsType,
+                                                               vextVariantIdx);
+                    info->playerPartsType = vextPartsType;
+                    info->playerCamoType  =
+                        (srcCamo != 0xFF) ? srcCamo : std::uint8_t{0};
+                    Log("[OutfitRuntimeParts] BRICK-GUARD: vext variant "
+                        "partsType=0x%02X variantIdx=%u missing/invalid asset - "
+                        "healing to source camo 0x%02X (vanilla base) to prevent "
+                        "infinite load\n",
+                        static_cast<unsigned>(vextPartsType),
+                        static_cast<unsigned>(vextVariantIdx),
+                        static_cast<unsigned>(info->playerCamoType));
+                    if (isRealPlayerSlot)
+                        outfit::WriteLivePlayerOutfit(vextPartsType,
+                                                      info->playerCamoType,
+                                                      info->playerType);
+                }
+                else
+                {
+                    outfit::SetActiveVariant(vextPartsType, vextVariantIdx);
+                    info->playerPartsType = vextPartsType;
+                    const std::uint8_t serveCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vextPartsType,
+                                                               vextVariantIdx);
+                    if (serveCamo != 0xFF)
+                        info->playerCamoType = serveCamo;
+                    if (isRealPlayerSlot)
+                        outfit::WriteLivePlayerOutfit(vextPartsType, sel,
+                                                      info->playerType);
+                }
+            }
+            else
+            {
+                const bool danglingPT = ptIsCustomRange;
+                const bool danglingSel =
+                    sel >= outfit::kCustomSelectorStart && sel <= outfit::kCustomSelectorEnd;
+                if (danglingPT || danglingSel)
+                {
+                    const std::uint8_t healPartsType =
+                        (!danglingPT && pt != 0)
+                            ? pt : kBionicArmVanillaPartsTypeSubstitute;
+                    Log("[OutfitRuntimeParts] BRICK-GUARD: unresolved custom suit "
+                        "partsType=0x%02X selector=0x%02X (pt=%u) - healing to "
+                        "vanilla partsType=0x%02X / camo=0 / faceEquip=0x00 to "
+                        "prevent infinite load\n",
+                        static_cast<unsigned>(pt), static_cast<unsigned>(sel),
+                        static_cast<unsigned>(info->playerType),
+                        static_cast<unsigned>(healPartsType));
+                    info->playerPartsType = healPartsType;
+                    info->playerCamoType  = 0;
+                    info->playerFaceEquipId  = 0;
+                    info->playerFaceEquipUnk =
+                        static_cast<std::uint8_t>(info->playerFaceEquipUnk & 0xF8);
+                    if (isRealPlayerSlot)
+                        outfit::WriteLivePlayerOutfit(healPartsType, 0, info->playerType);
+                }
             }
         }
 
@@ -1695,6 +1941,15 @@ namespace
 
 namespace outfit
 {
+    std::uint8_t ResolveVanillaPartsTypeForCamo(std::uint8_t camoType)
+    {
+        if (!g_OrigGetPartsTypeAtCamoType) return 0xFF;
+        if (camoType > kVanillaCamoTypeMax) return 0xFF;
+        const std::uint32_t pt = g_OrigGetPartsTypeAtCamoType(nullptr, camoType);
+        if (pt >= kCustomPartsTypeStart) return 0xFF;
+        return static_cast<std::uint8_t>(pt);
+    }
+
     static bool FacialBindingDereferenceable(void* self) noexcept
     {
         __try

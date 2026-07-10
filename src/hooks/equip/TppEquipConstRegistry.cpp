@@ -8,6 +8,8 @@
 #include "log.h"
 #include "V_FrameWorkState.h"
 #include "LuaApi.h"
+#include "GunBasicInject.h"
+#include "EquipPartParams.h"
 
 namespace
 {
@@ -42,6 +44,12 @@ namespace
     };
 
     static constexpr std::int32_t kSpaceEqp            = 0;
+    static constexpr std::int32_t kSpaceWp             = 10;
+    static constexpr std::int32_t kSpaceMo             = 11;
+    static constexpr std::int32_t kSpaceAm             = 13;
+    static constexpr std::int32_t kSpaceSt             = 14;
+    static constexpr std::int32_t kSpaceRc             = 15;
+    static constexpr std::int32_t kSpaceSk             = 17;
     static constexpr std::int32_t kDefaultConstantBase = 0x4000;
     static bool IsValidConstantName(const char* name)
     {
@@ -98,6 +106,84 @@ bool TppEquipConst_Declare(
         if (!V_FrameWorkState::ResolveOrCreateEquipId(name, 0, value))
         {
             Log("[TppEquipConst] ERROR: no free native equip slot for '%s'.\n", name);
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceWp)
+    {
+        const int weaponId = GunBasic_AllocateWeaponIdForName(name);
+        if (weaponId > 0)
+        {
+            value = weaponId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceAm)
+    {
+        const int ammoId = EquipParam_AllocateMagazineSlotForName(name);
+        if (ammoId > 0)
+        {
+            value = ammoId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceSk)
+    {
+        const int stockId = EquipParam_AllocateStockSlotForName(name);
+        if (stockId > 0)
+        {
+            value = stockId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceMo)
+    {
+        const int muzzleId = EquipParam_AllocateMuzzleSlotForName(name);
+        if (muzzleId > 0)
+        {
+            value = muzzleId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceRc)
+    {
+        const int receiverId = EquipParam_AllocateReceiverSlotForName(name);
+        if (receiverId > 0)
+        {
+            value = receiverId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
+            return false;
+        }
+    }
+    else if (spaceIndex == kSpaceSt)
+    {
+        const int scopeId = EquipParam_AllocateSightSlotForName(name);
+        if (scopeId > 0)
+        {
+            value = scopeId;
+        }
+        else if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                     kSpaceTags[spaceIndex], name, kDefaultConstantBase, value))
+        {
             return false;
         }
     }

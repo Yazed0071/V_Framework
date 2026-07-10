@@ -249,6 +249,8 @@
     <ClInclude Include="src\hooks\equip\TppEquip_RegisterConstant.h" />
     <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
     <ClInclude Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.h" />
+    <ClInclude Include="src\hooks\equip\GunBasicInject.h" />
+    <ClInclude Include="src\hooks\equip\EquipPartParams.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.h" />
     <ClInclude Include="src\lua\V_TppEquipLib.h" />
     <ClInclude Include="src\lua\equip\RegisterConstantEquipId.h" />
@@ -342,6 +344,8 @@
     <ClCompile Include="src\hooks\equip\TppEquip_RegisterConstant.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />
     <ClCompile Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.cpp" />
+    <ClCompile Include="src\hooks\equip\GunBasicInject.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipPartParams.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.cpp" />
     <ClCompile Include="src\lua\V_TppEquipLib.cpp" />
     <ClCompile Include="src\lua\equip\RegisterConstantEquipId.cpp" />

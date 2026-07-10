@@ -3,6 +3,8 @@
 
 #include "LuaApi.h"
 #include "../hooks/equip/TppEquip_ReloadEquipIdTable.h"
+#include "../hooks/equip/GunBasicInject.h"
+#include "../hooks/equip/EquipPartParams.h"
 
 namespace
 {
@@ -35,6 +37,12 @@ namespace
         { "DeclarePenetrateLevels", l_DeclarePenetrateLevels },
         { "DeclareTriggers",        l_DeclareTriggers },
         { "DeclareWeaponPaints",    l_DeclareWeaponPaints },
+        { "SetGunBasic",            l_SetGunBasic },
+        { "SetMagazine",            l_SetMagazine },
+        { "SetStock",               l_SetStock },
+        { "SetMuzzle",              l_SetMuzzle },
+        { "SetReceiver",            l_SetReceiver },
+        { "SetSight",               l_SetSight },
 
         { nullptr, nullptr }
     };

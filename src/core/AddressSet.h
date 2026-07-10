@@ -352,6 +352,19 @@ namespace AddressSetRuntime
         uintptr_t LoadAvatarHeadOptionFpk = 0;
 
         uintptr_t EquipDevelopCtrl_SetEnableDevelop = 0;
+
+        uintptr_t ReloadEquipParameterTables2 = 0;
+
+        uintptr_t GunBasicParameters2Buffer = 0;
+        uintptr_t GunBasicParameters2SlotCount = 0;
+
+        uintptr_t MagazineParameters2Buffer = 0;
+        uintptr_t MagazineParameters2SlotCount = 0;
+
+        uintptr_t EquipParameterTablesImpl_Instance = 0;
+
+        uintptr_t MotionLoaderImpl_ReceiverTypeTable = 0;
+        uintptr_t MotionLoaderImpl_GetReceiverType = 0;
     };
 
     inline GameBuild& GetGameBuild()

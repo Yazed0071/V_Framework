@@ -180,6 +180,60 @@ namespace
         return s;
     }
 
+    struct VextCellSwap
+    {
+        std::uint32_t* cellWord = nullptr;
+        std::uint32_t  saved    = 0;
+    };
+
+    static VextCellSwap SwapInVextSelector(void* self,
+                                           const SelectionSample& s,
+                                           const char* tag)
+    {
+        static_cast<void>(tag);
+        VextCellSwap sw{};
+        if (!self || !s.haveSample) return sw;
+        if (s.selectorCode >= outfit::kCustomSelectorStart) return sw;
+
+        const std::uint8_t sel = outfit::VextLookupCellSelector(
+            s.selectedId, static_cast<std::uint8_t>(s.cellIndex % 15));
+        if (sel < outfit::kCustomSelectorStart
+            || sel > outfit::kCustomSelectorEnd)
+            return sw;
+
+        __try
+        {
+            auto* cell = reinterpret_cast<std::uint32_t*>(
+                reinterpret_cast<std::uint8_t*>(self)
+                + 0xCC40 + s.cellIndex * 12);
+            sw.saved    = *cell;
+            *cell       = (sw.saved & 0xFFFFFF00u)
+                        | static_cast<std::uint32_t>(sel);
+            sw.cellWord = cell;
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:%s] vext selector swap-in: flowIndex=%u "
+                "cell=%zu 0x%08X -> 0x%08X (restored after orig)\n",
+                tag, static_cast<unsigned>(s.selectedId), s.cellIndex,
+                sw.saved, *cell);
+#endif
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            sw.cellWord = nullptr;
+        }
+        return sw;
+    }
+
+    static void RestoreVextSelector(const VextCellSwap& sw)
+    {
+        if (!sw.cellWord) return;
+        __try
+        {
+            *sw.cellWord = sw.saved;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
     static void FixupSupplyCellSelector(void* self, const SelectionSample& s,
                                         const char* tag)
     {
@@ -245,9 +299,11 @@ namespace
 
         const SelectionSample sPrep = ProcessSelectionAndPublish(self, "prep");
         FixupSupplyCellSelector(self, sPrep, "prep");
+        VextCellSwap vswPrep = SwapInVextSelector(self, sPrep, "prep");
         outfit::SetHeadEquipDecideActive(true);
         void* r = g_OrigDecideActMissionPrep(self, out, p3, p4);
         outfit::SetHeadEquipDecideActive(false);
+        RestoreVextSelector(vswPrep);
         return r;
     }
 
@@ -258,11 +314,11 @@ namespace
             return g_OrigDecideActCustomize(self, out, p3, p4);
 
         const SelectionSample s = ProcessSelectionAndPublish(self, "customize");
+        VextCellSwap vswCust = SwapInVextSelector(self, s, "customize");
         outfit::SetHeadEquipDecideActive(true);
         void* r = g_OrigDecideActCustomize(self, out, p3, p4);
         outfit::SetHeadEquipDecideActive(false);
-
-        (void)s;
+        RestoreVextSelector(vswCust);
         return r;
     }
 

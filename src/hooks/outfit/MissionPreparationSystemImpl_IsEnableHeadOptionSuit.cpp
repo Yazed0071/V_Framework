@@ -53,10 +53,13 @@ namespace
                 const std::uint8_t livePT = outfit::ReadLivePartsType();
                 const outfit::OutfitEntry* oe = nullptr;
                 const bool offered =
-                    livePT >= outfit::kCustomPartsTypeStart
-                    && livePT <= outfit::kCustomPartsTypeEnd
-                    && outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
-                    && oe->HasHeadOptionAnyVariant(head->equipId, playerType);
+                    (livePT >= outfit::kCustomPartsTypeStart
+                     && livePT <= outfit::kCustomPartsTypeEnd
+                     && outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
+                     && oe->HasHeadOptionAnyVariant(head->equipId, playerType))
+                    || (livePT < outfit::kCustomPartsTypeStart
+                        && outfit::VanillaExtHasHeadOption(livePT, head->equipId,
+                                                           playerType));
                 if (offered)
                 {
                     const std::uint8_t pt =
@@ -133,12 +136,16 @@ namespace
                                 outfit::ReadLivePartsType();
                             const outfit::OutfitEntry* oe = nullptr;
                             const bool offered =
-                                livePT >= outfit::kCustomPartsTypeStart
-                                && livePT <= outfit::kCustomPartsTypeEnd
-                                && outfit::TryGetOutfitByPartsType(livePT, &oe)
-                                && oe
-                                && oe->HasHeadOptionAnyVariant(
-                                       h->equipId, outfit::ReadLivePlayerType());
+                                (livePT >= outfit::kCustomPartsTypeStart
+                                 && livePT <= outfit::kCustomPartsTypeEnd
+                                 && outfit::TryGetOutfitByPartsType(livePT, &oe)
+                                 && oe
+                                 && oe->HasHeadOptionAnyVariant(
+                                        h->equipId, outfit::ReadLivePlayerType()))
+                                || (livePT < outfit::kCustomPartsTypeStart
+                                    && outfit::VanillaExtHasHeadOption(
+                                           livePT, h->equipId,
+                                           outfit::ReadLivePlayerType()));
                             if (!offered)
                                 return kNoHeadEquipModelType;
                         }
@@ -320,6 +327,10 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
+        if (pt < outfit::kCustomPartsTypeStart
+            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            return 1;
+
         return g_OrigIsEnableHeadOptionSuit(self, param2);
     }
 
@@ -343,6 +354,10 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
+        if (pt < outfit::kCustomPartsTypeStart
+            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            return 1;
+
         return g_OrigIsEnableHead(self);
     }
 
@@ -384,6 +399,10 @@ namespace
                            livePT, outfit::GetActiveVariant(pt)) ? 1 : 0;
             }
         }
+        if (pt < outfit::kCustomPartsTypeStart
+            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            return 1;
+
         return g_OrigIsEnableCurrentSuit(self);
     }
 }

@@ -24,6 +24,8 @@ namespace
 
         { "RegisterOutfit",                           l_RegisterOutfit },
         { "RegisterHeadOption",                       l_RegisterHeadOption },
+        { "ExtendVanillaOutfit",                      l_ExtendVanillaOutfit },
+        { "_ForceVanillaVariant",                     l_ForceVanillaVariant },
 
         { nullptr,          nullptr }
     };

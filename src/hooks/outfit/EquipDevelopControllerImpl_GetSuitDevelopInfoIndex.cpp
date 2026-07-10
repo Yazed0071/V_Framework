@@ -195,6 +195,27 @@ namespace
         if (suit && suit->flowIndex != 0 && suit->flowIndex < kEdcRowCapacity)
             return suit->flowIndex;
 
+        if (selector >= outfit::kCustomSelectorStart &&
+            selector <= outfit::kCustomSelectorEnd &&
+            partsType < outfit::kCustomPartsTypeStart &&
+            g_OrigEdcGetSuitIndex)
+        {
+            std::uint8_t vpt  = 0;
+            std::uint8_t vidx = 0;
+            if (outfit::TryGetVanillaExtByVariantSelector(selector, &vpt, &vidx))
+            {
+                const std::uint8_t baseCamo =
+                    outfit::VanillaExtGetVariantSourceCamo(vpt, vidx);
+                if (baseCamo != 0xFF)
+                {
+                    const std::uint32_t baseRet =
+                        g_OrigEdcGetSuitIndex(self, baseCamo, level);
+                    if (baseRet != kDevelopIndexSentinel)
+                        return baseRet;
+                }
+            }
+        }
+
         return ret;
     }
 
@@ -246,10 +267,13 @@ namespace
                 const std::uint8_t livePly = outfit::ReadLivePlayerType();
                 const outfit::OutfitEntry* oe = nullptr;
                 resolve =
-                    livePT >= outfit::kCustomPartsTypeStart
-                    && livePT <= outfit::kCustomPartsTypeEnd
-                    && outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
-                    && oe->HasHeadOptionAnyVariant(head->equipId, livePly);
+                    (livePT >= outfit::kCustomPartsTypeStart
+                     && livePT <= outfit::kCustomPartsTypeEnd
+                     && outfit::TryGetOutfitByPartsType(livePT, &oe) && oe
+                     && oe->HasHeadOptionAnyVariant(head->equipId, livePly))
+                    || (livePT < outfit::kCustomPartsTypeStart
+                        && outfit::VanillaExtHasHeadOption(
+                               livePT, head->equipId, livePly));
             }
             if (resolve)
                 out = head->equipId;
@@ -323,6 +347,26 @@ namespace
         const std::uint32_t r = g_OrigEdcGetSuitCamoType
             ? g_OrigEdcGetSuitCamoType(self, devIndex)
             : 0xFFu;
+
+        {
+            std::uint8_t pt = 0, sel = 0;
+            if (outfit::GetCurrentEquippedSuitBytes(&pt, &sel)
+                && pt < outfit::kCustomPartsTypeStart
+                && sel >= outfit::kCustomSelectorStart
+                && sel <= outfit::kCustomSelectorEnd)
+            {
+                std::uint8_t vpt = 0, vidx = 0;
+                if (outfit::TryGetVanillaExtByVariantSelector(sel, &vpt, &vidx))
+                {
+                    const std::uint8_t baseCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vpt, vidx);
+                    if (baseCamo != 0xFF
+                        && static_cast<std::uint32_t>(baseCamo) == r)
+                        return sel;
+                }
+            }
+        }
+
         if (r != 0xFFu)
             return r;
 

@@ -304,8 +304,16 @@ static const char* const kAddrFieldNames[] = {
     "LoadAvatarHeadOptionFv2",
     "LoadAvatarHeadOptionFpk",
     "EquipDevelopCtrl_SetEnableDevelop",
+    "ReloadEquipParameterTables2",
+    "GunBasicParameters2Buffer",
+    "GunBasicParameters2SlotCount",
+    "MagazineParameters2Buffer",
+    "MagazineParameters2SlotCount",
+    "EquipParameterTablesImpl_Instance",
+    "MotionLoaderImpl_ReceiverTypeTable",
+    "MotionLoaderImpl_GetReceiverType",
 };
-static const int kAddrFieldCount = 292;
+static const int kAddrFieldCount = 300;
 
 namespace AddressSetRuntime
 {
@@ -644,6 +652,14 @@ namespace AddressSetRuntime
             0x140AE73D0ull, // LoadAvatarHeadOptionFv2
             0x140AE7440ull, // LoadAvatarHeadOptionFpk
             0x140F6E5D0ull, // EquipDevelopCtrl_SetEnableDevelop
+            0x140A41AE0ull, // ReloadEquipParameterTables2
+            0x142C25C50ull, // GunBasicParameters2Buffer
+            514ull,         // GunBasicParameters2SlotCount (0x1818 / 12)
+            0x142C27AE0ull, // MagazineParameters2Buffer
+            191ull,         // MagazineParameters2SlotCount (0x5F8 / 8)
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance (magazine ptr at +0x20)
+            0x142349A90ull, // MotionLoaderImpl_ReceiverTypeTable (240 bytes; write custom receiver's type entry, vanilla-style)
+            0x140DB6CB0ull, // MotionLoaderImpl_GetReceiverType (EN154; hook -> extended 256-slot type table)
         };
 
         return value;
@@ -945,6 +961,14 @@ namespace AddressSetRuntime
             0x140AE7350ull, // LoadAvatarHeadOptionFv2
             0x140AE73C0ull, // LoadAvatarHeadOptionFpk
             0x140F6E630ull, // EquipDevelopCtrl_SetEnableDevelop
+            0x140A41920ull, // ReloadEquipParameterTables2
+            0x0ull,         // GunBasicParameters2Buffer (JP154 TBD)
+            0ull,           // GunBasicParameters2SlotCount (JP154 TBD)
+            0x0ull,         // MagazineParameters2Buffer (JP154 TBD)
+            0ull,           // MagazineParameters2SlotCount (JP154 TBD)
+            0x0ull,         // EquipParameterTablesImpl_Instance (JP154 TBD)
+            0x142349B40ull, // MotionLoaderImpl_ReceiverTypeTable (JP154; 240 bytes)
+            0x140DB6C70ull, // MotionLoaderImpl_GetReceiverType (JP154)
         };
         return value;
     }

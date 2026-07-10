@@ -87,6 +87,52 @@ namespace
         t_AddedFlowIxBits.fill(0);
     }
 
+    struct VextCellInfo
+    {
+        std::uint64_t labelHash = 0;
+        std::uint8_t  selector  = 0;
+        bool          used      = false;
+    };
+    static VextCellInfo g_VextCellMap[1024][15] = {};
+
+    static void StoreVextCellLabel(std::uint16_t flowIndex, std::uint8_t cellPos,
+                                   std::uint8_t selector, std::uint64_t labelHash)
+    {
+        if (flowIndex >= 1024 || cellPos >= 15) return;
+        g_VextCellMap[flowIndex][cellPos].labelHash = labelHash;
+        g_VextCellMap[flowIndex][cellPos].selector  = selector;
+        g_VextCellMap[flowIndex][cellPos].used       = true;
+    }
+
+    static std::uint64_t LookupVextCellLabel(std::uint16_t flowIndex,
+                                             std::uint8_t cellPos)
+    {
+        if (flowIndex >= 1024 || cellPos >= 15) return 0;
+        const VextCellInfo& e = g_VextCellMap[flowIndex][cellPos];
+        return e.used ? e.labelHash : 0;
+    }
+
+    static void SeedVextSwatchFlow(std::uint8_t selector, std::uint8_t sourceCamo)
+    {
+        if (selector < outfit::kCustomSelectorStart) return;
+        using GetQuark_t = void* (__fastcall*)();
+        auto getQuark = reinterpret_cast<GetQuark_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        if (!getQuark) return;
+        __try
+        {
+            auto* quark = static_cast<std::uint8_t*>(getQuark());
+            if (!quark) return;
+            auto* app = *reinterpret_cast<std::uint8_t**>(quark + 0x98);
+            if (!app) return;
+            auto* tbl = *reinterpret_cast<std::uint8_t**>(app + 0x10);
+            if (!tbl) return;
+            auto* camoToFlow = reinterpret_cast<std::int16_t*>(tbl + 0x19ac);
+            camoToFlow[selector] = camoToFlow[sourceCamo];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
 
     static constexpr int    kMaxInstallAttempts = 16;
 
@@ -355,6 +401,10 @@ namespace
                 }
 #endif
             }
+            else
+            {
+                variantHash = LookupVextCellLabel(selectedId, variantIdx);
+            }
             if (variantHash == 0) return;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -440,6 +490,7 @@ namespace
         const outfit::OutfitEntry* entry = nullptr;
         const std::uint16_t*       headIds = nullptr;
         std::uint8_t               headCount = 0;
+        bool                       isVanillaExt = false;
 
         if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
         {
@@ -447,6 +498,12 @@ namespace
                 return false;
             const std::uint8_t variant = outfit::GetActiveVariant(pt);
             entry->GetHeadOptionsForVariant(livePT, variant, &headIds, &headCount);
+        }
+        else if (pt < outfit::kCustomPartsTypeStart)
+        {
+            if (!outfit::VanillaExtGetHeadOptions(pt, livePT, &headIds, &headCount))
+                return false;
+            isVanillaExt = true;
         }
         else
         {
@@ -472,7 +529,8 @@ namespace
                 *reinterpret_cast<std::uint32_t*>(base + 0x442c);
 
             std::uint32_t keep = origCount;
-            if (origCount >= 1
+            if (!isVanillaExt
+                && origCount >= 1
                 && *reinterpret_cast<std::uint16_t*>(base + 0x4440)
                        == outfit::kHeadOption_None)
             {
@@ -760,6 +818,124 @@ namespace
         if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
         t_InsideSetupPrefab = prev;
 
+        if (!prev && g_VariantInjectEnabled && !g_HeadBadgeBuildActive)
+        {
+            __try
+            {
+                auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
+                const std::uint32_t rowCount =
+                    *reinterpret_cast<std::uint32_t*>(base + 0x442c);
+                if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
+                        == 0xb8a0bf169f98ull
+                    && rowCount != 0 && rowCount <= 0x40)
+                {
+                    const std::uint8_t livePT = outfit::ReadLivePlayerType();
+                    for (std::uint32_t row = 0; row < rowCount; ++row)
+                    {
+                        const std::size_t row0CellByte =
+                            0xCC40 + (static_cast<std::size_t>(row) * 15) * 12;
+                        const std::uint32_t colorCode0 =
+                            *reinterpret_cast<std::uint32_t*>(base + row0CellByte);
+                        const std::uint8_t rawCamo =
+                            static_cast<std::uint8_t>(colorCode0 & 0xFF);
+                        std::uint8_t rowCamo = rawCamo;
+                        if (rowCamo >= outfit::kCustomSelectorStart)
+                        {
+                            std::uint8_t rvpt = 0, rvidx = 0;
+                            if (outfit::TryGetVanillaExtByVariantSelector(
+                                    rowCamo, &rvpt, &rvidx))
+                                rowCamo = outfit::VanillaExtGetVariantSourceCamo(
+                                              rvpt, rvidx);
+                        }
+                        const std::uint8_t vpt =
+                            outfit::ResolveVanillaPartsTypeForCamo(rowCamo);
+                        if (vpt == 0xFF) continue;
+                        const std::uint8_t slotCount =
+                            outfit::VanillaExtVariantSlotCount(vpt);
+                        if (slotCount == 0) continue;
+                        const std::uint8_t nativeCount = *(base + 0xBC40 + row);
+                        if (nativeCount == 0 || nativeCount >= 15) continue;
+
+                        const std::uint16_t flowIndex =
+                            *reinterpret_cast<std::uint16_t*>(
+                                base + 0x4440
+                                + (static_cast<std::size_t>(row) * 15) * 2);
+
+                        if (rawCamo >= outfit::kCustomSelectorStart)
+                            *reinterpret_cast<std::uint32_t*>(base + row0CellByte) =
+                                (colorCode0 & 0xFFFFFF00u) | rowCamo;
+
+                        if (flowIndex < 1024)
+                            for (std::uint8_t p = 0; p < 15; ++p)
+                                g_VextCellMap[flowIndex][p] = VextCellInfo{};
+
+                        const std::uint8_t activeVar = outfit::GetActiveVariant(vpt);
+                        std::uint8_t appended   = nativeCount;
+                        int          activeCell = -1;
+                        for (std::uint8_t v = 1;
+                             v <= slotCount && appended < 15; ++v)
+                        {
+                            if (outfit::VanillaExtGetVariantSourceCamo(vpt, v)
+                                    != rowCamo)
+                                continue;
+                            const outfit::VanillaSuitVariantAsset* vasset =
+                                outfit::VanillaExtGetVariant(vpt, livePT, v);
+                            if (!vasset) continue;
+                            const std::uint8_t sel =
+                                outfit::VanillaExtGetVariantSelector(vpt, v);
+                            if (sel == 0) continue;
+
+                            const std::size_t cellIndex =
+                                static_cast<std::size_t>(row) * 15 + appended;
+                            *reinterpret_cast<std::uint16_t*>(
+                                base + 0x4440 + cellIndex * 2) = flowIndex;
+
+                            std::uint8_t* cell = base + 0xCC40 + cellIndex * 12;
+                            *reinterpret_cast<std::uint32_t*>(cell + 0) = rowCamo;
+                            *reinterpret_cast<std::uint32_t*>(cell + 4) = 0;
+                            *(cell + 8) = 0;
+
+                            *(base + 0x548 + cellIndex) = 1;
+                            const bool activeThis = (activeVar == v);
+                            *(base + 0x425a4 + cellIndex) = activeThis ? 1 : 0;
+                            if (activeThis) activeCell = static_cast<int>(appended);
+                            StoreVextCellLabel(flowIndex,
+                                               static_cast<std::uint8_t>(appended),
+                                               sel, vasset->displayNameHash);
+                            SeedVextSwatchFlow(sel, rowCamo);
+                            ++appended;
+                        }
+
+                        if (appended == nativeCount) continue;
+
+                        *(base + 0xBC40 + row) = appended;
+                        if (activeVar != 0)
+                            for (std::uint8_t nc = 0; nc < nativeCount; ++nc)
+                                *(base + 0x425a4
+                                  + static_cast<std::size_t>(row) * 15 + nc) = 0;
+                        if (activeCell >= 0)
+                            *(base + 0xC040 + row) =
+                                static_cast<std::uint8_t>(activeCell);
+
+                        LogDebug("[OutfitListInject:vext] post-setup row=%u "
+                                 "flowIndex=%u rowCamo=0x%02X vpt=0x%02X "
+                                 "nativeCount=%u -> total=%u activeVar=%u\n",
+                                 static_cast<unsigned>(row),
+                                 static_cast<unsigned>(flowIndex),
+                                 static_cast<unsigned>(rowCamo),
+                                 static_cast<unsigned>(vpt),
+                                 static_cast<unsigned>(nativeCount),
+                                 static_cast<unsigned>(appended),
+                                 static_cast<unsigned>(activeVar));
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                Log("[OutfitListInject:PostSetupPrefab] SEH during vext pass\n");
+            }
+        }
+
         bool headRowsChanged = false;
         if (!prev && g_HeadOptionInjectEnabled)
         {
@@ -939,6 +1115,14 @@ namespace outfit
     void SetHeadEquipDecideActive(bool active)
     {
         g_HeadEquipDecideActive = active;
+    }
+
+    std::uint8_t VextLookupCellSelector(std::uint16_t flowIndex,
+                                        std::uint8_t cellPos)
+    {
+        if (flowIndex >= 1024 || cellPos >= 15) return 0;
+        const VextCellInfo& e = g_VextCellMap[flowIndex][cellPos];
+        return e.used ? e.selector : 0;
     }
 
 
