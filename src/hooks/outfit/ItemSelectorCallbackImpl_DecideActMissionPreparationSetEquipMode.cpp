@@ -99,7 +99,8 @@ namespace
     }
 
 
-    static std::uint16_t MatchSelectionToOutfit(const SelectionSample& s)
+    static std::uint16_t MatchSelectionToOutfit(const SelectionSample& s,
+                                                bool activateVariant)
     {
 
 
@@ -111,8 +112,13 @@ namespace
             if (outfit::TryGetOutfitByVariantSelector(
                     s.selectorCode, &entry, &variantIdx) && entry)
             {
-
-                outfit::SetActiveVariant(entry->partsType, variantIdx);
+                if (activateVariant)
+                {
+                    outfit::ClearCrateDeliveredVariant();
+                    outfit::ConsumePendingSupplyDropVariantIdx();
+                    outfit::ConsumePendingSupplyDropDevelopId();
+                    outfit::SetActiveVariant(entry->partsType, variantIdx);
+                }
                 return entry->developId;
             }
         }
@@ -121,7 +127,13 @@ namespace
         const outfit::OutfitEntry* byFlow = nullptr;
         if (outfit::TryGetOutfitByFlowIndex(s.selectedId, &byFlow) && byFlow)
         {
-            outfit::SetActiveVariant(byFlow->partsType, 0);
+            if (activateVariant)
+            {
+                outfit::ClearCrateDeliveredVariant();
+                outfit::ConsumePendingSupplyDropVariantIdx();
+                outfit::ConsumePendingSupplyDropDevelopId();
+                outfit::SetActiveVariant(byFlow->partsType, 0);
+            }
             return byFlow->developId;
         }
 
@@ -129,7 +141,13 @@ namespace
         const outfit::OutfitEntry* byDev = nullptr;
         if (outfit::TryGetOutfitByDevelopId(s.selectedId, &byDev) && byDev)
         {
-            outfit::SetActiveVariant(byDev->partsType, 0);
+            if (activateVariant)
+            {
+                outfit::ClearCrateDeliveredVariant();
+                outfit::ConsumePendingSupplyDropVariantIdx();
+                outfit::ConsumePendingSupplyDropDevelopId();
+                outfit::SetActiveVariant(byDev->partsType, 0);
+            }
             return byDev->developId;
         }
 
@@ -140,7 +158,8 @@ namespace
     constexpr std::uint32_t kEquipKindHeadOption = 0x201;
 
 
-    static SelectionSample ProcessSelectionAndPublish(void* self, const char* tag)
+    static SelectionSample ProcessSelectionAndPublish(void* self, const char* tag,
+                                                      bool activateVariant)
     {
         SelectionSample s{};
         const bool haveSample = TryReadSelection(self, s) && s.haveSample;
@@ -151,7 +170,10 @@ namespace
                                    || s.equipKind == kEquipKindSupplyDropSuit);
             const bool isHeadOption = (s.equipKind == kEquipKindHeadOption);
             const std::uint16_t devId =
-                isSuitClick ? MatchSelectionToOutfit(s) : 0;
+                isSuitClick ? MatchSelectionToOutfit(
+                                  s, activateVariant
+                                     && s.equipKind == kEquipKindMissionPrepSuit)
+                            : 0;
 
             if (devId != 0)
                 outfit::SetPendingOutfitDevelopId(devId);
@@ -297,9 +319,63 @@ namespace
         if (MissionCodeGuard::ShouldBypassHooks())
             return g_OrigDecideActMissionPrep(self, out, p3, p4);
 
-        const SelectionSample sPrep = ProcessSelectionAndPublish(self, "prep");
+        const SelectionSample sPrep = ProcessSelectionAndPublish(self, "prep", true);
         FixupSupplyCellSelector(self, sPrep, "prep");
         VextCellSwap vswPrep = SwapInVextSelector(self, sPrep, "prep");
+        if (!vswPrep.cellWord && sPrep.haveSample
+            && sPrep.equipKind == kEquipKindMissionPrepSuit)
+        {
+            outfit::ResetAllVanillaExtVariants();
+#ifdef _DEBUG
+            Log("[OutfitItemSelector:prep] non-vext suit pick "
+                "(flowIndex=%u selector=0x%02X) - vext variants reset "
+                "(prep applies bypass SetSuit)\n",
+                static_cast<unsigned>(sPrep.selectedId),
+                static_cast<unsigned>(sPrep.selectorCode));
+#endif
+        }
+        if (sPrep.haveSample
+            && (sPrep.equipKind == kEquipKindSupplyDropSuit
+                || sPrep.equipKind == 0xFF))
+        {
+            const outfit::OutfitEntry* entry = nullptr;
+            std::uint8_t variantIdx = 0;
+            bool matched = false;
+            if (sPrep.selectorCode >= outfit::kCustomSelectorStart
+                && sPrep.selectorCode <= outfit::kCustomSelectorEnd
+                && outfit::TryGetOutfitByVariantSelector(
+                       sPrep.selectorCode, &entry, &variantIdx)
+                && entry)
+            {
+                matched = true;
+            }
+            else if (outfit::TryGetOutfitByFlowIndex(sPrep.selectedId, &entry)
+                     && entry)
+            {
+                matched = true;
+                variantIdx = entry->defaultVariant;
+            }
+            else if (outfit::TryGetOutfitByDevelopId(sPrep.selectedId, &entry)
+                     && entry)
+            {
+                matched = true;
+                variantIdx = entry->defaultVariant;
+            }
+            if (matched && entry)
+            {
+                outfit::SetPendingSupplyDropDevelopId(entry->developId);
+                outfit::SetPendingSupplyDropVariantIdx(variantIdx);
+                outfit::SetPendingOutfitDevelopId(entry->developId);
+#ifdef _DEBUG
+                Log("[OutfitItemSelector:prep] supply ORDER of custom outfit "
+                    "developId=%u variantIdx=%u - stashed for crate pickup "
+                    "(no order-time activation; the crate delivers this "
+                    "variant)\n",
+                    static_cast<unsigned>(entry->developId),
+                    static_cast<unsigned>(variantIdx));
+#endif
+            }
+        }
         outfit::SetHeadEquipDecideActive(true);
         void* r = g_OrigDecideActMissionPrep(self, out, p3, p4);
         outfit::SetHeadEquipDecideActive(false);
@@ -313,7 +389,7 @@ namespace
         if (MissionCodeGuard::ShouldBypassHooks())
             return g_OrigDecideActCustomize(self, out, p3, p4);
 
-        const SelectionSample s = ProcessSelectionAndPublish(self, "customize");
+        const SelectionSample s = ProcessSelectionAndPublish(self, "customize", true);
         VextCellSwap vswCust = SwapInVextSelector(self, s, "customize");
         outfit::SetHeadEquipDecideActive(true);
         void* r = g_OrigDecideActCustomize(self, out, p3, p4);
@@ -328,7 +404,7 @@ namespace
         if (MissionCodeGuard::ShouldBypassHooks())
             return g_OrigDecideActSupplyDrop(self, out, p3, p4);
 
-        const SelectionSample sSup = ProcessSelectionAndPublish(self, "supply");
+        const SelectionSample sSup = ProcessSelectionAndPublish(self, "supply", false);
         FixupSupplyCellSelector(self, sSup, "supply");
 
 
@@ -365,13 +441,13 @@ namespace
                              s.selectedId, &entry) && entry)
                 {
                     matched = true;
-                    variantIdx = 0;
+                    variantIdx = entry->defaultVariant;
                 }
                 else if (outfit::TryGetOutfitByDevelopId(
                              s.selectedId, &entry) && entry)
                 {
                     matched = true;
-                    variantIdx = 0;
+                    variantIdx = entry->defaultVariant;
                 }
 
                 if (matched && entry)
@@ -463,10 +539,7 @@ namespace
             return;
         }
 
-        const bool isUnregisteredCustom =
-            !isCustom && flowIndex >= 922 && flowIndex <= 1023;
-
-        if ((isCustom || isUnregisteredCustom) && self)
+        if (isCustom && self)
         {
             __try
             {
@@ -482,21 +555,17 @@ namespace
                 *reqType   = 3;
                 *flags     = 0x1u | 0x80u;
                 payload[0] = 0;
-                payload[1] = isCustom
-                    ? entry->variantSelectorCodes[entry->defaultVariant]
-                    : std::uint8_t(0x4F);
+                payload[1] = entry->variantSelectorCodes[entry->defaultVariant];
                 payload[2] = 0;
                 payload[3] = 0;
 
 #ifdef _DEBUG
                 Log("[OutfitItemSelector:devmenu] post-orig SupplyCboxDropRequest "
                     "repair: type 0x%X->3 flags 0x%X->0x81 camo 0x%02X->0x%02X "
-                    "(flowIndex=%u, %s) - coherent suit crate; pickup resolves "
-                    "identity from the camo byte\n",
+                    "(flowIndex=%u, registered custom outfit) - coherent suit "
+                    "crate; pickup resolves identity from the camo byte\n",
                     prevType, prevFlags, prevCamo, payload[1],
-                    static_cast<unsigned>(flowIndex),
-                    isCustom ? "registered custom outfit"
-                             : "UNREGISTERED custom row - vanilla degrade");
+                    static_cast<unsigned>(flowIndex));
 #endif
             }
             __except (EXCEPTION_EXECUTE_HANDLER)

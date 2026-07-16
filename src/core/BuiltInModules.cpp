@@ -189,7 +189,6 @@ void Uninstall_SupportAttackCrashGuard();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 
-// Custom-outfit prep-summary feed (EN-15.4). Index resolvers + developed-bit.
 namespace outfit
 {
     bool Install_OutfitEquippedState_Hooks();
@@ -216,6 +215,14 @@ namespace EquipDevelopAdd
     bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
 }
 void EquipDevelop_InstallDevelopSyncHooks();
+namespace equip
+{
+    bool Install_MenuDevelopGridExpand();
+    bool Install_BulletLockOn_Hooks();
+    void Uninstall_BulletLockOn_Hooks();
+    bool Install_BulletMultiShot_Hooks();
+    void Uninstall_BulletMultiShot_Hooks();
+}
 bool Install_TppEquip_RegisterConstant_Hook();
 bool Uninstall_TppEquip_RegisterConstant_Hook();
 bool Install_TppEquip_ReloadEquipIdTable_Hook();
@@ -224,6 +231,18 @@ bool Install_TppEquip_ReloadEquipParameterTables2_Hook();
 bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
 bool Install_MotionLoader_ReceiverTypeHook();
 void Uninstall_MotionLoader_ReceiverTypeHook();
+bool Install_GetAttackIdGuard();
+void Uninstall_GetAttackIdGuard();
+bool Install_GunInfoGuard();
+void Uninstall_GunInfoGuard();
+bool Install_FireSoundOverride_Hook();
+void Uninstall_FireSoundOverride_Hook();
+bool Install_LoadoutRequestGuard();
+void Uninstall_LoadoutRequestGuard();
+bool Install_SuppressorGauge_Hook();
+void Uninstall_SuppressorGauge_Hook();
+bool Install_DamageParameter_Hook();
+void Uninstall_DamageParameter_Hook();
 
 
 namespace
@@ -1155,6 +1174,7 @@ namespace
             const bool b = EquipDevelopAdd::Install_TppMotherBaseManagement_EquipDevelopHooks();
 
             EquipDevelop_InstallDevelopSyncHooks();
+            equip::Install_MenuDevelopGridExpand();
 
             const bool runtime = outfit::Install_OutfitRuntimeParts_Hooks();
             (void)runtime;
@@ -1248,12 +1268,28 @@ namespace
             UNREFERENCED_PARAMETER(hGame);
             bool ok = Install_TppEquip_ReloadEquipParameterTables2_Hook();
             ok = Install_MotionLoader_ReceiverTypeHook() && ok;
+            ok = Install_GetAttackIdGuard() && ok;
+            ok = Install_GunInfoGuard() && ok;
+            ok = Install_FireSoundOverride_Hook() && ok;
+            ok = Install_LoadoutRequestGuard() && ok;
+            ok = Install_SuppressorGauge_Hook() && ok;
+            ok = Install_DamageParameter_Hook() && ok;
+            ok = equip::Install_BulletLockOn_Hooks() && ok;
+            ok = equip::Install_BulletMultiShot_Hooks() && ok;
             return ok;
         }
         void Uninstall() override
         {
+            equip::Uninstall_BulletMultiShot_Hooks();
+            equip::Uninstall_BulletLockOn_Hooks();
             Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
             Uninstall_MotionLoader_ReceiverTypeHook();
+            Uninstall_GetAttackIdGuard();
+            Uninstall_GunInfoGuard();
+            Uninstall_FireSoundOverride_Hook();
+            Uninstall_LoadoutRequestGuard();
+            Uninstall_SuppressorGauge_Hook();
+            Uninstall_DamageParameter_Hook();
         }
     };
 }

@@ -145,6 +145,15 @@ namespace
     }
 }
 
+int TppEquip_GetSubIdForEquipId(int equipId)
+{
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    for (const auto& r : g_Rows)
+        if (r.equipId == equipId)
+            return r.subId;
+    return 0;
+}
+
 int __cdecl l_AddToEquipIdTable(lua_State* L)
 {
     if (!ResolveLuaApi() || !g_lua_objlen || !g_lua_rawgeti)

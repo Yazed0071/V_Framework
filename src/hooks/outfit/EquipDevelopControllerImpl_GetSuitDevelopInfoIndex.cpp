@@ -5,6 +5,7 @@
 #include "CustomHeadRegistry.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <unordered_set>
@@ -422,6 +423,29 @@ namespace
             : std::uint8_t{0};
     }
 
+    using EdcGetBaseDevelopId_t =
+        std::uint16_t (__fastcall*)(void* self, std::uint16_t idx);
+    static EdcGetBaseDevelopId_t g_OrigEdcGetBaseDevelopId = nullptr;
+    static bool g_InstalledGetBaseDevelopId = false;
+
+
+    static std::uint16_t __fastcall hkEdcGetBaseDevelopId(
+        void* self, std::uint16_t idx)
+    {
+        if (idx >= 0x400)
+        {
+            static std::atomic<int> s_logged{ 0 };
+            if (s_logged.fetch_add(1) < 4)
+                Log("[EquipDevelop] GetBaseDevelopId guarded: caller passed "
+                    "index %u (record array holds 0x400) - returned 0.\n",
+                    static_cast<unsigned>(idx));
+            return 0;
+        }
+        return g_OrigEdcGetBaseDevelopId
+            ? g_OrigEdcGetBaseDevelopId(self, idx)
+            : std::uint16_t{0};
+    }
+
     constexpr DWORD kVisCacheTtlMs = 50;
     constexpr std::size_t kVisCacheSize = 0x10000;
     struct VisCacheEntry
@@ -434,6 +458,7 @@ namespace
 
     static std::uint8_t __fastcall hkIsEquipVisile(void* self, std::uint16_t idx)
     {
+        EquipDevelopAdd::MaybeRotateDevelopWindow(idx);
         outfit::DrainPendingHeads();
         if (!g_CachedEDC && self)
         {
@@ -519,6 +544,15 @@ namespace outfit
                 reinterpret_cast<void**>(&g_OrigEdcIsEquipSuit));
         }
 
+        if (void* tBase = ResolveGameAddress(gAddr.EquipDevCtrl_GetBaseDevelopId);
+            gAddr.EquipDevCtrl_GetBaseDevelopId && tBase)
+        {
+            g_InstalledGetBaseDevelopId = CreateAndEnableHook(
+                tBase,
+                reinterpret_cast<void*>(&hkEdcGetBaseDevelopId),
+                reinterpret_cast<void**>(&g_OrigEdcGetBaseDevelopId));
+        }
+
         return true;
     }
 
@@ -542,7 +576,12 @@ namespace outfit
         if (g_InstalledIsEquipSuit)
             DisableAndRemoveHook(
                 ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipSuit));
+        if (g_InstalledGetBaseDevelopId)
+            DisableAndRemoveHook(
+                ResolveGameAddress(gAddr.EquipDevCtrl_GetBaseDevelopId));
 
+        g_OrigEdcGetBaseDevelopId = nullptr;
+        g_InstalledGetBaseDevelopId = false;
         g_OrigEdcGetSuitIndex  = nullptr;
         g_OrigEdcGetFaceIndex  = nullptr;
         g_OrigIsEquipVisile    = nullptr;
@@ -627,5 +666,11 @@ namespace outfit
         if (!controller)
             return;
         ClearDevelopedNow(controller, index);
+    }
+
+    void InvalidateEquipVisibilityCache()
+    {
+        for (std::size_t i = 0; i < kVisCacheSize; ++i)
+            g_VisCache[i].valid = 0;
     }
 }

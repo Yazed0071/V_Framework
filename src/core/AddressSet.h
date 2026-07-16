@@ -242,7 +242,6 @@ namespace AddressSetRuntime
         uintptr_t Barrier_GetItemId        = 0;
         uintptr_t Barrier_EquipItemCallRet = 0;
         uintptr_t Barrier_Updater          = 0;
-        uintptr_t Barrier_Pool             = 0;
         uintptr_t Barrier_IsFobMode        = 0;
         uintptr_t Barrier_LoadGate0        = 0; 
         uintptr_t Barrier_LoadGate1        = 0;
@@ -262,13 +261,11 @@ namespace AddressSetRuntime
         uintptr_t EquipCrossSetEquipItem_Site2 = 0;
         uintptr_t EquipCrossSetEquipItem_Site3 = 0;
 
-        // --- Custom-outfit prep-summary feed (EN-15.4 only; 0 elsewhere) ---
         uintptr_t TppMotherBaseManagement_RegCstDev = 0;
         uintptr_t TppMotherBaseManagement_RegFlwDev = 0;
         uintptr_t EquipDevCtrl_GetSuitDevelopInfoIndex = 0;
         uintptr_t EquipDevCtrl_GetFaceEquipDevelopInfoIndex = 0;
 
-        // --- Custom-outfit EQUIP + RENDER subsystem (EN-15.4; 0 until re-resolved) ---
         uintptr_t AddListSuit = 0;
         uintptr_t CamoufParamInfo_GetCamoufValue = 0;
         uintptr_t CamouflageController_ExecSuitCorrect = 0;
@@ -358,13 +355,40 @@ namespace AddressSetRuntime
         uintptr_t GunBasicParameters2Buffer = 0;
         uintptr_t GunBasicParameters2SlotCount = 0;
 
-        uintptr_t MagazineParameters2Buffer = 0;
-        uintptr_t MagazineParameters2SlotCount = 0;
 
         uintptr_t EquipParameterTablesImpl_Instance = 0;
 
         uintptr_t MotionLoaderImpl_ReceiverTypeTable = 0;
         uintptr_t MotionLoaderImpl_GetReceiverType = 0;
+
+        uintptr_t EquipDevelopControllerImpl_GetSuppressorAmount = 0;
+
+        uintptr_t DamageParameterTable_Instance = 0;
+        uintptr_t DamageParameterTable_ReloadDamageParameter = 0;
+        uintptr_t DamageParameterTable_GetDamageParameter = 0;
+        uintptr_t EquipDevCtrl_GetBaseDevelopId = 0;
+        uintptr_t MenuDevelopGrid_FillGrid = 0;
+        uintptr_t MenuDevelopGrid_CopyGrid = 0;
+        uintptr_t MenuDevelopGrid_CountBadge = 0;
+        uintptr_t MenuDevelopGrid_FillFlat = 0;
+        uintptr_t MenuDevelopGrid_CopyFlat = 0;
+        uintptr_t SightManager_UpdateMissileLockOn = 0;
+        uintptr_t Bullet3_DoSimulation = 0;
+        uintptr_t Bullet3_ActivateBulletAtEmptyWork = 0;
+
+        uintptr_t SightManager_Update = 0;
+        uintptr_t SightManager_UpdateMissileLockOnUi = 0;
+        uintptr_t LockOnReticleFactory_CreateWindow = 0;
+        uintptr_t EquipParams_GetAttackIdByEquipId = 0;
+        uintptr_t EquipSystem_SetUpGunInfoFromGunPartsDesc = 0;
+        uintptr_t UiWindowFunction_FindWindow = 0;
+        uintptr_t UiWindowFunction_PostShowAndStartMessage = 0;
+        uintptr_t UiWindowFunction_GetLayout = 0;
+        uintptr_t AttackAction_Fire = 0;
+        uintptr_t EquipObject_DoFire = 0;
+        uintptr_t CorePlugin_UpdateLoadoutRequest = 0;
+        uintptr_t WeaponSystem_DefineWeaponFireSound = 0;
+        uintptr_t EquipSystem_ChimeraPartsSetWork = 0;
     };
 
     inline GameBuild& GetGameBuild()

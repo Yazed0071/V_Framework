@@ -7,12 +7,62 @@ int __cdecl l_SetStock(lua_State* L);
 int __cdecl l_SetMuzzle(lua_State* L);
 int __cdecl l_SetReceiver(lua_State* L);
 int __cdecl l_SetSight(lua_State* L);
+int __cdecl l_SetBarrel(lua_State* L);
+int __cdecl l_SetUnderBarrel(lua_State* L);
+int __cdecl l_SetOption(lua_State* L);
+int __cdecl l_SetBullet(lua_State* L);
+int __cdecl l_SetDamage(lua_State* L);
+int __cdecl l_DeclareDamages(lua_State* L);
 
 int EquipParam_AllocateMagazineSlotForName(const char* name);
 int EquipParam_AllocateStockSlotForName(const char* name);
 int EquipParam_AllocateMuzzleSlotForName(const char* name);
 int EquipParam_AllocateReceiverSlotForName(const char* name);
 int EquipParam_AllocateSightSlotForName(const char* name);
+int EquipParam_AllocateBarrelSlotForName(const char* name);
+int EquipParam_AllocateUnderBarrelSlotForName(const char* name);
+int EquipParam_AllocateOptionSlotForName(const char* name);
+int EquipParam_AllocateBulletSlotForName(const char* name);
 
 bool Install_MotionLoader_ReceiverTypeHook();
 void Uninstall_MotionLoader_ReceiverTypeHook();
+
+bool Install_GetAttackIdGuard();
+void Uninstall_GetAttackIdGuard();
+
+bool Install_GunInfoGuard();
+void Uninstall_GunInfoGuard();
+
+bool Install_FireSoundOverride_Hook();
+void Uninstall_FireSoundOverride_Hook();
+
+bool Install_LoadoutRequestGuard();
+void Uninstall_LoadoutRequestGuard();
+
+bool Install_SuppressorGauge_Hook();
+void Uninstall_SuppressorGauge_Hook();
+
+int EquipParam_AllocateDamageSlotForName(const char* name);
+bool Install_DamageParameter_Hook();
+void Uninstall_DamageParameter_Hook();
+
+enum EquipVanillaSpace
+{
+    kVanillaSpace_Receiver = 0,
+    kVanillaSpace_Barrel,
+    kVanillaSpace_Magazine,
+    kVanillaSpace_Bullet,
+    kVanillaSpace_Stock,
+    kVanillaSpace_MuzzleOption,
+    kVanillaSpace_Sight,
+    kVanillaSpace_UnderBarrel,
+    kVanillaSpace_Option,
+    kVanillaSpace_Weapon,
+    kVanillaSpace_Damage,
+    kVanillaSpace_Count
+};
+
+void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride);
+void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, int stride);
+void EquipParam_VanillaForceTaint(int space, int id, const char* why);
+bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot);

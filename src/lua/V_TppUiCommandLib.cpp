@@ -14,7 +14,6 @@ extern "C" {
 #include "UiCommandFunctions.h"
 #include "LuaApi.h"
 
-
 namespace
 {
     static luaL_Reg g_VTppUiCommandLib[] =
@@ -69,6 +68,7 @@ namespace
         { "RegisterAnnounceLogSfx",                   l_RegisterAnnounceLogSfx },
         { "UnsetAnnounceLogSE",                       l_UnsetAnnounceLogSE },
         { "UnregisterAnnounceLogSfx",                 l_UnregisterAnnounceLogSfx },
+
 
         { nullptr,          nullptr }
     };

@@ -155,4 +155,14 @@ namespace FoxHashes
         std::string normalized = NormalizeAssetPath(path);
         return g_PathHashCode(&normalized[0]);
     }
+
+    uint64_t PathCode64Raw(const std::string& text)
+    {
+        if (!Resolve() || text.empty())
+            return 0;
+
+        std::string temp(text);
+        std::replace(temp.begin(), temp.end(), '\\', '/');
+        return g_PathHashCode(&temp[0]);
+    }
 }

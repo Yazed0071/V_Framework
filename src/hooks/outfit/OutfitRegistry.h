@@ -210,6 +210,10 @@ namespace outfit
     bool TryGetOutfitByDevelopId(std::uint16_t developId,
                                  const OutfitEntry** outEntry);
 
+
+    bool SetOutfitFlowIndexByDevelopId(std::uint16_t developId,
+                                       std::uint16_t flowIndex);
+
     bool SetOutfitSummaryDisplay(std::uint16_t developId,
                                  std::uint64_t nameHash,
                                  std::uint64_t iconHash);
@@ -257,7 +261,7 @@ namespace outfit
         std::uint64_t fpkPathCode64   = 0;
         std::uint64_t camoFpk         = kSubAssetUseVanilla;
         std::uint64_t camoFv2         = kSubAssetUseVanilla;
-        std::uint64_t diamondFpk      = kSubAssetDisabled;
+        std::uint64_t diamondFpk      = kSubAssetUseVanilla;
         std::uint64_t diamondFv2      = kSubAssetUseVanilla;
         std::uint64_t voiceFpk        = kSubAssetUseVanilla;
         std::uint64_t displayNameHash = 0;
@@ -278,6 +282,17 @@ namespace outfit
         std::uint8_t vanillaPartsType, std::uint8_t playerType,
         std::uint8_t variantIdx);
 
+    const VanillaSuitVariantAsset* VanillaExtGetVariantBridged(
+        std::uint8_t vanillaPartsType, std::uint8_t playerType,
+        std::uint8_t variantIdx);
+
+    std::uint8_t VanillaExtResolveVariantDonor(std::uint8_t vanillaPartsType,
+                                               std::uint8_t playerType);
+
+    std::uint8_t VanillaExtCollectSelectorSeeds(std::uint8_t* outSelectors,
+                                                std::uint8_t* outSourceCamos,
+                                                std::uint8_t maxCount);
+
     std::uint8_t VanillaExtGetVariantSelector(std::uint8_t vanillaPartsType,
                                               std::uint8_t variantIdx);
 
@@ -289,6 +304,15 @@ namespace outfit
     bool TryGetVanillaExtByVariantSelector(std::uint8_t selector,
                                            std::uint8_t* outPartsType,
                                            std::uint8_t* outVariantIdx);
+
+    bool ExtendVanillaSuitVoice(std::uint8_t vanillaPartsType,
+                                std::uint8_t playerType,
+                                std::uint8_t sourceCamo,
+                                std::uint64_t voiceFpk);
+
+    std::uint64_t VanillaExtGetSuitVoiceFpk(std::uint8_t vanillaPartsType,
+                                            std::uint8_t playerType,
+                                            std::uint8_t wornCamo);
 
     bool ExtendVanillaSuitHeadOptions(std::uint8_t vanillaPartsType,
                                       std::uint8_t playerType,
@@ -365,4 +389,11 @@ namespace outfit
 
     void          SetPendingSupplyDropVariantIdx(std::uint8_t variantIndex);
     std::uint8_t  ConsumePendingSupplyDropVariantIdx();
+    std::uint8_t  PeekPendingSupplyDropVariantIdx();
+
+    void          SetCrateDeliveredVariant(std::uint16_t developId,
+                                           std::uint8_t variantIndex);
+    std::uint16_t PeekCrateDeliveredDevelopId();
+    std::uint8_t  PeekCrateDeliveredVariantIdx();
+    void          ClearCrateDeliveredVariant();
 }

@@ -23,7 +23,10 @@ namespace
             g_OrigRegisterConstant(L);
 
         if (L)
+        {
             TppEquipConst_InjectAll(L);
+            TppDamageConst_InjectAll(L);
+        }
     }
 }
 

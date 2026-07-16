@@ -20,4 +20,6 @@ namespace FoxHashes
 
     uint64_t PathCode64Ext(const char* path);
     uint64_t PathCode64Ext(const std::string& path);
+
+    uint64_t PathCode64Raw(const std::string& text);
 }

@@ -42,6 +42,8 @@ namespace
     static bool          g_SupplyDropClickLatch        = false;
     static std::uint16_t g_PendingSupplyDropDevelopId  = 0;
     static std::uint8_t  g_PendingSupplyDropVariantIdx = 0;
+    static std::uint16_t g_CrateDeliveredDevelopId     = 0;
+    static std::uint8_t  g_CrateDeliveredVariantIdx    = 0;
 
     static constexpr std::size_t kMaxVanillaExtVariants =
         outfit::kMaxVariantsPerOutfit - 1;
@@ -59,6 +61,9 @@ namespace
         std::uint8_t  variantSelectorCodes[kMaxVanillaExtVariants] = {};
         std::uint8_t  variantSourceCamo[kMaxVanillaExtVariants] = {};
         std::uint8_t  variantSelectorCount = 0;
+
+        std::uint64_t suitVoiceFpk[kPlayerTypeMax] = {};
+        std::uint8_t  suitVoiceCamo[kPlayerTypeMax] = {};
     };
     static std::array<VanillaSuitExtension, outfit::kMaxVanillaSuitExtensions>
         g_VanillaExts{};
@@ -740,13 +745,10 @@ namespace outfit
             }
         }
 
-        if (def.developId == 0 || def.flowIndex == 0)
+        if (def.developId == 0)
         {
-            Log("[OutfitRegistry] reject: developId/flowIndex must be non-zero "
-                "(developId=%u flowIndex=%u key=%s)\n",
-                static_cast<unsigned>(def.developId),
-                static_cast<unsigned>(def.flowIndex),
-                def.key ? def.key : "(unkeyed)");
+            Log("[OutfitRegistry] reject: developId must be non-zero "
+                "(key=%s)\n", def.key ? def.key : "(unkeyed)");
             return false;
         }
 
@@ -766,16 +768,15 @@ namespace outfit
         BuildReservations_NoLock();
         const std::uint64_t keyHash = HashOutfitKey(def.key);
 
-        for (const auto& e : g_Entries)
+
+        for (auto& e : g_Entries)
         {
             if (!e.used) continue;
 
-            const bool sameDevelopId = (e.developId == def.developId);
-            const bool sameFlowIndex = (e.flowIndex == def.flowIndex);
-            if (!sameDevelopId && !sameFlowIndex) continue;
-
-            if (sameDevelopId && sameFlowIndex)
+            if (e.developId == def.developId)
             {
+                if (e.flowIndex != def.flowIndex)
+                    e.flowIndex = def.flowIndex;
 #ifdef _DEBUG
                 Log("[OutfitRegistry] re-registration of same outfit "
                     "developId=%u flowIndex=%u partsType=0x%02X - "
@@ -788,23 +789,16 @@ namespace outfit
                 return true;
             }
 
-
-            if (sameDevelopId)
+            if (e.flowIndex != 0 && e.flowIndex == def.flowIndex)
             {
-                Log("[OutfitRegistry] reject: developId %u already taken "
-                    "(existing partsType=0x%02X)\n",
-                    static_cast<unsigned>(def.developId),
-                    static_cast<unsigned>(e.partsType));
-            }
-            else
-            {
-                Log("[OutfitRegistry] reject: flowIndex %u already taken "
-                    "(existing developId=%u, attempted developId=%u)\n",
+                Log("[OutfitRegistry] flowIndex %u transferred to developId=%u "
+                    "(previous claim by developId=%u was released for "
+                    "paging)\n",
                     static_cast<unsigned>(def.flowIndex),
-                    static_cast<unsigned>(e.developId),
-                    static_cast<unsigned>(def.developId));
+                    static_cast<unsigned>(def.developId),
+                    static_cast<unsigned>(e.developId));
+                e.flowIndex = 0;
             }
-            return false;
         }
 
         const std::uint8_t partsType =
@@ -991,6 +985,8 @@ namespace outfit
             g_SupplyDropClickLatch        = false;
             g_PendingSupplyDropDevelopId  = 0;
             g_PendingSupplyDropVariantIdx = 0;
+            g_CrateDeliveredDevelopId     = 0;
+            g_CrateDeliveredVariantIdx    = 0;
         }
         outfit::shadow::ResetAll("ClearAllOutfits");
         outfit::shadow::ResetArmTierCache();
@@ -1035,6 +1031,8 @@ namespace outfit
 
     bool TryGetOutfitByFlowIndex(std::uint16_t flowIndex, const OutfitEntry** outEntry)
     {
+        if (flowIndex == 0)
+            return false;
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
@@ -1104,6 +1102,21 @@ namespace outfit
         return false;
     }
 
+    bool SetOutfitFlowIndexByDevelopId(std::uint16_t developId,
+                                       std::uint16_t flowIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (auto& e : g_Entries)
+        {
+            if (e.used && e.developId == developId)
+            {
+                e.flowIndex = flowIndex;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool SetOutfitSummaryDisplay(std::uint16_t developId,
                                  std::uint64_t nameHash,
                                  std::uint64_t iconHash)
@@ -1166,6 +1179,8 @@ namespace outfit
             std::uint16_t flowIndex, std::uint8_t playerType,
             const OutfitEntry** outEntry)
     {
+        if (flowIndex == 0)
+            return false;
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (const auto& e : g_Entries)
         {
@@ -1473,6 +1488,62 @@ namespace outfit
             V_FrameWorkState::SetPersistedOutfitVariantSelectors(
                 keyBuf, x->variantSelectorCodes, x->variantSelectorCount);
         }
+        else if (incomingCount > blockSize)
+        {
+            const bool isTailBlock =
+                static_cast<std::uint8_t>(base + blockSize)
+                    == x->variantSelectorCount;
+            if (isTailBlock)
+            {
+                std::uint8_t room =
+                    static_cast<std::uint8_t>(kMaxVanillaExtVariants
+                                              - x->variantSelectorCount);
+                std::uint8_t need =
+                    static_cast<std::uint8_t>(incomingCount - blockSize);
+                if (need > room) need = room;
+                if (need > 0)
+                {
+                    char keyBuf[24];
+                    std::snprintf(keyBuf, sizeof(keyBuf), "__vext:0x%02X",
+                                  vanillaPartsType);
+                    const std::uint64_t keyHash = HashOutfitKey(keyBuf);
+                    std::uint8_t persisted[14] = {};
+                    V_FrameWorkState::GetPersistedOutfitVariantSelectors(
+                        keyBuf, persisted, 14);
+                    for (std::uint8_t g = 0; g < need; ++g)
+                    {
+                        const std::uint8_t slot = x->variantSelectorCount;
+                        std::uint8_t sel = (slot < 14) ? persisted[slot]
+                                                       : std::uint8_t{0};
+                        if (!IsAllocatableSelector(sel)
+                            || IsSelectorTaken_NoLock(sel)
+                            || IsSelectorReservedForOther_NoLock(sel, keyHash))
+                            sel = AllocateSelector_NoLock(sel, keyHash);
+                        if (sel == 0xFF || sel == 0) break;
+                        x->variantSelectorCodes[slot] = sel;
+                        x->variantSourceCamo[slot]    = sourceCamo;
+                        x->variantSelectorCount =
+                            static_cast<std::uint8_t>(slot + 1);
+                        ++blockSize;
+                    }
+                    V_FrameWorkState::SetPersistedOutfitVariantSelectors(
+                        keyBuf, x->variantSelectorCodes,
+                        x->variantSelectorCount);
+                }
+            }
+            else
+            {
+                Log("[OutfitRegistry] vext partsType=0x%02X sourceCamo=0x%02X "
+                    "band (base=%d size=%u) not tail - cannot grow for pt=%u "
+                    "(%u variants); %u extra dropped\n",
+                    static_cast<unsigned>(vanillaPartsType),
+                    static_cast<unsigned>(sourceCamo),
+                    base, static_cast<unsigned>(blockSize),
+                    static_cast<unsigned>(playerType),
+                    static_cast<unsigned>(incomingCount),
+                    static_cast<unsigned>(incomingCount - blockSize));
+            }
+        }
 
         std::uint8_t filled = 0;
         for (std::uint8_t j = 0; j < blockSize && j < incomingCount; ++j)
@@ -1517,6 +1588,94 @@ namespace outfit
         if (slot >= kMaxVanillaExtVariants) return nullptr;
         const auto& v = x->variants[playerType][slot];
         return v.used ? &v : nullptr;
+    }
+
+    static std::uint8_t ResolveVextDonor_NoLock(const VanillaSuitExtension& x,
+                                                std::uint8_t playerType)
+    {
+        const std::uint8_t partner =
+            (playerType == kPlayerType_Avatar) ? kPlayerType_Snake
+          : (playerType == kPlayerType_Snake)  ? kPlayerType_Avatar
+                                               : std::uint8_t{0xFF};
+        if (partner != 0xFF && x.variantCount[partner] > 0) return partner;
+        for (std::uint8_t sp = 0; sp < kPlayerTypeMax; ++sp)
+            if (sp != playerType && x.variantCount[sp] > 0) return sp;
+        return 0xFF;
+    }
+
+    const VanillaSuitVariantAsset* VanillaExtGetVariantBridged(
+        std::uint8_t vanillaPartsType, std::uint8_t playerType,
+        std::uint8_t variantIdx)
+    {
+        if (variantIdx == 0 || playerType >= kPlayerTypeMax) return nullptr;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return nullptr;
+        const std::uint8_t slot = static_cast<std::uint8_t>(variantIdx - 1);
+        if (slot >= kMaxVanillaExtVariants) return nullptr;
+        auto pick = [&](std::uint8_t pt, std::uint8_t s)
+            -> const VanillaSuitVariantAsset*
+        {
+            if (pt >= kPlayerTypeMax || s >= kMaxVanillaExtVariants)
+                return nullptr;
+            const auto& v = x->variants[pt][s];
+            return v.used ? &v : nullptr;
+        };
+        auto nearest = [&](std::uint8_t pt)
+            -> const VanillaSuitVariantAsset*
+        {
+            if (const auto* v = pick(pt, slot)) return v;
+            for (std::uint8_t s = slot; s > 0; --s)
+                if (const auto* v = pick(pt, static_cast<std::uint8_t>(s - 1)))
+                    return v;
+            for (std::uint8_t s = static_cast<std::uint8_t>(slot + 1);
+                 s < kMaxVanillaExtVariants; ++s)
+                if (const auto* v = pick(pt, s)) return v;
+            return nullptr;
+        };
+        if (x->variantCount[playerType] > 0)
+            if (const auto* v = nearest(playerType))
+                return v;
+        const std::uint8_t donor = ResolveVextDonor_NoLock(*x, playerType);
+        if (donor == 0xFF) return nullptr;
+        return nearest(donor);
+    }
+
+    std::uint8_t VanillaExtCollectSelectorSeeds(std::uint8_t* outSelectors,
+                                                std::uint8_t* outSourceCamos,
+                                                std::uint8_t maxCount)
+    {
+        if (!outSelectors || !outSourceCamos || maxCount == 0) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        std::uint8_t n = 0;
+        for (const auto& x : g_VanillaExts)
+        {
+            if (!x.used) continue;
+            for (std::uint8_t i = 0;
+                 i < x.variantSelectorCount && n < maxCount; ++i)
+            {
+                const std::uint8_t sel = x.variantSelectorCodes[i];
+                const std::uint8_t src = x.variantSourceCamo[i];
+                if (sel < kCustomSelectorStart || sel > kCustomSelectorEnd)
+                    continue;
+                if (src == 0xFF) continue;
+                outSelectors[n]   = sel;
+                outSourceCamos[n] = src;
+                ++n;
+            }
+        }
+        return n;
+    }
+
+    std::uint8_t VanillaExtResolveVariantDonor(std::uint8_t vanillaPartsType,
+                                               std::uint8_t playerType)
+    {
+        if (playerType >= kPlayerTypeMax) return 0xFF;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return 0xFF;
+        if (x->variantCount[playerType] > 0) return playerType;
+        return ResolveVextDonor_NoLock(*x, playerType);
     }
 
     std::uint8_t VanillaExtGetVariantSelector(std::uint8_t vanillaPartsType,
@@ -1625,6 +1784,83 @@ namespace outfit
                 b.pendingHeadNameHashes[b.pendingHeadCount++] = h;
         }
         return true;
+    }
+
+    bool ExtendVanillaSuitVoice(std::uint8_t vanillaPartsType,
+                                std::uint8_t playerType,
+                                std::uint8_t sourceCamo,
+                                std::uint64_t voiceFpk)
+    {
+        if (IsCustomPartsType(vanillaPartsType) || vanillaPartsType == 0xFF)
+            return false;
+        if (playerType >= kPlayerTypeMax)
+            return false;
+        if (voiceFpk <= kSubAssetUseVanilla)
+            return false;
+
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x)
+        {
+            for (auto& c : g_VanillaExts)
+                if (!c.used) { x = &c; break; }
+            if (!x) return false;
+            x->used             = true;
+            x->vanillaPartsType = vanillaPartsType;
+        }
+        x->suitVoiceFpk[playerType]  = voiceFpk;
+        x->suitVoiceCamo[playerType] = sourceCamo;
+        return true;
+    }
+
+    std::uint64_t VanillaExtGetSuitVoiceFpk(std::uint8_t vanillaPartsType,
+                                            std::uint8_t playerType,
+                                            std::uint8_t wornCamo)
+    {
+        if (playerType >= kPlayerTypeMax) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const VanillaSuitExtension* x = FindVanillaExt_NoLock(vanillaPartsType);
+        if (!x) return 0;
+
+        std::uint8_t src = playerType;
+        if (x->suitVoiceFpk[src] <= kSubAssetUseVanilla)
+        {
+            const std::uint8_t partner =
+                (playerType == kPlayerType_Avatar) ? kPlayerType_Snake
+              : (playerType == kPlayerType_Snake)  ? kPlayerType_Avatar
+                                                   : std::uint8_t{0xFF};
+            src = 0xFF;
+            if (partner != 0xFF
+                && x->suitVoiceFpk[partner] > kSubAssetUseVanilla)
+            {
+                src = partner;
+            }
+            else
+            {
+                for (std::uint8_t sp = 0; sp < kPlayerTypeMax; ++sp)
+                    if (sp != playerType
+                        && x->suitVoiceFpk[sp] > kSubAssetUseVanilla)
+                    { src = sp; break; }
+            }
+            if (src == 0xFF) return 0;
+        }
+
+        const std::uint8_t scope = x->suitVoiceCamo[src];
+        if (scope != 0xFF && wornCamo != scope)
+        {
+            bool match = false;
+            for (std::uint8_t s = 0; s < x->variantSelectorCount
+                 && s < kMaxVanillaExtVariants; ++s)
+            {
+                if (x->variantSelectorCodes[s] == wornCamo)
+                {
+                    match = (x->variantSourceCamo[s] == scope);
+                    break;
+                }
+            }
+            if (!match) return 0;
+        }
+        return x->suitVoiceFpk[src];
     }
 
     bool VanillaExtHasAnyHeadOptions(std::uint8_t vanillaPartsType,
@@ -1769,5 +2005,38 @@ namespace outfit
         const std::uint8_t was = g_PendingSupplyDropVariantIdx;
         g_PendingSupplyDropVariantIdx = 0;
         return was;
+    }
+
+    std::uint8_t PeekPendingSupplyDropVariantIdx()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return g_PendingSupplyDropVariantIdx;
+    }
+
+    void SetCrateDeliveredVariant(std::uint16_t developId,
+                                  std::uint8_t variantIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_CrateDeliveredDevelopId  = developId;
+        g_CrateDeliveredVariantIdx = variantIndex;
+    }
+
+    std::uint16_t PeekCrateDeliveredDevelopId()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return g_CrateDeliveredDevelopId;
+    }
+
+    std::uint8_t PeekCrateDeliveredVariantIdx()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return g_CrateDeliveredVariantIdx;
+    }
+
+    void ClearCrateDeliveredVariant()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_CrateDeliveredDevelopId  = 0;
+        g_CrateDeliveredVariantIdx = 0;
     }
 }

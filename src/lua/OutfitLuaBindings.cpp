@@ -689,6 +689,8 @@ namespace
 
 int __cdecl l_RegisterOutfit(lua_State* L)
 {
+    V_FrameWorkState::SaveBatch _saveBatch;
+
     if (LuaType(L, 1) != LUA_TTABLE)
     {
         Log("[OutfitLua] RegisterOutfit: arg 1 must be a table\n");
@@ -761,22 +763,7 @@ int __cdecl l_RegisterOutfit(lua_State* L)
         return 1;
     }
 
-    constexpr std::int32_t kEdcRowCapacity = 0x400;
-    {
-        std::int32_t newIdx = 0;
-        if (V_FrameWorkState::ResolveOrCreateFlowIndex(key, 0, newIdx)
-            && newIdx > 0 && newIdx < kEdcRowCapacity)
-        {
-            def.flowIndex = static_cast<std::uint16_t>(newIdx);
-        }
-    }
-    if (def.flowIndex == 0)
-    {
-        Log("[OutfitLua] RegisterOutfit: failed to allocate flowIndex for "
-            "key='%s'\n", key);
-        PushLuaBool(L, false);
-        return 1;
-    }
+    def.flowIndex = 0;
 
 
     if (def.partsTypeHint == 0xFF)
@@ -1035,7 +1022,7 @@ static std::uint8_t ReadVanillaExtVariants(
                 v.camoFv2    = ReadSubAssetField(L, -1, "camoFv2",
                                    outfit::kSubAssetUseVanilla);
                 v.diamondFpk = ReadSubAssetField(L, -1, "diamondFpk",
-                                   outfit::kSubAssetDisabled);
+                                   outfit::kSubAssetUseVanilla);
                 v.diamondFv2 = ReadSubAssetField(L, -1, "diamondFv2",
                                    outfit::kSubAssetUseVanilla);
                 v.voiceFpk   = ReadSubAssetField(L, -1, "voiceFpk",
@@ -1148,6 +1135,25 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
                     bk.key,
                     static_cast<unsigned>(idCount),
                     static_cast<unsigned>(pendCount));
+            }
+
+            const std::uint64_t suitVoice = ReadSubAssetField(
+                L, branchIdx, "voiceFpk", outfit::kSubAssetUseVanilla);
+            if (suitVoice > outfit::kSubAssetUseVanilla
+                && outfit::ExtendVanillaSuitVoice(vanillaPartsType,
+                       bk.playerType,
+                       labelCamo >= 0 ? static_cast<std::uint8_t>(labelCamo)
+                                      : std::uint8_t{0xFF},
+                       suitVoice))
+            {
+                any = true;
+                Log("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
+                    "partsType 0x%02X: %s suit-wide voiceFpk set (applies to "
+                    "base + native variations + variants, kept in FOB)\n",
+                    outfitName ? outfitName : "(by number)",
+                    labelCamo,
+                    static_cast<unsigned>(vanillaPartsType),
+                    bk.key);
             }
 
             outfit::VanillaSuitVariantAsset

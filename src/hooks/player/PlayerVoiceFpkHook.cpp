@@ -109,8 +109,53 @@ static bool ResolveWornOutfitVoice(std::uint32_t playerType, std::uint64_t* outV
     return true;
 }
 
+static bool ResolveVanillaExtVoice(std::uint32_t playerType, std::uint64_t* outVoiceCode)
+{
+    const std::uint8_t vpt = outfit::ReadLivePartsType();
+    if (vpt == 0xFF || vpt >= outfit::kCustomPartsTypeStart)
+        return false;
+
+    const std::uint8_t pt = static_cast<std::uint8_t>(playerType & 0xFF);
+
+    if (!MissionCodeGuard::ShouldBypassHooks())
+    {
+        const std::uint8_t v = outfit::GetActiveVariant(vpt);
+        if (v != 0)
+        {
+            if (const outfit::VanillaSuitVariantAsset* var =
+                    outfit::VanillaExtGetVariantBridged(vpt, pt, v))
+            {
+                if (var->voiceFpk > outfit::kSubAssetUseVanilla)
+                {
+                    if (outVoiceCode) *outVoiceCode = var->voiceFpk;
+                    return true;
+                }
+            }
+        }
+    }
+
+    const std::uint64_t suit = outfit::VanillaExtGetSuitVoiceFpk(
+        vpt, pt, outfit::ReadLiveSelectorCode());
+    if (suit <= outfit::kSubAssetUseVanilla)
+        return false;
+    if (outVoiceCode) *outVoiceCode = suit;
+    return true;
+}
+
 static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t playerType, std::uint32_t playerFaceId)
 {
+    std::uint64_t vextVoice = 0;
+    if (ResolveVanillaExtVoice(playerType, &vextVoice))
+    {
+#ifdef _DEBUG
+        Log("[PlayerVoiceFpk] vanilla-ext voice applied (playerType=%u code=0x%016llX bypass=%d)\n",
+            playerType, static_cast<unsigned long long>(vextVoice),
+            MissionCodeGuard::ShouldBypassHooks() ? 1 : 0);
+#endif
+        WritePlayerVoicePath(fileSlotPath, vextVoice);
+        return fileSlotPath;
+    }
+
     if (MissionCodeGuard::ShouldBypassHooks())
     {
         return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);

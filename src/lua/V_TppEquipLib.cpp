@@ -43,6 +43,12 @@ namespace
         { "SetMuzzle",              l_SetMuzzle },
         { "SetReceiver",            l_SetReceiver },
         { "SetSight",               l_SetSight },
+        { "SetBarrel",              l_SetBarrel },
+        { "SetUnderBarrel",         l_SetUnderBarrel },
+        { "SetOption",              l_SetOption },
+        { "SetBullet",              l_SetBullet },
+        { "SetDamage",              l_SetDamage },
+        { "DeclareDamages",         l_DeclareDamages },
 
         { nullptr, nullptr }
     };

@@ -245,6 +245,8 @@
     <ClInclude Include="src\hooks\outfit\CamouflageControllerImpl_ExecSuitCorrect.h" />
     <ClInclude Include="src\hooks\outfit\CamoufParamInfoImpl_GetCamoufValue.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
+    <ClInclude Include="src\hooks\equip\BulletLockOn.h" />
+    <ClInclude Include="src\hooks\equip\BulletMultiShot.h" />
     <ClInclude Include="src\hooks\equip\TppEquipConstRegistry.h" />
     <ClInclude Include="src\hooks\equip\TppEquip_RegisterConstant.h" />
     <ClInclude Include="src\hooks\equip\EquipIdCompression.h" />
@@ -340,6 +342,9 @@
     <ClCompile Include="src\hooks\outfit\CamouflageControllerImpl_ExecSuitCorrect.cpp" />
     <ClCompile Include="src\hooks\outfit\CamoufParamInfoImpl_GetCamoufValue.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.cpp" />
+    <ClCompile Include="src\hooks\equip\MenuDevelopGridExpand.cpp" />
+    <ClCompile Include="src\hooks\equip\BulletLockOn.cpp" />
+    <ClCompile Include="src\hooks\equip\BulletMultiShot.cpp" />
     <ClCompile Include="src\hooks\equip\TppEquipConstRegistry.cpp" />
     <ClCompile Include="src\hooks\equip\TppEquip_RegisterConstant.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdCompression.cpp" />

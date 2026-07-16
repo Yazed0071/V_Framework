@@ -19,6 +19,14 @@ namespace V_FrameWorkState
     void BeginBatch();
     void EndBatch();
 
+    struct SaveBatch
+    {
+        SaveBatch() { BeginBatch(); }
+        ~SaveBatch() { EndBatch(); }
+        SaveBatch(const SaveBatch&) = delete;
+        SaveBatch& operator=(const SaveBatch&) = delete;
+    };
+
 
     bool ResolveOrCreateEquipId(
         const char* key,
@@ -33,6 +41,8 @@ namespace V_FrameWorkState
         bool* outCreated = nullptr);
 
     std::int32_t GetDevelopIdByKey(const char* key);
+
+    std::int32_t GetDevelopIdAtOldFlowIndex(std::int32_t oldFlowIndex);
 
 
     std::vector<std::int32_t> TakePendingDevelopedResets();
@@ -54,6 +64,10 @@ namespace V_FrameWorkState
         std::int32_t minimumIndex,
         std::int32_t& outFlowIndex);
 
+    void SetSessionFlowIndex(const char* key, std::int32_t flowIndex);
+
+    void ReleaseSessionFlowIndex(const char* key);
+
 
     bool ResolveOrCreateTapeSaveIndex(
         const char* key,
@@ -66,6 +80,12 @@ namespace V_FrameWorkState
         std::int32_t minimumValue,
         std::int32_t& outValue);
 
+    std::int32_t GetPersistedConstant(const char* spaceTag, const char* name);
+    void         SetPersistedConstant(const char* spaceTag, const char* name,
+                                      std::int32_t value);
+    void         ForEachPersistedConstant(const char* spaceTag,
+                                          void (*fn)(const char* name,
+                                                     std::int32_t value));
 
     std::uint8_t GetPersistedOutfitPartsType(const char* key);
     std::uint8_t GetPersistedOutfitSelector(const char* key);

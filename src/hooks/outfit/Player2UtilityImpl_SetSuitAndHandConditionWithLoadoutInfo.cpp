@@ -377,6 +377,26 @@ namespace
                     static_cast<unsigned>(vExtPt),
                     static_cast<unsigned>(vExtIdx));
 #endif
+                {
+                    const std::uint8_t vExtSrcCamo =
+                        outfit::VanillaExtGetVariantSourceCamo(vExtPt, vExtIdx);
+                    if (vExtSrcCamo != 0xFF)
+                    {
+                        __try
+                        {
+                            base[kInfoOff_CamoType] = vExtSrcCamo;
+                        }
+                        __except (EXCEPTION_EXECUTE_HANDLER) {}
+#ifdef _DEBUG
+                        Log("[OutfitSuitConditionApply:%s] vanilla-ext variant "
+                            "camo scrub: descriptor camo 0x%02X -> source 0x%02X "
+                            "(variant served via active-variant state; no custom "
+                            "selector reaches orig realize)\n",
+                            tag, static_cast<unsigned>(camoType),
+                            static_cast<unsigned>(vExtSrcCamo));
+#endif
+                    }
+                }
                 return true;
             }
             outfit::ResetAllVanillaExtVariants();
@@ -603,6 +623,10 @@ namespace
             if (resolvedVariantValid)
             {
                 base[kInfoOff_Variant] = resolvedVariantIdx;
+                outfit::ClearCrateDeliveredVariant();
+                outfit::ConsumePendingSupplyDropVariantIdx();
+                outfit::ConsumePendingSupplyDropDevelopId();
+                outfit::SetActiveVariant(chosen->partsType, resolvedVariantIdx);
             }
 
             {
@@ -709,7 +733,61 @@ namespace
 
     static void __fastcall hkSetSuit(void* self, void* info)
     {
-        MISSION_GUARD_ORIGINAL_VOID(g_Orig, self, info);
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            if (info)
+            {
+                __try
+                {
+                    auto* base = reinterpret_cast<std::uint8_t*>(info);
+                    const std::uint8_t fobCamo = base[kInfoOff_CamoType];
+                    if (fobCamo >= outfit::kCustomSelectorStart
+                        && fobCamo <= outfit::kCustomSelectorEnd)
+                    {
+                        std::uint8_t vExtPt = 0, vExtIdx = 0;
+                        if (outfit::TryGetVanillaExtByVariantSelector(
+                                fobCamo, &vExtPt, &vExtIdx))
+                        {
+                            const std::uint8_t src =
+                                outfit::VanillaExtGetVariantSourceCamo(
+                                    vExtPt, vExtIdx);
+                            base[kInfoOff_PartsType] = vExtPt;
+                            if (src != 0xFF)
+                                base[kInfoOff_CamoType] = src;
+#ifdef _DEBUG
+                            Log("[OutfitSuitConditionApply:SetSuit] FOB "
+                                "bypass: vext selector 0x%02X in loadout "
+                                "(equipped outside FOB) scrubbed to base "
+                                "partsType=0x%02X camo=0x%02X\n",
+                                static_cast<unsigned>(fobCamo),
+                                static_cast<unsigned>(vExtPt),
+                                static_cast<unsigned>(src));
+#endif
+                        }
+                    }
+                    const std::uint8_t fobHead = base[kInfoOff_FaceId];
+                    if (fobHead >= outfit::kCustomHeadSlotBase
+                        && outfit::IsCustomHeadSlot(fobHead))
+                    {
+                        base[kInfoOff_FaceId] = 0;
+                        *reinterpret_cast<std::uint32_t*>(
+                            base + kInfoOff_Flags) |= 0x80u;
+                        outfit::WriteLiveHeadSlot(0);
+                        outfit::ClearWornCustomHeadSlot();
+#ifdef _DEBUG
+                        Log("[OutfitSuitConditionApply:SetSuit] FOB bypass: "
+                            "custom head slot 0x%02X (worn outside FOB) "
+                            "scrubbed to none (head options disabled in "
+                            "FOB)\n",
+                            static_cast<unsigned>(fobHead));
+#endif
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
+            if (g_Orig) g_Orig(self, info);
+            return;
+        }
 
         InspectAndRewriteLoadout(info, "SetSuit");
 

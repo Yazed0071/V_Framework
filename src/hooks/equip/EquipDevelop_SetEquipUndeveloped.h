@@ -38,3 +38,5 @@ int  EquipDevelop_BeginFobListSuppress();
 void EquipDevelop_EndFobListSuppress();
 
 void* EquipDevelop_ResolveDevelopController();
+
+bool EquipDevelop_IsDevelopTimerActive(std::uint16_t flowIndex);

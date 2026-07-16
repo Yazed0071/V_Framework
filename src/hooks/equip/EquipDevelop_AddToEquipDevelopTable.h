@@ -31,6 +31,10 @@ namespace EquipDevelopAdd
 
     int __cdecl Lua_AddToEquipDevelopTable(lua_State* L);
 
+    bool IsDevelopIdParked(std::uint32_t developId);
+
+    void MaybeRotateDevelopWindow(std::uint16_t predicateIdx);
+
     bool TryGetFlowIndexForDevelopId(std::uint16_t developId, std::uint16_t& outFlowIndex);
 
     bool IsManagedFlowIndex(std::uint16_t flowIndex);

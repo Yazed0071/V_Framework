@@ -28,6 +28,7 @@ extern "C" {
 #include "State_EnterStandHoldup1.h"
 #include "GetVoiceParamWithCallSign.h"
 #include "LostHostageHook.h"
+#include "../core/V_FrameWorkState.h"
 #include "StepRadioDiscovery.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
@@ -87,6 +88,7 @@ namespace
     static std::unordered_set<lua_State*> g_RegisteredLuaStates;
     static std::mutex g_RegisteredLuaStatesMutex;
     static bool g_SetLuaFunctionsHookInstalled = false;
+    static DWORD g_LuaOwnerThreadId = 0;
 }
 
 
@@ -110,6 +112,7 @@ static void TrackLuaState(lua_State* L)
 {
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     g_RegisteredLuaStates.insert(L);
+    g_LuaOwnerThreadId = GetCurrentThreadId();
 }
 
 lua_State* V_FrameWork_AnyLuaState()
@@ -117,6 +120,12 @@ lua_State* V_FrameWork_AnyLuaState()
     std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
     if (g_RegisteredLuaStates.empty()) return nullptr;
     return *g_RegisteredLuaStates.begin();
+}
+
+unsigned long V_FrameWork_LuaOwnerThreadId()
+{
+    std::lock_guard<std::mutex> lock(g_RegisteredLuaStatesMutex);
+    return g_LuaOwnerThreadId;
 }
 
 
@@ -1477,7 +1486,6 @@ static int __cdecl l_Log(lua_State* L)
     }
     return 0;
 }
-
 
 static std::uint64_t ParseSahelanFovaArg(const char* text)
 {

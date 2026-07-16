@@ -20,11 +20,13 @@ namespace V_FrameWorkState
     {
         static constexpr const char* kSavePath    = "mod\\V_FrameWork\\V_FrameWork_State.lua";
         static constexpr const char* kLegacyPath  = "mod\\saves\\V_FrameWork_State.lua";
+        static constexpr const char* kBackupPath  = "mod\\V_FrameWork_State.bak";
 
 
         static constexpr std::int32_t kFirstCustomEquipIdMinimum = 1;
         static constexpr std::int32_t kFirstCustomDevelopId = 0x1000;
         static constexpr std::int32_t kFirstCustomFlowIndex = 922;
+        static constexpr std::int32_t kNativeFlowIndexBound = 1024;
         static constexpr std::int16_t kFirstCustomTapeSaveIndex = 300;
         static constexpr std::int16_t kMaxCustomTapeSaveIndex = 32000;
         static constexpr std::int32_t kTapeOrphanGraceLaunches = 2;
@@ -37,6 +39,9 @@ namespace V_FrameWorkState
 
             std::int32_t developId = 0;
             std::int32_t flowIndex = 0;
+
+            std::int32_t equipId = 0;
+            std::int32_t subId = 0;
 
             std::int32_t partsType = 0;
             std::int32_t selector  = 0;
@@ -76,7 +81,8 @@ namespace V_FrameWorkState
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
 
         static std::unordered_map<std::string, std::int32_t> g_SessionFlowIndices;
-        static std::int32_t g_SessionNextFlowIndex = kFirstCustomFlowIndex;
+
+        static std::unordered_map<std::int32_t, std::int32_t> g_OldFlowLayout;
 
         static std::string Trim(const std::string& s)
         {
@@ -140,6 +146,8 @@ namespace V_FrameWorkState
 
             out.developId = findField("developId");
             out.flowIndex = findField("flowIndex");
+            out.equipId   = findField("equipId");
+            out.subId     = findField("subId");
             out.partsType = findField("partsType");
             out.selector  = findField("selector");
             out.misses    = findField("misses");
@@ -255,6 +263,17 @@ namespace V_FrameWorkState
 
             MigrateLegacyStateFile_NoLock();
 
+            if (GetFileAttributesA(kSavePath) == INVALID_FILE_ATTRIBUTES
+                && GetFileAttributesA(kBackupPath) != INVALID_FILE_ATTRIBUTES)
+            {
+                EnsureSaveDirectory();
+                if (CopyFileA(kBackupPath, kSavePath, TRUE))
+                    Log("[V_FrameWorkState] state file was MISSING - restored from "
+                        "backup '%s' (custom ids kept stable). If you replaced the "
+                        "mod folder, keep V_FrameWork_State.lua with it.\n",
+                        kBackupPath);
+            }
+
             std::ifstream in(kSavePath);
             if (!in)
             {
@@ -301,7 +320,19 @@ namespace V_FrameWorkState
                     std::string key;
                     EquipEntry entry;
                     if (ParseEquipLine(trimmed, key, entry))
+                    {
+                        const auto colon = key.rfind(':');
+                        if (colon != std::string::npos && entry.equipId != 0)
+                        {
+                            const std::string bareKey = key.substr(colon + 1);
+                            EquipEntry& bare = g_State.equips[bareKey];
+                            bare.equipId = entry.equipId;
+                            if (entry.misses != 0)
+                                bare.misses = entry.misses;
+                            entry.equipId = 0;
+                        }
                         g_State.equips[key] = entry;
+                    }
                 }
                 else if (section == Tapes)
                 {
@@ -346,24 +377,32 @@ namespace V_FrameWorkState
             {
                 if (it->second.misses >= kEquipOrphanGraceLaunches)
                 {
-                    if (it->second.partsType != 0)
-                        Log("[Outfit] Removed \"%s\" (developId %d, partsType 0x%02X) - not registered for %d launches; freeing the id.\n",
-                            it->first.c_str(), it->second.developId, it->second.partsType, kEquipOrphanGraceLaunches);
-                    else
-                        Log("[Equip] Removed \"%s\" (developId %d) - not registered for %d launches; freeing the id.\n",
-                            it->first.c_str(), it->second.developId, kEquipOrphanGraceLaunches);
-
-                    if (it->second.developId != 0)
-                        g_PendingDevelopedResets.push_back(it->second.developId);
+                    Log("[V_FrameWorkState] \"%s\" (developId %d, equipId 0x%X, partsType 0x%02X, "
+                        "selector 0x%02X) has not registered for %d launches - entry removed; its ids "
+                        "return to the free pool.\n",
+                        it->first.c_str(), it->second.developId, it->second.equipId,
+                        it->second.partsType, it->second.selector, it->second.misses);
                     it = g_State.equips.erase(it);
                     gcChanged = true;
+                    continue;
                 }
-                else
-                {
-                    ++it->second.misses;
-                    gcChanged = true;
-                    ++it;
-                }
+                ++it->second.misses;
+                gcChanged = true;
+                ++it;
+            }
+
+            g_OldFlowLayout.clear();
+            for (const auto& kv : g_State.equips)
+            {
+                const std::int32_t fi = kv.second.flowIndex;
+                const std::int32_t dv = kv.second.developId;
+                if (dv == 0 || fi < kFirstCustomFlowIndex || fi >= kNativeFlowIndexBound)
+                    continue;
+                auto found = g_OldFlowLayout.find(fi);
+                if (found == g_OldFlowLayout.end())
+                    g_OldFlowLayout[fi] = dv;
+                else if (found->second != dv)
+                    found->second = -1;
             }
 
             if (gcChanged)
@@ -380,21 +419,48 @@ namespace V_FrameWorkState
 
             EnsureSaveDirectory();
 
-            std::ofstream out(kSavePath, std::ios::binary | std::ios::trunc);
+            const std::string tmpPath = std::string(kSavePath) + ".tmp";
+
+            std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
             if (!out)
             {
-                Log("[V_FrameWorkState] ERROR: could not write '%s' - custom-tape ownership/save-index state will not persist.\n", kSavePath);
+                Log("[V_FrameWorkState] ERROR: could not write '%s' - custom-tape ownership/save-index state will not persist.\n", tmpPath.c_str());
                 return;
             }
 
             out << "return {\n";
-
 
             {
                 std::vector<std::pair<std::string, EquipEntry>> sorted;
                 sorted.reserve(g_State.equips.size());
                 for (const auto& kv : g_State.equips)
                     sorted.emplace_back(kv.first, kv.second);
+
+                std::unordered_map<std::string, std::int32_t> bareEquipId;
+                for (const auto& kv : sorted)
+                    if (kv.first.find(':') == std::string::npos
+                        && kv.second.equipId != 0)
+                        bareEquipId[kv.first] = kv.second.equipId;
+                std::unordered_set<std::string> folded;
+                for (auto& kv : sorted)
+                {
+                    const auto colon = kv.first.rfind(':');
+                    if (colon == std::string::npos)
+                        continue;
+                    const auto b = bareEquipId.find(kv.first.substr(colon + 1));
+                    if (b != bareEquipId.end())
+                    {
+                        kv.second.equipId = b->second;
+                        folded.insert(b->first);
+                    }
+                }
+                if (!folded.empty())
+                    sorted.erase(std::remove_if(sorted.begin(), sorted.end(),
+                        [&](const std::pair<std::string, EquipEntry>& kv) {
+                            return kv.first.find(':') == std::string::npos
+                                && folded.count(kv.first) != 0;
+                        }), sorted.end());
+
                 std::sort(sorted.begin(), sorted.end(),
                     [](const auto& a, const auto& b) { return a.first < b.first; });
 
@@ -404,6 +470,7 @@ namespace V_FrameWorkState
 
 
                     if (kv.second.developId == 0 && kv.second.flowIndex == 0 &&
+                        kv.second.equipId == 0 && kv.second.subId == 0 &&
                         kv.second.partsType == 0 && kv.second.selector == 0 &&
                         kv.second.misses == 0 && kv.second.developed < 0 &&
                         !kv.second.isNew)
@@ -413,6 +480,10 @@ namespace V_FrameWorkState
                         out << " developId = " << kv.second.developId << ",";
                     if (kv.second.flowIndex != 0)
                         out << " flowIndex = " << kv.second.flowIndex << ",";
+                    if (kv.second.equipId != 0)
+                        out << " equipId = " << kv.second.equipId << ",";
+                    if (kv.second.subId != 0)
+                        out << " subId = " << kv.second.subId << ",";
                     if (kv.second.partsType != 0)
                         out << " partsType = " << kv.second.partsType << ",";
                     if (kv.second.selector != 0)
@@ -486,13 +557,49 @@ namespace V_FrameWorkState
             }
 
             out << "}\n";
+            out.close();
+            if (!out)
+            {
+                Log("[V_FrameWorkState] ERROR: write to '%s' failed mid-stream - previous state file left untouched.\n", tmpPath.c_str());
+                DeleteFileA(tmpPath.c_str());
+                return;
+            }
+
+            DWORD lastErr = 0;
+            bool replaced = false;
+            for (int attempt = 0; attempt < 8; ++attempt)
+            {
+                if (MoveFileExA(tmpPath.c_str(), kSavePath,
+                                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                {
+                    replaced = true;
+                    break;
+                }
+                lastErr = GetLastError();
+                if (lastErr != ERROR_ACCESS_DENIED && lastErr != ERROR_SHARING_VIOLATION)
+                    break;
+                Sleep(3);
+            }
+            if (!replaced)
+            {
+                Log("[V_FrameWorkState] ERROR: could not replace '%s' (err %lu) - state kept in '%s'.\n",
+                    kSavePath, lastErr, tmpPath.c_str());
+                return;
+            }
             g_State.dirty = false;
+
+            CopyFileA(kSavePath, kBackupPath, FALSE);
         }
 
         static bool IsEquipIdInUse_NoLock(std::int32_t id)
         {
             for (const auto& kv : g_SessionEquipIds)
                 if (kv.second == id) return true;
+            const std::int32_t slot = EquipIdCompression::ComputeCompressed(id);
+            for (const auto& kv : g_State.equips)
+                if (kv.second.equipId != 0 &&
+                    EquipIdCompression::ComputeCompressed(kv.second.equipId) == slot)
+                    return true;
             return false;
         }
 
@@ -624,6 +731,31 @@ namespace V_FrameWorkState
             return true;
         }
 
+        auto pit = g_State.equips.find(key);
+        if (pit != g_State.equips.end() && pit->second.equipId != 0)
+        {
+            if (!g_NativeTableSynced)
+            {
+                EquipIdCompression::SyncFromNativeTable();
+                g_NativeTableSynced = true;
+            }
+            const std::int32_t persisted = pit->second.equipId;
+            bool sessionTaken = false;
+            for (const auto& kv : g_SessionEquipIds)
+                if (kv.second == persisted) { sessionTaken = true; break; }
+            const std::int32_t slot = EquipIdCompression::ComputeCompressed(persisted);
+            if (!sessionTaken && !EquipIdCompression::IsCompressedSlotUsed(slot))
+            {
+                g_SessionEquipIds[key] = persisted;
+                pit->second.misses = 0;
+                outEquipId = persisted;
+                return true;
+            }
+            Log("[V_FrameWorkState] persisted equipId 0x%X for '%s' is no longer free "
+                "(vanilla layout change or conflict) - reallocating; loadout references "
+                "to the old id will be healed or blanked.\n", persisted, key);
+        }
+
         const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId);
         if (newId < 0)
         {
@@ -634,6 +766,10 @@ namespace V_FrameWorkState
         }
 
         g_SessionEquipIds[key] = newId;
+        g_State.equips[key].equipId = newId;
+        g_State.equips[key].misses = 0;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
         outEquipId = newId;
 
         return true;
@@ -681,6 +817,14 @@ namespace V_FrameWorkState
         LoadFromDisk_NoLock();
         auto it = g_State.equips.find(key);
         return (it != g_State.equips.end()) ? it->second.developId : 0;
+    }
+
+    std::int32_t GetDevelopIdAtOldFlowIndex(std::int32_t oldFlowIndex)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        auto it = g_OldFlowLayout.find(oldFlowIndex);
+        return (it != g_OldFlowLayout.end()) ? it->second : 0;
     }
 
     std::vector<std::int32_t> TakePendingDevelopedResets()
@@ -813,7 +957,35 @@ namespace V_FrameWorkState
             return true;
         }
 
-        const std::int32_t newIdx = g_SessionNextFlowIndex++;
+        std::int32_t newIdx = 0;
+        {
+            std::vector<bool> used(
+                static_cast<std::size_t>(kNativeFlowIndexBound
+                                         - kFirstCustomFlowIndex), false);
+            for (const auto& kv : g_SessionFlowIndices)
+                if (kv.second >= kFirstCustomFlowIndex
+                    && kv.second < kNativeFlowIndexBound)
+                    used[static_cast<std::size_t>(
+                        kv.second - kFirstCustomFlowIndex)] = true;
+            for (std::int32_t i = kFirstCustomFlowIndex;
+                 i < kNativeFlowIndexBound; ++i)
+                if (!used[static_cast<std::size_t>(i - kFirstCustomFlowIndex)])
+                {
+                    newIdx = i;
+                    break;
+                }
+        }
+        if (newIdx == 0)
+        {
+            Log("[V_FrameWorkState] ResolveOrCreateFlowIndex: REFUSED '%s' - the native "
+                "develop flow array holds %d rows and indices %d..%d are all allocated. "
+                "Registering this row would corrupt memory past the array. The item will "
+                "not appear in R&D until develop-row paging frees window space.\n",
+                key, kNativeFlowIndexBound, kFirstCustomFlowIndex,
+                kNativeFlowIndexBound - 1);
+            return false;
+        }
+
         g_SessionFlowIndices[key] = newIdx;
 
         g_State.equips[key].flowIndex = newIdx;
@@ -823,6 +995,67 @@ namespace V_FrameWorkState
         SaveToDisk_NoLock();
 
         return true;
+    }
+
+    void SetSessionFlowIndex(const char* key, std::int32_t flowIndex)
+    {
+        if (!key || !key[0] || flowIndex <= 0) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        bool dirty = false;
+        for (auto it = g_SessionFlowIndices.begin();
+             it != g_SessionFlowIndices.end();)
+        {
+            if (it->second == flowIndex && it->first != key)
+            {
+                auto itE = g_State.equips.find(it->first);
+                if (itE != g_State.equips.end() && itE->second.flowIndex != 0)
+                {
+                    itE->second.flowIndex = 0;
+                    dirty = true;
+                }
+                it = g_SessionFlowIndices.erase(it);
+            }
+            else
+                ++it;
+        }
+
+        auto sit = g_SessionFlowIndices.find(key);
+        if (sit == g_SessionFlowIndices.end() || sit->second != flowIndex)
+            g_SessionFlowIndices[key] = flowIndex;
+
+        auto& e = g_State.equips[key];
+        if (e.flowIndex != flowIndex)
+        {
+            e.flowIndex = flowIndex;
+            dirty = true;
+        }
+
+        if (dirty)
+        {
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+        }
+    }
+
+    void ReleaseSessionFlowIndex(const char* key)
+    {
+        if (!key || !key[0]) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        auto it = g_SessionFlowIndices.find(key);
+        if (it != g_SessionFlowIndices.end())
+            g_SessionFlowIndices.erase(it);
+
+        auto itE = g_State.equips.find(key);
+        if (itE != g_State.equips.end() && itE->second.flowIndex != 0)
+        {
+            itE->second.flowIndex = 0;
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+        }
     }
 
     bool ResolveOrCreateConstantValue(
@@ -872,6 +1105,45 @@ namespace V_FrameWorkState
         Log("[Constants] allocated %s = %d\n", key.c_str(), value);
 #endif
         return true;
+    }
+
+    std::int32_t GetPersistedConstant(const char* spaceTag, const char* name)
+    {
+        if (!spaceTag || !spaceTag[0] || !name || !name[0]) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        const std::string key = std::string(spaceTag) + ":" + name;
+        auto it = g_State.constants.find(key);
+        return (it != g_State.constants.end()) ? it->second : 0;
+    }
+
+    void SetPersistedConstant(const char* spaceTag, const char* name,
+                              std::int32_t value)
+    {
+        if (!spaceTag || !spaceTag[0] || !name || !name[0]) return;
+        if (!IsSafeConstantNamePart(spaceTag) || !IsSafeConstantNamePart(name))
+            return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        const std::string key = std::string(spaceTag) + ":" + name;
+        auto it = g_State.constants.find(key);
+        if (it != g_State.constants.end() && it->second == value)
+            return;
+        g_State.constants[key] = value;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    void ForEachPersistedConstant(const char* spaceTag,
+                                  void (*fn)(const char* name, std::int32_t value))
+    {
+        if (!spaceTag || !spaceTag[0] || !fn) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        const std::string prefix = std::string(spaceTag) + ":";
+        for (const auto& kv : g_State.constants)
+            if (kv.first.compare(0, prefix.size(), prefix) == 0)
+                fn(kv.first.c_str() + prefix.size(), kv.second);
     }
 
     std::uint8_t GetPersistedOutfitPartsType(const char* key)
@@ -1137,7 +1409,7 @@ namespace V_FrameWorkState
         g_State.tapes.clear();
         g_SessionEquipIds.clear();
         g_SessionFlowIndices.clear();
-        g_SessionNextFlowIndex = kFirstCustomFlowIndex;
+        g_OldFlowLayout.clear();
         g_PendingDevelopedResets.clear();
     }
 }

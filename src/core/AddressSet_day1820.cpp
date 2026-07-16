@@ -200,9 +200,8 @@ namespace AddressSetRuntime
             0x140338B60ull, // SoundControl_PostExternalEvent
             0x140989B20ull, // MusicPlayerPlayWrapper
             0x145FA1510ull, // FUN_145fa1510
-            0x1408B1A0Dull, // SetEquipItem GetItemId
+            0x1408B1A0Dull, // SetEquipItem
             0x141000780ull, // FUN_141000780
-            0x140AF3760ull, // FUN_140af3760
             0x14504E090ull, // FUN_14504e090
             0x1409C3AF5ull, // Barrier_LoadGate0
             0x1409C3B5Full, // Barrier_LoadGate1
@@ -214,8 +213,8 @@ namespace AddressSetRuntime
             0x140BFF480ull, // FUN_140bff480
             0x140AF36D0ull, // FUN_140af36d0
             0x1404ECF80ull, // FUN_1404ecf80
-            0x145D0B630ull, // EquipCrossEvCall_IsItemNoUse (body; thunk 0x1408ADB10)
-            0x1497396C0ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction (body; thunk 0x141053060)
+            0x145D0B630ull, // EquipCrossEvCall_IsItemNoUse
+            0x1497396C0ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction
             0x1408B1A48ull, // EquipCrossSetEquipItem_Site1
             0x1408B1AA2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1AE4ull, // EquipCrossSetEquipItem_Site3
@@ -301,13 +300,37 @@ namespace AddressSetRuntime
             0x14685DD50ull, // LoadAvatarHeadOptionFpk
             0x1495264F0ull, // EquipDevelopCtrl_SetEnableDevelop
             0x1464C1180ull, // ReloadEquipParameterTables2
-            0x0ull,         // GunBasicParameters2Buffer (EN153 TBD)
-            0ull,           // GunBasicParameters2SlotCount (EN153 TBD)
-            0x0ull,         // MagazineParameters2Buffer (EN153 TBD)
-            0ull,           // MagazineParameters2SlotCount (EN153 TBD)
-            0x0ull,         // EquipParameterTablesImpl_Instance (EN153 TBD)
-            0x1423495C0ull, // MotionLoaderImpl_ReceiverTypeTable (EN153; 240 bytes)
-            0x147413D10ull, // MotionLoaderImpl_GetReceiverType (EN153; hot/cold-split body)
+            0x142C25C30ull, // GunBasicParameters2Buffer
+            514ull,           // GunBasicParameters2SlotCount
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance
+            0x1423495C0ull, // MotionLoaderImpl_ReceiverTypeTable
+            0x147413D10ull, // MotionLoaderImpl_GetReceiverType
+            0x14951AC10ull, // EquipDevelopControllerImpl_GetSuppressorAmount
+            0x142BDCFE0ull, // DamageParameterTable_Instance
+            0x145000FF0ull, // DamageParameterTable_ReloadDamageParameter
+            0x144FFB300ull, // DamageParameterTable_GetDamageParameter
+            0x149500A30ull, // EquipDevCtrl_GetBaseDevelopId
+            0x141679d50ull,           // MenuDevelopGrid_FillGrid
+            0x1416796d0ull,           // MenuDevelopGrid_CopyGrid
+            0x14a4ef340ull,           // MenuDevelopGrid_CountBadge
+            0x14167a2f0ull,           // MenuDevelopGrid_FillFlat
+            0x14a4f7130ull,           // MenuDevelopGrid_CopyFlat
+            0x1412829a0ull,           // SightManager_UpdateMissileLockOn
+            0x140d2fd20ull,           // Bullet3_DoSimulation
+            0x147215650ull,           // Bullet3_ActivateBulletAtEmptyWork
+            0x149c6cd60ull,           // SightManager_Update
+            0x149c6e5c0ull,           // SightManager_UpdateMissileLockOnUi
+            0x145debb40ull,           // LockOnReticleFactory_CreateWindow
+            0x140A3B5E0ull, // EquipParams_GetAttackIdByEquipId
+            0x140dc35e0ull,           // EquipSystem_SetUpGunInfoFromGunPartsDesc
+            0x141daba30ull,           // UiWindowFunction_FindWindow
+            0x141dabd70ull,           // UiWindowFunction_PostShowAndStartMessage
+            0x141dabab0ull,           // UiWindowFunction_GetLayout
+            0x141041950ull,           // AttackAction_Fire
+            0x141303a40ull,           // EquipObject_DoFire
+            0x1411574f0ull,           // CorePlugin_UpdateLoadoutRequest
+            0x140dc0120ull,           // WeaponSystem_DefineWeaponFireSound
+            0ull,           // EquipSystem_ChimeraPartsSetWork
         };
         return value;
     }
@@ -523,11 +546,11 @@ namespace AddressSetRuntime
             0x147b897d0ull, // GetMbFreeChangeLocationMenuParameter
             0x140925910ull, // GetPhotoAdditionalTextLangId
             0x140fe7e80ull, // UiControllerImpl_HideBinocle
-            0x140A87290ull, // AddCassetteTapeTrack (thunk)
-            0x140EF6540ull, // CollectGotTapes (thunk)
-            0x140A95740ull, // IsGotCassetteTapeTrack (thunk)
+            0x140A87290ull, // AddCassetteTapeTrack
+            0x140EF6540ull, // CollectGotTapes
+            0x140A95740ull, // IsGotCassetteTapeTrack
             0x140AAC180ull, // SetCassetteTapeTrackNewFlag
-            0x149CD4320ull, // SetCurrentAlbum (body)
+            0x149CD4320ull, // SetCurrentAlbum
             0x140974370ull, // SetupMusicInfos
             0x144EBCCC0ull, // RadioCassette_SearchCasseteInfo
             0x144EBBC20ull, // RadioCassette_GetCassetteMusic
@@ -543,9 +566,8 @@ namespace AddressSetRuntime
             0x1403385E0ull, // SoundControl_PostExternalEvent
             0x140989600ull, // MusicPlayerPlayWrapper
             0x147BB2DA0ull, // FUN_147bb2da0
-            0x1408B152Dull, // SetEquipItem GetItemId call-return
+            0x1408B152Dull, // SetEquipItem
             0x1410007D0ull, // FUN_1410007d0
-            0x140AF32A0ull, // FUN_140af32a0
             0x144EC3FF0ull, // FUN_144ec3ff0
             0x1409C35B5ull, // Barrier_LoadGate0
             0x1409C361Full, // Barrier_LoadGate1
@@ -557,8 +579,8 @@ namespace AddressSetRuntime
             0x140BFF010ull, // FUN_140bff010
             0x140AF3210ull, // FUN_140af3210
             0x1404ECA60ull, // FUN_1404eca60
-            0x1478375C0ull, // EquipCrossEvCall_IsItemNoUse (body; thunk 0x1408AD630)
-            0x14A1AE850ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction (body; thunk 0x1410530B0)
+            0x1478375C0ull, // EquipCrossEvCall_IsItemNoUse
+            0x14A1AE850ull, // AttackActionImpl_IsWeaponNoUseInPlaceAction
             0x1408B1568ull, // EquipCrossSetEquipItem_Site1
             0x1408B15C2ull, // EquipCrossSetEquipItem_Site2
             0x1408B1604ull, // EquipCrossSetEquipItem_Site3
@@ -644,13 +666,37 @@ namespace AddressSetRuntime
             0x148442EF0ull, // LoadAvatarHeadOptionFpk
             0x149F42BE0ull, // EquipDevelopCtrl_SetEnableDevelop
             0x140A40EC0ull, // ReloadEquipParameterTables2
-            0x0ull,         // GunBasicParameters2Buffer (JP153 TBD; cap 401 = 0x12cc/12)
-            0ull,           // GunBasicParameters2SlotCount (JP153 TBD)
-            0x0ull,         // MagazineParameters2Buffer (JP153 TBD)
-            0ull,           // MagazineParameters2SlotCount (JP153 TBD)
-            0x0ull,         // EquipParameterTablesImpl_Instance (JP153 TBD)
-            0x142349520ull, // MotionLoaderImpl_ReceiverTypeTable (JP153; 240 bytes)
-            0x14957D790ull, // MotionLoaderImpl_GetReceiverType (JP153; hot/cold-split body)
+            0x142C25C30ull, // GunBasicParameters2Buffer
+            514ull,           // GunBasicParameters2SlotCount
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance
+            0x142349520ull, // MotionLoaderImpl_ReceiverTypeTable
+            0x14957D790ull, // MotionLoaderImpl_GetReceiverType
+            0x140F6BAF0ull, // EquipDevelopControllerImpl_GetSuppressorAmount
+            0x142BDCFE0ull, // DamageParameterTable_Instance
+            0x144E87260ull, // DamageParameterTable_ReloadDamageParameter
+            0x144E80B60ull, // DamageParameterTable_GetDamageParameter
+            0x149F1A710ull, // EquipDevCtrl_GetBaseDevelopId
+            0x141679e90ull,           // MenuDevelopGrid_FillGrid
+            0x141679810ull,           // MenuDevelopGrid_CopyGrid
+            0x14af88160ull,           // MenuDevelopGrid_CountBadge
+            0x14167a430ull,           // MenuDevelopGrid_FillFlat
+            0x14af8ea80ull,           // MenuDevelopGrid_CopyFlat
+            0x141282ad0ull,           // SightManager_UpdateMissileLockOn
+            0x140d2f980ull,           // Bullet3_DoSimulation
+            0x14939a090ull,           // Bullet3_ActivateBulletAtEmptyWork
+            0x14a506720ull,           // SightManager_Update
+            0x14a507ed0ull,           // SightManager_UpdateMissileLockOnUi
+            0x147926060ull,           // LockOnReticleFactory_CreateWindow
+            0x140A3B0B0ull, // EquipParams_GetAttackIdByEquipId
+            0x140dc36c0ull,           // EquipSystem_SetUpGunInfoFromGunPartsDesc
+            0x141dab8e0ull,           // UiWindowFunction_FindWindow
+            0x141dabc20ull,           // UiWindowFunction_PostShowAndStartMessage
+            0x141dab960ull,           // UiWindowFunction_GetLayout
+            0x1410419a0ull,           // AttackAction_Fire
+            0x141303b80ull,           // EquipObject_DoFire
+            0x141157570ull,           // CorePlugin_UpdateLoadoutRequest
+            0x140dc0200ull,           // WeaponSystem_DefineWeaponFireSound
+            0ull,           // EquipSystem_ChimeraPartsSetWork
         };
 
         return value;

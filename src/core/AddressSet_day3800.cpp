@@ -206,7 +206,6 @@ static const char* const kAddrFieldNames[] = {
     "Barrier_GetItemId",
     "Barrier_EquipItemCallRet",
     "Barrier_Updater",
-    "Barrier_Pool",
     "Barrier_IsFobMode",
     "Barrier_LoadGate0",
     "Barrier_LoadGate1",
@@ -307,13 +306,37 @@ static const char* const kAddrFieldNames[] = {
     "ReloadEquipParameterTables2",
     "GunBasicParameters2Buffer",
     "GunBasicParameters2SlotCount",
-    "MagazineParameters2Buffer",
-    "MagazineParameters2SlotCount",
     "EquipParameterTablesImpl_Instance",
     "MotionLoaderImpl_ReceiverTypeTable",
     "MotionLoaderImpl_GetReceiverType",
+    "EquipDevelopControllerImpl_GetSuppressorAmount",
+    "DamageParameterTable_Instance",
+    "DamageParameterTable_ReloadDamageParameter",
+    "DamageParameterTable_GetDamageParameter",
+    "EquipDevCtrl_GetBaseDevelopId",
+    "MenuDevelopGrid_FillGrid",
+    "MenuDevelopGrid_CopyGrid",
+    "MenuDevelopGrid_CountBadge",
+    "MenuDevelopGrid_FillFlat",
+    "MenuDevelopGrid_CopyFlat",
+    "SightManager_UpdateMissileLockOn",
+    "Bullet3_DoSimulation",
+    "Bullet3_ActivateBulletAtEmptyWork",
+    "SightManager_Update",
+    "SightManager_UpdateMissileLockOnUi",
+    "LockOnReticleFactory_CreateWindow",
+    "EquipParams_GetAttackIdByEquipId",
+    "EquipSystem_SetUpGunInfoFromGunPartsDesc",
+    "UiWindowFunction_FindWindow",
+    "UiWindowFunction_PostShowAndStartMessage",
+    "UiWindowFunction_GetLayout",
+    "AttackAction_Fire",
+    "EquipObject_DoFire",
+    "CorePlugin_UpdateLoadoutRequest",
+    "WeaponSystem_DefineWeaponFireSound",
+    "EquipSystem_ChimeraPartsSetWork",
 };
-static const int kAddrFieldCount = 300;
+static const int kAddrFieldCount = 323;
 
 namespace AddressSetRuntime
 {
@@ -536,29 +559,28 @@ namespace AddressSetRuntime
             0x140EF5E00ull, // CollectGotTapes
             0x140A961C0ull, // IsGotCassetteTapeTrack
             0x140AACC00ull, // SetCassetteTapeTrackNewFlag
-            0x140EF7480ull, // SetCurrentAlbum (body)
+            0x140EF7480ull, // SetCurrentAlbum
             0x140975580ull, // SetupMusicInfos
-            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo  
-            0x1405D6560ull, // RadioCassette_GetCassetteMusic   
-            0x1405D65B0ull, // RadioCassette_IsGotCassette      
-            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex 
+            0x1405D66F0ull, // RadioCassette_SearchCasseteInfo
+            0x1405D6560ull, // RadioCassette_GetCassetteMusic
+            0x1405D65B0ull, // RadioCassette_IsGotCassette
+            0x1405D6580ull, // RadioCassette_GetCassetteSaveIndex
             0x1405FC750ull, // RadioCassette_SdPostEvent
-            0x1406433D0ull, // RadioCassette_RadioUpdate          
-            0x140A87DB0ull, // AddCassetteTapeTrackByIndex        
-            0x1406424C0ull, // RadioCassette_ActivateUnit         
-            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName 
+            0x1406433D0ull, // RadioCassette_RadioUpdate
+            0x140A87DB0ull, // AddCassetteTapeTrackByIndex
+            0x1406424C0ull, // RadioCassette_ActivateUnit
+            0x1405D6640ull, // RadioCassette_IsSameSaveIndexFromName
             0x14126B610ull, // SearchLightActionPluginImpl_StateDoorStart
             0x14126AB10ull, // SearchLightActionPluginImpl_StateDoorEnd
             0x140338820ull, // SoundControl_PostExternalEvent
             0x14098A810ull, // MusicPlayerPlayWrapper
             0x140931C10ull, // FUN_140931c10
-            0x1408B223Dull, // SetEquipItem GetItemId
+            0x1408B223Dull, // SetEquipItem
             0x140FFFFE0ull, // FUN_140ffffe0
-            0x140AF3F10ull, // FUN_140af3f10
             0x1405D76F0ull, // FUN_1405d76f0
             0x1409C47A5ull, // Barrier_LoadGate0
-            0x1409C480Full, // Barrier_LoadGate1 - InitializeWithoutParts itmsld01 (slot 0x13)
-            0x1409C4875ull, // Barrier_LoadGate2 - InitializeWithoutParts itmsld02 (slot 0x14)
+            0x1409C480Full, // Barrier_LoadGate1
+            0x1409C4875ull, // Barrier_LoadGate2
             0x140FC35D0ull, // FUN_140fc35d0
             0x140A2ABB0ull, // FUN_140a2abb0
             0x141B18A10ull, // FUN_141b18a10
@@ -612,7 +634,7 @@ namespace AddressSetRuntime
             0x1409CD030ull, // UpdatePartsStatus
             0x1416A2680ull, // ItemSelectorCallbackImpl_DecideActMotherBaseCustomize
             0x1400cce00ull, // Fox_Path_Exists
-            0x140085760ull, // Fox_Path_Dtor (fox::Path::~Path)
+            0x140085760ull, // Fox_Path_Dtor
             0x141E01FA0ull, // PluginFacial_ApplyMotion
             0x140f6d150ull, // EquipDevCtrl_IsEquipVisile
             0x140F697D0ull, // EquipDevCtrl_GetHeadBadgeCategory
@@ -654,12 +676,36 @@ namespace AddressSetRuntime
             0x140F6E5D0ull, // EquipDevelopCtrl_SetEnableDevelop
             0x140A41AE0ull, // ReloadEquipParameterTables2
             0x142C25C50ull, // GunBasicParameters2Buffer
-            514ull,         // GunBasicParameters2SlotCount (0x1818 / 12)
-            0x142C27AE0ull, // MagazineParameters2Buffer
-            191ull,         // MagazineParameters2SlotCount (0x5F8 / 8)
-            0x142A711F0ull, // EquipParameterTablesImpl_Instance (magazine ptr at +0x20)
-            0x142349A90ull, // MotionLoaderImpl_ReceiverTypeTable (240 bytes; write custom receiver's type entry, vanilla-style)
-            0x140DB6CB0ull, // MotionLoaderImpl_GetReceiverType (EN154; hook -> extended 256-slot type table)
+            514ull,         // GunBasicParameters2SlotCount
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance
+            0x142349A90ull, // MotionLoaderImpl_ReceiverTypeTable
+            0x140DB6CB0ull, // MotionLoaderImpl_GetReceiverType
+            0x140F6B260ull, // EquipDevelopControllerImpl_GetSuppressorAmount
+            0x142BDCFF0ull, // DamageParameterTable_Instance
+            0x1405CE160ull, // DamageParameterTable_ReloadDamageParameter
+            0x1405C9E30ull, // DamageParameterTable_GetDamageParameter
+            0x140F65C70ull, // EquipDevCtrl_GetBaseDevelopId
+            0x141678C80ull, // MenuDevelopGrid_FillGrid
+            0x141678600ull, // MenuDevelopGrid_CopyGrid
+            0x141672630ull, // MenuDevelopGrid_CountBadge
+            0x141679220ull, // MenuDevelopGrid_FillFlat
+            0x141678FC0ull, // MenuDevelopGrid_CopyFlat
+            0x141281FB0ull, // SightManager_UpdateMissileLockOn
+            0x140D2FE60ull, // Bullet3_DoSimulation
+            0x140D2D430ull, // Bullet3_ActivateBulletAtEmptyWork
+            0x141280000ull, // SightManager_Update
+            0x141282C50ull, // SightManager_UpdateMissileLockOnUi
+            0x1408EC8B0ull, // LockOnReticleFactory_CreateWindow
+            0x140A3BCD0ull, // EquipParams_GetAttackIdByEquipId
+            0x140DC3850ull, // EquipSystem_SetUpGunInfoFromGunPartsDesc
+            0x141DABED0ull, // UiWindowFunction_FindWindow
+            0x141DAC220ull, // UiWindowFunction_PostShowAndStartMessage
+            0x141DABF50ull, // UiWindowFunction_GetLayout
+            0x141041110ull, // AttackAction_Fire
+            0x141302F50ull, // EquipObject_DoFire
+            0x141156E60ull, // CorePlugin_UpdateLoadoutRequest
+            0x140DC03A0ull, // WeaponSystem_DefineWeaponFireSound
+            0x142C934A0ull, // EquipSystem_ChimeraPartsSetWork
         };
 
         return value;
@@ -845,29 +891,28 @@ namespace AddressSetRuntime
             0x140EF5E30ull, // CollectGotTapes
             0x140A96160ull, // IsGotCassetteTapeTrack
             0x140AACBA0ull, // SetCassetteTapeTrackNewFlag
-            0x140EF74B0ull, // SetCurrentAlbum (body)
+            0x140EF74B0ull, // SetCurrentAlbum
             0x1409754D0ull, // SetupMusicInfos
-            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo  
-            0x1405D6820ull, // RadioCassette_GetCassetteMusic   
-            0x1405D6870ull, // RadioCassette_IsGotCassette      
-            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex 
-            0x1405FC7E0ull, // RadioCassette_SdPostEvent   
-            0x140643400ull, // RadioCassette_RadioUpdate          
-            0x140A87D50ull, // AddCassetteTapeTrackByIndex        
-            0x1406424F0ull, // RadioCassette_ActivateUnit         
-            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName 
-            0x14126B640ull, // SearchLightActionPluginImpl_StateDoorStart 
+            0x1405D69B0ull, // RadioCassette_SearchCasseteInfo
+            0x1405D6820ull, // RadioCassette_GetCassetteMusic
+            0x1405D6870ull, // RadioCassette_IsGotCassette
+            0x1405D6840ull, // RadioCassette_GetCassetteSaveIndex
+            0x1405FC7E0ull, // RadioCassette_SdPostEvent
+            0x140643400ull, // RadioCassette_RadioUpdate
+            0x140A87D50ull, // AddCassetteTapeTrackByIndex
+            0x1406424F0ull, // RadioCassette_ActivateUnit
+            0x1405D6900ull, // RadioCassette_IsSameSaveIndexFromName
+            0x14126B640ull, // SearchLightActionPluginImpl_StateDoorStart
             0x14126AB40ull, // SearchLightActionPluginImpl_StateDoorEnd
             0x140338E00ull, // SoundControl_PostExternalEvent
             0x14098A750ull, // MusicPlayerPlayWrapper
             0x140931B10ull, // FUN_140931b10
             0x1408B216Dull, // SetEquipItem
             0x141000070ull, // FUN_141000070
-            0x140AF3E70ull, // FUN_140af3e70
             0x1405D79B0ull, // FUN_1405d79b0
             0x1409C46B5ull, // Barrier_LoadGate0
-            0x1409C471Full, // Barrier_LoadGate1 - InitializeWithoutParts itmsld01
-            0x1409C4785ull, // Barrier_LoadGate2 - InitializeWithoutParts itmsld02
+            0x1409C471Full, // Barrier_LoadGate1
+            0x1409C4785ull, // Barrier_LoadGate2
             0x140FC3620ull, // FUN_140fc3620
             0x140A2A9F0ull, // FUN_140a2a9f0
             0x141B187F0ull, // FUN_141b187f0
@@ -962,13 +1007,37 @@ namespace AddressSetRuntime
             0x140AE73C0ull, // LoadAvatarHeadOptionFpk
             0x140F6E630ull, // EquipDevelopCtrl_SetEnableDevelop
             0x140A41920ull, // ReloadEquipParameterTables2
-            0x0ull,         // GunBasicParameters2Buffer (JP154 TBD)
-            0ull,           // GunBasicParameters2SlotCount (JP154 TBD)
-            0x0ull,         // MagazineParameters2Buffer (JP154 TBD)
-            0ull,           // MagazineParameters2SlotCount (JP154 TBD)
-            0x0ull,         // EquipParameterTablesImpl_Instance (JP154 TBD)
-            0x142349B40ull, // MotionLoaderImpl_ReceiverTypeTable (JP154; 240 bytes)
-            0x140DB6C70ull, // MotionLoaderImpl_GetReceiverType (JP154)
+            0x142C25C50ull, // GunBasicParameters2Buffer
+            514ull,           // GunBasicParameters2SlotCount
+            0x142A711F0ull, // EquipParameterTablesImpl_Instance
+            0x142349B40ull, // MotionLoaderImpl_ReceiverTypeTable
+            0x140DB6C70ull, // MotionLoaderImpl_GetReceiverType
+            0x140F6B2C0ull, // EquipDevelopControllerImpl_GetSuppressorAmount
+            0x142BDCFF0ull, // DamageParameterTable_Instance
+            0x1405CE410ull, // DamageParameterTable_ReloadDamageParameter
+            0x1405CA0E0ull, // DamageParameterTable_GetDamageParameter
+            0x140F65CD0ull, // EquipDevCtrl_GetBaseDevelopId
+            0x141678c50ull,           // MenuDevelopGrid_FillGrid
+            0x1416785d0ull,           // MenuDevelopGrid_CopyGrid
+            0x1416725f0ull,           // MenuDevelopGrid_CountBadge
+            0x1416791f0ull,           // MenuDevelopGrid_FillFlat
+            0x141678f90ull,           // MenuDevelopGrid_CopyFlat
+            0x141281fe0ull,           // SightManager_UpdateMissileLockOn
+            0x140d2fe10ull,           // Bullet3_DoSimulation
+            0x140d2d3e0ull,           // Bullet3_ActivateBulletAtEmptyWork
+            0x141280030ull,           // SightManager_Update
+            0x141282c80ull,           // SightManager_UpdateMissileLockOnUi
+            0x1408ec7a0ull,           // LockOnReticleFactory_CreateWindow
+            0x140A3BB10ull, // EquipParams_GetAttackIdByEquipId
+            0x140dc3820ull,           // EquipSystem_SetUpGunInfoFromGunPartsDesc
+            0x141dabdb0ull,           // UiWindowFunction_FindWindow
+            0x141dac100ull,           // UiWindowFunction_PostShowAndStartMessage
+            0x141dabe30ull,           // UiWindowFunction_GetLayout
+            0x141041190ull,           // AttackAction_Fire
+            0x141302f70ull,           // EquipObject_DoFire
+            0x141156ef0ull,           // CorePlugin_UpdateLoadoutRequest
+            0x140dc0360ull,           // WeaponSystem_DefineWeaponFireSound
+            0ull,           // EquipSystem_ChimeraPartsSetWork
         };
         return value;
     }

@@ -44,7 +44,18 @@ namespace
                 out[0] = { 0x140FF04C1ull, "alloc" };
                 out[1] = { 0x140FF1139ull, "populate" };
                 return;
-            // TODO: port for JP15.4 / EN15.3 / JP15.3.
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
+                out[0] = { 0x140FF04E1ull, "alloc" };
+                out[1] = { 0x140FF1159ull, "populate" };
+                return;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
+                out[0] = { 0x140FF0BF1ull, "alloc" };
+                out[1] = { 0x140FF1869ull, "populate" };
+                return;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
+                out[0] = { 0x140FF0CB1ull, "alloc" };
+                out[1] = { 0x140FF1929ull, "populate" };
+                return;
             default:
                 out[0] = { 0, "alloc" };
                 out[1] = { 0, "populate" };

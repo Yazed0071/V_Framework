@@ -30,6 +30,9 @@ namespace EquipIdCompression
 
     std::size_t SyncFromNativeTable();
 
+    constexpr std::int32_t kChimeraEquipIdFirst = 0x367;
+    constexpr std::int32_t kChimeraEquipIdLast  = 0x36C;
+
     template <typename SessionUsedFn>
     inline std::int32_t FindLowestFreeEquipId(SessionUsedFn isSessionUsed,
                                               std::int32_t minimumEquipId = 0)
@@ -39,6 +42,9 @@ namespace EquipIdCompression
              equipId < kCompressedSlotBound;
              ++equipId)
         {
+            if (equipId >= kChimeraEquipIdFirst && equipId <= kChimeraEquipIdLast)
+                continue;
+            if (equipId == 0x400) continue;
             if (IsCompressedSlotUsed(equipId)) continue;
             if (isSessionUsed(equipId))        continue;
             return equipId;

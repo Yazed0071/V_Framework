@@ -291,6 +291,12 @@ namespace
                 else
                 {
                     displayVar = entry->defaultVariant;
+                    if (outfit::PeekCrateDeliveredDevelopId()
+                            == entry->developId)
+                        displayVar = outfit::PeekCrateDeliveredVariantIdx();
+                    else if (outfit::PeekPendingSupplyDropDevelopId()
+                             == entry->developId)
+                        displayVar = outfit::PeekPendingSupplyDropVariantIdx();
                     outfit::SetActiveVariant(entry->partsType, displayVar);
                 }
                 if (displayVar >= variantsForPT)
@@ -330,8 +336,203 @@ namespace
                                                   void* dst2,
                                                   void* text);
 
+    constexpr std::size_t kVtblSlot_PrepIsFobSortie   = 0x4F0 / 8;
+    constexpr std::size_t kVtblSlot_DevIsFobAvailable = 0x478 / 8;
+
+    static bool IsPanelFobSortie(std::uint8_t* panel)
+    {
+        __try
+        {
+            void* sys = *reinterpret_cast<void**>(panel + 0x70);
+            if (!sys) return false;
+            using CtxFn_t = std::uint8_t (__fastcall*)(void*);
+            auto ctx = reinterpret_cast<CtxFn_t>(
+                (*reinterpret_cast<void***>(sys))[kVtblSlot_PrepIsFobSortie]);
+            return ctx && ctx(sys) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    static std::int32_t ReadCamoToFlow(std::uint8_t idx)
+    {
+        using GetQuark_t = void* (__fastcall*)();
+        auto getQuark = reinterpret_cast<GetQuark_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        if (!getQuark) return -1;
+        __try
+        {
+            auto* quark = static_cast<std::uint8_t*>(getQuark());
+            if (!quark) return -1;
+            auto* app = *reinterpret_cast<std::uint8_t**>(quark + 0x98);
+            if (!app) return -1;
+            auto* tbl = *reinterpret_cast<std::uint8_t**>(app + 0x10);
+            if (!tbl) return -1;
+            return *reinterpret_cast<std::int16_t*>(tbl + 0x19ac + idx * 2);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+    }
+
     static void __fastcall hkUpdateRecords(void* thisPtr)
     {
+        if (thisPtr && !MissionCodeGuard::ShouldBypassHooks())
+        {
+            std::uint8_t seedSel[32];
+            std::uint8_t seedSrc[32];
+            const std::uint8_t seedCount =
+                outfit::VanillaExtCollectSelectorSeeds(seedSel, seedSrc, 32);
+            for (std::uint8_t i = 0; i < seedCount; ++i)
+                SeedVextSwatchFlow(seedSel[i], seedSrc[i]);
+
+            __try
+            {
+                auto* rb = reinterpret_cast<std::uint8_t*>(thisPtr);
+                const std::uint32_t row =
+                    *reinterpret_cast<std::uint32_t*>(rb + 0x008);
+                const auto flowTable =
+                    *reinterpret_cast<std::uint16_t* const*>(rb + 0x1E8);
+                if (row <= 0x3F && flowTable)
+                {
+                    auto* panel = reinterpret_cast<std::uint8_t*>(
+                        reinterpret_cast<std::uintptr_t>(flowTable) - 0x4440);
+                    std::uint8_t scrubbed = 0;
+                    std::uint8_t firstRaw = 0;
+                    for (std::uint8_t c = 0; c < 15; ++c)
+                    {
+                        auto* cell = panel + 0xCC40
+                            + (static_cast<std::size_t>(row) * 15 + c) * 12;
+                        const std::uint8_t camo = *cell;
+                        if (camo < outfit::kCustomSelectorStart
+                         || camo > outfit::kCustomSelectorEnd) continue;
+                        std::uint8_t svpt = 0, svidx = 0;
+                        if (!outfit::TryGetVanillaExtByVariantSelector(
+                                camo, &svpt, &svidx)) continue;
+                        const std::uint8_t src =
+                            outfit::VanillaExtGetVariantSourceCamo(svpt, svidx);
+                        if (src == 0xFF) continue;
+                        if (scrubbed == 0) firstRaw = camo;
+                        *cell = src;
+                        ++scrubbed;
+                    }
+#ifdef _DEBUG
+                    if (scrubbed != 0)
+                    {
+                        static std::atomic<int> s_scrubLog{0};
+                        if (int n = s_scrubLog.load(std::memory_order_relaxed);
+                            n < 24)
+                        {
+                            s_scrubLog.store(n + 1, std::memory_order_relaxed);
+                            Log("[RedCrossDiag] render-time cell scrub: row=%u "
+                                "%u cell(s) held a vext selector (first=0x%02X) "
+                                "- reset to source camo before orig render\n",
+                                row, static_cast<unsigned>(scrubbed),
+                                static_cast<unsigned>(firstRaw));
+                        }
+                    }
+#endif
+                    {
+                        const std::uint16_t rowFlow =
+                            flowTable[static_cast<std::size_t>(row) * 15];
+                        bool isVextRow = false;
+                        if (rowFlow < 1024)
+                            for (std::uint8_t c = 0; c < 15 && !isVextRow; ++c)
+                                if (outfit::VextLookupCellSelector(rowFlow, c)
+                                        != 0)
+                                    isVextRow = true;
+                        if (isVextRow && !IsPanelFobSortie(panel))
+                        {
+                            const std::uint8_t rowCamo0 =
+                                *(panel + 0xCC40
+                                  + static_cast<std::size_t>(row) * 15 * 12);
+                            const std::uint8_t fvpt =
+                                outfit::ResolveVanillaPartsTypeForCamo(rowCamo0);
+                            if (fvpt != 0xFF
+                                && outfit::GetActiveVariant(fvpt) != 0)
+                            {
+                                const std::uint8_t factive =
+                                    outfit::GetActiveVariant(fvpt);
+                                const std::uint8_t fcnt =
+                                    *(panel + 0xBC40 + row);
+                                for (std::uint8_t c = 0;
+                                     c < fcnt && c < 15; ++c)
+                                {
+                                    const std::size_t ci =
+                                        static_cast<std::size_t>(row) * 15 + c;
+                                    const std::uint8_t cSel =
+                                        outfit::VextLookupCellSelector(
+                                            rowFlow, c);
+                                    std::uint8_t want = 1;
+                                    if (cSel != 0)
+                                    {
+                                        std::uint8_t cvpt = 0, cvidx = 0;
+                                        if (outfit::TryGetVanillaExtByVariantSelector(
+                                                cSel, &cvpt, &cvidx)
+                                            && cvpt == fvpt
+                                            && cvidx == factive)
+                                            want = 0;
+                                    }
+                                    if (*(panel + 0x548 + ci) != want)
+                                        *(panel + 0x548 + ci) = want;
+                                }
+                            }
+                            else if (fvpt != 0xFF)
+                            {
+                                const std::uint8_t fcnt =
+                                    *(panel + 0xBC40 + row);
+                                for (std::uint8_t c = 0;
+                                     c < fcnt && c < 15; ++c)
+                                {
+                                    if (outfit::VextLookupCellSelector(
+                                            rowFlow, c) == 0)
+                                        continue;
+                                    const std::size_t ci =
+                                        static_cast<std::size_t>(row) * 15 + c;
+                                    if (*(panel + 0x425a4 + ci) != 0)
+                                        *(panel + 0x425a4 + ci) = 0;
+                                    if (*(panel + 0x548 + ci) == 0)
+                                        *(panel + 0x548 + ci) = 1;
+                                }
+                            }
+#ifdef _DEBUG
+                            const std::uint8_t cnt   = *(panel + 0xBC40 + row);
+                            const std::uint8_t selC2 =
+                                *(panel + 0xC040 + row);
+                            char cells[256];
+                            int  pos = 0;
+                            for (std::uint8_t c = 0;
+                                 c < cnt && c < 15 && pos < 200; ++c)
+                            {
+                                const std::size_t ci =
+                                    static_cast<std::size_t>(row) * 15 + c;
+                                auto* cd = panel + 0xCC40 + ci * 12;
+                                pos += std::snprintf(cells + pos,
+                                    sizeof(cells) - pos,
+                                    " [%u]c=%02X s=%X e=%u n=%u",
+                                    c, *cd,
+                                    *reinterpret_cast<std::uint32_t*>(cd + 4),
+                                    *(panel + 0x425a4 + ci),
+                                    *(panel + 0x548 + ci));
+                            }
+                            static std::uint64_t s_lastRowKey = 0;
+                            std::uint64_t key = 1469598103934665603ull;
+                            for (int i = 0; i < pos; ++i)
+                                key = (key ^ cells[i]) * 1099511628211ull;
+                            key ^= (static_cast<std::uint64_t>(selC2) << 56);
+                            if (key != s_lastRowKey)
+                            {
+                                s_lastRowKey = key;
+                                Log("[RedCrossDiag] vextrow row=%u flow=%u "
+                                    "count=%u selCell=%u%s\n",
+                                    row, rowFlow,
+                                    static_cast<unsigned>(cnt),
+                                    static_cast<unsigned>(selC2), cells);
+                            }
+#endif
+                        }
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
 
         if (g_OrigUpdateRecords) g_OrigUpdateRecords(thisPtr);
 
@@ -705,9 +906,6 @@ namespace
         return g_OrigWornHeadCategory ? g_OrigWornHeadCategory(self) : 0;
     }
 
-    constexpr std::size_t kVtblSlot_PrepIsFobSortie   = 0x4F0 / 8;
-    constexpr std::size_t kVtblSlot_DevIsFobAvailable = 0x478 / 8;
-
     static void ApplyFobAvailabilityToCustomRows(void* thisPtr)
     {
         __try
@@ -830,7 +1028,23 @@ namespace
                     && rowCount != 0 && rowCount <= 0x40)
                 {
                     const std::uint8_t livePT = outfit::ReadLivePlayerType();
-                    for (std::uint32_t row = 0; row < rowCount; ++row)
+                    const bool fobSortie = IsPanelFobSortie(base);
+#ifdef _DEBUG
+                    if (fobSortie)
+                    {
+                        static int s_fobVextLog = 0;
+                        if (s_fobVextLog < 8)
+                        {
+                            ++s_fobVextLog;
+                            Log("[OutfitListInject:vext] FOB-sortie context: "
+                                "vext variant cells not injected (extended "
+                                "outfits blocked in FOB like custom "
+                                "outfits)\n");
+                        }
+                    }
+#endif
+                    for (std::uint32_t row = 0;
+                         !fobSortie && row < rowCount; ++row)
                     {
                         const std::size_t row0CellByte =
                             0xCC40 + (static_cast<std::size_t>(row) * 15) * 12;
@@ -870,6 +1084,8 @@ namespace
                                 g_VextCellMap[flowIndex][p] = VextCellInfo{};
 
                         const std::uint8_t activeVar = outfit::GetActiveVariant(vpt);
+                        const std::uint8_t liveDonor =
+                            outfit::VanillaExtResolveVariantDonor(vpt, livePT);
                         std::uint8_t appended   = nativeCount;
                         int          activeCell = -1;
                         for (std::uint8_t v = 1;
@@ -879,7 +1095,9 @@ namespace
                                     != rowCamo)
                                 continue;
                             const outfit::VanillaSuitVariantAsset* vasset =
-                                outfit::VanillaExtGetVariant(vpt, livePT, v);
+                                (liveDonor == 0xFF)
+                                ? nullptr
+                                : outfit::VanillaExtGetVariant(vpt, liveDonor, v);
                             if (!vasset) continue;
                             const std::uint8_t sel =
                                 outfit::VanillaExtGetVariantSelector(vpt, v);
@@ -895,8 +1113,9 @@ namespace
                             *reinterpret_cast<std::uint32_t*>(cell + 4) = 0;
                             *(cell + 8) = 0;
 
-                            *(base + 0x548 + cellIndex) = 1;
                             const bool activeThis = (activeVar == v);
+                            *(base + 0x548 + cellIndex) =
+                                activeThis ? std::uint8_t{0} : std::uint8_t{1};
                             *(base + 0x425a4 + cellIndex) = activeThis ? 1 : 0;
                             if (activeThis) activeCell = static_cast<int>(appended);
                             StoreVextCellLabel(flowIndex,
@@ -911,8 +1130,12 @@ namespace
                         *(base + 0xBC40 + row) = appended;
                         if (activeVar != 0)
                             for (std::uint8_t nc = 0; nc < nativeCount; ++nc)
+                            {
                                 *(base + 0x425a4
                                   + static_cast<std::size_t>(row) * 15 + nc) = 0;
+                                *(base + 0x548
+                                  + static_cast<std::size_t>(row) * 15 + nc) = 1;
+                            }
                         if (activeCell >= 0)
                             *(base + 0xC040 + row) =
                                 static_cast<std::uint8_t>(activeCell);
@@ -939,9 +1162,23 @@ namespace
         bool headRowsChanged = false;
         if (!prev && g_HeadOptionInjectEnabled)
         {
-
-
-            headRowsChanged = TryInjectHeadOptionList(thisPtr);
+            if (IsPanelFobSortie(reinterpret_cast<std::uint8_t*>(thisPtr)))
+            {
+#ifdef _DEBUG
+                static int s_fobHeadLog = 0;
+                if (s_fobHeadLog < 8)
+                {
+                    ++s_fobHeadLog;
+                    Log("[OutfitListInject:HeadOption] FOB-sortie context: "
+                        "custom head options not injected (head options "
+                        "disabled in FOB)\n");
+                }
+#endif
+            }
+            else
+            {
+                headRowsChanged = TryInjectHeadOptionList(thisPtr);
+            }
         }
 
         if (!prev && g_HeadBadgeBuildActive)

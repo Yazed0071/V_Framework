@@ -6,6 +6,8 @@
 #include "Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h"
 #include "ShadowState.h"
 #include "FoxPathInternal.h"
+#include "MissionCodeGuard.h"
+#include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 #include <atomic>
 #include <cstdint>
@@ -84,6 +86,7 @@ namespace
     constexpr std::size_t   kPP_OffCamoTypeArr             = 0x50;
     constexpr std::size_t   kPP_OffArmTypeArr              = 0x58;
     constexpr std::size_t   kPP_OffStateChangedBits        = 0x180;
+    constexpr std::size_t   kPP_OffVariantChangedBits      = 0x184;
     constexpr std::size_t   kPP_OffAltStateBits            = 0x184;
     constexpr std::size_t   kPP_OffLoadoutReq              = 0xc0;
     constexpr std::size_t   kPP_LoadoutReqStride           = 0x3a;
@@ -409,6 +412,9 @@ namespace
         return fallback;
     }
 
+    static std::atomic<std::uint8_t> g_VextServedPt[outfit::shadow::kMaxSlots];
+    static std::atomic<std::uint8_t> g_VextServedVar[outfit::shadow::kMaxSlots];
+
     static const outfit::VanillaSuitVariantAsset* ResolveVanillaExtActiveVariant(
         std::uint32_t playerType, std::uint32_t effectivePartsType)
     {
@@ -416,8 +422,9 @@ namespace
         if (vpt >= outfit::kCustomPartsTypeStart) return nullptr;
         const std::uint8_t v = outfit::GetActiveVariant(vpt);
         if (v == 0) return nullptr;
+        if (MissionCodeGuard::ShouldBypassHooks()) return nullptr;
         const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
-        return outfit::VanillaExtGetVariant(vpt, pt, v);
+        return outfit::VanillaExtGetVariantBridged(vpt, pt, v);
     }
 
     static std::uint64_t ResolveVanillaExtVariantParts(std::uint32_t playerType,
@@ -439,6 +446,8 @@ namespace
     static const outfit::CustomHeadEntry* ResolveVanillaSuitCustomHead(
         std::uint8_t pt, std::uint32_t playerPartsType, std::uint8_t faceEquipId)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return nullptr;
         const outfit::CustomHeadEntry* head =
             outfit::TryGetCustomHeadBySlot(faceEquipId);
         if (!head)
@@ -500,8 +509,25 @@ namespace
         if (const std::uint64_t path = ResolveVanillaExtVariantParts(
                 playerType, effectivePartsType); path != 0)
         {
-            if (!ShouldFallBackOnMissingAsset(path)
-                && fox::detail::PathExistsByCode(path))
+            const bool vfallback = ShouldFallBackOnMissingAsset(path);
+            const bool vexists   = fox::detail::PathExistsByCode(path);
+#ifdef _DEBUG
+            static std::atomic<int> s_vextPartsDbg{0};
+            if (int n = s_vextPartsDbg.load(std::memory_order_relaxed); n < 16)
+            {
+                s_vextPartsDbg.store(n + 1, std::memory_order_relaxed);
+                Log("[OutfitRuntimeParts:vextserve] PARTS pt=%u vpt=0x%02X "
+                    "active=%u path=0x%016llX fallback=%d exists=%d -> %s\n",
+                    static_cast<unsigned>(playerType),
+                    static_cast<unsigned>(effectivePartsType & 0xFF),
+                    static_cast<unsigned>(outfit::GetActiveVariant(
+                        static_cast<std::uint8_t>(effectivePartsType & 0xFF))),
+                    static_cast<unsigned long long>(path),
+                    vfallback ? 1 : 0, vexists ? 1 : 0,
+                    (!vfallback && vexists) ? "SERVE" : "fallback-vanilla");
+            }
+#endif
+            if (!vfallback && vexists)
                 return WriteFoxPath(outPath, path);
         }
         return g_OrigLoadPartsParts(outPath, playerType, VanillaClampPartsType(playerPartsType));
@@ -533,11 +559,36 @@ namespace
                 return WriteFoxPath(outPath, path);
             }
         }
+        if (effectivePartsType < outfit::kCustomPartsTypeStart)
+        {
+            const auto servedIdx = static_cast<std::size_t>(playerType & 0x3);
+            const auto servedPt  = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            g_VextServedPt[servedIdx].store(servedPt, std::memory_order_relaxed);
+            g_VextServedVar[servedIdx].store(outfit::GetActiveVariant(servedPt),
+                                             std::memory_order_relaxed);
+        }
         if (const std::uint64_t path = ResolveVanillaExtVariantFpk(
                 playerType, effectivePartsType); path != 0)
         {
-            if (!ShouldFallBackOnMissingAsset(path)
-                && fox::detail::PathExistsByCode(path))
+            const bool vfallback = ShouldFallBackOnMissingAsset(path);
+            const bool vexists   = fox::detail::PathExistsByCode(path);
+#ifdef _DEBUG
+            static std::atomic<int> s_vextFpkDbg{0};
+            if (int n = s_vextFpkDbg.load(std::memory_order_relaxed); n < 16)
+            {
+                s_vextFpkDbg.store(n + 1, std::memory_order_relaxed);
+                Log("[OutfitRuntimeParts:vextserve] FPK pt=%u vpt=0x%02X "
+                    "active=%u path=0x%016llX fallback=%d exists=%d -> %s\n",
+                    static_cast<unsigned>(playerType),
+                    static_cast<unsigned>(effectivePartsType & 0xFF),
+                    static_cast<unsigned>(outfit::GetActiveVariant(
+                        static_cast<std::uint8_t>(effectivePartsType & 0xFF))),
+                    static_cast<unsigned long long>(path),
+                    vfallback ? 1 : 0, vexists ? 1 : 0,
+                    (!vfallback && vexists) ? "SERVE" : "fallback-vanilla");
+            }
+#endif
+            if (!vfallback && vexists)
                 return WriteFoxPath(outPath, path);
         }
         return g_OrigLoadPartsFpk(outPath, playerType, VanillaClampPartsType(playerPartsType));
@@ -606,6 +657,21 @@ namespace
                 }
             }
         }
+        if (const outfit::VanillaSuitVariantAsset* var =
+                ResolveVanillaExtActiveVariant(playerType, effectivePartsType))
+        {
+            if (var->camoFpk > outfit::kSubAssetUseVanilla
+                && !ShouldFallBackOnMissingAsset(var->camoFpk)
+                && fox::detail::PathExistsByCode(var->camoFpk))
+                return WriteFoxPath(outPath, var->camoFpk);
+            const auto vpt = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const std::uint8_t src = outfit::VanillaExtGetVariantSourceCamo(
+                vpt, outfit::GetActiveVariant(vpt));
+            if (src != 0xFF)
+                return g_OrigLoadCamoFpk(outPath, playerType,
+                                         VanillaClampPartsType(playerPartsType),
+                                         ClampVanillaCamo(src));
+        }
         return g_OrigLoadCamoFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -631,6 +697,16 @@ namespace
                     return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
                 return WriteFoxPath(outPath, diamond);
             }
+        }
+        if (const outfit::VanillaSuitVariantAsset* var =
+                ResolveVanillaExtActiveVariant(playerType, effectivePartsType))
+        {
+            if (var->diamondFpk == outfit::kSubAssetDisabled)
+                return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+            if (var->diamondFpk > outfit::kSubAssetUseVanilla
+                && !ShouldFallBackOnMissingAsset(var->diamondFpk)
+                && fox::detail::PathExistsByCode(var->diamondFpk))
+                return WriteFoxPath(outPath, var->diamondFpk);
         }
         return g_OrigLoadDiamondFpk(outPath, playerType, VanillaClampPartsType(playerPartsType), applyBlackDiamond);
     }
@@ -684,6 +760,21 @@ namespace
                 }
             }
         }
+        if (const outfit::VanillaSuitVariantAsset* var =
+                ResolveVanillaExtActiveVariant(playerType, effectivePartsType))
+        {
+            if (var->camoFv2 > outfit::kSubAssetUseVanilla
+                && !ShouldFallBackOnMissingAsset(var->camoFv2)
+                && fox::detail::PathExistsByCode(var->camoFv2))
+                return WriteFoxPath(outPath, var->camoFv2);
+            const auto vpt = static_cast<std::uint8_t>(effectivePartsType & 0xFF);
+            const std::uint8_t src = outfit::VanillaExtGetVariantSourceCamo(
+                vpt, outfit::GetActiveVariant(vpt));
+            if (src != 0xFF)
+                return g_OrigLoadCamoFv2(outPath, playerType,
+                                         VanillaClampPartsType(playerPartsType),
+                                         ClampVanillaCamo(src));
+        }
         return g_OrigLoadCamoFv2(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -709,6 +800,16 @@ namespace
                     return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
                 return WriteFoxPath(outPath, diamond);
             }
+        }
+        if (const outfit::VanillaSuitVariantAsset* var =
+                ResolveVanillaExtActiveVariant(playerType, effectivePartsType))
+        {
+            if (var->diamondFv2 == outfit::kSubAssetDisabled)
+                return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
+            if (var->diamondFv2 > outfit::kSubAssetUseVanilla
+                && !ShouldFallBackOnMissingAsset(var->diamondFv2)
+                && fox::detail::PathExistsByCode(var->diamondFv2))
+                return WriteFoxPath(outPath, var->diamondFv2);
         }
         return g_OrigLoadDiamondFv2(outPath, playerType, VanillaClampPartsType(playerPartsType), applyBlackDiamond);
     }
@@ -764,6 +865,10 @@ namespace
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerFaceId, char playerFaceEquipId)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigLoadSnakeFaceFv2(outPath, playerType,
+                                          VanillaClampPartsType(playerPartsType),
+                                          playerFaceId, playerFaceEquipId);
         const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
         const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
         const outfit::OutfitEntry* entry = nullptr;
@@ -849,6 +954,10 @@ namespace
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerFaceId, char playerFaceEquipId)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigLoadSnakeFaceFpk(outPath, playerType,
+                                          VanillaClampPartsType(playerPartsType),
+                                          playerFaceId, playerFaceEquipId);
         const std::uint32_t effectivePartsType = EffectivePartsType(playerPartsType);
         const auto pt = static_cast<std::uint8_t>(playerType & 0xFF);
         const outfit::OutfitEntry* entry = nullptr;
@@ -971,6 +1080,8 @@ namespace
     static std::uint64_t* __fastcall hkLoadAvatarHeadOptionFv2(
         std::uint64_t* outPath, std::uint32_t faceId)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigLoadAvatarHeadOptionFv2(outPath, faceId);
         if (const outfit::CustomHeadEntry* head = ResolveAvatarCustomHead())
         {
 #ifdef _DEBUG
@@ -994,6 +1105,8 @@ namespace
     static std::uint64_t* __fastcall hkLoadAvatarHeadOptionFpk(
         std::uint64_t* outPath, std::uint32_t faceId)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigLoadAvatarHeadOptionFpk(outPath, faceId);
         if (const outfit::CustomHeadEntry* head = ResolveAvatarCustomHead())
         {
 #ifdef _DEBUG
@@ -1080,6 +1193,9 @@ namespace
 
     static std::uint8_t __fastcall hkDoesNeedFaceFova(std::uint32_t playerPartsType)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigDoesNeedFaceFova
+                ? g_OrigDoesNeedFaceFova(playerPartsType) : 0;
         const std::uint32_t effective = EffectivePartsType(playerPartsType);
         if (effective >= outfit::kCustomPartsTypeStart && effective <= outfit::kCustomPartsTypeEnd)
         {
@@ -1098,6 +1214,9 @@ namespace
 
     static std::uint8_t __fastcall hkDoesNeedFaceFovaForAvatar(std::uint32_t playerPartsType)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return g_OrigDoesNeedFaceFovaForAvatar
+                ? g_OrigDoesNeedFaceFovaForAvatar(playerPartsType) : 0;
         const std::uint32_t effective = EffectivePartsType(playerPartsType);
         if (effective >= outfit::kCustomPartsTypeStart && effective <= outfit::kCustomPartsTypeEnd)
         {
@@ -1250,6 +1369,8 @@ namespace
 
     static void __fastcall hkUpdatePartsStatus(void* self)
     {
+        EquipDevelopAdd::MaybeRefreshDynamicGates();
+
         struct SlotOverride { bool active; std::uint8_t restoreValue; };
         SlotOverride  overrides[outfit::shadow::kMaxSlots] = {};
         std::uint8_t* armTypeArr = nullptr;
@@ -1276,6 +1397,50 @@ namespace
 
                 if (partsTypeArr && playerTypeArr && armTypeArr)
                 {
+                    std::uint32_t vextRestream = 0;
+                    if (!MissionCodeGuard::ShouldBypassHooks())
+                        for (std::size_t i = 0;
+                             i < outfit::shadow::kMaxSlots; ++i)
+                        {
+                            const std::uint8_t pt = partsTypeArr[i];
+                            if (pt >= outfit::kCustomPartsTypeStart) continue;
+                            if (!stateMachineArr || stateMachineArr[i] != 3)
+                                continue;
+                            if (outfit::VanillaExtVariantSlotCount(pt) == 0)
+                                continue;
+                            const auto servedIdx =
+                                static_cast<std::size_t>(playerTypeArr[i] & 0x3);
+                            if (g_VextServedPt[servedIdx].load(
+                                    std::memory_order_relaxed) != pt) continue;
+                            const std::uint8_t want =
+                                outfit::GetActiveVariant(pt);
+                            const std::uint8_t have =
+                                g_VextServedVar[servedIdx].load(
+                                    std::memory_order_relaxed);
+                            if (have == want) continue;
+                            vextRestream |= (1u << i);
+                        }
+                    if (vextRestream)
+                    {
+                        *reinterpret_cast<std::uint32_t*>(
+                            reinterpret_cast<std::uint8_t*>(perPlayer)
+                            + kPP_OffVariantChangedBits) |= vextRestream;
+                    }
+#ifdef _DEBUG
+                    {
+                        static std::uint32_t s_lastRestreamMask = 0;
+                        if (vextRestream != s_lastRestreamMask)
+                        {
+                            s_lastRestreamMask = vextRestream;
+                            if (vextRestream)
+                                Log("[OutfitRuntimeParts:vextrestream] active "
+                                    "vext variant differs from last-served - "
+                                    "forcing slot re-stream (mask=0x%X)\n",
+                                    vextRestream);
+                        }
+                    }
+#endif
+
                     for (std::size_t i = 0; i < outfit::shadow::kMaxSlots; ++i)
                     {
                         const std::uint8_t pt  = partsTypeArr[i];
@@ -1422,6 +1587,27 @@ namespace
             ? g_OrigGetPartsTypeAtCamoType(self, camo)
             : 0;
 
+        const auto ra = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+        const auto stateInBox = reinterpret_cast<std::uintptr_t>(
+            ResolveGameAddress(gAddr.SupplyCboxActionPluginImpl_StateInBox));
+        const bool fromCratePickup =
+            stateInBox != 0 && ra >= stateInBox && ra < stateInBox + 0xB90;
+
+        if (fromCratePickup && camo < outfit::kCustomSelectorStart)
+        {
+            outfit::ResetAllVanillaExtVariants();
+#ifdef _DEBUG
+            static std::atomic<int> s_crateResetLog{0};
+            if (int n = s_crateResetLog.load(std::memory_order_relaxed); n < 8)
+            {
+                s_crateResetLog.store(n + 1, std::memory_order_relaxed);
+                Log("[OutfitRuntimeParts] SupplyCbox pickup of plain vanilla "
+                    "camo 0x%02X -> vext variants reset (crate delivers the "
+                    "base suit, matching menu-equip semantics)\n", camo);
+            }
+#endif
+        }
+
         if (r == 0
             && camo >= outfit::kCustomSelectorStart
             && camo <= outfit::kCustomSelectorEnd)
@@ -1432,14 +1618,25 @@ namespace
                     static_cast<std::uint8_t>(camo), &entry, &variantIdx)
                 && entry)
             {
-                const auto ra = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
-                const auto stateInBox = reinterpret_cast<std::uintptr_t>(
-                    ResolveGameAddress(gAddr.SupplyCboxActionPluginImpl_StateInBox));
-                const bool fromCratePickup =
-                    stateInBox != 0 && ra >= stateInBox && ra < stateInBox + 0xB90;
-                const bool activate = fromCratePickup || variantIdx != 0;
+                const bool activate = fromCratePickup;
                 if (activate)
+                {
+                    if (outfit::PeekPendingSupplyDropDevelopId()
+                            == entry->developId)
+                    {
+                        variantIdx =
+                            outfit::ConsumePendingSupplyDropVariantIdx();
+                        outfit::ConsumePendingSupplyDropDevelopId();
+                        outfit::SetCrateDeliveredVariant(entry->developId,
+                                                         variantIdx);
+                    }
+                    else if (outfit::PeekCrateDeliveredDevelopId()
+                             == entry->developId)
+                    {
+                        variantIdx = outfit::PeekCrateDeliveredVariantIdx();
+                    }
                     outfit::SetActiveVariant(entry->partsType, variantIdx);
+                }
 #ifdef _DEBUG
                 static std::atomic<int> s_log{0};
                 if (int n = s_log.load(std::memory_order_relaxed); n < 8)
@@ -1464,7 +1661,8 @@ namespace
             if (outfit::TryGetVanillaExtByVariantSelector(
                     static_cast<std::uint8_t>(camo), &vpt, &vidx))
             {
-                outfit::SetActiveVariant(vpt, vidx);
+                if (fromCratePickup)
+                    outfit::SetActiveVariant(vpt, vidx);
                 return vpt;
             }
 
@@ -1515,6 +1713,22 @@ namespace
                     && entry
                     && entry->IsPlayerTypeSupported(info->playerType))
                 {
+                    if (outfit::PeekPendingSupplyDropDevelopId()
+                            == entry->developId)
+                    {
+                        variantIdx =
+                            outfit::ConsumePendingSupplyDropVariantIdx();
+                        outfit::ConsumePendingSupplyDropDevelopId();
+                        outfit::SetCrateDeliveredVariant(entry->developId,
+                                                         variantIdx);
+                        if (isRealPlayerSlot)
+                            outfit::ResetAllVanillaExtVariants();
+                    }
+                    else if (outfit::PeekCrateDeliveredDevelopId()
+                             == entry->developId)
+                    {
+                        variantIdx = outfit::PeekCrateDeliveredVariantIdx();
+                    }
                     const std::uint8_t persistSel =
                         entry->GetVariantSelectorCode(variantIdx);
                     info->playerPartsType = entry->partsType;
@@ -1585,6 +1799,22 @@ namespace
                     && mixEntry
                     && mixEntry->IsPlayerTypeSupported(info->playerType))
                 {
+                    if (outfit::PeekPendingSupplyDropDevelopId()
+                            == mixEntry->developId)
+                    {
+                        variantIdx =
+                            outfit::ConsumePendingSupplyDropVariantIdx();
+                        outfit::ConsumePendingSupplyDropDevelopId();
+                        outfit::SetCrateDeliveredVariant(mixEntry->developId,
+                                                         variantIdx);
+                        if (isRealPlayerSlot)
+                            outfit::ResetAllVanillaExtVariants();
+                    }
+                    else if (outfit::PeekCrateDeliveredDevelopId()
+                             == mixEntry->developId)
+                    {
+                        variantIdx = outfit::PeekCrateDeliveredVariantIdx();
+                    }
                     LogDebug("[OutfitRuntimeParts] MIX-REINTERPRET: vanilla "
                         "partsType=0x%02X + custom camo=0x%02X (pt=%u) - "
                         "persisted mixed pair; reinterpreting as custom outfit "
@@ -1613,6 +1843,46 @@ namespace
         const outfit::OutfitEntry* entry = nullptr;
         bool isCustom = ResolveCustomEntry(info->playerType,
                                            info->playerPartsType, &entry);
+
+        if (isCustom && entry)
+        {
+            if (outfit::PeekPendingSupplyDropDevelopId() == entry->developId)
+            {
+                const std::uint8_t orderedVar =
+                    outfit::ConsumePendingSupplyDropVariantIdx();
+                outfit::ConsumePendingSupplyDropDevelopId();
+                outfit::SetCrateDeliveredVariant(entry->developId, orderedVar);
+                outfit::SetActiveVariant(entry->partsType, orderedVar);
+                if (isRealPlayerSlot)
+                    outfit::ResetAllVanillaExtVariants();
+                Log("[OutfitRuntimeParts] ordered variant applied at realize: "
+                    "developId=%u partsType=0x%02X variantIdx=%u (pending "
+                    "supply order consumed)\n",
+                    static_cast<unsigned>(entry->developId),
+                    static_cast<unsigned>(entry->partsType),
+                    static_cast<unsigned>(orderedVar));
+            }
+            else if (outfit::PeekCrateDeliveredDevelopId()
+                     == entry->developId)
+            {
+                const std::uint8_t deliveredVar =
+                    outfit::PeekCrateDeliveredVariantIdx();
+                outfit::SetActiveVariant(entry->partsType, deliveredVar);
+#ifdef _DEBUG
+                static std::atomic<int> s_deliverLog{0};
+                if (int n = s_deliverLog.load(std::memory_order_relaxed); n < 8)
+                {
+                    s_deliverLog.store(n + 1, std::memory_order_relaxed);
+                    Log("[OutfitRuntimeParts] crate-delivered variant "
+                        "re-asserted at realize: developId=%u partsType=0x%02X "
+                        "variantIdx=%u\n",
+                        static_cast<unsigned>(entry->developId),
+                        static_cast<unsigned>(entry->partsType),
+                        static_cast<unsigned>(deliveredVar));
+                }
+#endif
+            }
+        }
 
         if (isCustom && entry)
         {
@@ -1818,7 +2088,7 @@ namespace
                 const bool offered = h && isCustom && entry
                     && entry->HasHeadOptionAnyVariant(h->equipId,
                                                       info->playerType);
-                if (!offered)
+                if (!offered || MissionCodeGuard::ShouldBypassHooks())
                 {
                     info->playerFaceEquipId  = 0;
                     info->playerFaceEquipUnk =
@@ -1849,6 +2119,16 @@ namespace
             if (info->playerFaceEquipId >= outfit::kCustomHeadSlotBase
                 && outfit::IsCustomHeadSlot(info->playerFaceEquipId))
             {
+                if (MissionCodeGuard::ShouldBypassHooks())
+                {
+                    info->playerFaceEquipId  = 0;
+                    info->playerFaceEquipUnk =
+                        static_cast<std::uint8_t>(
+                            info->playerFaceEquipUnk & 0xF8);
+                    g_LastCustomFaceSlot.store(0, std::memory_order_relaxed);
+                }
+                else
+                {
 #ifdef _DEBUG
                 Log("[SnakeHead] LoadPartsNew: normalized custom head faceEquipId "
                     "0x%02X -> 0x01 (bandana variation) for pt=%u; real slot kept "
@@ -1860,6 +2140,7 @@ namespace
                 g_LastCustomFaceSlot.store(info->playerFaceEquipId,
                                            std::memory_order_relaxed);
                 info->playerFaceEquipId = 1;
+                }
             }
             else
             {

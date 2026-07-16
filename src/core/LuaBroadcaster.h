@@ -9,6 +9,7 @@
 struct lua_State;
 
 lua_State* V_FrameWork_AnyLuaState();
+unsigned long V_FrameWork_LuaOwnerThreadId();
 
 namespace V_FrameWork
 {

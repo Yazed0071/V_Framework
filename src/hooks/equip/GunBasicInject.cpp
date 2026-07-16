@@ -11,9 +11,11 @@
 #include <vector>
 
 #include "AddressSet.h"
+#include "EquipPartParams.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaApi.h"
+#include "../../core/V_FrameWorkState.h"
 
 namespace
 {
@@ -29,6 +31,8 @@ namespace
     static std::vector<GunBasicRow> g_Rows;
     static std::map<std::string, int> g_WpNameToId;
     static std::set<int> g_ClaimedIds;
+    static std::set<int> g_ReservedIds;
+    static bool g_PersistedReserved = false;
 
     static constexpr int kNoneValue = 0;
 
@@ -164,6 +168,20 @@ namespace
         }
     }
 
+    static int CopyRowBytesSEH(const std::uint8_t* src, unsigned char* dst)
+    {
+        __try
+        {
+            for (int k = 0; k < 12; ++k)
+                dst[k] = src[k];
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
     static void ReapplyAllNative()
     {
         std::vector<GunBasicRow> snapshot;
@@ -219,6 +237,18 @@ int GunBasic_AllocateWeaponIdForName(const char* name)
     if (it != g_WpNameToId.end())
         return it->second;
 
+    if (!g_PersistedReserved)
+    {
+        g_PersistedReserved = true;
+        V_FrameWorkState::ForEachPersistedConstant("WPSLOT",
+            [](const char* reservedName, std::int32_t v)
+            {
+                static_cast<void>(reservedName);
+                if (v >= 2 && v <= kGunBasicMaxId)
+                    g_ReservedIds.insert(static_cast<int>(v));
+            });
+    }
+
     EnsureGunBasicShadow();
 
     std::uint8_t* buf = BufferBase();
@@ -226,16 +256,32 @@ int GunBasic_AllocateWeaponIdForName(const char* name)
     if (!buf || cap <= 1)
         return 0;
 
+    const int persisted = V_FrameWorkState::GetPersistedConstant("WPSLOT", name);
+    if (persisted >= 2 && persisted <= cap &&
+        !g_ClaimedIds.count(persisted) &&
+        SlotIsZeroSEH(buf, persisted - 1) == 1)
+    {
+        g_ReservedIds.erase(persisted);
+        g_ClaimedIds.insert(persisted);
+        g_WpNameToId[name] = persisted;
+        Log("[GunBasic] '%s' -> weaponId %d (persisted slot)\n", name, persisted);
+        return persisted;
+    }
+    if (persisted != 0)
+        Log("[GunBasic] persisted weaponId %d for '%s' no longer free - reallocating\n",
+            persisted, name);
+
     for (int idx = cap - 1; idx >= 1; --idx)
     {
         const int weaponId = idx + 1;
-        if (g_ClaimedIds.count(weaponId))
+        if (g_ClaimedIds.count(weaponId) || g_ReservedIds.count(weaponId))
             continue;
         if (SlotIsZeroSEH(buf, idx) != 1)
             continue;
 
         g_ClaimedIds.insert(weaponId);
         g_WpNameToId[name] = weaponId;
+        V_FrameWorkState::SetPersistedConstant("WPSLOT", name, weaponId);
         Log("[GunBasic] '%s' -> weaponId %d (free native slot; cap=%d)\n",
             name, weaponId, cap);
         return weaponId;
@@ -245,6 +291,20 @@ int GunBasic_AllocateWeaponIdForName(const char* name)
         "custom weapon behavior unavailable; falls back to the default id space\n",
         name, cap);
     return 0;
+}
+
+bool GunBasic_ReadRowBytes(int weaponId, unsigned char* out12)
+{
+    if (weaponId <= 0 || !out12)
+        return false;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+
+    std::uint8_t* buf = BufferBase();
+    if (!buf || weaponId > BufferSlotCount())
+        return false;
+
+    return CopyRowBytesSEH(buf + static_cast<size_t>(weaponId - 1) * 12, out12) == 1;
 }
 
 int __cdecl l_SetGunBasic(lua_State* L)
@@ -332,7 +392,17 @@ int __cdecl l_SetGunBasic(lua_State* L)
 
         if (buf && weaponId >= 1 && weaponId <= cap)
         {
+            const bool vanillaRow = weaponId <= StockSlotCount()
+                && !g_ClaimedIds.count(weaponId);
+            const std::uint8_t* rowPtr =
+                buf + static_cast<size_t>(weaponId - 1) * 12;
+            if (vanillaRow)
+                EquipParam_VanillaPreWrite(kVanillaSpace_Weapon, weaponId,
+                                           rowPtr, 12);
             WriteNativeRowSEH(buf, weaponId, &row.f[1]);
+            if (vanillaRow)
+                EquipParam_VanillaPostWrite(kVanillaSpace_Weapon, weaponId,
+                                            rowPtr, 12);
         }
         else
         {
@@ -385,5 +455,7 @@ bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook()
     g_Rows.clear();
     g_WpNameToId.clear();
     g_ClaimedIds.clear();
+    g_ReservedIds.clear();
+    g_PersistedReserved = false;
     return true;
 }

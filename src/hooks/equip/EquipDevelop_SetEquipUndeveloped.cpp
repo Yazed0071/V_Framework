@@ -17,11 +17,22 @@
 #include "EquipDevelop_AddToEquipDevelopTable.h"
 #include "../outfit/EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 
+namespace equip
+{
+    extern bool g_MenuGridExpanded;
+    extern bool g_DevelopMenuSeen;
+}
+
 namespace
 {
     constexpr std::size_t kQuark_AppOffset     = 0x98;
     constexpr std::size_t kApp_Field110Offset  = 0x110;
     constexpr std::size_t kField110_CtrlOffset = 0xAC8;
+
+    constexpr std::size_t kApp_SvarsOffset     = 0x10;
+    constexpr std::size_t kSvars_DevTimerSlots = 0xf6e2;
+    constexpr int         kDevTimerSlotCount   = 10;
+    constexpr std::int32_t kFirstCustomFlowIndex = 922;
 
     constexpr std::uint16_t kInvalidDevelopIndex = 0x400;
 
@@ -324,8 +335,47 @@ namespace
         }
     }
 
+    static std::int32_t ManagedDevelopIdAtIndex(void* controller, std::uint16_t index)
+    {
+        if (!controller || index >= kInvalidDevelopIndex)
+            return 0;
+        auto getIndex = NativeGetIndex();
+        if (!getIndex)
+            return 0;
+        std::int32_t found = 0;
+        V_FrameWorkState::ForEachManagedDevelop(
+            [&](std::int32_t id, bool, bool)
+            {
+                if (found == 0 && SafeGetIndex(getIndex, controller,
+                        static_cast<std::uint32_t>(id)) == index)
+                    found = id;
+            });
+        return found;
+    }
+
+    static bool IsManagedDevelopReplay(void* controller, std::uint16_t index)
+    {
+        if (!equip::g_MenuGridExpanded || equip::g_DevelopMenuSeen)
+            return false;
+        if (!EquipDevelopAdd::IsManagedFlowIndex(index))
+            return false;
+        const std::int32_t developId = ManagedDevelopIdAtIndex(controller, index);
+        if (developId == 0)
+            return false;
+        if (V_FrameWorkState::GetDevelopedByDevelopId(developId))
+            return false;
+        if (EquipDevelop_IsDevelopTimerActive(index))
+            return false;
+        Log("[EquipDevelop] ignored save-replay develop bit for managed row "
+            "(index=%u developId=%d, state says undeveloped) - the state file is "
+            "authoritative\n", static_cast<unsigned>(index), developId);
+        return true;
+    }
+
     static void __fastcall hkSetEquipDeveloped(void* controller, std::uint16_t index)
     {
+        if (g_DevelopSyncArmed && IsManagedDevelopReplay(controller, index))
+            return;
         if (g_OrigSetEquipDeveloped)
             g_OrigSetEquipDeveloped(controller, index);
         if (g_DevelopSyncArmed)
@@ -502,6 +552,17 @@ namespace
                 continue;
             if (!IsDevelopRequirementsMet(controller, index))
                 continue;
+
+            std::uint32_t parent = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_DevelopParentMutex);
+                auto it = g_DevelopParent.find(static_cast<std::uint32_t>(developId));
+                if (it != g_DevelopParent.end())
+                    parent = it->second;
+            }
+            if (parent != 0 && !IsDevelopIdDeveloped(controller, getIndex, parent))
+                continue;
+
             FireDevRequirementsMet(hudCdm, developId);
             V_FrameWorkState::SetNewByDevelopId(developId, false);
         }
@@ -640,6 +701,121 @@ bool EquipDevelop_DevelopByDevelopId(std::uint32_t developId)
     return ok;
 }
 
+namespace
+{
+    static std::uint8_t* ResolveDevelopSaveVars()
+    {
+        auto getQuark = reinterpret_cast<GetQuarkSystemTable_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        if (!getQuark)
+            return nullptr;
+        __try
+        {
+            std::uint8_t* quark = static_cast<std::uint8_t*>(getQuark());
+            if (!quark) return nullptr;
+            void* app = *reinterpret_cast<void**>(quark + kQuark_AppOffset);
+            if (!app) return nullptr;
+            return *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(app) + kApp_SvarsOffset);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static bool g_InFlightTimersReconciled = false;
+
+    static void ReconcileInFlightDevelopTimers(
+        void* controller, GetEquipDevelopIndex_t getIndex)
+    {
+        if (g_InFlightTimersReconciled)
+            return;
+        if (!controller || !getIndex)
+            return;
+
+        std::uint8_t* svars = ResolveDevelopSaveVars();
+        if (!svars)
+            return;
+
+        g_InFlightTimersReconciled = true;
+
+        __try
+        {
+            std::int16_t* slots =
+                reinterpret_cast<std::int16_t*>(svars + kSvars_DevTimerSlots);
+
+            for (int i = 0; i < kDevTimerSlotCount; ++i)
+            {
+                const std::int16_t raw = slots[i];
+                if (raw <= 0)
+                    continue;
+                const std::int32_t storedIndex = static_cast<std::int32_t>(raw) - 1;
+                if (storedIndex < kFirstCustomFlowIndex ||
+                    storedIndex >= static_cast<std::int32_t>(kInvalidDevelopIndex))
+                    continue;
+
+                const std::int32_t developId =
+                    V_FrameWorkState::GetDevelopIdAtOldFlowIndex(storedIndex);
+                if (developId <= 0)
+                    continue;
+                if (!V_FrameWorkState::IsManagedDevelopId(developId))
+                    continue;
+
+                const std::uint16_t currentIndex =
+                    getIndex(controller, static_cast<std::uint32_t>(developId));
+                if (currentIndex >= kInvalidDevelopIndex)
+                    continue;
+                if (static_cast<std::int32_t>(currentIndex) == storedIndex)
+                    continue;
+
+                const std::int16_t want = static_cast<std::int16_t>(currentIndex + 1);
+                bool clash = false;
+                for (int j = 0; j < kDevTimerSlotCount; ++j)
+                    if (j != i && slots[j] == want) { clash = true; break; }
+                if (clash)
+                {
+                    Log("[EquipDevelop] in-flight R&D timer: developId=%d wants flow row "
+                        "%u but another timer slot already holds it - left at old index %d "
+                        "to avoid a collision.\n",
+                        developId, static_cast<unsigned>(currentIndex), storedIndex);
+                    continue;
+                }
+
+                slots[i] = want;
+                Log("[EquipDevelop] in-flight R&D timer migrated: developId=%d slot %d "
+                    "re-pointed %d -> %u (flow row shifted between launches).\n",
+                    developId, i, storedIndex, static_cast<unsigned>(currentIndex));
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Log("[EquipDevelop] in-flight R&D timer reconcile: SEH fault - skipped.\n");
+        }
+    }
+}
+
+bool EquipDevelop_IsDevelopTimerActive(std::uint16_t flowIndex)
+{
+    std::uint8_t* svars = ResolveDevelopSaveVars();
+    if (!svars)
+        return false;
+    __try
+    {
+        const std::int16_t want = static_cast<std::int16_t>(flowIndex + 1);
+        const std::int16_t* slots =
+            reinterpret_cast<const std::int16_t*>(svars + kSvars_DevTimerSlots);
+        for (int i = 0; i < kDevTimerSlotCount; ++i)
+            if (slots[i] == want)
+                return true;
+        return false;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return true;
+    }
+}
+
 void EquipDevelop_DrainPendingUndevelops()
 {
     std::vector<std::int32_t> ids = V_FrameWorkState::TakePendingDevelopedResets();
@@ -675,6 +851,10 @@ void EquipDevelop_DrainPendingUndevelops()
 
     for (const auto& row : managed)
     {
+        if (EquipDevelopAdd::IsDevelopIdParked(
+                static_cast<std::uint32_t>(row.developId)))
+            continue;
+
         std::uint16_t index = 0xFFFF;
         int bitBefore = -1;
         ReconcileOneManaged(
@@ -687,6 +867,7 @@ void EquipDevelop_DrainPendingUndevelops()
 
     SyncDevelopPrereqGates(controller, getIndex);
     AnnounceNewlyDevelopable(controller, getIndex);
+    ReconcileInFlightDevelopTimers(controller, getIndex);
 
 #ifdef _DEBUG
     for (const auto& row : managed)
@@ -695,7 +876,13 @@ void EquipDevelop_DrainPendingUndevelops()
             static_cast<std::uint32_t>(row.developId));
         if (idx >= kInvalidDevelopIndex)
         {
-            Log("[FobDiag] developId=%d -> index UNRESOLVED\n", row.developId);
+            if (row.developed)
+                Log("[FobDiag] developId=%d WARNING: DEVELOPED but holds no "
+                    "develop record - it should have claimed a slot before "
+                    "any undeveloped item.\n", row.developId);
+            else
+                Log("[FobDiag] developId=%d parked (undeveloped - no record "
+                    "needed; pages in on R&D open)\n", row.developId);
             continue;
         }
         const std::uint8_t fobByte = SafeReadDevRecordByte(controller, idx, 0x58);
