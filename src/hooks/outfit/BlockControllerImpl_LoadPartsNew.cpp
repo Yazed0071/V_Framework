@@ -1749,8 +1749,11 @@ namespace
             {
                 const outfit::OutfitEntry* byPending = nullptr;
                 const std::uint16_t pendingDevId = outfit::GetPendingOutfitDevelopId();
+                if (pendingDevId != 0 && !outfit::IsOutfitBound(pendingDevId))
+                    outfit::BindOutfit(pendingDevId, false, "pending-render");
                 if (pendingDevId != 0
                     && outfit::TryGetOutfitByDevelopId(pendingDevId, &byPending) && byPending
+                    && byPending->bound
                     && byPending->IsPlayerTypeSupported(info->playerType))
                 {
                     const std::uint8_t pendVar = byPending->HasVariants()

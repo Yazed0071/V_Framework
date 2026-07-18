@@ -335,8 +335,11 @@ static const char* const kAddrFieldNames[] = {
     "CorePlugin_UpdateLoadoutRequest",
     "WeaponSystem_DefineWeaponFireSound",
     "EquipSystem_ChimeraPartsSetWork",
+    "MbDvcUpdateTrackListCallFuncs",
+    "MbDvcRefreshTrackListPrefabParameter",
+    "MbDvcTrackListRecordRefresh",
 };
-static const int kAddrFieldCount = 323;
+static const int kAddrFieldCount = 326;
 
 namespace AddressSetRuntime
 {
@@ -706,6 +709,9 @@ namespace AddressSetRuntime
             0x141156E60ull, // CorePlugin_UpdateLoadoutRequest
             0x140DC03A0ull, // WeaponSystem_DefineWeaponFireSound
             0x142C934A0ull, // EquipSystem_ChimeraPartsSetWork
+            0x140EFBA40ull, // MbDvcUpdateTrackListCallFuncs
+            0x140EF70B0ull, // MbDvcRefreshTrackListPrefabParameter
+            0x140EF6960ull, // MbDvcTrackListRecordRefresh
         };
 
         return value;
@@ -1037,7 +1043,10 @@ namespace AddressSetRuntime
             0x141302f70ull,           // EquipObject_DoFire
             0x141156ef0ull,           // CorePlugin_UpdateLoadoutRequest
             0x140dc0360ull,           // WeaponSystem_DefineWeaponFireSound
-            0ull,           // EquipSystem_ChimeraPartsSetWork
+            0x142C934A0ull, // EquipSystem_ChimeraPartsSetWork
+            0x140EFBA70ull, // MbDvcUpdateTrackListCallFuncs
+            0x140EF70E0ull, // MbDvcRefreshTrackListPrefabParameter
+            0x140EF6990ull, // MbDvcTrackListRecordRefresh
         };
         return value;
     }

@@ -330,7 +330,10 @@ namespace AddressSetRuntime
             0x141303a40ull,           // EquipObject_DoFire
             0x1411574f0ull,           // CorePlugin_UpdateLoadoutRequest
             0x140dc0120ull,           // WeaponSystem_DefineWeaponFireSound
-            0ull,           // EquipSystem_ChimeraPartsSetWork
+            0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
+            0x140EFC010ull, // MbDvcUpdateTrackListCallFuncs
+            0x140EF7680ull, // MbDvcRefreshTrackListPrefabParameter
+            0x140EF6F30ull, // MbDvcTrackListRecordRefresh
         };
         return value;
     }
@@ -696,7 +699,10 @@ namespace AddressSetRuntime
             0x141303b80ull,           // EquipObject_DoFire
             0x141157570ull,           // CorePlugin_UpdateLoadoutRequest
             0x140dc0200ull,           // WeaponSystem_DefineWeaponFireSound
-            0ull,           // EquipSystem_ChimeraPartsSetWork
+            0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
+            0x140EFC180ull, // MbDvcUpdateTrackListCallFuncs
+            0x140EF77F0ull, // MbDvcRefreshTrackListPrefabParameter
+            0x140EF70A0ull, // MbDvcTrackListRecordRefresh
         };
 
         return value;

@@ -84,6 +84,8 @@ bool Install_CustomTapeOwnership_Hooks();
 bool Uninstall_CustomTapeOwnership_Hooks();
 bool Install_CassetteTapeSetCurrentAlbum_Hook();
 bool Uninstall_CassetteTapeSetCurrentAlbum_Hook();
+bool Install_CassetteTrackPaging_Hooks();
+bool Uninstall_CassetteTrackPaging_Hooks();
 
 bool Install_CustomRadioCassette_Hooks();
 bool Uninstall_CustomRadioCassette_Hooks();
@@ -235,6 +237,8 @@ bool Install_GetAttackIdGuard();
 void Uninstall_GetAttackIdGuard();
 bool Install_GunInfoGuard();
 void Uninstall_GunInfoGuard();
+bool Install_WeaponKeyLog();
+void Uninstall_WeaponKeyLog();
 bool Install_FireSoundOverride_Hook();
 void Uninstall_FireSoundOverride_Hook();
 bool Install_LoadoutRequestGuard();
@@ -721,6 +725,14 @@ namespace
         const char* GetName() const override { return "CustomTapeOwnership"; }
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CustomTapeOwnership_Hooks(); }
         void Uninstall() override { Uninstall_CustomTapeOwnership_Hooks(); }
+    };
+
+    class CassetteTrackPagingModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CassetteTrackPaging"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CassetteTrackPaging_Hooks(); }
+        void Uninstall() override { Uninstall_CassetteTrackPaging_Hooks(); }
     };
 
     class CassetteTapeSetCurrentAlbumModule final : public IFeatureModule
@@ -1270,6 +1282,7 @@ namespace
             ok = Install_MotionLoader_ReceiverTypeHook() && ok;
             ok = Install_GetAttackIdGuard() && ok;
             ok = Install_GunInfoGuard() && ok;
+            ok = Install_WeaponKeyLog() && ok;
             ok = Install_FireSoundOverride_Hook() && ok;
             ok = Install_LoadoutRequestGuard() && ok;
             ok = Install_SuppressorGauge_Hook() && ok;
@@ -1286,6 +1299,7 @@ namespace
             Uninstall_MotionLoader_ReceiverTypeHook();
             Uninstall_GetAttackIdGuard();
             Uninstall_GunInfoGuard();
+            Uninstall_WeaponKeyLog();
             Uninstall_FireSoundOverride_Hook();
             Uninstall_LoadoutRequestGuard();
             Uninstall_SuppressorGauge_Hook();
@@ -1321,6 +1335,7 @@ void RegisterBuiltInFeatureModules()
     static CassetteTapePlayHookModule s_CassetteTapePlayHookModule;
     static CustomTapesModule s_CustomTapesModule;
     static CustomTapeOwnershipModule s_CustomTapeOwnershipModule;
+    static CassetteTrackPagingModule s_CassetteTrackPagingModule;
     static CassetteTapeSetCurrentAlbumModule s_CassetteTapeSetCurrentAlbumModule;
     static CustomRadioCassetteModule s_CustomRadioCassetteModule;
     static CustomTapeLongFilenameModule s_CustomTapeLongFilenameModule;
@@ -1393,6 +1408,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomTapesModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeOwnershipModule);
             FeatureModuleRegistry::Instance().Register(&s_SubtitlesEventMessageModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteTrackPagingModule);
             FeatureModuleRegistry::Instance().Register(&s_CassetteTapeSetCurrentAlbumModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeLongFilenameModule);

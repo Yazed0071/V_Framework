@@ -2,6 +2,7 @@
 #include "EquipPartParams.h"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +23,7 @@
 #include "BulletMultiShot.h"
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "TppEquipConstRegistry.h"
+#include "../../core/V_FrameWorkState.h"
 
 namespace
 {
@@ -542,10 +544,10 @@ namespace
         int rowByteOffset;
         bool counted;
     };
-    static RcvPool g_Base = { { "receiverParamSetsBase",     0x58, 12, 0, 255, {}, false, 0, {} }, 2, false };
-    static RcvPool g_Wob  = { { "receiverParamSetsWobbling", 0x60, 14, 0, 255, {}, false, 0, {} }, 3, false };
-    static RcvPool g_Sys  = { { "receiverParamSetsSystem",   0x68,  3, 0, 255, {}, false, 0, {} }, 4, false };
-    static RcvPool g_Snd  = { { "receiverParamSetsSound",    0x70,  8, 0, 255, {}, false, 0, {} }, 5, false };
+    static RcvPool g_Base = { { "receiverParamSetsBase",     0x58, 12, 0, 1024, {}, false, 0, {} }, 2, false };
+    static RcvPool g_Wob  = { { "receiverParamSetsWobbling", 0x60, 14, 0, 1024, {}, false, 0, {} }, 3, false };
+    static RcvPool g_Sys  = { { "receiverParamSetsSystem",   0x68,  3, 0, 1024, {}, false, 0, {} }, 4, false };
+    static RcvPool g_Snd  = { { "receiverParamSetsSound",    0x70,  8, 0, 1024, {}, false, 0, {} }, 5, false };
 
     enum RcvPoolKind { POOL_BASE, POOL_WOB, POOL_SYS, POOL_SND };
 
@@ -607,9 +609,22 @@ namespace
         bool counted;
     };
     // barrelParamSetsBase (impl+0x78, 7 bytes) <- barrel buffer (impl+0x18, stride 2) byte 1
-    static RefPool g_BarrelBase = { { "barrelParamSetsBase", 0x78, 7,  0, 255, {}, false, 0, {} }, 0x18, 2, 114, 1, false };
+    static RefPool g_BarrelBase = { { "barrelParamSetsBase", 0x78, 7,  0, 1024, {}, false, 0, {} }, 0x18, 2, 114, 1, false };
     // bulletParamSetsBase (impl+0x80, 22 bytes) <- bullet buffer (impl+0x50, stride 14) byte 6
-    static RefPool g_BulletBase = { { "bulletParamSetsBase", 0x80, 22, 0, 255, {}, false, 0, {} }, 0x50, 14, 112, 6, false };
+    static RefPool g_BulletBase = { { "bulletParamSetsBase", 0x80, 22, 0, 1024, {}, false, 0, {} }, 0x50, 14, 112, 6, false };
+
+    constexpr int kPoolDirectMax     = 253;
+    constexpr int kPoolScratch1      = 254;
+    constexpr int kPoolScratch0      = 255;
+    constexpr int kPoolOverflowStart = 256;
+
+    struct RcvOverflowRef { int idx[4] = { -1, -1, -1, -1 }; };
+    static std::map<int, RcvOverflowRef> g_RcvOverflow;
+    static std::map<int, int> g_BarrelOverflow;
+    static std::map<int, int> g_BulletBaseOverflow;
+
+    struct BarrelExtraMult { double rem[6] = { 1, 1, 1, 1, 1, 1 }; };
+    static std::map<int, BarrelExtraMult> g_BarrelExtraMult;
 
     static std::map<std::string, int> g_RcvNameToId;
     static std::set<int> g_RcvClaimed;
@@ -649,13 +664,18 @@ namespace
     using GetReceiverType_t = unsigned int(__fastcall*)(void* self, unsigned int receiverId);
     static GetReceiverType_t g_OrigGetReceiverType = nullptr;
 
+    unsigned int PartCode_TapReceiverType(unsigned int receiverId, unsigned int result);
+
     static unsigned int __fastcall hkGetReceiverType(void* self, unsigned int receiverId)
     {
         if (!g_RcvTypeExtReady)
             EnsureRcvTypeExt();
+        unsigned int r;
         if (g_RcvTypeExtReady && receiverId < 256)
-            return g_RcvTypeExt[receiverId];
-        return g_OrigGetReceiverType ? g_OrigGetReceiverType(self, receiverId) : 0;
+            r = g_RcvTypeExt[receiverId];
+        else
+            r = g_OrigGetReceiverType ? g_OrigGetReceiverType(self, receiverId) : 0;
+        return PartCode_TapReceiverType(receiverId, r);
     }
 
     static bool WriteReceiverType(int receiverId, int type)
@@ -824,6 +844,8 @@ namespace
     {
         if (!EnsureRcvPoolShadow(rp))
             return -1;
+        if (rp.pb.nextId == kPoolScratch1)
+            rp.pb.nextId = kPoolOverflowStart;
         if (rp.pb.nextId >= rp.pb.maxId)
         {
             Log("[EquipParam] %s pool exhausted (max %d rows)\n", rp.pb.name, rp.pb.maxId);
@@ -884,6 +906,8 @@ namespace
     {
         if (!EnsureRefPoolShadow(rp))
             return -1;
+        if (rp.pb.nextId == kPoolScratch1)
+            rp.pb.nextId = kPoolOverflowStart;
         if (rp.pb.nextId >= rp.pb.maxId)
         {
             Log("[EquipParam] %s pool exhausted (max %d rows)\n", rp.pb.name, rp.pb.maxId);
@@ -1297,6 +1321,53 @@ int __cdecl l_SetBarrel(lua_State* L)
 
     if (baseKind == 2)
     {
+        BarrelExtraMult ex;
+        bool wantExtra = false;
+        static const int kEngineMaxFields[3] = { 0, 4, 5 };
+        static const int kIdentityFields[2]  = { 2, 3 };
+        for (int f = 0; f < 3; ++f)
+        {
+            const int k = kEngineMaxFields[f];
+            const double v = baseCurve[k];
+            if (!(v >= 0.0) || v > 1.0e6)
+            {
+                baseCurve[k] = 0;
+                Log("[EquipParam] SetBarrel barrelId=%d: barrelParamSetsBase[%d] "
+                    "invalid value - zeroed\n", barrelId, k + 1);
+                continue;
+            }
+            if (v > 2.555)
+            {
+                ex.rem[k] = v / 2.55;
+                baseCurve[k] = 2.55;
+                wantExtra = true;
+            }
+        }
+        for (int f = 0; f < 2; ++f)
+        {
+            const int k = kIdentityFields[f];
+            const double v = baseCurve[k];
+            if (!(v >= 0.0) || v > 1.0e6)
+            {
+                baseCurve[k] = 0;
+                Log("[EquipParam] SetBarrel barrelId=%d: barrelParamSetsBase[%d] "
+                    "invalid value - zeroed\n", barrelId, k + 1);
+                continue;
+            }
+            if (v > 2.555)
+            {
+                ex.rem[k] = v;
+                baseCurve[k] = 1.0;
+                wantExtra = true;
+            }
+        }
+        if (baseCurve[1] > 2.555)
+            Log("[EquipParam] SetBarrel barrelId=%d: unk2 clamped to 2.55 - no "
+                "known engine consumer to post-scale\n", barrelId);
+        if (baseCurve[6] > 2.555)
+            Log("[EquipParam] SetBarrel barrelId=%d: percentOverride clamped to "
+                "2.55 - GunInfo+0x83 is a byte\n", barrelId);
+
         const int idx = AllocateRefPoolRow(g_BarrelBase);
         if (idx >= 0)
         {
@@ -1304,14 +1375,52 @@ int __cdecl l_SetBarrel(lua_State* L)
             if (pool)
             {
                 WriteBarrelBaseRowSEH(pool, idx, baseCurve, baseCurveN);
-                base = idx;
+                if (idx > kPoolDirectMax)
+                {
+                    g_BarrelOverflow[barrelId] = idx;
+                    base = 0;
+                    Log("[EquipParam] SetBarrel barrelId=%d: curve row %d is past "
+                        "the 254-slot direct window - served through the overflow "
+                        "swap at gun setup\n", barrelId, idx);
+                    if (barrelId <= g_Barrel.stockCount)
+                        EquipParam_VanillaForceTaint(kVanillaSpace_Barrel, barrelId,
+                            "overflow curve rows the pre-image diff cannot see");
+                }
+                else
+                {
+                    g_BarrelOverflow.erase(barrelId);
+                    base = idx;
+                }
+                if (wantExtra)
+                {
+                    g_BarrelExtraMult[barrelId] = ex;
+                    Log("[EquipParam] SetBarrel barrelId=%d: multiplier(s) above "
+                        "the 2.55x byte ceiling - remainder applied at gun setup "
+                        "(fireRate x%.2f aim x%.2f range x%.2f rangeUI x%.2f "
+                        "spreadMax x%.2f)\n", barrelId,
+                        ex.rem[0], ex.rem[2], ex.rem[3], ex.rem[4], ex.rem[5]);
+                    if (barrelId <= g_Barrel.stockCount)
+                        EquipParam_VanillaForceTaint(kVanillaSpace_Barrel, barrelId,
+                            "above-ceiling multipliers the pre-image diff cannot see");
+                }
+                else
+                {
+                    g_BarrelExtraMult.erase(barrelId);
+                }
             }
         }
         else
         {
-            Log("[EquipParam] SetBarrel barrelId=%d: could not append custom barrelParamSetsBase curve\n",
+            g_BarrelExtraMult.erase(barrelId);
+            Log("[EquipParam] SetBarrel barrelId=%d: could not append custom "
+                "barrelParamSetsBase curve - any >2.55x request dropped\n",
                 barrelId);
         }
+    }
+    else
+    {
+        g_BarrelOverflow.erase(barrelId);
+        g_BarrelExtraMult.erase(barrelId);
     }
 
     const bool vanillaRow = barrelId <= g_Barrel.stockCount;
@@ -1480,7 +1589,22 @@ int __cdecl l_SetBullet(lua_State* L)
             if (pool)
             {
                 WriteBulletBaseRowSEH(pool, idx, bbCurve, bbCurveN);
-                u8v[0] = idx;
+                if (idx > kPoolDirectMax)
+                {
+                    g_BulletBaseOverflow[bulletId] = idx;
+                    u8v[0] = 0;
+                    Log("[EquipParam] SetBullet bulletId=%d: falloff row %d is past "
+                        "the 254-slot direct window - served through the overflow "
+                        "swap at fire time\n", bulletId, idx);
+                    if (bulletId <= g_Bullet.stockCount)
+                        EquipParam_VanillaForceTaint(kVanillaSpace_Bullet, bulletId,
+                            "overflow falloff rows the pre-image diff cannot see");
+                }
+                else
+                {
+                    g_BulletBaseOverflow.erase(bulletId);
+                    u8v[0] = idx;
+                }
             }
         }
         else
@@ -1488,6 +1612,10 @@ int __cdecl l_SetBullet(lua_State* L)
             Log("[EquipParam] SetBullet bulletId=%d: could not append custom bulletParamSetsBase curve\n",
                 bulletId);
         }
+    }
+    else
+    {
+        g_BulletBaseOverflow.erase(bulletId);
     }
 
     if (npcKind == 2)
@@ -1499,7 +1627,18 @@ int __cdecl l_SetBullet(lua_State* L)
             if (pool)
             {
                 WriteBulletBaseRowSEH(pool, idx, npcCurve, npcCurveN);
-                u8v[1] = idx;
+                if (idx > kPoolDirectMax)
+                {
+                    u8v[1] = 0;
+                    Log("[EquipParam] SetBullet bulletId=%d: NPC falloff row %d is "
+                        "past the direct window and NPC-fired shots cannot use the "
+                        "overflow swap - NPC shots fall back to curve 0\n",
+                        bulletId, idx);
+                }
+                else
+                {
+                    u8v[1] = idx;
+                }
             }
         }
         else
@@ -1850,6 +1989,33 @@ int __cdecl l_SetReceiver(lua_State* L)
             "attackId to a vanilla TppDamage.ATK_ value for real damage.\n", receiverId);
     }
 
+    {
+        RcvOverflowRef of;
+        of.idx[POOL_BASE] = base > kPoolDirectMax ? base : -1;
+        of.idx[POOL_WOB]  = wob  > kPoolDirectMax ? wob  : -1;
+        of.idx[POOL_SYS]  = sys  > kPoolDirectMax ? sys  : -1;
+        of.idx[POOL_SND]  = snd  > kPoolDirectMax ? snd  : -1;
+        if (of.idx[0] >= 0 || of.idx[1] >= 0 || of.idx[2] >= 0 || of.idx[3] >= 0)
+        {
+            g_RcvOverflow[receiverId] = of;
+            Log("[EquipParam] SetReceiver receiverId=%d: pool row(s) past the "
+                "254-slot direct window (base=%d wob=%d sys=%d snd=%d) - served "
+                "through the overflow swap at gun setup\n",
+                receiverId, base, wob, sys, snd);
+            if (receiverId <= kReceiverCapacity && !g_RcvClaimed.count(receiverId))
+                EquipParam_VanillaForceTaint(kVanillaSpace_Receiver, receiverId,
+                    "overflow pool rows the pre-image diff cannot see");
+        }
+        else
+        {
+            g_RcvOverflow.erase(receiverId);
+        }
+        if (base > kPoolDirectMax) base = 0;
+        if (wob  > kPoolDirectMax) wob  = 0;
+        if (sys  > kPoolDirectMax) sys  = 0;
+        if (snd  > kPoolDirectMax) snd  = 0;
+    }
+
     const bool vanillaRow = receiverId <= kReceiverCapacity
         && !g_RcvClaimed.count(receiverId);
     const std::uint8_t* rowPtr =
@@ -1869,7 +2035,14 @@ int __cdecl l_SetReceiver(lua_State* L)
     {
         EnsureRcvTypeExt();
         if (g_RcvTypeExtReady)
+        {
             motionType = g_RcvTypeExt[motionFrom];
+            if (motionType == 0)
+                Log("[EquipParam] SetReceiver receiverId=%d: WARNING motionFrom=%d has "
+                    "motion type 0 (not a holdable gun's receiver) - without a valid type "
+                    "the engine invalidates the weapon on draw; pick the receiver of a "
+                    "real vanilla gun\n", receiverId, motionFrom);
+        }
     }
 
     if (motionType < 0)
@@ -1973,14 +2146,175 @@ namespace
                                              void*, void*, void*, void*, void*);
     static SetUpGunInfo_t g_OrigSetUpGunInfo = nullptr;
 
-    static void __fastcall hkSetUpGunInfo(void* self, void* desc,
-                                          unsigned int equipId, void* gunInfo,
-                                          void* a5, void* a6, void* a7,
-                                          void* a8, void* a9)
+    static int ReadByteAtSEH(const void* base, size_t off)
+    {
+        __try
+        {
+            return static_cast<const std::uint8_t*>(base)[off];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static int SwapByteSEH(std::uint8_t* loc, std::uint8_t val, std::uint8_t* savedOut)
+    {
+        __try
+        {
+            *savedOut = *loc;
+            *loc = val;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int RestoreByteSEH(std::uint8_t* loc, std::uint8_t val)
+    {
+        __try
+        {
+            *loc = val;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int CopyPoolRowSEH(std::uint8_t* pool, int dstIdx, int srcIdx, int stride)
+    {
+        __try
+        {
+            std::memcpy(pool + static_cast<size_t>(dstIdx) * stride,
+                        pool + static_cast<size_t>(srcIdx) * stride,
+                        static_cast<size_t>(stride));
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    struct PoolSwapState
+    {
+        std::uint8_t* loc[12] = {};
+        std::uint8_t  saved[12] = {};
+        int           count = 0;
+    };
+
+    static void SwapReceiverPools(int rcId, int scratchIdx, int sndSlot,
+                                  PoolSwapState& st)
+    {
+        (void)sndSlot;
+        const auto it = g_RcvOverflow.find(rcId);
+        if (it == g_RcvOverflow.end())
+            return;
+        std::uint8_t* rbuf = ImplBufPtr(kReceiverImplOffset);
+        if (!rbuf)
+            return;
+        for (int k = 0; k < 4; ++k)
+        {
+            const int idx = it->second.idx[k];
+            if (idx < 0)
+                continue;
+            RcvPool& rp = PoolFor(static_cast<RcvPoolKind>(k));
+            std::uint8_t* pool = PartCurrentBuf(rp.pb);
+            if (!pool)
+                continue;
+            if (CopyPoolRowSEH(pool, scratchIdx, idx, rp.pb.stride) != 1)
+                continue;
+            std::uint8_t* loc = rbuf
+                + static_cast<size_t>(rcId - 1) * kReceiverStride
+                + rp.rowByteOffset;
+            if (k == POOL_SND)
+            {
+                std::uint8_t prev = 0;
+                if (SwapByteSEH(loc, static_cast<std::uint8_t>(scratchIdx),
+                                &prev) == 1)
+                {
+                    std::lock_guard<std::mutex> lock(g_FireSoundMutex);
+                    const auto fit = g_FireSoundByRow.find(idx);
+                    if (fit != g_FireSoundByRow.end())
+                        g_FireSoundByRow[scratchIdx] = fit->second;
+                    else
+                        g_FireSoundByRow.erase(scratchIdx);
+                }
+                continue;
+            }
+            if (st.count < 12
+                && SwapByteSEH(loc, static_cast<std::uint8_t>(scratchIdx),
+                               &st.saved[st.count]) == 1)
+            {
+                st.loc[st.count] = loc;
+                ++st.count;
+            }
+        }
+    }
+
+    static void SwapBarrelPool(int barrelId, PoolSwapState& st)
+    {
+        const auto it = g_BarrelOverflow.find(barrelId);
+        if (it == g_BarrelOverflow.end())
+            return;
+        std::uint8_t* pool = PartCurrentBuf(g_BarrelBase.pb);
+        std::uint8_t* bbuf = PartCurrentBuf(g_Barrel);
+        if (!pool || !bbuf)
+            return;
+        if (CopyPoolRowSEH(pool, kPoolScratch0, it->second, g_BarrelBase.pb.stride) != 1)
+            return;
+        std::uint8_t* loc = bbuf + static_cast<size_t>(barrelId - 1) * 2 + 1;
+        if (st.count < 12
+            && SwapByteSEH(loc, static_cast<std::uint8_t>(kPoolScratch0),
+                           &st.saved[st.count]) == 1)
+        {
+            st.loc[st.count] = loc;
+            ++st.count;
+        }
+    }
+
+    static void PrepareGunInfoSwap(void* desc, PoolSwapState& st)
+    {
+        if (!desc)
+            return;
+        if (g_RcvOverflow.empty() && g_BarrelOverflow.empty())
+            return;
+        const int rc = ReadByteAtSEH(desc, 0);
+        const int ba = ReadByteAtSEH(desc, 1);
+        const int ub = ReadByteAtSEH(desc, 10);
+        if (rc > 0)
+            SwapReceiverPools(rc, kPoolScratch0, 0, st);
+        int ubRc = 0;
+        if (ub > 0)
+        {
+            std::uint8_t* ubuf = ImplBufPtr(0x48);
+            if (ubuf)
+                ubRc = ReadByteAtSEH(ubuf, static_cast<size_t>(ub - 1) * 3);
+        }
+        if (ubRc > 0 && ubRc != rc)
+            SwapReceiverPools(ubRc, kPoolScratch1, 1, st);
+        if (ba > 0)
+            SwapBarrelPool(ba, st);
+    }
+
+    static void RestoreGunInfoSwap(PoolSwapState& st)
+    {
+        for (int i = st.count - 1; i >= 0; --i)
+            RestoreByteSEH(st.loc[i], st.saved[i]);
+    }
+
+    static int CallOrigGunInfoSEH(void* self, void* desc, unsigned int equipId,
+                                  void* gunInfo, void* a5, void* a6, void* a7,
+                                  void* a8, void* a9)
     {
         __try
         {
             g_OrigSetUpGunInfo(self, desc, equipId, gunInfo, a5, a6, a7, a8, a9);
+            return 1;
         }
         __except (SehAvOnly(GetExceptionCode()))
         {
@@ -1994,8 +2328,1221 @@ namespace
                     "SetGunBasic for that weapon?) - GunInfo left at defaults\n",
                     equipId);
             }
+            return 0;
         }
     }
+
+    static int ApplyBarrelExtraSEH(void* gunInfo, const BarrelExtraMult& m)
+    {
+        __try
+        {
+            std::uint8_t* g = static_cast<std::uint8_t*>(gunInfo);
+            if (m.rem[0] != 1.0)
+            {
+                const double d = *reinterpret_cast<std::uint16_t*>(g + 0x68) * m.rem[0] + 0.5;
+                *reinterpret_cast<std::uint16_t*>(g + 0x68) =
+                    d > 65535.0 ? 65535 : static_cast<std::uint16_t>(d);
+            }
+            if (m.rem[2] != 1.0)
+            {
+                const double d = g[0x55] * m.rem[2] + 0.5;
+                g[0x55] = d > 255.0 ? 255 : static_cast<std::uint8_t>(d);
+            }
+            if (m.rem[3] != 1.0)
+            {
+                double d = g[0x54] * m.rem[3] + 0.5;
+                g[0x54] = d > 255.0 ? 255 : static_cast<std::uint8_t>(d);
+                d = *reinterpret_cast<std::uint16_t*>(g + 0x6c) * m.rem[3] + 0.5;
+                *reinterpret_cast<std::uint16_t*>(g + 0x6c) =
+                    d > 65535.0 ? 65535 : static_cast<std::uint16_t>(d);
+            }
+            if (m.rem[4] != 1.0)
+            {
+                const double d = g[0x81] * m.rem[4] + 0.5;
+                g[0x81] = d > 255.0 ? 255 : static_cast<std::uint8_t>(d);
+            }
+            if (m.rem[5] != 1.0)
+            {
+                const double d = *reinterpret_cast<std::uint16_t*>(g + 0x1e) * m.rem[5] + 0.5;
+                *reinterpret_cast<std::uint16_t*>(g + 0x1e) =
+                    d > 65535.0 ? 65535 : static_cast<std::uint16_t>(d);
+            }
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static std::uint8_t g_SafeDescRow[12] = {};
+    static bool         g_HaveSafeDescRow = false;
+
+    static bool EnsureSafeDescRow()
+    {
+        if (g_HaveSafeDescRow)
+            return true;
+        const int stock = static_cast<int>(gAddr.GunBasicParameters2SlotCount);
+        const int hi = (stock > 0 && stock <= 1022) ? stock : 514;
+        unsigned char row[12];
+        for (int wid = 1; wid <= hi; ++wid)
+        {
+            if (!GunBasic_ReadRowBytes(wid, row))
+                continue;
+            if (row[0] >= 1 && row[0] <= 253
+                && row[1] >= 1 && row[1] <= 253
+                && row[2] >= 1 && row[2] <= 253)
+            {
+                std::memcpy(g_SafeDescRow, row, 12);
+                g_HaveSafeDescRow = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static int SubstituteEmptyDesc(void* desc, std::uint8_t saved[12], std::uint8_t mask[12])
+    {
+        for (int k = 0; k < 12; ++k)
+            mask[k] = 0;
+        if (!desc)
+            return 0;
+        if (ReadByteAtSEH(desc, 0) != 0)   // has a receiver -> real weapon, leave untouched
+            return 0;
+        if (!EnsureSafeDescRow())
+            return 0;
+        auto* d = static_cast<std::uint8_t*>(desc);
+        int n = 0;
+        for (int k = 0; k < 12; ++k)
+            if (SwapByteSEH(d + k, g_SafeDescRow[k], &saved[k]) == 1)
+            {
+                mask[k] = 1;
+                ++n;
+            }
+        return n > 0 ? 1 : 0;
+    }
+
+    static void RestoreSubstitutedDesc(void* desc, const std::uint8_t saved[12],
+                                       const std::uint8_t mask[12])
+    {
+        if (!desc)
+            return;
+        auto* d = static_cast<std::uint8_t*>(desc);
+        for (int k = 0; k < 12; ++k)
+            if (mask[k])
+                RestoreByteSEH(d + k, saved[k]);
+    }
+
+    static void __fastcall hkSetUpGunInfo(void* self, void* desc,
+                                          unsigned int equipId, void* gunInfo,
+                                          void* a5, void* a6, void* a7,
+                                          void* a8, void* a9)
+    {
+        std::uint8_t descSaved[12], descMask[12];
+        const int substituted = SubstituteEmptyDesc(desc, descSaved, descMask);
+        if (substituted)
+        {
+            static unsigned long long lastMs = 0;
+            const unsigned long long now = GetTickCount64();
+            if (now - lastMs > 2000)
+            {
+                lastMs = now;
+                Log("[EquipParam] equipId=%u has no gunBasic row - substituted a safe "
+                    "vanilla weapon for setup so it renders as a harmless dummy instead "
+                    "of crashing. Fix: give this weapon a valid SetGunBasic.\n", equipId);
+            }
+        }
+
+        PoolSwapState st;
+        PrepareGunInfoSwap(desc, st);
+        const int ok = CallOrigGunInfoSEH(self, desc, equipId, gunInfo,
+                                          a5, a6, a7, a8, a9);
+        RestoreGunInfoSwap(st);
+
+        if (substituted)
+            RestoreSubstitutedDesc(desc, descSaved, descMask);
+
+        if (ok == 1 && gunInfo && !g_BarrelExtraMult.empty())
+        {
+            const int ba = ReadByteAtSEH(desc, 1);
+            if (ba > 0)
+            {
+                const auto it = g_BarrelExtraMult.find(ba);
+                if (it != g_BarrelExtraMult.end()
+                    && ApplyBarrelExtraSEH(gunInfo, it->second) != 1)
+                    Log("[EquipParam] barrel extra multiplier: GunInfo write "
+                        "faulted for barrelId=%d - engine base values kept\n", ba);
+            }
+        }
+    }
+}
+
+namespace
+{
+    static std::uint8_t* g_BulletSwapLoc   = nullptr;
+    static std::uint8_t  g_BulletSwapSaved = 0;
+}
+
+int EquipParam_BulletFalloffSwapBegin(int bulletId)
+{
+    if (bulletId <= 0 || g_BulletBaseOverflow.empty())
+        return 0;
+    if (g_BulletSwapLoc)
+        return 0;
+    const auto it = g_BulletBaseOverflow.find(bulletId);
+    if (it == g_BulletBaseOverflow.end())
+        return 0;
+    std::uint8_t* pool = PartCurrentBuf(g_BulletBase.pb);
+    std::uint8_t* bbuf = PartCurrentBuf(g_Bullet);
+    if (!pool || !bbuf)
+        return 0;
+    if (CopyPoolRowSEH(pool, kPoolScratch0, it->second, g_BulletBase.pb.stride) != 1)
+        return 0;
+    std::uint8_t* loc = bbuf + static_cast<size_t>(bulletId - 1) * 14 + 6;
+    if (SwapByteSEH(loc, static_cast<std::uint8_t>(kPoolScratch0),
+                    &g_BulletSwapSaved) != 1)
+        return 0;
+    g_BulletSwapLoc = loc;
+    return 1;
+}
+
+void EquipParam_BulletFalloffSwapEnd()
+{
+    if (!g_BulletSwapLoc)
+        return;
+    RestoreByteSEH(g_BulletSwapLoc, g_BulletSwapSaved);
+    g_BulletSwapLoc = nullptr;
+}
+
+namespace
+{
+
+    using SetupWeaponInfo_t = void(__fastcall*)(void* self, void* work, int slot);
+    static SetupWeaponInfo_t g_OrigSetupWeaponInfo = nullptr;
+
+    //   vtbl+0x20 -> family block code ; vtbl+0x40 -> validity ; vtbl+0x150 -> template.
+    using Resolver20_t  = std::uint32_t(__fastcall*)(void* self, std::uint32_t key);
+    using Resolver40_t  = char(__fastcall*)(void* self, std::uint32_t key);
+    using Resolver150_t = void*(__fastcall*)(void* self, std::uint32_t key);
+    static Resolver20_t  g_OrigResolver20  = nullptr;
+    static Resolver40_t  g_OrigResolver40  = nullptr;
+    static Resolver150_t g_OrigResolver150 = nullptr;
+    static Resolver150_t g_Finder148       = nullptr;
+
+
+    using PartCode_t = std::uint32_t(__fastcall*)(void* self, std::uint32_t partId);
+    static PartCode_t g_OrigPartCode[5] = {};
+    static void*      g_PartCodeAddr[5] = {};
+    static bool       g_PartCodeExact[5] = {};
+    static const size_t kPartVtblOff[5] = { 0x20, 0x28, 0x30, 0x38, 0x40 };
+    static const int    kPartGbByte[5]  = { 0, 1, 2, 3, 10 };
+    static thread_local std::uint32_t g_TlsCustomEquip  = 0;
+    static thread_local std::uint32_t g_TlsVanillaEquip = 0;
+    static void* g_ResolverB = nullptr;
+    static std::set<std::uint32_t> g_PartLogged;
+
+    struct FamilyGb
+    {
+        std::uint16_t subId = 0;
+        unsigned char gb[12] = {};
+        bool ok = false;
+    };
+    static std::map<std::uint32_t, FamilyGb> g_GbByEquipId;
+    static void* g_Resolver20Addr  = nullptr;
+    static void* g_Resolver40Addr  = nullptr;
+    static void* g_Resolver150Addr = nullptr;
+    static std::atomic<bool> g_ResolverHookTried{ false };
+    static thread_local bool g_InSetupWeaponInfo = false;
+
+    static std::mutex g_WeaponKeyMutex;
+    static std::set<std::uint32_t> g_WeaponKeysLogged;
+
+    static std::map<std::uint32_t, std::uint32_t> g_FamilyFrom;
+    static std::atomic<bool> g_HasSwaps{ false };
+    static std::set<std::uint32_t> g_FamilyLogged;
+    static std::map<std::uint32_t, void*> g_TemplateByEquipId;
+    static std::set<std::uint32_t> g_WeaponInfoDumped;
+
+    static bool IsFamilyMappedEither(std::uint32_t equipId)
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        if (g_FamilyFrom.count(equipId))
+            return true;
+        for (const auto& kv : g_FamilyFrom)
+            if (kv.second == equipId)
+                return true;
+        return false;
+    }
+
+    static uintptr_t SetupWeaponInfoAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x14105fdb0ull;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x14105fe20ull;
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1410605f0ull;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141060640ull;
+        default:                                          return 0;
+        }
+    }
+
+    static std::uint32_t MapEquipId(std::uint32_t equipId)
+    {
+        if (!g_HasSwaps.load(std::memory_order_relaxed))
+            return equipId;
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        const auto it = g_FamilyFrom.find(equipId);
+        return it != g_FamilyFrom.end() ? it->second : equipId;
+    }
+
+    static int ReadU16SEH(const void* p, std::uint16_t& v)
+    {
+        __try
+        {
+            v = *static_cast<const std::uint16_t*>(p);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int WriteU8SEH(void* p, std::uint8_t v)
+    {
+        __try
+        {
+            *static_cast<std::uint8_t*>(p) = v;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static std::uint32_t GetEquipTypeForEquipId(std::uint32_t equipId)
+    {
+        const std::int32_t idx =
+            EquipIdCompression::ComputeCompressed(static_cast<std::int32_t>(equipId));
+        if (!EquipIdCompression::IsCompressedInBounds(idx))
+            return 0;
+        auto* words = static_cast<std::uint16_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+        std::uint16_t w = 0;
+        if (!words || ReadU16SEH(words + idx, w) != 1)
+            return 0;
+        return w & 0x3F;
+    }
+
+    static bool GetGbForEquipId(std::uint32_t equipId, FamilyGb& out)
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            const auto it = g_GbByEquipId.find(equipId);
+            if (it != g_GbByEquipId.end())
+            {
+                out = it->second;
+                return out.ok;
+            }
+        }
+        FamilyGb f;
+        const std::int32_t idx =
+            EquipIdCompression::ComputeCompressed(static_cast<std::int32_t>(equipId));
+        if (EquipIdCompression::IsCompressedInBounds(idx))
+        {
+            auto* words = static_cast<std::uint16_t*>(
+                ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+            std::uint16_t w = 0;
+            if (words && ReadU16SEH(words + idx, w) == 1)
+            {
+                f.subId = (w >> 6) & 0x3FF;
+                if (f.subId != 0 && GunBasic_ReadRowBytes(f.subId, f.gb))
+                    f.ok = true;
+            }
+        }
+        if (f.ok && f.gb[0] != 0)
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            g_GbByEquipId[equipId] = f;
+        }
+        out = f;
+        return f.ok && f.gb[0] != 0;
+    }
+
+    static std::atomic<std::uint32_t> g_PartCallCount{ 0 };
+
+    struct KeyTypeSwap
+    {
+        std::uint32_t* loc[16];
+        std::uint32_t  saved[16];
+        int n = 0;
+    };
+
+    static int SwapKeyWordsSEH(void* self, int slot,
+                               const std::uint32_t* fromIds,
+                               const std::uint32_t* toTypes, int m,
+                               KeyTypeSwap* st)
+    {
+        __try
+        {
+            std::uint8_t* a = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(self) + 0x8);
+            if (!a) return 0;
+            a = *reinterpret_cast<std::uint8_t**>(a + 0x138);
+            if (!a) return 0;
+            a = *reinterpret_cast<std::uint8_t**>(a + 0xC8);
+            if (!a) return 0;
+            std::uint8_t* obj = *reinterpret_cast<std::uint8_t**>(a + 0x8);
+            if (!obj) return 0;
+            const int stride = *reinterpret_cast<int*>(obj + 0xC);
+            std::uint32_t* table = *reinterpret_cast<std::uint32_t**>(obj + 0x40);
+            if (!table || stride <= 0 || stride > 16 || slot < 0 || slot > 15)
+                return 0;
+            for (int j = 0; j < stride && st->n < 16; ++j)
+            {
+                std::uint32_t* w = table + static_cast<size_t>(stride) * slot + j;
+                const std::uint32_t v = *w;
+                if ((v >> 16) == 0xFFFF)
+                    continue;
+                const std::uint32_t eq = (v & 0xFFFF) >> 5;
+                for (int i = 0; i < m; ++i)
+                {
+                    if (eq == fromIds[i] && toTypes[i] >= 1 && toTypes[i] <= 8
+                        && (v & 0x1F) != toTypes[i])
+                    {
+                        st->loc[st->n] = w;
+                        st->saved[st->n] = v;
+                        *w = (v & ~0x1Fu) | toTypes[i];
+                        ++st->n;
+                        break;
+                    }
+                }
+            }
+            return st->n;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static void RestoreKeyWordsSEH(KeyTypeSwap* st)
+    {
+        __try
+        {
+            for (int i = 0; i < st->n; ++i)
+                *st->loc[i] = st->saved[i];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+        st->n = 0;
+    }
+
+ 
+    using ExecStateChange_t = void(__fastcall*)(void*, void*, unsigned int, int);
+    static ExecStateChange_t g_OrigExecStateChange = nullptr;
+    static void* g_ExecStateChangeAddr = nullptr;
+    static int ReadU32AtSEH(const void* base, size_t off, std::uint32_t& out);
+
+    static uintptr_t AttackFsmStateChangeAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141040a00ull;
+        default:                                          return 0;
+        }
+    }
+
+    static const char* AtkStateName(int s)
+    {
+        static const char* const kNames[] = {
+            "None", "BareHoldStart", "BareHold", "BareHoldEnd", "CrawlBareHoldMove",
+            "Void5", "GunHoldStart", "GunHold", "GunHoldEnd", "GunFire", "GunFire2",
+            "GunReload", "GunReload2", "GunCock", "CrawlGunHoldMove", "DisableGunHold",
+            "GunHoldChangeDirection", "SnatchWeapon", "ShieldHoldStart", "ShieldHold",
+            "ShieldHoldEnd", "GunHoldToShieldHold", "ShieldHoldToGunHold",
+            "SpecialGunHold", "SpecialGunFire", "SpecialGunFire2", "SpecialGunAction",
+            "SpecialMissionPrepare"
+        };
+        if (s >= 0 && s < static_cast<int>(sizeof(kNames) / sizeof(kNames[0])))
+            return kNames[s];
+        return "?";
+    }
+
+    static void __fastcall hkExecStateChange(void* work, void* impl,
+                                             unsigned int player, int state)
+    {
+        std::uint32_t eq = 0, prevWord = 0;
+        const int eqOk = ReadU32AtSEH(work, 0x24c, eq);
+        const int prevOk = ReadU32AtSEH(work, 0x2c0, prevWord);
+        if (eqOk && prevOk)
+        {
+            const int prev = static_cast<int>(prevWord & 0xFF);
+            static std::atomic<std::uint64_t> lastKey{ 0xFFFFFFFFFFFFFFFFull };
+            const std::uint64_t key =
+                (static_cast<std::uint64_t>(eq) << 16) | (static_cast<std::uint64_t>(prev & 0xFF) << 8)
+                | static_cast<std::uint64_t>(state & 0xFF);
+            if (lastKey.exchange(key, std::memory_order_relaxed) != key)
+                Log("[WeaponKey] FSM eq=%u %s(%d) -> %s(%d)\n",
+                    eq, AtkStateName(prev), prev, AtkStateName(state), state);
+        }
+        g_OrigExecStateChange(work, impl, player, state);
+    }
+
+    using SearchMotionData_t = void*(__fastcall*)(void*, unsigned long long, void*);
+    static SearchMotionData_t g_OrigSearchMotionData = nullptr;
+    static void* g_SearchMotionDataAddr = nullptr;
+
+    static uintptr_t AnimSearchMotionDataAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141a94710ull;
+        default:                                          return 0;
+        }
+    }
+
+    static void* __fastcall hkSearchMotionData(void* self, unsigned long long hash,
+                                               void* pkg)
+    {
+        void* r = g_OrigSearchMotionData(self, hash, pkg);
+        if (!r)
+        {
+            static std::mutex mx;
+            static std::set<unsigned long long> seen;
+            bool isNew = false;
+            {
+                std::lock_guard<std::mutex> lock(mx);
+                if (seen.size() < 64)
+                    isNew = seen.insert(hash).second;
+            }
+            if (isNew)
+                Log("[WeaponKey] motion clip MISS: hash=%016llX not found in any "
+                    "loaded mtar\n", hash);
+        }
+        return r;
+    }
+
+    static std::set<std::uint32_t> g_KeyTypeLogged;
+
+    static void ApplyKeyTypeSwaps(void* self, int slot, KeyTypeSwap& st)
+    {
+        st.n = 0;
+        if (!self || !g_HasSwaps.load(std::memory_order_relaxed))
+            return;
+        std::uint32_t fromIds[8], donors[8];
+        int m = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            for (const auto& kv : g_FamilyFrom)
+            {
+                if (m >= 8)
+                    break;
+                fromIds[m] = kv.first;
+                donors[m] = kv.second;
+                ++m;
+            }
+        }
+        if (m == 0)
+            return;
+        std::uint32_t toTypes[8];
+        for (int i = 0; i < m; ++i)
+            toTypes[i] = GetEquipTypeForEquipId(donors[i]) & 0x1F;
+        if (SwapKeyWordsSEH(self, slot, fromIds, toTypes, m, &st) > 0)
+        {
+            bool isNew;
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                isNew = g_KeyTypeLogged.insert(fromIds[0] ^ (slot << 16)).second;
+            }
+#ifdef _DEBUG
+            if (isNew)
+                Log("[WeaponKey] key eqpType swapped to donor family for %d word(s) "
+                    "slot=%d (menu type untouched)\n", st.n, slot);
+#else
+            (void)isNew;
+#endif
+        }
+    }
+
+    static std::uint32_t PartCodeCommon(int slot, void* self, std::uint32_t partId)
+    {
+        g_PartCallCount.fetch_add(1, std::memory_order_relaxed);
+        if (g_InSetupWeaponInfo && g_TlsVanillaEquip != 0)
+        {
+            FamilyGb van;
+            if (!GetGbForEquipId(g_TlsVanillaEquip, van))
+            {
+                static unsigned long long lastMs = 0;
+                const unsigned long long now = GetTickCount64();
+                if (now - lastMs > 2000)
+                {
+                    lastMs = now;
+                    Log("[WeaponKey] WARNING: donor equipId=%u gunBasic unresolved at "
+                        "draw time - part substitution skipped (slot %d); the weapon "
+                        "may not animate correctly\n", g_TlsVanillaEquip, slot);
+                }
+            }
+            else
+            {
+                std::uint32_t use = partId;
+                if (g_PartCodeExact[slot])
+                {
+                    use = van.gb[kPartGbByte[slot]];
+                    if ((slot == 3 || slot == 4) && use != 0)
+                    {
+                        FamilyGb cus;
+                        if (GetGbForEquipId(g_TlsCustomEquip, cus)
+                            && cus.gb[kPartGbByte[slot]] == 0)
+                        {
+                            use = partId;
+#ifdef _DEBUG
+                            static std::atomic<int> logged{ 0 };
+                            const int bit = 1 << slot;
+                            if (!(logged.fetch_or(bit, std::memory_order_relaxed) & bit))
+                                Log("[WeaponKey] donor %s (part %u) suppressed: "
+                                    "custom weapon has none - hold would abort otherwise\n",
+                                    slot == 3 ? "stock" : "underbarrel",
+                                    van.gb[kPartGbByte[slot]]);
+#endif
+                        }
+                    }
+                }
+                else
+                {
+                    FamilyGb cus;
+                    if (partId != 0 && GetGbForEquipId(g_TlsCustomEquip, cus))
+                        for (int k = 0; k < 5; ++k)
+                            if (partId == cus.gb[kPartGbByte[k]])
+                            {
+                                use = van.gb[kPartGbByte[k]];
+                                break;
+                            }
+                }
+                const std::uint32_t code = g_OrigPartCode[slot](self, use);
+                if (slot == 0 && (code == 0 || code == 0x2f))
+                    Log("[WeaponKey] WARNING: receiver part code came out %u (0x%X) for "
+                        "equipId=%u (rc %u->%u) - the engine will invalidate this "
+                        "weapon; pick a donor whose receiver has a real motion type\n",
+                        code, code, g_TlsCustomEquip, partId, use);
+                return code;
+            }
+        }
+        return g_OrigPartCode[slot](self, partId);
+    }
+
+    static std::uint32_t __fastcall hkPartCode0(void* s, std::uint32_t p) { return PartCodeCommon(0, s, p); }
+    static std::uint32_t __fastcall hkPartCode1(void* s, std::uint32_t p) { return PartCodeCommon(1, s, p); }
+    static std::uint32_t __fastcall hkPartCode2(void* s, std::uint32_t p) { return PartCodeCommon(2, s, p); }
+    static std::uint32_t __fastcall hkPartCode3(void* s, std::uint32_t p) { return PartCodeCommon(3, s, p); }
+    static std::uint32_t __fastcall hkPartCode4(void* s, std::uint32_t p) { return PartCodeCommon(4, s, p); }
+    static void* const kPartCodeDetours[5] = {
+        reinterpret_cast<void*>(&hkPartCode0), reinterpret_cast<void*>(&hkPartCode1),
+        reinterpret_cast<void*>(&hkPartCode2), reinterpret_cast<void*>(&hkPartCode3),
+        reinterpret_cast<void*>(&hkPartCode4) };
+
+    static void DumpDescriptorSEH(void* self, std::uint32_t key)
+    {
+        __try
+        {
+            std::uint8_t* a = *reinterpret_cast<std::uint8_t**>(
+                reinterpret_cast<std::uint8_t*>(self) + 0x120);
+            if (!a) return;
+            std::uint8_t* table = *reinterpret_cast<std::uint8_t**>(a + 0x28);
+            if (!table) return;
+            const unsigned hw = key >> 16;
+            std::uint8_t* d = table + static_cast<size_t>(hw) * 0xe;
+            Log("[WeaponKey] desc key=0x%X hw=%u @%p: %02X %02X %02X %02X %02X %02X %02X "
+                "%02X %02X %02X %02X %02X %02X %02X | %02X %02X %02X %02X (block=%u tmplIdx=%u)\n",
+                key, hw, d,
+                d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7],
+                d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15], d[16], d[17],
+                static_cast<unsigned>(*reinterpret_cast<std::uint16_t*>(d)), d[8]);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static std::uint32_t __fastcall hkResolver20(void* self, std::uint32_t key)
+    {
+        const std::uint32_t equipId = g_OrigResolver20(self, key);
+        std::uint32_t vanilla = equipId;
+        if (g_InSetupWeaponInfo)
+        {
+            vanilla = MapEquipId(equipId);
+            if (vanilla != equipId)
+            {
+                g_TlsCustomEquip = equipId;
+                g_TlsVanillaEquip = vanilla;
+            }
+        }
+#ifdef _DEBUG
+        if (g_InSetupWeaponInfo && key != 0)
+        {
+            bool isNew;
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                isNew = g_WeaponKeysLogged.insert(key).second;
+            }
+            if (isNew)
+            {
+                const unsigned eqpType = key & 0x1f;
+                if (vanilla != equipId)
+                    Log("[WeaponKey] KEY=%u (0x%X) eqpType=%u -> equipId=%u  FAMILY-FROM "
+                        "equipId=%u (template+part codes only; identity stays %u)\n",
+                        key, key, eqpType, equipId, vanilla, equipId);
+                else
+                    Log("[WeaponKey] KEY=%u (0x%X) eqpType=%u -> equipId=%u\n",
+                        key, key, eqpType, equipId);
+                DumpDescriptorSEH(self, key);
+            }
+        }
+#endif
+        return equipId;
+    }
+
+    static char __fastcall hkResolver40(void* self, std::uint32_t key)
+    {
+        return g_OrigResolver40(self, key);
+    }
+
+    static void* CallTemplateFinderSEH(void* self, std::uint32_t vanillaEquipId)
+    {
+        __try
+        {
+            return g_Finder148 ? g_Finder148(self, vanillaEquipId) : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void* __fastcall hkResolver150(void* self, std::uint32_t key)
+    {
+        if (g_InSetupWeaponInfo && g_HasSwaps.load(std::memory_order_relaxed))
+        {
+            void* own = g_OrigResolver150(self, key);
+            if (g_TlsVanillaEquip == 0)
+            {
+                if (own && g_OrigResolver20)
+                {
+                    const std::uint32_t equipId = g_OrigResolver20(self, key);
+                    if (equipId != 0)
+                    {
+                        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                        g_TemplateByEquipId[equipId] = own;
+                    }
+                }
+                return own;
+            }
+            const std::uint32_t vanilla = g_TlsVanillaEquip;
+            if (own)
+            {
+                std::uint8_t cur = 0;
+                std::uint16_t tag = 0;
+                std::uint8_t* op = static_cast<std::uint8_t*>(own);
+                ReadU16SEH(op + 0x5e, tag);
+                std::uint16_t cur16 = 0;
+                ReadU16SEH(op + 0x78, cur16);
+                cur = static_cast<std::uint8_t>(cur16 & 0xFF);
+                const std::uint32_t vanType = GetEquipTypeForEquipId(vanilla) & 0x1f;
+                bool patched = false;
+                if (vanType >= 1 && vanType <= 8 && (cur & 0x1f) != vanType)
+                    patched = WriteU8SEH(op + 0x78,
+                        static_cast<std::uint8_t>((cur & ~0x1f) | vanType)) == 1;
+                bool isNew;
+                {
+                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                    isNew = g_FamilyLogged.insert(g_TlsCustomEquip).second;
+                }
+                const bool failed = !patched && (cur & 0x1f) != vanType;
+                if (isNew && failed)
+                    Log("[WeaponKey] WARNING: template family patch failed for "
+                        "equipId=%u (eqpType %u -> %u) - the weapon may handle as "
+                        "the wrong family\n",
+                        g_TlsCustomEquip, cur & 0x1f, vanType);
+#ifdef _DEBUG
+                if (isNew && !failed)
+                    Log("[WeaponKey] template equipId=%u familyFrom=%u: own block @%p "
+                        "tag=0x%X eqpType %u -> %u%s\n",
+                        g_TlsCustomEquip, vanilla, own, tag, cur & 0x1f, vanType,
+                        patched ? " (patched)" : " (already matches)");
+#endif
+            }
+            return own;
+        }
+        return g_OrigResolver150(self, key);
+    }
+
+    static int ReadU32AtSEH(const void* base, size_t off, std::uint32_t& out)
+    {
+        __try
+        {
+            out = *reinterpret_cast<const std::uint32_t*>(
+                static_cast<const std::uint8_t*>(base) + off);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int CopyBytesSEH(const void* src, std::uint8_t* dst, size_t n)
+    {
+        __try
+        {
+            std::memcpy(dst, src, n);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static void DumpWeaponInfo(void* work, std::uint32_t key, std::uint32_t equipIdFromKey)
+    {
+        std::uint8_t w[0xF0];
+        if (CopyBytesSEH(static_cast<std::uint8_t*>(work) + 0x1b0, w, sizeof(w)) != 1)
+            return;
+        char line[176];
+        for (int row = 0; row < 5; ++row)
+        {
+            int pos = 0;
+            for (int i = 0; i < 0x30; ++i)
+                pos += std::snprintf(line + pos, sizeof(line) - pos, "%02X ",
+                                     w[row * 0x30 + i]);
+            Log("[WeaponKey] winfo eq=%u key=0x%X +0x%02X: %s\n",
+                equipIdFromKey, key, row * 0x30, line);
+        }
+    }
+
+    static void* ReadPtrAtSEH(void* base, size_t off)
+    {
+        __try
+        {
+            return *reinterpret_cast<void**>(
+                reinterpret_cast<std::uint8_t*>(base) + off);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void* VtblSlotSEH(void* obj, size_t byteOff)
+    {
+        __try
+        {
+            void** vtable = *reinterpret_cast<void***>(obj);
+            if (!vtable)
+                return nullptr;
+            return vtable[byteOff / sizeof(void*)];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void* ReadVtableSlotSEH(void* self, size_t byteOff)
+    {
+        void* resolver = ReadPtrAtSEH(self, 0x60);
+        return resolver ? VtblSlotSEH(resolver, byteOff) : nullptr;
+    }
+
+    static void EnsureResolverMethodHook(void* self)
+    {
+        bool expected = false;
+        if (!g_ResolverHookTried.compare_exchange_strong(expected, true))
+            return;
+
+        void* m20  = ReadVtableSlotSEH(self, 0x20);
+        void* m40  = ReadVtableSlotSEH(self, 0x40);
+        void* m150 = ReadVtableSlotSEH(self, 0x150);
+        g_Finder148 = reinterpret_cast<Resolver150_t>(ReadVtableSlotSEH(self, 0x148));
+        if (!m20)
+        {
+            Log("[WeaponKey] could not resolve family-resolver methods - key log/swap off\n");
+            return;
+        }
+        bool ok20 = CreateAndEnableHook(m20, &hkResolver20,
+                                        reinterpret_cast<void**>(&g_OrigResolver20));
+        if (ok20) g_Resolver20Addr = m20;
+        bool ok40 = false, ok150 = false;
+        if (m40)
+        {
+            ok40 = CreateAndEnableHook(m40, &hkResolver40,
+                                       reinterpret_cast<void**>(&g_OrigResolver40));
+            if (ok40) g_Resolver40Addr = m40;
+        }
+        if (m150)
+        {
+            ok150 = CreateAndEnableHook(m150, &hkResolver150,
+                                        reinterpret_cast<void**>(&g_OrigResolver150));
+            if (ok150) g_Resolver150Addr = m150;
+        }
+        if (!ok20 || !ok40 || !ok150)
+            Log("[WeaponKey] WARNING: resolver hooks incomplete: block(+0x20)@%p=%s "
+                "validity(+0x40)@%p=%s template(+0x150)@%p=%s\n",
+                m20, ok20 ? "OK" : "FAIL", m40, ok40 ? "OK" : "FAIL",
+                m150, ok150 ? "OK" : "FAIL");
+#ifdef _DEBUG
+        else
+            Log("[WeaponKey] resolver hooks: block(+0x20)@%p=OK validity(+0x40)@%p=OK "
+                "template(+0x150)@%p=OK\n", m20, m40, m150);
+#endif
+
+        void* rA = ReadPtrAtSEH(self, 0x60);
+        void* rB = rA ? ReadPtrAtSEH(rA, 0x18) : nullptr;
+
+#ifdef _DEBUG
+        void* pool = rA ? ReadPtrAtSEH(rA, 0x1d8) : nullptr;
+        if (pool)
+        {
+            char tag[176];
+            for (int row = 0; row < 4; ++row)
+            {
+                int pos = 0;
+                for (int i = 0; i < 12; ++i)
+                {
+                    const int e = row * 12 + i;
+                    std::uint16_t v5e = 0xFFFF;
+                    std::uint8_t* ep = static_cast<std::uint8_t*>(pool)
+                        + static_cast<size_t>(e) * 0x90;
+                    ReadU16SEH(ep + 0x5e, v5e);
+                    std::uint16_t v78 = 0xFF;
+                    ReadU16SEH(ep + 0x78, v78);
+                    pos += std::snprintf(tag + pos, sizeof(tag) - pos, "%d:%X/%u ",
+                                         e, v5e, v78 & 0xFF);
+                }
+                Log("[WeaponKey] template pool tags (+0x5e/+0x78): %s\n", tag);
+            }
+        }
+#endif
+
+        if (!rB)
+        {
+            Log("[WeaponKey] part-code resolver (B) not reachable - familyFrom covers "
+                "template only\n");
+            return;
+        }
+        g_ResolverB = rB;
+        void* rtHookTarget = ResolveGameAddress(gAddr.MotionLoaderImpl_GetReceiverType);
+        for (int k = 0; k < 5; ++k)
+        {
+            void* mB = VtblSlotSEH(rB, kPartVtblOff[k]);
+            int cs = -9, es = -9;
+            const char* note = "";
+            if (!mB)
+                note = "null";
+            else if (mB == m20 || mB == m40 || mB == m150)
+                note = "=resolverA";
+            else if (mB == rtHookTarget)
+                note = "=GetReceiverType";
+            else
+            {
+                int prev = -1;
+                for (int j = 0; j < k; ++j)
+                    if (g_PartCodeAddr[j] == mB)
+                    {
+                        prev = j;
+                        break;
+                    }
+                if (prev >= 0)
+                {
+                    g_OrigPartCode[k] = g_OrigPartCode[prev];
+                    g_PartCodeExact[k] = false;
+                    g_PartCodeExact[prev] = false;
+                    note = "shared";
+                }
+                else
+                {
+                    cs = MH_CreateHook(mB, kPartCodeDetours[k],
+                                       reinterpret_cast<void**>(&g_OrigPartCode[k]));
+                    es = (cs == MH_OK) ? MH_EnableHook(mB) : -9;
+                    if (cs == MH_OK && (es == MH_OK || es == MH_ERROR_ENABLED))
+                    {
+                        g_PartCodeAddr[k] = mB;
+                        g_PartCodeExact[k] = true;
+                    }
+                }
+            }
+#ifdef _DEBUG
+            Log("[WeaponKey] part-code slot%d (+0x%zX) method=%p cs=%d es=%d %s\n",
+                k, kPartVtblOff[k], mB, cs, es, note);
+#else
+            if (mB && cs != -9 && (cs != MH_OK || (es != MH_OK && es != MH_ERROR_ENABLED)))
+                Log("[WeaponKey] WARNING: part-code slot%d hook failed (cs=%d es=%d) - "
+                    "donor part substitution incomplete for this slot\n", k, cs, es);
+#endif
+        }
+    }
+
+    unsigned int PartCode_TapReceiverType(unsigned int receiverId, unsigned int result)
+    {
+        if (g_InSetupWeaponInfo && g_TlsVanillaEquip != 0)
+        {
+            FamilyGb van;
+            if (GetGbForEquipId(g_TlsVanillaEquip, van) && van.gb[0] != 0)
+            {
+                FamilyGb cus;
+                const bool isCustomRc =
+                    GetGbForEquipId(g_TlsCustomEquip, cus) && receiverId == cus.gb[0];
+                if (isCustomRc)
+                {
+                    unsigned int donorType = 0;
+                    if (g_RcvTypeExtReady && van.gb[0] < 240)
+                        donorType = g_RcvTypeExt[van.gb[0]];
+                    const unsigned int finalType = result != 0 ? result : donorType;
+                    static std::atomic<std::uint32_t> lastSig{ 0xFFFFFFFF };
+                    const std::uint32_t sig =
+                        (receiverId << 16) | ((result & 0xFF) << 8) | (finalType & 0xFF);
+                    if (lastSig.exchange(sig, std::memory_order_relaxed) != sig)
+                    {
+                        if (finalType == 0)
+                            Log("[WeaponKey] WARNING: rc=%u has NO motion type and "
+                                "donor rc=%u has none either - the engine will INVALIDATE "
+                                "this weapon; point motionFrom at a receiver with a real "
+                                "motion type\n", receiverId, van.gb[0]);
+#ifdef _DEBUG
+                        else
+                            Log("[WeaponKey] receiverType tap: rc=%u motionFrom type=%u, "
+                                "donor rc=%u type=%u -> using %u\n",
+                                receiverId, result, van.gb[0], donorType, finalType);
+#endif
+                    }
+                    return finalType;
+                }
+                if (receiverId >= 234)
+                {
+                    static std::atomic<std::uint32_t> lastMiss{ 0xFFFFFFFF };
+                    if (lastMiss.exchange(receiverId, std::memory_order_relaxed) != receiverId)
+                        Log("[WeaponKey] WARNING: custom-range rc=%u queried during "
+                            "mapped setup but does not match the mapped weapon's receiver - "
+                            "no donor substitution applied\n", receiverId);
+                }
+            }
+        }
+        return result;
+    }
+
+    static void __fastcall hkSetupWeaponInfo(void* self, void* work, int slot)
+    {
+        if (self)
+            EnsureResolverMethodHook(self);
+
+        const std::uint32_t callsBefore =
+            g_PartCallCount.load(std::memory_order_relaxed);
+        KeyTypeSwap keySwap;
+        ApplyKeyTypeSwaps(self, slot, keySwap);
+        g_TlsCustomEquip = 0;
+        g_TlsVanillaEquip = 0;
+        g_InSetupWeaponInfo = true;
+        g_OrigSetupWeaponInfo(self, work, slot);
+        g_InSetupWeaponInfo = false;
+        RestoreKeyWordsSEH(&keySwap);
+        const std::uint32_t partCalls =
+            g_PartCallCount.load(std::memory_order_relaxed) - callsBefore;
+        (void)partCalls;
+        const std::uint32_t mappedThis = g_TlsCustomEquip;
+        g_TlsCustomEquip = 0;
+        g_TlsVanillaEquip = 0;
+
+        if (work && g_HasSwaps.load(std::memory_order_relaxed))
+        {
+            std::uint8_t* wi = static_cast<std::uint8_t*>(work) + 0x1b0;
+            std::uint32_t key = 0;
+            const int keyOk = ReadU32AtSEH(wi, 0x90, key);
+            if (keyOk == 1 && key == 0)
+            {
+                std::uint16_t subId = 0;
+                ReadU16SEH(wi + 0x70, subId);
+                if (subId != 0 || mappedThis != 0)
+                {
+                    static unsigned long long lastMs = 0;
+                    const unsigned long long now = GetTickCount64();
+                    if (now - lastMs > 1500)
+                    {
+                        lastMs = now;
+                        Log("[WeaponKey] WARNING: the engine invalidated a custom "
+                            "weapon's setup (slot=%d subId=%u equipId=%u) - the weapon "
+                            "will not function; check that motionFrom points at a real "
+                            "gun's receiver and familyFrom at a usable donor\n",
+                            slot, subId, mappedThis);
+                    }
+                }
+            }
+#ifdef _DEBUG
+            else if (keyOk == 1)
+            {
+                const std::uint32_t eq = (key & 0xFFFF) >> 5;
+                if (IsFamilyMappedEither(eq))
+                {
+                    std::uint8_t b[16] = {};
+                    std::uint32_t cc = 0, d0 = 0;
+                    CopyBytesSEH(wi + 0xb0, b, 16);
+                    ReadU32AtSEH(wi, 0xcc, cc);
+                    ReadU32AtSEH(wi, 0xd0, d0);
+                    std::uint16_t t78 = 0;
+                    ReadU16SEH(wi + 0x78, t78);
+                    Log("[WeaponKey] POST-SETUP eq=%u VALID: eqpType78=%u b9..bd="
+                        "%02X %02X %02X %02X %02X  cc=%08X d0=%08X partCalls=%u\n",
+                        eq, t78 & 0x1f, b[9], b[10], b[11], b[12], b[13], cc, d0,
+                        partCalls);
+                    bool doDump = false;
+                    {
+                        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                        doDump = g_WeaponInfoDumped.insert(eq).second;
+                    }
+                    if (doDump)
+                        DumpWeaponInfo(work, key, eq);
+                }
+            }
+#endif
+        }
+    }
+}
+
+void EquipParam_SetWeaponHandling(std::uint32_t equipId, std::uint32_t familyFrom)
+{
+    if (equipId == 0)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        g_GbByEquipId.clear();
+        g_FamilyLogged.erase(equipId);
+    }
+    if (familyFrom == 0 || familyFrom == equipId)
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        g_FamilyFrom.erase(equipId);
+        g_HasSwaps.store(!g_FamilyFrom.empty(), std::memory_order_relaxed);
+        Log("[WeaponKey] SetWeaponHandling: mapping for equipId=%u cleared\n", equipId);
+        return;
+    }
+    FamilyGb van, cus;
+    const bool vanOk = GetGbForEquipId(familyFrom, van);
+    const bool cusOk = GetGbForEquipId(equipId, cus);
+    const std::uint32_t vanType = GetEquipTypeForEquipId(familyFrom) & 0x1f;
+    if (!vanOk || vanType < 1 || vanType > 8)
+    {
+        Log("[WeaponKey] SetWeaponHandling REFUSED: familyFrom=%u does not resolve to a "
+            "native weapon (subId=%u eqpType=%u). Vanilla EQP_WP_* Lua constants are NOT "
+            "equip-table ids - draw the donor weapon once and use the number from its "
+            "'[WeaponKey] ... equipId=N' log line. Mapping NOT registered so the weapon "
+            "keeps its previous behavior.\n", familyFrom, van.subId, vanType);
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        g_FamilyFrom[equipId] = familyFrom;
+        g_HasSwaps.store(true, std::memory_order_relaxed);
+    }
+    int donorMotionType = -1;
+    EnsureRcvTypeExt();
+    if (g_RcvTypeExtReady && van.gb[0] < 240)
+        donorMotionType = g_RcvTypeExt[van.gb[0]];
+    Log("[WeaponKey] SetWeaponHandling: equipId=%u borrows the animation family of "
+        "vanilla equipId=%u (eqpType=%u subId=%u rc=%u motionType=%d ba=%u am=%u "
+        "sk=%u ub=%u; custom subId=%u %s)\n",
+        equipId, familyFrom, vanType, van.subId, van.gb[0], donorMotionType,
+        van.gb[1], van.gb[2], van.gb[3], van.gb[10], cus.subId,
+        cusOk ? "ok" : "resolves at draw");
+}
+
+bool Install_WeaponKeyLog()
+{
+#ifdef _DEBUG
+    Log("[WeaponKey] diagnostics build " __DATE__ " " __TIME__ "\n");
+#endif
+    const uintptr_t addr = SetupWeaponInfoAddr();
+    if (!addr)
+    {
+        Log("[WeaponKey] SetupWeaponInfo not pinned for this build - key log skipped\n");
+        return true;
+    }
+    void* target = ResolveGameAddress(addr);
+    const bool ok = CreateAndEnableHook(
+        target, &hkSetupWeaponInfo,
+        reinterpret_cast<void**>(&g_OrigSetupWeaponInfo));
+    if (!ok)
+        Log("[WeaponKey] SetupWeaponInfo key-log Install -> FAIL (target=%p)\n", target);
+#ifdef _DEBUG
+    else
+        Log("[WeaponKey] SetupWeaponInfo key-log Install -> OK (target=%p)\n", target);
+#endif
+#ifdef _DEBUG
+    const uintptr_t fsmAddr = AttackFsmStateChangeAddr();
+    if (fsmAddr)
+    {
+        g_ExecStateChangeAddr = ResolveGameAddress(fsmAddr);
+        const bool fsmOk = CreateAndEnableHook(
+            g_ExecStateChangeAddr, &hkExecStateChange,
+            reinterpret_cast<void**>(&g_OrigExecStateChange));
+        Log("[WeaponKey] attack-FSM tracer %s (ExecStateChangeImpl=%p)\n",
+            fsmOk ? "armed" : "FAILED", g_ExecStateChangeAddr);
+        if (!fsmOk)
+            g_ExecStateChangeAddr = nullptr;
+    }
+    const uintptr_t missAddr = AnimSearchMotionDataAddr();
+    if (missAddr)
+    {
+        g_SearchMotionDataAddr = ResolveGameAddress(missAddr);
+        const bool missOk = CreateAndEnableHook(
+            g_SearchMotionDataAddr, &hkSearchMotionData,
+            reinterpret_cast<void**>(&g_OrigSearchMotionData));
+        Log("[WeaponKey] motion-miss logger %s (SearchMotionData=%p)\n",
+            missOk ? "armed" : "FAILED", g_SearchMotionDataAddr);
+        if (!missOk)
+            g_SearchMotionDataAddr = nullptr;
+    }
+#endif
+    return ok;
+}
+
+void Uninstall_WeaponKeyLog()
+{
+    if (g_Resolver20Addr)  { DisableAndRemoveHook(g_Resolver20Addr);  g_Resolver20Addr  = nullptr; }
+    if (g_Resolver40Addr)  { DisableAndRemoveHook(g_Resolver40Addr);  g_Resolver40Addr  = nullptr; }
+    if (g_Resolver150Addr) { DisableAndRemoveHook(g_Resolver150Addr); g_Resolver150Addr = nullptr; }
+    g_OrigResolver20 = nullptr;
+    g_OrigResolver40 = nullptr;
+    g_OrigResolver150 = nullptr;
+    g_Finder148 = nullptr;
+    for (int k = 0; k < 5; ++k)
+    {
+        if (g_PartCodeAddr[k])
+            DisableAndRemoveHook(g_PartCodeAddr[k]);
+        g_PartCodeAddr[k] = nullptr;
+        g_OrigPartCode[k] = nullptr;
+        g_PartCodeExact[k] = false;
+    }
+    g_ResolverB = nullptr;
+
+    const uintptr_t addr = SetupWeaponInfoAddr();
+    if (addr && g_OrigSetupWeaponInfo)
+        DisableAndRemoveHook(ResolveGameAddress(addr));
+    g_OrigSetupWeaponInfo = nullptr;
+
+    if (g_ExecStateChangeAddr)
+    {
+        DisableAndRemoveHook(g_ExecStateChangeAddr);
+        g_ExecStateChangeAddr = nullptr;
+    }
+    g_OrigExecStateChange = nullptr;
+
+    if (g_SearchMotionDataAddr)
+    {
+        DisableAndRemoveHook(g_SearchMotionDataAddr);
+        g_SearchMotionDataAddr = nullptr;
+    }
+    g_OrigSearchMotionData = nullptr;
 }
 
 bool Install_GunInfoGuard()
@@ -2178,7 +3725,9 @@ namespace
         return tw[idx] == 0;
     }
 
-    static void BlankPhantomLoadoutWeaponsSEH(void* self, std::uint32_t slot)
+    static void BlankPhantomLoadoutWeaponsSEH(void* self, std::uint32_t slot,
+                                              std::int32_t* outPinned,
+                                              int* outPinnedCount)
     {
         __try
         {
@@ -2206,7 +3755,11 @@ namespace
                     reinterpret_cast<std::int32_t*>(sourceReq + static_cast<std::size_t>(i) * 0x18);
                 const std::int32_t id = *srcW;
                 if (!WeaponEquipIdIsPhantom(id))
+                {
+                    if (id > 0 && id < 0x289 && *outPinnedCount < 3)
+                        outPinned[(*outPinnedCount)++] = id;
                     continue;
+                }
                 *srcW = 0;   // EQP_None
                 if (workingReq)
                     *reinterpret_cast<std::int32_t*>(
@@ -2222,7 +3775,11 @@ namespace
 
     static void __fastcall hkUpdateLoadoutRequest(void* self, std::uint32_t slot)
     {
-        BlankPhantomLoadoutWeaponsSEH(self, slot);
+        std::int32_t pinned[3] = {};
+        int pinnedCount = 0;
+        BlankPhantomLoadoutWeaponsSEH(self, slot, pinned, &pinnedCount);
+        for (int i = 0; i < pinnedCount; ++i)
+            V_FrameWorkState::NotePinnedEquipId(pinned[i]);
         __try
         {
             g_OrigUpdateLoadoutRequest(self, slot);

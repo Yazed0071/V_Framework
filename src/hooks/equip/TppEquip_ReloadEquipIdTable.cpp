@@ -26,7 +26,43 @@ namespace
         std::int32_t block = 0;
         std::uint64_t partsHash = 0;
         std::uint64_t packHash = 0;
+        bool resident = false;
+        bool released = false;
     };
+
+    static bool SafeStampRow(std::uint8_t* dst, std::uint16_t* word,
+                             const EquipIdRow& row)
+    {
+        __try
+        {
+            *reinterpret_cast<std::uint64_t*>(dst + 0x00) = row.partsHash;
+            *reinterpret_cast<std::uint64_t*>(dst + 0x08) = row.packHash;
+            dst[0x10] = static_cast<std::uint8_t>(row.block);
+            *word = static_cast<std::uint16_t>(
+                (row.equipType & 0x3F) | ((row.subId & 0x3FF) << 6));
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool SafeZeroRow(std::uint8_t* dst, std::uint16_t* word)
+    {
+        __try
+        {
+            *reinterpret_cast<std::uint64_t*>(dst + 0x00) = 0;
+            *reinterpret_cast<std::uint64_t*>(dst + 0x08) = 0;
+            dst[0x10] = 0;
+            *word = 0;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 
     using ReloadEquipIdTable_t = int(__fastcall*)(lua_State* L);
     static ReloadEquipIdTable_t g_OrigReloadEquipIdTable = nullptr;
@@ -57,14 +93,56 @@ namespace
         }
 
         std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
-        *reinterpret_cast<std::uint64_t*>(dst + 0x00) = row.partsHash;
-        *reinterpret_cast<std::uint64_t*>(dst + 0x08) = row.packHash;
-        dst[0x10] = static_cast<std::uint8_t>(row.block);
-
-        typeWords[index] = static_cast<std::uint16_t>(
-            (row.equipType & 0x3F) | ((row.subId & 0x3FF) << 6));
+        if (!SafeStampRow(dst, typeWords + index, row))
+        {
+            Log("[EquipIdTable] SEH writing native row for equipId=%d - "
+                "addresses wrong for this build; write skipped\n", row.equipId);
+            return;
+        }
 
         EquipIdCompression::MarkCompressedSlotUsed(index);
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            for (auto& existing : g_Rows)
+                if (existing.equipId == row.equipId)
+                {
+                    existing.resident = true;
+                    break;
+                }
+        }
+    }
+
+    static bool EraseNativeRow(std::int32_t equipId)
+    {
+        const std::int32_t index = EquipIdCompression::ComputeCompressed(equipId);
+        if (!EquipIdCompression::IsCompressedInBounds(index))
+        {
+            Log("[EquipIdTable] EraseNativeRow refused: equipId=%d out of "
+                "bounds\n", equipId);
+            return false;
+        }
+        auto* infoList = static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_InfoList));
+        auto* typeWords = static_cast<std::uint16_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+        if (!infoList || !typeWords)
+        {
+            Log("[EquipIdTable] EraseNativeRow: table address(es) not resolved; "
+                "skipped\n");
+            return false;
+        }
+        std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
+        if (!SafeZeroRow(dst, typeWords + index))
+        {
+            Log("[EquipIdTable] SEH erasing native row for equipId=%d - "
+                "skipped\n", equipId);
+            return false;
+        }
+        EquipIdCompression::ClearCompressedSlotUsed(index);
+#ifdef _DEBUG
+        Log("[EquipIdTable] native row released for equipId=%d\n", equipId);
+#endif
+        return true;
     }
 
     static bool ReadRowNumber(lua_State* L, int n, double& out)
@@ -128,12 +206,18 @@ namespace
             std::lock_guard<std::mutex> lock(g_Mutex);
             snapshot = g_Rows;
         }
+        std::size_t applied = 0;
         for (const auto& row : snapshot)
+        {
+            if (row.released)
+                continue;
             WriteNativeRow(row);
+            ++applied;
+        }
 #ifdef _DEBUG
-        if (!snapshot.empty())
+        if (applied)
             Log("[EquipIdTable] re-applied %zu custom row(s) after reload\n",
-                snapshot.size());
+                applied);
 #endif
     }
 
@@ -228,7 +312,34 @@ bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
         DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipIdTable_ReloadEquipIdTable));
     g_OrigReloadEquipIdTable = nullptr;
 
-    std::lock_guard<std::mutex> lock(g_Mutex);
-    g_Rows.clear();
+    std::vector<std::int32_t> resident;
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const auto& row : g_Rows)
+            if (row.resident)
+                resident.push_back(row.equipId);
+        g_Rows.clear();
+    }
+    for (const std::int32_t id : resident)
+        EraseNativeRow(id);
     return true;
+}
+
+int TppEquip_ReleaseEquipRow(int equipId)
+{
+    bool found = false;
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (auto& row : g_Rows)
+            if (row.equipId == equipId)
+            {
+                row.resident = false;
+                row.released = true;
+                found = true;
+                break;
+            }
+    }
+    if (!found)
+        return 0;
+    return EraseNativeRow(equipId) ? 1 : 0;
 }

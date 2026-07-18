@@ -66,6 +66,9 @@ namespace
         switch (gGameBuild)
         {
             case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF94D0ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF9560ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x140FF9C70ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x140FF9CC0ull;
             default: return 0;
         }
     }
@@ -77,11 +80,11 @@ namespace
         std::uint8_t mute[5];
         const char*  name;
     };
-    static constexpr std::size_t kNumMuteSites = 3;
+    static constexpr std::size_t kMaxMuteSites = 4;
     static bool  g_SoundMuted = false;
-    static void* g_MuteAddr[kNumMuteSites] = {};
+    static void* g_MuteAddr[kMaxMuteSites] = {};
 
-    static bool BarrierSoundMuteSites(SoundMuteSite (&out)[kNumMuteSites])
+    static std::size_t BarrierSoundMuteSites(SoundMuteSite (&out)[kMaxMuteSites])
     {
         switch (gGameBuild)
         {
@@ -92,9 +95,37 @@ namespace
                                             { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
                 out[2] = { 0x141751648ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
                                             { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
-                return true;
+                return 3;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
+                out[0] = { 0x140D2DD67ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
+                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
+                out[1] = { 0x14175258Aull, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
+                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
+                out[2] = { 0x141751608ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
+                return 3;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
+                out[0] = { 0x140D2DC77ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
+                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
+                out[1] = { 0x14175310Aull, { 0xE8, 0xC1, 0xF0, 0xFF, 0xFF },
+                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
+                out[2] = { 0x14194C55Eull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
+                out[3] = { 0x14194C5A3ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag (2)" };
+                return 4;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
+                out[0] = { 0x140D2D8D7ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
+                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
+                out[1] = { 0x1417531DAull, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
+                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
+                out[2] = { 0x14194C68Eull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
+                out[3] = { 0x14194C6D3ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag (2)" };
+                return 4;
             default:
-                return false;
+                return 0;
         }
     }
 
@@ -113,9 +144,10 @@ namespace
     static void ApplyBarrierSoundMute()
     {
         if (g_SoundMuted) return;
-        SoundMuteSite sites[kNumMuteSites];
-        if (!BarrierSoundMuteSites(sites)) return;
-        for (std::size_t i = 0; i < kNumMuteSites; ++i)
+        SoundMuteSite sites[kMaxMuteSites];
+        const std::size_t n = BarrierSoundMuteSites(sites);
+        if (n == 0) return;
+        for (std::size_t i = 0; i < n; ++i)
         {
             std::uint8_t* p = reinterpret_cast<std::uint8_t*>(sites[i].addr);
             if (std::memcmp(p, sites[i].expect, 5) == 0)
@@ -138,16 +170,14 @@ namespace
     static void RestoreBarrierSoundMute()
     {
         if (!g_SoundMuted) return;
-        SoundMuteSite sites[kNumMuteSites];
-        if (BarrierSoundMuteSites(sites))
+        SoundMuteSite sites[kMaxMuteSites];
+        const std::size_t n = BarrierSoundMuteSites(sites);
+        for (std::size_t i = 0; i < n; ++i)
         {
-            for (std::size_t i = 0; i < kNumMuteSites; ++i)
+            if (g_MuteAddr[i])
             {
-                if (g_MuteAddr[i])
-                {
-                    WritePatchBytes(g_MuteAddr[i], sites[i].expect, 5);
-                    g_MuteAddr[i] = nullptr;
-                }
+                WritePatchBytes(g_MuteAddr[i], sites[i].expect, 5);
+                g_MuteAddr[i] = nullptr;
             }
         }
         g_SoundMuted = false;
@@ -158,6 +188,9 @@ namespace
         switch (gGameBuild)
         {
             case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF5BB0ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF5C40ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496DA350ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A13FBB0ull;
             default: return 0;
         }
     }
@@ -166,6 +199,9 @@ namespace
         switch (gGameBuild)
         {
             case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x142ACEB58ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x142ACEB58ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x142ACEB58ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x142ACEB58ull;
             default: return 0;
         }
     }
@@ -175,6 +211,9 @@ namespace
         switch (gGameBuild)
         {
             case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FFAAA0ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FFAB30ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496DD430ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A142E80ull;
             default: return 0;
         }
     }
@@ -184,6 +223,9 @@ namespace
         switch (gGameBuild)
         {
             case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF4AE0ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF4B70ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496D5120ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A137900ull;
             default: return 0;
         }
     }

@@ -31,7 +31,11 @@ namespace V_FrameWorkState
     bool ResolveOrCreateEquipId(
         const char* key,
         std::int32_t minimumId,
-        std::int32_t& outEquipId);
+        std::int32_t& outEquipId,
+        bool isWeapon = false);
+
+    void NotePinnedEquipId(std::int32_t equipId);
+    void ReplacePinnedEquipIds(const std::int32_t* equipIds, std::size_t count);
 
 
     bool ResolveOrCreateDevelopId(

@@ -5,6 +5,7 @@
 #include <intrin.h>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 #include "HookUtils.h"
 #include "log.h"
@@ -47,11 +48,8 @@ namespace
     static GetQuarkTable_t    g_GetQuarkSystemTable  = nullptr;
     static ExecPreMotion_t    g_OrigExecPreMotion    = nullptr;
 
-    static unsigned int       g_hiddenLz[64]   = {};
-    static volatile int       g_hiddenLzCount  = 0;
-
-    static unsigned short g_taxiMissions[32] = {};
-    static volatile int   g_taxiMissionCount = 0;
+    static std::vector<unsigned int>   g_hiddenLz;
+    static std::vector<unsigned short> g_taxiMissions;
 
     static volatile unsigned short g_lastFieldLoc = 0xFFFF;
 
@@ -92,9 +90,9 @@ namespace
 
     static bool IsTaxiEnabled()
     {
-        if (g_taxiMissionCount <= 0) return false;
+        if (g_taxiMissions.empty()) return false;
         const unsigned short mc = MissionCodeGuard::GetCurrentMissionCode();
-        for (int i = 0; i < g_taxiMissionCount; ++i)
+        for (std::size_t i = 0; i < g_taxiMissions.size(); ++i)
             if (g_taxiMissions[i] == mc) return true;
         return false;
     }
@@ -558,7 +556,7 @@ namespace
         unsigned int restoreIdx[64];
         int restoreCount = 0;
         std::uintptr_t ct = 0;
-        if (g_taxiMapOpen && g_hiddenLzCount > 0)
+        if (g_taxiMapOpen && !g_hiddenLz.empty())
         {
             __try
             {
@@ -574,7 +572,7 @@ namespace
                         if ((*flag & 1) == 0)
                             continue;
                         const unsigned int hash = *reinterpret_cast<unsigned int*>(ct + 0x28 + static_cast<std::uintptr_t>(i) * 0x30);
-                        for (int k = 0; k < g_hiddenLzCount; ++k)
+                        for (std::size_t k = 0; k < g_hiddenLz.size(); ++k)
                             if (g_hiddenLz[k] == hash)
                             {
                                 *flag = static_cast<unsigned char>(*flag & ~1u);
@@ -601,19 +599,19 @@ namespace
 void FieldTaxi_SetMissionEnabled(unsigned int missionCode, bool enabled)
 {
     const unsigned short mc = static_cast<unsigned short>(missionCode);
-    int idx = -1;
-    for (int i = 0; i < g_taxiMissionCount; ++i)
+    std::size_t idx = g_taxiMissions.size();
+    for (std::size_t i = 0; i < g_taxiMissions.size(); ++i)
         if (g_taxiMissions[i] == mc) { idx = i; break; }
 
     if (enabled)
     {
-        if (idx < 0 && g_taxiMissionCount < 32)
-            g_taxiMissions[g_taxiMissionCount++] = mc;
+        if (idx == g_taxiMissions.size())
+            g_taxiMissions.push_back(mc);
     }
-    else if (idx >= 0)
+    else if (idx < g_taxiMissions.size())
     {
-        g_taxiMissions[idx] = g_taxiMissions[g_taxiMissionCount - 1];
-        --g_taxiMissionCount;
+        g_taxiMissions[idx] = g_taxiMissions.back();
+        g_taxiMissions.pop_back();
     }
 }
 
@@ -641,19 +639,19 @@ void FieldTaxi_SetTaxiRideLog(bool enabled)
 
 void FieldTaxi_SetTaxiLandingZoneHidden(unsigned int lzNameHash, bool hidden)
 {
-    int idx = -1;
-    for (int i = 0; i < g_hiddenLzCount; ++i)
+    std::size_t idx = g_hiddenLz.size();
+    for (std::size_t i = 0; i < g_hiddenLz.size(); ++i)
         if (g_hiddenLz[i] == lzNameHash) { idx = i; break; }
 
     if (hidden)
     {
-        if (idx < 0 && g_hiddenLzCount < 64)
-            g_hiddenLz[g_hiddenLzCount++] = lzNameHash;
+        if (idx == g_hiddenLz.size())
+            g_hiddenLz.push_back(lzNameHash);
     }
-    else if (idx >= 0)
+    else if (idx < g_hiddenLz.size())
     {
-        g_hiddenLz[idx] = g_hiddenLz[g_hiddenLzCount - 1];
-        --g_hiddenLzCount;
+        g_hiddenLz[idx] = g_hiddenLz.back();
+        g_hiddenLz.pop_back();
     }
 }
 

@@ -496,12 +496,32 @@ namespace
             if (!reserveFn)
                 return false;
 
+            std::size_t ourBefore = 0;
+            for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
+            {
+                const std::uint8_t* slot = SlotPtr(ctrl, i);
+                if (*(slot + kSlot_ReserveIdOffset) != kReserveId_Empty
+                    && *reinterpret_cast<const std::uint32_t*>(
+                           slot + kSlot_CommonValue1Offset) == kVPopupMagic)
+                    ++ourBefore;
+            }
+
             ReserveParam p{};
             p.commonValue1 = kVPopupMagic;
             p.reserveId    = reserveId;
 
             reserveFn(ctrl, &p);
-            return true;
+
+            std::size_t ourAfter = 0;
+            for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
+            {
+                const std::uint8_t* slot = SlotPtr(ctrl, i);
+                if (*(slot + kSlot_ReserveIdOffset) != kReserveId_Empty
+                    && *reinterpret_cast<const std::uint32_t*>(
+                           slot + kSlot_CommonValue1Offset) == kVPopupMagic)
+                    ++ourAfter;
+            }
+            return ourAfter > ourBefore;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1315,9 +1335,10 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
 
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
-        if (g_PendingQueue.size() >= kCtrl_NumSlots)
+        if (g_PendingQueue.size() >= 256)
         {
-            Log("[MbDvcCustomPopup] Show: queue full (%zu); rejecting new entry\n",
+            Log("[MbDvcCustomPopup] Show: %zu popups already pending; rejecting "
+                "new entry (runaway-caller backstop)\n",
                 g_PendingQueue.size());
             return false;
         }

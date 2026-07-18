@@ -20,7 +20,6 @@ namespace V_FrameWorkState
     {
         static constexpr const char* kSavePath    = "mod\\V_FrameWork\\V_FrameWork_State.lua";
         static constexpr const char* kLegacyPath  = "mod\\saves\\V_FrameWork_State.lua";
-        static constexpr const char* kBackupPath  = "mod\\V_FrameWork_State.bak";
 
 
         static constexpr std::int32_t kFirstCustomEquipIdMinimum = 1;
@@ -31,6 +30,7 @@ namespace V_FrameWorkState
         static constexpr std::int16_t kMaxCustomTapeSaveIndex = 32000;
         static constexpr std::int32_t kTapeOrphanGraceLaunches = 2;
         static constexpr std::int32_t kEquipOrphanGraceLaunches = 2;
+        static constexpr std::int32_t kConstantOrphanGraceLaunches = 2;
         static constexpr std::int32_t kMaxCustomConstantValue = 0xFFF0;
 
         struct EquipEntry
@@ -69,6 +69,8 @@ namespace V_FrameWorkState
             std::unordered_map<std::string, EquipEntry> equips;
             std::unordered_map<std::string, TapeEntry> tapes;
             std::unordered_map<std::string, std::int32_t> constants;
+            std::unordered_map<std::string, std::int32_t> constantMisses;
+            std::unordered_set<std::int32_t> pinnedEquipIds;
         };
 
         static State g_State;
@@ -77,6 +79,10 @@ namespace V_FrameWorkState
         static int g_BatchDepth = 0;
         static std::unordered_set<std::int16_t> g_TapeSaveIndexInUse;
 
+
+        static std::unordered_set<std::string> g_ConstantsTouched;
+        static std::unordered_set<std::int32_t> g_SessionPinnedIds;
+        static bool g_PinSetFreshThisSession = false;
 
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
 
@@ -259,20 +265,13 @@ namespace V_FrameWorkState
             g_State.loaded = true;
             g_State.equips.clear();
             g_State.tapes.clear();
+            g_State.constants.clear();
+            g_State.constantMisses.clear();
+            g_State.pinnedEquipIds.clear();
+            g_ConstantsTouched.clear();
             g_TapeSaveIndexInUse.clear();
 
             MigrateLegacyStateFile_NoLock();
-
-            if (GetFileAttributesA(kSavePath) == INVALID_FILE_ATTRIBUTES
-                && GetFileAttributesA(kBackupPath) != INVALID_FILE_ATTRIBUTES)
-            {
-                EnsureSaveDirectory();
-                if (CopyFileA(kBackupPath, kSavePath, TRUE))
-                    Log("[V_FrameWorkState] state file was MISSING - restored from "
-                        "backup '%s' (custom ids kept stable). If you replaced the "
-                        "mod folder, keep V_FrameWork_State.lua with it.\n",
-                        kBackupPath);
-            }
 
             std::ifstream in(kSavePath);
             if (!in)
@@ -280,7 +279,8 @@ namespace V_FrameWorkState
                 return;
             }
 
-            enum Section { None, Equips, Tapes, Constants } section = None;
+            enum Section { None, Equips, Tapes, Constants, ConstantMisses,
+                           PinnedIds } section = None;
 
             std::string line;
             while (std::getline(in, line))
@@ -298,6 +298,20 @@ namespace V_FrameWorkState
                     trimmed.find('{') != std::string::npos)
                 {
                     section = Tapes;
+                    continue;
+                }
+
+                if (trimmed.rfind("constantMisses", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = ConstantMisses;
+                    continue;
+                }
+
+                if (trimmed.rfind("loadoutPinnedIds", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = PinnedIds;
                     continue;
                 }
 
@@ -352,6 +366,20 @@ namespace V_FrameWorkState
                     if (ParseConstantLine(trimmed, key, value))
                         g_State.constants[key] = value;
                 }
+                else if (section == ConstantMisses)
+                {
+                    std::string key;
+                    std::int32_t value = 0;
+                    if (ParseConstantLine(trimmed, key, value))
+                        g_State.constantMisses[key] = value;
+                }
+                else if (section == PinnedIds)
+                {
+                    std::string key;
+                    std::int32_t value = 0;
+                    if (ParseConstantLine(trimmed, key, value))
+                        g_State.pinnedEquipIds.insert(value);
+                }
             }
 
             in.close();
@@ -373,8 +401,49 @@ namespace V_FrameWorkState
                 }
             }
 
+            for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
+            {
+                const auto mit = g_State.constantMisses.find(it->first);
+                const std::int32_t misses =
+                    (mit != g_State.constantMisses.end()) ? mit->second : 0;
+                if (misses >= kConstantOrphanGraceLaunches)
+                {
+                    Log("[Constants] \"%s\" (value %d) has not been referenced for %d "
+                        "launches - entry removed; its value returns to the free pool.\n",
+                        it->first.c_str(), it->second, misses);
+                    if (mit != g_State.constantMisses.end())
+                        g_State.constantMisses.erase(mit);
+                    it = g_State.constants.erase(it);
+                    gcChanged = true;
+                    continue;
+                }
+                ++it;
+            }
+
             for (auto it = g_State.equips.begin(); it != g_State.equips.end(); )
             {
+                if (it->second.misses >= kEquipOrphanGraceLaunches
+                    && it->second.equipId != 0)
+                {
+                    const std::int32_t slot =
+                        EquipIdCompression::ComputeCompressed(it->second.equipId);
+                    bool pinned = false;
+                    for (const std::int32_t p : g_State.pinnedEquipIds)
+                        if (EquipIdCompression::ComputeCompressed(p) == slot)
+                        {
+                            pinned = true;
+                            break;
+                        }
+                    if (pinned)
+                    {
+                        Log("[V_FrameWorkState] '%s' is orphaned but its equipId "
+                            "0x%X is still referenced by a saved loadout - id "
+                            "kept reserved.\n",
+                            it->first.c_str(), it->second.equipId);
+                        ++it;
+                        continue;
+                    }
+                }
                 if (it->second.misses >= kEquipOrphanGraceLaunches)
                 {
                     Log("[V_FrameWorkState] \"%s\" (developId %d, equipId 0x%X, partsType 0x%02X, "
@@ -556,6 +625,37 @@ namespace V_FrameWorkState
                 out << "    },\n";
             }
 
+            {
+                std::vector<std::pair<std::string, std::int32_t>> sorted;
+                sorted.reserve(g_State.constants.size());
+                for (const auto& kv : g_State.constants)
+                {
+                    if (g_ConstantsTouched.find(kv.first) != g_ConstantsTouched.end())
+                        continue;
+                    const auto mit = g_State.constantMisses.find(kv.first);
+                    const std::int32_t loaded =
+                        (mit != g_State.constantMisses.end()) ? mit->second : 0;
+                    sorted.emplace_back(kv.first, loaded + 1);
+                }
+                std::sort(sorted.begin(), sorted.end(),
+                    [](const auto& a, const auto& b) { return a.first < b.first; });
+
+                out << "    constantMisses = {\n";
+                for (const auto& kv : sorted)
+                    out << "        [\"" << kv.first << "\"] = " << kv.second << ",\n";
+                out << "    },\n";
+            }
+
+            {
+                std::vector<std::int32_t> sorted(g_State.pinnedEquipIds.begin(),
+                                                 g_State.pinnedEquipIds.end());
+                std::sort(sorted.begin(), sorted.end());
+                out << "    loadoutPinnedIds = {\n";
+                for (const std::int32_t id : sorted)
+                    out << "        [\"" << id << "\"] = " << id << ",\n";
+                out << "    },\n";
+            }
+
             out << "}\n";
             out.close();
             if (!out)
@@ -587,8 +687,6 @@ namespace V_FrameWorkState
                 return;
             }
             g_State.dirty = false;
-
-            CopyFileA(kSavePath, kBackupPath, FALSE);
         }
 
         static bool IsEquipIdInUse_NoLock(std::int32_t id)
@@ -635,10 +733,27 @@ namespace V_FrameWorkState
             return true;
         }
 
+        static bool GuardStateKey(const char* key, const char* who)
+        {
+            bool bad = false;
+            for (const char* p = key; *p; ++p)
+            {
+                if (*p == '\n' || *p == '\r') { bad = true; break; }
+                if (*p == '"' && *(p + 1) == ']') { bad = true; break; }
+            }
+            if (!bad)
+                return true;
+            Log("[V_FrameWorkState] ERROR: %s rejected key '%s' - a line break or "
+                "the sequence \"] inside a key would corrupt the state file.\n",
+                who, key);
+            return false;
+        }
+
 
         static bool g_NativeTableSynced = false;
 
-        static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum)
+        static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum,
+                                                           bool isWeapon)
         {
             if (!g_NativeTableSynced)
             {
@@ -651,18 +766,35 @@ namespace V_FrameWorkState
                     ? minimum
                     : kFirstCustomEquipIdMinimum;
 
-            const std::int32_t result =
-                EquipIdCompression::FindLowestFreeEquipId(
-                    [](std::int32_t equipId) {
-                        return IsEquipIdInUse_NoLock(equipId);
-                    },
-                    floor);
+            const auto inUse = [](std::int32_t equipId) {
+                return IsEquipIdInUse_NoLock(equipId);
+            };
 
-            if (result < 0)
+            std::int32_t result = -1;
+            if (isWeapon)
             {
-                Log("[V_FrameWorkState] AllocateNextFreeEquipId: NO FREE "
-                    "in-bounds slot remains (vanilla + session filled all "
-                    "0x289 slots above floor=0x%X); allocation fails.\n", floor);
+                const std::int32_t wFloor =
+                    floor > EquipIdCompression::kWeaponBandFirst
+                        ? floor : EquipIdCompression::kWeaponBandFirst;
+                result = EquipIdCompression::FindLowestFreeEquipIdInRange(
+                    inUse, wFloor, EquipIdCompression::kWeaponBandLastUsable);
+                if (result < 0)
+                    result = EquipIdCompression::FindLowestFreeEquipIdInRange(
+                        inUse, floor, EquipIdCompression::kItemBandLast);
+                if (result < 0)
+                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: WEAPON band "
+                        "(0x230-0x288) and item band (0x001-0x22F) both exhausted "
+                        "above floor=0x%X; allocation fails.\n", floor);
+            }
+            else
+            {
+                result = EquipIdCompression::FindLowestFreeEquipIdInRange(
+                    inUse, floor, EquipIdCompression::kItemBandLast);
+                if (result < 0)
+                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: ITEM band "
+                        "(0x001-0x22F) exhausted above floor=0x%X - the native "
+                        "GetEquipType band map forbids items at 0x230+; "
+                        "registration refused.\n", floor);
             }
             return result;
         }
@@ -715,10 +847,12 @@ namespace V_FrameWorkState
     bool ResolveOrCreateEquipId(
         const char* key,
         std::int32_t minimumId,
-        std::int32_t& outEquipId)
+        std::int32_t& outEquipId,
+        bool isWeapon)
     {
         outEquipId = 0;
         if (!key || !key[0]) return false;
+        if (!GuardStateKey(key, "ResolveOrCreateEquipId")) return false;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
@@ -744,19 +878,28 @@ namespace V_FrameWorkState
             for (const auto& kv : g_SessionEquipIds)
                 if (kv.second == persisted) { sessionTaken = true; break; }
             const std::int32_t slot = EquipIdCompression::ComputeCompressed(persisted);
-            if (!sessionTaken && !EquipIdCompression::IsCompressedSlotUsed(slot))
+            const bool bandOk = isWeapon
+                || slot < EquipIdCompression::kWeaponBandFirst;
+            if (!bandOk)
+                Log("[V_FrameWorkState] persisted equipId 0x%X for '%s' sits in "
+                    "the weapon band but the item is not a weapon - native "
+                    "GetEquipType would return 0 for it; reallocating into the "
+                    "item band\n", persisted, key);
+            if (!sessionTaken && bandOk
+                && !EquipIdCompression::IsCompressedSlotUsed(slot))
             {
                 g_SessionEquipIds[key] = persisted;
                 pit->second.misses = 0;
                 outEquipId = persisted;
                 return true;
             }
-            Log("[V_FrameWorkState] persisted equipId 0x%X for '%s' is no longer free "
-                "(vanilla layout change or conflict) - reallocating; loadout references "
-                "to the old id will be healed or blanked.\n", persisted, key);
+            if (bandOk)
+                Log("[V_FrameWorkState] persisted equipId 0x%X for '%s' is no longer free "
+                    "(vanilla layout change or conflict) - reallocating; loadout references "
+                    "to the old id will be healed or blanked.\n", persisted, key);
         }
 
-        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId);
+        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId, isWeapon);
         if (newId < 0)
         {
 
@@ -775,6 +918,56 @@ namespace V_FrameWorkState
         return true;
     }
 
+    static bool IsOwnedEquipId_NoLock(std::int32_t equipId)
+    {
+        for (const auto& kv : g_SessionEquipIds)
+            if (kv.second == equipId) return true;
+        for (const auto& kv : g_State.equips)
+            if (kv.second.equipId == equipId) return true;
+        return false;
+    }
+
+    void NotePinnedEquipId(std::int32_t equipId)
+    {
+        if (equipId <= 0) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        if (!IsOwnedEquipId_NoLock(equipId))
+            return;
+        if (!g_PinSetFreshThisSession)
+        {
+            g_PinSetFreshThisSession = true;
+            g_SessionPinnedIds.clear();
+            if (!g_State.pinnedEquipIds.empty())
+            {
+                g_State.pinnedEquipIds.clear();
+                g_State.dirty = true;
+            }
+        }
+        if (g_SessionPinnedIds.insert(equipId).second)
+        {
+            g_State.pinnedEquipIds.insert(equipId);
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+        }
+    }
+
+    void ReplacePinnedEquipIds(const std::int32_t* equipIds, std::size_t count)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        std::unordered_set<std::int32_t> next;
+        for (std::size_t i = 0; i < count; ++i)
+            if (equipIds[i] > 0)
+                next.insert(equipIds[i]);
+        if (next != g_State.pinnedEquipIds)
+        {
+            g_State.pinnedEquipIds = std::move(next);
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+        }
+    }
+
     bool ResolveOrCreateDevelopId(
         const char* key,
         std::int32_t minimumId,
@@ -784,6 +977,7 @@ namespace V_FrameWorkState
         outDevelopId = 0;
         if (outCreated) *outCreated = false;
         if (!key || !key[0]) return false;
+        if (!GuardStateKey(key, "ResolveOrCreateDevelopId")) return false;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
@@ -946,6 +1140,7 @@ namespace V_FrameWorkState
         (void)minimumIndex;
         outFlowIndex = 0;
         if (!key || !key[0]) return false;
+        if (!GuardStateKey(key, "ResolveOrCreateFlowIndex")) return false;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
@@ -1000,6 +1195,7 @@ namespace V_FrameWorkState
     void SetSessionFlowIndex(const char* key, std::int32_t flowIndex)
     {
         if (!key || !key[0] || flowIndex <= 0) return;
+        if (!GuardStateKey(key, "SetSessionFlowIndex")) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
@@ -1081,6 +1277,7 @@ namespace V_FrameWorkState
         auto it = g_State.constants.find(key);
         if (it != g_State.constants.end() && it->second != 0)
         {
+            g_ConstantsTouched.insert(key);
             outValue = it->second;
             return true;
         }
@@ -1096,6 +1293,7 @@ namespace V_FrameWorkState
         }
 
         g_State.constants[key] = value;
+        g_ConstantsTouched.insert(key);
         g_State.dirty = true;
         outValue = value;
 
@@ -1114,7 +1312,10 @@ namespace V_FrameWorkState
         LoadFromDisk_NoLock();
         const std::string key = std::string(spaceTag) + ":" + name;
         auto it = g_State.constants.find(key);
-        return (it != g_State.constants.end()) ? it->second : 0;
+        if (it == g_State.constants.end())
+            return 0;
+        g_ConstantsTouched.insert(key);
+        return it->second;
     }
 
     void SetPersistedConstant(const char* spaceTag, const char* name,
@@ -1126,6 +1327,7 @@ namespace V_FrameWorkState
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
         const std::string key = std::string(spaceTag) + ":" + name;
+        g_ConstantsTouched.insert(key);
         auto it = g_State.constants.find(key);
         if (it != g_State.constants.end() && it->second == value)
             return;
@@ -1173,6 +1375,7 @@ namespace V_FrameWorkState
                                std::uint8_t selector)
     {
         if (!key || !key[0]) return;
+        if (!GuardStateKey(key, "SetPersistedOutfitIds")) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
@@ -1223,6 +1426,7 @@ namespace V_FrameWorkState
     void SetPersistedOutfitVariantSelectors(const char* key, const std::uint8_t* selectors, std::size_t count)
     {
         if (!key || !key[0]) return;
+        if (!GuardStateKey(key, "SetPersistedOutfitVariantSelectors")) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
@@ -1281,6 +1485,7 @@ namespace V_FrameWorkState
     {
         outSaveIndex = -1;
         if (!key || !key[0]) return false;
+        if (!GuardStateKey(key, "ResolveOrCreateTapeSaveIndex")) return false;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
@@ -1407,6 +1612,12 @@ namespace V_FrameWorkState
         g_State.dirty = false;
         g_State.equips.clear();
         g_State.tapes.clear();
+        g_State.constants.clear();
+        g_State.constantMisses.clear();
+        g_State.pinnedEquipIds.clear();
+        g_ConstantsTouched.clear();
+        g_SessionPinnedIds.clear();
+        g_PinSetFreshThisSession = false;
         g_SessionEquipIds.clear();
         g_SessionFlowIndices.clear();
         g_OldFlowLayout.clear();

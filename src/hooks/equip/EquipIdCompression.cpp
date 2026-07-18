@@ -27,6 +27,13 @@ namespace EquipIdCompression
         g_UsedSlots.set(static_cast<std::size_t>(compressed));
     }
 
+    void ClearCompressedSlotUsed(std::int32_t compressed)
+    {
+        if (!IsCompressedInBounds(compressed)) return;
+        std::lock_guard<std::mutex> lock(g_UsedSlotsMutex);
+        g_UsedSlots.reset(static_cast<std::size_t>(compressed));
+    }
+
     bool IsCompressedSlotUsed(std::int32_t compressed)
     {
         if (!IsCompressedInBounds(compressed)) return true;
@@ -84,6 +91,7 @@ namespace EquipIdCompression
         }
 
         std::size_t marked = 0;
+        int freeItemBand = 0, freeWeaponBand = 0;
         {
             std::lock_guard<std::mutex> lock(g_UsedSlotsMutex);
             for (std::int32_t i = 0; i < kCompressedSlotBound; ++i)
@@ -95,7 +103,15 @@ namespace EquipIdCompression
                     ++marked;
                 }
             }
+            for (std::int32_t i = kItemBandFirst; i <= kItemBandLast; ++i)
+                if (!g_UsedSlots.test(static_cast<std::size_t>(i)))
+                    ++freeItemBand;
+            for (std::int32_t i = kWeaponBandFirst; i <= kWeaponBandLastUsable; ++i)
+                if (!g_UsedSlots.test(static_cast<std::size_t>(i)))
+                    ++freeWeaponBand;
         }
+        Log("[EquipIdCompression] native occupancy: item band %d free of 559, "
+            "weapon band %d free of 89\n", freeItemBand, freeWeaponBand);
 
 #ifdef _DEBUG
         Log("[EquipIdCompression] SyncFromNativeTable: scanned 0x%X slots, "

@@ -48,13 +48,20 @@ namespace
 
     struct ModDialogue { std::uint32_t condition; std::uint32_t chara; std::uint32_t dlgEvent; };
 
-    static ModDialogue   g_ModDialogue[0x100] = {};
-    static std::string   g_ModVoices[0x100];
-    static std::uint32_t g_ModEvents[0x100] = {};
-    static std::unordered_map<std::uint32_t, std::uint32_t> g_SeIdByType;
-    static std::uint32_t g_NextModSeId = kModSeIdBase;
+    struct ModAnnouncePayload
+    {
+        std::uint32_t sfx      = 0;
+        std::uint32_t event    = 0;
+        std::string   voice;
+        ModDialogue   dialogue = {};
+    };
 
-    static std::uint32_t g_ModSfx[0x100] = {};
+    static std::unordered_map<std::uint32_t, ModAnnouncePayload> g_Payloads;
+    static std::unordered_map<std::uint32_t, std::uint32_t> g_SeIdByType;
+    static std::uint32_t g_TypeBySlot[0x100] = {};
+    static std::uint32_t g_NextModSeId  = kModSeIdBase;
+    static std::uint32_t g_RotateCursor = kModSeIdBase;
+
     static std::unordered_set<std::uint32_t> g_GameplaySfx;
 
     using SoundDaemonEnqueue_t = void*(__fastcall*)(void* daemon, void* out, std::uint32_t eventId,
@@ -69,11 +76,48 @@ namespace
         return static_cast<std::uint32_t>(FoxHashes::StrCode64(label) & 0xFFFFFFFFull);
     }
 
+    static std::uint32_t AllocAnnounceSlot(std::uint32_t announceType)
+    {
+        if (announceType == 0)
+            return 0;
+        const auto it = g_SeIdByType.find(announceType);
+        if (it != g_SeIdByType.end())
+            return it->second;
+        std::uint32_t seId;
+        if (g_NextModSeId <= kModSeIdMax)
+        {
+            seId = g_NextModSeId++;
+        }
+        else
+        {
+            seId = g_RotateCursor;
+            if (++g_RotateCursor > kModSeIdMax)
+                g_RotateCursor = kModSeIdBase;
+            const std::uint32_t evicted = g_TypeBySlot[seId];
+            if (evicted != 0)
+            {
+                g_SeIdByType.erase(evicted);
+                LogDebug("[AnnounceLog] rotating live seId 0x%X: type 0x%X -> 0x%X\n",
+                         seId, evicted, announceType);
+            }
+        }
+        g_TypeBySlot[seId] = announceType;
+        g_SeIdByType[announceType] = seId;
+        return seId;
+    }
+
     static std::uint32_t __fastcall hkGetAnnounceLogSE(void* manager, int announceType)
     {
-        const auto it = g_Overrides.find(static_cast<std::uint32_t>(announceType));
+        const std::uint32_t type = static_cast<std::uint32_t>(announceType);
+        const auto it = g_Overrides.find(type);
         if (it != g_Overrides.end())
             return it->second;
+        if (g_Payloads.find(type) != g_Payloads.end())
+        {
+            const std::uint32_t seId = AllocAnnounceSlot(type);
+            if (seId != 0)
+                return seId;
+        }
         return g_Orig ? g_Orig(manager, announceType) : 0u;
     }
 
@@ -133,27 +177,29 @@ namespace
         {
             auto* seIdPtr = reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(self) + kTLA_SeId);
             const std::uint32_t seId = *seIdPtr;
-            const bool isModSlot = seId >= kModSeIdBase && seId <= kModSeIdMax &&
-                (g_ModSfx[seId] != 0 || g_ModDialogue[seId].condition != 0 ||
-                 !g_ModVoices[seId].empty() || g_ModEvents[seId] != 0);
-            if (isModSlot)
+            if (seId >= kModSeIdBase && seId <= kModSeIdMax && g_TypeBySlot[seId] != 0)
             {
-                if (!MissionCodeGuard::ShouldBypassHooks())
+                const auto pit = g_Payloads.find(g_TypeBySlot[seId]);
+                if (pit != g_Payloads.end())
                 {
-                    if (g_ModSfx[seId] != 0)
-                        PostDaemonSfx(g_ModSfx[seId]);
-                    else if (g_ModDialogue[seId].condition != 0)
-                        PlayDialogue(g_ModDialogue[seId]);
-                    else if (!g_ModVoices[seId].empty())
-                        PlayVoiceByName(g_ModVoices[seId].c_str());
-                    else if (g_ModEvents[seId] != 0 && g_SoundControlStart)
+                    if (!MissionCodeGuard::ShouldBypassHooks())
                     {
-                        void* soundControl = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + kTLA_SoundControl);
-                        if (soundControl)
-                            g_SoundControlStart(soundControl, g_ModEvents[seId], 0);
+                        const ModAnnouncePayload& p = pit->second;
+                        if (p.sfx != 0)
+                            PostDaemonSfx(p.sfx);
+                        else if (p.dialogue.condition != 0)
+                            PlayDialogue(p.dialogue);
+                        else if (!p.voice.empty())
+                            PlayVoiceByName(p.voice.c_str());
+                        else if (p.event != 0 && g_SoundControlStart)
+                        {
+                            void* soundControl = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + kTLA_SoundControl);
+                            if (soundControl)
+                                g_SoundControlStart(soundControl, p.event, 0);
+                        }
                     }
+                    *seIdPtr = 0;
                 }
-                *seIdPtr = 0;
             }
         }
         g_OrigUpdate(self);
@@ -164,32 +210,11 @@ std::uint32_t Set_AnnounceLogSE(const char* announceLabel, std::uint32_t seId)
 {
     const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
     if (announceType != 0)
+    {
         g_Overrides[announceType] = seId;
+        g_Payloads.erase(announceType);
+    }
     return announceType;
-}
-
-static std::uint32_t AllocAnnounceSlot(std::uint32_t announceType)
-{
-    if (announceType == 0)
-        return 0;
-    std::uint32_t seId;
-    const auto it = g_SeIdByType.find(announceType);
-    if (it != g_SeIdByType.end())
-    {
-        seId = it->second;
-    }
-    else
-    {
-        if (g_NextModSeId > kModSeIdMax)
-        {
-            Log("[AnnounceLog] custom-sound slots exhausted (max %u)\n", kModSeIdMax - kModSeIdBase + 1u);
-            return 0;
-        }
-        seId = g_NextModSeId++;
-        g_SeIdByType[announceType] = seId;
-    }
-    g_Overrides[announceType] = seId;
-    return seId;
 }
 
 std::uint32_t Set_AnnounceLogEvent(const char* announceLabel, const char* eventName)
@@ -198,15 +223,12 @@ std::uint32_t Set_AnnounceLogEvent(const char* announceLabel, const char* eventN
         return 0;
     const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
     const std::uint32_t eventId      = FoxHashes::FNVHash32(eventName);
-    if (eventId == 0)
+    if (announceType == 0 || eventId == 0)
         return 0;
-    const std::uint32_t seId = AllocAnnounceSlot(announceType);
-    if (seId == 0)
-        return 0;
-    g_ModEvents[seId]   = eventId;
-    g_ModVoices[seId].clear();
-    g_ModDialogue[seId] = {};
-    g_ModSfx[seId]      = 0;
+    g_Overrides.erase(announceType);
+    ModAnnouncePayload& p = g_Payloads[announceType];
+    p = ModAnnouncePayload{};
+    p.event = eventId;
     return announceType;
 }
 
@@ -215,13 +237,12 @@ std::uint32_t Set_AnnounceLogVoice(const char* announceLabel, const char* voiceN
     if (!voiceName || !*voiceName)
         return 0;
     const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
-    const std::uint32_t seId         = AllocAnnounceSlot(announceType);
-    if (seId == 0)
+    if (announceType == 0)
         return 0;
-    g_ModVoices[seId]   = voiceName;
-    g_ModEvents[seId]   = 0;
-    g_ModDialogue[seId] = {};
-    g_ModSfx[seId]      = 0;
+    g_Overrides.erase(announceType);
+    ModAnnouncePayload& p = g_Payloads[announceType];
+    p = ModAnnouncePayload{};
+    p.voice = voiceName;
     return announceType;
 }
 
@@ -231,13 +252,12 @@ std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t c
     if (condition == 0)
         return 0;
     const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
-    const std::uint32_t seId         = AllocAnnounceSlot(announceType);
-    if (seId == 0)
+    if (announceType == 0)
         return 0;
-    g_ModDialogue[seId] = ModDialogue{ condition, chara, dialogueEvent };
-    g_ModEvents[seId]   = 0;
-    g_ModVoices[seId].clear();
-    g_ModSfx[seId]      = 0;
+    g_Overrides.erase(announceType);
+    ModAnnouncePayload& p = g_Payloads[announceType];
+    p = ModAnnouncePayload{};
+    p.dialogue = ModDialogue{ condition, chara, dialogueEvent };
     return announceType;
 }
 
@@ -247,15 +267,12 @@ std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventNam
         return 0;
     const std::uint32_t announceType = LabelToAnnounceType(announceLabel);
     const std::uint32_t eventId      = FoxHashes::FNVHash32(eventName);
-    if (eventId == 0)
+    if (announceType == 0 || eventId == 0)
         return 0;
-    const std::uint32_t seId = AllocAnnounceSlot(announceType);
-    if (seId == 0)
-        return 0;
-    g_ModSfx[seId]      = eventId;
-    g_ModEvents[seId]   = 0;
-    g_ModVoices[seId].clear();
-    g_ModDialogue[seId] = {};
+    g_Overrides.erase(announceType);
+    ModAnnouncePayload& p = g_Payloads[announceType];
+    p = ModAnnouncePayload{};
+    p.sfx = eventId;
     return announceType;
 }
 
@@ -283,22 +300,19 @@ bool Unset_AnnounceLogSE(const char* announceLabel)
     if (announceType == 0)
         return false;
 
-    const bool had = g_Overrides.erase(announceType) != 0;
+    const bool had        = g_Overrides.erase(announceType) != 0;
+    const bool hadPayload = g_Payloads.erase(announceType) != 0;
 
     const auto it = g_SeIdByType.find(announceType);
     if (it != g_SeIdByType.end())
     {
         const std::uint32_t seId = it->second;
         if (seId >= kModSeIdBase && seId <= kModSeIdMax)
-        {
-            g_ModSfx[seId]      = 0;
-            g_ModEvents[seId]   = 0;
-            g_ModVoices[seId].clear();
-            g_ModDialogue[seId] = {};
-        }
+            g_TypeBySlot[seId] = 0;
+        g_SeIdByType.erase(it);
     }
 
-    return had;
+    return had || hadPayload;
 }
 
 bool Unregister_AnnounceLogSfx(const char* eventName)
@@ -420,15 +434,11 @@ bool Uninstall_AnnounceLogHook()
     g_UpdateInstalled   = false;
     g_Overrides.clear();
     g_SeIdByType.clear();
+    g_Payloads.clear();
     g_NextModSeId       = kModSeIdBase;
-    for (auto& e : g_ModEvents)
-        e = 0;
-    for (auto& v : g_ModVoices)
-        v.clear();
-    for (auto& d : g_ModDialogue)
-        d = ModDialogue{};
-    for (auto& s : g_ModSfx)
-        s = 0;
+    g_RotateCursor      = kModSeIdBase;
+    for (auto& t : g_TypeBySlot)
+        t = 0;
     g_GameplaySfx.clear();
     g_SdInstancePtr  = nullptr;
     g_SdEnqueue      = nullptr;

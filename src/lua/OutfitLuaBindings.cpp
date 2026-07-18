@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 #include "LuaApi.h"
 #include "FoxHashes.h"
@@ -698,7 +699,8 @@ int __cdecl l_RegisterOutfit(lua_State* L)
         return 1;
     }
 
-    outfit::OutfitDefinition def{};
+    const auto defStore = std::make_unique<outfit::OutfitDefinition>();
+    outfit::OutfitDefinition& def = *defStore;
 
 
     const char* key = nullptr;
@@ -720,7 +722,9 @@ int __cdecl l_RegisterOutfit(lua_State* L)
         LuaGetField(L, 1, bk.key);
         if (LuaType(L, -1) == LUA_TTABLE)
         {
-            outfit::OutfitPlayerTypeData branch{};
+            const auto branchStore =
+                std::make_unique<outfit::OutfitPlayerTypeData>();
+            outfit::OutfitPlayerTypeData& branch = *branchStore;
             const int branchIdx = GetLuaTop(L);
             if (ReadPlayerTypeBranchTable(L, branchIdx, branch))
             {
@@ -797,26 +801,6 @@ int __cdecl l_RegisterOutfit(lua_State* L)
     const outfit::OutfitEntry* e = nullptr;
     if (outfit::TryGetOutfitByDevelopId(def.developId, &e) && e)
         finalSelector = e->selectorCode;
-    V_FrameWorkState::SetPersistedOutfitIds(key, allocatedPartsType, finalSelector);
-
-    {
-        std::uint8_t finalVariants[14] = {};
-        std::size_t  count = 0;
-        if (e)
-        {
-            for (std::uint8_t vi = 1;
-                 vi < e->variantCount && vi < outfit::kMaxVariantsPerOutfit; ++vi)
-            {
-                const std::uint8_t code = e->variantSelectorCodes[vi];
-                finalVariants[vi - 1] =
-                    (code >= outfit::kCustomSelectorStart
-                  && code <= outfit::kCustomSelectorEnd) ? code : std::uint8_t{0};
-                count = vi;
-            }
-        }
-        V_FrameWorkState::SetPersistedOutfitVariantSelectors(
-            key, finalVariants, count);
-    }
 
     char summary[320];
     BuildOutfitSummary(e, summary, sizeof(summary));

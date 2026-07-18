@@ -151,9 +151,9 @@ namespace
                         const std::uint16_t childCount =
                             reinterpret_cast<ChildCountFn>(vt[0x160 / 8])(prov, rootVal, 0);
 
-                        if (childCount < 0x2e)
+                        if (childCount < 0x200)
                         {
-                            static std::uint16_t childBuf[0x2e];
+                            static std::uint16_t childBuf[0x200];
                             reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
                                 prov, rootVal, childCount, childBuf, 0);
 
@@ -259,9 +259,9 @@ namespace
 
             std::uint16_t childCount =
                 reinterpret_cast<ChildCountFn>(vt[0x160 / 8])(prov, rootVal, 0);
-            static std::uint16_t childBuf[0x40];
-            if (childCount > 0x40)
-                childCount = 0x40;
+            static std::uint16_t childBuf[0x200];
+            if (childCount > 0x200)
+                childCount = 0x200;
             if (childCount != 0)
             {
                 reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
@@ -374,9 +374,9 @@ namespace
 
                 const std::uint16_t cc =
                     reinterpret_cast<ChildCountFn>(vt[0x160 / 8])(prov, idx, 0);
-                if (cc < 0x2e)
+                if (cc < 0x200)
                 {
-                    static std::uint16_t childBuf[0x2e];
+                    static std::uint16_t childBuf[0x200];
                     reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
                         prov, idx, cc, childBuf, 0);
                     for (int k = 0; k < static_cast<int>(cc); ++k)

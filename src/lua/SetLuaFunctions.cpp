@@ -74,6 +74,7 @@ extern "C" {
 #include "V_PlayerLib.h"
 #include "PlayerFunctions.h"
 #include "V_FoxLib.h"
+#include "V_PickableLib.h"
 #include "V_HelicopterLib.h"
 #include "V_TppMotherBaseManagementLib.h"
 #include "FoxFunctions.h"
@@ -1878,6 +1879,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_TppSahelanLibrary(L);
         Register_V_TppPlayerLibrary(L);
         Register_V_FoxLibrary(L);
+        Register_V_PickableLibrary(L);
         Register_V_HelicopterLibrary(L);
         Register_V_TppMotherBaseManagementLibrary(L);
         Register_V_TppEquipLibrary(L);
@@ -1915,6 +1917,7 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     Register_V_TppSahelanLibrary(L);
     Register_V_TppPlayerLibrary(L);
     Register_V_FoxLibrary(L);
+    Register_V_PickableLibrary(L);
     Register_V_HelicopterLibrary(L);
     Register_V_TppMotherBaseManagementLibrary(L);
     Register_V_TppEquipLibrary(L);

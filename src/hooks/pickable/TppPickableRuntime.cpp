@@ -13,8 +13,14 @@
 
 namespace
 {
-    static std::unordered_map<std::uint16_t, std::uint16_t> g_PickableCountOverrides;
-    static std::mutex g_PickableCountOverridesMutex;
+    struct PickableOverride
+    {
+        std::uint16_t mask = 0;
+        std::uint16_t values[kTppPickableFieldCount] = {};
+    };
+
+    static std::unordered_map<std::uint16_t, PickableOverride> g_PickableOverrides;
+    static std::mutex g_PickableOverridesMutex;
 
     static bool g_TppPickableHooksInstalled = false;
     static void* g_LastPickableSystem = nullptr;
@@ -44,16 +50,24 @@ static bool TryGetLivePickableInfoByIndex(void* thisPtr, std::uint32_t locatorIn
 
     std::uint8_t* thisBytes = static_cast<std::uint8_t*>(thisPtr);
 
-    const std::uint32_t locatorCount = *reinterpret_cast<std::uint32_t*>(thisBytes + 0x74);
-    if (locatorIndex >= locatorCount)
-        return false;
+    __try
+    {
+        const std::uint32_t locatorCount = *reinterpret_cast<std::uint32_t*>(thisBytes + 0x74);
+        if (locatorIndex >= locatorCount)
+            return false;
 
-    std::uint8_t* infoBase = *reinterpret_cast<std::uint8_t**>(thisBytes + 0x38);
-    if (!infoBase)
-        return false;
+        std::uint8_t* infoBase = *reinterpret_cast<std::uint8_t**>(thisBytes + 0x38);
+        if (!infoBase)
+            return false;
 
-    outInfo = reinterpret_cast<std::uint16_t*>(infoBase + (static_cast<std::size_t>(locatorIndex) * 0x10));
-    return true;
+        outInfo = reinterpret_cast<std::uint16_t*>(infoBase + (static_cast<std::size_t>(locatorIndex) * 0x10));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outInfo = nullptr;
+        return false;
+    }
 }
 
 
@@ -90,33 +104,131 @@ static bool TryGetLocatorIndexFromOutInfo(void* thisPtr, std::uint16_t* outInfo,
 }
 
 
-static void ApplyCountOverride(std::uint16_t* outInfo, std::uint16_t countRaw)
+static std::uint16_t ClampPickableFieldValue(std::uint32_t fieldId, std::uint32_t value)
 {
-    if (!outInfo)
-        return;
-
-    outInfo[2] = countRaw;
+    switch (fieldId)
+    {
+    case kTppPickableFieldEquipId:
+        return static_cast<std::uint16_t>(value & 0x7FFu);
+    case kTppPickableFieldCountRaw:
+    case kTppPickableFieldSecondCountRaw:
+    case kTppPickableFieldCountMax:
+    case kTppPickableFieldSecondCountMax:
+        return ClampPickableCount(value);
+    case kTppPickableFieldInfoType:
+        return static_cast<std::uint16_t>(value & 0xFFu);
+    default:
+        return static_cast<std::uint16_t>(value & 0xFFFFu);
+    }
 }
 
 
-static bool TryGetStoredOverride(std::uint16_t locatorIndex, std::uint16_t& outCountRaw)
+static void ApplyFieldToInfo(std::uint16_t* info, std::uint32_t fieldId, std::uint16_t value)
 {
-    std::lock_guard<std::mutex> lock(g_PickableCountOverridesMutex);
+    if (!info)
+        return;
 
-    const auto it = g_PickableCountOverrides.find(locatorIndex);
-    if (it == g_PickableCountOverrides.end())
+    std::uint8_t* bytes = reinterpret_cast<std::uint8_t*>(info);
+
+    switch (fieldId)
+    {
+    case kTppPickableFieldEquipId:
+        info[0] = static_cast<std::uint16_t>((info[0] & ~0x7FFu) | (value & 0x7FFu));
+        break;
+    case kTppPickableFieldCountRaw:
+        info[2] = value;
+        break;
+    case kTppPickableFieldSecondCountRaw:
+        info[3] = value;
+        break;
+    case kTppPickableFieldCountMax:
+        info[4] = value;
+        break;
+    case kTppPickableFieldSecondCountMax:
+        info[5] = value;
+        break;
+    case kTppPickableFieldInfoType:
+        bytes[12] = static_cast<std::uint8_t>(value);
+        info[7] = static_cast<std::uint16_t>((info[7] & ~0x1u) | ((value & 0xFFu) ? 0x1u : 0x0u));
+        break;
+    case kTppPickableFieldFlags:
+        info[7] = static_cast<std::uint16_t>((value & ~0x8u) | (info[7] & 0x8u));
+        break;
+    default:
+        break;
+    }
+}
+
+
+static bool GuardedApplyFieldToInfo(std::uint16_t* info, std::uint32_t fieldId, std::uint16_t value)
+{
+    __try
+    {
+        ApplyFieldToInfo(info, fieldId, value);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
         return false;
+    }
+}
 
-    outCountRaw = it->second;
-    return true;
+
+static bool GuardedCopyInfoWords(const std::uint16_t* info, std::uint16_t* outWords8)
+{
+    __try
+    {
+        for (int i = 0; i < 8; ++i)
+            outWords8[i] = info[i];
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+
+static bool GuardedReadCountRaw(const std::uint16_t* info, std::uint16_t& outCountRaw)
+{
+    __try
+    {
+        outCountRaw = info[2];
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+
+static void ApplyOverrideToInfo(std::uint16_t* info, const PickableOverride& override_)
+{
+    static const std::uint32_t kApplyOrder[kTppPickableFieldCount] =
+    {
+        kTppPickableFieldEquipId,
+        kTppPickableFieldCountRaw,
+        kTppPickableFieldSecondCountRaw,
+        kTppPickableFieldCountMax,
+        kTppPickableFieldSecondCountMax,
+        kTppPickableFieldFlags,
+        kTppPickableFieldInfoType,
+    };
+
+    for (std::uint32_t fieldId : kApplyOrder)
+    {
+        if (override_.mask & (1u << fieldId))
+            ApplyFieldToInfo(info, fieldId, override_.values[fieldId]);
+    }
 }
 
 
 static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo, void* statusPtr, std::uint8_t* locatorParam)
 {
-    MISSION_GUARD_ORIGINAL_VOID(g_OrigCopyAndAdjustInfo, thisPtr, outInfo, statusPtr, locatorParam);
-
     g_LastPickableSystem = thisPtr;
+
+    MISSION_GUARD_ORIGINAL_VOID(g_OrigCopyAndAdjustInfo, thisPtr, outInfo, statusPtr, locatorParam);
 
     g_OrigCopyAndAdjustInfo(thisPtr, outInfo, statusPtr, locatorParam);
 
@@ -124,25 +236,28 @@ static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo
     if (!TryGetLocatorIndexFromOutInfo(thisPtr, outInfo, locatorIndex))
         return;
 
-    std::uint16_t overrideCount = 0;
-    if (!TryGetStoredOverride(locatorIndex, overrideCount))
+    std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
+    const auto it = g_PickableOverrides.find(locatorIndex);
+    if (it == g_PickableOverrides.end())
         return;
 
-    ApplyCountOverride(outInfo, overrideCount);
+    ApplyOverrideToInfo(outInfo, it->second);
 }
 
 
-bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t countRaw)
+bool Set_TppPickableFieldByIndex(std::uint32_t locatorIndex, std::uint32_t fieldId, std::uint32_t value)
 {
-    if (locatorIndex > 0xFFFFu)
+    if (locatorIndex > 0xFFFFu || fieldId >= kTppPickableFieldCount)
         return false;
 
     const std::uint16_t index16 = static_cast<std::uint16_t>(locatorIndex);
-    const std::uint16_t value16 = ClampPickableCount(countRaw);
+    const std::uint16_t value16 = ClampPickableFieldValue(fieldId, value);
 
     {
-        std::lock_guard<std::mutex> lock(g_PickableCountOverridesMutex);
-        g_PickableCountOverrides[index16] = value16;
+        std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
+        PickableOverride& override_ = g_PickableOverrides[index16];
+        override_.mask |= static_cast<std::uint16_t>(1u << fieldId);
+        override_.values[fieldId] = value16;
     }
 
     if (!MissionCodeGuard::ShouldBypassHooks())
@@ -150,11 +265,30 @@ bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t co
         std::uint16_t* liveInfo = nullptr;
         if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
         {
-            ApplyCountOverride(liveInfo, value16);
+            GuardedApplyFieldToInfo(liveInfo, fieldId, value16);
         }
     }
 
     return true;
+}
+
+
+bool Get_TppPickableInfoWordsByIndex(std::uint32_t locatorIndex, std::uint16_t* outWords8)
+{
+    if (locatorIndex > 0xFFFFu || !outWords8)
+        return false;
+
+    std::uint16_t* liveInfo = nullptr;
+    if (!TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
+        return false;
+
+    return GuardedCopyInfoWords(liveInfo, outWords8);
+}
+
+
+bool Set_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint32_t countRaw)
+{
+    return Set_TppPickableFieldByIndex(locatorIndex, kTppPickableFieldCountRaw, countRaw);
 }
 
 
@@ -164,16 +298,22 @@ bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& o
         return false;
 
     std::uint16_t* liveInfo = nullptr;
-    if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
+    if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo) &&
+        GuardedReadCountRaw(liveInfo, outCountRaw))
     {
-        outCountRaw = liveInfo[2];
         return true;
     }
 
     const std::uint16_t index16 = static_cast<std::uint16_t>(locatorIndex);
-    if (TryGetStoredOverride(index16, outCountRaw))
     {
-        return true;
+        std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
+        const auto it = g_PickableOverrides.find(index16);
+        if (it != g_PickableOverrides.end() &&
+            (it->second.mask & (1u << kTppPickableFieldCountRaw)))
+        {
+            outCountRaw = it->second.values[kTppPickableFieldCountRaw];
+            return true;
+        }
     }
 
     Log("[TppPickable] GetCountRawByIndex failed index=%u\n",
@@ -182,12 +322,10 @@ bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& o
 }
 
 
-void Clear_TppPickableCountRawOverrides()
+void Clear_TppPickableOverrides()
 {
-    std::lock_guard<std::mutex> lock(g_PickableCountOverridesMutex);
-
-    const std::size_t oldCount = g_PickableCountOverrides.size();
-    g_PickableCountOverrides.clear();
+    std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
+    g_PickableOverrides.clear();
 }
 
 
@@ -237,7 +375,7 @@ bool Uninstall_TppPickableHooks()
     g_TppPickableHooksInstalled = false;
     g_LastPickableSystem = nullptr;
 
-    Clear_TppPickableCountRawOverrides();
+    Clear_TppPickableOverrides();
 
 #ifdef _DEBUG
     Log("[TppPickable] Uninstall hooks: OK\n");

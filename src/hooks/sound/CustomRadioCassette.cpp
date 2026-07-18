@@ -40,7 +40,7 @@ namespace
     static IsSameSaveIndexFromName_t g_OrigIsSameSaveIndexFromName = nullptr;
 
     constexpr int         kSyntheticSlotBase     = 0x100;
-    constexpr std::size_t kMaxCustomRadioCassette = 0x400;
+    constexpr std::size_t kMaxCustomRadioCassette = 30000;
 
     constexpr std::int16_t kSaveIndexUnresolved = -2;
 
@@ -149,7 +149,12 @@ bool Register_CustomRadioCassette(
     }
 
     if (g_Entries.size() >= kMaxCustomRadioCassette)
+    {
+        Log("[RadioCassette] register refused: %zu cassettes reached the "
+            "int16 save-index ceiling (%zu)\n",
+            g_Entries.size(), kMaxCustomRadioCassette);
         return false;
+    }
 
     CustomRadioCassetteEntry entry;
     entry.nameHash     = gimmickNameHash;

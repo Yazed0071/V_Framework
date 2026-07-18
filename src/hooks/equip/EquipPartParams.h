@@ -33,6 +33,10 @@ void Uninstall_GetAttackIdGuard();
 bool Install_GunInfoGuard();
 void Uninstall_GunInfoGuard();
 
+bool Install_WeaponKeyLog();
+void Uninstall_WeaponKeyLog();
+void EquipParam_SetWeaponHandling(unsigned int fromKey, unsigned int toKey);
+
 bool Install_FireSoundOverride_Hook();
 void Uninstall_FireSoundOverride_Hook();
 
@@ -66,3 +70,5 @@ void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int
 void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaForceTaint(int space, int id, const char* why);
 bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot);
+int  EquipParam_BulletFalloffSwapBegin(int bulletId);
+void EquipParam_BulletFalloffSwapEnd();

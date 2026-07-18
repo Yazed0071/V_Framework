@@ -8,6 +8,12 @@
 #include "MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h"
 #include "CustomTapeOwnership.h"
 #include "AddressSet.h"
+#include "CassetteTrackPaging.h"
+
+static constexpr std::uint32_t kRebuildTrackMax = 4096;
+static std::uint32_t s_RebuildTracks[kRebuildTrackMax];
+static std::uint32_t s_RebuildCount;
+static int s_RebuildOk;
 
 namespace
 {
@@ -154,7 +160,16 @@ static void* FindLiveAlbumRecordByAlbumId(void* soundPlayer, std::uint64_t album
 }
 
 
+static void RebuildAcceptedTrackIdsBody(void* thisPtr, std::uint64_t albumId);
+
 static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t albumId)
+{
+    s_RebuildCount = 0;
+    s_RebuildOk = 0;
+    RebuildAcceptedTrackIdsBody(thisPtr, albumId);
+}
+
+static void RebuildAcceptedTrackIdsBody(void* thisPtr, std::uint64_t albumId)
 {
     if (!thisPtr)
     {
@@ -214,11 +229,6 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
         const std::uint16_t albumType =
             *reinterpret_cast<std::uint16_t*>(reinterpret_cast<std::uintptr_t>(albumRecord) + 0x12ull);
 
-        std::uint32_t* directPlayTrackIdTable =
-            reinterpret_cast<std::uint32_t*>(base + 0xD80ull);
-
-        std::memset(directPlayTrackIdTable, 0, 0x80u * sizeof(std::uint32_t));
-
         std::uint32_t acceptedCount = 0;
 
         for (std::uint32_t trackIndex = 0; trackIndex < trackCount; ++trackIndex)
@@ -234,26 +244,37 @@ static void RebuildAcceptedTrackIdsForCurrentAlbum(void* thisPtr, std::uint64_t 
                 continue;
             }
 
-            if (acceptedCount >= 0x80u)
+            if (acceptedCount >= kRebuildTrackMax)
             {
-                Log("[CassetteMenu] WARN: album has more than 128 owned tracks - extra tracks are dropped from the cassette menu.\n");
+                Log("[CassetteMenu] WARN: album has more than %u owned tracks - extra tracks are dropped from the cassette menu.\n", kRebuildTrackMax);
                 break;
             }
 
             const std::uint32_t directPlayTrackId =
                 *reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(trackInfo) + 0x14ull);
 
-            directPlayTrackIdTable[acceptedCount] = directPlayTrackId;
+            s_RebuildTracks[acceptedCount] = directPlayTrackId;
 
             ++acceptedCount;
         }
 
-        *reinterpret_cast<std::uint32_t*>(base + 0xF80ull) = acceptedCount;
+        s_RebuildCount = acceptedCount;
+        s_RebuildOk = 1;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         Log("[CassetteMenu] ERROR: exception while rebuilding the cassette menu track list - the album's track list may be wrong or empty.\n");
     }
+
+    if (s_RebuildOk != 1)
+        return;
+    std::uint32_t n = s_RebuildCount;
+    if (!CassettePagingAvailable() && n > 0x80u)
+    {
+        Log("[CassetteMenu] WARN: album has %u owned tracks but paging is unavailable on this build - showing the first 128.\n", n);
+        n = 0x80u;
+    }
+    SetCassetteAlbumTracks(thisPtr, albumId, s_RebuildTracks, n);
 }
 
 static void __fastcall hkSetCurrentAlbum(void* thisPtr, std::uint64_t albumId)

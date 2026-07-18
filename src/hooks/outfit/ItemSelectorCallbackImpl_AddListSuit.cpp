@@ -225,12 +225,20 @@ namespace
             return;
         }
         const std::uint32_t row = rowPost - 1;
-        if (row > 0x3F) return;
+        if (row > outfit::kPanelRowMax) return;
 
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
         const outfit::OutfitEntry* entry = nullptr;
-        const bool isCustom =
+        bool isCustom =
             outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+
+        if (isCustom && entry && !entry->bound)
+        {
+            outfit::BindOutfit(entry->developId, false, "menu-stamp");
+            isCustom = outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+        }
+        if (isCustom && entry)
+            outfit::NoteOutfitMenuStamp(entry->developId);
 
         __try
         {
@@ -254,7 +262,7 @@ namespace
                 if (variantsForPT < 2) return;
 
                 const std::uint8_t rowEnable =
-                    *(base + 0x548 + static_cast<std::size_t>(row) * 15);
+                    row <= 0x3F ? *(base + 0x548 + static_cast<std::size_t>(row) * 15) : 1;
 
                 for (std::uint8_t var = 0; var < variantsForPT; ++var)
                 {
@@ -280,7 +288,8 @@ namespace
 
                 std::uint8_t wornPT = 0, wornSel = 0;
                 const bool equipped =
-                    outfit::GetCurrentEquippedSuitBytes(&wornPT, &wornSel)
+                    entry->bound
+                    && outfit::GetCurrentEquippedSuitBytes(&wornPT, &wornSel)
                     && wornPT == entry->partsType;
 
                 std::uint8_t displayVar;
@@ -376,10 +385,10 @@ namespace
     {
         if (thisPtr && !MissionCodeGuard::ShouldBypassHooks())
         {
-            std::uint8_t seedSel[32];
-            std::uint8_t seedSrc[32];
+            std::uint8_t seedSel[128];
+            std::uint8_t seedSrc[128];
             const std::uint8_t seedCount =
-                outfit::VanillaExtCollectSelectorSeeds(seedSel, seedSrc, 32);
+                outfit::VanillaExtCollectSelectorSeeds(seedSel, seedSrc, 128);
             for (std::uint8_t i = 0; i < seedCount; ++i)
                 SeedVextSwatchFlow(seedSel[i], seedSrc[i]);
 
@@ -390,7 +399,7 @@ namespace
                     *reinterpret_cast<std::uint32_t*>(rb + 0x008);
                 const auto flowTable =
                     *reinterpret_cast<std::uint16_t* const*>(rb + 0x1E8);
-                if (row <= 0x3F && flowTable)
+                if (row <= outfit::kPanelRowMax && flowTable)
                 {
                     auto* panel = reinterpret_cast<std::uint8_t*>(
                         reinterpret_cast<std::uintptr_t>(flowTable) - 0x4440);
@@ -548,7 +557,7 @@ namespace
             auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
 
             const std::uint32_t row = *reinterpret_cast<std::uint32_t*>(base + 0x008);
-            if (row > 0x3F) return;
+            if (row > outfit::kPanelRowMax) return;
 
             const auto variantTable =
                 *reinterpret_cast<std::uint8_t* const*>(base + 0x1F0);
@@ -767,9 +776,9 @@ namespace
 
             const std::uint32_t startCount = count;
 
-            std::uint16_t origAdded[32] = {};
+            std::uint16_t origAdded[128] = {};
             std::uint8_t  origAddedCount = 0;
-            for (std::uint32_t i = 0; i < startCount && origAddedCount < 32; ++i)
+            for (std::uint32_t i = 0; i < startCount && origAddedCount < 128; ++i)
             {
                 origAdded[origAddedCount++] =
                     *reinterpret_cast<std::uint16_t*>(base + 0x4440 + i * 0x1E);
@@ -788,7 +797,7 @@ namespace
             {
                 const std::uint16_t equipId = headIds[i];
                 if (equipId == 0) continue;
-                if (count >= 32) break;
+                if (count >= 128) break;
                 if (isAlreadyInList(equipId)) continue;
 
 
@@ -806,10 +815,10 @@ namespace
                 g_AddListBandana(thisPtr, &count, equipId);
 
 
-                if (origAddedCount < 32)
+                if (origAddedCount < 128)
                     origAdded[origAddedCount++] = equipId;
 
-                if (addedIdx < 32)
+                if (addedIdx < 128)
                 {
                     *reinterpret_cast<std::uint8_t*>(base + 0xc840 + addedIdx) = 0xff;
                     *reinterpret_cast<std::uint8_t*>(base + 0x548 + addedIdx * 0xf) = 1;
@@ -1011,7 +1020,11 @@ namespace
         g_HeadBadgeBuildActive = IsHeadOptionList(thisPtr);
 
         const bool prev = t_InsideSetupPrefab;
-        if (!prev) ResetAddedFlowIxBits();
+        if (!prev)
+        {
+            ResetAddedFlowIxBits();
+            outfit::ClearOutfitMenuStamps();
+        }
         t_InsideSetupPrefab = true;
         if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
         t_InsideSetupPrefab = prev;

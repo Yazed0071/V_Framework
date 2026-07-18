@@ -71,7 +71,7 @@ namespace
                       static_cast<std::uint32_t>(baseRow + cursorRow) % count)
                 : 0;
 
-            if (row < 0 || row > 0x3F) return false;
+            if (row < 0 || row > static_cast<std::int32_t>(outfit::kPanelRowMax)) return false;
 
             const std::uint8_t variant = *(base + 0xC040 + row);
             if (variant > 14) return false;
@@ -169,15 +169,33 @@ namespace
             const bool isSuitClick = (s.equipKind == kEquipKindMissionPrepSuit
                                    || s.equipKind == kEquipKindSupplyDropSuit);
             const bool isHeadOption = (s.equipKind == kEquipKindHeadOption);
+            const bool isPrepEquip =
+                activateVariant && s.equipKind == kEquipKindMissionPrepSuit;
             const std::uint16_t devId =
-                isSuitClick ? MatchSelectionToOutfit(
-                                  s, activateVariant
-                                     && s.equipKind == kEquipKindMissionPrepSuit)
-                            : 0;
+                isSuitClick ? MatchSelectionToOutfit(s, isPrepEquip) : 0;
 
+            bool published = false;
             if (devId != 0)
-                outfit::SetPendingOutfitDevelopId(devId);
-            else if (isSuitClick)
+            {
+                bool bound = true;
+                if (isPrepEquip && !outfit::IsOutfitBound(devId))
+                    bound = outfit::BindOutfit(devId, true, "equip-click");
+                if (bound)
+                {
+                    if (isPrepEquip)
+                        outfit::NoteOutfitApplied(devId);
+                    outfit::SetPendingOutfitDevelopId(devId);
+                    published = true;
+                }
+                else
+                {
+                    Log("[OutfitItemSelector:%s] equip refused: live-byte pools "
+                        "full and every bound outfit is pinned (worn / loadout / "
+                        "order) - developId=%u stays vanilla; free a slot by "
+                        "unequipping\n", tag, static_cast<unsigned>(devId));
+                }
+            }
+            if (!published && isSuitClick)
                 outfit::ClearPendingOutfitDevelopId();
 
 
@@ -264,14 +282,25 @@ namespace
         if (s.equipKind != 0xFF) return;
 
         const outfit::OutfitEntry* entry = nullptr;
-        const bool resolves =
+        bool resolves =
             outfit::TryGetOutfitByFlowIndex(s.selectedId, &entry) && entry;
+        if (resolves && !entry->bound)
+        {
+            if (outfit::BindOutfit(entry->developId, true, "supply-order"))
+                resolves = outfit::TryGetOutfitByFlowIndex(s.selectedId, &entry)
+                           && entry;
+            else
+                resolves = false;
+        }
+        if (resolves && entry)
+            outfit::NoteOutfitOrdered(entry->developId);
 
         constexpr std::uint16_t kCustomFlowFirst = 922;
         constexpr std::uint16_t kCustomFlowLast  = 1023;
         std::uint8_t newSelector = 0;
         const char*  why         = nullptr;
-        if (resolves)
+        if (resolves
+            && entry->defaultVariant < outfit::kMaxVariantsPerOutfit)
         {
             newSelector = entry->variantSelectorCodes[entry->defaultVariant];
             why = "single custom outfit";
@@ -361,8 +390,18 @@ namespace
                 matched = true;
                 variantIdx = entry->defaultVariant;
             }
+            if (matched && entry
+                && !outfit::IsOutfitBound(entry->developId)
+                && !outfit::BindOutfit(entry->developId, true, "order-click"))
+            {
+                Log("[OutfitItemSelector:prep] order refused: live byte pools "
+                    "full for developId=%u - unequip an outfit to free a "
+                    "slot\n", static_cast<unsigned>(entry->developId));
+                matched = false;
+            }
             if (matched && entry)
             {
+                outfit::NoteOutfitOrdered(entry->developId);
                 outfit::SetPendingSupplyDropDevelopId(entry->developId);
                 outfit::SetPendingSupplyDropVariantIdx(variantIdx);
                 outfit::SetPendingOutfitDevelopId(entry->developId);

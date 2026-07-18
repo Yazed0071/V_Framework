@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -180,6 +180,7 @@
     <ClInclude Include="src\lua\V_PlayerLib.h" />
     <ClInclude Include="src\lua\PlayerFunctions.h" />
     <ClInclude Include="src\lua\V_FoxLib.h" />
+    <ClInclude Include="src\lua\V_PickableLib.h" />
     <ClInclude Include="src\lua\V_HelicopterLib.h" />
     <ClInclude Include="src\lua\V_TppMotherBaseManagementLib.h" />
     <ClInclude Include="src\lua\FoxFunctions.h" />
@@ -226,6 +227,7 @@
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\SubtitlesEventMessage.h" />
     <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
+    <ClInclude Include="src\hooks\sound\CassetteTrackPaging.h" />
     <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.h" />
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
@@ -397,6 +399,7 @@
     <ClCompile Include="src\lua\V_TppSahelanLib.cpp" />
     <ClCompile Include="src\lua\V_PlayerLib.cpp" />
     <ClCompile Include="src\lua\V_FoxLib.cpp" />
+    <ClCompile Include="src\lua\V_PickableLib.cpp" />
     <ClCompile Include="src\lua\V_HelicopterLib.cpp" />
     <ClCompile Include="src\lua\V_TppMotherBaseManagementLib.cpp" />
     <!-- Hooks: Soldier -->
@@ -436,6 +439,7 @@
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\SubtitlesEventMessage.cpp" />
     <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
+    <ClCompile Include="src\hooks\sound\CassetteTrackPaging.cpp" />
     <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_SetCurrentAlbum.cpp" />
     <ClCompile Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.cpp" />

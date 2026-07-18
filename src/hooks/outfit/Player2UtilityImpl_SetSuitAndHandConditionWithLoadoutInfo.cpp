@@ -706,6 +706,7 @@ namespace
                 }
             }
 
+            outfit::NoteOutfitApplied(chosen->developId);
 #ifdef _DEBUG
             Log("[OutfitSuitConditionApply:%s] rewrote loadout (via %s) "
                 "-> developId=%u partsType=0x%02X selector=0x%02X "

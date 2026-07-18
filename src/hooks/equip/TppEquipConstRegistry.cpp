@@ -114,7 +114,8 @@ bool TppEquipConst_Declare(
     std::int32_t value = 0;
     if (spaceIndex == kSpaceEqp)
     {
-        if (!V_FrameWorkState::ResolveOrCreateEquipId(name, 0, value))
+        if (!V_FrameWorkState::ResolveOrCreateEquipId(
+                name, 0, value, std::strncmp(name, "EQP_WP_", 7) == 0))
         {
             Log("[TppEquipConst] ERROR: no free native equip slot for '%s'.\n", name);
             return false;

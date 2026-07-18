@@ -95,7 +95,7 @@ namespace
     std::unordered_map<std::uint32_t, std::uint32_t> g_ManagedBaseByDevelopId;
 
     constexpr int kMenuRootBufferCap = 120;
-    constexpr int kMenuFamilyCap     = 46;
+    constexpr int kMenuFamilyCap     = 512;
 
     #define kMenuRootRenderCap (MenuRootRenderCap())
     std::unordered_map<int, int> g_NativeRootsByType;

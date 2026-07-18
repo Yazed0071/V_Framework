@@ -389,6 +389,9 @@ namespace AddressSetRuntime
         uintptr_t CorePlugin_UpdateLoadoutRequest = 0;
         uintptr_t WeaponSystem_DefineWeaponFireSound = 0;
         uintptr_t EquipSystem_ChimeraPartsSetWork = 0;
+        uintptr_t MbDvcUpdateTrackListCallFuncs = 0;
+        uintptr_t MbDvcRefreshTrackListPrefabParameter = 0;
+        uintptr_t MbDvcTrackListRecordRefresh = 0;
     };
 
     inline GameBuild& GetGameBuild()

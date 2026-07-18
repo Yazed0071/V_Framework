@@ -12,6 +12,21 @@
 #include "CustomTapeOwnership.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
 #include "AddressSet.h"
+#include "CassetteTrackPaging.h"
+
+static int ReadU32FieldSEH(void* base, std::uintptr_t off, std::uint32_t* out)
+{
+    __try
+    {
+        *out = *reinterpret_cast<std::uint32_t*>(
+            static_cast<std::uint8_t*>(base) + off);
+        return 1;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return 0;
+    }
+}
 #include <LuaBroadcaster.h>
 
 namespace
@@ -290,7 +305,7 @@ static void __fastcall hkMusicPlayerPlay(
     if (!MissionCodeGuard::ShouldBypassHooks())
     {
         const std::uint32_t playedTrackId = ReadTapeIdTableEntry(tapeIdTable, selectedTrackIndex);
-        if (playedTrackId != 0)
+        if (playedTrackId != 0 && !IsPagerSentinelId(playedTrackId))
             OnCassetteTrackPlayedByTrackId(playedTrackId);
     }
 }
@@ -330,6 +345,19 @@ static bool __fastcall hkPlayOrPauseSelectedTrack(void* cassetteCallbackBase)
 
     if (bypass)
         return g_OrigPlayOrPauseSelectedTrack(cassetteCallbackBase);
+
+    {
+        std::uint32_t selIdx = 0;
+        if (ReadU32FieldSEH(cassetteCallbackBase, 0xF84ull, &selIdx))
+        {
+            const int dir = GetPagerActionForSlot(cassetteCallbackBase, selIdx);
+            if (dir != 0)
+            {
+                FlipCassettePage(cassetteCallbackBase, dir);
+                return true;
+            }
+        }
+    }
 
     {
         std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);

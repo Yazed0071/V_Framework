@@ -949,7 +949,18 @@ namespace
         std::uint32_t cap = 0;
         const bool snapped = SnapshotMaskSEH(self, before, &cap);
 
+        int falloffSwapped = 0;
+        {
+            BulletDescInfo dpre{};
+            if (ReadBulletDescSEH(self, descIdx, &dpre))
+                falloffSwapped = EquipParam_BulletFalloffSwapBegin(
+                    static_cast<int>(dpre.bulletId));
+        }
+
         g_OrigActivate(self, descIdx);
+
+        if (falloffSwapped)
+            EquipParam_BulletFalloffSwapEnd();
 
         if (!snapped)
             return;

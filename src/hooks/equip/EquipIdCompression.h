@@ -25,7 +25,17 @@ namespace EquipIdCompression
         return IsCompressedInBounds(ComputeCompressed(equipId));
     }
 
+    constexpr std::int32_t kItemBandFirst        = 1;
+    constexpr std::int32_t kItemBandLast         = 0x22F;
+    constexpr std::int32_t kWeaponBandFirst      = 0x230;
+    constexpr std::int32_t kWeaponBandLastUsable = 0x288;
+    static_assert(kWeaponBandLastUsable == kCompressedSlotBound - 1,
+                  "weapon band must end at the native table bound");
+    static_assert(kItemBandLast + 1 == kWeaponBandFirst,
+                  "band split must be contiguous");
+
     void  MarkCompressedSlotUsed(std::int32_t compressed);
+    void  ClearCompressedSlotUsed(std::int32_t compressed);
     bool  IsCompressedSlotUsed(std::int32_t compressed);
 
     std::size_t SyncFromNativeTable();
@@ -41,6 +51,25 @@ namespace EquipIdCompression
         for (std::int32_t equipId = start;
              equipId < kCompressedSlotBound;
              ++equipId)
+        {
+            if (equipId >= kChimeraEquipIdFirst && equipId <= kChimeraEquipIdLast)
+                continue;
+            if (equipId == 0x400) continue;
+            if (IsCompressedSlotUsed(equipId)) continue;
+            if (isSessionUsed(equipId))        continue;
+            return equipId;
+        }
+        return -1;
+    }
+
+    template <typename SessionUsedFn>
+    inline std::int32_t FindLowestFreeEquipIdInRange(SessionUsedFn isSessionUsed,
+                                                     std::int32_t first,
+                                                     std::int32_t last)
+    {
+        if (first < 0) first = 0;
+        if (last >= kCompressedSlotBound) last = kCompressedSlotBound - 1;
+        for (std::int32_t equipId = first; equipId <= last; ++equipId)
         {
             if (equipId >= kChimeraEquipIdFirst && equipId <= kChimeraEquipIdLast)
                 continue;

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -41,20 +42,24 @@ namespace outfit
 
         struct SnakeFaceStages
         {
-            char          name[64]                       = { 0 };
-            std::uint64_t fv2[kSnakeFaceStageCount]      = {};
-            std::uint64_t fpk[kSnakeFaceStageCount]      = {};
-            bool          used                           = false;
+            std::uint64_t fv2[kSnakeFaceStageCount] = {};
+            std::uint64_t fpk[kSnakeFaceStageCount] = {};
         };
-        std::array<SnakeFaceStages, 64> g_SnakeStages{};
+        std::unordered_map<std::string, SnakeFaceStages> g_SnakeStages;
+
+        std::string SnakeStageKey(const char* name)
+        {
+            std::string key(name);
+            if (key.size() > 63)
+                key.resize(63);
+            return key;
+        }
 
         const SnakeFaceStages* FindSnakeStagesUnlocked(const char* name)
         {
             if (!name || !name[0]) return nullptr;
-            for (const auto& s : g_SnakeStages)
-                if (s.used && std::strcmp(s.name, name) == 0)
-                    return &s;
-            return nullptr;
+            const auto it = g_SnakeStages.find(SnakeStageKey(name));
+            return it != g_SnakeStages.end() ? &it->second : nullptr;
         }
 
         using GetQuarkSystemTable_t = void* (__fastcall*)();
@@ -323,34 +328,21 @@ namespace outfit
         if (!name || !name[0]) return;
 
         std::lock_guard<std::mutex> lock(g_Mutex);
-        SnakeFaceStages* slot = nullptr;
-        for (auto& s : g_SnakeStages)
-            if (s.used && std::strcmp(s.name, name) == 0) { slot = &s; break; }
-        if (!slot)
-            for (auto& s : g_SnakeStages)
-                if (!s.used) { slot = &s; break; }
-        if (!slot)
-        {
-            Log("[CustomHead] SetCustomHeadSnakeFaceStages: table full "
-                "(name=%s)\n", name);
-            return;
-        }
-        slot->used = true;
-        strncpy_s(slot->name, name, _TRUNCATE);
+        SnakeFaceStages& slot = g_SnakeStages[SnakeStageKey(name)];
         for (std::uint8_t i = 0; i < kSnakeFaceStageCount; ++i)
         {
-            slot->fv2[i] = fv2ByStage ? fv2ByStage[i] : 0;
-            slot->fpk[i] = fpkByStage ? fpkByStage[i] : 0;
+            slot.fv2[i] = fv2ByStage ? fv2ByStage[i] : 0;
+            slot.fpk[i] = fpkByStage ? fpkByStage[i] : 0;
         }
         LogDebug("[CustomHead] snake demon-stage fova set for '%s': "
             "fv2=[%016llX %016llX %016llX] fpk=[%016llX %016llX %016llX]\n",
             name,
-            static_cast<unsigned long long>(slot->fv2[0]),
-            static_cast<unsigned long long>(slot->fv2[1]),
-            static_cast<unsigned long long>(slot->fv2[2]),
-            static_cast<unsigned long long>(slot->fpk[0]),
-            static_cast<unsigned long long>(slot->fpk[1]),
-            static_cast<unsigned long long>(slot->fpk[2]));
+            static_cast<unsigned long long>(slot.fv2[0]),
+            static_cast<unsigned long long>(slot.fv2[1]),
+            static_cast<unsigned long long>(slot.fv2[2]),
+            static_cast<unsigned long long>(slot.fpk[0]),
+            static_cast<unsigned long long>(slot.fpk[1]),
+            static_cast<unsigned long long>(slot.fpk[2]));
     }
 
     std::uint64_t GetCustomHeadSnakeStageFv2(const char* name,

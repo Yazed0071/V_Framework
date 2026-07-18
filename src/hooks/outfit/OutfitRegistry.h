@@ -27,15 +27,13 @@ namespace outfit
 
     constexpr std::size_t  kCamoMaterialCount       = 82;
     constexpr std::uint8_t kVanillaCamoTypeMax      = 116;
-    constexpr std::uint8_t kCamoVirtualIdStart      = 200;
+    constexpr std::uint8_t kCamoVirtualIdStart      = kVanillaCamoTypeMax + 1;
     constexpr std::uint8_t kCamoVirtualIdEnd        = 254;
     constexpr std::uint8_t kCamoBonusTypeUnset      = 0xFF;
+    constexpr std::uint32_t kPanelRowMax            = 0x3FF;
 
 
-    constexpr std::size_t  kMaxOutfits = 128;
-
-
-    constexpr std::size_t  kMaxHeadOptionsPerOutfit = 8;
+    constexpr std::size_t  kMaxHeadOptionsPerOutfit = 120;
 
 
     constexpr std::size_t  kMaxVariantsPerOutfit    = 15;
@@ -112,6 +110,7 @@ namespace outfit
     struct OutfitEntry
     {
         bool           used              = false;
+        bool           bound             = false;
 
         std::uint16_t  developId         = 0;
         std::uint16_t  flowIndex         = 0;
@@ -119,6 +118,12 @@ namespace outfit
         std::uint8_t   partsType         = 0;
         std::uint8_t   selectorCode      = 0;
 
+        char           key[64]           = {};
+        std::uint64_t  keyHash           = 0;
+        std::uint64_t  lastBindTouch     = 0;
+        std::uint8_t   partsTypeHint     = 0xFF;
+        std::uint8_t   selectorCodeHint  = 0xFF;
+        std::uint8_t   variantSelectorHints[kMaxVariantsPerOutfit] = {};
 
         OutfitPlayerTypeData perPlayerType[kPlayerTypeMax] = {};
 
@@ -188,6 +193,15 @@ namespace outfit
     void ClearAllOutfits();
 
 
+    bool BindOutfit(std::uint16_t developId, bool allowEvict, const char* reason);
+    bool UnbindOutfit(std::uint16_t developId);
+    bool IsOutfitBound(std::uint16_t developId);
+
+    void NoteOutfitApplied(std::uint16_t developId);
+    void NoteOutfitOrdered(std::uint16_t developId);
+    void NoteOutfitMenuStamp(std::uint16_t developId);
+    void ClearOutfitMenuStamps();
+
     bool TryGetOutfitByPartsType(std::uint8_t partsType,
                                  const OutfitEntry** outEntry);
 
@@ -242,8 +256,6 @@ namespace outfit
 
     int ResolvePendingHeadName(std::uint64_t nameHash, std::uint16_t equipId);
 
-
-    constexpr std::size_t kMaxVanillaSuitExtensions = 40;
 
     struct VanillaSuitHeadExt
     {
