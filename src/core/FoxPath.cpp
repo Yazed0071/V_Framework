@@ -24,6 +24,9 @@ namespace detail
     {
         if (pathCode64Ext == 0) return false;
 
+        if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return true;
+
         auto ctor = reinterpret_cast<FoxPathCtor_t>(
             ResolveGameAddress(gAddr.FoxPath_Path));
         auto exists = reinterpret_cast<FoxPathExists_t>(

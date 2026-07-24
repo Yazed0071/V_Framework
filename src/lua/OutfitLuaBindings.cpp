@@ -1106,9 +1106,13 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
             std::uint64_t pend[outfit::kMaxHeadOptionsPerOutfit] = {};
             std::uint8_t  pendCount = 0;
             ReadHeadOptionsArrayInto(L, branchIdx, ids, idCount, pend, pendCount);
+            const std::uint8_t headScopeCamo =
+                (labelCamo >= 0) ? static_cast<std::uint8_t>(labelCamo)
+                                 : outfit::kHeadOptionAnyCamo;
             if ((idCount > 0 || pendCount > 0)
                 && outfit::ExtendVanillaSuitHeadOptions(vanillaPartsType,
-                       bk.playerType, ids, idCount, pend, pendCount))
+                       bk.playerType, headScopeCamo, ids, idCount,
+                       pend, pendCount))
             {
                 any = true;
                 Log("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "

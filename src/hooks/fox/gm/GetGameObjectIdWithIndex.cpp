@@ -12,6 +12,7 @@ extern "C" {
 #include "FoxHashes.h"
 #include "log.h"
 #include "LuaBroadcaster.h"
+#include "LuaStackGuard.h"
 #include "GetGameObjectIdWithIndex.h"
 
 namespace
@@ -71,7 +72,24 @@ namespace
         return reinterpret_cast<Fn>(ResolveGameAddress(resolvedAddr));
     }
 
-    static bool TryResolveByNameViaLua(const char* typeName,
+    static thread_local bool g_InByNameResolve = false;
+
+    struct ByNameReentryGuard
+    {
+        bool entered;
+        ByNameReentryGuard() : entered(!g_InByNameResolve)
+        {
+            if (entered)
+                g_InByNameResolve = true;
+        }
+        ~ByNameReentryGuard()
+        {
+            if (entered)
+                g_InByNameResolve = false;
+        }
+    };
+
+    static bool ResolveByNameViaLua_Unguarded(const char* typeName,
         const char* instanceName,
         std::uint32_t& gameObjectIdOut)
     {
@@ -96,6 +114,20 @@ namespace
         __try
         {
             const int savedTop = gettop(L);
+
+            if (!luaguard::HasStackRoom(L, 6))
+            {
+                static bool s_logged = false;
+                if (!s_logged)
+                {
+                    s_logged = true;
+                    Log("[GetGameObjectIdWithIndex] by-name resolve skipped (type=%s name=%s): "
+                        "the running Lua frame is too tight to push safely; the step machine "
+                        "retries next frame. Skipping prevents a Lua stack-overflow crash.\n",
+                        typeName, instanceName);
+                }
+                return false;
+            }
 
             getfield(L, kLuaGlobalsIndex51, const_cast<char*>("GameObject"));
             if (luatype(L, -1) != LUA_TTABLE)
@@ -136,6 +168,29 @@ namespace
         }
 
         return ok;
+    }
+
+    static bool TryResolveByNameViaLua(const char* typeName,
+        const char* instanceName,
+        std::uint32_t& gameObjectIdOut)
+    {
+        ByNameReentryGuard guard;
+        if (!guard.entered)
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                Log("[GetGameObjectIdWithIndex] re-entrant by-name resolve REFUSED "
+                    "(type=%s name=%s) - the call arrived from inside our own "
+                    "lua_pcall; that recursion is what wedged the main thread\n",
+                    typeName, instanceName);
+            }
+            return false;
+        }
+
+        return ResolveByNameViaLua_Unguarded(typeName, instanceName,
+                                             gameObjectIdOut);
     }
 
     static bool TryNativeWithStrCode32(const char* typeName,

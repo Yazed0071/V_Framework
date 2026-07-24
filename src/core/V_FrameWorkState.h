@@ -15,6 +15,9 @@ namespace V_FrameWorkState
 
     void Save();
 
+    void FlushPendingSaves();
+    void SaveOnProcessExit();
+
 
     void BeginBatch();
     void EndBatch();
@@ -55,6 +58,7 @@ namespace V_FrameWorkState
     bool IsManagedDevelopId(std::int32_t developId);
     void SetDevelopedByDevelopId(std::int32_t developId, bool developed);
     bool GetDevelopedByDevelopId(std::int32_t developId);
+    bool IsExplicitlyUndevelopedByDevelopId(std::int32_t developId);
 
     void ForEachManagedDevelop(
         const std::function<void(std::int32_t developId, bool developed, bool isNew)>& callback);
@@ -103,6 +107,7 @@ namespace V_FrameWorkState
     void        SetPersistedOutfitVariantSelectors(const char* key,
                                                    const std::uint8_t* selectors,
                                                    std::size_t count);
+    void        ClearPersistedOutfitIds(const char* key);
 
     void ForEachPersistedOutfit(
         const std::function<void(const std::string& key,

@@ -2,12 +2,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <unordered_set>
 
 namespace outfit
 {
-    constexpr std::uint8_t kCustomPartsTypeStart = 0x40;
-    constexpr std::uint8_t kCustomPartsTypeEnd   = 0x7F;
-    constexpr std::uint8_t kCustomSelectorStart  = 0x80;
+    constexpr std::uint8_t kCustomPartsTypeStart = 0x20;
+    constexpr std::uint8_t kCustomPartsTypeEnd   = 0xFE;
+    constexpr std::uint8_t kCustomSelectorStart  = 0x75;
     constexpr std::uint8_t kCustomSelectorEnd    = 0xFE;
 
     constexpr std::uint8_t kVanillaEventCamoStart = 0x83;
@@ -197,6 +198,10 @@ namespace outfit
     bool UnbindOutfit(std::uint16_t developId);
     bool IsOutfitBound(std::uint16_t developId);
 
+    bool CollectOutfitResidencyPins(
+        std::unordered_set<std::uint32_t>& allDevelopIds,
+        std::unordered_set<std::uint32_t>& livePinnedDevelopIds);
+
     void NoteOutfitApplied(std::uint16_t developId);
     void NoteOutfitOrdered(std::uint16_t developId);
     void NoteOutfitMenuStamp(std::uint16_t developId);
@@ -204,6 +209,8 @@ namespace outfit
 
     bool TryGetOutfitByPartsType(std::uint8_t partsType,
                                  const OutfitEntry** outEntry);
+
+    bool ReleaseOutfitLiveBytesIfIdle(std::uint16_t developId);
 
     bool TryGetOutfitBySelectorCode(std::uint8_t selectorCode,
                                     const OutfitEntry** outEntry);
@@ -257,11 +264,15 @@ namespace outfit
     int ResolvePendingHeadName(std::uint64_t nameHash, std::uint16_t equipId);
 
 
+    constexpr std::uint8_t kHeadOptionAnyCamo = 0xFF;
+
     struct VanillaSuitHeadExt
     {
         std::uint16_t headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
+        std::uint8_t  headOptionSourceCamo[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  headOptionCount = 0;
         std::uint64_t pendingHeadNameHashes[kMaxHeadOptionsPerOutfit] = {};
+        std::uint8_t  pendingHeadSourceCamo[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  pendingHeadCount = 0;
         bool          declared = false;
     };
@@ -328,19 +339,24 @@ namespace outfit
 
     bool ExtendVanillaSuitHeadOptions(std::uint8_t vanillaPartsType,
                                       std::uint8_t playerType,
+                                      std::uint8_t sourceCamo,
                                       const std::uint16_t* equipIds,
                                       std::uint8_t idCount,
                                       const std::uint64_t* pendingHashes,
                                       std::uint8_t pendingCount);
 
     bool VanillaExtHasAnyHeadOptions(std::uint8_t vanillaPartsType,
-                                     std::uint8_t playerType);
+                                     std::uint8_t playerType,
+                                     std::uint8_t wornCamo);
     bool VanillaExtHasHeadOption(std::uint8_t vanillaPartsType,
                                  std::uint16_t equipId,
-                                 std::uint8_t playerType);
+                                 std::uint8_t playerType,
+                                 std::uint8_t wornCamo);
     bool VanillaExtGetHeadOptions(std::uint8_t vanillaPartsType,
                                   std::uint8_t playerType,
-                                  const std::uint16_t** outEquipIds,
+                                  std::uint8_t wornCamo,
+                                  std::uint16_t* outEquipIds,
+                                  std::uint8_t maxEquipIds,
                                   std::uint8_t* outCount);
 
     std::uint8_t ResolveVanillaPartsTypeForCamo(std::uint8_t camoType);

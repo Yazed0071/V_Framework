@@ -43,6 +43,19 @@ namespace EquipIdCompression
     constexpr std::int32_t kChimeraEquipIdFirst = 0x367;
     constexpr std::int32_t kChimeraEquipIdLast  = 0x36C;
 
+
+    constexpr std::int32_t kExtendedEquipIdFirst = kCompressedSlotBound;   // 0x289
+    constexpr std::int32_t kExtendedEquipIdLast  = 0x3FF;
+
+    inline bool IsExtendedEquipId(std::int32_t equipId)
+    {
+        return equipId >= kExtendedEquipIdFirst && equipId <= kExtendedEquipIdLast;
+    }
+
+    void  MarkExtendedEquipIdUsed(std::int32_t equipId);
+    bool  IsExtendedEquipIdUsed(std::int32_t equipId);
+    std::int32_t FindLowestFreeExtendedEquipId();
+
     template <typename SessionUsedFn>
     inline std::int32_t FindLowestFreeEquipId(SessionUsedFn isSessionUsed,
                                               std::int32_t minimumEquipId = 0)

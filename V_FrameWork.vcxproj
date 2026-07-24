@@ -150,6 +150,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <GenerateMapFile>true</GenerateMapFile>
       <EnableUAC>false</EnableUAC>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -185,6 +186,7 @@
     <ClInclude Include="src\lua\V_TppMotherBaseManagementLib.h" />
     <ClInclude Include="src\lua\FoxFunctions.h" />
     <ClInclude Include="src\lua\LuaApi.h" />
+    <ClInclude Include="src\lua\LuaStackGuard.h" />
     <!-- Third-party -->
     <ClInclude Include="include\lauxlib.h" />
     <ClInclude Include="include\lua.h" />
@@ -209,6 +211,7 @@
     <ClInclude Include="src\hooks\soldier\SoldierVoiceTypeQuery.h" />
     <ClInclude Include="src\hooks\soldier\SoldierObjectRtpc.h" />
     <ClInclude Include="src\hooks\soldier\SoldierAkObjIdMap.h" />
+    <ClInclude Include="src\hooks\soldier\InterrogationVoiceEvent.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <!-- Hooks: Player -->
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
@@ -223,6 +226,7 @@
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
+    <ClInclude Include="src\hooks\sound\CassetteWalkmanEvents.h" />
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\SubtitlesEventMessage.h" />
@@ -315,6 +319,8 @@
     <ClInclude Include="src\hooks\sahelan\PhaseSneakAiImpl_PreUpdate.h" />
     <!-- Hooks: MenuPopup -->
     <ClInclude Include="src\hooks\menupopup\MbDvcCustomPopupHook.h" />
+    <ClInclude Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter.h" />
+    <ClInclude Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_SetMenuHelp.h" />
     <!-- Hooks: Notice -->
   </ItemGroup>
   <ItemGroup>
@@ -410,6 +416,7 @@
     <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierHairFovaHook.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.cpp" />
+    <ClCompile Include="src\hooks\animal\NoticeNearThreatAiImpl_Wake.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierNotice.cpp" />
     <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp" />
     <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp" />
@@ -421,6 +428,7 @@
     <ClCompile Include="src\hooks\soldier\SoldierVoiceTypeQuery.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierObjectRtpc.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierAkObjIdMap.cpp" />
+    <ClCompile Include="src\hooks\soldier\InterrogationVoiceEvent.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <!-- Hooks: Player -->
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
@@ -435,6 +443,7 @@
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
+    <ClCompile Include="src\hooks\sound\CassetteWalkmanEvents.cpp" />
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\SubtitlesEventMessage.cpp" />
@@ -474,6 +483,8 @@
     <ClCompile Include="src\hooks\sahelan\PhaseSneakAiImpl_PreUpdate.cpp" />
     <!-- Hooks: MenuPopup -->
     <ClCompile Include="src\hooks\menupopup\MbDvcCustomPopupHook.cpp" />
+    <ClCompile Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter.cpp" />
+    <ClCompile Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_SetMenuHelp.cpp" />
     <!-- Hooks: Notice -->
   </ItemGroup>
   <ItemGroup>

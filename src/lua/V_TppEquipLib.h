@@ -4,6 +4,10 @@ struct lua_State;
 
 bool Register_V_TppEquipLibrary(lua_State* L);
 
+void ChimeraMotion_InheritFromMotionFrom(int receiverId, int motionFromRc);
+
+void ChimeraMotion_EnsureWrapInstalled(lua_State* L);
+
 #include "equip/RegisterConstantEquipId.h"
 #include "equip/DeclareEQPTypes.h"
 #include "equip/DeclareSWPTypes.h"

@@ -5,11 +5,15 @@
 #include "../hooks/equip/EquipIdCompression.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -78,6 +82,15 @@ namespace V_FrameWorkState
         static std::vector<std::int32_t> g_PendingDevelopedResets;
         static int g_BatchDepth = 0;
         static std::unordered_set<std::int16_t> g_TapeSaveIndexInUse;
+
+        static constexpr unsigned long long kCoalesceMs = 250;
+
+        static std::condition_variable g_FlushCv;
+        static std::thread             g_FlusherThread;
+        static bool                    g_FlusherRunning = false;
+        static bool                    g_FlusherStop    = false;
+        static unsigned long long      g_SaveDueTick    = 0;
+        static unsigned long long      g_CoalescedCount = 0;
 
 
         static std::unordered_set<std::string> g_ConstantsTouched;
@@ -258,6 +271,7 @@ namespace V_FrameWorkState
         }
 
         static void SaveToDisk_NoLock();
+        static void WriteToDisk_NoLock();
 
         static void LoadFromDisk_NoLock()
         {
@@ -481,11 +495,60 @@ namespace V_FrameWorkState
             }
         }
 
+        static void FlusherMain()
+        {
+            std::unique_lock<std::mutex> lock(g_Mutex);
+            for (;;)
+            {
+                g_FlushCv.wait(lock,
+                    [] { return g_FlusherStop || g_SaveDueTick != 0; });
+
+                if (g_FlusherStop)
+                    return;
+
+                for (;;)
+                {
+                    const unsigned long long now = GetTickCount64();
+                    if (now >= g_SaveDueTick)
+                        break;
+                    g_FlushCv.wait_for(lock,
+                        std::chrono::milliseconds(g_SaveDueTick - now));
+                    if (g_FlusherStop)
+                        return;
+                }
+
+                g_SaveDueTick = 0;
+                const unsigned long long coalesced = g_CoalescedCount;
+                g_CoalescedCount = 0;
+
+                WriteToDisk_NoLock();
+
+                if (coalesced > 1)
+                    Log("[V_FrameWorkState] coalesced %llu state writes into 1 "
+                        "(%llu forced disk commits avoided)\n",
+                        coalesced, coalesced - 1);
+            }
+        }
+
         static void SaveToDisk_NoLock()
         {
             if (g_BatchDepth > 0)
                 return;
 
+            ++g_CoalescedCount;
+            g_SaveDueTick = GetTickCount64() + kCoalesceMs;
+
+            if (!g_FlusherRunning)
+            {
+                g_FlusherRunning = true;
+                g_FlusherThread = std::thread(&FlusherMain);
+            }
+
+            g_FlushCv.notify_one();
+        }
+
+        static void WriteToDisk_NoLock()
+        {
             EnsureSaveDirectory();
 
             const std::string tmpPath = std::string(kSavePath) + ".tmp";
@@ -781,20 +844,24 @@ namespace V_FrameWorkState
                 if (result < 0)
                     result = EquipIdCompression::FindLowestFreeEquipIdInRange(
                         inUse, floor, EquipIdCompression::kItemBandLast);
-                if (result < 0)
-                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: WEAPON band "
-                        "(0x230-0x288) and item band (0x001-0x22F) both exhausted "
-                        "above floor=0x%X; allocation fails.\n", floor);
             }
             else
             {
                 result = EquipIdCompression::FindLowestFreeEquipIdInRange(
                     inUse, floor, EquipIdCompression::kItemBandLast);
-                if (result < 0)
-                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: ITEM band "
-                        "(0x001-0x22F) exhausted above floor=0x%X - the native "
-                        "GetEquipType band map forbids items at 0x230+; "
-                        "registration refused.\n", floor);
+            }
+            if (result < 0)
+            {
+                result = EquipIdCompression::FindLowestFreeExtendedEquipId();
+                if (result >= 0)
+                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: native bands "
+                        "full above floor=0x%X - allocated EXTENDED equipId 0x%X "
+                        "(DLL-side table, served via hooked accessors)\n",
+                        floor, result);
+                else
+                    Log("[V_FrameWorkState] AllocateNextFreeEquipId: native bands "
+                        "AND the extended 0x289-0x3FF range are exhausted above "
+                        "floor=0x%X; allocation fails.\n", floor);
             }
             return result;
         }
@@ -825,8 +892,48 @@ namespace V_FrameWorkState
     void Save()
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
+        g_SaveDueTick = 0;
+        g_CoalescedCount = 0;
         if (g_State.dirty)
-            SaveToDisk_NoLock();
+            WriteToDisk_NoLock();
+    }
+
+    void SaveOnProcessExit()
+    {
+        std::unique_lock<std::mutex> lock(g_Mutex, std::try_to_lock);
+        if (!lock.owns_lock())
+            return;
+
+        if (g_SaveDueTick != 0 || g_State.dirty)
+        {
+            g_SaveDueTick = 0;
+            g_CoalescedCount = 0;
+            WriteToDisk_NoLock();
+        }
+    }
+
+    void FlushPendingSaves()
+    {
+        std::thread joinMe;
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            if (g_SaveDueTick != 0 || g_State.dirty)
+            {
+                g_SaveDueTick = 0;
+                g_CoalescedCount = 0;
+                WriteToDisk_NoLock();
+            }
+            if (g_FlusherRunning)
+            {
+                g_FlusherStop = true;
+                g_FlusherRunning = false;
+                joinMe = std::move(g_FlusherThread);
+            }
+        }
+
+        g_FlushCv.notify_all();
+        if (joinMe.joinable())
+            joinMe.join();
     }
 
     void BeginBatch()
@@ -1087,6 +1194,17 @@ namespace V_FrameWorkState
         for (const auto& kv : g_State.equips)
             if (kv.second.developId == developId)
                 return kv.second.developed == 1;
+        return false;
+    }
+
+    bool IsExplicitlyUndevelopedByDevelopId(std::int32_t developId)
+    {
+        if (developId == 0) return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        for (const auto& kv : g_State.equips)
+            if (kv.second.developId == developId)
+                return kv.second.developed == 0;
         return false;
     }
 
@@ -1445,6 +1563,34 @@ namespace V_FrameWorkState
             if (e.variantSelectors[i] != v)
             {
                 e.variantSelectors[i] = v;
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+        }
+    }
+
+    void ClearPersistedOutfitIds(const char* key)
+    {
+        if (!key || !key[0]) return;
+        if (!GuardStateKey(key, "ClearPersistedOutfitIds")) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        auto it = g_State.equips.find(key);
+        if (it == g_State.equips.end()) return;
+        auto& e = it->second;
+        bool changed = false;
+        if (e.partsType != 0) { e.partsType = 0; changed = true; }
+        if (e.selector != 0)  { e.selector = 0;  changed = true; }
+        for (std::size_t i = 0; i < 14; ++i)
+        {
+            if (e.variantSelectors[i] != 0)
+            {
+                e.variantSelectors[i] = 0;
                 changed = true;
             }
         }

@@ -8,6 +8,7 @@
 #include "log.h"
 #include "MissionCodeGuard.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
+#include "CassetteWalkmanEvents.h"
 #include "AddressSet.h"
 
 namespace
@@ -323,12 +324,15 @@ std::int32_t PauseCassette(std::uint32_t fadeMs)
     __try
     {
         int errorCode = -1;
+        Set_CassetteWalkmanProgrammatic(true);
         PauseMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
+        Set_CassetteWalkmanProgrammatic(false);
 
         return static_cast<std::int32_t>(errorCode);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        Set_CassetteWalkmanProgrammatic(false);
         Log("[CassettePause] ERROR: exception while pausing cassette playback.\n");
         return -1;
     }
@@ -354,12 +358,15 @@ std::int32_t ResumeCassette(std::uint32_t fadeMs)
     __try
     {
         int errorCode = -1;
+        Set_CassetteWalkmanProgrammatic(true);
         ResumeMusicPlayer(soundMusicPlayer, &errorCode, fadeMs);
+        Set_CassetteWalkmanProgrammatic(false);
 
         return static_cast<std::int32_t>(errorCode);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        Set_CassetteWalkmanProgrammatic(false);
         Log("[CassetteResume] ERROR: exception while resuming cassette playback.\n");
         return -1;
     }
@@ -385,12 +392,15 @@ std::int32_t StopCassette(std::uint32_t fadeMs, bool stopByUser)
     __try
     {
         std::uint32_t errorCode = static_cast<std::uint32_t>(-1);
+        Set_CassetteWalkmanProgrammatic(true);
         StopMusicPlayer(soundMusicPlayer, &errorCode, fadeMs, stopByUser ? 1 : 0);
+        Set_CassetteWalkmanProgrammatic(false);
 
         return static_cast<std::int32_t>(errorCode);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        Set_CassetteWalkmanProgrammatic(false);
         Log("[CassetteStop] ERROR: exception while stopping cassette playback.\n");
         return -1;
     }

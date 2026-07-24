@@ -132,7 +132,8 @@ namespace
                 outfit::ClearCrateDeliveredVariant();
                 outfit::ConsumePendingSupplyDropVariantIdx();
                 outfit::ConsumePendingSupplyDropDevelopId();
-                outfit::SetActiveVariant(byFlow->partsType, 0);
+                if (byFlow->bound)
+                    outfit::SetActiveVariant(byFlow->partsType, 0);
             }
             return byFlow->developId;
         }
@@ -146,7 +147,8 @@ namespace
                 outfit::ClearCrateDeliveredVariant();
                 outfit::ConsumePendingSupplyDropVariantIdx();
                 outfit::ConsumePendingSupplyDropDevelopId();
-                outfit::SetActiveVariant(byDev->partsType, 0);
+                if (byDev->bound)
+                    outfit::SetActiveVariant(byDev->partsType, 0);
             }
             return byDev->developId;
         }
@@ -489,6 +491,18 @@ namespace
                     variantIdx = entry->defaultVariant;
                 }
 
+                if (matched && entry
+                    && !outfit::IsOutfitBound(entry->developId)
+                    && !outfit::BindOutfit(entry->developId, true,
+                                           "supply-click"))
+                {
+                    Log("[OutfitItemSelector:supply] order refused: live byte "
+                        "pools full for developId=%u - unequip an outfit to "
+                        "free a slot\n",
+                        static_cast<unsigned>(entry->developId));
+                    matched = false;
+                }
+
                 if (matched && entry)
                 {
                     outfit::SetPendingSupplyDropDevelopId(entry->developId);
@@ -531,8 +545,23 @@ namespace
         }
 
         const outfit::OutfitEntry* entry = nullptr;
-        const bool isCustom =
+        bool isCustom =
             outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+
+        if (isCustom && !entry->bound)
+        {
+            if (outfit::BindOutfit(entry->developId, true, "rnd-request"))
+                isCustom = outfit::TryGetOutfitByFlowIndex(flowIndex, &entry)
+                           && entry;
+            else
+            {
+                Log("[OutfitItemSelector:devmenu] R&D request for developId=%u "
+                    "not stashed: live byte pools full - unequip an outfit to "
+                    "free a slot\n",
+                    static_cast<unsigned>(entry->developId));
+                isCustom = false;
+            }
+        }
 
         if (isCustom)
         {

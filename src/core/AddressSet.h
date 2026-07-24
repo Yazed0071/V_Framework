@@ -166,6 +166,12 @@ namespace AddressSetRuntime
         uintptr_t NoticeIndisAiImpl_StepAware                           = 0;
         uintptr_t NoticeControllerImpl_DoCheckSpreadNotice              = 0;
         uintptr_t NoticeControllerImpl_CheckSightNoticeSoldier          = 0;
+        uintptr_t NoticeNearThreatAiImpl_Wake                           = 0;
+        uintptr_t NoticeNoiseAlertAiImpl_Wake                           = 0;
+        uintptr_t NoticeNearGameObjectAiImpl_Wolf_Wake                  = 0;
+        uintptr_t NoticeNoiseSneakAiImpl_Wolf_Wake                      = 0;
+        uintptr_t NoticeNearGameObjectAiImpl_Bear_Wake                  = 0;
+        uintptr_t NoticeNoiseAiImpl_Bear_Wake                           = 0;
 
         uintptr_t RealizedSoldier2Impl_ConvertHeadEquipModelType        = 0;
         uintptr_t RealizedSoldier2Impl_UpdateHeadEquipMesh              = 0;
@@ -360,6 +366,8 @@ namespace AddressSetRuntime
 
         uintptr_t MotionLoaderImpl_ReceiverTypeTable = 0;
         uintptr_t MotionLoaderImpl_GetReceiverType = 0;
+        uintptr_t MotionLoaderImpl_UnderBarrelTypeTable = 0;
+        uintptr_t MotionLoaderImpl_GetUnderBarrelType = 0;
 
         uintptr_t EquipDevelopControllerImpl_GetSuppressorAmount = 0;
 
@@ -392,6 +400,36 @@ namespace AddressSetRuntime
         uintptr_t MbDvcUpdateTrackListCallFuncs = 0;
         uintptr_t MbDvcRefreshTrackListPrefabParameter = 0;
         uintptr_t MbDvcTrackListRecordRefresh = 0;
+        uintptr_t MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter = 0;
+        uintptr_t MbDvcMissionListCallbackImpl_SetMenuHelp = 0;
+        uintptr_t Equip_ReloadChimeraPartsInfoTable = 0;
+        uintptr_t Equip_ChimeraPartsPackageInfos = 0;
+        uintptr_t Mtar_GetAnimFile = 0;
+        uintptr_t Mtar_GetDataInfo = 0;
+        uintptr_t Equip_MotionEntryTable = 0;
+        uintptr_t Equip_MotionMtarResolver = 0;
+        uintptr_t SimplePartsControllerImpl_Vtable = 0;
+        uintptr_t SimplePartsControllerImpl_SetMotionData = 0;
+        uintptr_t SimplePartsControllerImpl_SetMotionDataByPath = 0;
+        uintptr_t EquipSystemImpl_HideMagazine = 0;
+        uintptr_t EquipSystemImpl_GetPartsController = 0;
+        uintptr_t Fox_GetQuarkSystemTable = 0;
+        uintptr_t Fox_ArrayBaseExtend = 0;
+        uintptr_t Fox_ArrayOperatorVtbl = 0;
+        uintptr_t Animx_GetControlSize = 0;
+        uintptr_t Animx_SimpleControlCtorPool = 0;
+        uintptr_t Animx_SimpleControlCtorHeap = 0;
+        uintptr_t Animx_SimpleControlDtorPool = 0;
+        uintptr_t Animx_SimpleControlDtorHeap = 0;
+        uintptr_t Animx_SimpleControlAux = 0;
+        uintptr_t Equip_MotionEntrySlotHookA = 0;
+        uintptr_t Equip_MotionEntrySlotHookB = 0;
+        uintptr_t EquipIdTable_GetEquipTypeId = 0;
+        uintptr_t Soldier2InterrogateUtil_UpdateInterrogation = 0;
+        uintptr_t Soldier2InterrogateUtil_UpdateInterrogationMarker = 0;
+        uintptr_t SoundControllerImpl_CallVoice = 0;
+        uintptr_t MbDvcCassetteTapeCallbackImpl_SeekMusic = 0;
+        uintptr_t EquipSystem_GetGunInfoById = 0;
     };
 
     inline GameBuild& GetGameBuild()

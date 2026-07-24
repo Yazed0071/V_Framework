@@ -235,11 +235,22 @@ namespace
         { Log("[CaseDArmUnpin] site bytes mismatch @%p - build differs, skip\n",
               reinterpret_cast<void*>(site)); return false; }
 
-        std::uint8_t* tr = reinterpret_cast<std::uint8_t*>(AllocExecNear(site, 0x100));
-        if (!tr) { Log("[CaseDArmUnpin] trampoline alloc failed\n"); return false; }
-        std::memset(tr, 0xCC, 0x100);
+        constexpr std::size_t kTableOff  = 0x80;
+        constexpr std::size_t kBandWidth =
+            static_cast<std::size_t>(outfit::kCustomPartsTypeEnd)
+          - static_cast<std::size_t>(outfit::kCustomPartsTypeStart) + 1;
+        constexpr std::size_t kTrampSize = 0x200;
+        static_assert(outfit::kCustomPartsTypeStart <= 0x80,
+            "band start must fit the lea disp8 encoding");
+        static_assert(kTableOff + kBandWidth <= kTrampSize,
+            "arm table overflows the trampoline allocation");
 
-        std::memset(tr + 0x80, 0x01, 0x40);
+        std::uint8_t* tr =
+            reinterpret_cast<std::uint8_t*>(AllocExecNear(site, kTrampSize));
+        if (!tr) { Log("[CaseDArmUnpin] trampoline alloc failed\n"); return false; }
+        std::memset(tr, 0xCC, kTrampSize);
+
+        std::memset(tr + kTableOff, 0x01, kBandWidth);
 
         std::size_t o = 0;
         const auto emit = [&](std::initializer_list<std::uint8_t> b)
@@ -248,12 +259,16 @@ namespace
         { std::int32_t rel = static_cast<std::int32_t>(static_cast<std::int64_t>(target)
               - (reinterpret_cast<std::int64_t>(tr) + static_cast<std::int64_t>(o) + 4));
           std::memcpy(tr+o,&rel,4); o += 4; };
+        const auto emitImm32 = [&](std::uint32_t v)
+        { std::memcpy(tr+o,&v,4); o += 4; };
         emit({0x40,0x0f,0xb6,0xc7});
-        emit({0x8d,0x48,0xc0});
-        emit({0x83,0xf9,0x3f});
+        emit({0x8d,0x48,
+              static_cast<std::uint8_t>(0x100u - outfit::kCustomPartsTypeStart)});
+        emit({0x81,0xf9});
+        emitImm32(static_cast<std::uint32_t>(kBandWidth - 1));
         emit({0x77,0x15});
         emit({0x48,0x8d,0x05});
-        emitRel32To(reinterpret_cast<std::uintptr_t>(tr) + 0x80);
+        emitRel32To(reinterpret_cast<std::uintptr_t>(tr) + kTableOff);
         emit({0x0f,0xb6,0x04,0x08});
         emit({0x84,0xc0});
         tr[o++]=0x0f; tr[o++]=0x84;
@@ -287,13 +302,15 @@ namespace
 
         g_CaseDTrampoline     = tr;
         g_CaseDPatchSite      = reinterpret_cast<void*>(site);
-        g_CaseDArmTable       = tr + 0x80;
+        g_CaseDArmTable       = tr + kTableOff;
         g_CaseDArmUnpinActive = true;
 #ifdef _DEBUG
-        Log("[CaseDArmUnpin] installed: site=%p tramp=%p armTable=%p (arm-enabled "
-            "custom partsType decodes the REAL tier; enableArm=false routes to the "
-            "engine's own armless path - tier 0, hand slot off, flesh knock)\n",
-            reinterpret_cast<void*>(site), tr, tr + 0x80);
+        Log("[CaseDArmUnpin] installed: site=%p tramp=%p armTable=%p band=0x%02X-0x%02X "
+            "(%zu slots) (arm-enabled custom partsType decodes the REAL tier; "
+            "enableArm=false routes to the engine's own armless path - tier 0, "
+            "hand slot off, flesh knock)\n",
+            reinterpret_cast<void*>(site), tr, tr + kTableOff,
+            outfit::kCustomPartsTypeStart, outfit::kCustomPartsTypeEnd, kBandWidth);
 #endif
         return true;
     }
@@ -464,7 +481,7 @@ namespace
             return nullptr;
         if (!outfit::VanillaExtHasHeadOption(
                 static_cast<std::uint8_t>(playerPartsType & 0xFF),
-                head->equipId, pt))
+                head->equipId, pt, outfit::ReadLiveSelectorCode()))
             return nullptr;
         return head;
     }
@@ -1750,7 +1767,7 @@ namespace
                 const outfit::OutfitEntry* byPending = nullptr;
                 const std::uint16_t pendingDevId = outfit::GetPendingOutfitDevelopId();
                 if (pendingDevId != 0 && !outfit::IsOutfitBound(pendingDevId))
-                    outfit::BindOutfit(pendingDevId, false, "pending-render");
+                    outfit::BindOutfit(pendingDevId, true, "pending-render");
                 if (pendingDevId != 0
                     && outfit::TryGetOutfitByDevelopId(pendingDevId, &byPending) && byPending
                     && byPending->bound
@@ -2088,11 +2105,29 @@ namespace
             {
                 const outfit::CustomHeadEntry* h =
                     outfit::TryGetCustomHeadBySlot(wornHead);
-                const bool offered = h && isCustom && entry
-                    && entry->HasHeadOptionAnyVariant(h->equipId,
-                                                      info->playerType);
+                const auto vpt =
+                    static_cast<std::uint8_t>(info->playerPartsType & 0xFF);
+                const bool offered = h
+                    && ((isCustom && entry
+                         && entry->HasHeadOptionAnyVariant(h->equipId,
+                                                           info->playerType))
+                        || (!isCustom
+                            && vpt < outfit::kCustomPartsTypeStart
+                            && outfit::VanillaExtHasHeadOption(
+                                   vpt, h->equipId, info->playerType,
+                                   info->playerCamoType)));
                 if (!offered || MissionCodeGuard::ShouldBypassHooks())
                 {
+                    Log("[OutfitRuntimeParts] custom head slot 0x%02X dropped "
+                        "at realize: equipId=%u partsType=0x%02X playerType=%u "
+                        "(%s) - the head is not offered by the worn outfit for "
+                        "this player type\n",
+                        static_cast<unsigned>(wornHead),
+                        static_cast<unsigned>(h ? h->equipId : 0),
+                        static_cast<unsigned>(vpt),
+                        static_cast<unsigned>(info->playerType),
+                        MissionCodeGuard::ShouldBypassHooks()
+                            ? "FOB bypass" : "not offered");
                     info->playerFaceEquipId  = 0;
                     info->playerFaceEquipUnk =
                         static_cast<std::uint8_t>(info->playerFaceEquipUnk & 0xF8);

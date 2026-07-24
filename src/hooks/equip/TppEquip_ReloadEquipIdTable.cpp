@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -69,15 +70,32 @@ namespace
 
     static std::mutex g_Mutex;
     static std::vector<EquipIdRow> g_Rows;
+    static std::map<int, EquipIdRow> g_Extended;
 
     static void WriteNativeRow(const EquipIdRow& row)
     {
         const std::int32_t index = EquipIdCompression::ComputeCompressed(row.equipId);
         if (!EquipIdCompression::IsCompressedInBounds(index))
         {
+            if (EquipIdCompression::IsExtendedEquipId(row.equipId))
+            {
+                EquipIdCompression::MarkExtendedEquipIdUsed(row.equipId);
+                std::lock_guard<std::mutex> lock(g_Mutex);
+                g_Extended[row.equipId] = row;
+                static std::size_t s_extLogged = 0;
+                if (s_extLogged < 8)
+                {
+                    ++s_extLogged;
+                    Log("[EquipIdTable] equipId=%d is beyond the %d-slot native "
+                        "table - stored in the DLL extended table (served to the "
+                        "engine via the hooked equip accessors)\n",
+                        row.equipId, EquipIdCompression::kCompressedSlotBound);
+                }
+                return;
+            }
             Log("[EquipIdTable] REFUSED write: equipId=%d compresses to 0x%X, "
-                "out of the 0x%X-slot native table - would corrupt adjacent "
-                "memory. Row dropped.\n",
+                "out of the 0x%X-slot native table and not in the handle-"
+                "representable extended range - row dropped.\n",
                 row.equipId, index, EquipIdCompression::kCompressedSlotBound);
             return;
         }
@@ -227,6 +245,20 @@ namespace
         ReapplyAll();
         return ret;
     }
+
+    using GetEquipTypeId_t = unsigned int(__fastcall*)(void* self, unsigned int equipId);
+    static GetEquipTypeId_t g_OrigGetEquipTypeId = nullptr;
+
+    static unsigned int __fastcall hkGetEquipTypeId(void* self, unsigned int equipId)
+    {
+        if (EquipIdCompression::IsExtendedEquipId(static_cast<std::int32_t>(equipId)))
+        {
+            V_ExtendedEquipRow ext;
+            if (TppEquip_GetExtendedEquipRow(static_cast<int>(equipId), &ext))
+                return static_cast<unsigned int>(ext.equipType & 0x3F);
+        }
+        return g_OrigGetEquipTypeId ? g_OrigGetEquipTypeId(self, equipId) : 0;
+    }
 }
 
 int TppEquip_GetSubIdForEquipId(int equipId)
@@ -236,6 +268,22 @@ int TppEquip_GetSubIdForEquipId(int equipId)
         if (r.equipId == equipId)
             return r.subId;
     return 0;
+}
+
+bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out)
+{
+    if (!out)
+        return false;
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    auto it = g_Extended.find(equipId);
+    if (it == g_Extended.end() || it->second.released)
+        return false;
+    out->equipType = it->second.equipType;
+    out->subId     = it->second.subId;
+    out->block     = it->second.block;
+    out->partsHash = it->second.partsHash;
+    out->packHash  = it->second.packHash;
+    return true;
 }
 
 int __cdecl l_AddToEquipIdTable(lua_State* L)
@@ -303,11 +351,31 @@ bool Install_TppEquip_ReloadEquipIdTable_Hook()
         Log("[EquipIdTable] Reload hook Install -> OK (target=%p)\n", target);
     }
 #endif
+
+    void* typeTarget = ResolveGameAddress(gAddr.EquipIdTable_GetEquipTypeId);
+    if (typeTarget)
+    {
+        const bool okT = CreateAndEnableHook(
+            typeTarget, &hkGetEquipTypeId,
+            reinterpret_cast<void**>(&g_OrigGetEquipTypeId));
+        if (!okT)
+            Log("[EquipIdTable] GetEquipTypeId hook Install -> FAIL (target=%p) - "
+                "extended equipIds will report type 0\n", typeTarget);
+#ifdef _DEBUG
+        else
+            Log("[EquipIdTable] GetEquipTypeId hook Install -> OK (target=%p; serves "
+                "the equip type of extended custom equipIds from the DLL table)\n",
+                typeTarget);
+#endif
+    }
     return ok;
 }
 
 bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
 {
+    if (gAddr.EquipIdTable_GetEquipTypeId && g_OrigGetEquipTypeId)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipIdTable_GetEquipTypeId));
+    g_OrigGetEquipTypeId = nullptr;
     if (gAddr.EquipIdTable_ReloadEquipIdTable)
         DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipIdTable_ReloadEquipIdTable));
     g_OrigReloadEquipIdTable = nullptr;

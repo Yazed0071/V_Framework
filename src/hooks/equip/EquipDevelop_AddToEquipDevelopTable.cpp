@@ -17,6 +17,7 @@
 #include "log.h"
 #include "V_FrameWorkState.h"
 #include "../../lua/LuaApi.h"
+#include "LuaStackGuard.h"
 #include "../../core/LuaBroadcaster.h"
 #include "../outfit/OutfitRegistry.h"
 #include "../outfit/CustomHeadRegistry.h"
@@ -193,6 +194,19 @@ namespace
         __try
         {
             const int top = g_lua_gettop(L);
+            if (!luaguard::HasStackRoom(L, 4))
+            {
+                static bool s_logged = false;
+                if (!s_logged)
+                {
+                    s_logged = true;
+                    Log("[EquipDevelop] dynamic gate eval skipped (key=%s): the running "
+                        "Lua frame is too tight to push safely; it re-evaluates on the next "
+                        "R&D menu build. Skipping prevents a Lua stack-overflow crash.\n",
+                        key);
+                }
+                return 0;
+            }
             g_lua_getfield(L, kLuaRegistryIndex,
                            const_cast<char*>(kGateTableKey));
             if (g_lua_type(L, -1) != LUA_TTABLE)

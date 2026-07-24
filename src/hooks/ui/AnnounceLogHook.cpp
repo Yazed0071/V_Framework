@@ -2,6 +2,7 @@
 #include "AnnounceLogHook.h"
 
 #include <Windows.h>
+#include <intrin.h>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -106,9 +107,79 @@ namespace
         return seId;
     }
 
+    using AnnounceLogView_t = std::uint64_t (__fastcall*)(void* cdm, const char* text,
+                                                          std::uint8_t type, std::uint8_t se,
+                                                          bool important);
+    static AnnounceLogView_t g_OrigAnnounceLogViewDiag = nullptr;
+
+    static constexpr DWORD kAnnounceWindowMs = 1000;
+    static constexpr int   kAnnouncePerWindow = 4;
+
+    static DWORD g_AnnounceWindowStart = 0;
+    static int   g_AnnounceInWindow    = 0;
+    static long  g_AnnounceSuppressed  = 0;
+    static DWORD g_LastSuppressReport  = 0;
+
+    static std::uint64_t __fastcall hkAnnounceLogViewDiag(void* cdm, const char* text,
+                                                          std::uint8_t type, std::uint8_t se,
+                                                          bool important)
+    {
+        const DWORD now = GetTickCount();
+        if (now - g_AnnounceWindowStart >= kAnnounceWindowMs)
+        {
+            g_AnnounceWindowStart = now;
+            g_AnnounceInWindow    = 0;
+        }
+
+        if (++g_AnnounceInWindow > kAnnouncePerWindow)
+        {
+            const long dropped = ++g_AnnounceSuppressed;
+            if (now - g_LastSuppressReport >= kAnnounceWindowMs)
+            {
+                g_LastSuppressReport = now;
+                Log("[AnnounceLog] announce flood declined (%ld dropped so far; >%d per %ums). "
+                    "The engine caps lifetime announces at 100 via a byte counter at "
+                    "CommonDataManager+0x1134 that only resets once the log drains, so a burst "
+                    "permanently kills the announce HUD. Declining keeps that counter intact.\n",
+                    dropped, kAnnouncePerWindow, kAnnounceWindowMs);
+            }
+            return 0;
+        }
+
+#ifdef _DEBUG
+        static int s_viewCount = 0;
+        static int s_viewTotal = 0;
+        ++s_viewTotal;
+        if (s_viewCount < 12)
+        {
+            ++s_viewCount;
+            Log("[AnnounceDiag] AnnounceLogView #%d caller=%p type=%u se=%u important=%d text=\"%s\"\n",
+                s_viewTotal, _ReturnAddress(),
+                static_cast<unsigned>(type), static_cast<unsigned>(se),
+                important ? 1 : 0, text ? text : "(null)");
+        }
+#endif
+
+        return g_OrigAnnounceLogViewDiag
+             ? g_OrigAnnounceLogViewDiag(cdm, text, type, se, important)
+             : 0;
+    }
+
     static std::uint32_t __fastcall hkGetAnnounceLogSE(void* manager, int announceType)
     {
         const std::uint32_t type = static_cast<std::uint32_t>(announceType);
+
+#ifdef _DEBUG
+        {
+            static int s_diagCount = 0;
+            if (s_diagCount < 40)
+            {
+                ++s_diagCount;
+                Log("[AnnounceDiag] GetAnnounceLogSE fired: announceType=0x%08X\n", type);
+            }
+        }
+#endif
+
         const auto it = g_Overrides.find(type);
         if (it != g_Overrides.end())
             return it->second;
@@ -348,12 +419,22 @@ bool Install_AnnounceLogHook()
     if (ok)
         g_Installed = true;
 
-#ifdef _DEBUG
-    Log("[AnnounceLog] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
-#else
-    if (!ok)
-        Log("[AnnounceLog] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
-#endif
+    Log("[AnnounceDiag] GetAnnounceLogSE hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+
+    if (gAddr.HudCommonDataManager_AnnounceLogView)
+    {
+        void* viewTarget = ResolveGameAddress(gAddr.HudCommonDataManager_AnnounceLogView);
+        const bool viewOk = viewTarget && CreateAndEnableHook(
+            viewTarget,
+            reinterpret_cast<void*>(&hkAnnounceLogViewDiag),
+            reinterpret_cast<void**>(&g_OrigAnnounceLogViewDiag));
+        Log("[AnnounceDiag] AnnounceLogView hook: %s (target=%p)\n",
+            viewOk ? "OK" : "FAIL", viewTarget);
+    }
+    else
+    {
+        Log("[AnnounceDiag] AnnounceLogView address is 0 for this build\n");
+    }
 
     if (ok && gAddr.Hud_TypingLogActUpdate)
     {

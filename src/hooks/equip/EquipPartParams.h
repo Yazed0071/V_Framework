@@ -26,6 +26,8 @@ int EquipParam_AllocateBulletSlotForName(const char* name);
 
 bool Install_MotionLoader_ReceiverTypeHook();
 void Uninstall_MotionLoader_ReceiverTypeHook();
+bool Install_MotionLoader_UnderBarrelTypeHook();
+void Uninstall_MotionLoader_UnderBarrelTypeHook();
 
 bool Install_GetAttackIdGuard();
 void Uninstall_GetAttackIdGuard();
@@ -42,6 +44,9 @@ void Uninstall_FireSoundOverride_Hook();
 
 bool Install_LoadoutRequestGuard();
 void Uninstall_LoadoutRequestGuard();
+
+bool Install_LoadoutGunInfoGetOrBuild();
+void Uninstall_LoadoutGunInfoGetOrBuild();
 
 bool Install_SuppressorGauge_Hook();
 void Uninstall_SuppressorGauge_Hook();
@@ -66,6 +71,7 @@ enum EquipVanillaSpace
     kVanillaSpace_Count
 };
 
+int  EquipParam_ResolvePartByte(int space, int id);
 void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaForceTaint(int space, int id, const char* why);

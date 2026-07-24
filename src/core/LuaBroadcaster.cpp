@@ -94,6 +94,95 @@ namespace
         return argCount;
     }
 
+    static constexpr std::size_t kLuaStateTopOffset       = 0x10;
+    static constexpr std::size_t kLuaStateCiOffset        = 0x28;
+    static constexpr std::size_t kLuaStateStackLastOffset = 0x38;
+    static constexpr std::size_t kCallInfoTopOffset       = 0x10;
+    static constexpr std::size_t kLuaTValueSize           = 0x10;
+    static constexpr int         kBroadcastPushSlots      = 9;
+    static constexpr int         kImplausibleFreeSlots    = 1000000;
+    static constexpr int         kMaxHazardLogLines       = 20;
+
+    struct LuaStackHeadroom
+    {
+        int physicalFree = 0;
+        int frameFree    = 0;
+    };
+
+    static bool LuaStackHeadroomOf(lua_State* L, LuaStackHeadroom& out)
+    {
+        if (!L)
+            return false;
+
+        __try
+        {
+            const auto* base = reinterpret_cast<const std::uint8_t*>(L);
+            const std::uintptr_t top =
+                *reinterpret_cast<const std::uintptr_t*>(base + kLuaStateTopOffset);
+            const std::uintptr_t stackLast =
+                *reinterpret_cast<const std::uintptr_t*>(base + kLuaStateStackLastOffset);
+            const std::uintptr_t ci =
+                *reinterpret_cast<const std::uintptr_t*>(base + kLuaStateCiOffset);
+
+            if (stackLast < top || !ci)
+                return false;
+
+            const std::uintptr_t ciTop =
+                *reinterpret_cast<const std::uintptr_t*>(ci + kCallInfoTopOffset);
+            if (ciTop < top)
+                return false;
+
+            const std::uintptr_t physical = (stackLast - top) / kLuaTValueSize;
+            const std::uintptr_t frame    = (ciTop - top) / kLuaTValueSize;
+            if (physical >= static_cast<std::uintptr_t>(kImplausibleFreeSlots)
+                || frame >= static_cast<std::uintptr_t>(kImplausibleFreeSlots))
+                return false;
+
+            out.physicalFree = static_cast<int>(physical);
+            out.frameFree    = static_cast<int>(frame);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool BroadcastStackHasRoom(lua_State* L, const char* category, const char* msg)
+    {
+        LuaStackHeadroom room{};
+        if (!LuaStackHeadroomOf(L, room))
+            return true;
+
+        static int s_minFrame  = kImplausibleFreeSlots;
+        static int s_skipLines = 0;
+
+        const bool newMin = room.frameFree < s_minFrame;
+        if (newMin)
+            s_minFrame = room.frameFree;
+
+        if (room.frameFree < kBroadcastPushSlots
+            || room.physicalFree < kBroadcastPushSlots)
+        {
+            if (s_skipLines < kMaxHazardLogLines)
+            {
+                ++s_skipLines;
+                Log("[LuaBroadcast] dropped category=%s msg=%s frameFree=%d physicalFree=%d "
+                    "needed=%d - pushing here would run past the running Lua function's "
+                    "ci->top and corrupt the VM, so this message is dropped instead.\n",
+                    category, msg, room.frameFree, room.physicalFree, kBroadcastPushSlots);
+            }
+            return false;
+        }
+
+        if (newMin)
+            Log("[LuaBroadcast] closest approach so far: frameFree=%d physicalFree=%d "
+                "needed=%d category=%s msg=%s\n",
+                room.frameFree, room.physicalFree, kBroadcastPushSlots, category, msg);
+
+        return true;
+    }
+
     static bool PushTppMainOnMessage(lua_State* L, const LuaApi& lua, int top0)
     {
         lua.getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppMain"));
@@ -217,6 +306,9 @@ void V_FrameWork::EmitMessageValues(const char* category,
 
     LuaApi lua{};
     if (!ResolveLuaApi(lua))
+        return;
+
+    if (!BroadcastStackHasRoom(L, category, msg))
         return;
 
     DWORD  sehCode     = 0;

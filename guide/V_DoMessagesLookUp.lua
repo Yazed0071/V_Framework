@@ -24,6 +24,11 @@ this.DEBUG_strCode32List={
   "End",
   "NoticeIndis",
   "NoticeNoise",
+  "AnimalNotice",
+  "NearThreat",
+  "NoiseAlert",
+  "NearGameObject",
+  "Noise",
   "AntiAir",
   "OffBinocularsMode",
   "OnPlayerLockPickStart",
@@ -31,11 +36,23 @@ this.DEBUG_strCode32List={
   "Subtitles",
   "SubtitlesEventMessage",
   "BarrierDamage",
+  "UI",
+  "StopWalkMan",
+  "StartWalkMan",
+  "PauseWalkMan",
+  "SpeakerWalkMan",
 }
 
 this.CassettePlay={
   [0]="Speaker_off",
   [1]="Speaker_on",
+}
+
+this.AnimalNoticeKind={
+  [0]="NearThreat",
+  [1]="NoiseAlert",
+  [2]="NearGameObject",
+  [3]="Noise",
 }
 
 this.HeliVoiceLines={
@@ -131,6 +148,11 @@ this.signatureTypes={
     {argName="soldierId",argType="gameId"},
   },
 
+  AnimalNotice={
+    {argName="animalId",argType="gameId"},
+    {argName="noticeKind",argType="animalNoticeKind"},
+  },
+
   cassettePlay={
     {argName="IsSpeakerOn",argType="number"},
     {argName="TrackCountInAlbum",argType="number"},
@@ -196,6 +218,24 @@ this.signatureTypes={
     {argName="previousHealth",argType="number"},
     {argName="currentHealth",argType="number"},
   },
+
+  StopWalkMan={
+    {argName="trackId",argType="number"},
+    {argName="isStopByUser",argType="number"},
+  },
+  StartWalkMan={
+    {argName="trackId",argType="number"},
+    {argName="isStartByUser",argType="number"},
+  },
+  PauseWalkMan={
+    {argName="trackId",argType="number"},
+    {argName="isPauseByUser",argType="number"},
+  },
+  SpeakerWalkMan={
+    {argName="trackId",argType="number"},
+    {argName="isEnable",argType="number"},
+    {argName="isOnByUser",argType="number"},
+  },
 }
 
 this.messageSignatures={
@@ -203,6 +243,7 @@ this.messageSignatures={
     HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer,
     NoticeIndis=this.signatureTypes.Notice,
     NoticeNoise=this.signatureTypes.Notice,
+    AnimalNotice=this.signatureTypes.AnimalNotice,
     RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi,
     AntiAir=this.signatureTypes.AntiAir,
   },
@@ -217,6 +258,10 @@ this.messageSignatures={
 
   UI={
     TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi,
+    StopWalkMan=this.signatureTypes.StopWalkMan,
+    StartWalkMan=this.signatureTypes.StartWalkMan,
+    PauseWalkMan=this.signatureTypes.PauseWalkMan,
+    SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan,
   },
 
   Terminal={
@@ -251,6 +296,8 @@ this.lookups={
   end,
 
   CassettePlay=this.CassettePlay,
+
+  animalNoticeKind=this.AnimalNoticeKind,
 
   heliVoice=function(value)
     this.BuildHeliVoiceLookup()
@@ -423,6 +470,7 @@ function this.RefreshLookups()
   this.AddToStr32StringLookup(this.DEBUG_strCode32List)
 
   this.lookups.CassettePlay=this.CassettePlay
+  this.lookups.animalNoticeKind=this.AnimalNoticeKind
 
   if not InfLookup then
     return
@@ -433,6 +481,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures=InfLookup.messageSignatures or {}
 
   InfLookup.lookups.CassettePlay=this.CassettePlay
+  InfLookup.lookups.animalNoticeKind=this.AnimalNoticeKind
   InfLookup.lookups.heliVoice=this.lookups.heliVoice
 
   InfLookup.signatureTypes.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
@@ -441,6 +490,7 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.cassettePlay=this.signatureTypes.cassettePlay
   InfLookup.signatureTypes.holdupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.signatureTypes.notice=this.signatureTypes.Notice
+  InfLookup.signatureTypes.AnimalNotice=this.signatureTypes.AnimalNotice
   InfLookup.signatureTypes.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
   InfLookup.signatureTypes.AnnounceLog=this.signatureTypes.AnnounceLog
   InfLookup.signatureTypes.AntiAir=this.signatureTypes.AntiAir
@@ -449,6 +499,10 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
   InfLookup.signatureTypes.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
   InfLookup.signatureTypes.BarrierDamage=this.signatureTypes.BarrierDamage
+  InfLookup.signatureTypes.StopWalkMan=this.signatureTypes.StopWalkMan
+  InfLookup.signatureTypes.StartWalkMan=this.signatureTypes.StartWalkMan
+  InfLookup.signatureTypes.PauseWalkMan=this.signatureTypes.PauseWalkMan
+  InfLookup.signatureTypes.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -456,10 +510,12 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Radio=InfLookup.messageSignatures.Radio or {}
   InfLookup.messageSignatures.HUD=InfLookup.messageSignatures.HUD or {}
   InfLookup.messageSignatures.Subtitles=InfLookup.messageSignatures.Subtitles or {}
+  InfLookup.messageSignatures.UI=InfLookup.messageSignatures.UI or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
   InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.Notice
+  InfLookup.messageSignatures.GameObject.AnimalNotice=this.signatureTypes.AnimalNotice
   InfLookup.messageSignatures.GameObject.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
   InfLookup.messageSignatures.GameObject.AntiAir=this.signatureTypes.AntiAir
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
@@ -468,6 +524,10 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Player.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
   InfLookup.messageSignatures.Player.BarrierDamage=this.signatureTypes.BarrierDamage
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
+  InfLookup.messageSignatures.UI.StopWalkMan=this.signatureTypes.StopWalkMan
+  InfLookup.messageSignatures.UI.StartWalkMan=this.signatureTypes.StartWalkMan
+  InfLookup.messageSignatures.UI.PauseWalkMan=this.signatureTypes.PauseWalkMan
+  InfLookup.messageSignatures.UI.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart
   InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliStart

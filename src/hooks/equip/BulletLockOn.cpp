@@ -821,6 +821,67 @@ namespace
         }
     }
 
+#ifdef _DEBUG
+    struct DoFireDiag
+    {
+        std::uint32_t equipId = 0;
+        std::uint32_t hw = 0;
+        std::uint32_t flags8a = 0;
+        std::uint32_t t7e = 0;
+        std::uint32_t t7f = 0;
+        std::uint32_t fireBits = 0;
+        std::uint32_t ammo = 0;
+        std::uint32_t st0 = 0;
+        std::uint32_t st1 = 0;
+        float timer = 0.0f;
+        float rate = -1.0f;
+    };
+
+    bool ReadDoFireDiagSEH(std::uint8_t* self, std::uint32_t rowIdx,
+                           std::uint32_t slot, std::uint8_t* req, DoFireDiag* d)
+    {
+        __try
+        {
+            std::uint8_t* tbl = *reinterpret_cast<std::uint8_t**>(
+                *reinterpret_cast<std::uint8_t**>(self + 0x58) + 0x28);
+            std::uint8_t* row = tbl + static_cast<size_t>(rowIdx) * 0xe;
+            d->equipId = *reinterpret_cast<std::uint16_t*>(row);
+            d->hw = row[8];
+            d->ammo = *reinterpret_cast<std::uint16_t*>(row + 4);
+            std::uint8_t* iface = *reinterpret_cast<std::uint8_t**>(self + 0x68);
+            std::uint8_t* work =
+                *reinterpret_cast<std::uint8_t**>(iface + 0x1a0)
+                + static_cast<size_t>(d->hw) * 0x90;
+            d->flags8a = *reinterpret_cast<std::uint16_t*>(work + 0x8a);
+            d->t7e = work[0x7e];
+            d->t7f = work[0x7f];
+            if (req)
+                d->fireBits = *reinterpret_cast<std::uint32_t*>(req + 0x54);
+            const std::uint32_t rebased =
+                slot - *reinterpret_cast<std::uint32_t*>(self + 0x54);
+            std::uint8_t* recs = *reinterpret_cast<std::uint8_t**>(self + 0xe8);
+            std::uint8_t* r = recs + static_cast<size_t>(rebased) * 0x14;
+            d->st0 = r[0x10];
+            d->st1 = r[0x11];
+            d->timer = *reinterpret_cast<float*>(r);
+            std::uint8_t* i30 = *reinterpret_cast<std::uint8_t**>(self + 0x30);
+            if (i30)
+            {
+                std::uint8_t* rateArr =
+                    *reinterpret_cast<std::uint8_t**>(i30 + 0x18);
+                if (rateArr)
+                    d->rate = *reinterpret_cast<float*>(
+                        rateArr + static_cast<size_t>(rebased) * 4);
+            }
+            return true;
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+#endif
+
     void __fastcall hkDoFire(void* self, std::uint32_t p2, std::uint32_t p3,
                              void* req)
     {
@@ -839,7 +900,36 @@ namespace
             if (desired >= 0)
                 WriteRecTypeSEH(rec, desired);
         }
+#ifdef _DEBUG
+        DoFireDiag pre{};
+        const bool diagOk = ReadDoFireDiagSEH(
+            static_cast<std::uint8_t*>(self), p2, p3,
+            static_cast<std::uint8_t*>(req), &pre);
+#endif
         g_OrigDoFire(self, p2, p3, req);
+#ifdef _DEBUG
+        if (diagOk)
+        {
+            DoFireDiag post{};
+            if (ReadDoFireDiagSEH(static_cast<std::uint8_t*>(self), p2, p3,
+                                  static_cast<std::uint8_t*>(req), &post))
+            {
+                static std::mutex s_Mx;
+                static std::unordered_map<unsigned, int> s_Cnt;
+                std::lock_guard<std::mutex> lock(s_Mx);
+                int& n = s_Cnt[pre.equipId];
+                ++n;
+                if (n <= 6)
+                    Log("[WeaponKey] DoFire eq=%u obj=%p slot=%u hw=%u flags8A=0x%04X "
+                        "ammo=%u state %u/%u -> %u/%u rate=%.4f "
+                        "(obj is the realized equip object whose record received the bolt "
+                        "state - compare with the reader ACTIVE lines to see whether the "
+                        "reader ever services this same object)\n",
+                        pre.equipId, self, p3, pre.hw, pre.flags8a, pre.ammo,
+                        pre.st0, pre.st1, post.st0, post.st1, post.rate);
+            }
+        }
+#endif
     }
 
     std::uint64_t __fastcall hkGetLockParam(void* self, std::uint32_t bulletId,

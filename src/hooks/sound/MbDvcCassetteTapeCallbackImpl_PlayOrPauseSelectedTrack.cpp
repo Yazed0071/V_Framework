@@ -11,6 +11,7 @@
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
 #include "CustomTapeOwnership.h"
 #include "SoundSystemImpl_BeginSoundSystem.h"
+#include "CassetteWalkmanEvents.h"
 #include "AddressSet.h"
 #include "CassetteTrackPaging.h"
 
@@ -307,6 +308,9 @@ static void __fastcall hkMusicPlayerPlay(
         const std::uint32_t playedTrackId = ReadTapeIdTableEntry(tapeIdTable, selectedTrackIndex);
         if (playedTrackId != 0 && !IsPagerSentinelId(playedTrackId))
             OnCassetteTrackPlayedByTrackId(playedTrackId);
+
+        if (!IsPagerSentinelId(playedTrackId))
+            Emit_CassetteWalkmanStart(playedTrackId);
     }
 }
 
@@ -543,7 +547,9 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     __try
     {
         const std::uint32_t targetMode = enabled ? kCassetteSpeakerModeEnabled : kCassetteSpeakerModeDisabled;
+        Set_CassetteWalkmanProgrammatic(true);
         std::uint32_t* result = setSpeakerMode(player, resultStorage, targetMode);
+        Set_CassetteWalkmanProgrammatic(false);
         if (!result)
         {
             Log("[CassetteSpeaker] WARN: speaker-mode setter returned null (enabled=%d) - speaker mode was not changed.\n", enabled ? 1 : 0);
@@ -556,6 +562,7 @@ bool SetCassetteSpeakerEnabled(bool enabled)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        Set_CassetteWalkmanProgrammatic(false);
         Log("[CassetteSpeaker] ERROR: exception while setting speaker mode (enabled=%d) - speaker toggle may be unsupported on this build.\n", enabled ? 1 : 0);
         return false;
     }
@@ -759,6 +766,7 @@ bool PlayCassetteByTrackId(
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 
+    Set_CassetteWalkmanProgrammatic(true);
     playFn(
         player,
         &outHandle,
@@ -769,6 +777,8 @@ bool PlayCassetteByTrackId(
         reservedZero,
         flag1,
         flag2);
+    Emit_CassetteWalkmanStart(trackId);
+    Set_CassetteWalkmanProgrammatic(false);
 
     const std::int32_t playResult =
         static_cast<std::int32_t>(static_cast<std::uint32_t>(outHandle));

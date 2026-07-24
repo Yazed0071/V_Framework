@@ -15,11 +15,13 @@
 #include "AddressSet.h"
 #include "EquipIdCompression.h"
 #include "FoxHashes.h"
+#include "../../core/FoxPathInternal.h"
 #include "GunBasicInject.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaApi.h"
 #include "BulletLockOn.h"
+#include "../../lua/V_TppEquipLib.h"
 #include "BulletMultiShot.h"
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "TppEquipConstRegistry.h"
@@ -38,16 +40,17 @@ namespace
         bool active;
         int nextId;
         std::map<std::string, int> nameToId;
+        int space = -1;
     };
 
-    static PartBuffer g_Magazine = { "magazine", 0x20, 8, 191, 255, {}, false, 192, {} };
-    static PartBuffer g_Stock    = { "stock",    0x40, 2, 42,  255, {}, false, 43,  {} };
-    static PartBuffer g_Muzzle   = { "muzzleOption", 0x28, 3, 39, 255, {}, false, 40, {} };
-    static PartBuffer g_Sight    = { "sight",    0x38, 5, 24,  255, {}, false, 25,  {} };
-    static PartBuffer g_Barrel   = { "barrel",   0x18, 2, 114, 255, {}, false, 115, {} };
-    static PartBuffer g_UnderBarrel = { "underBarrel", 0x48, 3, 22, 255, {}, false, 23, {} };
-    static PartBuffer g_Option   = { "option",   0x30, 1, 9,  255, {}, false, 10,  {} };
-    static PartBuffer g_Bullet   = { "bullet",   0x50, 14, 112, 255, {}, false, 113, {} };
+    static PartBuffer g_Magazine = { "magazine", 0x20, 8, 191, 255, {}, false, 192, {}, kVanillaSpace_Magazine };
+    static PartBuffer g_Stock    = { "stock",    0x40, 2, 42,  255, {}, false, 43,  {}, kVanillaSpace_Stock };
+    static PartBuffer g_Muzzle   = { "muzzleOption", 0x28, 3, 39, 255, {}, false, 40, {}, kVanillaSpace_MuzzleOption };
+    static PartBuffer g_Sight    = { "sight",    0x38, 5, 24,  255, {}, false, 25,  {}, kVanillaSpace_Sight };
+    static PartBuffer g_Barrel   = { "barrel",   0x18, 2, 114, 255, {}, false, 115, {}, kVanillaSpace_Barrel };
+    static PartBuffer g_UnderBarrel = { "underBarrel", 0x48, 3, 22, 255, {}, false, 23, {}, kVanillaSpace_UnderBarrel };
+    static PartBuffer g_Option   = { "option",   0x30, 1, 9,  255, {}, false, 10,  {}, kVanillaSpace_Option };
+    static PartBuffer g_Bullet   = { "bullet",   0x50, 14, 112, 255, {}, false, 113, {}, -1 };
 
     static std::recursive_mutex g_Mutex;
 
@@ -121,6 +124,39 @@ namespace
         return ReadPtrSEH(PartPtrLoc(pb));
     }
 
+    struct WidePartState
+    {
+        std::vector<std::uint8_t> row;
+        bool rowSet = false;
+        int alias = 0;
+        int pendingUbType = 0;
+        int motionFrom = 0;
+        int motionType = -1;
+    };
+    static const int kWideIdBase = 0x100;
+    static const int kAliasReserve = 16;
+    static const int kRcvAliasReserve = 12;
+    static std::map<int, WidePartState> g_WideParts[kVanillaSpace_Count];
+    static int g_WideNext[kVanillaSpace_Count];
+    static int ResolvePartByteLocked(int space, int id);
+    static WidePartState* WideStateFor(int space, int id);
+
+    static int AllocateWidePartId(PartBuffer& pb, const char* name)
+    {
+        if (pb.space < 0 || pb.space >= kVanillaSpace_Count)
+            return 0;
+        if (g_WideNext[pb.space] < kWideIdBase)
+            g_WideNext[pb.space] = kWideIdBase;
+        const int id = g_WideNext[pb.space]++;
+        pb.nameToId[name] = id;
+        g_WideParts[pb.space][id];
+        Log("[EquipParam] '%s' -> %s id %d (WIDE: the engine byte lane is nearly "
+            "full, so this part lives past it; a lane byte is bound the first time "
+            "a weapon references it)\n",
+            name, pb.name, id);
+        return id;
+    }
+
     static int AllocatePartSlot(PartBuffer& pb, const char* name)
     {
         if (!name || !name[0])
@@ -133,6 +169,9 @@ namespace
         if (!EnsurePartShadow(pb))
             return 0;
 
+        if (pb.nextId > pb.maxId - kAliasReserve && pb.space >= 0)
+            return AllocateWidePartId(pb, name);
+
         if (pb.nextId > pb.maxId)
         {
             Log("[EquipParam] %s custom id space exhausted (%d..%d) for '%s'\n",
@@ -144,6 +183,37 @@ namespace
         pb.nameToId[name] = id;
         Log("[EquipParam] '%s' -> %s id %d (shadow slot)\n", name, pb.name, id);
         return id;
+    }
+
+    static WidePartState* WideStateFor(int space, int id)
+    {
+        if (space < 0 || space >= kVanillaSpace_Count || id < kWideIdBase)
+            return nullptr;
+        auto it = g_WideParts[space].find(id);
+        return (it != g_WideParts[space].end()) ? &it->second : nullptr;
+    }
+
+    static std::uint8_t* WideRowFor(PartBuffer& pb, int id, int& writeId)
+    {
+        if (pb.space < 0)
+            return nullptr;
+        auto& w = g_WideParts[pb.space][id];
+        if (w.row.size() != static_cast<size_t>(pb.stride))
+            w.row.assign(static_cast<size_t>(pb.stride), 0);
+        w.rowSet = true;
+        writeId = 1;
+        return w.row.data();
+    }
+
+    static void SyncWideRowToAlias(PartBuffer& pb, int id)
+    {
+        WidePartState* w = WideStateFor(pb.space, id);
+        if (!w || !w->alias || w->row.empty())
+            return;
+        std::uint8_t* buf = PartCurrentBuf(pb);
+        if (buf)
+            std::memcpy(buf + static_cast<size_t>(w->alias - 1) * pb.stride,
+                        w->row.data(), static_cast<size_t>(pb.stride));
     }
 
     static int Clamp(int v, int lo, int hi)
@@ -536,7 +606,7 @@ namespace
     static const int kReceiverStride     = 6;
     static const int kReceiverCapacity   = 233;
     static const int kReceiverMaxId      = 255;
-    static PartBuffer g_RcvIdBuf = { "receiverBuffer", 0x10, 6, 233, 255, {}, false, 0, {} };
+    static PartBuffer g_RcvIdBuf = { "receiverBuffer", 0x10, 6, 233, 255, {}, false, 0, {}, kVanillaSpace_Receiver };
 
     struct RcvPool
     {
@@ -568,9 +638,93 @@ namespace
         std::string text;
         int mSeg = -1;
         bool isEvent = false;
+        std::string supText;
+        bool supIsEvent = false;
     };
     static std::mutex g_FireSoundMutex;
     static std::map<int, FireSoundSpec> g_FireSoundByRow;
+
+    static bool ReadSndRowSEH(const std::uint8_t* pool, int idx, char out[9])
+    {
+        __try
+        {
+            const std::uint8_t* p = pool + static_cast<std::size_t>(idx) * 8;
+            for (int i = 0; i < 8; ++i)
+                out[i] = static_cast<char>(p[i]);
+            out[8] = '\0';
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool ReadReceiverSndIndexSEH(const std::uint8_t* rbuf, int receiverId,
+                                        int& outIdx)
+    {
+        __try
+        {
+            outIdx = rbuf[static_cast<std::size_t>(receiverId) * kReceiverStride
+                          + g_Snd.rowByteOffset];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool ResolveDonorSoundRoot(int donorReceiverId, std::string& out)
+    {
+        out.clear();
+        if (donorReceiverId <= 0 || donorReceiverId > kReceiverMaxId)
+            return false;
+
+        const std::uint8_t* rbuf = PartCurrentBuf(g_RcvIdBuf);
+        const std::uint8_t* pool = PartCurrentBuf(g_Snd.pb);
+        if (!rbuf || !pool)
+            return false;
+
+        int sndIdx = 0;
+        if (!ReadReceiverSndIndexSEH(rbuf, donorReceiverId, sndIdx))
+            return false;
+
+        char root[9] = {};
+        if (!ReadSndRowSEH(pool, sndIdx, root))
+            return false;
+        if (root[0] == '\0')
+            return false;
+
+        out.assign(root);
+        return true;
+    }
+
+    static void RegisterFireSoundSupOverride(int idx, const std::string& text,
+                                             bool isEvent, const char* field)
+    {
+        if (text.empty())
+            return;
+        if (gAddr.WeaponSystem_DefineWeaponFireSound == 0)
+        {
+            Log("[EquipParam] SetReceiver: %s suppressed-sound override needs the "
+                "fire-sound hook, unavailable on this build - vanilla suppressed "
+                "sound kept\n", field);
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_FireSoundMutex);
+            FireSoundSpec& spec = g_FireSoundByRow[idx];
+            spec.supText = text;
+            spec.supIsEvent = isEvent;
+        }
+        if (isEvent)
+            Log("[EquipParam] SetReceiver: %s suppressed-sound event='%s' "
+                "(played verbatim)\n", field, text.c_str());
+        else
+            Log("[EquipParam] SetReceiver: %s suppressed-sound root='%s' "
+                "(plays sfx_w_p_%s_sup_active)\n", field, text.c_str(), text.c_str());
+    }
 
     static void RegisterFireSoundOverride(int idx, const std::string& text,
                                           int mSeg, bool isEvent, const char* field)
@@ -591,7 +745,8 @@ namespace
             g_FireSoundByRow[idx] = FireSoundSpec{ text, mSeg, isEvent };
         }
         if (isEvent)
-            Log("[EquipParam] SetReceiver: %s fire-sound event='%s' (played verbatim)\n",
+            Log("[EquipParam] SetReceiver: %s fire-sound event='%s' (played verbatim; "
+                "the suppressed sound stays vanilla unless supEvent/sup is given)\n",
                 field, text.c_str());
         else
             Log("[EquipParam] SetReceiver: %s fire-sound override root='%s' _m=%s\n",
@@ -625,6 +780,8 @@ namespace
 
     struct BarrelExtraMult { double rem[6] = { 1, 1, 1, 1, 1, 1 }; };
     static std::map<int, BarrelExtraMult> g_BarrelExtraMult;
+
+    static std::map<int, int> g_ReceiverMotionDonor;
 
     static std::map<std::string, int> g_RcvNameToId;
     static std::set<int> g_RcvClaimed;
@@ -686,6 +843,63 @@ namespace
         if (!g_RcvTypeExtReady)
             return false;
         g_RcvTypeExt[receiverId] = static_cast<std::uint8_t>(type);
+        return true;
+    }
+
+    static int PartRowByte(const PartBuffer& pb, int id, int byteOff);
+
+    static std::uint8_t* UnderBarrelTypeTable()
+    {
+        return static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.MotionLoaderImpl_UnderBarrelTypeTable));
+    }
+
+    static std::uint8_t g_UbTypeExt[256];
+    static bool g_UbTypeExtReady = false;
+
+    static int CopyUbTypeExtSEH(const std::uint8_t* src)
+    {
+        __try
+        {
+            for (int i = 0; i < 23; ++i) g_UbTypeExt[i] = src[i];
+            for (int i = 23; i < 256; ++i) g_UbTypeExt[i] = 0;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static void EnsureUbTypeExt()
+    {
+        if (g_UbTypeExtReady)
+            return;
+        const std::uint8_t* src = UnderBarrelTypeTable();
+        if (src && CopyUbTypeExtSEH(src) == 1)
+            g_UbTypeExtReady = true;
+    }
+
+    using GetUnderBarrelType_t = unsigned int(__fastcall*)(void* self, unsigned int underBarrelId);
+    static GetUnderBarrelType_t g_OrigGetUnderBarrelType = nullptr;
+
+    static unsigned int __fastcall hkGetUnderBarrelType(void* self, unsigned int underBarrelId)
+    {
+        if (!g_UbTypeExtReady)
+            EnsureUbTypeExt();
+        if (g_UbTypeExtReady && underBarrelId < 256)
+            return g_UbTypeExt[underBarrelId];
+        return g_OrigGetUnderBarrelType ? g_OrigGetUnderBarrelType(self, underBarrelId) : 0;
+    }
+
+    static bool WriteUnderBarrelType(int underBarrelId, int type)
+    {
+        if (underBarrelId < 0 || underBarrelId >= 256)
+            return false;
+        EnsureUbTypeExt();
+        if (!g_UbTypeExtReady)
+            return false;
+        g_UbTypeExt[underBarrelId] = static_cast<std::uint8_t>(type);
         return true;
     }
 
@@ -1007,8 +1221,38 @@ namespace
             }
             else
             {
-                for (int c = 0; c < 7 && c < static_cast<int>(text.size()); ++c)
-                    label[c] = text[c];
+                g_lua_getfield(L, -1, const_cast<char*>("name"));
+                if (g_lua_type(L, -1) == LUA_TSTRING)
+                {
+                    size_t len = 0;
+                    const char* s = g_lua_tolstring(L, -1, &len);
+                    if (s)
+                        for (int c = 0; c < 7 && s[c]; ++c)
+                            label[c] = s[c];
+                }
+                g_lua_settop(L, -2);
+            }
+
+            std::string supText;
+            bool supIsEvent = false;
+            g_lua_getfield(L, -1, const_cast<char*>("supEvent"));
+            if (g_lua_type(L, -1) == LUA_TSTRING)
+            {
+                size_t len = 0;
+                const char* s = g_lua_tolstring(L, -1, &len);
+                if (s) { supText.assign(s, len); supIsEvent = true; }
+            }
+            g_lua_settop(L, -2);
+            if (supText.empty())
+            {
+                g_lua_getfield(L, -1, const_cast<char*>("sup"));
+                if (g_lua_type(L, -1) == LUA_TSTRING)
+                {
+                    size_t len = 0;
+                    const char* s = g_lua_tolstring(L, -1, &len);
+                    if (s) supText.assign(s, len);
+                }
+                g_lua_settop(L, -2);
             }
 
             g_lua_settop(L, -2);
@@ -1019,6 +1263,7 @@ namespace
             if (!pool) return -2;
             WriteSndRowSEH(pool, idx, label);
             RegisterFireSoundOverride(idx, text, mSeg, isEvent, field);
+            RegisterFireSoundSupOverride(idx, supText, supIsEvent, field);
             return idx;
         }
 
@@ -1163,26 +1408,36 @@ int __cdecl l_SetOption(lua_State* L)
         Log("[EquipParam] SetOption: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (optionId > g_Option.maxId)
+    int writeId = optionId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (optionId >= kWideIdBase && WideStateFor(kVanillaSpace_Option, optionId))
+    {
+        buf = WideRowFor(g_Option, optionId, writeId);
+        wideRow = true;
+    }
+    else if (optionId > g_Option.maxId)
     {
         Log("[EquipParam] SetOption: optionId=%d out of range [1,%d] - not written\n",
             optionId, g_Option.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Option);
+    else
+        buf = PartCurrentBuf(g_Option);
     if (!buf)
         return 0;
 
-    const bool vanillaRow = optionId <= g_Option.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(optionId - 1);
+    const bool vanillaRow = !wideRow && optionId <= g_Option.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1);
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Option, optionId, rowPtr, 1);
 
-    WriteOptionSEH(buf, optionId, isLight, isLaser);
+    WriteOptionSEH(buf, writeId, isLight, isLaser);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Option, optionId, rowPtr, 1);
+    if (wideRow)
+        SyncWideRowToAlias(g_Option, optionId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetOption optionId=%d isLight=%d isLaser=%d -> native slot\n",
@@ -1209,10 +1464,11 @@ int __cdecl l_SetUnderBarrel(lua_State* L)
         return 0;
     }
 
-    int receiverId = 0, magazineId = 0, underBarrelGrade = 0;
+    int receiverId = 0, magazineId = 0, underBarrelGrade = 0, motionFrom = 0;
     const bool hasReceiver = ReadNamedInt(L, 1, "receiverId", receiverId);
     ReadNamedInt(L, 1, "magazineId", magazineId);
     ReadNamedInt(L, 1, "underBarrelGrade", underBarrelGrade);
+    const bool hasMotionFrom = ReadNamedInt(L, 1, "motionFrom", motionFrom);
 
     if (!hasReceiver || receiverId <= 0)
     {
@@ -1229,26 +1485,114 @@ int __cdecl l_SetUnderBarrel(lua_State* L)
         Log("[EquipParam] SetUnderBarrel: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (underBarrelId > g_UnderBarrel.maxId)
+    receiverId = ResolvePartByteLocked(kVanillaSpace_Receiver, receiverId);
+    magazineId = ResolvePartByteLocked(kVanillaSpace_Magazine, magazineId);
+    if (receiverId <= 0)
+    {
+        Log("[EquipParam] SetUnderBarrel underBarrelId=%d: its receiver could not "
+            "bind an engine lane byte - row rejected\n", underBarrelId);
+        return 0;
+    }
+
+    int writeId = underBarrelId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (underBarrelId >= kWideIdBase && WideStateFor(kVanillaSpace_UnderBarrel, underBarrelId))
+    {
+        buf = WideRowFor(g_UnderBarrel, underBarrelId, writeId);
+        wideRow = true;
+    }
+    else if (underBarrelId > g_UnderBarrel.maxId)
     {
         Log("[EquipParam] SetUnderBarrel: underBarrelId=%d out of range [1,%d] - not written\n",
             underBarrelId, g_UnderBarrel.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_UnderBarrel);
+    else
+        buf = PartCurrentBuf(g_UnderBarrel);
     if (!buf)
         return 0;
 
-    const bool vanillaRow = underBarrelId <= g_UnderBarrel.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(underBarrelId - 1) * 3;
+    const bool vanillaRow = !wideRow && underBarrelId <= g_UnderBarrel.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 3;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_UnderBarrel, underBarrelId, rowPtr, 3);
 
-    WriteUnderBarrelSEH(buf, underBarrelId, receiverId, magazineId, underBarrelGrade);
+    WriteUnderBarrelSEH(buf, writeId, receiverId, magazineId, underBarrelGrade);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_UnderBarrel, underBarrelId, rowPtr, 3);
+    if (wideRow)
+        SyncWideRowToAlias(g_UnderBarrel, underBarrelId);
+
+    EnsureUbTypeExt();
+    if (g_UbTypeExtReady && underBarrelId > g_UnderBarrel.stockCount)
+    {
+        int ubType = 0;
+        const char* how = nullptr;
+        int donor = 0;
+
+        if (hasMotionFrom && motionFrom > 0 && motionFrom < 256)
+        {
+            ubType = g_UbTypeExt[motionFrom];
+            donor = motionFrom;
+            how = "motionFrom";
+        }
+        else
+        {
+            EnsureRcvTypeExt();
+            const int wantRcType = (g_RcvTypeExtReady && receiverId < 256) ? g_RcvTypeExt[receiverId] : 0;
+            if (wantRcType != 0)
+            {
+                for (int id = 1; id <= g_UnderBarrel.stockCount; ++id)
+                {
+                    const int rc = PartRowByte(g_UnderBarrel, id, 0);
+                    if (rc <= 0 || rc >= 256)
+                        continue;
+                    if (g_RcvTypeExt[rc] != wantRcType)
+                        continue;
+                    if (g_UbTypeExt[id] == 0)
+                        continue;
+                    ubType = g_UbTypeExt[id];
+                    donor = id;
+                    how = "receiver motion match";
+                    break;
+                }
+            }
+        }
+
+        bool typeApplied = false;
+        if (ubType != 0)
+        {
+            if (wideRow)
+            {
+                WidePartState* w = WideStateFor(kVanillaSpace_UnderBarrel, underBarrelId);
+                if (w)
+                {
+                    w->pendingUbType = ubType;
+                    typeApplied = w->alias ? WriteUnderBarrelType(w->alias, ubType)
+                                           : true;
+                }
+            }
+            else
+                typeApplied = WriteUnderBarrelType(underBarrelId, ubType);
+        }
+        if (ubType != 0 && typeApplied)
+        {
+            Log("[ChimeraMotion] underBarrelId=%d animation type %d inherited from vanilla "
+                "underBarrel %d (%s) - the grenade-launcher motion set now loads for weapons "
+                "carrying this under-barrel.\n",
+                underBarrelId, ubType, donor, how);
+        }
+        else
+        {
+            Log("[ChimeraMotion] underBarrelId=%d has NO animation type - the engine's type table "
+                "only covers vanilla ids 1..%d, so a custom id contributes no motion and the parent "
+                "weapon's own animations play instead. Set motionFrom=<vanilla UB id> on this "
+                "under-barrel, or give its receiver a motionFrom that matches one.\n",
+                underBarrelId, g_UnderBarrel.stockCount);
+        }
+    }
 
 #ifdef _DEBUG
     Log("[EquipParam] SetUnderBarrel underBarrelId=%d receiver=%d magazine=%d grade=%d -> native slot\n",
@@ -1308,14 +1652,22 @@ int __cdecl l_SetBarrel(lua_State* L)
         Log("[EquipParam] SetBarrel: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (barrelId > g_Barrel.maxId)
+    int writeId = barrelId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (barrelId >= kWideIdBase && WideStateFor(kVanillaSpace_Barrel, barrelId))
+    {
+        buf = WideRowFor(g_Barrel, barrelId, writeId);
+        wideRow = true;
+    }
+    else if (barrelId > g_Barrel.maxId)
     {
         Log("[EquipParam] SetBarrel: barrelId=%d out of range [1,%d] - not written\n",
             barrelId, g_Barrel.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Barrel);
+    else
+        buf = PartCurrentBuf(g_Barrel);
     if (!buf)
         return 0;
 
@@ -1423,15 +1775,17 @@ int __cdecl l_SetBarrel(lua_State* L)
         g_BarrelExtraMult.erase(barrelId);
     }
 
-    const bool vanillaRow = barrelId <= g_Barrel.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(barrelId - 1) * 2;
+    const bool vanillaRow = !wideRow && barrelId <= g_Barrel.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 2;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Barrel, barrelId, rowPtr, 2);
 
-    WriteBarrelSEH(buf, barrelId, base, barrelLength, scopeMount, unkFlag, sideMount, underMount);
+    WriteBarrelSEH(buf, writeId, base, barrelLength, scopeMount, unkFlag, sideMount, underMount);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Barrel, barrelId, rowPtr, 2);
+    if (wideRow)
+        SyncWideRowToAlias(g_Barrel, barrelId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetBarrel barrelId=%d base=%d scope=%d side=%d under=%d len=%d -> native slot\n",
@@ -1474,26 +1828,36 @@ int __cdecl l_SetMagazine(lua_State* L)
         Log("[EquipParam] SetMagazine: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (ammoId > g_Magazine.maxId)
+    int writeId = ammoId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (ammoId >= kWideIdBase && WideStateFor(kVanillaSpace_Magazine, ammoId))
+    {
+        buf = WideRowFor(g_Magazine, ammoId, writeId);
+        wideRow = true;
+    }
+    else if (ammoId > g_Magazine.maxId)
     {
         Log("[EquipParam] SetMagazine: ammoId=%d out of range [1,%d] - not written\n",
             ammoId, g_Magazine.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Magazine);
+    else
+        buf = PartCurrentBuf(g_Magazine);
     if (!buf)
         return 0;
 
-    const bool vanillaRow = ammoId <= g_Magazine.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(ammoId - 1) * 8;
+    const bool vanillaRow = !wideRow && ammoId <= g_Magazine.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 8;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Magazine, ammoId, rowPtr, 8);
 
-    WriteMagazineSEH(buf, ammoId, eqpAmmoId, capacity, totalCarry, bulletId);
+    WriteMagazineSEH(buf, writeId, eqpAmmoId, capacity, totalCarry, bulletId);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Magazine, ammoId, rowPtr, 8);
+    if (wideRow)
+        SyncWideRowToAlias(g_Magazine, ammoId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetMagazine ammoId=%d eqpAmmo=%d cap=%d total=%d bullet=%d -> native slot\n",
@@ -1737,26 +2101,36 @@ int __cdecl l_SetStock(lua_State* L)
         Log("[EquipParam] SetStock: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (stockId > g_Stock.maxId)
+    int writeId = stockId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (stockId >= kWideIdBase && WideStateFor(kVanillaSpace_Stock, stockId))
+    {
+        buf = WideRowFor(g_Stock, stockId, writeId);
+        wideRow = true;
+    }
+    else if (stockId > g_Stock.maxId)
     {
         Log("[EquipParam] SetStock: stockId=%d out of range [1,%d] - not written\n",
             stockId, g_Stock.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Stock);
+    else
+        buf = PartCurrentBuf(g_Stock);
     if (!buf)
         return 0;
 
-    const bool vanillaRow = stockId <= g_Stock.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(stockId - 1) * 2;
+    const bool vanillaRow = !wideRow && stockId <= g_Stock.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 2;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Stock, stockId, rowPtr, 2);
 
-    WriteStockSEH(buf, stockId, ScaleByte(spreadRecovery, 100.0), ScaleByte(movementSway, 100.0));
+    WriteStockSEH(buf, writeId, ScaleByte(spreadRecovery, 100.0), ScaleByte(movementSway, 100.0));
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Stock, stockId, rowPtr, 2);
+    if (wideRow)
+        SyncWideRowToAlias(g_Stock, stockId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetStock stockId=%d spreadRecovery=%.2f movementSway=%.2f -> native slot\n",
@@ -1797,26 +2171,36 @@ int __cdecl l_SetMuzzle(lua_State* L)
         Log("[EquipParam] SetMuzzle: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (muzzleOptionId > g_Muzzle.maxId)
+    int writeId = muzzleOptionId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (muzzleOptionId >= kWideIdBase && WideStateFor(kVanillaSpace_MuzzleOption, muzzleOptionId))
+    {
+        buf = WideRowFor(g_Muzzle, muzzleOptionId, writeId);
+        wideRow = true;
+    }
+    else if (muzzleOptionId > g_Muzzle.maxId)
     {
         Log("[EquipParam] SetMuzzle: muzzleOptionId=%d out of range [1,%d] - not written\n",
             muzzleOptionId, g_Muzzle.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Muzzle);
+    else
+        buf = PartCurrentBuf(g_Muzzle);
     if (!buf)
         return 0;
 
-    const bool vanillaRow = muzzleOptionId <= g_Muzzle.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(muzzleOptionId - 1) * 3;
+    const bool vanillaRow = !wideRow && muzzleOptionId <= g_Muzzle.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 3;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_MuzzleOption, muzzleOptionId, rowPtr, 3);
 
-    WriteMuzzleSEH(buf, muzzleOptionId, ScaleByte(grouping, 100.0), durability, suppressor);
+    WriteMuzzleSEH(buf, writeId, ScaleByte(grouping, 100.0), durability, suppressor);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_MuzzleOption, muzzleOptionId, rowPtr, 3);
+    if (wideRow)
+        SyncWideRowToAlias(g_Muzzle, muzzleOptionId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetMuzzle muzzleOptionId=%d grouping=%.2f durability=%d suppressor=%d -> native slot\n",
@@ -1862,34 +2246,93 @@ int __cdecl l_SetSight(lua_State* L)
         Log("[EquipParam] SetSight: buffer not available for this build - skipped\n");
         return 0;
     }
-    if (scopeId > g_Sight.maxId)
+    int writeId = scopeId;
+    bool wideRow = false;
+    std::uint8_t* buf = nullptr;
+    if (scopeId >= kWideIdBase && WideStateFor(kVanillaSpace_Sight, scopeId))
+    {
+        buf = WideRowFor(g_Sight, scopeId, writeId);
+        wideRow = true;
+    }
+    else if (scopeId > g_Sight.maxId)
     {
         Log("[EquipParam] SetSight: scopeId=%d out of range [1,%d] - not written\n",
             scopeId, g_Sight.maxId);
         return 0;
     }
-
-    std::uint8_t* buf = PartCurrentBuf(g_Sight);
+    else
+        buf = PartCurrentBuf(g_Sight);
     if (!buf)
         return 0;
 
     const int flags = (booster ? 0x01 : 0) | (nvg ? 0x02 : 0) | (builtIn ? 0x04 : 0)
                     | (rangeFinder ? 0x08 : 0) | (rangeFinderBulletDrop ? 0x10 : 0);
-    const bool vanillaRow = scopeId <= g_Sight.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(scopeId - 1) * 5;
+    const bool vanillaRow = !wideRow && scopeId <= g_Sight.stockCount;
+    const std::uint8_t* rowPtr = buf + static_cast<size_t>(writeId - 1) * 5;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Sight, scopeId, rowPtr, 5);
 
-    WriteSightSEH(buf, scopeId, Clamp(zoom1, 0, 255), Clamp(zoom2, 0, 255),
+    WriteSightSEH(buf, writeId, Clamp(zoom1, 0, 255), Clamp(zoom2, 0, 255),
                   Clamp(zoom3, 0, 255), Clamp(scopeUiId, 0, 255), flags);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Sight, scopeId, rowPtr, 5);
+    if (wideRow)
+        SyncWideRowToAlias(g_Sight, scopeId);
 
 #ifdef _DEBUG
     Log("[EquipParam] SetSight scopeId=%d zoom=%d/%d/%d ui=%d flags=0x%02X -> native slot\n",
         scopeId, zoom1, zoom2, zoom3, scopeUiId, flags);
 #endif
+    return 0;
+}
+
+static int CountFreeReceiverLaneSlots()
+{
+    const bool grown = EnsurePartShadow(g_RcvIdBuf);
+    std::uint8_t* rbuf = grown ? PartCurrentBuf(g_RcvIdBuf) : ImplBufPtr(kReceiverImplOffset);
+    if (!rbuf)
+        return 0;
+    const int cap = grown ? kReceiverMaxId : kReceiverCapacity;
+    int freeCount = 0;
+    for (int idx0 = cap - 1; idx0 >= 1; --idx0)
+    {
+        const int receiverId = idx0 + 1;
+        if (receiverId == 0xD0 || receiverId == 0xE7)
+            continue;
+        if (g_RcvClaimed.count(receiverId))
+            continue;
+        if (RcvRowIsZeroSEH(rbuf, idx0) != 1)
+            continue;
+        ++freeCount;
+    }
+    return freeCount;
+}
+
+static int AllocateReceiverLaneSlot(const char* logLabel)
+{
+    const bool grown = EnsurePartShadow(g_RcvIdBuf);
+    std::uint8_t* rbuf = grown ? PartCurrentBuf(g_RcvIdBuf) : ImplBufPtr(kReceiverImplOffset);
+    if (!rbuf)
+        return 0;
+
+    const int cap = grown ? kReceiverMaxId : kReceiverCapacity;
+    for (int idx0 = cap - 1; idx0 >= 1; --idx0)
+    {
+        const int receiverId = idx0 + 1;
+        if (receiverId == 0xD0 || receiverId == 0xE7)
+            continue;
+        if (g_RcvClaimed.count(receiverId))
+            continue;
+        if (RcvRowIsZeroSEH(rbuf, idx0) != 1)
+            continue;
+
+        g_RcvClaimed.insert(receiverId);
+        Log("[EquipParam] '%s' -> receiverId %d (%s slot)\n",
+            logLabel, receiverId,
+            (receiverId > kReceiverCapacity) ? "grown" : "free native");
+        return receiverId;
+    }
     return 0;
 }
 
@@ -1904,24 +2347,20 @@ int EquipParam_AllocateReceiverSlotForName(const char* name)
     if (it != g_RcvNameToId.end())
         return it->second;
 
-    const bool grown = EnsurePartShadow(g_RcvIdBuf);
-    std::uint8_t* rbuf = grown ? PartCurrentBuf(g_RcvIdBuf) : ImplBufPtr(kReceiverImplOffset);
-    if (!rbuf)
-        return 0;
-
-    const int cap = grown ? kReceiverMaxId : kReceiverCapacity;
-    for (int idx0 = cap - 1; idx0 >= 1; --idx0)
+    if (CountFreeReceiverLaneSlots() <= kRcvAliasReserve)
     {
-        const int receiverId = idx0 + 1;
-        if (g_RcvClaimed.count(receiverId))
-            continue;
-        if (RcvRowIsZeroSEH(rbuf, idx0) != 1)
-            continue;
+        const int wideId = AllocateWidePartId(g_RcvIdBuf, name);
+        if (wideId)
+        {
+            g_RcvNameToId[name] = wideId;
+            return wideId;
+        }
+    }
 
-        g_RcvClaimed.insert(receiverId);
+    const int receiverId = AllocateReceiverLaneSlot(name);
+    if (receiverId)
+    {
         g_RcvNameToId[name] = receiverId;
-        Log("[EquipParam] '%s' -> receiverId %d (%s slot)\n",
-            name, receiverId, (receiverId > kReceiverCapacity) ? "grown" : "free native");
         return receiverId;
     }
 
@@ -1934,6 +2373,8 @@ int __cdecl l_SetReceiver(lua_State* L)
 {
     if (!ResolveLuaApi())
         return 0;
+
+    ChimeraMotion_EnsureWrapInstalled(L);
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
     {
@@ -1956,7 +2397,18 @@ int __cdecl l_SetReceiver(lua_State* L)
         Log("[EquipParam] SetReceiver: receiver buffer not available for this build - skipped\n");
         return 0;
     }
-    if (receiverId > kReceiverMaxId)
+    bool wideRow = false;
+    int writeId = receiverId;
+    std::uint8_t* rowBuf = rbuf;
+    if (receiverId >= kWideIdBase && WideStateFor(kVanillaSpace_Receiver, receiverId))
+    {
+        EnsurePartShadow(g_RcvIdBuf);
+        rowBuf = WideRowFor(g_RcvIdBuf, receiverId, writeId);
+        if (!rowBuf)
+            return 0;
+        wideRow = true;
+    }
+    else if (receiverId > kReceiverMaxId)
     {
         Log("[EquipParam] SetReceiver: receiverId=%d out of range [1,%d] - not written\n",
             receiverId, kReceiverMaxId);
@@ -1980,6 +2432,33 @@ int __cdecl l_SetReceiver(lua_State* L)
             "receiverParamSetsWobbling + receiverParamSetsSystem + receiverParamSetsSound; "
             "each is a game index (number) or a {custom values} table\n", receiverId);
         return 0;
+    }
+
+    {
+        std::uint8_t* sndPool = PartCurrentBuf(g_Snd.pb);
+        char existing[9] = {};
+        if (sndPool && ReadSndRowSEH(sndPool, snd, existing) && existing[0] == '\0')
+        {
+            std::string donorRoot;
+            if (hasMotionFrom && ResolveDonorSoundRoot(motionFrom, donorRoot))
+            {
+                char label[8] = {};
+                for (int c = 0; c < 7 && donorRoot[c]; ++c)
+                    label[c] = donorRoot[c];
+                WriteSndRowSEH(sndPool, snd, label);
+                Log("[EquipParam] SetReceiver receiverId=%d: sound root inherited from "
+                    "motionFrom=%d -> '%s'; whichever of event/supEvent you omit plays "
+                    "that donor's vanilla sound\n",
+                    receiverId, motionFrom, label);
+            }
+            else
+            {
+                Log("[EquipParam] SetReceiver receiverId=%d: receiverParamSetsSound gave "
+                    "an explicit event but no root to fall back on - set motionFrom=<vanilla "
+                    "RC> to inherit one, or add name=\"<root>\", or give both event and "
+                    "supEvent. The side you omitted has no sound.\n", receiverId);
+            }
+        }
     }
     if (!hasAttack)
     {
@@ -2016,19 +2495,21 @@ int __cdecl l_SetReceiver(lua_State* L)
         if (snd  > kPoolDirectMax) snd  = 0;
     }
 
-    const bool vanillaRow = receiverId <= kReceiverCapacity
+    const bool vanillaRow = !wideRow && receiverId <= kReceiverCapacity
         && !g_RcvClaimed.count(receiverId);
     const std::uint8_t* rowPtr =
-        rbuf + static_cast<size_t>(receiverId - 1) * kReceiverStride;
+        rowBuf + static_cast<size_t>(writeId - 1) * kReceiverStride;
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Receiver, receiverId, rowPtr,
                                    kReceiverStride);
 
-    WriteReceiverRowSEH(rbuf, receiverId, attackId, base, wob, sys, snd);
+    WriteReceiverRowSEH(rowBuf, writeId, attackId, base, wob, sys, snd);
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Receiver, receiverId, rowPtr,
                                     kReceiverStride);
+    if (wideRow)
+        SyncWideRowToAlias(g_RcvIdBuf, receiverId);
 
     int motionType = -1;
     if (hasMotionFrom && motionFrom > 0 && motionFrom < 256)
@@ -2042,6 +2523,26 @@ int __cdecl l_SetReceiver(lua_State* L)
                     "motion type 0 (not a holdable gun's receiver) - without a valid type "
                     "the engine invalidates the weapon on draw; pick the receiver of a "
                     "real vanilla gun\n", receiverId, motionFrom);
+            else if (wideRow)
+            {
+                WidePartState* w = WideStateFor(kVanillaSpace_Receiver, receiverId);
+                if (w)
+                {
+                    w->motionFrom = motionFrom;
+                    w->motionType = motionType;
+                    if (w->alias)
+                    {
+                        ChimeraMotion_InheritFromMotionFrom(w->alias, motionFrom);
+                        g_ReceiverMotionDonor[w->alias] = motionFrom;
+                    }
+                }
+            }
+            else
+            {
+                ChimeraMotion_InheritFromMotionFrom(receiverId, motionFrom);
+                if (receiverId > 0 && receiverId < 256)
+                    g_ReceiverMotionDonor[receiverId] = motionFrom;
+            }
         }
     }
 
@@ -2051,18 +2552,32 @@ int __cdecl l_SetReceiver(lua_State* L)
         Log("[EquipParam] SetReceiver receiverId=%d: no motionFrom - animation defaulted to "
             "type 0; set motionFrom=<vanilla RC> for proper animations\n", receiverId);
     }
-    EnsureRcvTypeExt();
-    const int prevType = (g_RcvTypeExtReady && receiverId < 256)
-        ? g_RcvTypeExt[receiverId] : -1;
-    if (!WriteReceiverType(receiverId, motionType))
+    if (wideRow)
     {
-        Log("[EquipParam] SetReceiver receiverId=%d: motion type write failed (table unavailable)\n",
-            receiverId);
+        WidePartState* w = WideStateFor(kVanillaSpace_Receiver, receiverId);
+        if (w)
+        {
+            w->motionType = motionType;
+            if (w->alias && !WriteReceiverType(w->alias, motionType))
+                Log("[EquipParam] SetReceiver receiverId=%d: motion type write failed "
+                    "(table unavailable)\n", receiverId);
+        }
     }
-    else if (vanillaRow && prevType >= 0 && motionType != prevType)
+    else
     {
-        EquipParam_VanillaForceTaint(kVanillaSpace_Receiver, receiverId,
-                                     "a different motion/animation type");
+        EnsureRcvTypeExt();
+        const int prevType = (g_RcvTypeExtReady && receiverId < 256)
+            ? g_RcvTypeExt[receiverId] : -1;
+        if (!WriteReceiverType(receiverId, motionType))
+        {
+            Log("[EquipParam] SetReceiver receiverId=%d: motion type write failed (table unavailable)\n",
+                receiverId);
+        }
+        else if (vanillaRow && prevType >= 0 && motionType != prevType)
+        {
+            EquipParam_VanillaForceTaint(kVanillaSpace_Receiver, receiverId,
+                                         "a different motion/animation type");
+        }
     }
 
 #ifdef _DEBUG
@@ -2071,6 +2586,112 @@ int __cdecl l_SetReceiver(lua_State* L)
         receiverId, attackId, base, wob, sys, snd, motionType);
 #endif
     return 0;
+}
+
+namespace
+{
+    static PartBuffer* SpaceBuffer(int space)
+    {
+        switch (space)
+        {
+        case kVanillaSpace_Receiver:     return &g_RcvIdBuf;
+        case kVanillaSpace_Barrel:       return &g_Barrel;
+        case kVanillaSpace_Magazine:     return &g_Magazine;
+        case kVanillaSpace_Stock:        return &g_Stock;
+        case kVanillaSpace_MuzzleOption: return &g_Muzzle;
+        case kVanillaSpace_Sight:        return &g_Sight;
+        case kVanillaSpace_UnderBarrel:  return &g_UnderBarrel;
+        case kVanillaSpace_Option:       return &g_Option;
+        default:                         return nullptr;
+        }
+    }
+
+    static int ResolvePartByteLocked(int space, int id)
+    {
+        if (id < kWideIdBase)
+            return id;
+        WidePartState* w = WideStateFor(space, id);
+        if (!w)
+        {
+            static std::set<long long> logged;
+            if (logged.size() < 32 &&
+                logged.insert((static_cast<long long>(space) << 32) | id).second)
+                Log("[EquipParam] part reference %d (space %d) is not a declared "
+                    "wide id - treated as no part\n", id, space);
+            return 0;
+        }
+        if (w->alias)
+            return w->alias;
+
+        PartBuffer* pb = SpaceBuffer(space);
+        int alias = 0;
+        if (space == kVanillaSpace_Receiver)
+            alias = AllocateReceiverLaneSlot("(wide receiver)");
+        else if (pb && EnsurePartShadow(*pb) && pb->nextId <= pb->maxId)
+            alias = pb->nextId++;
+        if (!alias)
+        {
+            Log("[EquipParam] WIDE %s id %d cannot bind: every engine lane byte for "
+                "this part type is already active this session - the referencing "
+                "weapon gets part 0\n", pb ? pb->name : "part", id);
+            return 0;
+        }
+        w->alias = alias;
+
+        if (pb && !w->row.empty())
+        {
+            EnsurePartShadow(*pb);
+            std::uint8_t* buf = PartCurrentBuf(*pb);
+            if (buf)
+                std::memcpy(buf + static_cast<size_t>(alias - 1) * pb->stride,
+                            w->row.data(), static_cast<size_t>(pb->stride));
+        }
+
+        switch (space)
+        {
+        case kVanillaSpace_Receiver:
+            if (w->motionFrom > 0 && w->motionType > 0)
+            {
+                ChimeraMotion_InheritFromMotionFrom(alias, w->motionFrom);
+                g_ReceiverMotionDonor[alias] = w->motionFrom;
+            }
+            WriteReceiverType(alias, w->motionType >= 0 ? w->motionType : 0);
+            {
+                auto ito = g_RcvOverflow.find(id);
+                if (ito != g_RcvOverflow.end())
+                    g_RcvOverflow[alias] = ito->second;
+            }
+            break;
+        case kVanillaSpace_UnderBarrel:
+            if (w->pendingUbType > 0)
+                WriteUnderBarrelType(alias, w->pendingUbType);
+            break;
+        case kVanillaSpace_Barrel:
+            {
+                auto ito = g_BarrelOverflow.find(id);
+                if (ito != g_BarrelOverflow.end())
+                    g_BarrelOverflow[alias] = ito->second;
+                auto itx = g_BarrelExtraMult.find(id);
+                if (itx != g_BarrelExtraMult.end())
+                    g_BarrelExtraMult[alias] = itx->second;
+            }
+            break;
+        default:
+            break;
+        }
+
+        Log("[EquipParam] WIDE %s id %d -> engine lane byte %d (bound on first "
+            "weapon reference; row content and motion wiring applied at the lane "
+            "slot)\n",
+            pb ? pb->name : "part", id, alias);
+        return alias;
+    }
+}
+
+int EquipParam_ResolvePartByte(int space, int id)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    return ResolvePartByteLocked(space, id);
 }
 
 bool Install_MotionLoader_ReceiverTypeHook()
@@ -2103,6 +2724,41 @@ void Uninstall_MotionLoader_ReceiverTypeHook()
         DisableAndRemoveHook(ResolveGameAddress(gAddr.MotionLoaderImpl_GetReceiverType));
     g_OrigGetReceiverType = nullptr;
     g_RcvTypeExtReady = false;
+}
+
+bool Install_MotionLoader_UnderBarrelTypeHook()
+{
+    EnsureUbTypeExt();
+
+    void* target = ResolveGameAddress(gAddr.MotionLoaderImpl_GetUnderBarrelType);
+    if (!target)
+    {
+        Log("[EquipParam] GetUnderBarrelType address not set for this build - custom under-barrels "
+            "will contribute no animation set\n");
+        return true;
+    }
+
+    const bool ok = CreateAndEnableHook(
+        target, &hkGetUnderBarrelType,
+        reinterpret_cast<void**>(&g_OrigGetUnderBarrelType));
+    if (!ok)
+        Log("[EquipParam] GetUnderBarrelType hook Install -> FAIL (target=%p)\n", target);
+#ifdef _DEBUG
+    else
+        Log("[EquipParam] GetUnderBarrelType hook Install -> OK (target=%p, extended type table ready=%d; "
+            "the engine's own table stops at vanilla id %d, so custom under-barrels read past it "
+            "and load no motion without this)\n",
+            target, g_UbTypeExtReady ? 1 : 0, g_UnderBarrel.stockCount);
+#endif
+    return ok;
+}
+
+void Uninstall_MotionLoader_UnderBarrelTypeHook()
+{
+    if (gAddr.MotionLoaderImpl_GetUnderBarrelType)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.MotionLoaderImpl_GetUnderBarrelType));
+    g_OrigGetUnderBarrelType = nullptr;
+    g_UbTypeExtReady = false;
 }
 
 namespace
@@ -2155,6 +2811,19 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return -1;
+        }
+    }
+
+    static int WriteByteAtSEH(void* base, size_t off, std::uint8_t val)
+    {
+        __try
+        {
+            static_cast<std::uint8_t*>(base)[off] = val;
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
         }
     }
 
@@ -2433,11 +3102,14 @@ namespace
                 RestoreByteSEH(d + k, saved[k]);
     }
 
+    static void FillCustomMotionEntriesEarly();
+
     static void __fastcall hkSetUpGunInfo(void* self, void* desc,
                                           unsigned int equipId, void* gunInfo,
                                           void* a5, void* a6, void* a7,
                                           void* a8, void* a9)
     {
+        FillCustomMotionEntriesEarly();
         std::uint8_t descSaved[12], descMask[12];
         const int substituted = SubstituteEmptyDesc(desc, descSaved, descMask);
         if (substituted)
@@ -2473,6 +3145,61 @@ namespace
                     Log("[EquipParam] barrel extra multiplier: GunInfo write "
                         "faulted for barrelId=%d - engine base values kept\n", ba);
             }
+        }
+
+        if (ok == 1 && gunInfo)
+        {
+            const int rc = ReadByteAtSEH(desc, 0);
+            const int ub = ReadByteAtSEH(desc, 10);
+            int ubRc = 0;
+            if (ub > 0)
+                ubRc = PartRowByte(g_UnderBarrel, ub, 0);
+
+            static std::mutex mx;
+            static std::set<int> logged;
+            auto shouldLog = [&](int key) {
+                std::lock_guard<std::mutex> lock(mx);
+                return logged.size() < 64 && logged.insert(key).second;
+            };
+
+            if (rc > 0 && !g_ReceiverMotionDonor.empty())
+            {
+                const auto it = g_ReceiverMotionDonor.find(rc);
+                if (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 256
+                    && ReadByteAtSEH(gunInfo, 0x7a) == rc
+                    && WriteByteAtSEH(gunInfo, 0x7a, static_cast<std::uint8_t>(it->second)) == 1
+                    && shouldLog(rc))
+                    Log("[ChimeraMotion] receiverId=%d part-motion row redirected to donor "
+                        "receiverId=%d - the custom receiver has no row in the 233-entry "
+                        "part-motion table, so its bolt/slide reads the donor's populated "
+                        "row instead of a blank one.\n",
+                        rc, it->second);
+            }
+
+            if (ubRc > 0 && !g_ReceiverMotionDonor.empty())
+            {
+                const auto it = g_ReceiverMotionDonor.find(ubRc);
+                if (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 256
+                    && ReadByteAtSEH(gunInfo, 0x7b) == ubRc
+                    && WriteByteAtSEH(gunInfo, 0x7b, static_cast<std::uint8_t>(it->second)) == 1
+                    && shouldLog(0x10000 + ubRc))
+                    Log("[ChimeraMotion] under-barrel receiverId=%d part-motion row redirected "
+                        "to donor receiverId=%d (second weapon block, gunInfo+0x7b).\n",
+                        ubRc, it->second);
+            }
+
+#ifdef _DEBUG
+            if ((ub > 0 || rc >= 234) && shouldLog(0x20000 + static_cast<int>(equipId)))
+            {
+                int b[12];
+                for (int i = 0; i < 12; ++i)
+                    b[i] = ReadByteAtSEH(gunInfo, 0x74 + i);
+                Log("[ChimeraMotion] rowbytes eq=%u rc=%d ub=%d ubRc=%d gunInfo+0x74..0x7f: "
+                    "%02X %02X %02X %02X | mt=%02X %02X row=%02X %02X | hw=%02X %02X %02X %02X\n",
+                    equipId, rc, ub, ubRc,
+                    b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]);
+            }
+#endif
         }
     }
 }
@@ -2741,6 +3468,8 @@ namespace
     }
 
  
+    static std::atomic<std::uint32_t> g_LastFsmEquip{ 0 };
+
     using ExecStateChange_t = void(__fastcall*)(void*, void*, unsigned int, int);
     static ExecStateChange_t g_OrigExecStateChange = nullptr;
     static void* g_ExecStateChangeAddr = nullptr;
@@ -2776,6 +3505,8 @@ namespace
     {
         std::uint32_t eq = 0, prevWord = 0;
         const int eqOk = ReadU32AtSEH(work, 0x24c, eq);
+        if (eqOk && eq)
+            g_LastFsmEquip.store(eq, std::memory_order_relaxed);
         const int prevOk = ReadU32AtSEH(work, 0x2c0, prevWord);
         if (eqOk && prevOk)
         {
@@ -2789,6 +3520,2771 @@ namespace
                     eq, AtkStateName(prev), prev, AtkStateName(state), state);
         }
         g_OrigExecStateChange(work, impl, player, state);
+    }
+
+    using MotionEntry_t = void*(__fastcall*)(void*, void*, void*, void**);
+    static MotionEntry_t g_OrigMotionEntryA = nullptr;
+    static MotionEntry_t g_OrigMotionEntryB = nullptr;
+    static void* g_MotionEntryAAddr = nullptr;
+    static void* g_MotionEntryBAddr = nullptr;
+
+    static void ProbeMotionEntrySEH(void** ent, int& type, unsigned long long& path,
+                                    unsigned long long* payload, char* nodeHex, size_t nodeHexCap)
+    {
+        __try
+        {
+            if (!ent) return;
+            void** vt = *reinterpret_cast<void***>(ent);
+            if (!vt) return;
+            using TypeFn = int (__fastcall*)(void*);
+            using PathFn = void (__fastcall*)(void*, void*, int);
+            type = reinterpret_cast<TypeFn>(vt[0x20 / 8])(ent);
+            unsigned long long out = 0;
+            reinterpret_cast<PathFn>(vt[0x18 / 8])(ent, &out, 0);
+            path = out;
+
+            unsigned long long* raw = reinterpret_cast<unsigned long long*>(ent);
+            for (int i = 0; i < 5; ++i)
+                payload[i] = raw[2 + i];
+
+            const unsigned char* node = reinterpret_cast<const unsigned char*>(payload[1]);
+            if (node && nodeHexCap > 8)
+            {
+                size_t w = 0;
+                for (int i = 0; i < 24 && w + 3 < nodeHexCap; ++i)
+                    w += (size_t)sprintf_s(nodeHex + w, nodeHexCap - w, "%02X ", node[i]);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void LogMotionEntry(const char* which, void** ent)
+    {
+        int type = -1;
+        unsigned long long path = 0;
+        unsigned long long payload[5] = {};
+        char nodeHex[128] = {};
+        ProbeMotionEntrySEH(ent, type, path, payload, nodeHex, sizeof(nodeHex));
+        const bool malformed = (path >> 48) == 0;
+        const std::uint32_t eq = g_LastFsmEquip.load(std::memory_order_relaxed);
+        static std::mutex mx;
+        static std::set<std::pair<std::uint32_t, unsigned long long>> seen;
+        bool isNew = false;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            if (seen.size() < 512)
+                isNew = seen.insert({ eq, payload[1] }).second;
+        }
+        if (isNew)
+            Log("[WeaponKey] motionEntry %s eq=%u slot node=%016llX -> path=%016llX%s\n"
+                "             argBlk=%016llX binder=%016llX user=%016llX chunk=%016llX\n"
+                "             node[0..23]= %s\n",
+                which, eq, payload[1], path, malformed ? "  <<< MALFORMED" : "",
+                payload[0], payload[2], payload[3], payload[4], nodeHex);
+    }
+
+    static thread_local void* g_TlsMotionNode = nullptr;
+
+    static void* MotionEntryNodeSEH(void** ent)
+    {
+        __try
+        {
+            return ent ? reinterpret_cast<void**>(ent)[3] : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void* __fastcall hkMotionEntryA(void* a, void* b, void* c, void** ent)
+    {
+        void* prev = g_TlsMotionNode;
+        g_TlsMotionNode = MotionEntryNodeSEH(ent);
+#ifdef _DEBUG
+        LogMotionEntry("A", ent);
+#endif
+        void* r = g_OrigMotionEntryA(a, b, c, ent);
+        g_TlsMotionNode = prev;
+        return r;
+    }
+
+    static void* __fastcall hkMotionEntryB(void* a, void* b, void* c, void** ent)
+    {
+        void* prev = g_TlsMotionNode;
+        g_TlsMotionNode = MotionEntryNodeSEH(ent);
+#ifdef _DEBUG
+        LogMotionEntry("B", ent);
+#endif
+        void* r = g_OrigMotionEntryB(a, b, c, ent);
+        g_TlsMotionNode = prev;
+        return r;
+    }
+
+    using GetAnimFromGani_t = void*(__fastcall*)(void*, unsigned long long);
+    static GetAnimFromGani_t g_OrigGetAnimFromGani = nullptr;
+    static void* g_GetAnimFromGaniAddr = nullptr;
+
+    static uintptr_t GetAnimFileFromGaniPathAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141a6c300ull;
+        default:                                          return 0;
+        }
+    }
+
+    using GetStringValueByIndex_t =
+        unsigned long long*(__fastcall*)(void*, unsigned long long*, unsigned long long, int*);
+    static GetStringValueByIndex_t g_OrigGetStringValueByIndex = nullptr;
+    static void* g_GetStringValueByIndexAddr = nullptr;
+
+    static uintptr_t GetStringValueByIndexAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141c64420ull;
+        default:                                          return 0;
+        }
+    }
+
+    using GetControlString_t =
+        unsigned long long*(__fastcall*)(void*, unsigned long long*, unsigned int);
+    static GetControlString_t g_OrigGetControlString = nullptr;
+    static void* g_GetControlStringAddr = nullptr;
+
+    static uintptr_t GetControlStringAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141c60750ull;
+        default:                                          return 0;
+        }
+    }
+
+    static unsigned long long* __fastcall hkGetControlString(
+        void* ctx, unsigned long long* out, unsigned int index)
+    {
+        unsigned long long* r = g_OrigGetControlString(ctx, out, index);
+
+        if (out && r)
+        {
+            const unsigned long long v = *out;
+            if (v != 0 && v != 0xb8a0bf169f98ull && (v >> 48) == 0)
+            {
+                static std::mutex mx;
+                static std::set<unsigned long long> logged;
+                bool logIt = false;
+                {
+                    std::lock_guard<std::mutex> lock(mx);
+                    if (logged.size() < 16)
+                        logIt = logged.insert(v).second;
+                }
+                if (logIt)
+                    Log("[WeaponKey] control port %u holds %016llX, which carries no PathId type "
+                        "code - this blend layer was never bound to a clip. The usual cause is a "
+                        "part id past the end of one of MotionLoaderImpl's type tables, so that "
+                        "part contributed no mtar; check the [ChimeraMotion] lines for a part "
+                        "reporting no animation type.\n",
+                        index, v);
+            }
+        }
+        return r;
+    }
+
+    static void ReadBinderArraysSEH(void* binder, unsigned long long& tbl,
+                                    unsigned long long& valuesBase, unsigned long long& flagsBase)
+    {
+        __try
+        {
+            const unsigned long long t = *reinterpret_cast<unsigned long long*>(
+                reinterpret_cast<char*>(binder) + 8);
+            tbl = t;
+            if (!t) return;
+            valuesBase = *reinterpret_cast<unsigned long long*>(
+                reinterpret_cast<char*>(t) + 0x10);
+            flagsBase = *reinterpret_cast<unsigned long long*>(
+                reinterpret_cast<char*>(t) + 0x28);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static unsigned long long* __fastcall hkGetStringValueByIndex(
+        void* binder, unsigned long long* out, unsigned long long index, int* err)
+    {
+        unsigned long long* r = g_OrigGetStringValueByIndex(binder, out, index, err);
+
+        const unsigned long long got = (out && r) ? *out : 0;
+        const bool bad = got != 0 && got != 0xb8a0bf169f98ull && (got >> 48) == 0;
+
+        static std::mutex mx;
+        static std::set<unsigned long long> seenIdx;
+        bool logIt = false;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            if (bad || seenIdx.size() < 24)
+                logIt = seenIdx.insert(index | (bad ? 0x1000000ull : 0ull)).second;
+        }
+
+        if (logIt)
+        {
+            unsigned long long tbl = 0, valuesBase = 0, flagsBase = 0;
+            ReadBinderArraysSEH(binder, tbl, valuesBase, flagsBase);
+            Log("[WeaponKey] stringValue idx=%llu(0x%llX) -> %016llX%s | binder=%p tbl=%016llX "
+                "values=%016llX(+0x%llX) flags=%016llX(+0x%llX) err=%d\n",
+                index, index, got, bad ? "  <<< MALFORMED" : "",
+                binder, tbl,
+                valuesBase, index * 0x18ull,
+                flagsBase, index * 8ull,
+                err ? *err : 0);
+        }
+        return r;
+    }
+
+    using RealizedEquipRealize_t =
+        unsigned long long(__fastcall*)(void*, unsigned int, unsigned int);
+    static RealizedEquipRealize_t g_OrigRealizedEquipRealize = nullptr;
+    static void* g_RealizeAddr = nullptr;
+
+    static uintptr_t RealizedEquipRealizeAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141307d70ull;
+        default:                                          return 0;
+        }
+    }
+
+    static void* ReadPtrAtSEH(void* base, size_t off);
+
+    static void* CallDescProviderSEH(void* self)
+    {
+        __try
+        {
+            void* provider = *reinterpret_cast<void**>(
+                static_cast<std::uint8_t*>(self) + 0x48);
+            if (!provider)
+                return nullptr;
+            void** vtbl = *reinterpret_cast<void***>(provider);
+            if (!vtbl || !vtbl[0])
+                return nullptr;
+            using Vtbl0_t = void*(__fastcall*)(void*);
+            return reinterpret_cast<Vtbl0_t>(vtbl[0])(provider);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    using PostPutMotion_t =
+        unsigned long long(__fastcall*)(void*, void*, void*, void*);
+    static PostPutMotion_t g_OrigPostPutMotion = nullptr;
+    static void* g_PostPutMotionAddr = nullptr;
+
+    static uintptr_t PostPutMotionAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141307150ull;
+        default:                                          return 0;
+        }
+    }
+
+    static unsigned ReadRecWord(void* base, int slot, int off)
+    {
+        const int lo = ReadByteAtSEH(base, static_cast<size_t>(slot) * 0x14 + off);
+        const int hi = ReadByteAtSEH(base, static_cast<size_t>(slot) * 0x14 + off + 1);
+        if (lo < 0 || hi < 0)
+            return 0xFFFFFFFFu;
+        return static_cast<unsigned>(lo) | (static_cast<unsigned>(hi) << 8);
+    }
+
+    static bool WritePtrAtSEH(void* base, size_t off, void* val)
+    {
+        __try
+        {
+            *reinterpret_cast<void**>(static_cast<std::uint8_t*>(base) + off) = val;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static std::uint32_t GetNativeSubId(std::uint32_t equipId)
+    {
+        const std::int32_t idx =
+            EquipIdCompression::ComputeCompressed(static_cast<std::int32_t>(equipId));
+        if (!EquipIdCompression::IsCompressedInBounds(idx))
+            return 0;
+        auto* words = static_cast<std::uint16_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+        std::uint16_t w = 0;
+        if (!words || ReadU16SEH(words + idx, w) != 1)
+            return 0;
+        return (w >> 6) & 0x3FF;
+    }
+
+    static int MotionEntryIndex(std::uint32_t equipId)
+    {
+        if (equipId >= 1 && equipId < 0x7D)
+            return static_cast<int>(equipId);
+        if (equipId >= 0x400 && equipId < 0x450)
+            return static_cast<int>(equipId - 899);
+        return -1;
+    }
+
+    static void* ReadMotionEntry(void* table, std::uint32_t equipId)
+    {
+        const int idx = MotionEntryIndex(equipId);
+        if (idx < 0)
+            return nullptr;
+        return ReadPtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8);
+    }
+
+    static std::uint32_t NextDonorCandidate(std::uint32_t v)
+    {
+        if (v + 1 == 0x7D)
+            return 0x400;
+        if (v + 1 == 0x450)
+            return 0;
+        return v + 1;
+    }
+
+    struct MotionResidencyPlan
+    {
+        std::uint32_t donorEq = 0;
+        std::uint64_t donorPack = 0;
+        std::uint64_t familyPack = 0;
+    };
+    static std::map<std::uint32_t, MotionResidencyPlan> g_MotionResidency;
+    static std::map<std::uint64_t, std::uint32_t> g_RemapEntryEq;
+
+    using MtarGetAnimFileFn_t = void*(__fastcall*)(void*, unsigned long long);
+
+    static void* ResolveMtarForEntrySEH(unsigned long long entry)
+    {
+        __try
+        {
+            auto* obj = ResolveGameAddress(gAddr.Equip_MotionMtarResolver);
+            if (!obj)
+                return nullptr;
+            void* vt = *reinterpret_cast<void**>(obj);
+            if (!vt)
+                return nullptr;
+            void* fn = *reinterpret_cast<void**>(static_cast<char*>(vt) + 0x28);
+            if (!fn)
+                return nullptr;
+            return reinterpret_cast<MtarGetAnimFileFn_t>(fn)(obj, entry);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void* CallGetAnimFileSEH(void* fn, void* mtar, unsigned long long clip)
+    {
+        __try
+        {
+            return reinterpret_cast<MtarGetAnimFileFn_t>(fn)(mtar, clip);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return reinterpret_cast<void*>(static_cast<uintptr_t>(1));
+        }
+    }
+
+    static int ReadDwordAtSEH2(void* base, size_t off)
+    {
+        int v = 0;
+        for (int i = 0; i < 4; ++i)
+            v |= (ReadByteAtSEH(base, off + static_cast<size_t>(i)) & 0xFF) << (8 * i);
+        return v;
+    }
+
+    static MtarGetAnimFileFn_t g_OrigGetAnimFile = nullptr;
+    static void* g_GetAnimFileAddr = nullptr;
+
+    static void* FindClipInRegisteredArchivesSEH(void* mtar, unsigned long long clip,
+                                                 std::uint64_t* servedFrom)
+    {
+        std::uint64_t cands[96];
+        int cnt = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            for (const auto& kv : g_RemapEntryEq)
+            {
+                if (cnt >= 96)
+                    break;
+                cands[cnt++] = kv.first;
+            }
+        }
+        for (int i = 0; i < cnt; ++i)
+        {
+            void* m = ResolveMtarForEntrySEH(cands[i]);
+            if (!m || m == mtar)
+                continue;
+            void* af = CallGetAnimFileSEH(
+                reinterpret_cast<void*>(g_OrigGetAnimFile), m, clip);
+            if (af && reinterpret_cast<uintptr_t>(af) != 1)
+            {
+                if (servedFrom)
+                    *servedFrom = cands[i];
+                return af;
+            }
+        }
+        return nullptr;
+    }
+
+    static void* __fastcall hkGetAnimFile(void* mtar, unsigned long long clip)
+    {
+        void* r = g_OrigGetAnimFile(mtar, clip);
+        if (r || !mtar)
+            return r;
+        static thread_local int depth = 0;
+        if (depth)
+            return r;
+        ++depth;
+        std::uint64_t from = 0;
+        void* alt = FindClipInRegisteredArchivesSEH(mtar, clip, &from);
+        --depth;
+        if (!alt)
+            return r;
+#ifdef _DEBUG
+        static std::mutex mx;
+        static std::set<unsigned long long> logged;
+        bool isNew;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            isNew = logged.size() < 64 && logged.insert(clip).second;
+        }
+        if (isNew)
+            Log("[WeaponKey] cross-family clip lookup: clip %016llX is not in the "
+                "requesting motion archive - served from registered family archive "
+                "%016llX (the DLL merges every archive a weapon's rows imply at "
+                "lookup time, so mixed-family weapons play all their clips with "
+                "nothing extra shipped)\n",
+                clip, from);
+#else
+        (void)from;
+#endif
+        return alt;
+    }
+
+    using ClipSetFn_t =
+        unsigned char(__fastcall*)(void*, unsigned int, unsigned long long);
+    static ClipSetFn_t g_OrigClipSetByPath = nullptr;
+    static void** g_ClipFallbackVtbl = nullptr;
+    static int g_ClipFallbackSlot = -1;
+
+    struct LastClipState
+    {
+        unsigned long long clip;
+        bool foreign;
+    };
+    static std::map<std::uint64_t, LastClipState> g_LastClipByCtlSlot;
+    static std::map<std::uintptr_t, LastClipState> g_LastClipByCtl;
+
+    static void RecordClipState(void* ctl, unsigned int slot, unsigned long long clip,
+                                bool foreign)
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        if (g_LastClipByCtlSlot.size() > 512)
+            g_LastClipByCtlSlot.clear();
+        if (g_LastClipByCtl.size() > 128)
+            g_LastClipByCtl.clear();
+        const std::uint64_t key =
+            (reinterpret_cast<std::uint64_t>(ctl) << 8) | (slot & 0xFF);
+        g_LastClipByCtlSlot[key] = { clip, foreign };
+        g_LastClipByCtl[reinterpret_cast<std::uintptr_t>(ctl)] = { clip, foreign };
+    }
+
+    static bool ClipForeignToBoundArchive(void* ctl, unsigned int slot,
+                                          unsigned long long clip)
+    {
+        if (!g_OrigGetAnimFile)
+            return false;
+        void* slots = ReadPtrAtSEH(ctl, 0x60);
+        void* outer = slots ? ReadPtrAtSEH(slots, static_cast<size_t>(slot) * 8)
+                            : nullptr;
+        if (!outer)
+            return false;
+        std::uint8_t* inner =
+            static_cast<std::uint8_t*>(outer) + ReadDwordAtSEH2(outer, 0xc);
+        void* bound = ReadPtrAtSEH(inner, 0x80);
+        if (!bound)
+            return false;
+        void* af = CallGetAnimFileSEH(
+            reinterpret_cast<void*>(g_OrigGetAnimFile), bound, clip);
+        return !af || reinterpret_cast<uintptr_t>(af) == 1;
+    }
+
+    static unsigned char __fastcall hkClipArchiveFallback(void* ctl, unsigned int slot,
+                                                          unsigned long long clip)
+    {
+        const unsigned char r = g_OrigClipSetByPath(ctl, slot, clip);
+        if (r)
+        {
+            RecordClipState(ctl, slot, clip, ClipForeignToBoundArchive(ctl, slot, clip));
+            return r;
+        }
+        std::uint64_t cands[96];
+        int cnt = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            for (const auto& kv : g_RemapEntryEq)
+            {
+                if (cnt >= 96)
+                    break;
+                cands[cnt++] = kv.first;
+            }
+        }
+        if (cnt == 0)
+            return 0;
+        void* gaf = ResolveGameAddress(gAddr.Mtar_GetAnimFile);
+        if (!gaf)
+            return 0;
+        void* slots = ReadPtrAtSEH(ctl, 0x60);
+        void* outer = slots ? ReadPtrAtSEH(slots, static_cast<size_t>(slot) * 8)
+                            : nullptr;
+        if (!outer)
+            return 0;
+        std::uint8_t* inner =
+            static_cast<std::uint8_t*>(outer) + ReadDwordAtSEH2(outer, 0xc);
+        void* bound = ReadPtrAtSEH(inner, 0x80);
+        void* afBound = bound ? CallGetAnimFileSEH(gaf, bound, clip) : nullptr;
+        if (afBound && reinterpret_cast<uintptr_t>(afBound) != 1)
+            return 0;
+        for (int i = 0; i < cnt; ++i)
+        {
+            void* m = ResolveMtarForEntrySEH(cands[i]);
+            if (!m || m == bound)
+                continue;
+            void* af = CallGetAnimFileSEH(gaf, m, clip);
+            if (!af || reinterpret_cast<uintptr_t>(af) == 1)
+                continue;
+            if (!WritePtrAtSEH(inner, 0x80, m))
+                continue;
+            const unsigned char r2 = g_OrigClipSetByPath(ctl, slot, clip);
+            if (r2)
+            {
+                RecordClipState(ctl, slot, clip, true);
+#ifdef _DEBUG
+                static std::mutex mx;
+                static std::set<std::uint64_t> logged;
+                bool isNew;
+                {
+                    std::lock_guard<std::mutex> lock(mx);
+                    isNew = logged.size() < 64 && logged.insert(clip).second;
+                }
+                if (isNew)
+                    Log("[WeaponKey] clip archive fallback: clip %016llX was not in the "
+                        "control's bound motion archive - rebound to registered family "
+                        "archive %016llX and SET (a weapon can carry parts from several "
+                        "animation families; each clip now plays from the archive that "
+                        "actually contains it)\n",
+                        clip, cands[i]);
+#endif
+                return r2;
+            }
+            WritePtrAtSEH(inner, 0x80, bound);
+        }
+#ifdef _DEBUG
+        {
+            static std::atomic<int> missBudget{ 6 };
+            if (missBudget.fetch_sub(1) > 0)
+            {
+                int resolved = 0, found = 0;
+                char detail[512];
+                int dl = 0;
+                detail[0] = 0;
+                for (int i = 0; i < cnt; ++i)
+                {
+                    void* m = ResolveMtarForEntrySEH(cands[i]);
+                    if (!m)
+                        continue;
+                    ++resolved;
+                    void* af = CallGetAnimFileSEH(gaf, m, clip);
+                    const bool hit =
+                        af && reinterpret_cast<uintptr_t>(af) != 1;
+                    if (hit)
+                        ++found;
+                    if (dl < 380)
+                        dl += _snprintf_s(detail + dl,
+                                          sizeof(detail) - dl, _TRUNCATE,
+                                          " %016llX=%p%s", cands[i], m,
+                                          hit ? "HIT"
+                                              : (reinterpret_cast<uintptr_t>(af) == 1
+                                                     ? "FAULT"
+                                                     : ""));
+                }
+                Log("[WeaponKey] fallback MISS clip=%016llX candidates=%d "
+                    "resolved=%d containing=%d bound=%p |%s\n",
+                    clip, cnt, resolved, found, bound, detail);
+            }
+        }
+#endif
+        return 0;
+    }
+
+    using HideMagazine_t =
+        void(__fastcall*)(void*, unsigned long long, unsigned char);
+    static HideMagazine_t g_OrigHideMagazine = nullptr;
+    static void* g_HideMagazineAddr = nullptr;
+
+    using GetPartsControllerFn_t =
+        void*(__fastcall*)(void*, unsigned int, unsigned int*);
+
+    static void* CallGetPartsControllerSEH(void* equipSys, unsigned int key,
+                                           unsigned int* outIdx)
+    {
+        auto fn = reinterpret_cast<GetPartsControllerFn_t>(
+            ResolveGameAddress(gAddr.EquipSystemImpl_GetPartsController));
+        if (!fn)
+            return nullptr;
+        __try
+        {
+            return fn(static_cast<char*>(equipSys) - 0x20, key, outIdx);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void __fastcall hkHideMagazine(void* self, unsigned long long handle,
+                                          unsigned char which)
+    {
+        const std::uint32_t eqpType = static_cast<std::uint32_t>(handle) & 0x1f;
+        const std::uint32_t eq = (static_cast<std::uint32_t>(handle) >> 5) & 0x7ff;
+        if (which == 0 && eqpType >= 1 && eqpType <= 8 &&
+            TppEquip_GetSubIdForEquipId(static_cast<int>(eq)) != 0)
+        {
+            unsigned int idx = 0;
+            void* ctl = CallGetPartsControllerSEH(
+                self, static_cast<unsigned int>(handle), &idx);
+            bool foreign = false, found = false;
+            unsigned long long clip = 0;
+            if (ctl)
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                const std::uint64_t key =
+                    (reinterpret_cast<std::uint64_t>(ctl) << 8) | (idx & 0xFF);
+                auto it = g_LastClipByCtlSlot.find(key);
+                if (it != g_LastClipByCtlSlot.end())
+                {
+                    found = true;
+                    foreign = it->second.foreign;
+                    clip = it->second.clip;
+                }
+                else
+                {
+                    auto itc =
+                        g_LastClipByCtl.find(reinterpret_cast<std::uintptr_t>(ctl));
+                    if (itc != g_LastClipByCtl.end())
+                    {
+                        found = true;
+                        foreign = itc->second.foreign;
+                        clip = itc->second.clip;
+                    }
+                }
+            }
+#ifdef _DEBUG
+            static std::atomic<int> hideBudget{ 24 };
+            if (hideBudget.fetch_sub(1) > 0)
+                Log("[WeaponKey] HideMagazine eq=%u which=%u ctl=%p idx=%u "
+                    "found=%d foreign=%d clip=%016llX RA=%p\n",
+                    eq, which, ctl, idx, found ? 1 : 0, foreign ? 1 : 0, clip,
+                    _ReturnAddress());
+#endif
+            if (foreign)
+            {
+                static std::set<std::uint32_t> suppressLogged;
+                bool first = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                    first = suppressLogged.insert(eq).second;
+                }
+                if (first)
+                    Log("[WeaponKey] main-magazine hide SUPPRESSED: eq=%u is playing "
+                        "a cross-family clip (%016llX, an under-barrel action) and the "
+                        "engine's reload handler asked to hide the weapon's OWN "
+                        "magazine - on a mixed-family weapon that request belongs to "
+                        "the attachment, not the rifle mag; hides during the weapon's "
+                        "own reload still pass through\n",
+                        eq, clip);
+                return;
+            }
+        }
+#ifdef _DEBUG
+        else if (which != 0 && eqpType >= 1 && eqpType <= 8 &&
+                 TppEquip_GetSubIdForEquipId(static_cast<int>(eq)) != 0)
+        {
+            static std::atomic<int> ubBudget{ 12 };
+            if (ubBudget.fetch_sub(1) > 0)
+                Log("[WeaponKey] HideMagazine eq=%u which=%u (second-mag path) RA=%p\n",
+                    eq, which, _ReturnAddress());
+        }
+#endif
+        g_OrigHideMagazine(self, handle, which);
+    }
+
+    static void ArmClipArchiveFallback()
+    {
+        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return;
+        void** vtbl = static_cast<void**>(
+            reinterpret_cast<void*>(ResolveGameAddress(gAddr.SimplePartsControllerImpl_Vtable)));
+        void* target = ResolveGameAddress(gAddr.SimplePartsControllerImpl_SetMotionDataByPath);
+        if (!vtbl || !target)
+            return;
+        const int slot = 0x1b0 / 8;
+        if (vtbl[slot] != target)
+        {
+            Log("[WeaponKey] clip archive fallback NOT armed (vtbl slot content "
+                "unexpected: %p)\n", vtbl[slot]);
+            return;
+        }
+        DWORD prot = 0;
+        if (!VirtualProtect(&vtbl[slot], sizeof(void*), PAGE_READWRITE, &prot))
+            return;
+        g_OrigClipSetByPath = reinterpret_cast<ClipSetFn_t>(vtbl[slot]);
+        vtbl[slot] = reinterpret_cast<void*>(&hkClipArchiveFallback);
+        VirtualProtect(&vtbl[slot], sizeof(void*), prot, &prot);
+        g_ClipFallbackVtbl = vtbl;
+        g_ClipFallbackSlot = slot;
+#ifdef _DEBUG
+        Log("[WeaponKey] clip archive fallback armed (SetMotionDataByPath vtbl+0x1B0; "
+            "a clip missing from a control's bound motion archive is served from any "
+            "registered custom family archive that contains it)\n");
+#endif
+    }
+
+    static void DisarmClipArchiveFallback()
+    {
+        if (!g_ClipFallbackVtbl || g_ClipFallbackSlot < 0 || !g_OrigClipSetByPath)
+            return;
+        DWORD prot = 0;
+        if (VirtualProtect(&g_ClipFallbackVtbl[g_ClipFallbackSlot], sizeof(void*),
+                           PAGE_READWRITE, &prot))
+        {
+            g_ClipFallbackVtbl[g_ClipFallbackSlot] =
+                reinterpret_cast<void*>(g_OrigClipSetByPath);
+            VirtualProtect(&g_ClipFallbackVtbl[g_ClipFallbackSlot], sizeof(void*),
+                           prot, &prot);
+        }
+        g_ClipFallbackVtbl = nullptr;
+        g_ClipFallbackSlot = -1;
+        g_OrigClipSetByPath = nullptr;
+    }
+
+    static const char* const kChimeraCatDirs[4] = {
+        "receiver", "barrel", "magazine", "underBarrel" };
+    static const char* const kPlayerPkgPrefixes[4] = {
+        "/Assets/tpp/pack/player/motion/equip/receiver/pl_rcvr_",
+        "/Assets/tpp/pack/player/motion/equip/barrel/pl_brrl_",
+        "/Assets/tpp/pack/player/motion/equip/magazine/pl_mgzn_",
+        "/Assets/tpp/pack/player/motion/equip/under_barrel/pl_ubrrl_" };
+
+    static void RecoverFamilyRoot(std::uint64_t pkg, int& cat, std::string& root)
+    {
+        static std::mutex mx;
+        static std::map<std::uint64_t, std::pair<int, std::string>> cache;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            auto it = cache.find(pkg);
+            if (it != cache.end())
+            {
+                cat = it->second.first;
+                root = it->second.second;
+                return;
+            }
+        }
+        cat = -1;
+        root.clear();
+        for (int c = 0; c < 4 && root.empty(); ++c)
+        {
+            std::string p = std::string(kPlayerPkgPrefixes[c]) + "aa00.fpk";
+            const size_t off = std::strlen(kPlayerPkgPrefixes[c]);
+            for (char a = 'a'; a <= 'z' && root.empty(); ++a)
+                for (char b = 'a'; b <= 'z' && root.empty(); ++b)
+                    for (int d = 0; d < 100 && root.empty(); ++d)
+                    {
+                        p[off] = a;
+                        p[off + 1] = b;
+                        p[off + 2] = static_cast<char>('0' + d / 10);
+                        p[off + 3] = static_cast<char>('0' + d % 10);
+                        if (FoxHashes::PathCode64Ext(p) == pkg)
+                        {
+                            root.assign(p, off, 4);
+                            cat = c;
+                        }
+                    }
+        }
+        std::lock_guard<std::mutex> lock(mx);
+        cache[pkg] = { cat, root };
+    }
+
+    static std::set<std::uint64_t> g_ChimeraPackNames;
+
+    static bool ScanChimeraPackArraySEH(void* base, std::uint64_t fpkHash,
+                                        int* validCount)
+    {
+        const std::uint64_t want = fpkHash & 0x7FFFFFFFFFFFFFFFull;
+        bool found = false;
+        int valid = 0;
+        __try
+        {
+            const std::uint64_t* p = static_cast<const std::uint64_t*>(base);
+            for (int i = 0; i < 512 && !found; ++i, p += 8)
+            {
+                const std::uint64_t fpk = p[1] & 0x7FFFFFFFFFFFFFFFull;
+                if ((fpk >> 56) != 0x52ull)
+                    continue;
+                ++valid;
+                if (fpk == want)
+                    found = true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+        if (validCount)
+            *validCount = valid;
+        return found;
+    }
+
+    using ReloadChimeraParts_t = int(__fastcall*)(lua_State*);
+    static ReloadChimeraParts_t g_OrigReloadChimeraParts = nullptr;
+    static void* g_ReloadChimeraPartsAddr = nullptr;
+
+    static int __fastcall hkReloadChimeraPartsInfoTable(lua_State* L)
+    {
+        if (ResolveLuaApi() && g_lua_getfield && g_lua_rawgeti && g_lua_settop &&
+            g_lua_objlen && g_lua_type && g_lua_tolstring)
+        {
+            std::set<std::uint64_t> names;
+            g_lua_getfield(L, -1, const_cast<char*>("packageInfos"));
+            if (g_lua_type(L, -1) == LUA_TTABLE)
+            {
+                const int rows = static_cast<int>(g_lua_objlen(L, -1));
+                for (int i = 1; i <= rows; ++i)
+                {
+                    g_lua_rawgeti(L, -1, i);
+                    if (g_lua_type(L, -1) == LUA_TTABLE)
+                    {
+                        g_lua_rawgeti(L, -1, 2);
+                        if (g_lua_type(L, -1) == LUA_TSTRING)
+                        {
+                            const char* s = g_lua_tolstring(L, -1, nullptr);
+                            if (s && *s)
+                                names.insert(FoxHashes::PathCode64Ext(s));
+                        }
+                        g_lua_settop(L, -2);
+                    }
+                    g_lua_settop(L, -2);
+                }
+            }
+            g_lua_settop(L, -2);
+            if (!names.empty())
+            {
+                std::size_t count = names.size();
+                {
+                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                    g_ChimeraPackNames.swap(names);
+                }
+#ifdef _DEBUG
+                static std::atomic<bool> logged{ false };
+                if (!logged.exchange(true))
+                    Log("[WeaponKey] chimera package table captured at parse: %zu "
+                        "pack names (the game's own list of every mountable chimera "
+                        "part pack - the family mount gate compares against these, "
+                        "so only packs the chimera system itself would load are "
+                        "ever appended to a loadout)\n",
+                        count);
+#else
+                (void)count;
+#endif
+            }
+        }
+        return g_OrigReloadChimeraParts ? g_OrigReloadChimeraParts(L) : 0;
+    }
+
+    static bool ChimeraPackTableContains(std::uint64_t fpkHash, bool* tableValid)
+    {
+        if (tableValid)
+            *tableValid = false;
+        if (!fpkHash || gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return false;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            if (!g_ChimeraPackNames.empty())
+            {
+                if (tableValid)
+                    *tableValid = true;
+                return g_ChimeraPackNames.count(fpkHash) != 0;
+            }
+        }
+        void* base = ReadPtrAtSEH(
+            reinterpret_cast<void*>(ResolveGameAddress(gAddr.Equip_ChimeraPartsPackageInfos)), 0);
+#ifdef _DEBUG
+        {
+            static std::atomic<int> dumped{ 0 };
+            if (dumped.fetch_add(1) < 3)
+            {
+                std::uint64_t e[6] = {};
+                for (int k = 0; k < 6; ++k)
+                    e[k] = reinterpret_cast<std::uint64_t>(
+                        ReadPtrAtSEH(base, (k / 2) * 0x40 + (k % 2) * 8));
+                Log("[WeaponKey] chimera pack table dump: base=%p e0={%016llX,"
+                    "%016llX} e1={%016llX,%016llX} e2={%016llX,%016llX} probe="
+                    "%016llX\n",
+                    base, e[0], e[1], e[2], e[3], e[4], e[5], fpkHash);
+            }
+        }
+#endif
+        if (!base)
+            return false;
+        int valid = 0;
+        const bool found = ScanChimeraPackArraySEH(base, fpkHash, &valid);
+        if (tableValid)
+            *tableValid = valid > 0;
+        return found;
+    }
+
+    static std::uint64_t FindFamilyChimeraPack(int cat, const std::string& root)
+    {
+        static std::mutex mx;
+        static std::map<std::string, std::uint64_t> cache;
+        const std::string key = std::string(kChimeraCatDirs[cat]) + "/" + root;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            auto it = cache.find(key);
+            if (it != cache.end())
+                return it->second;
+        }
+        static const char* const kMidByCat[4][2] = {
+            { "_main", nullptr },
+            { "_main", "_barl" },
+            { "_main", "_ammo" },
+            { "_main", nullptr } };
+        static const char* const kTails[2] = { "_def_v00.fpk", "_def.fpk" };
+        const std::string base =
+            std::string("/Assets/tpp/pack/collectible/chimera/")
+            + kChimeraCatDirs[cat] + "/" + root;
+        std::uint64_t found = 0;
+        bool anyValid = false;
+        for (int m = 0; m < 2 && !found; ++m)
+        {
+            if (!kMidByCat[cat][m])
+                continue;
+            for (int v = 0; v < 10 && !found; ++v)
+                for (int t = 0; t < 2 && !found; ++t)
+                {
+                    const std::uint64_t h = FoxHashes::PathCode64Ext(
+                        base + kMidByCat[cat][m]
+                        + static_cast<char>('0' + v) + kTails[t]);
+                    bool tableValid = false;
+                    if (ChimeraPackTableContains(h, &tableValid))
+                        found = h;
+                    anyValid = anyValid || tableValid;
+                }
+        }
+        if (found || anyValid)
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            cache[key] = found;
+        }
+        return found;
+    }
+
+    static std::uint64_t RegisterFamilyArchives(const std::string& root,
+                                                std::uint32_t equipId)
+    {
+        static const char* const kSuffixes[] = {
+            "_default", "_under", "_under_1", "_under_2", "_under_3", "_under_4",
+            "_under_5", "_fullauto" };
+        std::uint64_t defEntry = 0;
+        for (const char* s : kSuffixes)
+        {
+            const std::uint64_t h = FoxHashes::PathCode64Ext(
+                "/Assets/tpp/motion/mtar/equip/chimera/receiver/" + root + s
+                + ".mtar");
+            if (!h)
+                continue;
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                g_RemapEntryEq[h] = equipId;
+            }
+            if (s == kSuffixes[0])
+                defEntry = h;
+        }
+        return defEntry;
+    }
+
+    static std::uint64_t GetNativeRowPackHash(std::uint32_t equipId)
+    {
+        const std::int32_t idx =
+            EquipIdCompression::ComputeCompressed(static_cast<std::int32_t>(equipId));
+        if (!EquipIdCompression::IsCompressedInBounds(idx))
+            return 0;
+        auto* infoList = static_cast<std::uint8_t*>(
+            ResolveGameAddress(gAddr.EquipIdTable_InfoList));
+        if (!infoList)
+            return 0;
+        return reinterpret_cast<std::uint64_t>(
+            ReadPtrAtSEH(infoList, static_cast<size_t>(idx) * 0x18 + 8));
+    }
+
+    struct FoxPathArray
+    {
+        std::uint32_t Count;
+        std::uint32_t Capacity;
+        std::uint64_t* Data;
+    };
+
+    using FoxArrayExtend_t =
+        bool(__fastcall*)(void*, std::uint32_t, std::uint32_t, void*);
+
+    static bool AppendPackPath(void* arr_, std::uint64_t h)
+    {
+        if (!arr_ || !h)
+            return false;
+        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return false;
+        auto* arr = static_cast<FoxPathArray*>(arr_);
+        __try
+        {
+            for (std::uint32_t i = 0; i < arr->Count; ++i)
+                if (arr->Data[i] == h)
+                    return true;
+            if (arr->Count >= arr->Capacity)
+            {
+                struct
+                {
+                    void** data;
+                    std::uint32_t* count;
+                    std::uint32_t* cap;
+                    std::uint64_t elemSize;
+                    std::uint64_t align;
+                } info = { reinterpret_cast<void**>(&arr->Data), &arr->Count,
+                           &arr->Capacity, 8, 8 };
+                std::uint64_t opObj = reinterpret_cast<std::uint64_t>(
+                    ResolveGameAddress(gAddr.Fox_ArrayOperatorVtbl));
+                auto extend = reinterpret_cast<FoxArrayExtend_t>(
+                    ResolveGameAddress(gAddr.Fox_ArrayBaseExtend));
+                if (!extend || !opObj)
+                    return false;
+                const std::uint32_t newCap = arr->Count ? arr->Count * 2 : 16;
+                if (!extend(&info, newCap, 0xd0001u, &opObj))
+                    return false;
+            }
+            arr->Data[arr->Count] = h;
+            arr->Count += 1;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void FillCustomMotionEntriesTable(void* table)
+    {
+        if (!table)
+            return;
+        for (std::uint32_t eq = 1; eq < 0x7D; ++eq)
+        {
+            const int subId = TppEquip_GetSubIdForEquipId(static_cast<int>(eq));
+            if (subId == 0)
+                continue;
+            const std::uint32_t t = GetEquipTypeForEquipId(eq) & 0x1F;
+            if (t < 1 || t > 8)
+                continue;
+            if (ReadMotionEntry(table, eq))
+                continue;
+            std::uint32_t donor = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                auto it = g_FamilyFrom.find(eq);
+                if (it != g_FamilyFrom.end())
+                    donor = it->second;
+            }
+            if (MotionEntryIndex(donor) < 0 && subId < 514)
+            {
+                for (std::uint32_t v = 1; v != 0; v = NextDonorCandidate(v))
+                {
+                    if (v == eq)
+                        continue;
+                    const std::uint32_t vt = GetEquipTypeForEquipId(v) & 0x1F;
+                    if (vt < 1 || vt > 8)
+                        continue;
+                    if (GetNativeSubId(v) == static_cast<std::uint32_t>(subId) &&
+                        TppEquip_GetSubIdForEquipId(static_cast<int>(v)) == 0 &&
+                        ReadMotionEntry(table, v))
+                    {
+                        donor = v;
+                        break;
+                    }
+                }
+            }
+            if (MotionEntryIndex(donor) < 0)
+            {
+                FamilyGb cus;
+                if (GetGbForEquipId(eq, cus))
+                {
+                    int rc = cus.gb[0];
+                    if (rc >= 234)
+                    {
+                        const auto itd = g_ReceiverMotionDonor.find(rc);
+                        rc = (itd != g_ReceiverMotionDonor.end()) ? itd->second : 0;
+                    }
+                    if (rc > 0 && rc < 234)
+                    {
+                        EnsureRcvTypeExt();
+                        const int ctype =
+                            g_RcvTypeExtReady ? g_RcvTypeExt[rc & 0xFF] : -1;
+                        std::string cusRoot;
+                        ResolveDonorSoundRoot(rc, cusRoot);
+                        std::uint32_t rootDonor = 0, typeDonor = 0;
+                        for (std::uint32_t v = 1; v != 0; v = NextDonorCandidate(v))
+                        {
+                            if (v == eq)
+                                continue;
+                            const std::uint32_t vt = GetEquipTypeForEquipId(v) & 0x1F;
+                            if (vt < 1 || vt > 8)
+                                continue;
+                            if (TppEquip_GetSubIdForEquipId(static_cast<int>(v)) != 0)
+                                continue;
+                            FamilyGb van;
+                            if (!GetGbForEquipId(v, van))
+                                continue;
+                            if (!ReadMotionEntry(table, v))
+                                continue;
+                            if (van.gb[0] == static_cast<unsigned char>(rc))
+                            {
+                                donor = v;
+                                break;
+                            }
+                            if (rootDonor == 0 && !cusRoot.empty() && van.gb[0] < 234)
+                            {
+                                std::string vroot;
+                                if (ResolveDonorSoundRoot(van.gb[0], vroot) &&
+                                    vroot == cusRoot)
+                                    rootDonor = v;
+                            }
+                            if (typeDonor == 0 && ctype > 0 &&
+                                g_RcvTypeExt[van.gb[0]] == ctype)
+                                typeDonor = v;
+                        }
+                        if (MotionEntryIndex(donor) < 0 && rootDonor != 0)
+                            donor = rootDonor;
+                        if (MotionEntryIndex(donor) < 0 && typeDonor != 0)
+                            donor = typeDonor;
+                    }
+                }
+            }
+            void* donorEntry = ReadMotionEntry(table, donor);
+            if (!donorEntry)
+            {
+                static std::set<std::uint32_t> noDonorLogged;
+                bool first = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                    first = noDonorLogged.insert(eq).second;
+                }
+                FamilyGb cus;
+                int rcRaw = -1, rcRes = -1, ctype = -1;
+                std::string cusRoot;
+                if (GetGbForEquipId(eq, cus))
+                {
+                    rcRaw = cus.gb[0];
+                    rcRes = rcRaw;
+                    if (rcRes >= 234)
+                    {
+                        const auto itd = g_ReceiverMotionDonor.find(rcRes);
+                        rcRes = (itd != g_ReceiverMotionDonor.end()) ? itd->second : -1;
+                    }
+                    EnsureRcvTypeExt();
+                    if (g_RcvTypeExtReady && rcRes >= 0)
+                        ctype = g_RcvTypeExt[rcRes & 0xFF];
+                    if (rcRes > 0 && rcRes < 234)
+                        ResolveDonorSoundRoot(rcRes, cusRoot);
+                }
+                if (!cusRoot.empty())
+                {
+                    static int hasherValidated = 0;
+                    if (hasherValidated == 0)
+                    {
+                        void* known = ReadMotionEntry(table, 27);
+                        const std::uint64_t check = FoxHashes::PathCode64Ext(
+                            "/Assets/tpp/motion/mtar/equip/chimera/assemble/ar00_asm.mtar");
+                        hasherValidated =
+                            (!known || check == reinterpret_cast<std::uint64_t>(known))
+                                ? 1 : -1;
+                        if (hasherValidated < 0)
+                            Log("[WeaponKey] MotionEntry synth disabled: engine path hash "
+                                "%016llX does not match the known ar00 entry %p\n",
+                                check, known);
+                    }
+                    if (hasherValidated > 0)
+                    {
+                        const std::string paths[2] = {
+                            "/Assets/tpp/motion/mtar/equip/chimera/receiver/"
+                                + cusRoot + "_default.mtar",
+                            "/Assets/tpp/motion/mtar/equip/chimera/assemble/"
+                                + cusRoot + "_asm.mtar"
+                        };
+                        for (const std::string& p : paths)
+                        {
+                            const std::uint64_t h = FoxHashes::PathCode64Ext(p);
+                            if (!h)
+                                continue;
+                            if (WritePtrAtSEH(table, 8 + static_cast<size_t>(eq) * 8,
+                                              reinterpret_cast<void*>(h)))
+                            {
+                                {
+                                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                                    g_RemapEntryEq[h] = eq;
+                                }
+                                if (&p == &paths[0])
+                                {
+                                    const std::uint64_t ph =
+                                        FindFamilyChimeraPack(0, cusRoot);
+                                    if (ph)
+                                    {
+                                        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                                        g_MotionResidency[eq].familyPack = ph;
+                                    }
+                                    else if (first)
+                                        Log("[WeaponKey] MotionEntry synth eq=%u: family "
+                                            "'%s' has no receiver pack in the game's "
+                                            "chimera package table - the entry is written "
+                                            "but nothing mounts its mtar; clips will stay "
+                                            "refused unless another pack carries it\n",
+                                            eq, cusRoot.c_str());
+                                }
+                                if (first)
+                                    Log("[WeaponKey] MotionEntry synthesized: custom eq=%u "
+                                        "family='%s' -> %s (no vanilla weapon registers this "
+                                        "animation family; entry hashed with the engine's own "
+                                        "path hasher, mounted via the pack the game's chimera "
+                                        "package table names for the family)\n",
+                                        eq, cusRoot.c_str(), p.c_str());
+                            }
+                            break;
+                        }
+                        if (ReadMotionEntry(table, eq))
+                            continue;
+                    }
+                }
+                if (first)
+                {
+                    Log("[WeaponKey] MotionEntry NO DONOR for custom eq=%u (subId=%d rc=%d "
+                        "resolved=%d motionType=%d family='%s') - no vanilla weapon shares "
+                        "this receiver family; register SetWeaponHandling{...familyFrom="
+                        "<vanilla equipId>} or V_TppEquip.SetAssembleMotion{equipId=..., "
+                        "copyFrom=...} to pick its animation clip set\n",
+                        eq, subId, rcRaw, rcRes, ctype,
+                        cusRoot.empty() ? "?" : cusRoot.c_str());
+#ifdef _DEBUG
+                    static std::atomic<bool> dumped{ false };
+                    if (!dumped.exchange(true))
+                    {
+                        EnsureRcvTypeExt();
+                        for (std::uint32_t v = 1; v != 0; v = NextDonorCandidate(v))
+                        {
+                            if (!ReadMotionEntry(table, v))
+                                continue;
+                            FamilyGb van;
+                            const bool gbOk = GetGbForEquipId(v, van);
+                            std::string vroot;
+                            if (gbOk && van.gb[0] < 234)
+                                ResolveDonorSoundRoot(van.gb[0], vroot);
+                            Log("[WeaponKey]   donor candidate eq=%u subId=%d rc=%d "
+                                "type=%d root='%s' entry=%p\n",
+                                v, gbOk ? van.subId : -1, gbOk ? van.gb[0] : -1,
+                                (gbOk && g_RcvTypeExtReady) ? g_RcvTypeExt[van.gb[0]] : -1,
+                                vroot.empty() ? "?" : vroot.c_str(),
+                                ReadMotionEntry(table, v));
+                        }
+                    }
+#endif
+                }
+                continue;
+            }
+            if (WritePtrAtSEH(table, 8 + static_cast<size_t>(eq) * 8, donorEntry))
+            {
+                {
+                    std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                    auto& plan = g_MotionResidency[eq];
+                    plan.donorEq = donor;
+                    plan.donorPack = GetNativeRowPackHash(donor);
+                    g_RemapEntryEq[reinterpret_cast<std::uint64_t>(donorEntry)] = eq;
+                }
+                Log("[WeaponKey] MotionEntry alias: custom eq=%u -> donor eq=%u entry=%p "
+                    "(the per-equipId weapon-motion mtar entry was empty; without it Realize "
+                    "creates NO anim control - no clip-driven bolt/parts animation and the "
+                    "default-pose stomp. Aliasing the donor's entry makes Realize build the "
+                    "real SimpleControl, the same path vanilla weapons use)\n",
+                    eq, donor, donorEntry);
+            }
+        }
+    }
+
+    static void FillCustomMotionEntriesEarly()
+    {
+        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return;
+        FillCustomMotionEntriesTable(
+            reinterpret_cast<void*>(ResolveGameAddress(gAddr.Equip_MotionEntryTable)));
+    }
+
+    static void FillCustomMotionEntries(void* self)
+    {
+        FillCustomMotionEntriesTable(ReadPtrAtSEH(self, 0x70));
+    }
+
+    static void* GetEquipMotionLoaderIface()
+    {
+        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return nullptr;
+        using QST_t = std::uint8_t*(__fastcall*)();
+        auto qst = reinterpret_cast<QST_t>(ResolveGameAddress(gAddr.Fox_GetQuarkSystemTable));
+        if (!qst)
+            return nullptr;
+        __try
+        {
+            std::uint8_t* t = qst();
+            if (!t)
+                return nullptr;
+            std::uint8_t* app = *reinterpret_cast<std::uint8_t**>(t + 0x98);
+            if (!app)
+                return nullptr;
+            std::uint8_t* q = *reinterpret_cast<std::uint8_t**>(app + 0x1e8);
+            if (!q)
+                return nullptr;
+            return *reinterpret_cast<void**>(q + 0x18);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static std::uint32_t CallMtarIdsSEH(void* fn, void* self, std::uint8_t* out,
+                                        std::uint32_t* eq)
+    {
+        if (!fn)
+            return 0;
+        __try
+        {
+            return reinterpret_cast<
+                std::uint32_t(__fastcall*)(void*, std::uint8_t*, std::uint32_t*)>(fn)(
+                self, out, eq);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static std::uint64_t CallPathByIdSEH(void* fn, void* self, std::uint32_t id)
+    {
+        if (!fn)
+            return 0;
+        __try
+        {
+            std::uint64_t out[2] = {};
+            auto* p = reinterpret_cast<
+                std::uint64_t*(__fastcall*)(void*, std::uint64_t*, std::uint32_t)>(fn)(
+                self, out, id);
+            return p ? *p : out[0];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static bool CallMtarPathsSEH(void* fn, void* self, std::uint64_t* out,
+                                 std::uint8_t* ids, std::uint32_t count)
+    {
+        if (!fn)
+            return false;
+        __try
+        {
+            reinterpret_cast<void(__fastcall*)(void*, std::uint64_t*, std::uint8_t*,
+                                               std::uint32_t)>(fn)(self, out, ids,
+                                                                   count);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    using AddMtarBlockPackagePaths_t = void(__fastcall*)(void*, std::uint32_t);
+    static AddMtarBlockPackagePaths_t g_OrigAddMtarBlockPackagePaths = nullptr;
+    static void* g_AddMtarBlockPackagePathsAddr = nullptr;
+
+    static uintptr_t AddMtarBlockPackagePathsAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140a02290ull;
+        default:                                          return 0;
+        }
+    }
+
+    static void __fastcall hkAddMtarBlockPackagePaths(void* arr, std::uint32_t equipId)
+    {
+        g_OrigAddMtarBlockPackagePaths(arr, equipId);
+        if (!arr || equipId == 0 || equipId >= 0x800)
+            return;
+        if (TppEquip_GetSubIdForEquipId(static_cast<int>(equipId)) == 0)
+            return;
+        const std::uint32_t t = GetEquipTypeForEquipId(equipId) & 0x1F;
+        if (t < 1 || t > 8)
+            return;
+        FillCustomMotionEntriesEarly();
+        MotionResidencyPlan plan;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            auto it = g_MotionResidency.find(equipId);
+            if (it != g_MotionResidency.end())
+                plan = it->second;
+        }
+        bool donorPackOk = false, familyPackOk = false;
+#ifdef _DEBUG
+        {
+            void* mlDbg = GetEquipMotionLoaderIface();
+            void* mlvDbg = mlDbg ? ReadPtrAtSEH(mlDbg, 0) : nullptr;
+            if (mlvDbg)
+            {
+                std::uint8_t idsDbg[16] = {};
+                std::uint32_t eqDbg = equipId;
+                const std::uint32_t nDbg =
+                    CallMtarIdsSEH(ReadPtrAtSEH(mlvDbg, 0x18), mlDbg, idsDbg, &eqDbg);
+                std::uint64_t pathsDbg[16] = {};
+                const bool gotDbg =
+                    (nDbg > 0 && nDbg <= 16) &&
+                    CallMtarPathsSEH(ReadPtrAtSEH(mlvDbg, 0x8), mlDbg, pathsDbg,
+                                     idsDbg, nDbg);
+                Log("[WeaponKey] engine motion map eq=%u ids=%u%s\n", equipId, nDbg,
+                    nDbg == 0 ? " (by-equipId lookup returned nothing)" : "");
+                for (std::uint32_t i = 0; i < nDbg && i < 16; ++i)
+                    Log("[WeaponKey]   eq=%u id[%u]=%u mtar=%016llX pkg=%016llX\n",
+                        equipId, i, idsDbg[i], gotDbg ? pathsDbg[i] : 0,
+                        CallPathByIdSEH(ReadPtrAtSEH(mlvDbg, 0x10), mlDbg, idsDbg[i]));
+            }
+        }
+#endif
+        if (plan.donorEq)
+        {
+            g_OrigAddMtarBlockPackagePaths(arr, plan.donorEq);
+            donorPackOk = AppendPackPath(arr, plan.donorPack);
+        }
+        std::uint64_t engineEntry = 0, engineFpk = 0;
+        std::string engineRoot;
+        std::string familyList;
+        {
+            void* ml = GetEquipMotionLoaderIface();
+            void* mlv = ml ? ReadPtrAtSEH(ml, 0) : nullptr;
+            if (mlv)
+            {
+                std::uint8_t ids[16] = {};
+                std::uint32_t eqIn = equipId;
+                const std::uint32_t n =
+                    CallMtarIdsSEH(ReadPtrAtSEH(mlv, 0x18), ml, ids, &eqIn);
+                std::set<std::string> seenRoots;
+                for (std::uint32_t i = 0; i < n && i < 16; ++i)
+                {
+                    const std::uint64_t pkg =
+                        CallPathByIdSEH(ReadPtrAtSEH(mlv, 0x10), ml, ids[i]);
+                    if ((pkg >> 56) != 0x52)
+                        continue;
+                    int cat = -1;
+                    std::string root;
+                    RecoverFamilyRoot(pkg, cat, root);
+                    if (root.empty() || cat < 0 || !seenRoots.insert(root).second)
+                        continue;
+                    const std::uint64_t fpk = FindFamilyChimeraPack(cat, root);
+                    const bool fpkOk = fpk != 0;
+                    if (fpkOk)
+                        AppendPackPath(arr, fpk);
+                    const std::uint64_t defEntry =
+                        RegisterFamilyArchives(root, equipId);
+                    if (cat == 0 && engineRoot.empty() && defEntry && fpkOk)
+                    {
+                        engineRoot = root;
+                        engineEntry = defEntry;
+                        engineFpk = fpk;
+                    }
+                    if (!familyList.empty())
+                        familyList += " ";
+                    familyList += kChimeraCatDirs[cat];
+                    familyList += ":";
+                    familyList += root;
+                    if (!fpkOk)
+                        familyList += "(no pack)";
+                }
+            }
+        }
+        if (engineEntry && !plan.donorEq)
+        {
+            const int idx = MotionEntryIndex(equipId);
+            void* table =
+                reinterpret_cast<void*>(ResolveGameAddress(gAddr.Equip_MotionEntryTable));
+            if (idx >= 0 && table)
+                WritePtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8,
+                              reinterpret_cast<void*>(engineEntry));
+        }
+        if (!engineEntry && plan.familyPack)
+            familyPackOk = AppendPackPath(arr, plan.familyPack);
+        if (!plan.donorEq && !plan.familyPack && !engineEntry &&
+            familyList.empty())
+            return;
+#ifdef _DEBUG
+        static std::set<std::uint32_t> mountLogged;
+        bool firstLog = false;
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            firstLog = mountLogged.insert(equipId).second;
+        }
+        if (firstLog)
+        {
+            if (plan.donorEq)
+                Log("[WeaponKey] motion pack mount: custom eq=%u -> donor eq=%u "
+                    "(donor family packages + donor EQP pack %016llX%s) + families "
+                    "[%s] appended to the engine's own loadout package list - every "
+                    "part family the engine maps for this weapon gets its chimera "
+                    "archive mounted, so each part's clips are resident regardless of "
+                    "which family they come from\n",
+                    equipId, plan.donorEq, plan.donorPack,
+                    plan.donorPack ? (donorPackOk ? " OK" : " FAIL") : "",
+                    familyList.empty() ? "-" : familyList.c_str());
+            else if (engineEntry)
+                Log("[WeaponKey] motion pack mount: custom eq=%u -> receiver family "
+                    "'%s' (engine motion map): entry = receiver/%s_default.mtar "
+                    "%016llX via collectible/chimera fpk %016llX + families [%s] "
+                    "mounted (the engine derives this weapon's clip NAMES from its "
+                    "receiver row, so the receiver family's default mtar is the one "
+                    "file guaranteed to contain them)\n",
+                    equipId, engineRoot.c_str(), engineRoot.c_str(), engineEntry,
+                    engineFpk, familyList.empty() ? "-" : familyList.c_str());
+            else
+                Log("[WeaponKey] motion pack mount: custom eq=%u families [%s] "
+                    "family pack %016llX%s appended to the engine's own loadout "
+                    "package list\n",
+                    equipId, familyList.empty() ? "-" : familyList.c_str(),
+                    plan.familyPack,
+                    plan.familyPack ? (familyPackOk ? " OK" : " FAIL") : "");
+        }
+#else
+        (void)donorPackOk;
+        (void)familyPackOk;
+        (void)engineFpk;
+#endif
+    }
+
+#ifdef _DEBUG
+    using BoltBoneFn_t = unsigned long long(__fastcall*)(
+        void*, unsigned long long, unsigned long long, unsigned long long);
+    static BoltBoneFn_t g_OrigBoltBoneIdx = nullptr;
+    static BoltBoneFn_t g_OrigBoltBoneWrite = nullptr;
+    static void** g_BoltBoneVtbl = nullptr;
+    static std::mutex g_BoltBoneMx;
+
+    struct CtlInfo
+    {
+        unsigned eq = 0;
+        void* iface = nullptr;
+    };
+    static std::map<void*, CtlInfo> g_CtlToEq;
+    static std::map<unsigned long long, unsigned> g_CtlLastHash;
+
+    using ChimSet_t = unsigned long long(__fastcall*)(
+        void*, unsigned long long, unsigned long long, unsigned long long,
+        unsigned long long, unsigned long long);
+    static BoltBoneFn_t g_OrigChimBoneIdx = nullptr;
+    static ChimSet_t g_OrigChimSet = nullptr;
+    static void** g_ChimVtbl = nullptr;
+
+    struct BoltWriteSample
+    {
+        void* addr = nullptr;
+        float x = 0, y = 0, z = 0;
+        unsigned eq = 0;
+        int checks = 0;
+    };
+    static std::map<void*, BoltWriteSample> g_BoltWriteSamples;
+
+    struct BoltModelSample
+    {
+        unsigned long long boneIdx = 0;
+        unsigned eq = 0;
+        void* writerCtl = nullptr;
+        unsigned long long lastWriteTick = 0;
+        bool haveRest = false;
+        unsigned char mtx[0x40] = {};
+        unsigned char rest[0x40] = {};
+    };
+    static std::map<void*, BoltModelSample> g_BoltModelSamples;
+
+    static bool CopyBoltBytesSEH(void* dst, const void* src, size_t n)
+    {
+        __try
+        {
+            memcpy(dst, src, n);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool ReadF32x3AtSEH(void* addr, float* out3)
+    {
+        __try
+        {
+            memcpy(out3, addr, 12);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static CtlInfo LookupCtlInfo(void* ctl)
+    {
+        std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+        auto it = g_CtlToEq.find(ctl);
+        return it == g_CtlToEq.end() ? CtlInfo{} : it->second;
+    }
+
+    static void* BoltPoseSlotAddr(void* ctl, unsigned long long slot, unsigned long long boneIdx)
+    {
+        void* models = ReadPtrAtSEH(ctl, 0x58);
+        if (!models)
+            return nullptr;
+        void* model = ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8);
+        if (!model)
+            return nullptr;
+        void* pose = ReadPtrAtSEH(model, 0xE0);
+        if (!pose)
+            return nullptr;
+        return static_cast<std::uint8_t*>(pose) + boneIdx * 0x40;
+    }
+
+    static unsigned long long __fastcall hkBoltBoneIdx(
+        void* ctl, unsigned long long slot, unsigned long long c, unsigned long long d)
+    {
+        const unsigned long long r = g_OrigBoltBoneIdx(ctl, slot, c, d);
+        const CtlInfo info = LookupCtlInfo(ctl);
+        {
+            std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+            g_CtlLastHash[reinterpret_cast<unsigned long long>(ctl) + slot] =
+                static_cast<unsigned>(c & 0xffffffffull);
+        }
+        static std::mutex mx;
+        static std::map<unsigned long long, int> cnt;
+        std::lock_guard<std::mutex> lock(mx);
+        int& n = cnt[(static_cast<unsigned long long>(info.eq) << 8) | (slot & 0xFF)];
+        ++n;
+        if (n <= 8)
+        {
+            void* models = ReadPtrAtSEH(ctl, 0x58);
+            void* model = models ? ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8) : nullptr;
+            Log("[WeaponKey] BoltBone GET-IDX ctl=%p slot=%llu hash=%08llX model=%p -> %lld eq=%u%s\n",
+                ctl, slot, c & 0xffffffffull, model,
+                static_cast<long long>(static_cast<int>(r)), info.eq,
+                (static_cast<int>(r) < 0)
+                    ? "  <<< NO BONE BOUND - the whole bolt drive is skipped for this slot"
+                    : "");
+        }
+        return r;
+    }
+
+    static unsigned long long __fastcall hkBoltBoneWrite(
+        void* ctl, unsigned long long slot, unsigned long long boneIdx, unsigned long long mtx)
+    {
+        const CtlInfo info = LookupCtlInfo(ctl);
+        const unsigned long long r = g_OrigBoltBoneWrite(ctl, slot, boneIdx, mtx);
+        void* addr = BoltPoseSlotAddr(ctl, slot, boneIdx);
+        float now[3] = { 0, 0, 0 };
+        const bool haveNow = addr && ReadF32x3AtSEH(static_cast<std::uint8_t*>(addr) + 0x30, now);
+        {
+            static std::mutex mx;
+            static std::map<unsigned long long, int> cnt;
+            std::lock_guard<std::mutex> lock(mx);
+            int& n = cnt[(static_cast<unsigned long long>(info.eq) << 8) | (slot & 0xFF)];
+            ++n;
+            if (n <= 10)
+                Log("[WeaponKey] BoltBone WRITE ctl=%p slot=%llu boneIdx=%llu eq=%u pose=%p "
+                    "pos=(%.5f %.5f %.5f) (matrix landed in the model's local pose buffer)\n",
+                    ctl, slot, boneIdx, info.eq, addr,
+                    haveNow ? now[0] : 0.0f, haveNow ? now[1] : 0.0f, haveNow ? now[2] : 0.0f);
+        }
+        if (haveNow)
+        {
+            std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+            BoltWriteSample& s = g_BoltWriteSamples[ctl];
+            s.addr = addr;
+            s.x = now[0]; s.y = now[1]; s.z = now[2];
+            s.eq = info.eq;
+        }
+        if (haveNow && info.eq && (info.eq - 0x367u) >= 6u &&
+            TppEquip_GetSubIdForEquipId(static_cast<int>(info.eq)) != 0)
+        {
+            void* models = ReadPtrAtSEH(ctl, 0x58);
+            void* model = models ? ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8) : nullptr;
+            if (model)
+            {
+                unsigned char m[0x40];
+                if (CopyBoltBytesSEH(m, reinterpret_cast<const void*>(mtx), 0x40))
+                {
+                    std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+                    BoltModelSample& s = g_BoltModelSamples[model];
+                    s.boneIdx = boneIdx;
+                    s.eq = info.eq;
+                    s.writerCtl = ctl;
+                    s.lastWriteTick = GetTickCount64();
+                    memcpy(s.mtx, m, 0x40);
+                }
+            }
+        }
+        if (info.iface && info.eq && (info.eq - 0x367u) >= 6u &&
+            g_OrigChimBoneIdx && g_OrigChimSet &&
+            TppEquip_GetSubIdForEquipId(static_cast<int>(info.eq)) != 0)
+        {
+            unsigned hash = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+                auto it = g_CtlLastHash.find(
+                    reinterpret_cast<unsigned long long>(ctl) + slot);
+                if (it != g_CtlLastHash.end())
+                    hash = it->second;
+            }
+            if (hash)
+            {
+                for (unsigned long long ch = 0; ch < 6; ++ch)
+                {
+                    const int cidx = static_cast<int>(
+                        g_OrigChimBoneIdx(info.iface, ch, 0, hash));
+                    if (cidx < 0)
+                        continue;
+                    g_OrigChimSet(info.iface, ch, 0,
+                                  static_cast<unsigned long long>(cidx), mtx, 0);
+                    static std::mutex mxB;
+                    static std::map<unsigned long long, int> cntB;
+                    std::lock_guard<std::mutex> lock(mxB);
+                    int& n = cntB[(static_cast<unsigned long long>(info.eq) << 8) | ch];
+                    ++n;
+                    if (n <= 12)
+                        Log("[WeaponKey] BoltBridge eq=%u ch=%llu chimIdx=%d "
+                            "(mirrored the engine-computed bolt matrix into the player-rig "
+                            "chimera model - if the bolt now MOVES on screen, the rendered "
+                            "in-hand model is the chimera instance and this bridge is the fix)\n",
+                            info.eq, ch, cidx);
+                }
+            }
+        }
+        return r;
+    }
+
+    static void CheckBoltWritePersist(void* ctl)
+    {
+        BoltWriteSample snap;
+        {
+            std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+            auto it = g_BoltWriteSamples.find(ctl);
+            if (it == g_BoltWriteSamples.end() || !it->second.addr || it->second.checks >= 6)
+                return;
+            ++it->second.checks;
+            snap = it->second;
+        }
+        float now[3] = { 0, 0, 0 };
+        if (!ReadF32x3AtSEH(static_cast<std::uint8_t*>(snap.addr) + 0x30, now))
+            return;
+        const bool same = (now[0] == snap.x) && (now[1] == snap.y) && (now[2] == snap.z);
+        Log("[WeaponKey] BoltBone PERSIST eq=%u ctl=%p addr=%p wrote=(%.5f %.5f %.5f) "
+            "nextFrame=(%.5f %.5f %.5f) -> %s\n",
+            snap.eq, ctl, snap.addr, snap.x, snap.y, snap.z, now[0], now[1], now[2],
+            same ? "PERSISTED (nothing overwrote the pose - if the bolt still looks frozen, "
+                   "the rendered weapon is a DIFFERENT model instance)"
+                 : "STOMPED (something re-poses this model every frame - the procedural "
+                   "write is being overwritten before render)");
+    }
+
+    static unsigned long long __fastcall hkChimBoneIdx(
+        void* iface, unsigned long long ch, unsigned long long part, unsigned long long hash)
+    {
+        const unsigned long long r = g_OrigChimBoneIdx(iface, ch, part, hash);
+        static std::mutex mx;
+        static std::map<unsigned long long, int> cnt;
+        std::lock_guard<std::mutex> lock(mx);
+        int& n = cnt[(ch << 40) | ((part & 0xFF) << 32) | (hash & 0xffffffffull)];
+        ++n;
+        if (n <= 6)
+            Log("[WeaponKey] ChimBone GET-IDX ch=%llu part=%llu hash=%08llX -> %lld "
+                "(the PLAYER-RIG bolt path - only equipIds 871-876 ever reach this)\n",
+                ch, part & 0xFF, hash & 0xffffffffull,
+                static_cast<long long>(static_cast<int>(r)));
+        return r;
+    }
+
+    static unsigned long long __fastcall hkChimSet(
+        void* iface, unsigned long long ch, unsigned long long part,
+        unsigned long long boneIdx, unsigned long long mtx, unsigned long long spare)
+    {
+        {
+            static std::mutex mx;
+            static std::map<unsigned long long, int> cnt;
+            std::lock_guard<std::mutex> lock(mx);
+            int& n = cnt[(ch << 8) | (part & 0xFF)];
+            ++n;
+            if (n <= 10)
+                Log("[WeaponKey] ChimBone WRITE ch=%llu part=%llu boneIdx=%llu "
+                    "(player-rig bolt matrix write)\n",
+                    ch, part & 0xFF, boneIdx);
+        }
+        return g_OrigChimSet(iface, ch, part, boneIdx, mtx, spare);
+    }
+
+    static void TryArmChimeraHooks(void* obj)
+    {
+        if (g_ChimVtbl)
+            return;
+        void* iface = ReadPtrAtSEH(obj, 0x120);
+        if (!iface)
+            return;
+        void** vtbl = static_cast<void**>(ReadPtrAtSEH(iface, 0));
+        if (!vtbl)
+            return;
+        void* idxFn = ReadPtrAtSEH(vtbl, 0x170);
+        void* setFn = ReadPtrAtSEH(vtbl, 0x188);
+        if (!idxFn || !setFn)
+            return;
+        DWORD oldProt = 0;
+        if (!VirtualProtect(&vtbl[0x170 / 8], sizeof(void*) * 4, PAGE_READWRITE, &oldProt))
+            return;
+        g_OrigChimBoneIdx = reinterpret_cast<BoltBoneFn_t>(idxFn);
+        g_OrigChimSet = reinterpret_cast<ChimSet_t>(setFn);
+        vtbl[0x170 / 8] = reinterpret_cast<void*>(&hkChimBoneIdx);
+        vtbl[0x188 / 8] = reinterpret_cast<void*>(&hkChimSet);
+        VirtualProtect(&vtbl[0x170 / 8], sizeof(void*) * 4, oldProt, &oldProt);
+        g_ChimVtbl = vtbl;
+        Log("[WeaponKey] chimera bolt probes armed: iface=%p vtbl=%p GET-IDX(+0x170)=%p "
+            "SET(+0x188)=%p (this is ChimeraSystemImpl - the path the 871-876 player builds "
+            "use; comparing its live calls against the standalone controller shows what the "
+            "custom weapon is missing)\n",
+            iface, vtbl, idxFn, setFn);
+    }
+
+    static BoltBoneFn_t g_OrigPutMotion = nullptr;
+    static BoltBoneFn_t g_OrigPutMotionAll = nullptr;
+
+    static bool SlotHasAnimControl(void* ctl, unsigned long long slot)
+    {
+        void* arr = ReadPtrAtSEH(ctl, 0x60);
+        return arr && ReadPtrAtSEH(arr, static_cast<size_t>(slot) * 8);
+    }
+
+    static void ReapplyBoltToModel(void* ctl, unsigned long long slot,
+                                   const char* fromFn, void* caller)
+    {
+        if (SlotHasAnimControl(ctl, slot))
+            return;
+        void* models = ReadPtrAtSEH(ctl, 0x58);
+        if (!models)
+            return;
+        void* model = ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8);
+        if (!model)
+            return;
+        BoltModelSample s;
+        {
+            std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+            auto it = g_BoltModelSamples.find(model);
+            if (it == g_BoltModelSamples.end())
+                return;
+            if (GetTickCount64() - it->second.lastWriteTick > 600)
+            {
+                g_BoltModelSamples.erase(it);
+                return;
+            }
+            s = it->second;
+        }
+        void* pose = ReadPtrAtSEH(model, 0xE0);
+        if (!pose)
+            return;
+        void* dst = static_cast<std::uint8_t*>(pose) + s.boneIdx * 0x40;
+        unsigned char restNow[0x40];
+        const bool gotRest = CopyBoltBytesSEH(restNow, dst, 0x40);
+        if (!CopyBoltBytesSEH(dst, s.mtx, 0x40))
+            return;
+        if (gotRest)
+        {
+            std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+            auto it = g_BoltModelSamples.find(model);
+            if (it != g_BoltModelSamples.end())
+            {
+                memcpy(it->second.rest, restNow, 0x40);
+                it->second.haveRest = true;
+            }
+        }
+        static std::mutex mx;
+        static std::map<void*, int> cnt;
+        std::lock_guard<std::mutex> lock(mx);
+        int& n = cnt[caller];
+        ++n;
+        if (n <= 8)
+            Log("[WeaponKey] BoltReapply eq=%u model=%p boneIdx=%llu ctl=%p after %s "
+                "(stomp caller=%p) - post-stomp rest captured as baseline, then the last "
+                "engine-computed bolt matrix re-applied for render\n",
+                s.eq, model, s.boneIdx, ctl, fromFn, caller);
+    }
+
+    static void RestoreBoltBaseline(void* ctl)
+    {
+        for (unsigned long long slot = 0; slot < 2; ++slot)
+        {
+            if (SlotHasAnimControl(ctl, slot))
+                continue;
+            void* models = ReadPtrAtSEH(ctl, 0x58);
+            if (!models)
+                return;
+            void* model = ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8);
+            if (!model)
+                continue;
+            BoltModelSample s;
+            {
+                std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+                auto it = g_BoltModelSamples.find(model);
+                if (it == g_BoltModelSamples.end() || !it->second.haveRest ||
+                    it->second.writerCtl != ctl)
+                    continue;
+                s = it->second;
+            }
+            void* pose = ReadPtrAtSEH(model, 0xE0);
+            if (!pose)
+                continue;
+            CopyBoltBytesSEH(static_cast<std::uint8_t*>(pose) + s.boneIdx * 0x40,
+                             s.rest, 0x40);
+        }
+    }
+
+    static unsigned long long __fastcall hkPutMotion(
+        void* ctl, unsigned long long slot, unsigned long long c, unsigned long long d)
+    {
+        const unsigned long long r = g_OrigPutMotion(ctl, slot, c, d);
+        ReapplyBoltToModel(ctl, slot, "PutMotion", _ReturnAddress());
+        return r;
+    }
+
+    static unsigned long long __fastcall hkPutMotionAll(
+        void* ctl, unsigned long long b, unsigned long long c, unsigned long long d)
+    {
+        const unsigned long long r = g_OrigPutMotionAll(ctl, b, c, d);
+        const int count = ReadByteAtSEH(ctl, 0x50);
+        for (int s = 0; s < count && s < 8; ++s)
+            ReapplyBoltToModel(ctl, static_cast<unsigned long long>(s),
+                               "PutMotionAll", _ReturnAddress());
+        return r;
+    }
+
+    using SetMotionDataFn_t = unsigned char(__fastcall*)(void*, unsigned int, void*);
+    using SetMotionByPathFn_t =
+        unsigned char(__fastcall*)(void*, unsigned int, unsigned long long);
+    static SetMotionDataFn_t g_OrigSetMotionData = nullptr;
+    static SetMotionByPathFn_t g_OrigSetMotionByPath = nullptr;
+    static int g_SetMotionDataSlot = -1;
+    static int g_SetMotionByPathSlot = -1;
+    static std::atomic<int> g_SetMotionLogBudget{ 400 };
+
+    static unsigned EqForCtl(void* ctl)
+    {
+        std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+        auto it = g_CtlToEq.find(ctl);
+        return it != g_CtlToEq.end() ? it->second.eq : 0;
+    }
+
+    static unsigned SlotLockFlag(void* ctl, unsigned int slot)
+    {
+        void* flagsArr = ReadPtrAtSEH(ctl, 0xd0);
+        return flagsArr ? (ReadByteAtSEH(flagsArr, slot) & 0xFF) : 0xFFFF;
+    }
+
+    static unsigned char __fastcall hkSetMotionData(void* ctl, unsigned int slot,
+                                                    void* desc)
+    {
+        const unsigned char r = g_OrigSetMotionData(ctl, slot, desc);
+        if (g_SetMotionLogBudget.fetch_sub(1) > 0)
+        {
+            const unsigned long long clip =
+                reinterpret_cast<unsigned long long>(ReadPtrAtSEH(desc, 8));
+            Log("[WeaponKey] SetMotionData ctl=%p slot=%u eq=%u clip=%016llX -> %s "
+                "flag=0x%02X (REFUSED with flag bit2 set = the control's motion mtar "
+                "never finished streaming - its data is not in any loaded pack)\n",
+                ctl, slot, EqForCtl(ctl), clip, r ? "SET" : "REFUSED",
+                SlotLockFlag(ctl, slot));
+        }
+        return r;
+    }
+
+    using AnimGetDataInfoFn_t = void(__fastcall*)(void*, void*);
+
+    static bool CallGetDataInfoSEH(void* fn, void* animFile, void* out)
+    {
+        __try
+        {
+            reinterpret_cast<AnimGetDataInfoFn_t>(fn)(animFile, out);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static std::atomic<int> g_RefuseForensicsBudget{ 24 };
+    static std::atomic<int> g_SetForensicsBudget{ 8 };
+
+    static void LogSetMotionForensics(void* ctl, unsigned int slot,
+                                      unsigned long long clip, unsigned char result)
+    {
+        void* slots = ReadPtrAtSEH(ctl, 0x60);
+        void* outer = slots ? ReadPtrAtSEH(slots, static_cast<size_t>(slot) * 8) : nullptr;
+        if (!outer)
+        {
+            Log("[WeaponKey] clip forensics ctl=%p slot=%u clip=%016llX: NO SimpleControl "
+                "bound for the slot - Realize never attached clip playback here\n",
+                ctl, slot, clip);
+            return;
+        }
+        const int innerOff = ReadDwordAtSEH2(outer, 0xc);
+        void* inner = static_cast<char*>(outer) + innerOff;
+        void* mtar = ReadPtrAtSEH(inner, 0x80);
+        if (!mtar)
+        {
+            Log("[WeaponKey] clip forensics ctl=%p slot=%u clip=%016llX: SimpleControl "
+                "%p has NO MtarFile bound (inner+0x80 empty) - the control exists but "
+                "carries no motion archive\n",
+                ctl, slot, clip, outer);
+            return;
+        }
+        void* dir = ReadPtrAtSEH(mtar, 0x98);
+        const int dirCount = dir ? ReadDwordAtSEH2(dir, 4) : -1;
+        const int dirFlags = dir
+            ? ((ReadByteAtSEH(dir, 0x12) & 0xFF) | ((ReadByteAtSEH(dir, 0x13) & 0xFF) << 8))
+            : -1;
+        void* af = nullptr;
+        void* dataPtr = nullptr;
+        int dataHead = -1;
+        if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+        {
+            af = CallGetAnimFileSEH(ResolveGameAddress(gAddr.Mtar_GetAnimFile), mtar, clip);
+            if (af && reinterpret_cast<uintptr_t>(af) > 1)
+            {
+                unsigned char info[0x60] = {};
+                if (CallGetDataInfoSEH(ResolveGameAddress(gAddr.Mtar_GetDataInfo), af, info))
+                {
+                    dataPtr = *reinterpret_cast<void**>(info);
+                    if (dataPtr)
+                        dataHead = ReadDwordAtSEH2(dataPtr, 0);
+                }
+            }
+        }
+        const char* ident = "UNKNOWN mtar";
+        static const struct { const char* path; const char* name; } kKnown[] = {
+            { "/Assets/tpp/motion/mtar/equip/chimera/receiver/hg02_default.mtar",
+              "receiver/hg02_default.mtar" },
+            { "/Assets/tpp/motion/mtar/equip/chimera/receiver/hg09_default.mtar",
+              "receiver/hg09_default.mtar" },
+            { "/Assets/tpp/motion/mtar/equip/chimera/assemble/ar00_asm.mtar",
+              "assemble/ar00_asm.mtar" },
+            { "/Assets/tpp/motion/mtar/player2/Receiver/pl_rcvr_hg02.mtar",
+              "player2/pl_rcvr_hg02.mtar" },
+        };
+        for (const auto& k : kKnown)
+        {
+            if (ResolveMtarForEntrySEH(FoxHashes::PathCode64Ext(k.path)) == mtar)
+            {
+                ident = k.name;
+                break;
+            }
+        }
+        void* models = ReadPtrAtSEH(ctl, 0x58);
+        void* model = models ? ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8) : nullptr;
+        int boneA = -1, boneB = -1;
+        if (model)
+        {
+            boneA = (ReadByteAtSEH(model, 0xa0 + 0x58) & 0xFF)
+                    | ((ReadByteAtSEH(model, 0xa0 + 0x59) & 0xFF) << 8);
+            void* ctxB = ReadPtrAtSEH(model, 0x190);
+            if (ctxB)
+                boneB = (ReadByteAtSEH(ctxB, 0x58) & 0xFF)
+                        | ((ReadByteAtSEH(ctxB, 0x59) & 0xFF) << 8);
+        }
+        Log("[WeaponKey] clip forensics ctl=%p slot=%u eq=%u clip=%016llX result=%s: "
+            "bound mtar=%p [%s] dir=%p entries=%d dirFlags=0x%04X | GetAnimFile -> %p "
+            "(%s) trackData=%p head=%d | model=%p boneCapA=%d boneCapB=%d (mtar identity "
+            "names which archive the control actually searches; GetAnimFile NULL = the "
+            "clip name is not in that archive; non-NULL with REFUSED = the downstream "
+            "track-vs-bone guard rejected it)\n",
+            ctl, slot, EqForCtl(ctl), clip, result ? "SET" : "REFUSED",
+            mtar, ident, dir, dirCount, dirFlags, af,
+            (reinterpret_cast<uintptr_t>(af) == 1) ? "FAULT" : (af ? "FOUND" : "MISS"),
+            dataPtr, dataHead, model, boneA, boneB);
+    }
+
+    static unsigned char __fastcall hkSetMotionByPath(void* ctl, unsigned int slot,
+                                                      unsigned long long clip)
+    {
+        const unsigned char r = g_OrigSetMotionByPath(ctl, slot, clip);
+        if (g_SetMotionLogBudget.fetch_sub(1) > 0)
+            Log("[WeaponKey] SetMotionByPath ctl=%p slot=%u eq=%u clip=%016llX -> %s "
+                "flag=0x%02X\n",
+                ctl, slot, EqForCtl(ctl), clip, r ? "SET" : "REFUSED",
+                SlotLockFlag(ctl, slot));
+        if (!r && g_RefuseForensicsBudget.fetch_sub(1) > 0)
+            LogSetMotionForensics(ctl, slot, clip, r);
+        else if (r && g_SetForensicsBudget.fetch_sub(1) > 0)
+            LogSetMotionForensics(ctl, slot, clip, r);
+        return r;
+    }
+
+    static void TryArmBoltBoneHooks(void* obj)
+    {
+        if (g_BoltBoneVtbl)
+            return;
+        void* ctl = ReadPtrAtSEH(obj, 0x30);
+        if (!ctl)
+            return;
+        void** vtbl = static_cast<void**>(ReadPtrAtSEH(ctl, 0));
+        if (!vtbl)
+            return;
+        void* idxFn = ReadPtrAtSEH(vtbl, 0x140);
+        void* writeFn = ReadPtrAtSEH(vtbl, 0x168);
+        void* putAllFn = ReadPtrAtSEH(vtbl, 0x200);
+        void* putFn = ReadPtrAtSEH(vtbl, 0x210);
+        if (!idxFn || !writeFn || !putAllFn || !putFn)
+            return;
+        DWORD oldProt = 0;
+        if (!VirtualProtect(&vtbl[0x140 / 8], sizeof(void*) * 6, PAGE_READWRITE, &oldProt))
+            return;
+        g_OrigBoltBoneIdx = reinterpret_cast<BoltBoneFn_t>(idxFn);
+        g_OrigBoltBoneWrite = reinterpret_cast<BoltBoneFn_t>(writeFn);
+        vtbl[0x140 / 8] = reinterpret_cast<void*>(&hkBoltBoneIdx);
+        vtbl[0x168 / 8] = reinterpret_cast<void*>(&hkBoltBoneWrite);
+        VirtualProtect(&vtbl[0x140 / 8], sizeof(void*) * 6, oldProt, &oldProt);
+        if (VirtualProtect(&vtbl[0x200 / 8], sizeof(void*) * 3, PAGE_READWRITE, &oldProt))
+        {
+            g_OrigPutMotionAll = reinterpret_cast<BoltBoneFn_t>(putAllFn);
+            g_OrigPutMotion = reinterpret_cast<BoltBoneFn_t>(putFn);
+            vtbl[0x200 / 8] = reinterpret_cast<void*>(&hkPutMotionAll);
+            vtbl[0x210 / 8] = reinterpret_cast<void*>(&hkPutMotion);
+            VirtualProtect(&vtbl[0x200 / 8], sizeof(void*) * 3, oldProt, &oldProt);
+        }
+        g_BoltBoneVtbl = vtbl;
+        if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+        {
+            void* smdTarget =
+                reinterpret_cast<void*>(ResolveGameAddress(gAddr.SimplePartsControllerImpl_SetMotionData));
+            void* smbpTarget =
+                reinterpret_cast<void*>(ResolveGameAddress(gAddr.SimplePartsControllerImpl_SetMotionDataByPath));
+            for (int i = 0; i < 0x300 / 8; ++i)
+            {
+                void* fn = ReadPtrAtSEH(vtbl, static_cast<size_t>(i) * 8);
+                if (fn == smdTarget)
+                    g_SetMotionDataSlot = i;
+                else if (fn == smbpTarget ||
+                         fn == reinterpret_cast<void*>(&hkClipArchiveFallback))
+                    g_SetMotionByPathSlot = i;
+            }
+            if (g_SetMotionDataSlot >= 0 && g_SetMotionByPathSlot >= 0)
+            {
+                const int lo = (g_SetMotionDataSlot < g_SetMotionByPathSlot)
+                                   ? g_SetMotionDataSlot : g_SetMotionByPathSlot;
+                const int hi = (g_SetMotionDataSlot < g_SetMotionByPathSlot)
+                                   ? g_SetMotionByPathSlot : g_SetMotionDataSlot;
+                DWORD prot = 0;
+                if (VirtualProtect(&vtbl[lo],
+                                   sizeof(void*) * static_cast<size_t>(hi - lo + 1),
+                                   PAGE_READWRITE, &prot))
+                {
+                    g_OrigSetMotionData = reinterpret_cast<SetMotionDataFn_t>(
+                        vtbl[g_SetMotionDataSlot]);
+                    g_OrigSetMotionByPath = reinterpret_cast<SetMotionByPathFn_t>(
+                        vtbl[g_SetMotionByPathSlot]);
+                    vtbl[g_SetMotionDataSlot] =
+                        reinterpret_cast<void*>(&hkSetMotionData);
+                    vtbl[g_SetMotionByPathSlot] =
+                        reinterpret_cast<void*>(&hkSetMotionByPath);
+                    VirtualProtect(&vtbl[lo],
+                                   sizeof(void*) * static_cast<size_t>(hi - lo + 1),
+                                   prot, &prot);
+                    Log("[WeaponKey] clip-set probes armed: SetMotionData slot +0x%X, "
+                        "SetMotionDataByPath slot +0x%X (logs every weapon clip the "
+                        "engine sets on a parts control - vanilla vs custom comparison "
+                        "shows whether the custom weapon's states ever set clips)\n",
+                        g_SetMotionDataSlot * 8, g_SetMotionByPathSlot * 8);
+                }
+            }
+            else
+                Log("[WeaponKey] clip-set probes NOT armed (SetMotionData/ByPath not "
+                    "found in vtbl scan: %d/%d)\n",
+                    g_SetMotionDataSlot, g_SetMotionByPathSlot);
+        }
+        Log("[WeaponKey] bolt-bone vtable probes armed: vtbl=%p GET-IDX(+0x140)=%p "
+            "WRITE(+0x168)=%p PutMotionAll(+0x200)=%p PutMotion(+0x210)=%p (PutMotion "
+            "default-poses any slot whose model has no anim control - the custom weapon's "
+            "case - so the bolt matrix is re-applied right after every such stomp)\n",
+            vtbl, idxFn, writeFn, putAllFn, putFn);
+    }
+#endif
+
+    static unsigned long long __fastcall hkPostPutMotion(
+        void* self, void* b, void* c, void* d)
+    {
+#ifdef _DEBUG
+        unsigned eq = 0;
+        bool tracked = false;
+        unsigned pre4[2] = { 0, 0 };
+        unsigned pre10[2] = { 0, 0 };
+        void* base = ReadPtrAtSEH(self, 0xe8);
+        if (base)
+        {
+            const unsigned w4 = ReadRecWord(base, 0, 4);
+            const unsigned hi = w4 & 0xF800u;
+            if (w4 != 0xFFFFFFFFu && (hi == 0x1000u || hi == 0x1800u))
+            {
+                eq = w4 & 0x7FFu;
+                tracked = true;
+                for (int s = 0; s < 2; ++s)
+                {
+                    pre4[s] = ReadRecWord(base, s, 4);
+                    pre10[s] = ReadRecWord(base, s, 0x10);
+                }
+            }
+        }
+        {
+            void* ctl = ReadPtrAtSEH(self, 0x30);
+            if (ctl)
+            {
+                CheckBoltWritePersist(ctl);
+                RestoreBoltBaseline(ctl);
+                if (tracked)
+                {
+                    TryArmBoltBoneHooks(self);
+                    TryArmChimeraHooks(self);
+                    CtlInfo info;
+                    info.eq = eq;
+                    info.iface = ReadPtrAtSEH(self, 0x120);
+                    std::lock_guard<std::mutex> lock(g_BoltBoneMx);
+                    g_CtlToEq[ctl] = info;
+                }
+            }
+        }
+        if (tracked && (pre10[0] & 0xFF) != 2)
+        {
+            static std::mutex mxA;
+            static std::map<unsigned, int> cntA;
+            std::lock_guard<std::mutex> lock(mxA);
+            int& n = cntA[eq];
+            ++n;
+            if (n <= 6)
+                Log("[WeaponKey] reader ACTIVE eq=%u obj=%p state=%04X (the reader is "
+                    "servicing this object while its bolt state is non-idle - if this "
+                    "line never appears for an equip whose DoFire obj armed the state, "
+                    "the two are different objects and the armed one is never updated)\n",
+                    eq, self, pre10[0]);
+        }
+        const unsigned long long r = g_OrigPostPutMotion(self, b, c, d);
+        if (tracked)
+        {
+            for (int s = 0; s < 2; ++s)
+            {
+                const unsigned post4 = ReadRecWord(base, s, 4);
+                const unsigned post10 = ReadRecWord(base, s, 0x10);
+                if (post4 == 0xFFFFFFFFu || post10 == 0xFFFFFFFFu)
+                    continue;
+                if (pre4[s] != post4 || pre10[s] != post10)
+                {
+                    static std::mutex mx;
+                    static std::map<unsigned, int> cnt;
+                    std::lock_guard<std::mutex> lock(mx);
+                    int& n = cnt[(eq << 4) | static_cast<unsigned>(s)];
+                    ++n;
+                    if (n <= 12)
+                        Log("[WeaponKey] BOLT PASS eq=%u slot=%d obj=%p rec4 %04X->%04X state "
+                            "%04X->%04X (the reader received and consumed a bolt/slide request "
+                            "for this weapon)\n",
+                            eq, s, self, pre4[s], post4, pre10[s], post10);
+                }
+            }
+        }
+        return r;
+#else
+        return g_OrigPostPutMotion(self, b, c, d);
+#endif
+    }
+
+
+    using PartsCtlCreateSlot_t =
+        void(__fastcall*)(void*, std::uint32_t, void*, std::uint8_t);
+    static PartsCtlCreateSlot_t g_OrigPartsCtlCreateSlot = nullptr;
+    static void* g_PartsCtlCreateSlotAddr = nullptr;
+
+    static uintptr_t PartsCtlCreateSlotAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140adde80ull;
+        default:                                          return 0;
+        }
+    }
+
+    struct RemapCreateFns
+    {
+        void* size;
+        void* place;
+        void* heap;
+        void* dtorPool;
+        void* dtorHeap;
+        void* aux;
+    };
+
+    static bool ResolveRemapCreateFns(RemapCreateFns& f)
+    {
+        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+            return false;
+        f.size = ResolveGameAddress(gAddr.Animx_GetControlSize);
+        f.place = ResolveGameAddress(gAddr.Animx_SimpleControlCtorPool);
+        f.heap = ResolveGameAddress(gAddr.Animx_SimpleControlCtorHeap);
+        f.dtorPool = ResolveGameAddress(gAddr.Animx_SimpleControlDtorPool);
+        f.dtorHeap = ResolveGameAddress(gAddr.Animx_SimpleControlDtorHeap);
+        f.aux = ResolveGameAddress(gAddr.Animx_SimpleControlAux);
+        return f.size && f.place && f.heap && f.dtorPool && f.dtorHeap && f.aux;
+    }
+
+    static int SnapshotControlsSEH(void* ctl, void** out, int cap)
+    {
+        __try
+        {
+            std::uint8_t* c = static_cast<std::uint8_t*>(ctl);
+            int n = *reinterpret_cast<std::int32_t*>(c + 0x8);
+            void** arr = *reinterpret_cast<void***>(c + 0x60);
+            if (!arr || n <= 0)
+                return 0;
+            if (n > cap)
+                n = cap;
+            for (int i = 0; i < n; ++i)
+                out[i] = arr[i];
+            return n;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int FindChangedControlSEH(void* ctl, void** before, int n)
+    {
+        __try
+        {
+            void** arr = *reinterpret_cast<void***>(
+                static_cast<std::uint8_t*>(ctl) + 0x60);
+            if (!arr)
+                return -1;
+            for (int i = 0; i < n; ++i)
+                if (arr[i] && arr[i] != before[i])
+                    return i;
+            return -1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    struct RemapCreateParams
+    {
+        std::uint32_t flags;
+        std::uint32_t count;
+        void* mtar;
+        void* model;
+        void* helpBone;
+    };
+
+    static int RebuildControlWithRemapSEH(void* ctlIn, int idx, void* infoIn,
+                                          const RemapCreateFns& f,
+                                          unsigned* outSize, unsigned* outStride)
+    {
+        __try
+        {
+            std::uint8_t* ctl = static_cast<std::uint8_t*>(ctlIn);
+            std::uint8_t* info = static_cast<std::uint8_t*>(infoIn);
+            void** ctlArr = *reinterpret_cast<void***>(ctl + 0x60);
+            void** mdlArr = *reinterpret_cast<void***>(ctl + 0x58);
+            if (!ctlArr || !mdlArr)
+                return -1;
+            std::uint8_t* old = static_cast<std::uint8_t*>(ctlArr[idx]);
+            void* model = mdlArr[idx];
+            if (!old || !model)
+                return -2;
+            std::uint8_t* desc = *reinterpret_cast<std::uint8_t**>(info + 0x10);
+            if (!desc)
+                return -3;
+            void* mtar = *reinterpret_cast<void**>(desc);
+            if (!mtar)
+                return -4;
+            std::uint8_t* inner = old + *reinterpret_cast<std::int32_t*>(old + 0xc);
+            if (*reinterpret_cast<std::int32_t*>(inner + 0x30) != 0)
+                return 1;
+            const std::uint8_t descFlags = desc[0xc];
+            RemapCreateParams p{};
+            p.flags = 0x200u
+                      | (*reinterpret_cast<void**>(ctl + 0x78) ? 8u : 0u)
+                      | ((descFlags & 2) ? 1u : 0u)
+                      | 4u;
+            p.count = *reinterpret_cast<std::uint32_t*>(desc + 8) + 1;
+            p.mtar = mtar;
+            p.model = model;
+            p.helpBone = nullptr;
+            if (descFlags & 1)
+            {
+                void* hb = *reinterpret_cast<void**>(
+                    static_cast<std::uint8_t*>(model) + 0xe0);
+                if (hb)
+                    p.helpBone = hb;
+            }
+            const std::uint64_t size =
+                reinterpret_cast<std::uint64_t(__fastcall*)(void*)>(f.size)(&p);
+            std::uint8_t* pool = *reinterpret_cast<std::uint8_t**>(ctl + 0x68);
+            const std::uint32_t stride = *reinterpret_cast<std::uint32_t*>(ctl + 0x70);
+            if (outSize)
+                *outSize = static_cast<unsigned>(size);
+            if (outStride)
+                *outStride = pool ? stride : 0u;
+            if (pool && size > stride)
+                return -5;
+            if (pool)
+                reinterpret_cast<void(__fastcall*)(void*)>(f.dtorPool)(old);
+            else
+                reinterpret_cast<void(__fastcall*)(void*)>(f.dtorHeap)(old);
+            ctlArr[idx] = nullptr;
+            void* fresh = nullptr;
+            if (pool)
+            {
+                void* mem = pool + static_cast<std::size_t>(stride)
+                                       * static_cast<unsigned>(idx);
+                reinterpret_cast<void*(__fastcall*)(void*, void*, std::uint64_t)>(
+                    f.place)(mem, &p, size);
+                fresh = mem;
+            }
+            else
+                fresh = reinterpret_cast<void*(__fastcall*)(void*)>(f.heap)(&p);
+            if (!fresh)
+            {
+                p.flags &= ~4u;
+                fresh = reinterpret_cast<void*(__fastcall*)(void*)>(f.heap)(&p);
+                if (!fresh)
+                    return -6;
+                ctlArr[idx] = fresh;
+                return -7;
+            }
+            if (*reinterpret_cast<void**>(ctl + 0xd8))
+            {
+                std::uint8_t* aux = *reinterpret_cast<std::uint8_t**>(ctl + 0xe8);
+                if (aux)
+                    reinterpret_cast<void(__fastcall*)(void*, void*)>(f.aux)(
+                        fresh, aux + static_cast<std::size_t>(idx) * 0x50);
+            }
+            ctlArr[idx] = fresh;
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -100;
+        }
+    }
+
+    static void* DescMtarSEH(void* info)
+    {
+        __try
+        {
+            std::uint8_t* desc = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(info) + 0x10);
+            return desc ? *reinterpret_cast<void**>(desc) : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static int MtarMaxTracksSEH(void* mtar)
+    {
+        __try
+        {
+            std::uint8_t* dir = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(mtar) + 0x98);
+            return dir ? *reinterpret_cast<std::uint16_t*>(dir + 8) : -1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static int ModelBoneCapSEH(void* ctl, int idx)
+    {
+        __try
+        {
+            void** mdlArr = *reinterpret_cast<void***>(
+                static_cast<std::uint8_t*>(ctl) + 0x58);
+            std::uint8_t* model =
+                mdlArr ? static_cast<std::uint8_t*>(mdlArr[idx]) : nullptr;
+            return model ? *reinterpret_cast<std::int16_t*>(model + 0xa0 + 0x58) : -1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static void __fastcall hkPartsCtlCreateSlot(void* ctl, std::uint32_t slot,
+                                                void* info, std::uint8_t d)
+    {
+        void* before[32] = {};
+        int n = 0;
+        if (ctl && info)
+            n = SnapshotControlsSEH(ctl, before, 32);
+        g_OrigPartsCtlCreateSlot(ctl, slot, info, d);
+        if (n <= 0)
+            return;
+        RemapCreateFns f{};
+        if (!ResolveRemapCreateFns(f))
+            return;
+        const int idx = FindChangedControlSEH(ctl, before, n);
+        void* mtar = (idx >= 0) ? DescMtarSEH(info) : nullptr;
+        const int need = mtar ? MtarMaxTracksSEH(mtar) : -1;
+        const int cap = (idx >= 0) ? ModelBoneCapSEH(ctl, idx) : -1;
+#ifdef _DEBUG
+        static std::atomic<int> probeBudget{ 40 };
+        if (idx >= 0 && probeBudget.fetch_sub(1) > 0)
+            Log("[WeaponKey] partsCtl create probe ctl=%p slot=%u idx=%d mtar=%p "
+                "mtarTracks=%d modelBoneCap=%d (a line with tracks-1 > cap is the "
+                "pairing the track guard refuses and the remap rebuild targets)\n",
+                ctl, slot, idx, mtar, need, cap);
+#endif
+        if (idx < 0 || !mtar)
+            return;
+        if (need <= 0 || cap < 0 || cap >= need - 1)
+            return;
+        std::uint32_t eq = 0;
+        {
+            std::uint64_t entries[64];
+            std::uint32_t eqIds[64];
+            int cnt = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                for (const auto& kv : g_RemapEntryEq)
+                {
+                    if (cnt >= 64)
+                        break;
+                    entries[cnt] = kv.first;
+                    eqIds[cnt] = kv.second;
+                    ++cnt;
+                }
+            }
+            for (int i = 0; i < cnt; ++i)
+                if (ResolveMtarForEntrySEH(entries[i]) == mtar)
+                {
+                    eq = eqIds[i];
+                    break;
+                }
+        }
+        if (idx != static_cast<int>(slot))
+        {
+            Log("[WeaponKey] remap control: eq=%u slot=%u SKIPPED (engine placed the "
+                "control at index %d, pool addressing would not match)\n",
+                eq, slot, idx);
+            return;
+        }
+        unsigned size = 0, stride = 0;
+        const int rc = RebuildControlWithRemapSEH(ctl, idx, info, f, &size, &stride);
+        static std::mutex mx;
+        static std::set<std::uint64_t> logged;
+        bool isNew;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            isNew = logged.size() < 128 &&
+                    logged.insert((static_cast<std::uint64_t>(eq) << 8)
+                                  | static_cast<std::uint8_t>(rc)).second;
+        }
+        if (!isNew)
+            return;
+        if (rc == 0)
+        {
+#ifdef _DEBUG
+            Log("[WeaponKey] remap control: eq=%u slot=%u rebuilt with the skeleton-"
+                "remap variant (size=%u poolStride=%u mtarTracks=%d modelBoneCap=%d) - "
+                "clips now bind to this weapon's bones by NAME, so chimera-rig clips "
+                "with more tracks than the model has bones drive the bones that exist "
+                "instead of being refused whole\n",
+                eq, slot, size, stride, need, cap);
+            void* pool = ReadPtrAtSEH(ctl, 0x68);
+            const int strideQ = ReadDwordAtSEH2(ctl, 0x70);
+            std::uint8_t* mem =
+                pool ? static_cast<std::uint8_t*>(pool)
+                           + static_cast<size_t>(strideQ) * idx
+                     : nullptr;
+            if (mem)
+            {
+                std::uint8_t* inner2 = mem + ReadDwordAtSEH2(mem, 0xc);
+                const int roff = ReadDwordAtSEH2(inner2, 0x30);
+                if (roff > 0 && roff < 0x2000)
+                {
+                    char buf[256];
+                    int bl = 0;
+                    buf[0] = 0;
+                    int miss = 0;
+                    for (int t = 0; t < need && t < 24; ++t)
+                    {
+                        const int w =
+                            (ReadByteAtSEH(inner2, roff + t * 2) & 0xFF)
+                            | ((ReadByteAtSEH(inner2, roff + t * 2 + 1) & 0xFF)
+                               << 8);
+                        if (w == 0xFFFF)
+                            ++miss;
+                        if (bl < 200)
+                            bl += _snprintf_s(buf + bl, sizeof(buf) - bl,
+                                              _TRUNCATE, " %d",
+                                              w == 0xFFFF ? -1 : w);
+                    }
+                    Log("[WeaponKey] remap table eq=%u: %d clip tracks, %d "
+                        "UNMAPPED (track order:%s) - each -1 is a chimera-rig "
+                        "bone the weapon model does not carry (for a revolver "
+                        "these are typically the cylinder BULLET bones, which "
+                        "is why loaded rounds never appear); adding bones with "
+                        "the chimera family's names to the fmdl makes those "
+                        "tracks bind\n",
+                        eq, need, miss, buf);
+                }
+            }
+#endif
+        }
+        else if (rc == 1)
+            ;
+        else if (rc == -5)
+            Log("[WeaponKey] remap control: eq=%u slot=%u NOT rebuilt - remap variant "
+                "needs %u bytes but the controller pool slot is %u; original control "
+                "kept\n",
+                eq, slot, size, stride);
+        else
+            Log("[WeaponKey] remap control: eq=%u slot=%u rebuild failed rc=%d "
+                "(size=%u poolStride=%u) - original control %s\n",
+                eq, slot, rc, size, stride,
+                (rc == -7) ? "recreated without remap" : "left as-is");
+    }
+
+    static unsigned long long __fastcall hkRealizedEquipRealize(
+        void* self, unsigned int a, unsigned int b)
+    {
+        FillCustomMotionEntries(self);
+        const unsigned long long r = g_OrigRealizedEquipRealize(self, a, b);
+#ifdef _DEBUG
+        void* desc = CallDescProviderSEH(self);
+        int d[6] = { -1, -1, -1, -1, -1, -1 };
+        if (desc)
+            for (int i = 0; i < 6; ++i)
+                d[i] = ReadByteAtSEH(desc, 0x78 + static_cast<size_t>(i));
+        if (r == 0)
+            return r;
+        void* recBase = ReadPtrAtSEH(self, 0xc8);
+        char recs[192];
+        int pos = 0;
+        recs[0] = 0;
+        for (std::uint32_t s = 0; s < 2 && recBase; ++s)
+        {
+            char hex[64];
+            int hp = 0;
+            for (int i = 0; i < 0x14; ++i)
+                hp += std::snprintf(hex + hp, sizeof(hex) - static_cast<size_t>(hp),
+                                    "%02X", ReadByteAtSEH(recBase, s * 0x14 + i) & 0xFF);
+            pos += std::snprintf(recs + pos, sizeof(recs) - static_cast<size_t>(pos),
+                                 " [%u]=%s", s, hex);
+        }
+        Log("[WeaponKey] Realize self=%p args=%u,%u ret=%llu desc=%p bytes(+78..7d)="
+            "%02X %02X %02X %02X %02X %02X recs:%s\n",
+            self, a, b, r, desc,
+            d[0] & 0xFF, d[1] & 0xFF, d[2] & 0xFF, d[3] & 0xFF, d[4] & 0xFF, d[5] & 0xFF,
+            recs);
+        unsigned base32 = 0;
+        for (int i = 0; i < 4; ++i)
+            base32 |= static_cast<unsigned>(ReadByteAtSEH(self, 0x34 + static_cast<size_t>(i)) & 0xFF)
+                      << (8 * i);
+        const unsigned vslot = a - base32;
+        void* vctl = ReadPtrAtSEH(self, 0x10);
+        unsigned eqRec = 0;
+        if (recBase && vslot < 2)
+            eqRec = ((ReadByteAtSEH(recBase, vslot * 0x14 + 4) & 0xFF)
+                     | ((ReadByteAtSEH(recBase, vslot * 0x14 + 5) & 0xFF) << 8)) & 0x7FF;
+        Log("[WeaponKey] Realize verdict eq=%u slot=%u ctl=%p animControl=%s (YES = the "
+            "motion-mtar entry resolved to a LOADED motion file and the clip control was "
+            "created - reload/cock clips should animate the parts; NO = entry missing OR "
+            "the mtar file is not resident in memory, parts stay frozen)\n",
+            eqRec, vslot, vctl,
+            (vctl && SlotHasAnimControl(vctl, vslot)) ? "YES" : "NO");
+        static std::atomic<int> resolverIdBudget{ 3 };
+        if (resolverIdBudget.fetch_sub(1) > 0)
+        {
+            void* p58 = ReadPtrAtSEH(self, 0x58);
+            void* v58 = p58 ? ReadPtrAtSEH(p58, 0) : nullptr;
+            void* f28 = v58 ? ReadPtrAtSEH(v58, 0x28) : nullptr;
+            void* p68 = ReadPtrAtSEH(self, 0x68);
+            void* v68 = p68 ? ReadPtrAtSEH(p68, 0) : nullptr;
+            void* f00 = v68 ? ReadPtrAtSEH(v68, 0) : nullptr;
+            Log("[WeaponKey] resolver identity: [REOI+0x58]=%p vtbl=%p mtarResolver(vtbl"
+                "+0x28)=%p | [REOI+0x68]=%p vtbl=%p provider(vtbl+0x00)=%p (static "
+                "addresses, no ASLR - game+offset maps directly into the EN154 "
+                "disassembly dump; the +0x28 target IS the entry-to-MtarFile resolver)\n",
+                p58, v58, f28, p68, v68, f00);
+        }
+#endif
+        return r;
+    }
+
+    static void* __fastcall hkGetAnimFromGani(void* self, unsigned long long pathId)
+    {
+        void* r = g_OrigGetAnimFromGani(self, pathId);
+
+#ifdef _DEBUG
+        static std::mutex mx;
+        static std::set<unsigned long long> seen;
+        bool isNew = false;
+        {
+            std::lock_guard<std::mutex> lock(mx);
+            if (seen.size() < 256)
+                isNew = seen.insert(pathId).second;
+        }
+        if (isNew)
+            Log("[WeaponKey] gani %s: path=%016llX eq=%u\n",
+                r ? "HIT " : "MISS", pathId, g_TlsCustomEquip);
+#endif
+        return r;
     }
 
     using SearchMotionData_t = void*(__fastcall*)(void*, unsigned long long, void*);
@@ -2819,10 +6315,82 @@ namespace
                     isNew = seen.insert(hash).second;
             }
             if (isNew)
+            {
+                const void* ra = _ReturnAddress();
+                std::uintptr_t canon = 0;
+                if (void* probe = ResolveGameAddress(0x140000000ull))
+                    canon = reinterpret_cast<std::uintptr_t>(ra)
+                          - reinterpret_cast<std::uintptr_t>(probe) + 0x140000000ull;
                 Log("[WeaponKey] motion clip MISS: hash=%016llX not found in any "
-                    "loaded mtar\n", hash);
+                    "loaded mtar | asked from RA=%p (canonical 0x%llX) self=%p pkg=%p\n",
+                    hash, ra, (unsigned long long)canon, self, pkg);
+            }
         }
         return r;
+    }
+
+    using EjectCasing_t = void(__fastcall*)(void*, unsigned int, bool);
+    static EjectCasing_t g_OrigEjectCasing = nullptr;
+    static void* g_EjectCasingAddr = nullptr;
+
+    static uintptr_t EjectCasingAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141303da0ull;
+        default:                                          return 0;
+        }
+    }
+
+    static void ProbeEjectSEH(void* self, unsigned int slot, std::uint32_t& subId,
+                              std::uint32_t& hw, std::uint8_t* d, void*& blk)
+    {
+        __try
+        {
+            std::uint8_t* a = static_cast<std::uint8_t*>(self);
+            std::uint8_t* e8 = *reinterpret_cast<std::uint8_t**>(a + 0xe8);
+            if (e8)
+                subId = *reinterpret_cast<std::uint16_t*>(
+                    e8 + 4 + static_cast<size_t>(slot) * 0x14) & 0x7ff;
+            std::uint8_t* t60 = *reinterpret_cast<std::uint8_t**>(a + 0x60);
+            std::uint8_t* idxArr = t60 ? *reinterpret_cast<std::uint8_t**>(t60 + 0x10)
+                                       : nullptr;
+            const int base54 = *reinterpret_cast<int*>(a + 0x54);
+            if (idxArr)
+                hw = *reinterpret_cast<std::uint32_t*>(
+                    idxArr + (static_cast<size_t>(base54) + slot) * 4);
+            std::uint8_t* t58 = *reinterpret_cast<std::uint8_t**>(a + 0x58);
+            std::uint8_t* table = t58 ? *reinterpret_cast<std::uint8_t**>(t58 + 0x28)
+                                      : nullptr;
+            if (table)
+                memcpy(d, table + static_cast<size_t>(hw) * 0xe, 14);
+            std::uint8_t** r68 = *reinterpret_cast<std::uint8_t***>(a + 0x68);
+            if (r68)
+            {
+                using Fn = void*(__fastcall*)(void*, std::uint8_t);
+                blk = reinterpret_cast<Fn>(
+                    *reinterpret_cast<void**>(*r68))(r68, d[8]);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void __fastcall hkEjectCasing(void* self, unsigned int slot, bool alt)
+    {
+        std::uint32_t subId = 0, hw = 0;
+        std::uint8_t d[14] = {};
+        void* blk = nullptr;
+        ProbeEjectSEH(self, slot, subId, hw, d, blk);
+        static std::atomic<std::uint32_t> lastSub{ 0xFFFFFFFF };
+        if (lastSub.exchange(subId, std::memory_order_relaxed) != subId)
+            Log("[WeaponKey] EjectCasing probe: subId=%u hw=%u tmplIdx=%u resolve=%p "
+                "desc=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X "
+                "%02X %02X\n",
+                subId, hw, d[8], blk, d[0], d[1], d[2], d[3], d[4], d[5], d[6],
+                d[7], d[8], d[9], d[10], d[11], d[12], d[13]);
+        g_OrigEjectCasing(self, slot, alt);
     }
 
     static std::set<std::uint32_t> g_KeyTypeLogged;
@@ -3021,6 +6589,41 @@ namespace
         }
     }
 
+    static int FixDescTemplateIndexSEH(void* self, std::uint32_t key, void* own)
+    {
+        __try
+        {
+            std::uint8_t* a = static_cast<std::uint8_t*>(self);
+            std::uint8_t* pool = *reinterpret_cast<std::uint8_t**>(a + 0x1d8);
+            if (!pool)
+                return -1;
+            std::uint8_t* op = static_cast<std::uint8_t*>(own);
+            if (op < pool)
+                return -1;
+            const size_t diff = static_cast<size_t>(op - pool);
+            if (diff % 0x90 != 0)
+                return -1;
+            const size_t idx = diff / 0x90;
+            if (idx >= 48)
+                return -1;
+            std::uint8_t* t = *reinterpret_cast<std::uint8_t**>(a + 0x120);
+            if (!t)
+                return -1;
+            std::uint8_t* table = *reinterpret_cast<std::uint8_t**>(t + 0x28);
+            if (!table)
+                return -1;
+            std::uint8_t* d = table + static_cast<size_t>(key >> 16) * 0xe;
+            if (d[8] == static_cast<std::uint8_t>(idx))
+                return 0;
+            d[8] = static_cast<std::uint8_t>(idx);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
     static void* __fastcall hkResolver150(void* self, std::uint32_t key)
     {
         if (g_InSetupWeaponInfo && g_HasSwaps.load(std::memory_order_relaxed))
@@ -3071,6 +6674,14 @@ namespace
                         "tag=0x%X eqpType %u -> %u%s\n",
                         g_TlsCustomEquip, vanilla, own, tag, cur & 0x1f, vanType,
                         patched ? " (patched)" : " (already matches)");
+#endif
+                const int descFix = FixDescTemplateIndexSEH(self, key, own);
+#ifdef _DEBUG
+                if (descFix == 1)
+                    Log("[WeaponKey] descriptor tmplIdx corrected for equipId=%u "
+                        "(casing eject restored)\n", g_TlsCustomEquip);
+#else
+                (void)descFix;
 #endif
             }
             return own;
@@ -3234,6 +6845,7 @@ namespace
         }
         g_ResolverB = rB;
         void* rtHookTarget = ResolveGameAddress(gAddr.MotionLoaderImpl_GetReceiverType);
+        void* ubHookTarget = ResolveGameAddress(gAddr.MotionLoaderImpl_GetUnderBarrelType);
         for (int k = 0; k < 5; ++k)
         {
             void* mB = VtblSlotSEH(rB, kPartVtblOff[k]);
@@ -3245,6 +6857,8 @@ namespace
                 note = "=resolverA";
             else if (mB == rtHookTarget)
                 note = "=GetReceiverType";
+            else if (ubHookTarget && mB == ubHookTarget)
+                note = "=GetUnderBarrelType";
             else
             {
                 int prev = -1;
@@ -3353,6 +6967,43 @@ namespace
         const std::uint32_t mappedThis = g_TlsCustomEquip;
         g_TlsCustomEquip = 0;
         g_TlsVanillaEquip = 0;
+
+        if (work)
+        {
+            std::uint8_t* wim = static_cast<std::uint8_t*>(work) + 0x1b0;
+            std::uint32_t mintKey = 0;
+            if (ReadU32AtSEH(wim, 0x90, mintKey) == 1 && mintKey != 0
+                && ReadByteAtSEH(wim, 0x7a) == 0)
+            {
+                const std::uint32_t mintEq = (mintKey & 0xFFFF) >> 5;
+                FamilyGb gbRow;
+                if (GetGbForEquipId(mintEq, gbRow) && gbRow.gb[0] != 0)
+                {
+                    const int rc = gbRow.gb[0];
+                    int rowVal = rc;
+                    if (rc > 233)
+                    {
+                        const auto it = g_ReceiverMotionDonor.find(rc);
+                        rowVal = (it != g_ReceiverMotionDonor.end()) ? it->second : 0;
+                    }
+                    if (rowVal > 0 && rowVal <= 233
+                        && WriteByteAtSEH(wim, 0x7a, static_cast<std::uint8_t>(rowVal)) == 1)
+                    {
+                        bool logIt = false;
+                        {
+                            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                            logIt = g_PartLogged.insert(0x40000000u | mintEq).second;
+                        }
+                        if (logIt)
+                            Log("[ChimeraMotion] minted weapon info for eq=%u carried no "
+                                "part-motion row (wi+0x7a=0; the hw=0 template mint skips the "
+                                "per-hw fill) - stamped row=%d from receiver %d so the bolt/"
+                                "slide transform binds.\n",
+                                mintEq, rowVal, rc);
+                    }
+                }
+            }
+        }
 
         if (work && g_HasSwaps.load(std::memory_order_relaxed))
         {
@@ -3477,6 +7128,102 @@ bool Install_WeaponKeyLog()
     else
         Log("[WeaponKey] SetupWeaponInfo key-log Install -> OK (target=%p)\n", target);
 #endif
+
+    if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+    {
+        g_MotionEntryAAddr = ResolveGameAddress(gAddr.Equip_MotionEntrySlotHookA);
+        const bool aOk = CreateAndEnableHook(
+            g_MotionEntryAAddr, &hkMotionEntryA,
+            reinterpret_cast<void**>(&g_OrigMotionEntryA));
+        if (!aOk) g_MotionEntryAAddr = nullptr;
+
+        g_MotionEntryBAddr = ResolveGameAddress(gAddr.Equip_MotionEntrySlotHookB);
+        const bool bOk = CreateAndEnableHook(
+            g_MotionEntryBAddr, &hkMotionEntryB,
+            reinterpret_cast<void**>(&g_OrigMotionEntryB));
+        if (!bOk) g_MotionEntryBAddr = nullptr;
+
+        Log("[WeaponKey] motion-entry slot tracking A=%s B=%s\n",
+            aOk ? "armed" : "FAILED", bOk ? "armed" : "FAILED");
+    }
+
+    const uintptr_t gcsAddr = GetControlStringAddr();
+    if (gcsAddr)
+    {
+        g_GetControlStringAddr = ResolveGameAddress(gcsAddr);
+        const bool gcsOk = CreateAndEnableHook(
+            g_GetControlStringAddr, &hkGetControlString,
+            reinterpret_cast<void**>(&g_OrigGetControlString));
+        Log("[WeaponKey] unbound animation-port report %s (GetControlString=%p; reports a blend "
+            "layer that was never bound to a clip - almost always a part id past the end of one "
+            "of MotionLoaderImpl's type tables)\n",
+            gcsOk ? "armed" : "FAILED", g_GetControlStringAddr);
+        if (!gcsOk)
+            g_GetControlStringAddr = nullptr;
+    }
+
+    const uintptr_t svAddr = GetStringValueByIndexAddr();
+    if (svAddr)
+    {
+        g_GetStringValueByIndexAddr = ResolveGameAddress(svAddr);
+        const bool svOk = CreateAndEnableHook(
+            g_GetStringValueByIndexAddr, &hkGetStringValueByIndex,
+            reinterpret_cast<void**>(&g_OrigGetStringValueByIndex));
+        Log("[WeaponKey] string-value probe %s (GetStringValueByIndex=%p; logs the control-port "
+            "index and the binder's array bases so the malformed value can be located exactly)\n",
+            svOk ? "armed" : "FAILED", g_GetStringValueByIndexAddr);
+        if (!svOk)
+            g_GetStringValueByIndexAddr = nullptr;
+    }
+
+    const uintptr_t realizeAddr = RealizedEquipRealizeAddr();
+    if (realizeAddr)
+    {
+        g_RealizeAddr = ResolveGameAddress(realizeAddr);
+        const bool rOk = CreateAndEnableHook(
+            g_RealizeAddr, &hkRealizedEquipRealize,
+            reinterpret_cast<void**>(&g_OrigRealizedEquipRealize));
+        Log("[WeaponKey] weapon-motion entry alias %s (RealizedEquipObjectImpl::Realize=%p; "
+            "custom weapon equipIds get their empty per-equipId motion-mtar entry aliased to "
+            "the familyFrom donor - or the vanilla owner of a shared subId - so Realize builds "
+            "the real anim control: clip-driven bolt/parts animation like vanilla weapons)\n",
+            rOk ? "armed" : "FAILED", g_RealizeAddr);
+        if (!rOk)
+            g_RealizeAddr = nullptr;
+    }
+
+#ifdef _DEBUG
+    const uintptr_t ganiFixAddr = GetAnimFileFromGaniPathAddr();
+    if (ganiFixAddr)
+    {
+        g_GetAnimFromGaniAddr = ResolveGameAddress(ganiFixAddr);
+        const bool ganiOk = CreateAndEnableHook(
+            g_GetAnimFromGaniAddr, &hkGetAnimFromGani,
+            reinterpret_cast<void**>(&g_OrigGetAnimFromGani));
+        Log("[WeaponKey] gani clip tracer %s (GetAnimFileFromGaniPath=%p; logs which animation "
+            "clips resolve and which miss)\n",
+            ganiOk ? "armed" : "FAILED", g_GetAnimFromGaniAddr);
+        if (!ganiOk)
+            g_GetAnimFromGaniAddr = nullptr;
+    }
+
+    const uintptr_t ppmAddr = PostPutMotionAddr();
+    if (ppmAddr)
+    {
+        g_PostPutMotionAddr = ResolveGameAddress(ppmAddr);
+        const bool pOk = CreateAndEnableHook(
+            g_PostPutMotionAddr, &hkPostPutMotion,
+            reinterpret_cast<void**>(&g_OrigPostPutMotion));
+        Log("[WeaponKey] reader probe %s (PostPutMotionExecute=%p; diffs each record's "
+            "request bit and state words across the reader call - a BOLT PASS line proves the "
+            "per-shot request reached AND was consumed for that weapon, with no extra hooks "
+            "on the unknown-arity apply functions)\n",
+            pOk ? "armed" : "FAILED", g_PostPutMotionAddr);
+        if (!pOk)
+            g_PostPutMotionAddr = nullptr;
+    }
+#endif
+
 #ifdef _DEBUG
     const uintptr_t fsmAddr = AttackFsmStateChangeAddr();
     if (fsmAddr)
@@ -3502,12 +7249,73 @@ bool Install_WeaponKeyLog()
         if (!missOk)
             g_SearchMotionDataAddr = nullptr;
     }
+    const uintptr_t ejAddr = EjectCasingAddr();
+    if (ejAddr)
+    {
+        g_EjectCasingAddr = ResolveGameAddress(ejAddr);
+        const bool ejOk = CreateAndEnableHook(
+            g_EjectCasingAddr, &hkEjectCasing,
+            reinterpret_cast<void**>(&g_OrigEjectCasing));
+        Log("[WeaponKey] casing-eject probe %s (EjectCasing=%p)\n",
+            ejOk ? "armed" : "FAILED", g_EjectCasingAddr);
+        if (!ejOk)
+            g_EjectCasingAddr = nullptr;
+    }
 #endif
     return ok;
 }
 
 void Uninstall_WeaponKeyLog()
 {
+#ifdef _DEBUG
+    if (g_BoltBoneVtbl)
+    {
+        DWORD oldProt = 0;
+        if (VirtualProtect(&g_BoltBoneVtbl[0x140 / 8], sizeof(void*) * 6, PAGE_READWRITE, &oldProt))
+        {
+            g_BoltBoneVtbl[0x140 / 8] = reinterpret_cast<void*>(g_OrigBoltBoneIdx);
+            g_BoltBoneVtbl[0x168 / 8] = reinterpret_cast<void*>(g_OrigBoltBoneWrite);
+            VirtualProtect(&g_BoltBoneVtbl[0x140 / 8], sizeof(void*) * 6, oldProt, &oldProt);
+        }
+        if (g_OrigPutMotionAll && g_OrigPutMotion &&
+            VirtualProtect(&g_BoltBoneVtbl[0x200 / 8], sizeof(void*) * 3, PAGE_READWRITE, &oldProt))
+        {
+            g_BoltBoneVtbl[0x200 / 8] = reinterpret_cast<void*>(g_OrigPutMotionAll);
+            g_BoltBoneVtbl[0x210 / 8] = reinterpret_cast<void*>(g_OrigPutMotion);
+            VirtualProtect(&g_BoltBoneVtbl[0x200 / 8], sizeof(void*) * 3, oldProt, &oldProt);
+        }
+        if (g_OrigSetMotionData && g_SetMotionDataSlot >= 0 &&
+            VirtualProtect(&g_BoltBoneVtbl[g_SetMotionDataSlot], sizeof(void*),
+                           PAGE_READWRITE, &oldProt))
+        {
+            g_BoltBoneVtbl[g_SetMotionDataSlot] =
+                reinterpret_cast<void*>(g_OrigSetMotionData);
+            VirtualProtect(&g_BoltBoneVtbl[g_SetMotionDataSlot], sizeof(void*),
+                           oldProt, &oldProt);
+        }
+        if (g_OrigSetMotionByPath && g_SetMotionByPathSlot >= 0 &&
+            VirtualProtect(&g_BoltBoneVtbl[g_SetMotionByPathSlot], sizeof(void*),
+                           PAGE_READWRITE, &oldProt))
+        {
+            g_BoltBoneVtbl[g_SetMotionByPathSlot] =
+                reinterpret_cast<void*>(g_OrigSetMotionByPath);
+            VirtualProtect(&g_BoltBoneVtbl[g_SetMotionByPathSlot], sizeof(void*),
+                           oldProt, &oldProt);
+        }
+        g_BoltBoneVtbl = nullptr;
+    }
+    if (g_ChimVtbl)
+    {
+        DWORD oldProt = 0;
+        if (VirtualProtect(&g_ChimVtbl[0x170 / 8], sizeof(void*) * 4, PAGE_READWRITE, &oldProt))
+        {
+            g_ChimVtbl[0x170 / 8] = reinterpret_cast<void*>(g_OrigChimBoneIdx);
+            g_ChimVtbl[0x188 / 8] = reinterpret_cast<void*>(g_OrigChimSet);
+            VirtualProtect(&g_ChimVtbl[0x170 / 8], sizeof(void*) * 4, oldProt, &oldProt);
+        }
+        g_ChimVtbl = nullptr;
+    }
+#endif
     if (g_Resolver20Addr)  { DisableAndRemoveHook(g_Resolver20Addr);  g_Resolver20Addr  = nullptr; }
     if (g_Resolver40Addr)  { DisableAndRemoveHook(g_Resolver40Addr);  g_Resolver40Addr  = nullptr; }
     if (g_Resolver150Addr) { DisableAndRemoveHook(g_Resolver150Addr); g_Resolver150Addr = nullptr; }
@@ -3543,6 +7351,55 @@ void Uninstall_WeaponKeyLog()
         g_SearchMotionDataAddr = nullptr;
     }
     g_OrigSearchMotionData = nullptr;
+
+    if (g_MotionEntryAAddr)
+    {
+        DisableAndRemoveHook(g_MotionEntryAAddr);
+        g_MotionEntryAAddr = nullptr;
+    }
+    g_OrigMotionEntryA = nullptr;
+
+    if (g_MotionEntryBAddr)
+    {
+        DisableAndRemoveHook(g_MotionEntryBAddr);
+        g_MotionEntryBAddr = nullptr;
+    }
+    g_OrigMotionEntryB = nullptr;
+
+    if (g_GetControlStringAddr)
+    {
+        DisableAndRemoveHook(g_GetControlStringAddr);
+        g_GetControlStringAddr = nullptr;
+    }
+    g_OrigGetControlString = nullptr;
+
+    if (g_GetStringValueByIndexAddr)
+    {
+        DisableAndRemoveHook(g_GetStringValueByIndexAddr);
+        g_GetStringValueByIndexAddr = nullptr;
+    }
+    g_OrigGetStringValueByIndex = nullptr;
+
+    if (g_GetAnimFromGaniAddr)
+    {
+        DisableAndRemoveHook(g_GetAnimFromGaniAddr);
+        g_GetAnimFromGaniAddr = nullptr;
+    }
+    g_OrigGetAnimFromGani = nullptr;
+
+    if (g_EjectCasingAddr)
+    {
+        DisableAndRemoveHook(g_EjectCasingAddr);
+        g_EjectCasingAddr = nullptr;
+    }
+    g_OrigEjectCasing = nullptr;
+
+    if (g_RealizeAddr)
+    {
+        DisableAndRemoveHook(g_RealizeAddr);
+        g_RealizeAddr = nullptr;
+    }
+    g_OrigRealizedEquipRealize = nullptr;
 }
 
 bool Install_GunInfoGuard()
@@ -3559,14 +7416,142 @@ bool Install_GunInfoGuard()
     else
         Log("[EquipParam] SetUpGunInfo guard Install -> OK (target=%p)\n", target);
 #endif
+    const uintptr_t addMtar = AddMtarBlockPackagePathsAddr();
+    if (addMtar)
+    {
+        g_AddMtarBlockPackagePathsAddr = ResolveGameAddress(addMtar);
+        const bool ok2 = CreateAndEnableHook(
+            g_AddMtarBlockPackagePathsAddr, &hkAddMtarBlockPackagePaths,
+            reinterpret_cast<void**>(&g_OrigAddMtarBlockPackagePaths));
+        if (!ok2)
+        {
+            Log("[EquipParam] AddMtarBlockPackagePaths mount hook Install -> FAIL "
+                "(target=%p)\n", g_AddMtarBlockPackagePathsAddr);
+            g_AddMtarBlockPackagePathsAddr = nullptr;
+        }
+#ifdef _DEBUG
+        else
+            Log("[EquipParam] AddMtarBlockPackagePaths mount hook Install -> OK "
+                "(target=%p)\n", g_AddMtarBlockPackagePathsAddr);
+#endif
+    }
+    if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4)
+    {
+        g_ReloadChimeraPartsAddr = ResolveGameAddress(gAddr.Equip_ReloadChimeraPartsInfoTable);
+        const bool okC = CreateAndEnableHook(
+            g_ReloadChimeraPartsAddr, &hkReloadChimeraPartsInfoTable,
+            reinterpret_cast<void**>(&g_OrigReloadChimeraParts));
+        if (!okC)
+        {
+            Log("[EquipParam] ReloadChimeraPartsInfoTable capture Install -> FAIL "
+                "(target=%p)\n", g_ReloadChimeraPartsAddr);
+            g_ReloadChimeraPartsAddr = nullptr;
+        }
+#ifdef _DEBUG
+        else
+            Log("[EquipParam] ReloadChimeraPartsInfoTable capture Install -> OK "
+                "(target=%p; pack names harvested at parse time feed the family "
+                "mount gate)\n", g_ReloadChimeraPartsAddr);
+#endif
+        g_GetAnimFileAddr = ResolveGameAddress(gAddr.Mtar_GetAnimFile);
+        const bool okG = CreateAndEnableHook(
+            g_GetAnimFileAddr, &hkGetAnimFile,
+            reinterpret_cast<void**>(&g_OrigGetAnimFile));
+        if (!okG)
+        {
+            Log("[EquipParam] mtar GetAnimFile merge hook Install -> FAIL "
+                "(target=%p)\n", g_GetAnimFileAddr);
+            g_GetAnimFileAddr = nullptr;
+        }
+#ifdef _DEBUG
+        else
+            Log("[EquipParam] mtar GetAnimFile merge hook Install -> OK (target=%p; "
+                "a clip missing from a weapon's bound archive is served from any "
+                "registered resident family archive that contains it - the lookup-"
+                "time equivalent of shipping one merged per-weapon mtar)\n",
+                g_GetAnimFileAddr);
+#endif
+        g_HideMagazineAddr = ResolveGameAddress(gAddr.EquipSystemImpl_HideMagazine);
+        const bool okH = CreateAndEnableHook(
+            g_HideMagazineAddr, &hkHideMagazine,
+            reinterpret_cast<void**>(&g_OrigHideMagazine));
+        if (!okH)
+        {
+            Log("[EquipParam] HideMagazine guard Install -> FAIL (target=%p)\n",
+                g_HideMagazineAddr);
+            g_HideMagazineAddr = nullptr;
+        }
+#ifdef _DEBUG
+        else
+            Log("[EquipParam] HideMagazine guard Install -> OK (target=%p; while a "
+                "custom weapon plays a cross-family clip - an under-barrel action - "
+                "the engine's request to hide the weapon's OWN magazine is refused, "
+                "so the rifle mag no longer vanishes during UB reloads)\n",
+                g_HideMagazineAddr);
+#endif
+    }
+    const uintptr_t creator = PartsCtlCreateSlotAddr();
+    if (creator)
+    {
+        g_PartsCtlCreateSlotAddr = ResolveGameAddress(creator);
+        const bool ok3 = CreateAndEnableHook(
+            g_PartsCtlCreateSlotAddr, &hkPartsCtlCreateSlot,
+            reinterpret_cast<void**>(&g_OrigPartsCtlCreateSlot));
+        if (!ok3)
+        {
+            Log("[EquipParam] parts-control remap-create hook Install -> FAIL "
+                "(target=%p)\n", g_PartsCtlCreateSlotAddr);
+            g_PartsCtlCreateSlotAddr = nullptr;
+        }
+#ifdef _DEBUG
+        else
+            Log("[EquipParam] parts-control remap-create hook Install -> OK "
+                "(target=%p; custom weapons get the skeleton-remap control variant, "
+                "so receiver-family clips authored for the bigger chimera rig bind "
+                "per-bone instead of being refused by the track-count guard)\n",
+                g_PartsCtlCreateSlotAddr);
+#endif
+    }
+    ArmClipArchiveFallback();
     return ok;
 }
 
 void Uninstall_GunInfoGuard()
 {
+    DisarmClipArchiveFallback();
+    if (g_PartsCtlCreateSlotAddr)
+    {
+        DisableAndRemoveHook(g_PartsCtlCreateSlotAddr);
+        g_PartsCtlCreateSlotAddr = nullptr;
+    }
+    g_OrigPartsCtlCreateSlot = nullptr;
     if (gAddr.EquipSystem_SetUpGunInfoFromGunPartsDesc && g_OrigSetUpGunInfo)
         DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipSystem_SetUpGunInfoFromGunPartsDesc));
     g_OrigSetUpGunInfo = nullptr;
+    if (g_AddMtarBlockPackagePathsAddr)
+    {
+        DisableAndRemoveHook(g_AddMtarBlockPackagePathsAddr);
+        g_AddMtarBlockPackagePathsAddr = nullptr;
+    }
+    g_OrigAddMtarBlockPackagePaths = nullptr;
+    if (g_ReloadChimeraPartsAddr)
+    {
+        DisableAndRemoveHook(g_ReloadChimeraPartsAddr);
+        g_ReloadChimeraPartsAddr = nullptr;
+    }
+    g_OrigReloadChimeraParts = nullptr;
+    if (g_GetAnimFileAddr)
+    {
+        DisableAndRemoveHook(g_GetAnimFileAddr);
+        g_GetAnimFileAddr = nullptr;
+    }
+    g_OrigGetAnimFile = nullptr;
+    if (g_HideMagazineAddr)
+    {
+        DisableAndRemoveHook(g_HideMagazineAddr);
+        g_HideMagazineAddr = nullptr;
+    }
+    g_OrigHideMagazine = nullptr;
 }
 
 namespace
@@ -3577,7 +7562,7 @@ namespace
     static DefineFireSound_t g_OrigDefineFireSound = nullptr;
 
     static bool ApplyEventSoundSEH(void* sys, const char* name,
-                                   unsigned int* outHashes)
+                                   unsigned int* outHashes, bool alsoSuppressed)
     {
         __try
         {
@@ -3594,8 +7579,38 @@ namespace
                 return false;
             const unsigned int h = fn(obj, name);
             outHashes[0] = h;
-            outHashes[1] = h;
             outHashes[2] = h;
+            if (alsoSuppressed)
+            {
+                outHashes[1] = h;
+                outHashes[3] = h;
+            }
+            return true;
+        }
+        __except (SehAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+
+    static bool ApplySupSoundSEH(void* sys, const char* name,
+                                 unsigned int* outHashes)
+    {
+        __try
+        {
+            std::uint8_t* obj =
+                *reinterpret_cast<std::uint8_t**>(static_cast<std::uint8_t*>(sys) + 0x1d8);
+            if (!obj || !outHashes)
+                return false;
+            std::uint8_t* vtbl = *reinterpret_cast<std::uint8_t**>(obj);
+            if (!vtbl)
+                return false;
+            using Hasher_t = unsigned int(__fastcall*)(void*, const char*);
+            Hasher_t fn = *reinterpret_cast<Hasher_t*>(vtbl + 0x18);
+            if (!fn)
+                return false;
+            const unsigned int h = fn(obj, name);
+            outHashes[1] = h;
             outHashes[3] = h;
             return true;
         }
@@ -3610,9 +7625,7 @@ namespace
                                              char suffixSel, char buildSup,
                                              unsigned int* outHashes)
     {
-        std::string text;
-        int mSeg = -1;
-        bool isEvent = false;
+        FireSoundSpec spec;
         bool found = false;
         if (root)
         {
@@ -3627,31 +7640,57 @@ namespace
                     auto it = g_FireSoundByRow.find(idx);
                     if (it != g_FireSoundByRow.end())
                     {
-                        text = it->second.text;
-                        mSeg = it->second.mSeg;
-                        isEvent = it->second.isEvent;
+                        spec = it->second;
                         found = true;
                     }
                 }
             }
         }
-        if (found && !text.empty())
+        const bool haveSup = found && !spec.supText.empty();
+
+        bool handled = false;
+        bool origRan = false;
+        if (found && !spec.text.empty())
         {
-            if (isEvent)
+            if (spec.isEvent)
             {
-                if (ApplyEventSoundSEH(sys, text.c_str(), outHashes))
-                    return;
+                if (!haveSup)
+                {
+                    g_OrigDefineFireSound(sys, eqpType, r8, root, suffixSel,
+                                          buildSup, outHashes);
+                    origRan = true;
+                }
+                handled = ApplyEventSoundSEH(sys, spec.text.c_str(), outHashes,
+                                             haveSup);
+                if (!handled && origRan)
+                    handled = true;
             }
             else
             {
-                const unsigned int et = (mSeg >= 0)
-                    ? static_cast<unsigned int>(mSeg) : eqpType;
-                g_OrigDefineFireSound(sys, et, r8, text.c_str(),
+                const unsigned int et = (spec.mSeg >= 0)
+                    ? static_cast<unsigned int>(spec.mSeg) : eqpType;
+                g_OrigDefineFireSound(sys, et, r8, spec.text.c_str(),
                                       suffixSel, buildSup, outHashes);
-                return;
+                handled = true;
             }
         }
-        g_OrigDefineFireSound(sys, eqpType, r8, root, suffixSel, buildSup, outHashes);
+        if (!handled)
+            g_OrigDefineFireSound(sys, eqpType, r8, root, suffixSel, buildSup,
+                                  outHashes);
+        if (found && !spec.supText.empty())
+        {
+            std::string supName;
+            if (spec.supIsEvent)
+                supName = spec.supText;
+            else
+            {
+                supName = "sfx_w_p_";
+                supName += spec.supText;
+                supName += "_sup";
+                supName += suffixSel != 0 ? "_nonact" : "_active";
+            }
+            ApplySupSoundSEH(sys, supName.c_str(), outHashes);
+        }
     }
 }
 
@@ -3709,6 +7748,50 @@ namespace
 {
     using UpdateLoadoutRequest_t = void(__fastcall*)(void*, std::uint32_t);
     static UpdateLoadoutRequest_t g_OrigUpdateLoadoutRequest = nullptr;
+
+
+    static thread_local bool t_LoadoutBuildActive = false;
+
+    using GetGunInfoById_t = void*(__fastcall*)(void* self, unsigned int equipId);
+    static GetGunInfoById_t g_OrigGetGunInfoById = nullptr;
+
+    static thread_local unsigned char t_GunInfoRing[8][0x90];
+    static thread_local int t_GunInfoRingIdx = 0;
+
+    static void* BuildLoadoutGunInfoOnMissSEH(void* self, unsigned int equipId)
+    {
+        unsigned char* buf = t_GunInfoRing[t_GunInfoRingIdx & 7];
+        t_GunInfoRingIdx = (t_GunInfoRingIdx + 1) & 7;
+        __try
+        {
+            std::memset(buf, 0, 0x90);
+            *reinterpret_cast<std::uint16_t*>(buf + 0x5e) =
+                static_cast<std::uint16_t>(equipId);
+            void** vt = *reinterpret_cast<void***>(self);
+            using BuildGunInfo_t = void(__fastcall*)(void*, unsigned int, void*);
+            BuildGunInfo_t builder =
+                reinterpret_cast<BuildGunInfo_t>(vt[(0x158 + 0xF0) / 8]);
+            builder(self, equipId, buf);
+            return buf;
+        }
+        __except (SehAvOnly(GetExceptionCode()))
+        {
+            std::memset(buf, 0, 0x90);
+            *reinterpret_cast<std::uint16_t*>(buf + 0x5e) =
+                static_cast<std::uint16_t>(equipId);
+            return buf;
+        }
+    }
+
+    static void* __fastcall hkGetGunInfoById(void* self, unsigned int equipId)
+    {
+        void* r = g_OrigGetGunInfoById(self, equipId);
+        if (r != nullptr)
+            return r;
+        if (!t_LoadoutBuildActive || self == nullptr)
+            return nullptr;
+        return BuildLoadoutGunInfoOnMissSEH(self, equipId);
+    }
 
     static bool WeaponEquipIdIsPhantom(std::int32_t equipId)
     {
@@ -3775,11 +7858,13 @@ namespace
 
     static void __fastcall hkUpdateLoadoutRequest(void* self, std::uint32_t slot)
     {
+        FillCustomMotionEntriesEarly();
         std::int32_t pinned[3] = {};
         int pinnedCount = 0;
         BlankPhantomLoadoutWeaponsSEH(self, slot, pinned, &pinnedCount);
         for (int i = 0; i < pinnedCount; ++i)
             V_FrameWorkState::NotePinnedEquipId(pinned[i]);
+        t_LoadoutBuildActive = true;
         __try
         {
             g_OrigUpdateLoadoutRequest(self, slot);
@@ -3795,6 +7880,7 @@ namespace
                     "weapon could not be cleared this frame) - request skipped.\n");
             }
         }
+        t_LoadoutBuildActive = false;
     }
 }
 
@@ -3820,6 +7906,35 @@ void Uninstall_LoadoutRequestGuard()
     if (gAddr.CorePlugin_UpdateLoadoutRequest && g_OrigUpdateLoadoutRequest)
         DisableAndRemoveHook(ResolveGameAddress(gAddr.CorePlugin_UpdateLoadoutRequest));
     g_OrigUpdateLoadoutRequest = nullptr;
+}
+
+bool Install_LoadoutGunInfoGetOrBuild()
+{
+    void* target = ResolveGameAddress(gAddr.EquipSystem_GetGunInfoById);
+    if (!target)
+    {
+        Log("[EquipParam] GetGunInfoById address not set for this build - loadout "
+            "get-or-build disabled (a loadout weapon whose gun-info is not yet resident "
+            "would crash UpdateLoadoutRequest on this build)\n");
+        return true;
+    }
+    const bool ok = CreateAndEnableHook(
+        target, &hkGetGunInfoById,
+        reinterpret_cast<void**>(&g_OrigGetGunInfoById));
+    if (!ok)
+        Log("[EquipParam] GetGunInfoById get-or-build Install -> FAIL (target=%p)\n", target);
+#ifdef _DEBUG
+    else
+        Log("[EquipParam] GetGunInfoById get-or-build Install -> OK (target=%p)\n", target);
+#endif
+    return ok;
+}
+
+void Uninstall_LoadoutGunInfoGetOrBuild()
+{
+    if (gAddr.EquipSystem_GetGunInfoById && g_OrigGetGunInfoById)
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipSystem_GetGunInfoById));
+    g_OrigGetGunInfoById = nullptr;
 }
 
 namespace
@@ -4172,10 +8287,10 @@ int __cdecl l_SetDamage(lua_State* L)
     const int isVehicleHit = readFlag("isVehicleHit", "unk24");
     const int unk25        = readFlag("unk25", nullptr);
     const int isPenetrating = readFlag("isPenetrating", "unk28");
-    r.flags = (hitNPC ? 0x1 : 0) | (isSniper ? 0x2 : 0) | (isShotgun ? 0x4 : 0) | (isTranq ? 0x8 : 0)
-            | (isStun ? 0x10 : 0) | (isExplosive ? 0x20 : 0) | (isMelee ? 0x40 : 0) | (isBlade ? 0x80 : 0)
-            | (isFire ? 0x100 : 0) | (isWater ? 0x200 : 0) | (isElectric ? 0x400 : 0) | (isParasite ? 0x800 : 0)
-            | (isGas ? 0x1000 : 0) | (isVehicleHit ? 0x2000 : 0) | (unk25 ? 0x4000 : 0) | (isPenetrating ? 0x8000 : 0);
+    r.flags = (hitNPC ? 0x1 : 0)   | (isSniper ? 0x2 : 0)        | (isShotgun ? 0x4 : 0)    | (isTranq ? 0x8 : 0)
+            | (isStun ? 0x10 : 0)  | (isExplosive ? 0x20 : 0)    | (isMelee ? 0x40 : 0)     | (isBlade ? 0x80 : 0)
+            | (isFire ? 0x100 : 0) | (isWater ? 0x200 : 0)       | (isElectric ? 0x400 : 0) | (isParasite ? 0x800 : 0)
+            | (isGas ? 0x1000 : 0) | (isVehicleHit ? 0x2000 : 0) | (unk25 ? 0x4000 : 0)     | (isPenetrating ? 0x8000 : 0);
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
 

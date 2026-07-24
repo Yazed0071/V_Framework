@@ -69,6 +69,12 @@ namespace
         { "UnsetAnnounceLogSE",                       l_UnsetAnnounceLogSE },
         { "UnregisterAnnounceLogSfx",                 l_UnregisterAnnounceLogSfx },
 
+        { "SetMissionAcceptWarning",                  l_SetMissionAcceptWarning },
+        { "ClearMissionAcceptWarning",                l_ClearMissionAcceptWarning },
+
+        { "SetMissionMenuHelp",                       l_SetMissionMenuHelp },
+        { "ClearMissionMenuHelp",                     l_ClearMissionMenuHelp },
+
 
         { nullptr,          nullptr }
     };

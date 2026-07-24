@@ -274,7 +274,8 @@ namespace
                      && oe->HasHeadOptionAnyVariant(head->equipId, livePly))
                     || (livePT < outfit::kCustomPartsTypeStart
                         && outfit::VanillaExtHasHeadOption(
-                               livePT, head->equipId, livePly));
+                               livePT, head->equipId, livePly,
+                               outfit::ReadLiveSelectorCode()));
             }
             if (resolve)
                 out = head->equipId;

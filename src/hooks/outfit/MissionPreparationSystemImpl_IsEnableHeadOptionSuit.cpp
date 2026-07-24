@@ -130,7 +130,8 @@ namespace
                      && oe->HasHeadOptionAnyVariant(head->equipId, playerType))
                     || (livePT < outfit::kCustomPartsTypeStart
                         && outfit::VanillaExtHasHeadOption(livePT, head->equipId,
-                                                           playerType));
+                                                           playerType,
+                                                           outfit::ReadLiveSelectorCode()));
                 if (offered)
                 {
                     const std::uint8_t pt =
@@ -218,7 +219,8 @@ namespace
                                 || (livePT < outfit::kCustomPartsTypeStart
                                     && outfit::VanillaExtHasHeadOption(
                                            livePT, h->equipId,
-                                           outfit::ReadLivePlayerType()));
+                                           outfit::ReadLivePlayerType(),
+                                           outfit::ReadLiveSelectorCode()));
                             if (!offered)
                                 return kNoHeadEquipModelType;
                         }
@@ -467,7 +469,8 @@ namespace
             }
         }
         if (pt < outfit::kCustomPartsTypeStart
-            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            && outfit::VanillaExtHasAnyHeadOptions(
+                   pt, livePT, outfit::ReadLiveSelectorCode()))
             return 1;
 
         return g_OrigIsEnableHeadOptionSuit(self, param2);
@@ -494,7 +497,8 @@ namespace
             }
         }
         if (pt < outfit::kCustomPartsTypeStart
-            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            && outfit::VanillaExtHasAnyHeadOptions(
+                   pt, livePT, outfit::ReadLiveSelectorCode()))
             return 1;
 
         return g_OrigIsEnableHead(self);
@@ -572,7 +576,8 @@ namespace
             }
         }
         if (pt < outfit::kCustomPartsTypeStart
-            && outfit::VanillaExtHasAnyHeadOptions(pt, livePT))
+            && outfit::VanillaExtHasAnyHeadOptions(
+                   pt, livePT, outfit::ReadLiveSelectorCode()))
             return 1;
 
         return g_OrigIsEnableCurrentSuit(self);

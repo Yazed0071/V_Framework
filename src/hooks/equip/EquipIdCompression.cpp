@@ -18,6 +18,35 @@ namespace EquipIdCompression
         std::mutex                        g_UsedSlotsMutex;
 
         constexpr std::size_t kInternalInfoEntrySize = 0x18;
+
+        std::bitset<kExtendedEquipIdLast + 1> g_ExtendedUsed;
+        std::mutex                            g_ExtendedMutex;
+    }
+
+    void MarkExtendedEquipIdUsed(std::int32_t equipId)
+    {
+        if (!IsExtendedEquipId(equipId)) return;
+        std::lock_guard<std::mutex> lock(g_ExtendedMutex);
+        g_ExtendedUsed.set(static_cast<std::size_t>(equipId));
+    }
+
+    bool IsExtendedEquipIdUsed(std::int32_t equipId)
+    {
+        if (!IsExtendedEquipId(equipId)) return true;
+        std::lock_guard<std::mutex> lock(g_ExtendedMutex);
+        return g_ExtendedUsed.test(static_cast<std::size_t>(equipId));
+    }
+
+    std::int32_t FindLowestFreeExtendedEquipId()
+    {
+        std::lock_guard<std::mutex> lock(g_ExtendedMutex);
+        for (std::int32_t id = kExtendedEquipIdFirst; id <= kExtendedEquipIdLast; ++id)
+            if (!g_ExtendedUsed.test(static_cast<std::size_t>(id)))
+            {
+                g_ExtendedUsed.set(static_cast<std::size_t>(id));
+                return id;
+            }
+        return -1;
     }
 
     void MarkCompressedSlotUsed(std::int32_t compressed)

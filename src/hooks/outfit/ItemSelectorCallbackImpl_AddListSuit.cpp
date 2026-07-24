@@ -7,6 +7,7 @@
 #include "MissionCodeGuard.h"
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
+#include "../../core/V_FrameWorkState.h"
 
 #include <array>
 #include <atomic>
@@ -14,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <unordered_set>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -35,6 +37,21 @@ namespace
                                                 std::uint32_t* count,
                                                 std::uint16_t equipId);
     static AddListBandana_t g_AddListBandana = nullptr;
+    static std::unordered_set<std::uint16_t> g_UnboundVariantRowLogged;
+
+    static void NoteUnboundVariantRow(std::uint16_t developId,
+                                      std::uint8_t variantCount)
+    {
+        if (!g_UnboundVariantRowLogged.insert(developId).second)
+            return;
+        Log("[OutfitListInject:AddListSuit] developId=%u declares %u variants "
+            "but holds no live bytes - listed as a single-variant row rather "
+            "than stamping the 0xFF alloc-failed sentinel into its variant "
+            "cells; picking it binds bytes and variants appear on the next "
+            "menu open\n",
+            static_cast<unsigned>(developId),
+            static_cast<unsigned>(variantCount));
+    }
 #ifdef _DEBUG
     static std::atomic<bool> g_HeadOptionInjectFirstFire{ false };
 #endif
@@ -234,8 +251,15 @@ namespace
 
         if (isCustom && entry && !entry->bound)
         {
-            outfit::BindOutfit(entry->developId, false, "menu-stamp");
-            isCustom = outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+            const std::uint8_t listVariants = (livePT != 0xFF)
+                ? entry->GetVariantCountFor(livePT)
+                : entry->variantCount;
+            if (listVariants >= 2)
+            {
+                outfit::BindOutfit(entry->developId, false, "menu-stamp");
+                isCustom =
+                    outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
+            }
         }
         if (isCustom && entry)
             outfit::NoteOutfitMenuStamp(entry->developId);
@@ -260,6 +284,12 @@ namespace
                     ? entry->GetVariantCountFor(livePT)
                     : entry->variantCount;
                 if (variantsForPT < 2) return;
+
+                if (!entry->bound)
+                {
+                    NoteUnboundVariantRow(entry->developId, variantsForPT);
+                    return;
+                }
 
                 const std::uint8_t rowEnable =
                     row <= 0x3F ? *(base + 0x548 + static_cast<std::size_t>(row) * 15) : 1;
@@ -701,6 +731,7 @@ namespace
         const std::uint16_t*       headIds = nullptr;
         std::uint8_t               headCount = 0;
         bool                       isVanillaExt = false;
+        std::uint16_t              vextHeadIdBuf[outfit::kMaxHeadOptionsPerOutfit] = {};
 
         if (pt >= outfit::kCustomPartsTypeStart && pt <= outfit::kCustomPartsTypeEnd)
         {
@@ -711,8 +742,13 @@ namespace
         }
         else if (pt < outfit::kCustomPartsTypeStart)
         {
-            if (!outfit::VanillaExtGetHeadOptions(pt, livePT, &headIds, &headCount))
+            if (!outfit::VanillaExtGetHeadOptions(
+                    pt, livePT, outfit::ReadLiveSelectorCode(),
+                    vextHeadIdBuf,
+                    static_cast<std::uint8_t>(outfit::kMaxHeadOptionsPerOutfit),
+                    &headCount))
                 return false;
+            headIds = vextHeadIdBuf;
             isVanillaExt = true;
         }
         else
@@ -804,8 +840,9 @@ namespace
                 if (const auto* head =
                         outfit::TryGetCustomHeadByEquipId(equipId))
                 {
-                    if (head->flowIndex != 0
-                        && !outfit::IsFlowIndexDevelopedByOrig(head->flowIndex))
+                    if (head->developId != 0
+                        && V_FrameWorkState::IsExplicitlyUndevelopedByDevelopId(
+                               head->developId))
                     {
                         continue;
                     }

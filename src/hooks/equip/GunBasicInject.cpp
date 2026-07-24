@@ -36,6 +36,8 @@ namespace
 
     static constexpr int kNoneValue = 0;
 
+    static constexpr int kEssentialDefaultId = 1;
+
     static constexpr int kGunBasicMaxId = 1022;
 
     static std::vector<std::uint8_t> g_GunBasicShadow;
@@ -335,22 +337,21 @@ int __cdecl l_SetGunBasic(lua_State* L)
         "laserFlash1Id", "laserFlash2Id"
     };
 
-    bool essentialsPresent = true;
+    static const char* const kEssentialLabel[3] = { "receiverId", "barrelId", "ammoId" };
     for (int i = 0; i < 11; ++i)
     {
         int v = kNoneValue;
         const bool present = ReadNamedInt(L, 1, kSlotNames[i], v);
-        if (i < 3 && !present)
-            essentialsPresent = false;
         row.f[i + 1] = v;
-    }
-
-    if (!essentialsPresent)
-    {
-        Log("[GunBasic] SetGunBasic: weaponId=%d requires receiverId, barrelId, and "
-            "ammoId - a weapon cannot be assembled without all three. Row rejected.\n",
-            weaponId);
-        return 0;
+        if (i < 3 && (!present || v <= 0))
+        {
+            row.f[i + 1] = kEssentialDefaultId;
+            Log("[GunBasic] SetGunBasic: weaponId=%d %s is missing/unresolved - the mod "
+                "that defines that part id may not be installed. Substituting vanilla "
+                "default id %d so the weapon still loads (generic stats for that part "
+                "until the dependency is installed).\n",
+                weaponId, kEssentialLabel[i], kEssentialDefaultId);
+        }
     }
 
     int grade = 1;
@@ -360,6 +361,31 @@ int __cdecl l_SetGunBasic(lua_State* L)
     else if (grade > 15)
         grade = 15;
     row.f[12] = grade;
+
+    static const int kSlotSpaces[11] =
+    {
+        kVanillaSpace_Receiver, kVanillaSpace_Barrel, kVanillaSpace_Magazine,
+        kVanillaSpace_Stock, -1, kVanillaSpace_MuzzleOption,
+        kVanillaSpace_Sight, kVanillaSpace_Sight, kVanillaSpace_UnderBarrel,
+        kVanillaSpace_Option, kVanillaSpace_Option
+    };
+    for (int i = 0; i < 11; ++i)
+    {
+        if (kSlotSpaces[i] >= 0 && row.f[i + 1] >= 0x100)
+            row.f[i + 1] = EquipParam_ResolvePartByte(kSlotSpaces[i], row.f[i + 1]);
+    }
+
+    for (int i = 1; i <= 3; ++i)
+    {
+        if (row.f[i] <= 0)
+        {
+            Log("[GunBasic] SetGunBasic: weaponId=%d %s did not resolve to a valid part "
+                "byte - substituting vanilla default id %d (weapon will use generic "
+                "stats for that part until the defining mod is installed).\n",
+                weaponId, kEssentialLabel[i - 1], kEssentialDefaultId);
+            row.f[i] = kEssentialDefaultId;
+        }
+    }
 
     for (int i = 1; i <= 12; ++i)
     {

@@ -94,6 +94,8 @@ bool Install_Control_PostExternalEvent_Hook();
 bool Uninstall_Control_PostExternalEvent_Hook();
 
 bool Install_SoundSystem_BeginSoundSystem_Hook();
+bool Install_CassetteWalkmanEvents_Hook();
+bool Uninstall_CassetteWalkmanEvents_Hook();
 bool Uninstall_SoundSystem_BeginSoundSystem_Hook();
 
 bool Install_TppPickableHooks();
@@ -103,6 +105,10 @@ bool Install_EquipIconFtexPath_Hook();
 bool Uninstall_EquipIconFtexPath_Hook();
 
 bool Install_MbDvcCustomPopup_Hook();
+bool Install_MissionDeployWarning_Hook();
+bool Uninstall_MissionDeployWarning_Hook();
+bool Install_MissionMenuHelp_Hook();
+bool Uninstall_MissionMenuHelp_Hook();
 bool Uninstall_MbDvcCustomPopup_Hook();
 
 bool Install_SoldierVoiceTypeQuery_Hook();
@@ -153,6 +159,8 @@ bool Uninstall_OccasionalChatList_Hook();
 
 bool Install_SoldierNotice_Hooks();
 bool Uninstall_SoldierNotice_Hooks();
+bool Install_AnimalNotice_Hooks();
+bool Uninstall_AnimalNotice_Hooks();
 
 bool Install_FieldTaxiMenu();
 bool Uninstall_FieldTaxiMenu();
@@ -190,6 +198,8 @@ bool Install_SupportAttackCrashGuard();
 void Uninstall_SupportAttackCrashGuard();
 
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
+bool Install_InterrogationVoiceEvent_Hook();
+bool Uninstall_InterrogationVoiceEvent_Hook();
 
 namespace outfit
 {
@@ -219,7 +229,6 @@ namespace EquipDevelopAdd
 void EquipDevelop_InstallDevelopSyncHooks();
 namespace equip
 {
-    bool Install_MenuDevelopGridExpand();
     bool Install_BulletLockOn_Hooks();
     void Uninstall_BulletLockOn_Hooks();
     bool Install_BulletMultiShot_Hooks();
@@ -233,6 +242,8 @@ bool Install_TppEquip_ReloadEquipParameterTables2_Hook();
 bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
 bool Install_MotionLoader_ReceiverTypeHook();
 void Uninstall_MotionLoader_ReceiverTypeHook();
+bool Install_MotionLoader_UnderBarrelTypeHook();
+void Uninstall_MotionLoader_UnderBarrelTypeHook();
 bool Install_GetAttackIdGuard();
 void Uninstall_GetAttackIdGuard();
 bool Install_GunInfoGuard();
@@ -243,6 +254,8 @@ bool Install_FireSoundOverride_Hook();
 void Uninstall_FireSoundOverride_Hook();
 bool Install_LoadoutRequestGuard();
 void Uninstall_LoadoutRequestGuard();
+bool Install_LoadoutGunInfoGetOrBuild();
+void Uninstall_LoadoutGunInfoGetOrBuild();
 bool Install_SuppressorGauge_Hook();
 void Uninstall_SuppressorGauge_Hook();
 bool Install_DamageParameter_Hook();
@@ -779,6 +792,26 @@ namespace
         }
     };
 
+    class CassetteWalkmanEventsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "CassetteWalkmanEvents";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CassetteWalkmanEvents_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CassetteWalkmanEvents_Hook();
+        }
+    };
+
     class TppPickableModule final : public IFeatureModule
     {
     public:
@@ -833,6 +866,46 @@ namespace
         void Uninstall() override
         {
             Uninstall_MbDvcCustomPopup_Hook();
+        }
+    };
+
+    class MissionDeployWarningModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MissionDeployWarning";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MissionDeployWarning_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MissionDeployWarning_Hook();
+        }
+    };
+
+    class MissionMenuHelpModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MissionMenuHelp";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MissionMenuHelp_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MissionMenuHelp_Hook();
         }
     };
 
@@ -893,6 +966,26 @@ namespace
         void Uninstall() override
         {
             ::SoldierAkObjIdMap::Uninstall();
+        }
+    };
+
+    class InterrogationVoiceEventModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "InterrogationVoiceEvent";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_InterrogationVoiceEvent_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_InterrogationVoiceEvent_Hook();
         }
     };
 
@@ -1079,6 +1172,14 @@ namespace
         void Uninstall() override { Uninstall_SoldierNotice_Hooks(); }
     };
 
+    class AnimalNoticeModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "AnimalNotice"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_AnimalNotice_Hooks(); }
+        void Uninstall() override { Uninstall_AnimalNotice_Hooks(); }
+    };
+
     class FieldTaxiMenuModule final : public IFeatureModule
     {
     public:
@@ -1186,7 +1287,6 @@ namespace
             const bool b = EquipDevelopAdd::Install_TppMotherBaseManagement_EquipDevelopHooks();
 
             EquipDevelop_InstallDevelopSyncHooks();
-            equip::Install_MenuDevelopGridExpand();
 
             const bool runtime = outfit::Install_OutfitRuntimeParts_Hooks();
             (void)runtime;
@@ -1280,11 +1380,13 @@ namespace
             UNREFERENCED_PARAMETER(hGame);
             bool ok = Install_TppEquip_ReloadEquipParameterTables2_Hook();
             ok = Install_MotionLoader_ReceiverTypeHook() && ok;
+            ok = Install_MotionLoader_UnderBarrelTypeHook() && ok;
             ok = Install_GetAttackIdGuard() && ok;
             ok = Install_GunInfoGuard() && ok;
             ok = Install_WeaponKeyLog() && ok;
             ok = Install_FireSoundOverride_Hook() && ok;
             ok = Install_LoadoutRequestGuard() && ok;
+            ok = Install_LoadoutGunInfoGetOrBuild() && ok;
             ok = Install_SuppressorGauge_Hook() && ok;
             ok = Install_DamageParameter_Hook() && ok;
             ok = equip::Install_BulletLockOn_Hooks() && ok;
@@ -1297,11 +1399,13 @@ namespace
             equip::Uninstall_BulletLockOn_Hooks();
             Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
             Uninstall_MotionLoader_ReceiverTypeHook();
+            Uninstall_MotionLoader_UnderBarrelTypeHook();
             Uninstall_GetAttackIdGuard();
             Uninstall_GunInfoGuard();
             Uninstall_WeaponKeyLog();
             Uninstall_FireSoundOverride_Hook();
             Uninstall_LoadoutRequestGuard();
+            Uninstall_LoadoutGunInfoGetOrBuild();
             Uninstall_SuppressorGauge_Hook();
             Uninstall_DamageParameter_Hook();
         }
@@ -1340,12 +1444,16 @@ void RegisterBuiltInFeatureModules()
     static CustomRadioCassetteModule s_CustomRadioCassetteModule;
     static CustomTapeLongFilenameModule s_CustomTapeLongFilenameModule;
     static SoundSystemBeginModule s_SoundSystemBeginModule;
+    static CassetteWalkmanEventsModule s_CassetteWalkmanEventsModule;
     static TppPickableModule s_TppPickableModule;
     static EquipIconFtexPathModule s_EquipIconFtexPathModule;
     static MbDvcCustomPopupModule s_MbDvcCustomPopupModule;
+    static MissionDeployWarningModule s_MissionDeployWarningModule;
+    static MissionMenuHelpModule s_MissionMenuHelpModule;
     static SoldierVoiceTypeQueryModule s_SoldierVoiceTypeQueryModule;
     static VoicePitchOverrideModule s_VoicePitchOverrideModule;
     static SoldierAkObjIdMapModule s_SoldierAkObjIdMapModule;
+    static InterrogationVoiceEventModule s_InterrogationVoiceEventModule;
     static SetEyeLampColorModule s_SetEyeLampColorModule;
     static GetGameObjectIdWithIndex s_GetGameObjectIdWithIndex;
     static EnemyLangIdOverrideModule s_EnemyLangIdOverrideModule;
@@ -1360,6 +1468,7 @@ void RegisterBuiltInFeatureModules()
     static InitEquipHudDataModule s_InitEquipHudDataModule;
     static OccasionalChatListModule s_OccasionalChatListModule;
     static SoldierNoticeModule s_SoldierNoticeModule;
+    static AnimalNoticeModule s_AnimalNoticeModule;
     static FieldTaxiMenuModule s_FieldTaxiMenuModule;
     static TimeCigaretteUiModule s_TimeCigaretteUiModule;
     static HideBinocleModule s_HideBinocleModule;
@@ -1413,10 +1522,14 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_CustomRadioCassetteModule);
             FeatureModuleRegistry::Instance().Register(&s_CustomTapeLongFilenameModule);
             FeatureModuleRegistry::Instance().Register(&s_SoundSystemBeginModule);
+            FeatureModuleRegistry::Instance().Register(&s_CassetteWalkmanEventsModule);
             FeatureModuleRegistry::Instance().Register(&s_TppPickableModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipIconFtexPathModule);
             FeatureModuleRegistry::Instance().Register(&s_MbDvcCustomPopupModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionDeployWarningModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionMenuHelpModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierAkObjIdMapModule);
+            FeatureModuleRegistry::Instance().Register(&s_InterrogationVoiceEventModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierVoiceTypeQueryModule);
             FeatureModuleRegistry::Instance().Register(&s_VoicePitchOverrideModule);
             FeatureModuleRegistry::Instance().Register(&s_SetEyeLampColorModule);
@@ -1432,6 +1545,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_InitEquipHudDataModule);
             FeatureModuleRegistry::Instance().Register(&s_OccasionalChatListModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
+            FeatureModuleRegistry::Instance().Register(&s_AnimalNoticeModule);
             FeatureModuleRegistry::Instance().Register(&s_FieldTaxiMenuModule);
             FeatureModuleRegistry::Instance().Register(&s_TimeCigaretteUiModule);
             FeatureModuleRegistry::Instance().Register(&s_HideBinocleModule);

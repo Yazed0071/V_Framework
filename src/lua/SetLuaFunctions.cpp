@@ -32,6 +32,7 @@ extern "C" {
 #include "StepRadioDiscovery.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h"
+#include "CassetteWalkmanEvents.h"
 #include "SoundMusicPlayer_SetupMusicInfos.h"
 #include "CustomTapeOwnership.h"
 #include "GetTapeTrackDirectPlayId.h"
@@ -61,6 +62,7 @@ extern "C" {
 #include "../hooks/ui/BarrierEffectSpawn.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
 #include "../hooks/player/TimeCigaretteUiHook.h"
+#include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
 
 #include "V_TppUiCommandLib.h"
 #include "V_TppGameObjectConstants.h"
@@ -90,6 +92,10 @@ namespace
     static std::mutex g_RegisteredLuaStatesMutex;
     static bool g_SetLuaFunctionsHookInstalled = false;
     static DWORD g_LuaOwnerThreadId = 0;
+
+    using lua_pcall_native_t = int(__fastcall*)(lua_State*, int, int, int);
+    static lua_pcall_native_t g_OrigLuaPcallPump = nullptr;
+    static bool g_LuaPcallPumpInstalled = false;
 }
 
 
@@ -641,7 +647,6 @@ int __cdecl l_ResumeCassette(lua_State* L)
 int __cdecl l_StopCassette(lua_State* L)
 {
     std::uint32_t fadeMs = 0;
-    bool stopByUser = false;
 
     const int arg1Type = LuaType(L, 1);
     if (arg1Type != LUA_TNONE && arg1Type != LUA_TNIL)
@@ -649,13 +654,7 @@ int __cdecl l_StopCassette(lua_State* L)
         fadeMs = static_cast<std::uint32_t>(GetLuaInt(L, 1));
     }
 
-    const int arg2Type = LuaType(L, 2);
-    if (arg2Type != LUA_TNONE && arg2Type != LUA_TNIL)
-    {
-        stopByUser = GetLuaBool(L, 2);
-    }
-
-    const std::int32_t errorCode = StopCassette(fadeMs, stopByUser);
+    const std::int32_t errorCode = StopCassette(fadeMs, false);
     PushLuaNumber(L, static_cast<float>(errorCode));
     return 1;
 }
@@ -1930,6 +1929,109 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
 }
 
 
+static int __fastcall hkLuaPcallPump(lua_State* L, int nargs, int nresults,
+                                     int errfunc)
+{
+    static thread_local int s_pcallDepth = 0;
+
+    ++s_pcallDepth;
+    const int r = g_OrigLuaPcallPump
+        ? g_OrigLuaPcallPump(L, nargs, nresults, errfunc)
+        : 0;
+    --s_pcallDepth;
+
+    if (s_pcallDepth == 0)
+        Drain_CassetteWalkmanEvents();
+
+    return r;
+}
+
+
+static void Install_LuaPcallPump_Hook()
+{
+    if (g_LuaPcallPumpInstalled)
+        return;
+    void* target = ResolveGameAddress(gAddr.lua_pcall);
+    if (!target)
+    {
+        Log("[Hook] lua_pcall pump: no address on this build - demand "
+            "paging falls back to the visibility-check trigger.\n");
+        return;
+    }
+    const bool ok = CreateAndEnableHook(
+        target,
+        reinterpret_cast<void*>(&hkLuaPcallPump),
+        reinterpret_cast<void**>(&g_OrigLuaPcallPump));
+    if (ok)
+        g_LuaPcallPumpInstalled = true;
+    else
+        Log("[Hook] lua_pcall pump: FAILED target=%p - demand paging falls "
+            "back to the visibility-check trigger.\n", target);
+}
+
+
+static void Uninstall_LuaPcallPump_Hook()
+{
+    if (!g_LuaPcallPumpInstalled)
+        return;
+    DisableAndRemoveHook(ResolveGameAddress(gAddr.lua_pcall));
+    g_OrigLuaPcallPump = nullptr;
+    g_LuaPcallPumpInstalled = false;
+}
+
+
+bool Set_MissionDeployWarning(std::uint16_t missionCode, const char* langId, const char* colorName);
+void Clear_MissionDeployWarning(std::uint16_t missionCode);
+
+int __cdecl l_SetMissionAcceptWarning(lua_State* L)
+{
+    const int code = GetLuaInt(L, 1);
+    const char* langId = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+    const char* colorName = LuaIsString(L, 3) ? GetLuaString(L, 3) : nullptr;
+
+    bool ok = false;
+    if (code > 0 && code <= 0xFFFF)
+        ok = Set_MissionDeployWarning(static_cast<std::uint16_t>(code), langId, colorName);
+
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+int __cdecl l_ClearMissionAcceptWarning(lua_State* L)
+{
+    const int code = GetLuaInt(L, 1);
+    if (code > 0 && code <= 0xFFFF)
+        Clear_MissionDeployWarning(static_cast<std::uint16_t>(code));
+    return 0;
+}
+
+
+bool Set_MissionMenuHelp(std::uint16_t missionCode, const char* langId, const char* colorName);
+void Clear_MissionMenuHelp(std::uint16_t missionCode);
+
+int __cdecl l_SetMissionMenuHelp(lua_State* L)
+{
+    const int code = GetLuaInt(L, 1);
+    const char* langId = LuaIsString(L, 2) ? GetLuaString(L, 2) : nullptr;
+    const char* colorName = LuaIsString(L, 3) ? GetLuaString(L, 3) : nullptr;
+
+    bool ok = false;
+    if (code > 0 && code <= 0xFFFF)
+        ok = Set_MissionMenuHelp(static_cast<std::uint16_t>(code), langId, colorName);
+
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+int __cdecl l_ClearMissionMenuHelp(lua_State* L)
+{
+    const int code = GetLuaInt(L, 1);
+    if (code > 0 && code <= 0xFFFF)
+        Clear_MissionMenuHelp(static_cast<std::uint16_t>(code));
+    return 0;
+}
+
+
 bool Install_SetLuaFunctions_Hook()
 {
     if (g_SetLuaFunctionsHookInstalled)
@@ -1954,6 +2056,7 @@ bool Install_SetLuaFunctions_Hook()
     if (ok)
     {
         g_SetLuaFunctionsHookInstalled = true;
+        Install_LuaPcallPump_Hook();
     }
 
     if (ok)
@@ -1967,6 +2070,7 @@ bool Install_SetLuaFunctions_Hook()
 
 bool Uninstall_SetLuaFunctions_Hook()
 {
+    Uninstall_LuaPcallPump_Hook();
     DisableAndRemoveHook(ResolveGameAddress(gAddr.SetLuaFunctions));
     g_OrigSetLuaFunctions = nullptr;
     ClearTrackedLuaStates();

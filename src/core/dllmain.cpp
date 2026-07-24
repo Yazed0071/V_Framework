@@ -87,7 +87,7 @@ static void UninstallAll(bool processTerminating)
 {
     if (processTerminating)
     {
-
+        V_FrameWorkState::SaveOnProcessExit();
 
 #ifdef _DEBUG
         Log("[DLL] DLL_PROCESS_DETACH: process terminating, skipping "
@@ -102,6 +102,8 @@ static void UninstallAll(bool processTerminating)
             FreeConsole();
         return;
     }
+
+    V_FrameWorkState::FlushPendingSaves();
 
     FeatureModuleRegistry::Instance().UninstallAll();
     MH_Uninitialize();

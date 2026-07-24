@@ -146,6 +146,12 @@ static const char* const kAddrFieldNames[] = {
     "NoticeIndisAiImpl_StepAware",
     "NoticeControllerImpl_DoCheckSpreadNotice",
     "NoticeControllerImpl_CheckSightNoticeSoldier",
+    "NoticeNearThreatAiImpl_Wake",
+    "NoticeNoiseAlertAiImpl_Wake",
+    "NoticeNearGameObjectAiImpl_Wolf_Wake",
+    "NoticeNoiseSneakAiImpl_Wolf_Wake",
+    "NoticeNearGameObjectAiImpl_Bear_Wake",
+    "NoticeNoiseAiImpl_Bear_Wake",
     "RealizedSoldier2Impl_ConvertHeadEquipModelType",
     "RealizedSoldier2Impl_UpdateHeadEquipMesh",
     "FovaController_GetActiveFovaResourceManager",
@@ -309,6 +315,8 @@ static const char* const kAddrFieldNames[] = {
     "EquipParameterTablesImpl_Instance",
     "MotionLoaderImpl_ReceiverTypeTable",
     "MotionLoaderImpl_GetReceiverType",
+    "MotionLoaderImpl_UnderBarrelTypeTable",
+    "MotionLoaderImpl_GetUnderBarrelType",
     "EquipDevelopControllerImpl_GetSuppressorAmount",
     "DamageParameterTable_Instance",
     "DamageParameterTable_ReloadDamageParameter",
@@ -338,8 +346,42 @@ static const char* const kAddrFieldNames[] = {
     "MbDvcUpdateTrackListCallFuncs",
     "MbDvcRefreshTrackListPrefabParameter",
     "MbDvcTrackListRecordRefresh",
+    "MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter",
+    "MbDvcMissionListCallbackImpl_SetMenuHelp",
+    "Equip_ReloadChimeraPartsInfoTable",
+    "Equip_ChimeraPartsPackageInfos",
+    "Mtar_GetAnimFile",
+    "Mtar_GetDataInfo",
+    "Equip_MotionEntryTable",
+    "Equip_MotionMtarResolver",
+    "SimplePartsControllerImpl_Vtable",
+    "SimplePartsControllerImpl_SetMotionData",
+    "SimplePartsControllerImpl_SetMotionDataByPath",
+    "EquipSystemImpl_HideMagazine",
+    "EquipSystemImpl_GetPartsController",
+    "Fox_GetQuarkSystemTable",
+    "Fox_ArrayBaseExtend",
+    "Fox_ArrayOperatorVtbl",
+    "Animx_GetControlSize",
+    "Animx_SimpleControlCtorPool",
+    "Animx_SimpleControlCtorHeap",
+    "Animx_SimpleControlDtorPool",
+    "Animx_SimpleControlDtorHeap",
+    "Animx_SimpleControlAux",
+    "Equip_MotionEntrySlotHookA",
+    "Equip_MotionEntrySlotHookB",
+    "EquipIdTable_GetEquipTypeId",
+    "Soldier2InterrogateUtil_UpdateInterrogation",
+    "Soldier2InterrogateUtil_UpdateInterrogationMarker",
+    "SoundControllerImpl_CallVoice",
+    "MbDvcCassetteTapeCallbackImpl_SeekMusic",
+    "EquipSystem_GetGunInfoById",
 };
-static const int kAddrFieldCount = 326;
+static const int kAddrFieldCount = 364;
+static_assert(sizeof(AddressSetRuntime::AddressSet) / sizeof(uintptr_t) == kAddrFieldCount,
+              "kAddrFieldNames must stay in lockstep with the AddressSet layout");
+static_assert(sizeof(kAddrFieldNames) / sizeof(kAddrFieldNames[0]) == kAddrFieldCount,
+              "kAddrFieldNames must stay in lockstep with the AddressSet layout");
 
 namespace AddressSetRuntime
 {
@@ -520,6 +562,12 @@ namespace AddressSetRuntime
             0x141512CD0ull, // NoticeIndisAiImpl_StepAware
             0x1414E4750ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E1F90ull, // NoticeControllerImpl_CheckSightNoticeSoldier
+            0x140E46900ull, // NoticeNearThreatAiImpl_Wake
+            0x140E472D0ull, // NoticeNoiseAlertAiImpl_Wake
+            0x141788760ull, // NoticeNearGameObjectAiImpl_Wolf_Wake
+            0x141789760ull, // NoticeNoiseSneakAiImpl_Wolf_Wake
+            0x140C35240ull, // NoticeNearGameObjectAiImpl_Bear_Wake
+            0x140C36BA0ull, // NoticeNoiseAiImpl_Bear_Wake
             0x140B15E90ull, // RealizedSoldier2Impl_ConvertHeadEquipModelType
             0x140B191C0ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
             0x140B1B0E0ull, // FovaController_GetActiveFovaResourceManager
@@ -683,6 +731,8 @@ namespace AddressSetRuntime
             0x142A711F0ull, // EquipParameterTablesImpl_Instance
             0x142349A90ull, // MotionLoaderImpl_ReceiverTypeTable
             0x140DB6CB0ull, // MotionLoaderImpl_GetReceiverType
+            0x142349A78ull, // MotionLoaderImpl_UnderBarrelTypeTable
+            0x140DB6CD0ull, // MotionLoaderImpl_GetUnderBarrelType
             0x140F6B260ull, // EquipDevelopControllerImpl_GetSuppressorAmount
             0x142BDCFF0ull, // DamageParameterTable_Instance
             0x1405CE160ull, // DamageParameterTable_ReloadDamageParameter
@@ -712,6 +762,36 @@ namespace AddressSetRuntime
             0x140EFBA40ull, // MbDvcUpdateTrackListCallFuncs
             0x140EF70B0ull, // MbDvcRefreshTrackListPrefabParameter
             0x140EF6960ull, // MbDvcTrackListRecordRefresh
+            0x140F31830ull, // MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter
+            0x140F320E0ull, // MbDvcMissionListCallbackImpl_SetMenuHelp
+            0x140A3B4C0ull, // Equip_ReloadChimeraPartsInfoTable
+            0x142C207C0ull, // Equip_ChimeraPartsPackageInfos
+            0x141A754C0ull, // Mtar_GetAnimFile
+            0x141A76090ull, // Mtar_GetDataInfo
+            0x142A6B400ull, // Equip_MotionEntryTable
+            0x142A71328ull, // Equip_MotionMtarResolver
+            0x1422E2970ull, // SimplePartsControllerImpl_Vtable
+            0x140ADDB80ull, // SimplePartsControllerImpl_SetMotionData
+            0x140ADDC10ull, // SimplePartsControllerImpl_SetMotionDataByPath
+            0x140DBFCF0ull, // EquipSystemImpl_HideMagazine
+            0x140DBF1F0ull, // EquipSystemImpl_GetPartsController
+            0x140BFF050ull, // Fox_GetQuarkSystemTable
+            0x140071510ull, // Fox_ArrayBaseExtend
+            0x1420BCAD8ull, // Fox_ArrayOperatorVtbl
+            0x141AB7940ull, // Animx_GetControlSize
+            0x141AB7360ull, // Animx_SimpleControlCtorPool
+            0x141AB76E0ull, // Animx_SimpleControlCtorHeap
+            0x141AB7540ull, // Animx_SimpleControlDtorPool
+            0x141AB7750ull, // Animx_SimpleControlDtorHeap
+            0x141AB76D0ull, // Animx_SimpleControlAux
+            0x1405D5D80ull, // Equip_MotionEntrySlotHookA
+            0x1405D60E0ull, // Equip_MotionEntrySlotHookB
+            0x140A2A3E0ull, // EquipIdTable_GetEquipTypeId
+            0x14143F0B0ull, // Soldier2InterrogateUtil_UpdateInterrogation
+            0x141440A90ull, // Soldier2InterrogateUtil_UpdateInterrogationMarker
+            0x140B08380ull, // SoundControllerImpl_CallVoice
+            0x140EF71F0ull, // MbDvcCassetteTapeCallbackImpl_SeekMusic
+            0x140DBEB20ull, // EquipSystem_GetGunInfoById
         };
 
         return value;
@@ -855,6 +935,12 @@ namespace AddressSetRuntime
             0x141513000ull, // NoticeIndisAiImpl_StepAware
             0x1414E4760ull, // NoticeControllerImpl_DoCheckSpreadNotice
             0x1414E1FA0ull, // NoticeControllerImpl_CheckSightNoticeSoldier
+            0x140E46940ull, // NoticeNearThreatAiImpl_Wake
+            0x140E47310ull, // NoticeNoiseAlertAiImpl_Wake
+            0x1417886F0ull, // NoticeNearGameObjectAiImpl_Wolf_Wake
+            0x1417896F0ull, // NoticeNoiseSneakAiImpl_Wolf_Wake
+            0x140C351C0ull, // NoticeNearGameObjectAiImpl_Bear_Wake
+            0x140C36B20ull, // NoticeNoiseAiImpl_Bear_Wake
             0x140B15E00ull, // RealizedSoldier2Impl_ConvertHeadEquipModelType
             0x140B19130ull, // RealizedSoldier2Impl_UpdateHeadEquipMesh
             0x140B1B050ull, // FovaController_GetActiveFovaResourceManager
@@ -1018,35 +1104,67 @@ namespace AddressSetRuntime
             0x142A711F0ull, // EquipParameterTablesImpl_Instance
             0x142349B40ull, // MotionLoaderImpl_ReceiverTypeTable
             0x140DB6C70ull, // MotionLoaderImpl_GetReceiverType
+            0x142349B28ull, // MotionLoaderImpl_UnderBarrelTypeTable (Ghidra JP154; =ReceiverTable-0x18, referenced by accessor 0x140db6c90)
+            0x140DB6C90ull, // MotionLoaderImpl_GetUnderBarrelType (Ghidra JP154; =GetReceiverType+0x20, leaf accessor reading 0x142349B28)
             0x140F6B2C0ull, // EquipDevelopControllerImpl_GetSuppressorAmount
             0x142BDCFF0ull, // DamageParameterTable_Instance
             0x1405CE410ull, // DamageParameterTable_ReloadDamageParameter
             0x1405CA0E0ull, // DamageParameterTable_GetDamageParameter
             0x140F65CD0ull, // EquipDevCtrl_GetBaseDevelopId
-            0x141678c50ull,           // MenuDevelopGrid_FillGrid
-            0x1416785d0ull,           // MenuDevelopGrid_CopyGrid
-            0x1416725f0ull,           // MenuDevelopGrid_CountBadge
-            0x1416791f0ull,           // MenuDevelopGrid_FillFlat
-            0x141678f90ull,           // MenuDevelopGrid_CopyFlat
-            0x141281fe0ull,           // SightManager_UpdateMissileLockOn
-            0x140d2fe10ull,           // Bullet3_DoSimulation
-            0x140d2d3e0ull,           // Bullet3_ActivateBulletAtEmptyWork
-            0x141280030ull,           // SightManager_Update
-            0x141282c80ull,           // SightManager_UpdateMissileLockOnUi
-            0x1408ec7a0ull,           // LockOnReticleFactory_CreateWindow
+            0x141678c50ull, // MenuDevelopGrid_FillGrid
+            0x1416785d0ull, // MenuDevelopGrid_CopyGrid
+            0x1416725f0ull, // MenuDevelopGrid_CountBadge
+            0x1416791f0ull, // MenuDevelopGrid_FillFlat
+            0x141678f90ull, // MenuDevelopGrid_CopyFlat
+            0x141281fe0ull, // SightManager_UpdateMissileLockOn
+            0x140d2fe10ull, // Bullet3_DoSimulation
+            0x140d2d3e0ull, // Bullet3_ActivateBulletAtEmptyWork
+            0x141280030ull, // SightManager_Update
+            0x141282c80ull, // SightManager_UpdateMissileLockOnUi
+            0x1408ec7a0ull, // LockOnReticleFactory_CreateWindow
             0x140A3BB10ull, // EquipParams_GetAttackIdByEquipId
-            0x140dc3820ull,           // EquipSystem_SetUpGunInfoFromGunPartsDesc
-            0x141dabdb0ull,           // UiWindowFunction_FindWindow
-            0x141dac100ull,           // UiWindowFunction_PostShowAndStartMessage
-            0x141dabe30ull,           // UiWindowFunction_GetLayout
-            0x141041190ull,           // AttackAction_Fire
-            0x141302f70ull,           // EquipObject_DoFire
-            0x141156ef0ull,           // CorePlugin_UpdateLoadoutRequest
-            0x140dc0360ull,           // WeaponSystem_DefineWeaponFireSound
+            0x140dc3820ull, // EquipSystem_SetUpGunInfoFromGunPartsDesc
+            0x141dabdb0ull, // UiWindowFunction_FindWindow
+            0x141dac100ull, // UiWindowFunction_PostShowAndStartMessage
+            0x141dabe30ull, // UiWindowFunction_GetLayout
+            0x141041190ull, // AttackAction_Fire
+            0x141302f70ull, // EquipObject_DoFire
+            0x141156ef0ull, // CorePlugin_UpdateLoadoutRequest
+            0x140dc0360ull, // WeaponSystem_DefineWeaponFireSound
             0x142C934A0ull, // EquipSystem_ChimeraPartsSetWork
             0x140EFBA70ull, // MbDvcUpdateTrackListCallFuncs
             0x140EF70E0ull, // MbDvcRefreshTrackListPrefabParameter
             0x140EF6990ull, // MbDvcTrackListRecordRefresh
+            0x140F31870ull, // MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter
+            0x140F32120ull, // MbDvcMissionListCallbackImpl_SetMenuHelp
+            0x140A3B300ull, // Equip_ReloadChimeraPartsInfoTable
+            0x142C207C0ull, // Equip_ChimeraPartsPackageInfos
+            0x141A75430ull, // Mtar_GetAnimFile
+            0x141A76000ull, // Mtar_GetDataInfo
+            0x142A6B400ull, // Equip_MotionEntryTable
+            0x142A71328ull, // Equip_MotionMtarResolver
+            0x1422E2980ull, // SimplePartsControllerImpl_Vtable
+            0x140ADDB00ull, // SimplePartsControllerImpl_SetMotionData
+            0x140ADDB90ull, // SimplePartsControllerImpl_SetMotionDataByPath
+            0x140DBFCB0ull, // EquipSystemImpl_HideMagazine
+            0x140DBF1B0ull, // EquipSystemImpl_GetPartsController
+            0x140BFEFD0ull, // Fox_GetQuarkSystemTable
+            0x140071580ull, // Fox_ArrayBaseExtend
+            0x1420BCAC8ull, // Fox_ArrayOperatorVtbl
+            0x141AB7890ull, // Animx_GetControlSize
+            0x141AB72B0ull, // Animx_SimpleControlCtorPool
+            0x141AB7630ull, // Animx_SimpleControlCtorHeap
+            0x141AB7490ull, // Animx_SimpleControlDtorPool
+            0x141AB76A0ull, // Animx_SimpleControlDtorHeap
+            0x141AB7620ull, // Animx_SimpleControlAux
+            0x1405D6040ull, // Equip_MotionEntrySlotHookA
+            0x1405D63A0ull, // Equip_MotionEntrySlotHookB
+            0x140A2A210ull, // EquipIdTable_GetEquipTypeId
+            0x14143F0D0ull, // Soldier2InterrogateUtil_UpdateInterrogation
+            0x141440AB0ull, // Soldier2InterrogateUtil_UpdateInterrogationMarker
+            0x140B082E0ull, // SoundControllerImpl_CallVoice
+            0x140EF7220ull, // MbDvcCassetteTapeCallbackImpl_SeekMusic
+            0x140DBEAE0ull, // EquipSystem_GetGunInfoById
         };
         return value;
     }

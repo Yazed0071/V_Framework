@@ -27,6 +27,7 @@ extern "C" {
 #include "../../soldier/ActionCoreImpl_UpdateOptCamo.h"
 #include "../../soldier/NoticeControllerImpl_GetOccasionalChat.h"
 #include "../../soldier/CautionStepNormalTimerHook.h"
+#include "../../soldier/InterrogationVoiceEvent.h"
 #include "../../bullet/Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
 #include "../../../core/FoxHashes.h"
 #include "../../../lua/LuaApi.h"
@@ -97,6 +98,35 @@ namespace
             const char* s = g_lua_tolstring(L, -1, nullptr);
             if (s && s[0])
                 v = FoxHashes::StrCode32(s);
+        }
+        return v;
+    }
+
+    static std::uint32_t FnvHash32Of(const char* s)
+    {
+        using FNV_t = unsigned int(__fastcall*)(const char*);
+        static FNV_t fn = nullptr;
+        if (!fn && gAddr.FNVHash32)
+            fn = reinterpret_cast<FNV_t>(ResolveGameAddress(gAddr.FNVHash32));
+        if (!fn || !s || !s[0])
+            return 0;
+        __try { return static_cast<std::uint32_t>(fn(s)); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    }
+
+    static std::uint32_t ReadCommandFnvHash(lua_State* L, int cmdStackIdx, const char* key)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_gettable(L, cmdStackIdx);
+        std::uint32_t v = 0;
+        const int t = g_lua_type(L, -1);
+        if (t == LUA_TNUMBER)
+            v = static_cast<std::uint32_t>(static_cast<long long>(g_lua_tonumber(L, -1)));
+        else if (t == LUA_TSTRING)
+        {
+            const char* s = g_lua_tolstring(L, -1, nullptr);
+            if (s && s[0])
+                v = FnvHash32Of(s);
         }
         return v;
     }
@@ -515,6 +545,19 @@ namespace
             g_lua_settop(L, top);
             g_lua_pushnumber(L, ::Get_FriendlyFire() ? 1.0 : 0.0);
             return 1;
+        }
+
+        if (idStr == "AssignInterrogationWithVoice")
+        {
+            const std::uint32_t ev = ReadCommandFnvHash(L, 2, "soundDialogueEvent");
+            g_lua_settop(L, top);
+
+            ::Arm_CautionCpCapture();
+            const int r = g_OrigSendCommand(L);
+            const std::uint32_t cp = ::Take_CautionCpIndex();
+            if (cp != 0xFFFFFFFFu)
+                ::Register_InterrogationVoiceEvent(cp, ev);
+            return r;
         }
 
         return g_OrigSendCommand(L);
