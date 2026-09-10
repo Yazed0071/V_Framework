@@ -182,7 +182,15 @@ namespace DeployGuard
         if (!clearedTheHang && !inFieldMission)
             return;
 
-        if (g_DropExtended.exchange(false, std::memory_order_relaxed))
+        if (!g_DropExtended.exchange(false, std::memory_order_relaxed))
+            return;
+
+        if (g_DropPermanent.load(std::memory_order_relaxed))
+            Log("[DeployGuard] mission %u reached the player's weapon setup, so the "
+                "crash-recovery hide is cleared - the extended equipIds stay hidden "
+                "this session because the InfoList mirror is unavailable (the "
+                "[EquipIdTable] line at boot says why)\n", code);
+        else
             Log("[DeployGuard] mission %u reached the player's weapon setup - the "
                 "point the previous run died at - so the extended equipId hide is "
                 "lifted for this session. It stays armed on the title screen and "
@@ -203,5 +211,10 @@ namespace DeployGuard
     {
         return g_DropPermanent.load(std::memory_order_relaxed)
             || g_DropExtended.load(std::memory_order_relaxed);
+    }
+
+    bool IsExtendedDropPermanent()
+    {
+        return g_DropPermanent.load(std::memory_order_relaxed);
     }
 }

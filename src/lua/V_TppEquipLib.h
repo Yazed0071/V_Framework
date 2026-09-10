@@ -7,6 +7,8 @@ bool Register_V_TppEquipLibrary(lua_State* L);
 void ChimeraMotion_InheritFromMotionFrom(int receiverId, int motionFromRc);
 
 void ChimeraMotion_EnsureWrapInstalled(lua_State* L);
+bool ChimeraMotion_InstallNativeHooks();
+void ChimeraMotion_UninstallNativeHooks();
 
 #include "equip/RegisterConstantEquipId.h"
 #include "equip/DeclareEQPTypes.h"

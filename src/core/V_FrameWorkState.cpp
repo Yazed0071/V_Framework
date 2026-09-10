@@ -63,9 +63,23 @@ namespace V_FrameWorkState
         static constexpr std::size_t kUniqueStaffKeyPrefixLen =
             sizeof(kUniqueStaffKeyPrefix) - 1;
 
+        static constexpr char kFaceIdKeyPrefix[] = "FACEID:";
+        static constexpr std::size_t kFaceIdKeyPrefixLen =
+            sizeof(kFaceIdKeyPrefix) - 1;
+
         static bool IsUniqueStaffConstantKey(const std::string& key)
         {
             return key.compare(0, kUniqueStaffKeyPrefixLen, kUniqueStaffKeyPrefix) == 0;
+        }
+
+        static bool IsFaceIdConstantKey(const std::string& key)
+        {
+            return key.compare(0, kFaceIdKeyPrefixLen, kFaceIdKeyPrefix) == 0;
+        }
+
+        static bool IsNeverEvictConstantKey(const std::string& key)
+        {
+            return IsUniqueStaffConstantKey(key) || IsFaceIdConstantKey(key);
         }
 
         struct EquipEntry
@@ -112,7 +126,6 @@ namespace V_FrameWorkState
         {
             bool loaded = false;
             bool dirty = false;
-            bool launchHealthy = false;
             std::unordered_map<std::string, EquipEntry> equips;
             std::unordered_map<std::string, TapeEntry> tapes;
             std::unordered_map<std::string, BluePrintEntry> bluePrints;
@@ -122,7 +135,6 @@ namespace V_FrameWorkState
         };
 
         static State g_State;
-        static bool g_PrevLaunchHealthy = true;
         static std::mutex g_Mutex;
         static std::vector<std::int32_t> g_PendingDevelopedResets;
         static int g_BatchDepth = 0;
@@ -140,12 +152,13 @@ namespace V_FrameWorkState
 
         static std::unordered_set<std::string> g_ConstantsTouched;
         static bool g_ExitSave = false;
+        static bool g_LaunchHealthy = false;
 
         static bool CanCountConstantMisses()
         {
             if (!g_ExitSave)
                 return false;
-            if (!g_State.launchHealthy)
+            if (!g_LaunchHealthy)
             {
                 static bool s_said = false;
                 if (!s_said)
@@ -454,7 +467,6 @@ namespace V_FrameWorkState
             g_State.constants.clear();
             g_State.constantMisses.clear();
             g_State.pinnedEquipIds.clear();
-            g_VanillaIdentityIds.clear();
             g_ConstantsTouched.clear();
             g_TapeSaveIndexInUse.clear();
 
@@ -466,11 +478,9 @@ namespace V_FrameWorkState
                 return;
             }
 
-            g_PrevLaunchHealthy = false;
-
             enum Section { None, Equips, Weapons, Outfits, Tapes, BluePrints,
-                           Constants, ConstantMisses, PinnedIds,
-                           VanillaIdentity } section = None;
+                           Constants, ConstantMisses,
+                           PinnedIds } section = None;
 
             std::string constantSpace;
 
@@ -486,13 +496,6 @@ namespace V_FrameWorkState
                     const auto eq = trimmed.find('=');
                     if (eq != std::string::npos)
                         constantSpace = Trim(trimmed.substr(0, eq));
-                    continue;
-                }
-
-                if (section == None && trimmed.rfind("launchHealthy", 0) == 0)
-                {
-                    g_PrevLaunchHealthy =
-                        trimmed.find("false") == std::string::npos;
                     continue;
                 }
 
@@ -550,13 +553,6 @@ namespace V_FrameWorkState
                     trimmed.find('{') != std::string::npos)
                 {
                     section = PinnedIds;
-                    continue;
-                }
-
-                if (trimmed.rfind("vanillaEquipIdentity", 0) == 0 &&
-                    trimmed.find('{') != std::string::npos)
-                {
-                    section = VanillaIdentity;
                     continue;
                 }
 
@@ -648,29 +644,6 @@ namespace V_FrameWorkState
                     if (ParseConstantLine(trimmed, key, value))
                         g_State.pinnedEquipIds.insert(value);
                 }
-                else if (section == VanillaIdentity)
-                {
-                    std::size_t pos = 0;
-                    while (pos < trimmed.size())
-                    {
-                        while (pos < trimmed.size()
-                               && (trimmed[pos] < '0' || trimmed[pos] > '9'))
-                            ++pos;
-                        std::size_t start = pos;
-                        while (pos < trimmed.size()
-                               && trimmed[pos] >= '0' && trimmed[pos] <= '9')
-                            ++pos;
-                        if (pos > start)
-                        {
-                            const long v = std::strtol(
-                                trimmed.substr(start, pos - start).c_str(),
-                                nullptr, 10);
-                            if (v > 0 && v < 0x10000)
-                                g_VanillaIdentityIds.insert(
-                                    static_cast<std::int32_t>(v));
-                        }
-                    }
-                }
             }
 
             in.close();
@@ -703,7 +676,6 @@ namespace V_FrameWorkState
 
                 for (auto it = g_State.bluePrints.begin(); it != g_State.bluePrints.end(); )
                 {
-                    if (!g_PrevLaunchHealthy) { ++it; continue; }
                     if (it->second.misses >= kBluePrintOrphanGraceLaunches)
                     {
                         Log("[V_FrameWorkState] blueprint \"%s\" (id %d) has not registered for "
@@ -725,7 +697,6 @@ namespace V_FrameWorkState
             std::size_t evicted = 0;
             for (auto it = g_State.tapes.begin(); it != g_State.tapes.end(); )
             {
-                if (!g_PrevLaunchHealthy) { ++it; continue; }
                 if (it->second.misses >= kTapeOrphanGraceLaunches)
                 {
                     LogDebug("[CustomTapes] tape deleted: '%s' (saveIndex %d) - mod uninstalled; freeing the save slot.\n", it->first.c_str(), static_cast<int>(it->second.saveIndex));
@@ -742,8 +713,7 @@ namespace V_FrameWorkState
 
             for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
             {
-                if (!g_PrevLaunchHealthy) { ++it; continue; }
-                if (IsUniqueStaffConstantKey(it->first))
+                if (IsNeverEvictConstantKey(it->first))
                 {
                     ++it;
                     continue;
@@ -778,7 +748,6 @@ namespace V_FrameWorkState
 
             for (auto it = g_State.equips.begin(); it != g_State.equips.end(); )
             {
-                if (!g_PrevLaunchHealthy) { ++it; continue; }
                 if (it->second.misses >= kEquipOrphanGraceLaunches
                     && it->second.equipId != 0)
                 {
@@ -1151,9 +1120,6 @@ namespace V_FrameWorkState
 
                 out << "return {\n\n";
 
-                out << "    launchHealthy = "
-                    << (g_State.launchHealthy ? "true" : "false") << ",\n\n";
-
                 static const char* const kEquipTable[4] =
                     { "equips", "weapons", "outfits", "develop" };
                 for (int g = 0; g < 4; ++g)
@@ -1249,7 +1215,7 @@ namespace V_FrameWorkState
                 sorted.reserve(g_State.constants.size());
                 for (const auto& kv : g_State.constants)
                 {
-                    if (IsUniqueStaffConstantKey(kv.first))
+                    if (IsNeverEvictConstantKey(kv.first))
                         continue;
                     if (g_ConstantsTouched.find(kv.first) != g_ConstantsTouched.end())
                         continue;
@@ -1293,26 +1259,6 @@ namespace V_FrameWorkState
                             break;
                         }
                     out << "\n";
-                }
-                out << "    },\n";
-            }
-
-            if (!g_VanillaIdentityIds.empty())
-            {
-                std::vector<std::int32_t> sorted(g_VanillaIdentityIds.begin(),
-                                                 g_VanillaIdentityIds.end());
-                std::sort(sorted.begin(), sorted.end());
-
-                out << "\n    vanillaEquipIdentity = {\n";
-                for (std::size_t i = 0; i < sorted.size(); ++i)
-                {
-                    if ((i % 16) == 0)
-                        out << "        ";
-                    out << sorted[i] << ",";
-                    if ((i % 16) == 15 || i + 1 == sorted.size())
-                        out << "\n";
-                    else
-                        out << " ";
                 }
                 out << "    },\n";
             }
@@ -1558,12 +1504,6 @@ namespace V_FrameWorkState
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
-        if (!g_PrevLaunchHealthy)
-            Log("[V_FrameWorkState] the previous launch did not install cleanly, so "
-                "nothing it failed to register counts as an uninstall - orphan "
-                "expiry is frozen for this launch and every persisted id is kept\n");
-
-        g_State.launchHealthy = false;
         g_State.dirty = true;
         WriteToDisk_NoLock();
     }
@@ -1571,11 +1511,7 @@ namespace V_FrameWorkState
     void NoteInstallOutcome(bool allInstalled)
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
-        if (g_State.launchHealthy == allInstalled)
-            return;
-        g_State.launchHealthy = allInstalled;
-        g_State.dirty = true;
-        WriteToDisk_NoLock();
+        g_LaunchHealthy = allInstalled;
     }
 
     void Save()
@@ -1710,11 +1646,21 @@ namespace V_FrameWorkState
                          "the list enumerates without filtering on type - it would "
                          "render as a supply item; reallocating\n",
                     persisted, key, kItemCategoryRowFirst, kItemCategoryRowLast);
+            const bool legacyBand = isExtended
+                && persisted < EquipIdCompression::kExtendedAllocFirst;
+            if (legacyBand)
+                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is in "
+                         "the retired extended band 0x%X-0x%X, whose fold can alias "
+                         "a vanilla row in the InfoList mirror - reallocating into "
+                         "the 0x%X+ band\n",
+                    persisted, key, EquipIdCompression::kExtendedEquipIdFirst,
+                    EquipIdCompression::kExtendedAllocFirst - 1,
+                    EquipIdCompression::kExtendedAllocFirst);
             const bool slotFree = isExtended
                 ? !EquipIdCompression::IsExtendedEquipIdUsed(persisted)
                 : !EquipIdCompression::IsCompressedSlotUsed(slot);
             if (!sessionTaken && bandOk && !identityClash && !itemListClash
-                && slotFree)
+                && !legacyBand && slotFree)
             {
                 g_SessionEquipIds[key] = persisted;
                 NoteClaimedEquipId_NoLock(persisted);
@@ -1729,7 +1675,7 @@ namespace V_FrameWorkState
                 outEquipId = persisted;
                 return true;
             }
-            if (bandOk)
+            if (bandOk && !legacyBand)
                 LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is no "
                          "longer free (vanilla layout change or conflict) - "
                          "reallocating; old loadout references are healed or "
@@ -1796,12 +1742,14 @@ namespace V_FrameWorkState
             ++cleared;
         }
 
-        if (cleared != 0)
-            Log("[V_FrameWorkState] %d persisted equipId(s) sit on rows the game's own "
-                "develop tree still owns (first: '%s' = 0x%X) - the vanilla row renders "
-                "with this item's damage tag, so those ids were dropped and are "
-                "reallocated on the next launch\n",
-                cleared, firstKey.c_str(), firstId);
+        if (cleared == 0)
+            return;
+
+        Log("[V_FrameWorkState] %d persisted equipId(s) sit on rows the game's own "
+            "develop tree still owns (first: '%s' = 0x%X) - the vanilla row renders "
+            "with this item's damage tag, so those ids were dropped and are "
+            "reallocated on the next launch\n",
+            cleared, firstKey.c_str(), firstId);
 
         g_State.dirty = true;
         SaveToDisk_NoLock();

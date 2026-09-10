@@ -33,8 +33,6 @@ namespace
         { "SetGameOverSplashMainTexturePath",         l_SetGameOverSplashMainTexturePath },
         { "SetGameOverSplashBlurTexturePath",         l_SetGameOverSplashBlurTexturePath },
         { "ClearGameOverSplashTextures",              l_ClearGameOverSplashTextures },
-        { "SetRewardPopupBgTexturePath",              l_SetRewardPopupBgTexturePath },
-        { "ClearRewardPopupBgTexture",                l_ClearRewardPopupBgTexture },
         { "SetMissionTelopSplashTexturePath",         l_SetMissionTelopSplashTexturePath },
         { "UnsetMissionTelopSplashTexturePath",       l_UnsetMissionTelopSplashTexturePath },
 

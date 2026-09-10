@@ -26,7 +26,6 @@ extern "C" {
 #include "MissionTelopBgTexture.h"
 #include "LoadingSplash.h"
 #include "GameOverSplash.h"
-#include "RewardPopupBgTexture.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPHoldupHook.h"
 #include "VIPRadioHook.h"
@@ -52,8 +51,10 @@ extern "C" {
 #include "OutfitLuaBindings.h"
 #include "OutfitRegistry.h"
 #include "V_TppEquipLib.h"
+#include "V_TppSoldierFaceLib.h"
 #include "utility_GetIconFtexPath.h"
 #include "PlayerVoiceFpkHook.h"
+#include "Player2Impl_UpdateVoiceType.h"
 #include "SoldierVoiceTypeQuery.h"
 #include "SoldierObjectRtpc.h"
 #include "../hooks/sound/VoicePitchOverride.h"
@@ -483,13 +484,29 @@ static std::uint32_t OptionalMissionCode(lua_State* L, int index)
 }
 
 
+static std::string TextureFtexPath(const char* rawPath)
+{
+    std::string path(rawPath);
+    const std::size_t n = path.size();
+    if (n <= 5 || _stricmp(path.c_str() + n - 5, ".ftex") != 0)
+        path += ".ftex";
+    return path;
+}
+
+
+static std::uint64_t TextureHashFromPath(const char* rawPath)
+{
+    return FoxHashes::PathCode64Ext(TextureFtexPath(rawPath));
+}
+
+
 int __cdecl l_SetLoadingSplashMainTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
     if (!rawPath || !*rawPath)
         return 0;
 
-    LoadingSplash_SetMainTexture(FoxHashes::PathCode64Ext(rawPath), OptionalMissionCode(L, 2));
+    LoadingSplash_SetMainTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
     return 0;
 }
 
@@ -500,7 +517,7 @@ int __cdecl l_SetLoadingSplashBlurTexturePath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    LoadingSplash_SetBlurTexture(FoxHashes::PathCode64Ext(rawPath), OptionalMissionCode(L, 2));
+    LoadingSplash_SetBlurTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
     return 0;
 }
 
@@ -518,7 +535,7 @@ int __cdecl l_SetGameOverSplashMainTexturePath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    GameOverSplash_SetMainTexture(FoxHashes::PathCode64Ext(rawPath), OptionalMissionCode(L, 2));
+    GameOverSplash_SetMainTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
     return 0;
 }
 
@@ -529,7 +546,7 @@ int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    GameOverSplash_SetBlurTexture(FoxHashes::PathCode64Ext(rawPath), OptionalMissionCode(L, 2));
+    GameOverSplash_SetBlurTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
     return 0;
 }
 
@@ -537,24 +554,6 @@ int __cdecl l_SetGameOverSplashBlurTexturePath(lua_State* L)
 int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
 {
     GameOverSplash_ClearTextures(OptionalMissionCode(L, 1));
-    return 0;
-}
-
-
-int __cdecl l_SetRewardPopupBgTexturePath(lua_State* L)
-{
-    const char* rawPath = GetLuaString(L, 1);
-    if (!rawPath || !*rawPath)
-        return 0;
-
-    RewardPopupBg_SetTexture(FoxHashes::PathCode64Ext(rawPath), OptionalMissionCode(L, 2));
-    return 0;
-}
-
-
-int __cdecl l_ClearRewardPopupBgTexture(lua_State* L)
-{
-    RewardPopupBg_ClearTexture(OptionalMissionCode(L, 1));
     return 0;
 }
 
@@ -584,6 +583,36 @@ int __cdecl l_ClearAllPlayerVoiceFpkOverrides(lua_State* L)
 {
     UNREFERENCED_PARAMETER(L);
     Clear_AllPlayerVoiceFpkOverrides();
+    return 0;
+}
+
+
+int __cdecl l_SetPlayerVoiceTypeForType(lua_State* L)
+{
+    const int playerType = GetLuaInt(L, 1);
+
+    const std::uint32_t voiceType = GetLuaFnvHash32Arg(L, 2);
+    if (voiceType == 0)
+        return 0;
+
+    Set_PlayerVoiceTypeForType(
+        static_cast<std::uint32_t>(playerType), voiceType);
+    return 0;
+}
+
+
+int __cdecl l_ClearPlayerVoiceTypeForType(lua_State* L)
+{
+    const int playerType = GetLuaInt(L, 1);
+    Clear_PlayerVoiceTypeForType(static_cast<std::uint32_t>(playerType));
+    return 0;
+}
+
+
+int __cdecl l_ClearAllPlayerVoiceTypeOverrides(lua_State* L)
+{
+    UNREFERENCED_PARAMETER(L);
+    Clear_AllPlayerVoiceTypeOverrides();
     return 0;
 }
 
@@ -1653,10 +1682,13 @@ int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
 
 int __cdecl l_SetMissionTelopSplashTexturePath(lua_State* L)
 {
-    const char* path = GetLuaString(L, 1);
-    const bool ok = (path != nullptr && path[0] != '\0');
+    const char* rawPath = GetLuaString(L, 1);
+    const bool ok = (rawPath != nullptr && rawPath[0] != '\0');
     if (ok)
-        Set_MissionTelopSplashTexturePath(path, OptionalMissionCode(L, 2));
+    {
+        const std::string path = TextureFtexPath(rawPath);
+        Set_MissionTelopSplashTexturePath(path.c_str(), OptionalMissionCode(L, 2));
+    }
     PushLuaBool(L, ok);
     return 1;
 }
@@ -2047,6 +2079,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_HelicopterLibrary(L);
         Register_V_TppMotherBaseManagementLibrary(L);
         Register_V_TppEquipLibrary(L);
+        Register_V_TppSoldierFaceLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -2089,6 +2122,7 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
     Register_V_HelicopterLibrary(L);
     Register_V_TppMotherBaseManagementLibrary(L);
     Register_V_TppEquipLibrary(L);
+    Register_V_TppSoldierFaceLibrary(L);
 
     if (!RegisterLuaLibrary(L, "V_FrameWork", g_VFrameWorkLib))
         return 0;

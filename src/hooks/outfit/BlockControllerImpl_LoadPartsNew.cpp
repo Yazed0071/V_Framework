@@ -216,6 +216,8 @@ namespace
 
     static void* AllocExecNear(std::uintptr_t nearAddr, std::size_t size)
     {
+        if (void* arena = HookArena::AllocateNear(nearAddr, size))
+            return arena;
         SYSTEM_INFO si{}; GetSystemInfo(&si);
         const std::uintptr_t gran    = si.dwAllocationGranularity;
         const std::uintptr_t rounded = nearAddr & ~(gran - 1);

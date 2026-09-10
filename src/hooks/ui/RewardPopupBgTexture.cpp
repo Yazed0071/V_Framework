@@ -9,16 +9,20 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
-#include "MissionTextureTable.h"
 
 namespace
 {
     using PopupSetup_t     = std::uint64_t(__fastcall*)(void* self, void* param);
-    using SetTextureName_t = void(__fastcall*)(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int pool);
+    using SetNodeTexture_t = void(__fastcall*)(void* manager, void* node,
+                                               std::uint64_t texturePathHash,
+                                               std::uint64_t slotNameHash);
     using GetUixUtility_t  = void** (__fastcall*)();
 
-    constexpr std::uint64_t  SLOT_MAIN          = 0x3bbf9889ull;
+    constexpr std::uint64_t  ICON_TEXTURE_SLOT_HASH = 0xCAFB3BBF9889ull;
+    constexpr std::uintptr_t POPUP_OWNER_OFFSET   = 0x10;
+    constexpr std::uintptr_t POPUP_PANEL_OFFSET   = 0x20;
     constexpr std::uintptr_t PICTURE_NODE_OFFSET = 0x50;
+    constexpr std::size_t    SET_NODE_TEXTURE_SLOT = 0x518 / sizeof(void*);
     constexpr std::size_t    SETUP_HASH_SITE_OFFSET = 0xC7;
 
     constexpr std::uint8_t kHashSitePattern[] =
@@ -36,20 +40,11 @@ namespace
     };
 
     PopupSetup_t     g_OrigSetup      = nullptr;
-    SetTextureName_t g_SetTextureName = nullptr;
     GetUixUtility_t  g_GetUixUtility  = nullptr;
     void*            g_Target         = nullptr;
+    bool             g_BindFailLogged = false;
 
-    MissionTextureTable g_Textures;
-    uint64_t            g_CurrentTexture = 0;
-
-
-    bool Resolve()
-    {
-        if (!g_SetTextureName)
-            g_SetTextureName = reinterpret_cast<SetTextureName_t>(ResolveGameAddress(gAddr.SetTextureName));
-        return g_SetTextureName != nullptr;
-    }
+    uint64_t g_CurrentTexture = 0;
 
 
     void Prefetch(std::uint64_t textureHash)
@@ -75,23 +70,49 @@ namespace
 
     void Apply(void* self)
     {
-        const std::uint32_t mission = MissionCodeGuard::GetCurrentMissionCode();
-        const bool perPopup = g_CurrentTexture != 0;
-        const std::uint64_t custom = perPopup ? g_CurrentTexture : g_Textures.Resolve(mission);
-        if (!self || custom == 0 || !Resolve())
+        const std::uint64_t custom = g_CurrentTexture;
+        if (!self || custom == 0)
             return;
+
+        Prefetch(custom);
+
+        void*            panel      = nullptr;
+        void*            node       = nullptr;
+        SetNodeTexture_t setTexture = nullptr;
 
         __try
         {
-            void* const node = *reinterpret_cast<void**>(reinterpret_cast<std::uintptr_t>(self) + PICTURE_NODE_OFFSET);
-            if (!node)
-                return;
-            Prefetch(custom);
-            g_SetTextureName(node, custom, SLOT_MAIN, 2);
-            LogDebug("[RewardPopupBg] mission %u -> %016llX (%s) on picture node %p\n",
-                     mission,
+            auto* const base = reinterpret_cast<std::uint8_t*>(self);
+            auto* const owner = *reinterpret_cast<std::uint8_t**>(base + POPUP_OWNER_OFFSET);
+            if (owner)
+                panel = *reinterpret_cast<void**>(owner + POPUP_PANEL_OFFSET);
+            node = *reinterpret_cast<void**>(base + PICTURE_NODE_OFFSET);
+            if (panel)
+            {
+                void** const vtbl = *reinterpret_cast<void***>(panel);
+                if (vtbl)
+                    setTexture = reinterpret_cast<SetNodeTexture_t>(vtbl[SET_NODE_TEXTURE_SLOT]);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+        if (!panel || !node || !setTexture)
+        {
+            if (!g_BindFailLogged)
+            {
+                g_BindFailLogged = true;
+                Log("[RewardPopupBg] popup drew with panel=%p node=%p setter=%p - the background "
+                    "picture could not be reached, so the popup keeps its vanilla texture\n",
+                    panel, node, reinterpret_cast<void*>(setTexture));
+            }
+            return;
+        }
+
+        __try
+        {
+            setTexture(panel, node, custom, ICON_TEXTURE_SLOT_HASH);
+            LogDebug("[RewardPopupBg] popup background -> %016llX on picture node %p\n",
                      static_cast<unsigned long long>(custom),
-                     perPopup ? "per-popup" : "table",
                      node);
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -203,19 +224,6 @@ namespace
 }
 
 
-void RewardPopupBg_SetTexture(uint64_t textureHash, uint32_t missionCode)
-{
-    g_Textures.Set(missionCode, textureHash);
-    Prefetch(textureHash);
-    LogDebug("[RewardPopupBg] set texture %016llX for mission %u\n",
-             static_cast<unsigned long long>(textureHash), missionCode);
-}
-
-void RewardPopupBg_ClearTexture(uint32_t missionCode)
-{
-    g_Textures.Clear(missionCode);
-}
-
 void RewardPopupBg_SetCurrentPopupTexture(uint64_t textureHash)
 {
     g_CurrentTexture = textureHash;
@@ -225,12 +233,6 @@ void RewardPopupBg_SetCurrentPopupTexture(uint64_t textureHash)
 
 bool Install_RewardPopupBgTexture_Hook()
 {
-    if (!gAddr.SetTextureName)
-    {
-        Log("[RewardPopupBg] SetTextureName address missing - override disabled\n");
-        return false;
-    }
-
     g_Target = LocateSetup();
     if (!g_Target)
         return false;
@@ -260,6 +262,6 @@ bool Uninstall_RewardPopupBgTexture_Hook()
     g_Target         = nullptr;
     g_OrigSetup      = nullptr;
     g_CurrentTexture = 0;
-    g_Textures.Clear(0);
+    g_BindFailLogged = false;
     return true;
 }

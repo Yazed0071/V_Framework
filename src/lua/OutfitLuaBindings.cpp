@@ -220,6 +220,57 @@ namespace
     }
 
 
+    std::uint8_t ReadVoiceFpkByTypeField(
+        lua_State* L, int tableIndex, outfit::VoiceFpkByType* out,
+        std::size_t maxOut)
+    {
+        LuaGetField(L, tableIndex, "voiceFpk");
+        const int mapIdx = GetLuaTop(L);
+        if (LuaType(L, mapIdx) != LUA_TTABLE)
+        {
+            SetLuaTop(L, -2);
+            return 0;
+        }
+
+        std::uint8_t count = 0;
+        g_lua_pushnil(L);
+        while (g_lua_next(L, mapIdx) != 0)
+        {
+            if (LuaType(L, -2) == LUA_TSTRING && LuaType(L, -1) == LUA_TSTRING)
+            {
+                const char* name = GetLuaString(L, -2);
+                const char* path = GetLuaString(L, -1);
+                if (name && name[0] && path && path[0])
+                {
+                    if (!PathHasRequiredExt(path, ".fpk"))
+                    {
+                        LogDebug("[OutfitLua] REJECTED voiceFpk[%s] '%s': must "
+                            "end in '.fpk' (a wrong extension hangs the engine "
+                            "loader forever) - that voice keeps the vanilla fpk\n",
+                            name, path);
+                    }
+                    else if (count >= maxOut)
+                    {
+                        Log("[OutfitLua] voiceFpk holds more than %zu entries - "
+                            "'%s' was dropped, so that voice keeps the vanilla "
+                            "fpk\n", maxOut, name);
+                    }
+                    else
+                    {
+                        out[count].voiceType  = outfit::SoundSwitchHash(name);
+                        out[count].pathCode64 = FoxHashes::PathCode64Ext(path);
+                        ++count;
+                    }
+                }
+            }
+            SetLuaTop(L, -2);
+        }
+
+        SetLuaTop(L, -2);
+        return count;
+    }
+
+
     std::uint64_t ReadRequiredPathField(
         lua_State* L, int tableIndex, const char* fieldName)
     {
@@ -624,6 +675,14 @@ namespace
                                             outfit::kSubAssetDisabled);
                     v.voiceFpk        = ReadSubAssetField(L, -1, "voiceFpk",
                                             outfit::kSubAssetUseVanilla);
+                    {
+                        const char* voiceTypeName = nullptr;
+                        v.voiceType = ReadSoundSwitchField(
+                            L, GetLuaTop(L), "voiceType", voiceTypeName);
+                    }
+                    v.voiceFpkByTypeCount = ReadVoiceFpkByTypeField(
+                        L, GetLuaTop(L), v.voiceFpkByType,
+                        outfit::kMaxVoiceFpkByType);
 
                     ReadMotionMtarsInto(L, GetLuaTop(L), v.motionMtars);
 
@@ -820,6 +879,14 @@ namespace
                                 outfit::kSubAssetDisabled);
         branch.voiceFpk   = ReadSubAssetField(L, branchTblIdx, "voiceFpk",
                                 outfit::kSubAssetUseVanilla);
+        {
+            const char* voiceTypeName = nullptr;
+            branch.voiceType = ReadSoundSwitchField(
+                L, branchTblIdx, "voiceType", voiceTypeName);
+        }
+        branch.voiceFpkByTypeCount = ReadVoiceFpkByTypeField(
+            L, branchTblIdx, branch.voiceFpkByType,
+            outfit::kMaxVoiceFpkByType);
         branch.camoFv2    = ReadSubAssetField(L, branchTblIdx, "camoFv2",
                                 outfit::kSubAssetDisabled);
         branch.diamondFv2 = ReadSubAssetField(L, branchTblIdx, "diamondFv2",

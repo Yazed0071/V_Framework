@@ -83,6 +83,7 @@ namespace
     static std::map<std::int32_t, std::int32_t> g_AmmoRootParams;
 
     static std::uint8_t* g_InfoMirror = nullptr;
+    static std::uint8_t* g_InfoMirrorReserved = nullptr;
     static bool g_MirrorSitesPatched = false;
     static std::size_t g_MirrorSitesSkipped = 0;
     static constexpr std::int32_t kMirrorRows = 0x10000;
@@ -135,23 +136,6 @@ namespace
         }
     }
 
-    static void* AllocateMirrorOutsideHookWindow(std::size_t size)
-    {
-        SYSTEM_INFO si{};
-        GetSystemInfo(&si);
-        const std::uintptr_t granularity = si.dwAllocationGranularity;
-        const std::uintptr_t first = 0x18A000000ull;
-        const std::uintptr_t last  = 0x1BF000000ull;
-
-        for (std::uintptr_t addr = first; addr + size < last; addr += granularity)
-        {
-            if (void* p = VirtualAlloc(reinterpret_cast<LPVOID>(addr), size,
-                                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
-                return p;
-        }
-        return nullptr;
-    }
-
     struct MirrorAbsDispSite
     {
         std::uintptr_t va;
@@ -168,27 +152,149 @@ namespace
         std::uint32_t  rowOffset;
     };
 
+    static const MirrorRipSite kMirrorRipSites[] = {
+        { 0x140a03587ull, 0x00u }, { 0x140a03ca4ull, 0x00u },
+        { 0x140a047a4ull, 0x10u }, { 0x140a04832ull, 0x10u },
+        { 0x140a05487ull, 0x00u }, { 0x140a05b80ull, 0x00u },
+        { 0x140a05dd2ull, 0x00u }, { 0x140a05e15ull, 0x00u },
+        { 0x140a0676cull, 0x00u }, { 0x140a07556ull, 0x00u },
+        { 0x140a079d8ull, 0x00u }, { 0x140a081bbull, 0x00u },
+    };
+    static const MirrorAbsDispSite kMirrorAbsSites[] = {
+        { 0x140a0588aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
+        { 0x140a058beull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
+    };
+    static constexpr std::uintptr_t kMirrorNativeBase = 0x142c20fd0ull;
+    static constexpr std::uintptr_t kMirrorImageBase  = 0x140000000ull;
+    static constexpr std::uintptr_t kMirrorNearBand   = 0x40000000ull;
+    static constexpr std::uintptr_t kMirrorMaxRowDisp = 0x10ull;
+
+    static void MirrorReaderReach(std::size_t size, std::uintptr_t& lo, std::uintptr_t& hi)
+    {
+        std::uintptr_t minNext = ~0ull;
+        std::uintptr_t maxNext = 0;
+        for (const MirrorRipSite& site : kMirrorRipSites)
+        {
+            minNext = (std::min)(minNext, site.va + 7);
+            maxNext = (std::max)(maxNext, site.va + 7);
+        }
+        std::uintptr_t lower = maxNext - 0x80000000ull;
+        std::uintptr_t upper = minNext + 0x7FFFFFFFull - kMirrorMaxRowDisp;
+        lower = (std::max)(lower, kMirrorImageBase - 0x80000000ull);
+        upper = (std::min)(upper, kMirrorImageBase + 0x7FFFFFFFull - kMirrorMaxRowDisp);
+        lo = lower;
+        hi = upper > size ? upper - size : 0;
+    }
+
+    static std::uintptr_t MirrorImageEnd()
+    {
+        const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        if (!base)
+            return kMirrorImageBase;
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+            return base;
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+            base + static_cast<std::uintptr_t>(dos->e_lfanew));
+        if (nt->Signature != IMAGE_NT_SIGNATURE)
+            return base;
+        return base + nt->OptionalHeader.SizeOfImage;
+    }
+
+    struct MirrorWalkStats
+    {
+        std::size_t largestFree[3] = { 0, 0, 0 };
+        DWORD       lastError      = 0;
+        bool        commitFailed   = false;
+    };
+
+    static bool MirrorCommitCharge(DWORD err)
+    {
+        return err == ERROR_COMMITMENT_LIMIT || err == ERROR_NOT_ENOUGH_MEMORY
+            || err == ERROR_OUTOFMEMORY || err == ERROR_NO_SYSTEM_RESOURCES
+            || err == ERROR_PAGEFILE_QUOTA || err == ERROR_NOT_ENOUGH_QUOTA;
+    }
+
+    static void* MirrorWalkUp(std::uintptr_t from, std::uintptr_t to, std::size_t size,
+                              std::uintptr_t gran, std::uintptr_t lo, std::uintptr_t hi,
+                              bool reserveOnly, std::size_t& largestFree,
+                              MirrorWalkStats& stats)
+    {
+        if (to < from + size)
+            return nullptr;
+        const DWORD kind = reserveOnly ? MEM_RESERVE : (MEM_RESERVE | MEM_COMMIT);
+        const DWORD prot = reserveOnly ? PAGE_NOACCESS : PAGE_READWRITE;
+        const std::uintptr_t lastBase = (std::min)(hi, to - size);
+        for (std::uintptr_t a = (std::max)(from, lo); a <= lastBase; )
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(reinterpret_cast<LPCVOID>(a), &mbi, sizeof(mbi)) != sizeof(mbi))
+                break;
+            const auto regionBase = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
+            const std::uintptr_t regionEnd = regionBase + mbi.RegionSize;
+            if (mbi.State == MEM_FREE)
+            {
+                const std::uintptr_t runStart = (std::max)(regionBase, a);
+                const std::uintptr_t runEnd   = (std::min)(regionEnd, to);
+                if (runEnd > runStart)
+                    largestFree = (std::max)(largestFree,
+                                             static_cast<std::size_t>(runEnd - runStart));
+                std::uintptr_t base = (runStart + gran - 1) & ~(gran - 1);
+                for (; base + size <= regionEnd && base <= lastBase; base += gran)
+                {
+                    if (void* p = VirtualAlloc(reinterpret_cast<LPVOID>(base), size, kind, prot))
+                        return p;
+                    stats.lastError = GetLastError();
+                    if (MirrorCommitCharge(stats.lastError))
+                    {
+                        stats.commitFailed = true;
+                        return nullptr;
+                    }
+                }
+            }
+            if (regionEnd <= a)
+                break;
+            a = regionEnd;
+        }
+        return nullptr;
+    }
+
+    static void* AllocateMirrorInReaderReach(std::size_t size, bool reserveOnly,
+                                             MirrorWalkStats& stats)
+    {
+        SYSTEM_INFO si{};
+        GetSystemInfo(&si);
+        const std::uintptr_t gran = si.dwAllocationGranularity ? si.dwAllocationGranularity
+                                                               : 0x10000ull;
+        std::uintptr_t lo = 0, hi = 0;
+        MirrorReaderReach(size, lo, hi);
+        if (hi < lo)
+            return nullptr;
+
+        const std::uintptr_t imageEnd = MirrorImageEnd();
+        const std::uintptr_t farFrom  = kMirrorImageBase + kMirrorNearBand;
+        if (void* p = MirrorWalkUp(farFrom, hi + size, size, gran, lo, hi, reserveOnly,
+                                   stats.largestFree[0], stats))
+            return p;
+        if (stats.commitFailed)
+            return nullptr;
+        if (void* p = MirrorWalkUp(imageEnd, farFrom + size, size, gran, lo, hi, reserveOnly,
+                                   stats.largestFree[1], stats))
+            return p;
+        if (stats.commitFailed)
+            return nullptr;
+        return MirrorWalkUp(lo, kMirrorImageBase, size, gran, lo, hi, reserveOnly,
+                            stats.largestFree[2], stats);
+    }
 
     static std::size_t PatchInfoListLeaSites()
     {
-        static const MirrorRipSite kRipSites[] = {
-            { 0x140a03587ull, 0x00u }, { 0x140a03ca4ull, 0x00u },
-            { 0x140a047a4ull, 0x10u }, { 0x140a04832ull, 0x10u },
-            { 0x140a05487ull, 0x00u }, { 0x140a05b80ull, 0x00u },
-            { 0x140a05dd2ull, 0x00u }, { 0x140a05e15ull, 0x00u },
-            { 0x140a0676cull, 0x00u }, { 0x140a07556ull, 0x00u },
-            { 0x140a079d8ull, 0x00u }, { 0x140a081bbull, 0x00u },
-        };
-        static const MirrorAbsDispSite kAbsSites[] = {
-            { 0x140a0588aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
-            { 0x140a058beull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
-        };
-        const std::uintptr_t nativeBase = 0x142c20fd0ull;
-        const std::uintptr_t imageBase  = 0x140000000ull;
+        const std::uintptr_t nativeBase = kMirrorNativeBase;
+        const std::uintptr_t imageBase  = kMirrorImageBase;
         std::size_t patched = 0;
         std::size_t skipped = 0;
 
-        for (const MirrorRipSite& site : kRipSites)
+        for (const MirrorRipSite& site : kMirrorRipSites)
         {
             const std::uintptr_t va = site.va;
             auto* p = reinterpret_cast<std::uint8_t*>(va);
@@ -232,7 +338,7 @@ namespace
             }
         }
 
-        for (const MirrorAbsDispSite& site : kAbsSites)
+        for (const MirrorAbsDispSite& site : kMirrorAbsSites)
         {
             auto* p = reinterpret_cast<std::uint8_t*>(site.va);
             if (std::memcmp(p, site.prefix, site.prefixLen) != 0
@@ -429,6 +535,15 @@ namespace
             {
                 if (existing.equipId == row.equipId)
                 {
+                    if (existing.partsHash != row.partsHash || existing.equipType != row.equipType)
+                        Log("[EquipIdTable] WARNING: equipId=%d is registered twice with different "
+                            "content (type %d -> %d, parts %016llX -> %016llX) - the first weapon or "
+                            "item now carries the second row's model, and the id the second row was "
+                            "meant for has no row at all; firing a launcher whose ammo id has no row "
+                            "crashes inside the engine's shell code\n",
+                            row.equipId, existing.equipType, row.equipType,
+                            static_cast<unsigned long long>(existing.partsHash),
+                            static_cast<unsigned long long>(row.partsHash));
                     existing = row;
                     replaced = true;
                     break;
@@ -468,7 +583,6 @@ namespace
             LogDebug("[EquipIdTable] re-applied %zu custom row(s) after reload\n",
                 applied);
 #endif
-        TppEquip_EnsureInfoListMirror();
         RefreshInfoMirror();
         LogEquipIdBudgetOnce();
     }
@@ -780,6 +894,15 @@ bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out)
     return true;
 }
 
+void TppEquip_ReserveInfoListMirrorEarly()
+{
+    if (!::AddressSetRuntime::IsEn154Family(gGameBuild))
+        return;
+    MirrorWalkStats stats;
+    g_InfoMirrorReserved = static_cast<std::uint8_t*>(AllocateMirrorInReaderReach(
+        static_cast<size_t>(kMirrorRows) * kRowStride, true, stats));
+}
+
 bool TppEquip_EnsureInfoListMirror()
 {
     if (g_MirrorSitesPatched)
@@ -788,31 +911,74 @@ bool TppEquip_EnsureInfoListMirror()
     {
         g_MirrorSitesPatched = true;
         DeployGuard::ForceDropExtendedIds();
+        if (g_InfoMirrorReserved)
+        {
+            VirtualFree(g_InfoMirrorReserved, 0, MEM_RELEASE);
+            g_InfoMirrorReserved = nullptr;
+        }
         Log("[EquipIdTable] extended InfoList mirror DISABLED by "
             "disabled_modules.txt - the 14 reader sites keep the 653-row table, so "
-            "equipIds 1792+ resolve nothing and are dropped from the loadout this "
+            "extended equipIds (649+) resolve nothing and are dropped from the loadout this "
             "session to keep the deploy safe\n");
         return false;
     }
     if (!::AddressSetRuntime::IsEn154Family(gGameBuild))
     {
-        LogDebug("[EquipIdTable] InfoList mirror sites not ported for this build - "
-                 "the readers index the 653-row table with the raw extended "
-                 "equipId, so an extended weapon queues a garbage package and the "
-                 "deploy hangs\n");
         g_MirrorSitesPatched = true;
-        return true;
+        DeployGuard::ForceDropExtendedIds();
+        if (g_InfoMirrorReserved)
+        {
+            VirtualFree(g_InfoMirrorReserved, 0, MEM_RELEASE);
+            g_InfoMirrorReserved = nullptr;
+        }
+        Log("[EquipIdTable] WARN: InfoList mirror sites are not ported for this build "
+            "- the readers would index the 653-row table with the raw extended equipId, "
+            "so extended equipIds (649+) are dropped from the loadout this session "
+            "instead of queueing a garbage package that hangs the deploy\n");
+        return false;
     }
     if (!g_InfoMirror)
     {
-        g_InfoMirror = static_cast<std::uint8_t*>(AllocateMirrorOutsideHookWindow(
-            static_cast<size_t>(kMirrorRows) * kRowStride));
+        const std::size_t bytes = static_cast<size_t>(kMirrorRows) * kRowStride;
+        MirrorWalkStats stats;
+        if (g_InfoMirrorReserved)
+        {
+            g_InfoMirror = static_cast<std::uint8_t*>(VirtualAlloc(
+                g_InfoMirrorReserved, bytes, MEM_COMMIT, PAGE_READWRITE));
+            if (!g_InfoMirror)
+            {
+                stats.lastError    = GetLastError();
+                stats.commitFailed = MirrorCommitCharge(stats.lastError);
+                VirtualFree(g_InfoMirrorReserved, 0, MEM_RELEASE);
+            }
+            g_InfoMirrorReserved = nullptr;
+        }
+        if (!g_InfoMirror && !stats.commitFailed)
+            g_InfoMirror = static_cast<std::uint8_t*>(
+                AllocateMirrorInReaderReach(bytes, false, stats));
         if (!g_InfoMirror)
         {
+            std::uintptr_t lo = 0, hi = 0;
+            MirrorReaderReach(bytes, lo, hi);
             g_MirrorSitesPatched = true;
-            Log("[EquipIdTable] ERROR: could not allocate the InfoList mirror near "
-                "the game image - extended weapons queue a garbage package and the "
-                "deploy hangs\n");
+            DeployGuard::ForceDropExtendedIds();
+            if (stats.commitFailed)
+                Log("[EquipIdTable] ERROR: the process is out of commit charge "
+                    "(VirtualAlloc error %lu), so the %zu KB InfoList mirror cannot be "
+                    "committed - extended equipIds (649+) are dropped from the loadout this "
+                    "session so the deploy does not hang on a garbage package\n",
+                    stats.lastError, bytes / 1024);
+            else
+                Log("[EquipIdTable] ERROR: no free %zu KB run anywhere in the equip-data "
+                    "readers' rel32 reach (0x%llX-0x%llX) for the InfoList mirror "
+                    "(largest free run: %zu KB above +1 GB, %zu KB within 1 GB, %zu KB "
+                    "below the image; last VirtualAlloc error %lu) - extended equipIds (649+) "
+                    "are dropped from the loadout this session so the deploy does not "
+                    "hang on a garbage package\n",
+                    bytes / 1024, static_cast<unsigned long long>(lo),
+                    static_cast<unsigned long long>(hi + bytes),
+                    stats.largestFree[0] / 1024, stats.largestFree[1] / 1024,
+                    stats.largestFree[2] / 1024, stats.lastError);
             return false;
         }
     }
@@ -821,9 +987,13 @@ bool TppEquip_EnsureInfoListMirror()
     g_MirrorSitesPatched = true;
     if (patched == 0)
     {
+        DeployGuard::ForceDropExtendedIds();
+        VirtualFree(g_InfoMirror, 0, MEM_RELEASE);
+        g_InfoMirror = nullptr;
         Log("[EquipIdTable] ERROR: no InfoList reader site could be repointed - "
-            "extended weapons resolve no model package and deploying with one hangs "
-            "on the loading screen\n");
+            "extended weapons would resolve no model package, so extended equipIds "
+            "(649+) are dropped from the loadout this session instead of hanging the "
+            "deploy on the loading screen\n");
         return false;
     }
     if (g_MirrorSitesSkipped != 0)

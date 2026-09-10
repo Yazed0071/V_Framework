@@ -121,7 +121,7 @@ namespace
           sizeof(kPrologue_DamageEffect) },
     };
 
-    using CalcDamage_t = std::uint64_t (__fastcall*)(
+    using CalcDamage_t = float (__fastcall*)(
         void*, std::uint32_t, void*, void*, void*, void*, void*, void*, void*);
     using UpdateLife_t = void (__fastcall*)(void*);
     using ConvertRattle_t = void* (__fastcall*)(
@@ -1131,7 +1131,7 @@ namespace
                 "change\n");
     }
 
-    static std::uint64_t __fastcall hkCalcDamageValueAtIndex(
+    static float __fastcall hkCalcDamageValueAtIndex(
         void* self, std::uint32_t slotIndex, void* a3, void* a4, void* a5,
         void* a6, void* a7, void* a8, void* a9)
     {
@@ -1170,7 +1170,7 @@ namespace
             }
         }
 
-        const std::uint64_t r = g_OrigCalcDamage(
+        const float r = g_OrigCalcDamage(
             self, slotIndex, a3, a4, a5, a6, a7, a8, a9);
 
         {
@@ -1185,11 +1185,11 @@ namespace
                 if (ok3 || ok4)
                 {
                     s_dmgProof.fetch_add(1, std::memory_order_relaxed);
-                    Log("[AbilityProof] damage calc slot=%u returned=%llu | "
+                    Log("[AbilityProof] damage calc slot=%u returned=%.4f | "
                         "lifeState+0x28 candidates a3=%.4f a4=%.4f - the engine "
                         "multiplies the damage by this rate, so a value below "
                         "1.0 IS the defense reduction being applied\n",
-                        slotIndex, static_cast<unsigned long long>(r),
+                        slotIndex, r,
                         ok3 ? c3 : -1.0f, ok4 ? c4 : -1.0f);
                 }
             }

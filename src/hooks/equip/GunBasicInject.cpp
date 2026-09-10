@@ -463,6 +463,39 @@ int GunBasic_ClearLaneFromRows(int space, int lane)
     return cleared;
 }
 
+int GunBasic_ReNarrowReceiverRows(int wideRc)
+{
+    if (wideRc < 0x100)
+        return 0;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const int donor = EquipParam_GetWideReceiverDonor(wideRc);
+    if (donor <= 0)
+        return 0;
+
+    const int cap = BufferSlotCount();
+    std::uint8_t* buf = BufferBase();
+
+    int changed = 0;
+    for (auto& r : g_Rows)
+    {
+        bool dirty = false;
+        for (int i = 1; i <= 11; ++i)
+        {
+            if (r.slotSpace[i] != kVanillaSpace_Receiver || r.logical[i] != wideRc)
+                continue;
+            if (r.f[i] == donor)
+                continue;
+            r.f[i] = donor;
+            dirty = true;
+            ++changed;
+        }
+        if (dirty && buf && r.f[0] >= 1 && r.f[0] <= cap)
+            WriteNativeRowSEH(buf, r.f[0], &r.f[1]);
+    }
+    return changed;
+}
+
 int GunBasic_RebindWidePartsForWeapon(int weaponId)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
@@ -529,12 +562,16 @@ int __cdecl l_SetGunBasic(lua_State* L)
     };
 
     static const char* const kEssentialLabel[3] = { "receiverId", "barrelId", "ammoId" };
+    bool noBarrelDeclared = false;
     for (int i = 0; i < 11; ++i)
     {
         int v = kNoneValue;
         const bool present = ReadNamedInt(L, 1, kSlotNames[i], v);
         row.f[i + 1] = v;
-        if (i < 3 && (!present || v <= 0))
+        const bool explicitNoBarrel = (i == 1 && present && v == 0);
+        if (explicitNoBarrel)
+            noBarrelDeclared = true;
+        if (i < 3 && !explicitNoBarrel && (!present || v <= 0))
         {
             row.f[i + 1] = kEssentialDefaultId;
             LogDebug("[GunBasic] SetGunBasic weaponId=%d: %s is missing/unresolved "
@@ -594,6 +631,8 @@ int __cdecl l_SetGunBasic(lua_State* L)
         if (row.slotSpace[i] == kVanillaSpace_Receiver
             && row.logical[i] >= 0x100)
             continue;   // deferred to the late bind, not a missing part
+        if (i == 2 && noBarrelDeclared)
+            continue;
         if (row.f[i] <= 0)
         {
             LogDebug("[GunBasic] SetGunBasic weaponId=%d: %s did not resolve to a "

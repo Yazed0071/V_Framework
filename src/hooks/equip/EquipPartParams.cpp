@@ -1,8 +1,10 @@
-﻿#include "pch.h"
+#include "pch.h"
 
 #include "../outfit/AdditionalMotionTable_GetMtarPathId.h"
+#include "../shell/RemoteMissile.h"
 #include "DeployGuard.h"
 #include "EquipPartParams.h"
+#include "LaserSight_UpdatePrim.h"
 
 #include <Windows.h>
 #include <array>
@@ -22,10 +24,12 @@
 
 #include "AddressSet.h"
 #include "EquipIdCompression.h"
+#include "MotionLoaderImpl_GetMtarIds.h"
 #include "FoxHashes.h"
 #include "../../core/FoxPathInternal.h"
 #include "GunBasicInject.h"
 #include "PartIdWiden.h"
+#include "RealizedEquipObjectImpl_PostPutMotionExecute.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaApi.h"
@@ -458,7 +462,8 @@ namespace
                 ++pb.nextId;
                 continue;
             }
-            if (pb.persistReserved.count(pb.nextId) != 0)
+            if (pb.persistReserved.count(pb.nextId) != 0
+                || PartIdTakenThisSession(pb, pb.nextId))
             {
                 ++pb.nextId;
                 continue;
@@ -564,6 +569,8 @@ namespace
     {
         return Clamp(static_cast<int>(v * scale + 0.5), 0, 255);
     }
+
+    constexpr int kBulletTypeShell = 3;
 
     static const char* const kBulletBaseNames[] = {
         "tranqNear", "tranqFar", "tranqResidual",
@@ -1215,8 +1222,13 @@ namespace
 
     unsigned int PartCode_TapReceiverType(unsigned int receiverId, unsigned int result);
 
+    static unsigned int SetupEquipForTypeRead();
+
     static unsigned int __fastcall hkGetReceiverType(void* self, unsigned int receiverId)
     {
+        unsigned int ownedType = 0;
+        if (ReceiverMotion_ReceiverTypeOverride(SetupEquipForTypeRead(), &ownedType))
+            return ownedType;
         if (!g_RcvTypeExtReady)
             EnsureRcvTypeExt();
         LaneProbe_NoteReceiverRead(receiverId);
@@ -2150,6 +2162,109 @@ int EquipParam_AllocateBulletSlotForName(const char* name)
     return AllocatePartSlot(g_Bullet, name);
 }
 
+static bool ReadLaserColorAt(lua_State* L, int idx, LaserColor& out)
+{
+    LaserColor c{};
+    bool named = false;
+    double v = 0.0;
+    if (ReadNamedFloat(L, idx, "r", v)) { c.r = static_cast<float>(v); named = true; }
+    if (ReadNamedFloat(L, idx, "g", v)) { c.g = static_cast<float>(v); named = true; }
+    if (ReadNamedFloat(L, idx, "b", v)) { c.b = static_cast<float>(v); named = true; }
+    if (ReadNamedFloat(L, idx, "a", v)) { c.a = static_cast<float>(v); named = true; }
+    if (named)
+    {
+        out = c;
+        return true;
+    }
+
+    int filled = 0;
+    for (int i = 1; i <= 4; ++i)
+    {
+        g_lua_rawgeti(L, idx, i);
+        const bool isNum = g_lua_isnumber(L, -1) != 0;
+        if (isNum)
+        {
+            const float f = static_cast<float>(g_lua_tonumber(L, -1));
+            if (i == 1)      c.r = f;
+            else if (i == 2) c.g = f;
+            else if (i == 3) c.b = f;
+            else             c.a = f;
+            ++filled;
+        }
+        g_lua_settop(L, -2);
+        if (!isNum)
+            break;
+    }
+    if (filled >= 3)
+    {
+        out = c;
+        return true;
+    }
+    return false;
+}
+
+static void ApplyLaserColorField(lua_State* L, int tableIdx, int optionId)
+{
+    g_lua_getfield(L, tableIdx, const_cast<char*>("laserColor"));
+    const int colorIdx = g_lua_gettop(L);
+    if (g_lua_type(L, colorIdx) != LUA_TTABLE)
+    {
+        g_lua_settop(L, -2);
+        return;
+    }
+
+    bool perEquip = false;
+    g_lua_pushnil(L);
+    while (g_lua_next(L, colorIdx) != 0)
+    {
+        if (g_lua_type(L, -1) == LUA_TTABLE)
+            perEquip = true;
+        g_lua_settop(L, -2);
+        if (perEquip)
+        {
+            g_lua_settop(L, -2);
+            break;
+        }
+    }
+
+    if (!perEquip)
+    {
+        LaserColor c{};
+        if (ReadLaserColorAt(L, colorIdx, c))
+            LaserColor_SetDefaultForOption(optionId, c);
+        else
+            Log("[EquipParam] SetOption optionId=%d: laserColor is a table but holds no "
+                "r/g/b or {r,g,b} values - the laser keeps the engine's red\n", optionId);
+        g_lua_settop(L, -2);
+        return;
+    }
+
+    int taken = 0;
+    g_lua_pushnil(L);
+    while (g_lua_next(L, colorIdx) != 0)
+    {
+        const int valIdx = g_lua_gettop(L);
+        if (g_lua_type(L, valIdx) == LUA_TTABLE)
+        {
+            LaserColor c{};
+            if (ReadLaserColorAt(L, valIdx, c))
+            {
+                if (g_lua_isnumber(L, valIdx - 1) != 0)
+                    LaserColor_SetForOptionEquip(
+                        optionId, static_cast<int>(g_lua_tointeger(L, valIdx - 1)), c);
+                else
+                    LaserColor_SetDefaultForOption(optionId, c);
+                ++taken;
+            }
+        }
+        g_lua_settop(L, -2);
+    }
+    if (taken == 0)
+        Log("[EquipParam] SetOption optionId=%d: laserColor is keyed by equipId but no entry "
+            "held r/g/b values - the laser keeps the engine's red\n", optionId);
+    g_lua_settop(L, -2);
+}
+
 int __cdecl l_SetOption(lua_State* L)
 {
     if (!ResolveLuaApi())
@@ -2172,6 +2287,16 @@ int __cdecl l_SetOption(lua_State* L)
     int isLight = 0, isLaser = 0;
     ReadNamedInt(L, 1, "isLight", isLight);
     ReadNamedInt(L, 1, "isLaser", isLaser);
+
+    ApplyLaserColorField(L, 1, optionId);
+
+    for (int lt = 0; lt < kLaserTweakCount; ++lt)
+    {
+        const char* tweakName = LaserTweak_NameForIndex(lt);
+        double tweakValue = 0.0;
+        if (tweakName && ReadNamedFloat(L, 1, tweakName, tweakValue))
+            LaserTweak_SetForOption(optionId, lt, static_cast<float>(tweakValue));
+    }
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
 
@@ -2883,9 +3008,15 @@ int __cdecl l_SetBullet(lua_State* L)
     if (vanillaRow && (ammoPerShot > 1 || lockAmmoPerShot > 1))
         EquipParam_VanillaForceTaint(kVanillaSpace_Bullet, bulletId, "multi-shot ammoPerShot");
 
+    if (u8v[4] == kBulletTypeShell && u8v[6] == 0)
+        Log("[EquipParam] SetBullet bulletId=%d is BULLET_TYPE_SHELL with blastId=0 - the "
+            "shell flies and registers its hit but never detonates, because the blast is "
+            "what explodes. A TppEquip.BLA_* name that does not exist reads as absent and "
+            "leaves this field at its 0 default\n", bulletId);
+
 #ifdef _DEBUG
-    LogDebug("[EquipParam] SetBullet bulletId=%d ricochet=%d type=%d eqpType=%d -> native slot\n",
-        bulletId, u8v[5], u8v[4], eqpType);
+    LogDebug("[EquipParam] SetBullet bulletId=%d ricochet=%d type=%d blast=%d eqpType=%d -> native slot\n",
+        bulletId, u8v[5], u8v[4], u8v[6], eqpType);
 #endif
     return 0;
 }
@@ -3466,6 +3597,12 @@ int __cdecl l_SetReceiver(lua_State* L)
                 if (receiverId > 0)
                     g_ReceiverMotionDonor[receiverId] = motionFrom;
             }
+            if (GunBasic_ReNarrowReceiverRows(receiverId) > 0)
+                LogDebug("[EquipParam] SetReceiver receiverId=%d: motionFrom=%d "
+                         "arrived after SetGunBasic - the gun rows that fell back "
+                         "to a vanilla receiver have been re-pointed at %d, so "
+                         "any earlier one-byte fallback warning for them is stale\n",
+                    receiverId, motionFrom, motionFrom);
         }
     }
 
@@ -4250,6 +4387,9 @@ namespace
     {
         if (rc <= 0)
             return 0;
+        const int ownRow = ReceiverMotion_RowByteFor(rc);
+        if (ownRow == kPartMotionRowReceiver)
+            return ownRow;
         const auto it = g_ReceiverMotionDonor.find(rc);
         if (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 234)
             return it->second;
@@ -4260,6 +4400,8 @@ namespace
             if (w->alias > 0 && w->alias < 234)
                 return w->alias;
         }
+        if (ownRow)
+            return ownRow;
         return (rc < kWideIdBase) ? rc : 0;
     }
 
@@ -4339,6 +4481,18 @@ namespace
             if (ub > 0)
                 ubRc = PartRowByte(g_UnderBarrel, ub, 0);
 
+            const int opt1 = (widen && haveWideIds) ? wideIds[9]  : ReadByteAtSEH(desc, 8);
+            const int opt2 = (widen && haveWideIds) ? wideIds[10] : ReadByteAtSEH(desc, 9);
+            int laserOpt = 0;
+            if (opt2 > 0)
+            {
+                if (PartRowByte(g_Option, opt2, 0) & 0x2)
+                    laserOpt = opt2;
+            }
+            else if (opt1 > 0 && (PartRowByte(g_Option, opt1, 0) & 0x2))
+                laserOpt = opt1;
+            LaserColor_NoteWeaponOption(static_cast<int>(equipId), laserOpt);
+
             static std::mutex mx;
             static std::set<int> logged;
             auto shouldLog = [&](int key) {
@@ -4348,7 +4502,18 @@ namespace
 
             if (rc > 0)
             {
+                ReceiverMotion_EnsurePartRowsPublished(rc);
                 const int rowVal = ReceiverRowByteFor(rc);
+                if (rowVal == kPartMotionRowReceiver)
+                {
+                    ReceiverPartRowIndices own;
+                    if (!ReceiverMotion_GetPartRowIndices(rc, own)
+                        || !PartMotionRows_SetEquipRow(equipId, 0, own.motion,
+                                                       own.pose, own.flags))
+                        Log("[PartMotionRows] equipId=%u receiverId=%d declares its own "
+                            "part motion but the row could not be published - its slide "
+                            "or bolt stays still\n", equipId, rc);
+                }
                 if (rowVal > 0 && rowVal != rc
                     && ReadByteAtSEH(gunInfo, 0x7a) == (rc & 0xFF)
                     && WriteByteAtSEH(gunInfo, 0x7a, static_cast<std::uint8_t>(rowVal)) == 1
@@ -4358,7 +4523,21 @@ namespace
                         rc, rowVal);
             }
 
-            if (ubRc > 0 && !g_ReceiverMotionDonor.empty())
+            bool ubOwnRow = false;
+            if (ubRc > 0)
+            {
+                ReceiverMotion_EnsurePartRowsPublished(ubRc);
+                ReceiverPartRowIndices ubOwn;
+                if (ReceiverMotion_GetPartRowIndices(ubRc, ubOwn)
+                    && PartMotionRows_SetEquipRow(equipId, 1, ubOwn.motion,
+                                                  ubOwn.pose, ubOwn.flags)
+                    && ReadByteAtSEH(gunInfo, 0x7b) == (ubRc & 0xFF)
+                    && WriteByteAtSEH(gunInfo, 0x7b,
+                           static_cast<std::uint8_t>(kPartMotionRowUnderBarrel)) == 1)
+                    ubOwnRow = true;
+            }
+
+            if (!ubOwnRow && ubRc > 0 && !g_ReceiverMotionDonor.empty())
             {
                 const auto it = g_ReceiverMotionDonor.find(ubRc);
                 if (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 256
@@ -4499,6 +4678,12 @@ namespace
     static void* g_Resolver150Addr = nullptr;
     static std::atomic<bool> g_ResolverHookTried{ false };
     static thread_local bool g_InSetupWeaponInfo = false;
+    static thread_local std::uint32_t g_TlsSetupEquip = 0;
+
+    static unsigned int SetupEquipForTypeRead()
+    {
+        return g_InSetupWeaponInfo ? g_TlsSetupEquip : 0;
+    }
 
     static std::mutex g_WeaponKeyMutex;
     static std::set<std::uint32_t> g_WeaponKeysLogged;
@@ -4675,12 +4860,17 @@ void EquipParam_EnableWidePartIds(int newMaxId)
     }
 }
 
-int EquipParam_GetDeclaredWeaponAttackId(int equipId)
+int EquipParam_GetReceiverForEquipId(int equipId)
 {
     const int sub = TppEquip_GetSubIdForEquipId(equipId);
     if (sub <= 0)
         return 0;
-    const int logical = GunBasic_GetLogicalPart(sub, kVanillaSpace_Receiver);
+    return GunBasic_GetLogicalPart(sub, kVanillaSpace_Receiver);
+}
+
+int EquipParam_GetDeclaredWeaponAttackId(int equipId)
+{
+    const int logical = EquipParam_GetReceiverForEquipId(equipId);
     if (logical < kWideIdBase)
         return 0;
 
@@ -5633,9 +5823,9 @@ namespace
 
     constexpr std::uint32_t kMotionShadowRows = 0x10000;
 
-    static void*             g_MotionShadow = nullptr;
-    static std::atomic<bool> g_MotionShadowActive{ false };
-    static std::uint8_t      g_MotionShadowOwned[kMotionShadowRows / 8] = {};
+    static void*              g_MotionShadow = nullptr;
+    static std::atomic<bool>  g_MotionShadowActive{ false };
+    static std::atomic<void*> g_EngineMotionTable{ nullptr };
 
     static bool MotionBytesMatchSEH(std::uintptr_t va, const std::uint8_t* want,
                                     std::size_t n)
@@ -5727,38 +5917,6 @@ namespace
         return nullptr;
     }
 
-    static int MotionShadowMigrateSEH(std::uint8_t* orig, std::uint8_t* shadow)
-    {
-        int live = 0;
-        __try
-        {
-            auto* oe = reinterpret_cast<void**>(orig + 8);
-            auto* se = reinterpret_cast<void**>(shadow + 8);
-            for (std::uint32_t i = 1; i < 0x7D; ++i)
-                if (!(g_MotionShadowOwned[i >> 3] & (1u << (i & 7))))
-                {
-                    se[i] = oe[i];
-                    if (se[i])
-                        ++live;
-                }
-            for (std::uint32_t i = 0x7D; i < 0xCD; ++i)
-            {
-                const std::uint32_t eq = i + 899;
-                if (!(g_MotionShadowOwned[eq >> 3] & (1u << (eq & 7))))
-                {
-                    se[eq] = oe[i];
-                    if (se[eq])
-                        ++live;
-                }
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return -1;
-        }
-        return live;
-    }
-
     static bool MotionRegionSpan(const void* p, std::size_t* span, bool* readable)
     {
         MEMORY_BASIC_INFORMATION mbi{};
@@ -5835,6 +5993,72 @@ namespace
     }
 
     static std::mutex g_MotionShadowArmMutex;
+
+    static void PutRel32(std::uint8_t* dst, std::uintptr_t nextAddr,
+                         std::uintptr_t target)
+    {
+        const auto rel = static_cast<std::int32_t>(
+            static_cast<std::int64_t>(target) - static_cast<std::int64_t>(nextAddr));
+        std::memcpy(dst, &rel, sizeof(rel));
+    }
+
+    static void* MotionTryAllocIn(const MEMORY_BASIC_INFORMATION& mbi, std::size_t size,
+                                  std::uintptr_t gran, std::uintptr_t lo,
+                                  std::uintptr_t hi)
+    {
+        if (mbi.State != MEM_FREE)
+            return nullptr;
+        const auto regionBase = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
+        const std::uintptr_t regionEnd = regionBase + mbi.RegionSize;
+        std::uintptr_t base = (regionBase + gran - 1) & ~(gran - 1);
+        if (base < lo)
+            base = (lo + gran - 1) & ~(gran - 1);
+        for (; base + size <= regionEnd && base <= hi; base += gran)
+            if (void* p = VirtualAlloc(reinterpret_cast<LPVOID>(base), size,
+                                       MEM_RESERVE | MEM_COMMIT,
+                                       PAGE_EXECUTE_READWRITE))
+                return p;
+        return nullptr;
+    }
+
+    static void* MotionAllocNear(std::uintptr_t nearAddr, std::size_t size)
+    {
+        if (void* arena = HookArena::AllocateNear(nearAddr, size))
+            return arena;
+        SYSTEM_INFO si{};
+        GetSystemInfo(&si);
+        const std::uintptr_t gran  = si.dwAllocationGranularity;
+        const std::uintptr_t reach = 0x78000000ull;
+        const std::uintptr_t lo    = (nearAddr > reach) ? (nearAddr - reach) : gran;
+        const std::uintptr_t hi    = nearAddr + reach;
+
+        for (std::uintptr_t a = nearAddr & ~(gran - 1); a <= hi; )
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(reinterpret_cast<LPCVOID>(a), &mbi, sizeof(mbi)) != sizeof(mbi))
+                break;
+            if (void* p = MotionTryAllocIn(mbi, size, gran, lo, hi))
+                return p;
+            const auto next = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress)
+                + mbi.RegionSize;
+            if (next <= a)
+                break;
+            a = next;
+        }
+        for (std::uintptr_t a = nearAddr & ~(gran - 1); a > lo; )
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(reinterpret_cast<LPCVOID>(a), &mbi, sizeof(mbi)) != sizeof(mbi))
+                break;
+            if (void* p = MotionTryAllocIn(mbi, size, gran, lo, hi))
+                return p;
+            const auto base = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
+            if (base < gran)
+                break;
+            a = base - gran;
+        }
+        return nullptr;
+    }
 
     static void ArmMotionEntryShadow()
     {
@@ -5919,29 +6143,68 @@ namespace
         }
         std::memset(shadow, 0, bytes);
 
-        const int migrated = MotionShadowMigrateSEH(orig,
-                                                    static_cast<std::uint8_t*>(shadow));
-        if (migrated < 8)
+        void* engineTable = ReadPtrAtSEH(orig, 0x70);
+        if (!engineTable)
         {
             VirtualFree(shadow, 0, MEM_RELEASE);
             if (attempt == kMaxAttempts)
-                Log("[WeaponKey] motion-entry shadow NOT armed: engine table at %p "
-                    "still held only %d live entries after %d attempts - the base "
-                    "is only presumed correct and seeding from the wrong one would "
-                    "break vanilla motion too; table left untouched\n",
-                    static_cast<void*>(orig), migrated, kMaxAttempts);
+                Log("[WeaponKey] motion-entry shadow NOT armed: the equip manager at "
+                    "%p still holds no motion-entry table at +0x70 after %d attempts, "
+                    "so vanilla weapons would resolve their archives from an unbound "
+                    "table\n",
+                    static_cast<void*>(orig), kMaxAttempts);
+            return;
+        }
+        g_EngineMotionTable.store(engineTable, std::memory_order_release);
+
+        constexpr std::size_t kTrampBytes = 72;
+        void* tramp = MotionAllocNear(site, kTrampBytes);
+        if (!tramp)
+        {
+            attempts = kMaxAttempts + 1;
+            VirtualFree(shadow, 0, MEM_RELEASE);
+            Log("[WeaponKey] motion-entry shadow NOT armed: no free page sits within "
+                "rel32 reach of 0x%llX for the index trampoline, so equipIds outside "
+                "the vanilla bands resolve no motion entry\n",
+                static_cast<unsigned long long>(site));
             return;
         }
 
-        std::uint8_t patch[36] = {
+        const std::uintptr_t backAddr  = site + 36;
+        const std::uintptr_t bailAddr  = site + 63;
+        const auto           trampBase = reinterpret_cast<std::uintptr_t>(tramp);
+
+        std::uint8_t body[kTrampBytes] = {
+            0x83, 0xFE, 0x7C,
+            0x7F, 0x0B,
+            0x48, 0x8B, 0x47, 0x70,
+            0x8B, 0xCE,
+            0xE9, 0, 0, 0, 0,
+            0x8D, 0x8E, 0x00, 0xFC, 0xFF, 0xFF,
+            0x83, 0xF9, 0x4F,
+            0x77, 0x0F,
+            0x48, 0x8B, 0x47, 0x70,
+            0x8D, 0x8E, 0x7D, 0xFC, 0xFF, 0xFF,
+            0xE9, 0, 0, 0, 0,
             0x81, 0xFE, 0xFF, 0xFF, 0x00, 0x00,
-            0x77, 0x37,
+            0x77, 0x11,
             0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0,
-            0x8B, 0xCE };
-        for (std::size_t i = 20; i < sizeof(patch); ++i)
-            patch[i] = 0x90;
+            0x8B, 0xCE,
+            0xE9, 0, 0, 0, 0,
+            0xE9, 0, 0, 0, 0 };
+
         const std::uint64_t shadowBase = reinterpret_cast<std::uint64_t>(shadow);
-        std::memcpy(patch + 10, &shadowBase, sizeof(shadowBase));
+        std::memcpy(body + 52, &shadowBase, sizeof(shadowBase));
+        PutRel32(body + 12, trampBase + 16, backAddr);
+        PutRel32(body + 38, trampBase + 42, backAddr);
+        PutRel32(body + 63, trampBase + 67, backAddr);
+        PutRel32(body + 68, trampBase + 72, bailAddr);
+        std::memcpy(tramp, body, sizeof(body));
+
+        std::uint8_t patch[36];
+        std::memset(patch, 0x90, sizeof(patch));
+        patch[0] = 0xE9;
+        PutRel32(patch + 1, site + 5, trampBase);
 
         int patched = 0;
         for (int i = 0; i < s_siteCount; ++i)
@@ -5960,52 +6223,71 @@ namespace
 
         g_MotionShadow = shadow;
         g_MotionShadowActive.store(true, std::memory_order_release);
-        Log("[WeaponKey] motion-entry shadow armed at %p across %d site(s): the "
-            "205-slot table (equipIds 1-124/1024-1103 only) is now a %u-entry table "
-            "indexed by equipId; %d vanilla entries carried over\n",
-            shadow, patched, kMotionShadowRows, migrated);
+        Log("[WeaponKey] motion-entry shadow armed at %p across %d site(s), trampoline "
+            "at %p: equipIds 1-124/1024-1103 keep reading the engine table at %p, and "
+            "every other id up to %u resolves in the shadow\n",
+            shadow, patched, tramp, engineTable, kMotionShadowRows - 1);
     }
 
-    static void* MotionEntryTableBase()
+    static void* MotionEntryEngineTable()
     {
-        if (g_MotionShadowActive.load(std::memory_order_acquire) && g_MotionShadow)
-            return g_MotionShadow;
-        return reinterpret_cast<void*>(
+        if (void* t = g_EngineMotionTable.load(std::memory_order_acquire))
+            return t;
+        void* obj = reinterpret_cast<void*>(
             ResolveGameAddress(gAddr.Equip_MotionEntryTable));
+        void* t = obj ? ReadPtrAtSEH(obj, 0x70) : nullptr;
+        if (t)
+            g_EngineMotionTable.store(t, std::memory_order_release);
+        return t;
     }
 
-    static int MotionEntryIndex(std::uint32_t equipId)
+    static bool MotionEntrySlot(std::uint32_t equipId, void** table, int* idx)
     {
-        if (g_MotionShadowActive.load(std::memory_order_acquire))
-            return (equipId >= 1 && equipId < kMotionShadowRows)
-                       ? static_cast<int>(equipId) : -1;
         if (equipId >= 1 && equipId < 0x7D)
-            return static_cast<int>(equipId);
+        {
+            *table = MotionEntryEngineTable();
+            *idx   = static_cast<int>(equipId);
+            return *table != nullptr;
+        }
         if (equipId >= 0x400 && equipId < 0x450)
-            return static_cast<int>(equipId - 899);
-        return -1;
+        {
+            *table = MotionEntryEngineTable();
+            *idx   = static_cast<int>(equipId) - 899;
+            return *table != nullptr;
+        }
+        if (g_MotionShadowActive.load(std::memory_order_acquire) && g_MotionShadow
+            && equipId >= 1 && equipId < kMotionShadowRows)
+        {
+            *table = g_MotionShadow;
+            *idx   = static_cast<int>(equipId);
+            return true;
+        }
+        return false;
     }
 
-    static void* ReadMotionEntry(void* table, std::uint32_t equipId)
+    static bool MotionEntryHasSlot(std::uint32_t equipId)
     {
-        const int idx = MotionEntryIndex(equipId);
-        if (idx < 0)
+        void* table = nullptr;
+        int   idx   = 0;
+        return MotionEntrySlot(equipId, &table, &idx);
+    }
+
+    static void* ReadMotionEntry(std::uint32_t equipId)
+    {
+        void* table = nullptr;
+        int   idx   = 0;
+        if (!MotionEntrySlot(equipId, &table, &idx))
             return nullptr;
         return ReadPtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8);
     }
 
-    static bool WriteMotionEntry(void* table, std::uint32_t equipId, void* entry)
+    static bool WriteMotionEntry(std::uint32_t equipId, void* entry)
     {
-        const int idx = MotionEntryIndex(equipId);
-        if (idx < 0)
+        void* table = nullptr;
+        int   idx   = 0;
+        if (!MotionEntrySlot(equipId, &table, &idx))
             return false;
-        if (!WritePtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8, entry))
-            return false;
-        if (g_MotionShadowActive.load(std::memory_order_acquire)
-            && equipId < kMotionShadowRows)
-            g_MotionShadowOwned[equipId >> 3] |=
-                static_cast<std::uint8_t>(1u << (equipId & 7));
-        return true;
+        return WritePtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8, entry);
     }
 
     static std::uint32_t NextDonorCandidate(std::uint32_t v)
@@ -7003,11 +7285,8 @@ namespace
         }
     }
 
-    static void FillCustomMotionEntriesTable(void* table)
+    static void FillCustomMotionEntriesTable()
     {
-        if (!table)
-            return;
-
         std::vector<std::uint32_t> ids;
         if (g_MotionShadowActive.load(std::memory_order_acquire))
         {
@@ -7032,7 +7311,35 @@ namespace
             const std::uint32_t t = GetEquipTypeForEquipId(eq) & 0x1F;
             if (t < 1 || t > 8)
                 continue;
-            if (ReadMotionEntry(table, eq))
+            if (const std::uint64_t ownMtar = ReceiverMotion_WeaponArchiveForEquip(eq))
+            {
+                if (ReadMotionEntry(eq) == reinterpret_cast<void*>(ownMtar))
+                    continue;
+                if (!MotionEntryHasSlot(eq))
+                {
+                    static std::set<std::uint32_t> noSlot;
+                    if (noSlot.insert(eq).second)
+                        Log("[ReceiverMotion] equipId=%u names its own weapon archive but has "
+                            "no motion-entry slot (outside the vanilla id bands and the shadow "
+                            "is not armed) - its gun-side clips stay refused\n", eq);
+                    continue;
+                }
+                if (WriteMotionEntry(eq, reinterpret_cast<void*>(ownMtar)))
+                {
+                    static std::set<std::uint32_t> announced;
+                    if (announced.insert(eq).second)
+                        Log("[ReceiverMotion] equipId=%u weapon archive %016llX bound to "
+                            "its motion-entry slot\n", eq, ownMtar);
+                    continue;
+                }
+                static std::set<std::uint32_t> refused;
+                if (refused.insert(eq).second)
+                    Log("[WeaponKey] equipId=%u names its own weapon archive but the "
+                        "motion-entry slot refused the write on this pass - it is retried "
+                        "once the engine table is live, and until then a donor archive "
+                        "stands in\n", eq);
+            }
+            if (ReadMotionEntry(eq))
                 continue;
             std::uint32_t donor = 0;
             {
@@ -7041,7 +7348,7 @@ namespace
                 if (it != g_FamilyFrom.end())
                     donor = it->second;
             }
-            if (MotionEntryIndex(donor) < 0 && subId < 514)
+            if (!MotionEntryHasSlot(donor) && subId < 514)
             {
                 for (std::uint32_t v = 1; v != 0; v = NextDonorCandidate(v))
                 {
@@ -7052,37 +7359,30 @@ namespace
                         continue;
                     if (GetNativeSubId(v) == static_cast<std::uint32_t>(subId) &&
                         TppEquip_GetSubIdForEquipId(static_cast<int>(v)) == 0 &&
-                        ReadMotionEntry(table, v))
+                        ReadMotionEntry(v))
                     {
                         donor = v;
                         break;
                     }
                 }
             }
-            if (MotionEntryIndex(donor) < 0)
+            if (!MotionEntryHasSlot(donor))
             {
                 FamilyGb cus;
                 if (GetGbForEquipId(eq, cus))
                 {
-                    int rc = cus.gb[0];
-                    if (rc == 0)
+                    const int sub =
+                        TppEquip_GetSubIdForEquipId(static_cast<int>(eq));
+                    const int logical = (sub > 0)
+                        ? GunBasic_GetLogicalPart(sub, kVanillaSpace_Receiver)
+                        : 0;
+                    int rc = (logical > 0) ? logical : cus.gb[0];
+                    if (rc >= kWideIdBase)
                     {
-                        // The receiver lane is bound late, so the row byte is 0
-                        // until the gunInfo build. Derive the animation family
-                        // from the declared WIDE receiver's motionFrom donor,
-                        // which SetReceiver records regardless of any lane.
-                        const int sub =
-                            TppEquip_GetSubIdForEquipId(static_cast<int>(eq));
-                        const int logical = (sub > 0)
-                            ? GunBasic_GetLogicalPart(sub, kVanillaSpace_Receiver)
-                            : 0;
-                        if (logical >= kWideIdBase)
-                        {
-                            WidePartState* w =
-                                WideStateFor(kVanillaSpace_Receiver, logical);
-                            if (w && w->motionFrom > 0)
-                                rc = w->motionFrom;
-                        }
+                        WidePartState* w =
+                            WideStateFor(kVanillaSpace_Receiver, rc);
+                        if (w && w->motionFrom > 0)
+                            rc = w->motionFrom;
                     }
                     if (rc >= 234)
                     {
@@ -7109,7 +7409,7 @@ namespace
                             FamilyGb van;
                             if (!GetGbForEquipId(v, van))
                                 continue;
-                            if (!ReadMotionEntry(table, v))
+                            if (!ReadMotionEntry(v))
                                 continue;
                             if (van.gb[0] == static_cast<unsigned char>(rc))
                             {
@@ -7127,14 +7427,14 @@ namespace
                                 g_RcvTypeExt[van.gb[0]] == ctype)
                                 typeDonor = v;
                         }
-                        if (MotionEntryIndex(donor) < 0 && rootDonor != 0)
+                        if (!MotionEntryHasSlot(donor) && rootDonor != 0)
                             donor = rootDonor;
-                        if (MotionEntryIndex(donor) < 0 && typeDonor != 0)
+                        if (!MotionEntryHasSlot(donor) && typeDonor != 0)
                             donor = typeDonor;
                     }
                 }
             }
-            void* donorEntry = ReadMotionEntry(table, donor);
+            void* donorEntry = ReadMotionEntry(donor);
             if (!donorEntry)
             {
                 static std::set<std::uint32_t> noDonorLogged;
@@ -7148,7 +7448,12 @@ namespace
                 std::string cusRoot;
                 if (GetGbForEquipId(eq, cus))
                 {
-                    rcRaw = cus.gb[0];
+                    const int dsub =
+                        TppEquip_GetSubIdForEquipId(static_cast<int>(eq));
+                    const int dlogical = (dsub > 0)
+                        ? GunBasic_GetLogicalPart(dsub, kVanillaSpace_Receiver)
+                        : 0;
+                    rcRaw = (dlogical > 0) ? dlogical : cus.gb[0];
                     rcRes = rcRaw;
                     if (rcRes >= 234)
                     {
@@ -7166,7 +7471,7 @@ namespace
                     static int hasherValidated = 0;
                     if (hasherValidated == 0)
                     {
-                        void* known = ReadMotionEntry(table, 27);
+                        void* known = ReadMotionEntry(27);
                         const std::uint64_t check = FoxHashes::PathCode64Ext(
                             "/Assets/tpp/motion/mtar/equip/chimera/assemble/ar00_asm.mtar");
                         hasherValidated =
@@ -7191,7 +7496,7 @@ namespace
                             const std::uint64_t h = FoxHashes::PathCode64Ext(p);
                             if (!h)
                                 continue;
-                            if (WriteMotionEntry(table, eq,
+                            if (WriteMotionEntry(eq,
                                                  reinterpret_cast<void*>(h)))
                             {
                                 {
@@ -7223,7 +7528,7 @@ namespace
                             }
                             break;
                         }
-                        if (ReadMotionEntry(table, eq))
+                        if (ReadMotionEntry(eq))
                             continue;
                     }
                 }
@@ -7231,8 +7536,9 @@ namespace
                 {
                     LogDebug("[WeaponKey] MotionEntry NO DONOR for custom eq=%u "
                              "(subId=%d rc=%d resolved=%d motionType=%d "
-                             "family='%s') - set familyFrom=<vanilla equipId> or "
-                             "V_TppEquip.SetAssembleMotion{copyFrom=...}\n",
+                             "family='%s') - set familyFrom=<vanilla equipId> or give "
+                             "the receiver its own archive with "
+                             "V_TppEquip.SetReceiverMotion{weaponMotion={mtar=...}}\n",
                         eq, subId, rcRaw, rcRes, ctype,
                         cusRoot.empty() ? "?" : cusRoot.c_str());
 #ifdef _DEBUG
@@ -7242,7 +7548,7 @@ namespace
                         EnsureRcvTypeExt();
                         for (std::uint32_t v = 1; v != 0; v = NextDonorCandidate(v))
                         {
-                            if (!ReadMotionEntry(table, v))
+                            if (!ReadMotionEntry(v))
                                 continue;
                             FamilyGb van;
                             const bool gbOk = GetGbForEquipId(v, van);
@@ -7254,14 +7560,14 @@ namespace
                                 v, gbOk ? van.subId : -1, gbOk ? van.gb[0] : -1,
                                 (gbOk && g_RcvTypeExtReady) ? g_RcvTypeExt[van.gb[0]] : -1,
                                 vroot.empty() ? "?" : vroot.c_str(),
-                                ReadMotionEntry(table, v));
+                                ReadMotionEntry(v));
                         }
                     }
 #endif
                 }
                 continue;
             }
-            if (WriteMotionEntry(table, eq, donorEntry))
+            if (WriteMotionEntry(eq, donorEntry))
             {
                 {
                     std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
@@ -7283,22 +7589,14 @@ namespace
         if (!::AddressSetRuntime::IsEn154Family(gGameBuild))
             return;
         RegisterCustomFamilyFallbacks();
-        FillCustomMotionEntriesTable(MotionEntryTableBase());
+        FillCustomMotionEntriesTable();
     }
 
     static void FillCustomMotionEntries(void* self)
     {
-        if (g_MotionShadowActive.load(std::memory_order_acquire) && g_MotionShadow)
-        {
-            auto* orig = static_cast<std::uint8_t*>(reinterpret_cast<void*>(
-                ResolveGameAddress(gAddr.Equip_MotionEntryTable)));
-            if (orig)
-                MotionShadowMigrateSEH(
-                    orig, static_cast<std::uint8_t*>(g_MotionShadow));
-            FillCustomMotionEntriesTable(g_MotionShadow);
-            return;
-        }
-        FillCustomMotionEntriesTable(ReadPtrAtSEH(self, 0x70));
+        if (void* live = ReadPtrAtSEH(self, 0x70))
+            g_EngineMotionTable.store(live, std::memory_order_release);
+        FillCustomMotionEntriesTable();
     }
 
     static void* GetEquipMotionLoaderIface()
@@ -7526,13 +7824,7 @@ namespace
             }
         }
         if (engineEntry && !plan.donorEq)
-        {
-            const int idx = MotionEntryIndex(equipId);
-            void* table = MotionEntryTableBase();
-            if (idx >= 0 && table)
-                WritePtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8,
-                              reinterpret_cast<void*>(engineEntry));
-        }
+            WriteMotionEntry(equipId, reinterpret_cast<void*>(engineEntry));
         if (!engineEntry && plan.familyPack)
             familyPackOk = AppendPackPath(arr, plan.familyPack);
         if (!plan.donorEq && !plan.familyPack && !engineEntry &&
@@ -7711,7 +8003,7 @@ namespace
             static std::mutex mx;
             static std::map<unsigned long long, int> cnt;
             std::lock_guard<std::mutex> lock(mx);
-            int& n = cnt[(static_cast<unsigned long long>(info.eq) << 8) | (slot & 0xFF)];
+            int& n = cnt[(static_cast<unsigned long long>(info.eq) << 16) | ((slot & 0xFF) << 8) | (boneIdx & 0xFF)];
             ++n;
             if (n <= 10)
                 LogDebug("[WeaponKey] BoltBone WRITE ctl=%p slot=%llu boneIdx=%llu "
@@ -7824,10 +8116,11 @@ namespace
         LogDebug("[WeaponKey] BoltBone PERSIST eq=%u ctl=%p addr=%p wrote=(%.5f %.5f %.5f) "
             "nextFrame=(%.5f %.5f %.5f) -> %s\n",
             snap.eq, ctl, snap.addr, snap.x, snap.y, snap.z, now[0], now[1], now[2],
-            same ? "PERSISTED (nothing overwrote the pose - if the bolt still looks frozen, "
-                   "the rendered weapon is a DIFFERENT model instance)"
-                 : "STOMPED (something re-poses this model every frame - the procedural "
-                   "write is being overwritten before render)");
+            same ? "UNCHANGED - neither the clip nor the default pose touched the bone, so "
+                   "the part-motion row will compose onto its own last output"
+                 : "RE-POSED - the clip or the default pose set the bone before the row "
+                   "runs, which is the normal pipeline: the row translates from THIS value "
+                   "every frame, so a difference here is not a stomp");
     }
 
     static unsigned long long __fastcall hkChimBoneIdx(
@@ -9198,6 +9491,7 @@ namespace
         std::uint32_t vanilla = equipId;
         if (g_InSetupWeaponInfo)
         {
+            g_TlsSetupEquip = equipId;
             vanilla = MapEquipId(equipId);
             if (vanilla != equipId)
             {
@@ -9642,13 +9936,31 @@ namespace
         return result;
     }
 
+    static void CaptureRemoteMissileContextSEH(void* attackAction)
+    {
+        __try
+        {
+            void* playerContext =
+                *reinterpret_cast<void**>(static_cast<std::uint8_t*>(attackAction) + 8);
+            if (playerContext)
+                shell::RemoteMissile_CaptureContext(playerContext);
+        }
+        __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION
+                      ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+        {
+        }
+    }
+
     static void __fastcall hkSetupWeaponInfo(void* self, void* work, int slot)
     {
         outfit::EndBootRestoreScrub("first SetupWeaponInfo - player is live");
         DeployGuard::OnPlayerLive();
 
         if (self)
+        {
             EnsureResolverMethodHook(self);
+            CaptureRemoteMissileContextSEH(self);
+        }
 
         const std::uint32_t callsBefore =
             g_PartCallCount.load(std::memory_order_relaxed);
@@ -9656,9 +9968,11 @@ namespace
         ApplyKeyTypeSwaps(self, slot, keySwap);
         g_TlsCustomEquip = 0;
         g_TlsVanillaEquip = 0;
+        g_TlsSetupEquip = 0;
         g_InSetupWeaponInfo = true;
         g_OrigSetupWeaponInfo(self, work, slot);
         g_InSetupWeaponInfo = false;
+        g_TlsSetupEquip = 0;
         RestoreKeyWordsSEH(&keySwap);
         const std::uint32_t partCalls =
             g_PartCallCount.load(std::memory_order_relaxed) - callsBefore;
@@ -10229,6 +10543,7 @@ bool Install_GunInfoGuard()
 #endif
         }
     }
+    ChimeraMotion_InstallNativeHooks();
     if (::AddressSetRuntime::IsEn154Family(gGameBuild))
     {
         g_ReloadChimeraPartsAddr = ResolveGameAddress(gAddr.Equip_ReloadChimeraPartsInfoTable);
@@ -10351,6 +10666,7 @@ void Uninstall_GunInfoGuard()
         DisableAndRemoveHook(g_AddMtarBlockPackagePathsAddr);
         g_AddMtarBlockPackagePathsAddr = nullptr;
     }
+    ChimeraMotion_UninstallNativeHooks();
     g_OrigAddMtarBlockPackagePaths = nullptr;
     if (g_ReloadChimeraPartsAddr)
     {
@@ -10647,7 +10963,12 @@ namespace
             return false;
         const std::int32_t idx = EquipIdCompression::ComputeCompressed(equipId);
         if (!EquipIdCompression::IsCompressedInBounds(idx))
-            return false;
+        {
+            if (equipId < EquipIdCompression::kExtendedAllocFirst)
+                return false;
+            V_ExtendedEquipRow row{};
+            return !TppEquip_GetExtendedEquipRow(equipId, &row);
+        }
         std::uint16_t* tw = static_cast<std::uint16_t*>(
             ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
         if (!tw)
@@ -10892,6 +11213,9 @@ namespace
                                              std::int32_t* saved)
     {
         int hidden = 0;
+        const std::int32_t firstHidden = DeployGuard::IsExtendedDropPermanent()
+            ? EquipIdCompression::kExtendedEquipIdFirst
+            : EquipIdCompression::kExtendedAllocFirst;
         for (int i = 0; i < 3; ++i)
         {
             std::int32_t* cell = LoadoutSourceCellSEH(self, slot, i);
@@ -10900,7 +11224,7 @@ namespace
             __try
             {
                 const std::int32_t id = *cell;
-                if (id < EquipIdCompression::kExtendedAllocFirst)
+                if (id < firstHidden)
                     continue;
                 saved[i] = id;
                 *cell = 0;
@@ -10914,11 +11238,20 @@ namespace
             if (slot < kLoadoutSlotCount)
                 g_HiddenSubBits[slot].fetch_or(1u << i, std::memory_order_relaxed);
             if (g_DropLogged.fetch_add(1) < 24)
-                Log("[DeployGuard] loadout slot=%u sub=%d holds extended equipId %d "
-                    "- hidden from this build because the previous run died mid "
-                    "mission-load; the saved loadout is untouched and the id "
-                    "returns when the build finishes\n",
-                    slot, i, saved[i]);
+            {
+                if (DeployGuard::IsExtendedDropPermanent())
+                    Log("[DeployGuard] loadout slot=%u sub=%d holds extended equipId %d "
+                        "- hidden from this build because the extended InfoList mirror "
+                        "is unavailable this session (the [EquipIdTable] line at boot "
+                        "says why); the saved loadout is untouched\n",
+                        slot, i, saved[i]);
+                else
+                    Log("[DeployGuard] loadout slot=%u sub=%d holds extended equipId %d "
+                        "- hidden from this build because the previous run died mid "
+                        "mission-load; the saved loadout is untouched and the id "
+                        "returns when the build finishes\n",
+                        slot, i, saved[i]);
+            }
         }
         return hidden;
     }
@@ -11801,6 +12134,11 @@ namespace
     }
 }
 
+void EquipParam_RefillMotionEntries()
+{
+    FillCustomMotionEntriesEarly();
+}
+
 void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride)
 {
     if (space < 0 || space >= kVanillaSpace_Count || id <= 0 || !row
@@ -11957,4 +12295,60 @@ bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot)
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
     return PartsBytesTainted(b);
+}
+
+static std::uint8_t* MagazineRowPtr(int ammoId)
+{
+    if (ammoId <= 0 || !EnsurePartShadow(g_Magazine))
+        return nullptr;
+    int readId = ammoId;
+    std::uint8_t* buf = nullptr;
+    if (ammoId >= kWideIdBase && WideStateFor(kVanillaSpace_Magazine, ammoId))
+        buf = WideRowFor(g_Magazine, ammoId, readId);
+    else if (ammoId <= g_Magazine.maxId)
+        buf = PartCurrentBuf(g_Magazine);
+    if (!buf || readId <= 0)
+        return nullptr;
+    return buf + static_cast<size_t>(readId - 1) * 8;
+}
+
+int EquipParam_GetMagazineEquipAmmoId(int ammoId)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    std::uint8_t* row = MagazineRowPtr(ammoId);
+    std::uint16_t v = 0;
+    if (!row || !ReadU16SEH(row, v))
+        return 0;
+    return static_cast<int>(v);
+}
+
+int EquipParam_GetMagazineBulletId(int ammoId)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    std::uint8_t* row = MagazineRowPtr(ammoId);
+    if (!row)
+        return 0;
+    const int b = ReadByteAtSEH(row, 6);
+    return b < 0 ? 0 : b;
+}
+
+int EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId)
+{
+    if (bulletId <= 0)
+        return 0;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (!EnsurePartShadow(g_Magazine))
+        return 0;
+    const int last = g_Magazine.stockCount > 0 ? g_Magazine.stockCount : g_Magazine.maxId;
+    for (int id = 1; id <= last; ++id)
+    {
+        if (id == excludeAmmoId)
+            continue;
+        std::uint8_t* row = MagazineRowPtr(id);
+        if (!row)
+            continue;
+        if (ReadByteAtSEH(row, 6) == bulletId)
+            return id;
+    }
+    return 0;
 }

@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -9,6 +9,8 @@
 #include "AddressSet.h"
 #include "BuiltInModules.h"
 #include "../hooks/equip/EquipPartParams.h"
+#include "../hooks/equip/MotionLoaderImpl_GetMtarIds.h"
+#include "../hooks/equip/GetGunMotionIdFromTable.h"
 #include "../hooks/core/ServerManager_BufferRelease.h"
 #include "../hooks/equip/PartIdWiden.h"
 #include "../hooks/collection/TppCollectionRuntime.h"
@@ -188,6 +190,8 @@ bool Uninstall_LoadingSplash_Hook();
 
 bool Install_GameOverSplash_Hook();
 bool Uninstall_GameOverSplash_Hook();
+bool Install_MissionPreparationCallbackImpl_Start_Hook();
+bool Uninstall_MissionPreparationCallbackImpl_Start_Hook();
 
 bool Install_RewardPopupBgTexture_Hook();
 bool Uninstall_RewardPopupBgTexture_Hook();
@@ -215,6 +219,9 @@ bool Uninstall_SoldierHairFova_Hook();
 
 bool Install_PlayerVoiceFpk_Hook();
 bool Uninstall_PlayerVoiceFpk_Hook();
+
+bool Install_PlayerVoiceType_Hook();
+bool Uninstall_PlayerVoiceType_Hook();
 
 bool Install_State_EnterDownHoldupForceVoice_Hook();
 bool Uninstall_State_EnterDownHoldupForceVoice_Hook();
@@ -382,6 +389,12 @@ bool Uninstall_EnhanceLangIdUnlimited();
 namespace SoldierAkObjIdMap { bool Install(); bool Uninstall(); }
 bool AkMemoryMgr_InstallPrepareEventPoolGrow();
 void AkMemoryMgr_UninstallPrepareEventPoolGrow();
+bool LaserSight_UpdatePrim_Install();
+void LaserSight_UpdatePrim_Uninstall();
+bool PartMotionRows_Install();
+bool ShellActivateGuard_Install();
+void ShellActivateGuard_Uninstall();
+void PartMotionRows_Uninstall();
 bool Install_TargetCqcStance_Hook();
 bool Uninstall_TargetCqcStance_Hook();
 bool Install_QuietCqcPatches();
@@ -442,6 +455,14 @@ namespace equip
 {
     bool Install_BulletLockOn_Hooks();
     void Uninstall_BulletLockOn_Hooks();
+}
+namespace shell
+{
+    bool Install_RemoteMissile_Hooks();
+    void Uninstall_RemoteMissile_Hooks();
+}
+namespace equip
+{
     bool Install_BulletMultiShot_Hooks();
     void Uninstall_BulletMultiShot_Hooks();
     bool Install_MenuDevelopGridExpand();
@@ -509,6 +530,66 @@ namespace
         void Uninstall() override
         {
             AkMemoryMgr_UninstallPrepareEventPoolGrow();
+        }
+    };
+
+    class LaserSightColorModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "LaserSightColor";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return LaserSight_UpdatePrim_Install();
+        }
+
+        void Uninstall() override
+        {
+            LaserSight_UpdatePrim_Uninstall();
+        }
+    };
+
+    class PartMotionRowsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PartMotionRows";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return PartMotionRows_Install();
+        }
+
+        void Uninstall() override
+        {
+            PartMotionRows_Uninstall();
+        }
+    };
+
+    class ShellActivateGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ShellActivateGuard";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return ShellActivateGuard_Install();
+        }
+
+        void Uninstall() override
+        {
+            ShellActivateGuard_Uninstall();
         }
     };
 
@@ -609,6 +690,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_GameOverSplash_Hook();
+        }
+    };
+
+    class MissionPreparationBgmModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MissionPreparationBgm";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_MissionPreparationCallbackImpl_Start_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_MissionPreparationCallbackImpl_Start_Hook();
         }
     };
 
@@ -788,6 +889,26 @@ namespace
         void Uninstall() override
         {
             Uninstall_PlayerVoiceFpk_Hook();
+        }
+    };
+
+    class PlayerVoiceTypeModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "PlayerVoiceType";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_PlayerVoiceType_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_PlayerVoiceType_Hook();
         }
     };
 
@@ -1952,6 +2073,8 @@ namespace
             ok = Install_MotionLoader_BarrelTypeHook() && ok;
             ok = Install_MotionLoader_MagazineTypeHook() && ok;
             ok = Install_MotionLoader_SightTypeHook() && ok;
+            ok = Install_MotionLoaderImpl_GetMtarIds_Hook() && ok;
+            ok = Install_GetGunMotionIdFromTable_Hook() && ok;
             ok = Install_UiController_UiSightTypeHook() && ok;
             Install_UiUtility_GetWeaponItemNameLangIdHook();
             ok = Install_GetAttackIdGuard() && ok;
@@ -1965,10 +2088,12 @@ namespace
             ok = Install_DamageParameter_Hook() && ok;
             ok = equip::Install_BulletLockOn_Hooks() && ok;
             ok = equip::Install_BulletMultiShot_Hooks() && ok;
+            ok = shell::Install_RemoteMissile_Hooks() && ok;
             return ok;
         }
         void Uninstall() override
         {
+            shell::Uninstall_RemoteMissile_Hooks();
             equip::Uninstall_BulletMultiShot_Hooks();
             equip::Uninstall_BulletLockOn_Hooks();
             Uninstall_TppEquip_ReloadEquipParameterTables2_Hook();
@@ -1977,6 +2102,8 @@ namespace
             Uninstall_MotionLoader_BarrelTypeHook();
             Uninstall_MotionLoader_MagazineTypeHook();
             Uninstall_MotionLoader_SightTypeHook();
+            Uninstall_GetGunMotionIdFromTable_Hook();
+            Uninstall_MotionLoaderImpl_GetMtarIds_Hook();
             Uninstall_UiController_UiSightTypeHook();
             Uninstall_UiUtility_GetWeaponItemNameLangIdHook();
             Uninstall_GetAttackIdGuard();
@@ -1994,11 +2121,15 @@ namespace
 void RegisterBuiltInFeatureModules()
 {
     static PrepareEventPoolModule s_PrepareEventPoolModule;
+    static LaserSightColorModule s_LaserSightColorModule;
+    static PartMotionRowsModule s_PartMotionRowsModule;
+    static ShellActivateGuardModule s_ShellActivateGuardModule;
     static LuaBridgeModule s_LuaBridgeModule;
     static EquipBgTextureModule s_EquipBgTextureModule;
     static MissionTelopBgTextureModule s_MissionTelopBgTextureModule;
     static LoadingSplashModule s_LoadingSplashModule;
     static GameOverSplashModule s_GameOverSplashModule;
+    static MissionPreparationBgmModule s_MissionPreparationBgmModule;
     static RewardPopupBgTextureModule s_RewardPopupBgTextureModule;
     static HoldupCancelLookToPlayerModule s_HoldupCancelLookToPlayerModule;
     static CautionTimerModule s_CautionTimerModule;
@@ -2008,6 +2139,7 @@ void RegisterBuiltInFeatureModules()
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
     static SoldierHairFovaModule s_SoldierHairFovaModule;
     static PlayerVoiceFpkModule s_PlayerVoiceFpkModule;
+    static PlayerVoiceTypeModule s_PlayerVoiceTypeModule;
     static EnterDownHoldupForceVoiceModule s_EnterDownHoldupForceVoiceModule;
     static VIPSleepFaintModule s_VIPSleepFaintModule;
     static VIPHoldupModule s_VIPHoldupModule;
@@ -2094,6 +2226,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_MissionTelopBgTextureModule);
             FeatureModuleRegistry::Instance().Register(&s_LoadingSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
+            FeatureModuleRegistry::Instance().Register(&s_MissionPreparationBgmModule);
             FeatureModuleRegistry::Instance().Register(&s_RewardPopupBgTextureModule);
             FeatureModuleRegistry::Instance().Register(&s_HoldupCancelLookToPlayerModule);
             FeatureModuleRegistry::Instance().Register(&s_CautionTimerModule);
@@ -2103,6 +2236,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierHairFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceFpkModule);
+            FeatureModuleRegistry::Instance().Register(&s_PlayerVoiceTypeModule);
             FeatureModuleRegistry::Instance().Register(&s_EnterDownHoldupForceVoiceModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPSleepFaintModule);
             FeatureModuleRegistry::Instance().Register(&s_VIPHoldupModule);
@@ -2179,5 +2313,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_EquipIdTableOverflowModule);
             FeatureModuleRegistry::Instance().Register(&s_GunBasicInjectModule);
             FeatureModuleRegistry::Instance().Register(&s_TppCollectionModule);
+            FeatureModuleRegistry::Instance().Register(&s_LaserSightColorModule);
+            FeatureModuleRegistry::Instance().Register(&s_PartMotionRowsModule);
+            FeatureModuleRegistry::Instance().Register(&s_ShellActivateGuardModule);
         });
 }

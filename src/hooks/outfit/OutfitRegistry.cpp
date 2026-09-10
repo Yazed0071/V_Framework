@@ -1612,6 +1612,44 @@ namespace outfit
         return v->voiceFpk;
     }
 
+    std::uint32_t OutfitEntry::GetVariantVoiceType(
+        std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSoundSwitchUnset;
+        const auto* v = (variantIdx != 0 && variantIdx < d->variantCount)
+            ? d->Var(variantIdx) : nullptr;
+        if (v && v->used && v->voiceType != kSoundSwitchUnset)
+            return v->voiceType;
+        return d->voiceType;
+    }
+
+    std::uint64_t OutfitEntry::GetVariantVoiceFpkForVoiceType(
+        std::uint8_t playerType, std::uint8_t variantIdx,
+        std::uint32_t voiceType) const
+    {
+        if (voiceType == kSoundSwitchUnset)
+            return kSubAssetUseVanilla;
+
+        const auto* d = GetPTData(playerType);
+        if (!d) return kSubAssetUseVanilla;
+
+        const auto* v = (variantIdx != 0 && variantIdx < d->variantCount)
+            ? d->Var(variantIdx) : nullptr;
+        if (v && v->used)
+        {
+            for (std::uint8_t i = 0; i < v->voiceFpkByTypeCount; ++i)
+                if (v->voiceFpkByType[i].voiceType == voiceType)
+                    return v->voiceFpkByType[i].pathCode64;
+        }
+
+        for (std::uint8_t i = 0; i < d->voiceFpkByTypeCount; ++i)
+            if (d->voiceFpkByType[i].voiceType == voiceType)
+                return d->voiceFpkByType[i].pathCode64;
+
+        return kSubAssetUseVanilla;
+    }
+
     std::uint64_t OutfitEntry::GetVariantDisplayNameHash(
         std::uint8_t playerType, std::uint8_t variantIdx) const
     {

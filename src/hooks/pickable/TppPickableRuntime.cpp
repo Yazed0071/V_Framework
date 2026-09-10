@@ -335,6 +335,8 @@ namespace
 
     static void* AllocThunkNear(uintptr_t anchor, std::size_t size)
     {
+        if (void* arena = HookArena::AllocateNear(anchor, size))
+            return arena;
         SYSTEM_INFO si{};
         GetSystemInfo(&si);
         const uintptr_t gran = si.dwAllocationGranularity

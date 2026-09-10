@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Windows.h>
 #include <cstdint>
@@ -390,6 +390,7 @@ namespace AddressSetRuntime
         uintptr_t UiWindowFunction_GetLayout = 0;
         uintptr_t AttackAction_Fire = 0;
         uintptr_t EquipObject_DoFire = 0;
+        uintptr_t Shell_ActivateShellAtEmptyWork = 0;
         uintptr_t CorePlugin_UpdateLoadoutRequest = 0;
         uintptr_t WeaponSystem_DefineWeaponFireSound = 0;
         uintptr_t EquipSystem_ChimeraPartsSetWork = 0;
@@ -528,6 +529,46 @@ namespace AddressSetRuntime
         uintptr_t GameObjectType_WalkerGear2_Vtable = 0;
         uintptr_t AnimationControllerImpl_Vtable = 0;
         uintptr_t HeliAnimationControllerImpl_Vtable = 0;
+        uintptr_t MotionLoaderImpl_GetMtarIds = 0;
+        uintptr_t MotionLoaderImpl_GetMtarFilePath = 0;
+        uintptr_t MotionLoaderImpl_GetBlockPackagePath = 0;
+        uintptr_t AttackAction_GetGunMotionIdFromTable = 0;
+        uintptr_t AttackAction_GetEquipMotionIdFromTable = 0;
+        uintptr_t AttackAction_GetNormalGripMotionId = 0;
+        uintptr_t AttackAction_GetNormalMagazineGripMotionId = 0;
+        uintptr_t AttackAction_GetAssaultGripMotionId = 0;
+        uintptr_t AttackAction_GetHandgunGripMotionId = 0;
+        uintptr_t AttackAction_GetSubMachinegunGripMotionId = 0;
+        uintptr_t AttackAction_GetSniperRifleGripMotionId = 0;
+        uintptr_t AttackAction_GetShotgunGripMotionId = 0;
+        uintptr_t AttackAction_GetMachinegunGripMotionId = 0;
+        uintptr_t AttackAction_GetGrenadeLauncherGripMotionId = 0;
+        uintptr_t AttackAction_GetMissileGripMotionId = 0;
+        uintptr_t AttackAction_GetAssaultUnderBarrelGripMotionId = 0;
+        uintptr_t AttackAction_GetHandgunOneHandGripMotionId = 0;
+        uintptr_t AttackAction_GetHandgunOneHandMotionId = 0;
+        uintptr_t AttackAction_GetSubMachinegunOneHandMotionId = 0;
+        uintptr_t AttackAction_GetStepReloadHandgunOneHandMotionId = 0;
+        uintptr_t AttackAction_ResetMissionPrepareGripMotion = 0;
+        uintptr_t AttackAction_GetNormalMotionIdByCategory = 0;
+        uintptr_t AttackAction_GetAssaultMotionIdTable = 0;
+        uintptr_t AttackAction_GetHandgunMotionIdTable = 0;
+        uintptr_t AttackAction_GetSubMachinegunMotionIdTable = 0;
+        uintptr_t AttackAction_GetSniperRifleMotionIdTable = 0;
+        uintptr_t AttackAction_GetShotgunMotionIdTable = 0;
+        uintptr_t AttackAction_GetShotgunStepReloadMotionIdTable = 0;
+        uintptr_t AttackAction_GetMachinegunMotionIdTable = 0;
+        uintptr_t AttackAction_GetGrenadeLauncherMotionIdTable = 0;
+        uintptr_t AttackAction_GetMissileMotionIdTable = 0;
+        uintptr_t AttackAction_GetChaseMotionIdTable = 0;
+        uintptr_t EquipMotionDataTable_ReloadEquipMotionData2 = 0;
+        uintptr_t MissionPreparationCallbackImpl_Start_PlayBgmEvent = 0;
+        uintptr_t MissionPreparationCallbackImpl_Update_StopBgmEvent = 0;
+        uintptr_t MissionPreparationCallbackImpl_Update_StopBgmEvent2 = 0;
+        uintptr_t MissionPreparationCallbackImpl_Start = 0;
+        uintptr_t MissionPreparationCallbackImpl_Update = 0;
+
+        uintptr_t Soldier2FaceSystem_Instance = 0;
     };
 
     inline GameBuild& GetGameBuild()

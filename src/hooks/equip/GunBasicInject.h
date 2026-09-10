@@ -16,6 +16,7 @@ int GunBasic_PackedSubIdMax();
 int GunBasic_RebindWidePartsForWeapon(int weaponId);
 bool GunBasic_WeaponNeedsLaneBind(int weaponId);
 int GunBasic_ClearLaneFromRows(int space, int lane);
+int GunBasic_ReNarrowReceiverRows(int wideRc);
 int GunBasic_GetWideSlotLanes(int weaponId, int space, unsigned char outLanes[12]);
 int GunBasic_GetLogicalPart(int weaponId, int space);
 bool GunBasic_GetLogicalParts(int weaponId, int out11[11]);

@@ -14,9 +14,28 @@ extern "C" {
 #include "SoundDaemonFunctions.h"
 #include "LuaApi.h"
 #include "../hooks/sound/GameOverMusic.h"
+#include "../hooks/sound/MissionPreparationCallbackImpl_BgmPatch.h"
 
 namespace
 {
+    static int __cdecl l_SetMissionPreparationMusic(lua_State* L)
+    {
+        const unsigned int playHash = GetLuaFnvHash32Arg(L, 1);
+        const unsigned int stopHash = GetLuaFnvHash32Arg(L, 2);
+        const int missionCodeRaw = GetLuaTop(L) >= 3 ? GetLuaInt(L, 3) : 0;
+        const std::uint32_t missionCode = missionCodeRaw > 0 ? static_cast<std::uint32_t>(missionCodeRaw) : 0u;
+
+        if (playHash == 0 || stopHash == 0)
+        {
+            LogDebug("WARNING [MissionPreparationBgm] SetMissionPreparationMusic: needs both a play and a stop event (name string or hash number); music left as is\n");
+            PushLuaBool(L, false);
+            return 1;
+        }
+
+        PushLuaBool(L, SetMissionPreparationMusic(playHash, stopHash, missionCode));
+        return 1;
+    }
+
     static int __cdecl l_SetGameOverMusic(lua_State* L)
     {
         const bool isEnable = GetLuaBool(L, 1);
@@ -49,6 +68,7 @@ namespace
     static luaL_Reg g_VTppSoundDaemonLib[] =
     {
         { "SetGameOverMusic",               l_SetGameOverMusic },
+        { "SetMissionPreparationMusic",     l_SetMissionPreparationMusic },
 
         { nullptr, nullptr }
     };

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "../hooks/outfit/UniqueCharacterDefaultOutfit.h"
+#include "../hooks/equip/TppEquip_ReloadEquipIdTable.h"
 #include <Windows.h>
 #include <atomic>
 #include <cstdio>
@@ -75,6 +76,7 @@ static DWORD WINAPI InitThread(LPVOID)
     InitLog();
 
     LogDebug("[DLL] InitThread started.\n");
+    HookArena::LogSummary();
     DeployGuard::Init();
     LogOwnBuildStamp();
 
@@ -170,6 +172,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
 
         ResolveAddressSet(GetModuleHandleW(nullptr));
         HookArena::ReserveEarly();
+        TppEquip_ReserveInfoListMirrorEarly();
         equip::PreApplyDevelopArrayGrowPatches();
 
         HANDLE hThread = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);

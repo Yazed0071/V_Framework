@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Core">
@@ -79,6 +79,7 @@
     <ClInclude Include="src\hooks\soldier\SoldierObjectRtpc.h" />
     <ClInclude Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.h" />
     <ClInclude Include="src\hooks\player\PlayerVoiceFpkHook.h" />
+    <ClInclude Include="src\hooks\player\Player2Impl_UpdateVoiceType.h" />
     <ClInclude Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_InitEquipHudData.h" />
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
@@ -88,6 +89,7 @@
     <ClInclude Include="src\hooks\sound\CassetteTrackPaging.h" />
     <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
     <ClInclude Include="src\hooks\sound\GameOverMusic.h" />
+    <ClInclude Include="src\hooks\sound\MissionPreparationCallbackImpl_BgmPatch.h" />
     <ClInclude Include="src\hooks\sound\HeliVoice.h" />
     <ClInclude Include="src\hooks\sound\VoicePitchOverride.h" />
     <ClInclude Include="src\hooks\ui\EquipBgTexture.h" />
@@ -168,6 +170,9 @@
     <ClInclude Include="src\hooks\sound\SoundMusicPlayer_SetupMusicInfos.h" />
     <ClInclude Include="src\hooks\outfit\OutfitRegistry.h" />
     <ClInclude Include="src\hooks\outfit\CustomHeadRegistry.h" />
+    <ClInclude Include="src\hooks\outfit\CustomFaceTable.h" />
+    <ClInclude Include="src\hooks\outfit\FaceIdRegistry.h" />
+    <ClInclude Include="src\lua\V_TppSoldierFaceLib.h" />
     <ClInclude Include="src\hooks\outfit\OutfitAbilities.h" />
     <ClInclude Include="src\hooks\outfit\ShadowState.h" />
     <ClInclude Include="src\hooks\outfit\AdditionalMotionTable_GetMtarPathId.h" />
@@ -188,6 +193,9 @@
     <ClInclude Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.h" />
     <ClInclude Include="src\hooks\equip\GunBasicInject.h" />
     <ClInclude Include="src\hooks\equip\EquipPartParams.h" />
+    <ClInclude Include="src\hooks\equip\ShellImpl_ActivateShellAtEmptyWork.h" />
+    <ClInclude Include="src\hooks\equip\MotionLoaderImpl_GetMtarIds.h" />
+    <ClInclude Include="src\hooks\equip\GetGunMotionIdFromTable.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.h" />
     <ClInclude Include="src\hooks\equip\EquipDevelopControllerImpl_SetEquipNew.h" />
     <ClInclude Include="src\hooks\equip\WeaponPartsDevelopControllerImpl_GetLangEnhanceInfoMessageIdArray.h" />
@@ -297,6 +305,7 @@
     <ClCompile Include="src\hooks\soldier\SoldierObjectRtpc.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionCoreImpl_UpdateOptCamo.cpp" />
     <ClCompile Include="src\hooks\player\PlayerVoiceFpkHook.cpp" />
+    <ClCompile Include="src\hooks\player\Player2Impl_UpdateVoiceType.cpp" />
     <ClCompile Include="src\hooks\player\BasicActionImpl_StateCrawlSideRoll.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_InitEquipHudData.cpp" />
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
@@ -306,6 +315,7 @@
     <ClCompile Include="src\hooks\sound\CassetteTrackPaging.cpp" />
     <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
     <ClCompile Include="src\hooks\sound\GameOverMusic.cpp" />
+    <ClCompile Include="src\hooks\sound\MissionPreparationCallbackImpl_BgmPatch.cpp" />
     <ClCompile Include="src\hooks\sound\HeliVoice.cpp" />
     <ClCompile Include="src\hooks\sound\VoicePitchOverride.cpp" />
     <ClCompile Include="src\hooks\ui\EquipBgTexture.cpp" />
@@ -328,11 +338,15 @@
     <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.cpp" />
     <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_AddListSuit.cpp" />
     <ClCompile Include="src\core\HookArena.cpp" />
+    <ClCompile Include="src\core\MinHookBuffer.cpp" />
     <ClCompile Include="src\core\AddressSet_day3900.cpp" />
     <ClCompile Include="src\core\V_FrameWorkState.cpp" />
     <ClCompile Include="src\core\FoxPath.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitRegistry.cpp" />
     <ClCompile Include="src\hooks\outfit\CustomHeadRegistry.cpp" />
+    <ClCompile Include="src\hooks\outfit\CustomFaceTable.cpp" />
+    <ClCompile Include="src\hooks\outfit\FaceIdRegistry.cpp" />
+    <ClCompile Include="src\lua\V_TppSoldierFaceLib.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitAbilities.cpp" />
     <ClCompile Include="src\hooks\outfit\ShadowState.cpp" />
     <ClCompile Include="src\hooks\outfit\AdditionalMotionTable_GetMtarPathId.cpp" />
@@ -360,6 +374,9 @@
     <ClCompile Include="src\hooks\equip\TppEquip_ReloadEquipIdTable.cpp" />
     <ClCompile Include="src\hooks\equip\GunBasicInject.cpp" />
     <ClCompile Include="src\hooks\equip\EquipPartParams.cpp" />
+    <ClCompile Include="src\hooks\equip\ShellImpl_ActivateShellAtEmptyWork.cpp" />
+    <ClCompile Include="src\hooks\equip\MotionLoaderImpl_GetMtarIds.cpp" />
+    <ClCompile Include="src\hooks\equip\GetGunMotionIdFromTable.cpp" />
     <ClCompile Include="src\hooks\equip\UiUtility_GetWeaponItemNameLangId.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelop_SetEquipUndeveloped.cpp" />
     <ClCompile Include="src\hooks\equip\EquipDevelopControllerImpl_SetEquipNew.cpp" />

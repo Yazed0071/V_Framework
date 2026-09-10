@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 struct lua_State;
 
@@ -88,9 +88,14 @@ enum EquipVanillaSpace
 
 int  EquipParam_GetWideAlias(int space, int wideId);
 int  EquipParam_GetWideReceiverDonor(int wideId);
+void EquipParam_RefillMotionEntries();
+int  EquipParam_GetReceiverForEquipId(int equipId);
 int  EquipParam_GetDeclaredWeaponAttackId(int equipId);
 void EquipParam_EnableWidePartIds(int newMaxId);
 int  EquipParam_ResolvePartByte(int space, int id);
+int  EquipParam_GetMagazineEquipAmmoId(int ammoId);
+int  EquipParam_GetMagazineBulletId(int ammoId);
+int  EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId);
 void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaForceTaint(int space, int id, const char* why);

@@ -20,6 +20,10 @@ namespace
         { "ClearPlayerVoiceFpkPathForType",           l_ClearPlayerVoiceFpkPathForType },
         { "ClearAllPlayerVoiceFpkOverrides",          l_ClearAllPlayerVoiceFpkOverrides },
 
+        { "SetPlayerVoiceTypeForType",                l_SetPlayerVoiceTypeForType },
+        { "ClearPlayerVoiceTypeForType",              l_ClearPlayerVoiceTypeForType },
+        { "ClearAllPlayerVoiceTypeOverrides",         l_ClearAllPlayerVoiceTypeOverrides },
+
         { "IsBarrierActive",                          l_IsBarrierActive },
 
         { "RequestToSetTargetCqcStance",              l_RequestToSetTargetCqcStance },

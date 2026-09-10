@@ -11,4 +11,5 @@ namespace DeployGuard
     void OnCleanExit();
     void ForceDropExtendedIds();
     bool ShouldDropExtendedIds();
+    bool IsExtendedDropPermanent();
 }

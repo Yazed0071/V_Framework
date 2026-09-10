@@ -121,17 +121,32 @@ namespace
     }
 
 #ifdef _DEBUG
-    static std::atomic<int> g_DdTraceBudget { 80 };
+    static std::atomic<int> g_DdTraceBudget { 512 };
 
-    static bool IsDdFamilyTexture(std::uint64_t hash)
+    static constexpr std::size_t kSeenCapacity = 512;
+    static std::uint64_t         g_SeenHashes[kSeenCapacity] = {};
+    static std::atomic<int>      g_SeenCount { 0 };
+
+    static bool FirstSightOfTexture(std::uint64_t hash)
     {
-        return hash == 0x156846156e516e5eull || hash == 0x156848f067a209acull
-            || hash == 0x156943e30b3ba648ull || hash == 0x156be0c43f60cc54ull;
+        const int count = g_SeenCount.load(std::memory_order_relaxed);
+        for (int i = 0; i < count && i < static_cast<int>(kSeenCapacity); ++i)
+        {
+            if (g_SeenHashes[i] == hash)
+                return false;
+        }
+        if (count >= static_cast<int>(kSeenCapacity))
+            return false;
+        g_SeenHashes[count] = hash;
+        g_SeenCount.store(count + 1, std::memory_order_relaxed);
+        return true;
     }
 
     static void TraceDdFamilyBind(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type)
     {
-        if (!IsDdFamilyTexture(textureHash))
+        if (textureHash == 0)
+            return;
+        if (!FirstSightOfTexture(textureHash))
             return;
         if (g_DdTraceBudget.fetch_sub(1, std::memory_order_relaxed) <= 0)
             return;
@@ -156,7 +171,7 @@ namespace
         }
         chain[used] = 0;
 
-        LogDebug("[UiTexTrace] DD-family bind hash=%016llX slot=%08llX pool=%d node=%p mission=%u callers:%s\n",
+        LogDebug("[UiTexTrace] first bind hash=%016llX slot=%08llX pool=%d node=%p mission=%u callers:%s\n",
                  static_cast<unsigned long long>(textureHash),
                  static_cast<unsigned long long>(slotHash),
                  type, node,

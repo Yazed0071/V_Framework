@@ -70,11 +70,11 @@ inline bool CreateAndEnableHook(void* target, void* detour, void** original)
         return false;
 
     MH_STATUS st = MH_CreateHook(target, detour, original);
-    while (st == MH_ERROR_MEMORY_ALLOC && HookArena::ReleaseOne())
-        st = MH_CreateHook(target, detour, original);
 
     if (st != MH_OK && st != MH_ERROR_ALREADY_CREATED)
     {
+        if (st == MH_ERROR_MEMORY_ALLOC)
+            HookArena::NoteExhausted();
         const DWORD lastErr = GetLastError();
         const uintptr_t base = GetExeBase();
         const uintptr_t abs = reinterpret_cast<uintptr_t>(target);

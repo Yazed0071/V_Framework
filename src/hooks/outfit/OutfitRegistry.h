@@ -81,6 +81,14 @@ namespace outfit
         return h;
     }
 
+    constexpr std::size_t kMaxVoiceFpkByType = 8;
+
+    struct VoiceFpkByType
+    {
+        std::uint32_t voiceType  = kSoundSwitchUnset;
+        std::uint64_t pathCode64 = 0;
+    };
+
     constexpr std::uint32_t kDamageSeBattleDress =
         SoundSwitchHash("battledress");
     constexpr std::uint32_t kDamageSeDefault = SoundSwitchHash("default");
@@ -108,6 +116,9 @@ namespace outfit
         std::uint64_t  diamondFpk         = kSubAssetDisabled;
         std::uint64_t  diamondFv2         = kSubAssetDisabled;
         std::uint64_t  voiceFpk           = kSubAssetUseVanilla;
+        std::uint32_t  voiceType          = kSoundSwitchUnset;
+        VoiceFpkByType voiceFpkByType[kMaxVoiceFpkByType] = {};
+        std::uint8_t   voiceFpkByTypeCount = 0;
         std::uint64_t  motionMtars[kMotionMtarSlotCount] = {};
         std::uint64_t  displayNameHash    = 0;
         std::uint64_t  iconPathHash       = 0;
@@ -131,6 +142,9 @@ namespace outfit
         std::uint64_t  skinFv2             = kSubAssetUseVanilla;
         std::uint64_t  diamondFpk          = kSubAssetDisabled;
         std::uint64_t  voiceFpk            = kSubAssetUseVanilla;
+        std::uint32_t  voiceType           = kSoundSwitchUnset;
+        VoiceFpkByType voiceFpkByType[kMaxVoiceFpkByType] = {};
+        std::uint8_t   voiceFpkByTypeCount = 0;
         std::uint64_t  camoFv2             = kSubAssetDisabled;
         std::uint64_t  diamondFv2          = kSubAssetDisabled;
         std::uint64_t  motionMtars[kMotionMtarSlotCount] = {};
@@ -255,6 +269,10 @@ namespace outfit
                                             std::uint8_t variantIdx = 0) const;
         std::uint64_t GetVariantDiamondFv2(std::uint8_t playerType, std::uint8_t variantIdx) const;
         std::uint64_t GetVariantVoiceFpk(std::uint8_t playerType, std::uint8_t variantIdx) const;
+        std::uint32_t GetVariantVoiceType(std::uint8_t playerType, std::uint8_t variantIdx) const;
+        std::uint64_t GetVariantVoiceFpkForVoiceType(
+            std::uint8_t playerType, std::uint8_t variantIdx,
+            std::uint32_t voiceType) const;
         std::uint64_t GetVariantDisplayNameHash(std::uint8_t playerType, std::uint8_t variantIdx) const;
         std::uint64_t GetVariantIconPathHash(std::uint8_t playerType, std::uint8_t variantIdx) const;
 

@@ -13,6 +13,7 @@
 #include "AddressSet.h"
 #include "OutfitRegistry.h"
 #include "ShadowState.h"
+#include "Player2Impl_UpdateVoiceType.h"
 
 namespace
 {
@@ -101,6 +102,16 @@ static bool ResolveWornOutfitVoice(std::uint32_t playerType, std::uint64_t* outV
 
     const std::uint8_t variant = entry->HasVariants()
         ? outfit::GetActiveVariant(entry->partsType) : 0;
+
+    const std::uint32_t liveVoiceType = Get_EffectivePlayerVoiceType(playerType);
+    const std::uint64_t byType =
+        entry->GetVariantVoiceFpkForVoiceType(pt, variant, liveVoiceType);
+    if (byType > outfit::kSubAssetUseVanilla)
+    {
+        if (outVoiceCode) *outVoiceCode = byType;
+        return true;
+    }
+
     const std::uint64_t code = entry->GetVariantVoiceFpk(pt, variant);
     if (code <= outfit::kSubAssetUseVanilla)
         return false;

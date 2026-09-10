@@ -14,6 +14,7 @@
 #include "EquipPartParams.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "../shell/RemoteMissile.h"
 
 namespace
 {
@@ -890,6 +891,34 @@ namespace
     }
 #endif
 
+    bool ReadFiredEquipAndMuzzleSEH(void* self, std::uint32_t rowIdx, void* req,
+                                    int* outEquipId, float outPos[3],
+                                    float outDir[3])
+    {
+        __try
+        {
+            if (!req)
+                return false;
+            std::uint8_t* thiz = static_cast<std::uint8_t*>(self);
+            std::uint8_t* a = *reinterpret_cast<std::uint8_t**>(thiz + 0x58);
+            if (!a) return false;
+            std::uint8_t* tbl = *reinterpret_cast<std::uint8_t**>(a + 0x28);
+            if (!tbl) return false;
+
+            std::uint8_t* row = tbl + static_cast<std::size_t>(rowIdx) * 0x0e;
+            *outEquipId = *reinterpret_cast<std::uint16_t*>(row);
+
+            const float* r = static_cast<const float*>(req);
+            outPos[0] = r[0]; outPos[1] = r[1]; outPos[2] = r[2];
+            outDir[0] = r[4]; outDir[1] = r[5]; outDir[2] = r[6];
+            return true;
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+
     void __fastcall hkDoFire(void* self, std::uint32_t p2, std::uint32_t p3,
                              void* req)
     {
@@ -914,7 +943,17 @@ namespace
             static_cast<std::uint8_t*>(self), p2, p3,
             static_cast<std::uint8_t*>(req), &pre);
 #endif
+        {
+            int firedEquipId = 0;
+            float muzzlePos[3] = { 0.0f, 0.0f, 0.0f };
+            float muzzleDir[3] = { 0.0f, 0.0f, 0.0f };
+            if (ReadFiredEquipAndMuzzleSEH(self, p2, req, &firedEquipId,
+                                           muzzlePos, muzzleDir))
+                shell::RemoteMissile_ArmShot(0, firedEquipId);
+        }
+
         g_OrigDoFire(self, p2, p3, req);
+        shell::RemoteMissile_DisarmShot();
 #ifdef _DEBUG
         if (diagOk)
         {

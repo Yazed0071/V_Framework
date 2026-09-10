@@ -269,13 +269,14 @@ namespace
     }
 
     static int ReadHeadMarkState(lua_State* L, int cmdStackIdx)
+
     {
         g_lua_pushstring(L, const_cast<char*>("state"));
         g_lua_gettable(L, cmdStackIdx);
 
         const int t = g_lua_type(L, -1);
-        if (t == LUA_TNIL)
-            return -1;
+
+        if (t == LUA_TNIL) return -1;
 
         if (t == LUA_TNUMBER)
         {
@@ -283,16 +284,18 @@ namespace
             return (n >= 0 && n <= 4) ? n : -2;
         }
 
-        if (t != LUA_TSTRING)
-            return -2;
+
+        if (t != LUA_TSTRING) return -2;
 
         const char* v = g_lua_tolstring(L, -1, nullptr);
         if (!v || !v[0])                        return -2;
         if (!_stricmp(v, "neutral"))            return 0;
+        if (!_stricmp(v, "none"))               return 0;
         if (!_stricmp(v, "enemy"))              return 1;
         if (!_stricmp(v, "friendly"))           return 2;
         if (!_stricmp(v, "friend"))             return 2;
         if (!_stricmp(v, "powerless"))          return 3;
+        if (!_stricmp(v, "neutralized"))        return 3;
         if (!_stricmp(v, "dying"))              return 4;
         return -2;
     }

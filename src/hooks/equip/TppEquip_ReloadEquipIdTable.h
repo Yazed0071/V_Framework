@@ -23,6 +23,7 @@ struct V_ExtendedEquipRow
 
 bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out);
 
+void TppEquip_ReserveInfoListMirrorEarly();
 bool TppEquip_EnsureInfoListMirror();
 
 bool Install_TppEquip_ReloadEquipIdTable_Hook();

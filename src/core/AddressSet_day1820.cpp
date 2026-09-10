@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 
 #include "AddressSet.h"
 
@@ -330,6 +330,7 @@ namespace AddressSetRuntime
             0x141dabab0ull, // UiWindowFunction_GetLayout
             0x141041950ull, // AttackAction_Fire
             0x141303a40ull, // EquipObject_DoFire
+            0ull, // Shell_ActivateShellAtEmptyWork
             0x1411574f0ull, // CorePlugin_UpdateLoadoutRequest
             0x140dc0120ull, // WeaponSystem_DefineWeaponFireSound
             0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
@@ -447,21 +448,60 @@ namespace AddressSetRuntime
             0x140F5AA90ull, // MbmImpl_CalcEncyclopediaUnreadCount
             0x141E0AFB0ull, // Net_ServerManagerBufferRelease
             0x1414E20A0ull, // NoticeControllerImpl_CheckSightNoticePlayer
-            0ull, // DemoPlayback_OnPlayingAfterUpdateStream
-            0ull, // DemoPlayback_DoFinish
-            0ull, // DemoPlayback_DoInterrupt
+            0x14C88F650ull, // DemoPlayback_OnPlayingAfterUpdateStream
+            0x14C886DF0ull, // DemoPlayback_DoFinish
+            0x14C887060ull, // DemoPlayback_DoInterrupt
             0x140975710ull, // UpdateMusicPlayer
             0ull, // GameObject_GetGameObjectIdWithName
             0ull, // Vehicle_GetConnectPointWorldMatrix
-            0ull, // Player_SequentialDemoActionExecute
-            0ull, // Player_SequentialDemoActionOnSignal
+            0x14127A440ull, // Player_SequentialDemoActionExecute
+            0x14127A880ull, // Player_SequentialDemoActionOnSignal
             0ull, // Fox_GameObjectManager_GetSharedInstance
-            0ull, // GameObjectType_Horse2_Vtable
-            0ull, // GameObjectType_Heli2_Vtable
-            0ull, // GameObjectType_HeliAlt_Vtable
-            0ull, // GameObjectType_WalkerGear2_Vtable
-            0ull, // AnimationControllerImpl_Vtable
-            0ull, // HeliAnimationControllerImpl_Vtable
+            0x14229B7A0ull, // GameObjectType_Horse2_Vtable
+            0x1422C54C0ull, // GameObjectType_Heli2_Vtable
+            0x1422C4AA0ull, // GameObjectType_HeliAlt_Vtable
+            0x1422CA6B0ull, // GameObjectType_WalkerGear2_Vtable
+            0x1422E5CF0ull, // AnimationControllerImpl_Vtable
+            0x1422FB080ull, // HeliAnimationControllerImpl_Vtable
+            0ull, // MotionLoaderImpl_GetMtarIds
+            0ull, // MotionLoaderImpl_GetMtarFilePath
+            0ull, // MotionLoaderImpl_GetBlockPackagePath
+            0x141049400ull, // AttackAction_GetGunMotionIdFromTable
+            0x141046620ull, // AttackAction_GetEquipMotionIdFromTable
+            0x14104C110ull, // AttackAction_GetNormalGripMotionId
+            0x14104C2F0ull, // AttackAction_GetNormalMagazineGripMotionId
+            0x141043EE0ull, // AttackAction_GetAssaultGripMotionId
+            0x1410496B0ull, // AttackAction_GetHandgunGripMotionId
+            0x141050DC0ull, // AttackAction_GetSubMachinegunGripMotionId
+            0x14104FF80ull, // AttackAction_GetSniperRifleGripMotionId
+            0x14104FC70ull, // AttackAction_GetShotgunGripMotionId
+            0x14104BAD0ull, // AttackAction_GetMachinegunGripMotionId
+            0x141046A70ull, // AttackAction_GetGrenadeLauncherGripMotionId
+            0x14104BDF0ull, // AttackAction_GetMissileGripMotionId
+            0x1410441E0ull, // AttackAction_GetAssaultUnderBarrelGripMotionId
+            0x141049B50ull, // AttackAction_GetHandgunOneHandGripMotionId
+            0x141049CA0ull, // AttackAction_GetHandgunOneHandMotionId
+            0x141050FD0ull, // AttackAction_GetSubMachinegunOneHandMotionId
+            0x141050640ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x1410567E0ull, // AttackAction_ResetMissionPrepareGripMotion
+            0x14104C450ull, // AttackAction_GetNormalMotionIdByCategory
+            0x141043F30ull, // AttackAction_GetAssaultMotionIdTable
+            0x1410497A0ull, // AttackAction_GetHandgunMotionIdTable
+            0x141050E00ull, // AttackAction_GetSubMachinegunMotionIdTable
+            0x141050050ull, // AttackAction_GetSniperRifleMotionIdTable
+            0x14104FD10ull, // AttackAction_GetShotgunMotionIdTable
+            0x141050720ull, // AttackAction_GetShotgunStepReloadMotionIdTable
+            0x14104BB10ull, // AttackAction_GetMachinegunMotionIdTable
+            0x141046BA0ull, // AttackAction_GetGrenadeLauncherMotionIdTable
+            0x14104BE40ull, // AttackAction_GetMissileMotionIdTable
+            0x141051C70ull, // AttackAction_GetChaseMotionIdTable
+            0ull, // EquipMotionDataTable_ReloadEquipMotionData2
+            0x1416C363Dull, // MissionPreparationCallbackImpl_Start_PlayBgmEvent
+            0x1416C6AA9ull, // MissionPreparationCallbackImpl_Update_StopBgmEvent
+            0x1416C6DCEull, // MissionPreparationCallbackImpl_Update_StopBgmEvent2
+            0x1416C33C0ull, // MissionPreparationCallbackImpl_Start
+            0x1416C3F30ull, // MissionPreparationCallbackImpl_Update
+            0x142c1d990ull, // Soldier2FaceSystem_Instance
         };
         return value;
     }
@@ -791,6 +831,7 @@ namespace AddressSetRuntime
             0x141dab960ull, // UiWindowFunction_GetLayout
             0x1410419a0ull, // AttackAction_Fire
             0x141303b80ull, // EquipObject_DoFire
+            0ull, // Shell_ActivateShellAtEmptyWork
             0x141157570ull, // CorePlugin_UpdateLoadoutRequest
             0x140dc0200ull, // WeaponSystem_DefineWeaponFireSound
             0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
@@ -908,21 +949,60 @@ namespace AddressSetRuntime
             0x140F5AB80ull, // MbmImpl_CalcEncyclopediaUnreadCount
             0x141E0AFB0ull, // Net_ServerManagerBufferRelease
             0x1414E2070ull, // NoticeControllerImpl_CheckSightNoticePlayer
-            0ull, // DemoPlayback_OnPlayingAfterUpdateStream
-            0ull, // DemoPlayback_DoFinish
-            0ull, // DemoPlayback_DoInterrupt
+            0x14D003820ull, // DemoPlayback_OnPlayingAfterUpdateStream
+            0x14CFFA3A0ull, // DemoPlayback_DoFinish
+            0x14CFFA6A0ull, // DemoPlayback_DoInterrupt
             0x140975200ull, // UpdateMusicPlayer
             0ull, // GameObject_GetGameObjectIdWithName
             0ull, // Vehicle_GetConnectPointWorldMatrix
-            0ull, // Player_SequentialDemoActionExecute
-            0ull, // Player_SequentialDemoActionOnSignal
+            0x14127A570ull, // Player_SequentialDemoActionExecute
+            0x14127A9B0ull, // Player_SequentialDemoActionOnSignal
             0ull, // Fox_GameObjectManager_GetSharedInstance
-            0ull, // GameObjectType_Horse2_Vtable
-            0ull, // GameObjectType_Heli2_Vtable
-            0ull, // GameObjectType_HeliAlt_Vtable
-            0ull, // GameObjectType_WalkerGear2_Vtable
-            0ull, // AnimationControllerImpl_Vtable
-            0ull, // HeliAnimationControllerImpl_Vtable
+            0x14229B720ull, // GameObjectType_Horse2_Vtable
+            0x1422C5440ull, // GameObjectType_Heli2_Vtable
+            0x1422C4A20ull, // GameObjectType_HeliAlt_Vtable
+            0x1422CA630ull, // GameObjectType_WalkerGear2_Vtable
+            0x1422E5C80ull, // AnimationControllerImpl_Vtable
+            0x1422FAFE0ull, // HeliAnimationControllerImpl_Vtable
+            0ull, // MotionLoaderImpl_GetMtarIds
+            0ull, // MotionLoaderImpl_GetMtarFilePath
+            0ull, // MotionLoaderImpl_GetBlockPackagePath
+            0x141049450ull, // AttackAction_GetGunMotionIdFromTable
+            0x141046670ull, // AttackAction_GetEquipMotionIdFromTable
+            0x14104C160ull, // AttackAction_GetNormalGripMotionId
+            0x14104C340ull, // AttackAction_GetNormalMagazineGripMotionId
+            0x141043F30ull, // AttackAction_GetAssaultGripMotionId
+            0x141049700ull, // AttackAction_GetHandgunGripMotionId
+            0x141050E10ull, // AttackAction_GetSubMachinegunGripMotionId
+            0x14104FFD0ull, // AttackAction_GetSniperRifleGripMotionId
+            0x14104FCC0ull, // AttackAction_GetShotgunGripMotionId
+            0x14104BB20ull, // AttackAction_GetMachinegunGripMotionId
+            0x141046AC0ull, // AttackAction_GetGrenadeLauncherGripMotionId
+            0x14104BE40ull, // AttackAction_GetMissileGripMotionId
+            0x141044230ull, // AttackAction_GetAssaultUnderBarrelGripMotionId
+            0x141049BA0ull, // AttackAction_GetHandgunOneHandGripMotionId
+            0x141049CF0ull, // AttackAction_GetHandgunOneHandMotionId
+            0x141051020ull, // AttackAction_GetSubMachinegunOneHandMotionId
+            0x141050690ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x141056830ull, // AttackAction_ResetMissionPrepareGripMotion
+            0x14104C4A0ull, // AttackAction_GetNormalMotionIdByCategory
+            0x141043F80ull, // AttackAction_GetAssaultMotionIdTable
+            0x1410497F0ull, // AttackAction_GetHandgunMotionIdTable
+            0x141050E50ull, // AttackAction_GetSubMachinegunMotionIdTable
+            0x1410500A0ull, // AttackAction_GetSniperRifleMotionIdTable
+            0x14104FD60ull, // AttackAction_GetShotgunMotionIdTable
+            0x141050770ull, // AttackAction_GetShotgunStepReloadMotionIdTable
+            0x14104BB60ull, // AttackAction_GetMachinegunMotionIdTable
+            0x141046BF0ull, // AttackAction_GetGrenadeLauncherMotionIdTable
+            0x14104BE90ull, // AttackAction_GetMissileMotionIdTable
+            0x141051CC0ull, // AttackAction_GetChaseMotionIdTable
+            0ull, // EquipMotionDataTable_ReloadEquipMotionData2
+            0x1416C378Dull, // MissionPreparationCallbackImpl_Start_PlayBgmEvent
+            0x1416C6BF9ull, // MissionPreparationCallbackImpl_Update_StopBgmEvent
+            0x1416C6F1Eull, // MissionPreparationCallbackImpl_Update_StopBgmEvent2
+            0x1416C3510ull, // MissionPreparationCallbackImpl_Start
+            0x1416C4080ull, // MissionPreparationCallbackImpl_Update
+            0x142c1d990ull, // Soldier2FaceSystem_Instance
         };
 
         return value;
