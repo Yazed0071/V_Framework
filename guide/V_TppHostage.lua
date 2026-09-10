@@ -67,7 +67,7 @@ function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel, hostageL
     local customLabel = (type(hostageLostLabel) == "string" or type(hostageLostLabel) == "number") and hostageLostLabel or 0
     local customLabelTaken = (type(hostageLostLabelTaken) == "string" or type(hostageLostLabelTaken) == "number") and hostageLostLabelTaken or customLabel
 
-    SendCommand(hostageNameOrId, { 
+    GameObject.SendCommand(hostageNameOrId, { 
         id = "SetLostHostage", 
         hostageType = gender, 
         customLostLabel = customLabel,
@@ -87,11 +87,11 @@ function this.RemoveLostHostage(hostageNameOrId)
         V_FrameWork.Log("V_TppHostage.RemoveLostHostage: hostageId is NULL_ID.")
         return
     end
-    SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
+    GameObject.SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
 end
 
 function this.ClearLostHostages()
-    SendCommand({ type = "TppHostage2" }, { id = "ClearLostHostages" })
+    GameObject.SendCommand({ type = "TppHostage2" }, { id = "ClearLostHostages" })
 end
 
 function this.IsHostageFemale(hostageNameOrId)
@@ -204,7 +204,6 @@ function this.Messages()
             {
                 msg = "QuestAreaAnnounceText",
                 func = function()
-                    this.ClearLostHostages()
                     this.BuildHostageList()
                     this.AutoSetLostHostage()
                 end,
@@ -214,7 +213,7 @@ function this.Messages()
             {
                 msg = "MissionStateReset",
                 func = function(code)
-                    this.ClearAllCustomLostLabels()
+                    this.ClearLostHostages()
                 end,
             },
         },
@@ -222,7 +221,6 @@ function this.Messages()
 end
 
 function this.SetUpEnemy()
-    this.ClearLostHostages()
     this.BuildHostageList()
     this.AutoSetLostHostage()
 end
