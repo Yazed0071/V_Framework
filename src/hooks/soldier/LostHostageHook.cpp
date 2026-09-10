@@ -47,12 +47,12 @@ static constexpr int SOURCE_NOTICE = 1;
 static constexpr int SOURCE_RADIO = 2;
 
 
-static constexpr const char* LANGID_MALE_NOT_TAKEN   = "CPR0230";
+static constexpr const char* LANGID_MALE_NOT_TAKEN = "CPR0230";
 static constexpr const char* LANGID_FEMALE_NOT_TAKEN = "V_CPR0250";
-static constexpr const char* LANGID_CHILD_NOT_TAKEN  = "V_CPR0271";
-static constexpr const char* LANGID_MALE_TAKEN       = "CPR0061";
-static constexpr const char* LANGID_FEMALE_TAKEN     = "CPR0062";
-static constexpr const char* LANGID_CHILD_TAKEN      = "CPR0063";
+static constexpr const char* LANGID_CHILD_NOT_TAKEN = "V_CPR0271";
+static constexpr const char* LANGID_MALE_TAKEN = "CPR0061";
+static constexpr const char* LANGID_FEMALE_TAKEN = "CPR0062";
+static constexpr const char* LANGID_CHILD_TAKEN = "CPR0063";
 
 
 struct TrackedHostage
@@ -110,21 +110,21 @@ static const char* SourceName(int source)
 
 static std::uint32_t PickSpeechLabel(int hostageType, bool playerTookIt)
 {
-    static std::uint32_t male_not_taken   = 0;
+    static std::uint32_t male_not_taken = 0;
     static std::uint32_t female_not_taken = 0;
-    static std::uint32_t child_not_taken  = 0;
-    static std::uint32_t male_taken       = 0;
-    static std::uint32_t female_taken     = 0;
-    static std::uint32_t child_taken      = 0;
+    static std::uint32_t child_not_taken = 0;
+    static std::uint32_t male_taken = 0;
+    static std::uint32_t female_taken = 0;
+    static std::uint32_t child_taken = 0;
 
     if (male_not_taken == 0)
     {
-        male_not_taken   = FoxHashes::StrCode32(LANGID_MALE_NOT_TAKEN);
+        male_not_taken = FoxHashes::StrCode32(LANGID_MALE_NOT_TAKEN);
         female_not_taken = FoxHashes::StrCode32(LANGID_FEMALE_NOT_TAKEN);
-        child_not_taken  = FoxHashes::StrCode32(LANGID_CHILD_NOT_TAKEN);
-        male_taken       = FoxHashes::StrCode32(LANGID_MALE_TAKEN);
-        female_taken     = FoxHashes::StrCode32(LANGID_FEMALE_TAKEN);
-        child_taken      = FoxHashes::StrCode32(LANGID_CHILD_TAKEN);
+        child_not_taken = FoxHashes::StrCode32(LANGID_CHILD_NOT_TAKEN);
+        male_taken = FoxHashes::StrCode32(LANGID_MALE_TAKEN);
+        female_taken = FoxHashes::StrCode32(LANGID_FEMALE_TAKEN);
+        child_taken = FoxHashes::StrCode32(LANGID_CHILD_TAKEN);
     }
 
     if (playerTookIt)
@@ -191,9 +191,9 @@ static bool LoadGetQuarkSystemTable()
 }
 
 static bool ReadNoticeObjectOwner(int slotIndex,
-                                  std::uint16_t& outOwnerId,
-                                  std::uint8_t& outType,
-                                  std::uint8_t& outFlags)
+    std::uint16_t& outOwnerId,
+    std::uint8_t& outType,
+    std::uint8_t& outFlags)
 {
     outOwnerId = 0xFFFFu;
     outType = 0xFFu;
@@ -277,9 +277,9 @@ static bool LookupTrackedByObjectId_NoLock(std::uint16_t objectId, TrackedHostag
 }
 
 static PendingReport BuildPendingReport(std::uint32_t soldierIndex,
-                                        const TrackedHostage& hostage,
-                                        int slotIndex,
-                                        std::uint16_t noticeObjId)
+    const TrackedHostage& hostage,
+    int slotIndex,
+    std::uint16_t noticeObjId)
 {
     PendingReport r{};
     r.active = true;
@@ -422,10 +422,13 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
             const bool playerTookIt =
                 PlayerAlertPhase::IsAtOrAbove(PlayerAlertPhase::kCaution);
 
-            const int nativeGender = HostageGender::Read(report.hostageObjId);
-            const int hostageType  = (nativeGender != HostageGender::kUnknown)
-                ? nativeGender
-                : report.hostageType;
+            int hostageType = report.hostageType;
+            if (hostageType < HOSTAGE_MALE || hostageType > HOSTAGE_CHILD)
+            {
+                const int nativeGender = HostageGender::Read(report.hostageObjId);
+                if (nativeGender != HostageGender::kUnknown)
+                    hostageType = nativeGender;
+            }
 
             const std::uint32_t customLabel = playerTookIt
                 ? report.customLostLabelTaken
@@ -447,8 +450,8 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
 
 
 void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType,
-                         std::uint32_t customLostLabel,
-                         std::uint32_t customLostLabelTaken)
+    std::uint32_t customLostLabel,
+    std::uint32_t customLostLabelTaken)
 {
     if (hostageType < HOSTAGE_MALE || hostageType > HOSTAGE_CHILD)
     {
@@ -457,6 +460,18 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType,
     }
 
     const std::uint16_t rawId = static_cast<std::uint16_t>(gameObjectId);
+
+    std::lock_guard<std::mutex> lock(g_Mutex);
+
+    auto existing = g_HostagesByObjectId.find(rawId);
+    if (existing != g_HostagesByObjectId.end())
+    {
+        if (customLostLabel == 0 && existing->second.customLostLabel != 0)
+        {
+            return;
+        }
+    }
+
     int nameId = -1;
     TryGetNameId(rawId, nameId);
 
@@ -467,11 +482,6 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType,
     h.customLostLabel = customLostLabel;
     h.customLostLabelTaken =
         (customLostLabelTaken != 0) ? customLostLabelTaken : customLostLabel;
-
-    std::lock_guard<std::mutex> lock(g_Mutex);
-
-    const auto existing = g_HostagesByObjectId.find(rawId);
-    if (existing != g_HostagesByObjectId.end())
 
     g_HostagesByObjectId[rawId] = h;
     if (nameId != -1)
@@ -515,9 +525,9 @@ bool Install_LostHostage_Hooks()
     void* addrNotice = ResolveGameAddress(gAddr.AddNoticeInfo);
     void* addrRadio = ResolveGameAddress(gAddr.StateRadioRequest);
 
-#ifdef _DEBUG
+    #ifdef _DEBUG
     Log("======== LOSTHOSTAGE BUILD MARKER ========\n");
-#endif
+    #endif
 
     if (!addrConvert || !addrNotice || !addrRadio)
     {
@@ -534,12 +544,12 @@ bool Install_LostHostage_Hooks()
 
     const bool okRadio = CreateAndEnableHook(addrRadio, reinterpret_cast<void*>(&hkStateRadioRequest), reinterpret_cast<void**>(&g_OrigRadioRequest));
 
-#ifdef _DEBUG
+    #ifdef _DEBUG
     Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
     Log("[LostHostage] Hook AddNoticeInfo:  %s\n", okNotice ? "OK" : "FAIL");
     Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
         okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
-#else
+    #else
     if (!okConvert)
         Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
     if (!okNotice)
@@ -547,7 +557,7 @@ bool Install_LostHostage_Hooks()
     if (!okRadio)
         Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
             okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
-#endif
+    #endif
 
     return okConvert && okNotice && okRadio;
 }
@@ -568,8 +578,8 @@ bool Uninstall_LostHostage_Hooks()
     g_PendingBySoldier.clear();
     g_SelectedReport = {};
 
-#ifdef _DEBUG
+    #ifdef _DEBUG
     LogDebug("[LostHostage] Uninstall_LostHostage_Hooks\n");
-#endif
+    #endif
     return true;
 }

@@ -27,12 +27,6 @@ function this.LoadLibraries()
     end
 end
 
-function this.Messages()
-    return Tpp.StrCode32Table {
-        GameObject = {
-        },
-    }
-end
 
 this.VIP_MISSION_LIST = {
     [10036] = {
@@ -129,14 +123,6 @@ function this.SetUpEnemy()
     else
         Fox.Log("No VIP setup for mission " .. tostring(missionCode))
     end
-end
-
-function this.Init(missionTable)
-    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
-end
-
-function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
-    Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
 end
 
 return this

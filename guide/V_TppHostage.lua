@@ -11,7 +11,6 @@ local HOSTAGE_OBJECT_TYPES = { "TppHostage2", "TppHostageUnique", "TppHostageUni
 
 this.labels = {}
 
-
 local function lookupCustomLabel(gameObjectId, gender, scenario)
     local label = this.labels[gameObjectId]
 
@@ -36,21 +35,19 @@ local function lookupCustomLabel(gameObjectId, gender, scenario)
     return label
 end
 
-
 local function pushEntry(hostage)
-    hostage.customLabel      = lookupCustomLabel(hostage.gameObjectId, hostage.gender, "gone")
-    hostage.customLabelTaken = lookupCustomLabel(hostage.gameObjectId, hostage.gender, "taken")
-    GameObject.SendCommand(hostage.gameObjectId, {
-        id                   = "SetLostHostage",
-        hostageType          = hostage.gender,
-        customLostLabel      = hostage.customLabel or 0,
-        customLostLabelTaken = hostage.customLabelTaken or 0,
+    local labelGone = lookupCustomLabel(hostage.gameObjectId, hostage.gender, "gone")
+    local labelTaken = lookupCustomLabel(hostage.gameObjectId, hostage.gender, "taken")
+    
+    GameObject.SendCommand(hostage.gameObjectId, { 
+        id = "SetLostHostage", 
+        hostageType = hostage.gender, 
+        customLostLabel = labelGone or 0,
+        customLostLabelTaken = labelTaken or 0
     })
 end
 
-
--- gender: 0 = male, 1 = female, 2 = child.
-function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel)
+function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel, hostageLostLabelTaken)
     if hostageNameOrId == nil then
         V_FrameWork.Log("V_TppHostage.SetLostHostage: hostageNameOrId is nil.")
         return
@@ -66,12 +63,16 @@ function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel)
         V_FrameWork.Log("V_TppHostage.SetLostHostage: gender is not a number (0 = male, 1 = female, 2 = child).")
         gender = 0
     end
-    if type(hostageLostLabel) ~= "string" and type(hostageLostLabel) ~= "number" then
-        V_FrameWork.Log("V_TppHostage.SetLostHostage: hostageLostLabel is not a string or number.")
-        hostageLostLabel = 0
-    end
+    
+    local customLabel = (type(hostageLostLabel) == "string" or type(hostageLostLabel) == "number") and hostageLostLabel or 0
+    local customLabelTaken = (type(hostageLostLabelTaken) == "string" or type(hostageLostLabelTaken) == "number") and hostageLostLabelTaken or customLabel
 
-    GameObject.SendCommand(hostageNameOrId, { id = "SetLostHostage", hostageType = gender, customLostLabel = hostageLostLabel or 0 })
+    SendCommand(hostageNameOrId, { 
+        id = "SetLostHostage", 
+        hostageType = gender, 
+        customLostLabel = customLabel,
+        customLostLabelTaken = customLabelTaken
+    })
 end
 
 function this.RemoveLostHostage(hostageNameOrId)
@@ -86,36 +87,45 @@ function this.RemoveLostHostage(hostageNameOrId)
         V_FrameWork.Log("V_TppHostage.RemoveLostHostage: hostageId is NULL_ID.")
         return
     end
-    GameObject.SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
+    SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
 end
 
 function this.ClearLostHostages()
-    GameObject.SendCommand({ type = "TppHostage2" }, { id = "ClearLostHostages" })
+    SendCommand({ type = "TppHostage2" }, { id = "ClearLostHostages" })
 end
 
-
-function this.GetHostageGender(hostageNameOrId)
+function this.IsHostageFemale(hostageNameOrId)
     if hostageNameOrId == nil then
-        V_FrameWork.Log("V_TppHostage.GetHostageGender: hostageNameOrId is nil.")
+        V_FrameWork.Log("V_TppHostage.IsHostageFemale: hostageNameOrId is nil.")
         return
     end
     if IsTypeString(hostageNameOrId) then
         hostageNameOrId = GetGameObjectId(hostageNameOrId)
     end
     if hostageNameOrId == NULL_ID then
-        V_FrameWork.Log("V_TppHostage.GetHostageGender: hostageId is NULL_ID.")
+        V_FrameWork.Log("V_TppHostage.IsHostageFemale: hostageId is NULL_ID.")
         return
     end
 
-    return SendCommand(hostageNameOrId, { id = "GetHostageGender" })
-end
-
-function this.IsHostageFemale(hostageNameOrId)
-    return this.GetHostageGender(hostageNameOrId) == 1
+    local isFemale = SendCommand(hostageNameOrId, { id = "IsFemale" })
+    return isFemale
 end
 
 function this.IsHostageChild(hostageNameOrId)
-    return this.GetHostageGender(hostageNameOrId) == 2
+    if hostageNameOrId == nil then
+        V_FrameWork.Log("V_TppHostage.IsHostageChild: hostageNameOrId is nil.")
+        return
+    end
+    if IsTypeString(hostageNameOrId) then
+        hostageNameOrId = GetGameObjectId(hostageNameOrId)
+    end
+    if hostageNameOrId == NULL_ID then
+        V_FrameWork.Log("V_TppHostage.IsHostageChild: hostageId is NULL_ID.")
+        return
+    end
+
+    local isChild = SendCommand(hostageNameOrId, { id = "IsChild" })
+    return isChild
 end
 
 function this.SetCustomLostLabel(key, value)
@@ -151,7 +161,6 @@ function this.RefreshCustomLabels()
     end
 end
 
-
 function this.BuildHostageList()
     mvars.V_HostageList = {}
 
@@ -161,11 +170,16 @@ function this.BuildHostageList()
             for i = 0, hostageCount - 1 do
                 local hostageGameObjectId = GetGameObjectIdByIndex(hostageObjectType, i)
                 if hostageGameObjectId ~= NULL_ID then
-                    local gender = this.GetHostageGender(hostageGameObjectId) or 0
+                    local gender = 0  -- male
+                    if this.IsHostageChild(hostageGameObjectId) then
+                        gender = 2 -- child
+                    elseif this.IsHostageFemale(hostageGameObjectId) then
+                        gender = 1 -- female
+                    end
+                    
                     table.insert(mvars.V_HostageList, {
                         gameObjectId = hostageGameObjectId,
-                        gender       = gender,
-                        customLabel  = lookupCustomLabel(hostageGameObjectId, gender, "gone"),
+                        gender       = gender
                     })
                 end
             end
@@ -180,11 +194,9 @@ function this.AutoSetLostHostage()
         this.BuildHostageList()
     end
     for _, hostage in ipairs(mvars.V_HostageList) do
-        this.SetLostHostage(hostage.gameObjectId, hostage.gender, hostage.customLabel or 0)
+        pushEntry(hostage)
     end
 end
-
-
 
 function this.Messages()
     return Tpp.StrCode32Table {
@@ -209,25 +221,20 @@ function this.Messages()
     }
 end
 
-
 function this.SetUpEnemy()
     this.ClearLostHostages()
     this.BuildHostageList()
     this.AutoSetLostHostage()
 end
 
-
 function this.Init(missionTable)
-    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
-end
-
-function this.OnReload(missionTable)
+    if TppMission.IsFOBMission(vars.missionCode) then return end
     this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
 end
 
 function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
+    if TppMission.IsFOBMission(vars.missionCode) then return end
     Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
 end
-
 
 return this
