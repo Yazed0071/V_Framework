@@ -101,9 +101,7 @@ namespace
             if (!g_BindFailLogged)
             {
                 g_BindFailLogged = true;
-                Log("[RewardPopupBg] popup drew with panel=%p node=%p setter=%p - the background "
-                    "picture could not be reached, so the popup keeps its vanilla texture\n",
-                    panel, node, reinterpret_cast<void*>(setTexture));
+                LogWarn("RewardPopupBg: popup picture node not found, vanilla background kept");
             }
             return;
         }
@@ -111,9 +109,6 @@ namespace
         __try
         {
             setTexture(panel, node, custom, ICON_TEXTURE_SLOT_HASH);
-            LogDebug("[RewardPopupBg] popup background -> %016llX on picture node %p\n",
-                     static_cast<unsigned long long>(custom),
-                     node);
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
@@ -209,14 +204,14 @@ namespace
         const std::size_t hits = FindHashSite(&site);
         if (hits != 1 || !site)
         {
-            Log("[RewardPopupBg] popup setup not located (%zu pattern hit(s)) - override disabled\n", hits);
+            LogError("RewardPopupBg: popup setup not found (%zu matches), custom popup background off", hits);
             return nullptr;
         }
 
         std::uint8_t* const entry = site - SETUP_HASH_SITE_OFFSET;
         if (!PrologueMatches(entry))
         {
-            Log("[RewardPopupBg] prologue mismatch at %p - override disabled\n", entry);
+            LogError("RewardPopupBg: popup setup code does not match this build, custom popup background off");
             return nullptr;
         }
         return entry;
@@ -242,14 +237,11 @@ bool Install_RewardPopupBgTexture_Hook()
         reinterpret_cast<void*>(&hk_PopupSetup),
         reinterpret_cast<void**>(&g_OrigSetup));
 
-#ifdef _DEBUG
-    Log("[Hook] RewardPopupBg: %s (target=%p)\n", ok ? "OK" : "FAIL", g_Target);
-#else
     if (!ok)
-        Log("[Hook] RewardPopupBg: FAIL (target=%p)\n", g_Target);
-#endif
-    if (!ok)
+    {
+        LogError("RewardPopupBg: popup setup hook failed, custom popup background off");
         g_Target = nullptr;
+    }
     return ok;
 }
 

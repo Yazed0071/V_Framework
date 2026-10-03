@@ -10,7 +10,8 @@ int __cdecl l_AddToEquipIdTable(lua_State* L);
 int TppEquip_GetSubIdForEquipId(int equipId);
 void TppEquip_GetCustomWeaponEquipIds(std::vector<int>& out);
 int TppEquip_ReleaseEquipRow(int equipId);
-void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId);
+void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId = 0);
+bool TppEquip_WideAmmoRootReady();
 
 struct V_ExtendedEquipRow
 {

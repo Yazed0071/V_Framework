@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 struct lua_State;
 
@@ -19,7 +20,7 @@ void EquipDevelop_InstallDevelopSyncHooks();
 
 bool EquipDevelop_ShouldSuppressNativeDevelop(void* controller, std::uint16_t index);
 void EquipDevelop_NotifyNativeDevelopChanged(void* controller, std::uint16_t index,
-                                             bool developed);
+                                             bool developed, bool timerProof = false);
 
 int __cdecl l_SetEquipUndeveloped(lua_State* L);
 int __cdecl l_SetEquipDeveloped(lua_State* L);
@@ -55,6 +56,10 @@ void EquipDevelop_EndFobListSuppress();
 void* EquipDevelop_ResolveDevelopController();
 
 bool EquipDevelop_IsDevelopTimerActive(std::uint16_t flowIndex);
+bool EquipDevelop_WasDevelopTimerActive(std::uint16_t flowIndex);
+void EquipDevelop_RefreshDevelopTimerSnapshot();
 
 void EquipDevelop_SetRecordNameOffsets(int nameOff, int infoOff,
                                        int listNameOff = -1);
+
+std::string EquipDevelop_DisplayName(std::int32_t developId);

@@ -32,21 +32,21 @@ bool Install_IsWeaponNoUseInPlaceActionPatch()
 
     if (!gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction)
     {
-        LogDebug("[IsWeaponNoUseInPlace] no address for current build\n");
+        LogError("IsWeaponNoUseInPlace: no address for this build, hook off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.AttackActionImpl_IsWeaponNoUseInPlaceAction);
     if (!target)
     {
-        LogDebug("[IsWeaponNoUseInPlace] ResolveGameAddress returned null\n");
+        LogError("IsWeaponNoUseInPlace: address did not resolve, hook off");
         return false;
     }
 
     if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_IsWeaponNoUseInPlaceAction),
                              reinterpret_cast<void**>(&g_Orig)))
     {
-        Log("[IsWeaponNoUseInPlace] hook FAILED @ %p\n", target);
+        LogError("IsWeaponNoUseInPlace: hook failed @ %p", target);
         return false;
     }
 

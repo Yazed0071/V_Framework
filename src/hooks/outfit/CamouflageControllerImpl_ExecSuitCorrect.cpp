@@ -72,34 +72,12 @@ namespace
                 writtenSlot = &byteBuf[slotIdx];
                 *outSaved = *writtenSlot;
                 *writtenSlot = pin;
-
-#ifdef _DEBUG
-                if (!g_FirstOverrideLogged.exchange(true))
-                {
-                    LogDebug("[OutfitCamoBonus] FIRST OVERRIDE: liveParts=0x%02X "
-                        "livePlayer=%u slot=%u byteBuf=%p saved=%u pinned=%u "
-                        "(developId=%u flowIndex=%u)\n",
-                        static_cast<unsigned>(liveParts),
-                        static_cast<unsigned>(livePlayer),
-                        static_cast<unsigned>(slotIdx),
-                        byteBuf,
-                        static_cast<unsigned>(*outSaved),
-                        static_cast<unsigned>(pin),
-                        static_cast<unsigned>(entry->developId),
-                        static_cast<unsigned>(entry->flowIndex));
-                }
-#endif
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             if (!g_FirstOverrideLogged.exchange(true))
-            {
-                LogDebug("[OutfitCamoBonus] SEH during peek - hook no-op'd; check "
-                         "Info+0x%zx / Controller+0x%zx for build drift\n",
-                    kInfoCamoBufferPtrOffset,
-                    kControllerSlotIndexOffset);
-            }
+                LogWarn("OutfitCamoBonus: fault reading the camo buffer, camoBonusType pin skipped");
             writtenSlot = nullptr;
         }
         return writtenSlot;
@@ -136,8 +114,7 @@ namespace outfit
         void* target = ResolveGameAddress(gAddr.CamouflageController_ExecSuitCorrect);
         if (!target)
         {
-            LogDebug("[OutfitCamoBonus] target unresolved; module disabled "
-                "(camoBonusType pinning will be inactive)\n");
+            LogError("OutfitCamoBonus: ExecSuitCorrect address missing for this build, camoBonusType pin off");
             return false;
         }
 
@@ -146,10 +123,8 @@ namespace outfit
             reinterpret_cast<void*>(&hkExecSuitCorrect),
             reinterpret_cast<void**>(&g_OrigExecSuitCorrect));
 
-#ifdef _DEBUG
-        Log("[OutfitCamoBonus] installed: %s (target=%p)\n",
-            g_Installed ? "OK" : "FAIL", target);
-#endif
+        if (!g_Installed)
+            LogError("OutfitCamoBonus: ExecSuitCorrect hook failed, camoBonusType pin off");
         return g_Installed;
     }
 
@@ -160,8 +135,5 @@ namespace outfit
             DisableAndRemoveHook(t);
         g_OrigExecSuitCorrect = nullptr;
         g_Installed           = false;
-#ifdef _DEBUG
-        LogDebug("[OutfitCamoBonus] removed\n");
-#endif
     }
 }

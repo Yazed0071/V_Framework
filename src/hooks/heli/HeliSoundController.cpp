@@ -176,7 +176,7 @@ bool Install_HeliSoundController_Hook()
 
     if (!gAddr.HeliSoundControllerImpl_Update)
     {
-        LogDebug("[HeliSoundController] Update address not set for this build\n");
+        LogError("HeliSoundController: Update address missing, heli radio messages off");
         return false;
     }
 
@@ -190,7 +190,7 @@ bool Install_HeliSoundController_Hook()
                                      reinterpret_cast<void**>(&g_OrigCallVoice)))
             {
                 g_OrigCallVoice = nullptr;
-                Log("[HeliSoundController] CallVoice hook failed; HeliStart broadcast disabled\n");
+                LogError("HeliSoundController: CallVoice hook failed, HeliStart message off");
             }
         }
     }
@@ -205,7 +205,8 @@ bool Install_HeliSoundController_Hook()
                                      reinterpret_cast<void**>(&g_OrigFlightUpdate)))
             {
                 g_OrigFlightUpdate = nullptr;
-                Log("[HeliSoundController] FlightController::Update hook failed; HeliFinish drain disabled\n");
+                LogError("HeliSoundController: FlightController Update hook failed, "
+                         "HeliFinish message off");
             }
         }
     }
@@ -213,7 +214,7 @@ bool Install_HeliSoundController_Hook()
     void* target = ResolveGameAddress(gAddr.HeliSoundControllerImpl_Update);
     if (!target)
     {
-        Log("[HeliSoundController] Update resolve failed\n");
+        LogError("HeliSoundController: Update address missing, heli radio messages off");
         return false;
     }
 
@@ -226,17 +227,7 @@ bool Install_HeliSoundController_Hook()
         g_Installed = true;
 
     if (!ok)
-    {
-        Log("[HeliSoundController] hook: FAIL (Update=%p, CallVoice=%p, trampoline=%p)\n",
-            target, reinterpret_cast<void*>(g_CallVoice), reinterpret_cast<void*>(g_OrigCallVoice));
-    }
-#ifdef _DEBUG
-    else
-    {
-        LogDebug("[HeliSoundController] hook: OK (Update=%p, CallVoice=%p, trampoline=%p)\n",
-            target, reinterpret_cast<void*>(g_CallVoice), reinterpret_cast<void*>(g_OrigCallVoice));
-    }
-#endif
+        LogError("HeliSoundController: Update hook failed, heli radio messages off");
     return ok;
 }
 

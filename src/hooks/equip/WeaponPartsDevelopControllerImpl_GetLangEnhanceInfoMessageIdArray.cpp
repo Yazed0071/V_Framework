@@ -60,10 +60,6 @@ namespace
         {
             g_customIds[n] = langId;
             g_customCount.store(n + 1, std::memory_order_release);
-            LogDebug("[EnhanceLangId] registered custom enhance lang id 0x%llx -> index %u "
-                "(langPowerUpInfo / weapon-parts upgrade info)\n",
-                static_cast<unsigned long long>(langId & 0xffffffffffffull),
-                kVanillaBound + n);
             return kVanillaBound + n;
         }
 
@@ -71,8 +67,7 @@ namespace
         if (!s_fullLogged)
         {
             s_fullLogged = true;
-            LogDebug("[EnhanceLangId] custom enhance lang-ID buffer full (%u) - further "
-                "IDs will not register\n", kCustomMax);
+            LogWarn("EnhanceLangId: custom enhance lang id limit %u reached, further ids not shown", kCustomMax);
         }
         return 0;
     }
@@ -88,14 +83,6 @@ namespace
             if (ci < nc)
             {
                 *out = g_customIds[ci];
-
-                static std::atomic<int> s_served{ 0 };
-                const int seen = s_served.fetch_add(1, std::memory_order_relaxed);
-                if (seen < 16)
-                    LogDebug("[EnhanceLangId] develop menu served custom upgrade-info text: "
-                        "index %llu -> lang id 0x%llx\n",
-                        static_cast<unsigned long long>(i),
-                        static_cast<unsigned long long>(g_customIds[ci] & 0xffffffffffffull));
                 return out;
             }
         }
@@ -176,8 +163,7 @@ bool Install_EnhanceLangIdUnlimited()
     void* boundFn  = ResolveGameAddress(gAddr.WeaponEnhance_GetLangIdBound);
     if (!idxFn || !byIdFn || !boundFn)
     {
-        LogDebug("[EnhanceLangId] addresses not set for this build - custom enhance "
-            "lang IDs unavailable (feature skipped)\n");
+        LogError("EnhanceLangId: address missing for this build, custom enhance lang ids off");
         return true;
     }
 
@@ -196,8 +182,7 @@ bool Install_EnhanceLangIdUnlimited()
         boundFn, &hkGetBound, reinterpret_cast<void**>(&g_origBound));
     if (!okIdx || !okById || !okBound)
     {
-        Log("[EnhanceLangId] hook install FAILED (index=%d byId=%d bound=%d)\n",
-            okIdx, okById, okBound);
+        LogError("EnhanceLangId: hook failed, custom enhance lang ids off");
         return false;
     }
 
@@ -206,8 +191,6 @@ bool Install_EnhanceLangIdUnlimited()
                             reinterpret_cast<void**>(&g_origMsg));
 
     g_ready = true;
-    LogDebug("[EnhanceLangId] unlimited enhance lang IDs armed (cap %u custom; they "
-             "auto-register on lookup for the R&D and weapon-parts screens)\n", kCustomMax);
     return true;
 }
 

@@ -50,9 +50,9 @@ namespace
     GatePred_t    g_OrigGateC      = nullptr;
     GetLangText_t g_OrigGetLang    = nullptr;
 
-    void* g_GateBTarget = nullptr;
-    void* g_GateCTarget = nullptr;
-    void* g_LangTarget  = nullptr;
+    void** g_GateBSlot = nullptr;
+    void** g_GateCSlot = nullptr;
+    void** g_LangSlot  = nullptr;
     std::once_flag g_GateBOnce, g_GateCOnce, g_LangOnce;
 
     template <typename T>
@@ -73,14 +73,14 @@ namespace
         return SafeRead(base, off, v) ? v : nullptr;
     }
 
-    void* SafeVtableSlot(void* obj, std::size_t index)
+    void** SafeVtableSlot(void* obj, std::size_t index)
     {
         if (!obj)
             return nullptr;
         __try
         {
             void** vtbl = *reinterpret_cast<void***>(obj);
-            return vtbl ? vtbl[index] : nullptr;
+            return vtbl && vtbl[index] ? vtbl + index : nullptr;
         }
         __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
     }
@@ -146,16 +146,13 @@ namespace
     {
         std::call_once(g_GateBOnce, [self]()
         {
-            void* fn = SafeVtableSlot(ProviderFromSelf(self), kProviderIdx_GateB);
-            if (!fn ||
-                !CreateAndEnableHook(fn, reinterpret_cast<void*>(&hk_GateB),
-                                     reinterpret_cast<void**>(&g_OrigGateB)))
+            void** slot = SafeVtableSlot(ProviderFromSelf(self), kProviderIdx_GateB);
+            if (!SwapVtableSlot(slot, reinterpret_cast<void*>(&hk_GateB), reinterpret_cast<void**>(&g_OrigGateB)))
             {
-                Log("[MissionDeployWarning] ERROR: warn-gate hook install failed - "
-                    "override missions will not show a forced warning.\n");
+                LogError("MissionDeployWarning: warning gate hook failed, custom deploy warnings not forced");
                 return;
             }
-            g_GateBTarget = fn;
+            g_GateBSlot = slot;
         });
     }
 
@@ -163,16 +160,13 @@ namespace
     {
         std::call_once(g_GateCOnce, [self]()
         {
-            void* fn = SafeVtableSlot(ProviderFromSelf(self), kProviderIdx_GateC);
-            if (!fn ||
-                !CreateAndEnableHook(fn, reinterpret_cast<void*>(&hk_GateC),
-                                     reinterpret_cast<void**>(&g_OrigGateC)))
+            void** slot = SafeVtableSlot(ProviderFromSelf(self), kProviderIdx_GateC);
+            if (!SwapVtableSlot(slot, reinterpret_cast<void*>(&hk_GateC), reinterpret_cast<void**>(&g_OrigGateC)))
             {
-                Log("[MissionDeployWarning] WARN: hard-mission gate hook install failed - "
-                    "override may be suppressed for hard-type missions.\n");
+                LogError("MissionDeployWarning: hard-mission gate hook failed, custom warning may not show on hard missions");
                 return;
             }
-            g_GateCTarget = fn;
+            g_GateCSlot = slot;
         });
     }
 
@@ -180,16 +174,13 @@ namespace
     {
         std::call_once(g_LangOnce, [self]()
         {
-            void* fn = SafeVtableSlot(LangSvcFromSelf(self), kLangIdx_GetLangText);
-            if (!fn ||
-                !CreateAndEnableHook(fn, reinterpret_cast<void*>(&hk_GetLangText),
-                                     reinterpret_cast<void**>(&g_OrigGetLang)))
+            void** slot = SafeVtableSlot(LangSvcFromSelf(self), kLangIdx_GetLangText);
+            if (!SwapVtableSlot(slot, reinterpret_cast<void*>(&hk_GetLangText), reinterpret_cast<void**>(&g_OrigGetLang)))
             {
-                Log("[MissionDeployWarning] ERROR: lang-text hook install failed - "
-                    "override warning text will not be substituted.\n");
+                LogError("MissionDeployWarning: GetLangText hook failed, custom warning text not shown");
                 return;
             }
-            g_LangTarget = fn;
+            g_LangSlot = slot;
         });
     }
 
@@ -255,8 +246,8 @@ bool Set_MissionDeployWarning(std::uint16_t missionCode, const char* langId, con
         key = LangKeyFromString(langId);
         if (!key)
         {
-            Log("[MissionDeployWarning] WARN: langId '%s' resolved to 0 - override for mission "
-                "%u not set.\n", langId, static_cast<unsigned>(missionCode));
+            LogWarn("SetMissionAcceptWarning %u: langId '%s' not found, warning not set",
+                static_cast<unsigned>(missionCode), langId);
             return false;
         }
     }
@@ -283,8 +274,7 @@ bool Install_MissionDeployWarning_Hook()
     if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_Activate),
                              reinterpret_cast<void**>(&g_OrigActivate)))
     {
-        Log("[MissionDeployWarning] ERROR: builder hook install failed - custom mission "
-            "deploy warnings will not appear.\n");
+        LogError("MissionDeployWarning: ActivatePrefabPopupParameter hook failed, custom deploy warnings off");
         return false;
     }
     return true;
@@ -295,15 +285,15 @@ bool Uninstall_MissionDeployWarning_Hook()
     if (gAddr.MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter)
         DisableAndRemoveHook(ResolveGameAddress(
             gAddr.MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter));
-    if (g_GateBTarget) DisableAndRemoveHook(g_GateBTarget);
-    if (g_GateCTarget) DisableAndRemoveHook(g_GateCTarget);
-    if (g_LangTarget)  DisableAndRemoveHook(g_LangTarget);
+    RestoreVtableSlot(g_GateBSlot, reinterpret_cast<void*>(g_OrigGateB));
+    RestoreVtableSlot(g_GateCSlot, reinterpret_cast<void*>(g_OrigGateC));
+    RestoreVtableSlot(g_LangSlot, reinterpret_cast<void*>(g_OrigGetLang));
 
     g_OrigActivate = nullptr;
     g_OrigGateB = nullptr;
     g_OrigGateC = nullptr;
     g_OrigGetLang = nullptr;
-    g_GateBTarget = g_GateCTarget = g_LangTarget = nullptr;
+    g_GateBSlot = g_GateCSlot = g_LangSlot = nullptr;
 
     {
         std::lock_guard<std::mutex> lk(g_ovMutex);

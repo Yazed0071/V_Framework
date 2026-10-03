@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 #include <cstdint>
+#include <cstring>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -15,15 +16,13 @@
 namespace
 {
     using SetWeaponPanelLogo_t = uint8_t(__fastcall*)(int equipId, void* node);
-    using SetTextureName_t = void(__fastcall*)(void* modelNodeMesh, uint64_t textureHash, uint64_t slotHash, int unk);
+    using SetTextureName_t = uint8_t(__fastcall*)(void* modelNodeMesh, uint64_t textureHash, uint64_t slotHash, int unk);
     using GetUixUtility_t = void** (__fastcall*)();
     using GetQuarkSystemTable_t = void* (__fastcall*)();
 
     using TexStatusCreate_t = char(__fastcall*)(void*, void*, unsigned);
 
     TexStatusCreate_t     g_OrigTexStatusCreate = nullptr;
-
-    constexpr uintptr_t   kAddr_TexStatusCreate_En154 = 0x141DBC2D0;
 
     bool DescriptorReadableSEH(const void* src)
     {
@@ -52,14 +51,75 @@ namespace
             if (!s_Warned)
             {
                 s_Warned = true;
-                LogDebug("[UiTextureGuard] a UI material texture slot holds the "
-                         "corrupt streamer descriptor %p - bind skipped so "
-                         "fox::gr::TextureStreamerStatus cannot fault; that slot "
-                         "draws untextured\n", src);
+                LogWarn("UiTextureGuard: corrupt texture descriptor %p, bind skipped, slot draws untextured", src);
             }
             return 0;
         }
         return g_OrigTexStatusCreate(out, src, flags);
+    }
+
+    constexpr uint8_t kTexStatusCreateEntry154[] = {
+        0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF,
+        0xFF, 0x41, 0x8B, 0xD8, 0x48, 0x85, 0xD2, 0x75, 0x04, 0x32, 0xC0, 0xEB, 0x35 };
+    constexpr uint8_t kTexStatusCreateThunkEn153[] = { 0xE9, 0x7B, 0xEA, 0x99, 0x0B };
+    constexpr uint8_t kTexStatusCreateThunkJp153[] = { 0xE9, 0xFB, 0xCC, 0x03, 0x0C };
+
+    struct TexStatusCreateSite
+    {
+        uintptr_t      address;
+        const uint8_t* entryBytes;
+        size_t         entrySize;
+    };
+
+    TexStatusCreateSite TexStatusCreateSiteForBuild()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
+            return { 0x141DBBD20ull, kTexStatusCreateThunkEn153, sizeof(kTexStatusCreateThunkEn153) };
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
+            return { 0x141DBBD60ull, kTexStatusCreateThunkJp153, sizeof(kTexStatusCreateThunkJp153) };
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
+            return { 0x141DBC2D0ull, kTexStatusCreateEntry154, sizeof(kTexStatusCreateEntry154) };
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
+            return { 0x141DBC330ull, kTexStatusCreateEntry154, sizeof(kTexStatusCreateEntry154) };
+        default:
+            return { 0, nullptr, 0 };
+        }
+    }
+
+    bool EntryBytesMatchSEH(const void* entry, const uint8_t* bytes, size_t size)
+    {
+        __try
+        {
+            return std::memcmp(entry, bytes, size) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void InstallTextureStreamerGuard()
+    {
+        const TexStatusCreateSite site = TexStatusCreateSiteForBuild();
+        void* target = ResolveGameAddress(site.address);
+        if (!target)
+            return;
+
+        if (!EntryBytesMatchSEH(target, site.entryBytes, site.entrySize))
+        {
+            LogError("UiTextureGuard: TextureStreamerStatus entry bytes differ at %p, guard off", target);
+            return;
+        }
+
+        if (!CreateAndEnableHook(
+                target,
+                reinterpret_cast<void*>(&hkTexStatusCreate),
+                reinterpret_cast<void**>(&g_OrigTexStatusCreate)))
+            LogError("UiTextureGuard: TextureStreamerStatus hook failed, corrupt UI texture will crash");
     }
 
     SetWeaponPanelLogo_t  g_OrigSetWeaponPanelLogo = nullptr;
@@ -73,6 +133,8 @@ namespace
     constexpr uintptr_t NODE_COLOR_OFFSET = 0x50;
 
     constexpr uint64_t VANILLA_BG = 0x15695ED8A56AE919ull;
+
+    constexpr uint64_t WHITE_MASK = 0x156B0FA3F5A52C33ull;
 
     struct BgTex { uint64_t hash = 0; bool colored = false; float opacity = 1.0f; };
     BgTex g_Default;
@@ -189,12 +251,22 @@ namespace
         const auto it = g_TouchedNodes.find(node);
         if (it == g_TouchedNodes.end())
             return;
+        SetNodeColor(node, 1.0f, 1.0f, 1.0f, 1.0f);
         if (it->second)
         {
             Prefetch(VANILLA_BG);
-            g_SetTextureName(node, VANILLA_BG, MAIN_SLOT, 2);
+            if (g_SetTextureName(node, VANILLA_BG, MAIN_SLOT, 2) == 0)
+            {
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    LogWarn("EquipBg: vanilla bg restore bound nothing on node %p, retrying next bind", node);
+                }
+                return;
+            }
+            g_SetTextureName(node, VANILLA_BG, g_MaskSlot, 2);
         }
-        SetNodeColor(node, 1.0f, 1.0f, 1.0f, 1.0f);
         g_TouchedNodes.erase(it);
     }
 
@@ -202,19 +274,43 @@ namespace
     void Apply(void* node, const BgTex& t)
     {
         Prefetch(t.hash);
-        g_SetTextureName(node, t.hash, g_MaskSlot, 2);
+        bool mainBound = false;
         if (t.colored)
         {
-            g_SetTextureName(node, t.hash, MAIN_SLOT, 2);
+            Prefetch(WHITE_MASK);
+            if (g_SetTextureName(node, WHITE_MASK, g_MaskSlot, 2) == 0)
+            {
+                static bool s_MaskWarned = false;
+                if (!s_MaskWarned)
+                {
+                    s_MaskWarned = true;
+                    LogWarn("EquipBg: white mask bound nothing on node %p, colored bg black stays invisible", node);
+                }
+                g_SetTextureName(node, t.hash, g_MaskSlot, 2);
+            }
+            mainBound = g_SetTextureName(node, t.hash, MAIN_SLOT, 2) != 0;
+            if (!mainBound)
+            {
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    LogWarn("EquipBg: colored bind of 0x%llX bound nothing on node %p, drawn monochrome",
+                        static_cast<unsigned long long>(t.hash), node);
+                }
+                g_SetTextureName(node, t.hash, g_MaskSlot, 2);
+            }
         }
         else
         {
-            ClearColorLayer(node);
+            g_SetTextureName(node, t.hash, g_MaskSlot, 2);
         }
-        if (t.colored || t.opacity != 1.0f)
+        const auto it = g_TouchedNodes.find(node);
+        const bool mainHoldsCustom = mainBound || (it != g_TouchedNodes.end() && it->second);
+        if (mainHoldsCustom || t.opacity != 1.0f)
         {
             SetNodeColor(node, 1.0f, 1.0f, 1.0f, t.opacity);
-            g_TouchedNodes[node] = t.colored;
+            g_TouchedNodes[node] = mainHoldsCustom;
         }
     }
 
@@ -281,7 +377,12 @@ namespace
 
     uint8_t __fastcall hkSetWeaponPanelLogo(int equipId, void* node)
     {
-        MISSION_GUARD_ORIGINAL_RET(g_OrigSetWeaponPanelLogo, equipId, node);
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            if (node && Resolve())
+                ClearColorLayer(node);
+            return g_OrigSetWeaponPanelLogo(equipId, node);
+        }
         return EquipBgApply(equipId, node, g_OrigSetWeaponPanelLogo);
     }
 }
@@ -351,24 +452,10 @@ bool Install_EquipBgTexture_Hook()
 
     Resolve();
 
-    if (::AddressSetRuntime::IsEn154Family(gGameBuild))
-    {
-        void* guard = ResolveGameAddress(kAddr_TexStatusCreate_En154);
-        if (guard && !CreateAndEnableHook(
-                guard,
-                reinterpret_cast<void*>(&hkTexStatusCreate),
-                reinterpret_cast<void**>(&g_OrigTexStatusCreate)))
-            Log("[UiTextureGuard] install FAILED - a corrupt UI texture "
-                "descriptor will fault the render worker inside "
-                "fox::gr::TextureStreamerStatus instead of being skipped\n");
-    }
+    InstallTextureStreamerGuard();
 
-#ifdef _DEBUG
-    Log("[Hook] EquipBgTexture: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] EquipBgTexture: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("EquipBgTexture: hook failed, custom equip backgrounds off");
     return ok;
 }
 
@@ -379,10 +466,11 @@ bool Uninstall_EquipBgTexture_Hook()
 
     if (g_OrigTexStatusCreate)
     {
-        DisableAndRemoveHook(ResolveGameAddress(kAddr_TexStatusCreate_En154));
+        DisableAndRemoveHook(ResolveGameAddress(TexStatusCreateSiteForBuild().address));
         g_OrigTexStatusCreate = nullptr;
     }
 
     g_OrigSetWeaponPanelLogo = nullptr;
+    g_TouchedNodes.clear();
     return true;
 }

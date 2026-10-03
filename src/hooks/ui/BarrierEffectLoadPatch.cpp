@@ -21,7 +21,7 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[Barrier] ERROR: VirtualProtect failed (err=%lu) writing the shield-effect load patch; the dome may be invisible.\n", GetLastError());
+            LogError("Barrier: VirtualProtect failed (%lu), shield effect patch not written", GetLastError());
             return false;
         }
         std::memcpy(target, src, size);
@@ -84,15 +84,15 @@ bool Install_BarrierEffectLoadPatch()
     {
         if (!sites[i].gate)
         {
-            Log("[Barrier] WARNING: shield-effect load gate '%s' has no address for %s; that effect may not show on this build.\n",
+            LogError("Barrier: load gate '%s' address missing on %s, that shield effect may not show",
                 sites[i].name, GetGameBuildName(gGameBuild));
             continue;
         }
         std::uint8_t* jz = reinterpret_cast<std::uint8_t*>(sites[i].gate) + 2;
         if (jz[0] != 0x74)
         {
-            Log("[Barrier] ERROR: shield-effect load gate '%s' @ 0x%llX+2 is not a JZ (found 0x%02X); wrong address for %s -- skipped to avoid corrupting code.\n",
-                sites[i].name, static_cast<unsigned long long>(sites[i].gate), jz[0], GetGameBuildName(gGameBuild));
+            LogError("Barrier: load gate '%s' code does not match %s, skipped",
+                sites[i].name, GetGameBuildName(gGameBuild));
             continue;
         }
         g_Original[i][0] = jz[0];
@@ -110,15 +110,15 @@ bool Install_BarrierEffectLoadPatch()
     {
         if (!gates[i].addr)
         {
-            Log("[Barrier] WARNING: no AllocateWork %s-gate address for %s; the real dome is disabled (fake render still used).\n",
+            LogError("Barrier: AllocateWork %s gate address missing on %s, real dome off",
                 gates[i].name, GetGameBuildName(gGameBuild));
             break;
         }
         std::uint8_t* p = reinterpret_cast<std::uint8_t*>(gates[i].addr);
         if (p[0] != 0x0F || p[1] != 0x84)
         {
-            Log("[Barrier] ERROR: AllocateWork %s-gate @ 0x%llX is not a JZ rel32 (found 0x%02X 0x%02X); skipped -- fake render still used.\n",
-                gates[i].name, static_cast<unsigned long long>(gates[i].addr), p[0], p[1]);
+            LogError("Barrier: AllocateWork %s gate code does not match this build, real dome off",
+                gates[i].name);
             break;
         }
         std::memcpy(g_AllocGateOrig[i], p, sizeof(g_AllocGateOrig[i]));
@@ -130,8 +130,6 @@ bool Install_BarrierEffectLoadPatch()
     if (patched == kNumAllocGates)
     {
         any = true;
-        LogDebug("[Barrier] AllocateWork FOB gates NOP'd (alloc @ 0x%llX, populate @ 0x%llX) -- engine will build the REAL dome in SP.\n",
-            static_cast<unsigned long long>(gates[0].addr), static_cast<unsigned long long>(gates[1].addr));
     }
     else if (patched > 0)
     {
@@ -143,7 +141,7 @@ bool Install_BarrierEffectLoadPatch()
                 g_AllocGateAddr[i] = nullptr;
             }
         }
-        Log("[Barrier] ERROR: only %zu/%zu AllocateWork gates patched; reverted all (partial force would crash teardown) -- fake render still used.\n",
+        LogError("Barrier: only %zu/%zu AllocateWork gates patched, reverted, real dome off",
             patched, kNumAllocGates);
     }
 

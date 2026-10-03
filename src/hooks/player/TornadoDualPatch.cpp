@@ -20,7 +20,7 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, sizeof(kOriginalBytes), PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[TornadoDual] VirtualProtect failed (err=%lu)\n", GetLastError());
+            LogError("TornadoDual: VirtualProtect failed (err=%lu), patch bytes not written", GetLastError());
             return false;
         }
         std::memcpy(target, src, sizeof(kOriginalBytes));
@@ -38,21 +38,22 @@ bool Install_TornadoDualPatch()
 
     if (!gAddr.TornadoDualPatch)
     {
-        LogDebug("[TornadoDual] patch address not set for current build\n");
+        LogError("TornadoDual: patch address missing for this build, Tornado dual patch off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.TornadoDualPatch);
     if (!target)
     {
-        LogDebug("[TornadoDual] ResolveGameAddress returned null\n");
+        LogError("TornadoDual: patch address unresolved, Tornado dual patch off");
         return false;
     }
 
     const auto* cur = static_cast<const std::uint8_t*>(target);
     if (cur[0] != kOriginalBytes[0] || cur[1] != kOriginalBytes[1])
     {
-        LogDebug("[TornadoDual] unexpected bytes at %p (%02X %02X) - not patching\n", target, cur[0], cur[1]);
+        LogError("TornadoDual: unexpected bytes %02X %02X at patch site, Tornado dual patch off",
+                 static_cast<unsigned>(cur[0]), static_cast<unsigned>(cur[1]));
         return false;
     }
 
@@ -60,9 +61,6 @@ bool Install_TornadoDualPatch()
         return false;
 
     g_Applied = true;
-#ifdef _DEBUG
-    LogDebug("[TornadoDual] enabled by default (wrote 90 90 at %p)\n", target);
-#endif
     return true;
 }
 

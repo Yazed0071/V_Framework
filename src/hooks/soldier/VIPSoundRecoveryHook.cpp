@@ -189,7 +189,7 @@ static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std:
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[SoundRecovery] DispatchNoticeReaction exception\n");
+        LogWarn("SoundRecovery: actor %u: VIP reaction dispatch faulted", actorId);
     }
 }
 
@@ -253,9 +253,7 @@ static void __fastcall hkState_SoundRecovery(
                     const bool resolved = TryResolveDownedSoldierIndex(entry, soldierIndex);
 
                     if (!resolved && g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
-                        Log("[SoundRecovery] actor=%u: the downed soldier could not be identified "
-                            "from the notice record, so no VIP line is substituted and the vanilla "
-                            "line plays\n",
+                        LogWarn("SoundRecovery: actor %u: downed soldier unresolved, vanilla line plays",
                             actorId);
 
                     if (resolved && IsRegisteredImportantSoldier(soldierIndex))
@@ -271,15 +269,13 @@ static void __fastcall hkState_SoundRecovery(
                 }
                 else if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
                 {
-                    Log("[SoundRecovery] actor=%u voice-notice: notice-record byte read failed, "
-                        "so no VIP line is substituted and the vanilla line plays\n",
+                    LogWarn("SoundRecovery: actor %u: notice record read failed, vanilla line plays",
                         actorId);
                 }
             }
             else if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
             {
-                Log("[SoundRecovery] actor=%u voice-notice: notice record not reachable, "
-                    "so no VIP line is substituted and the vanilla line plays\n",
+                LogWarn("SoundRecovery: actor %u: notice record unreachable, vanilla line plays",
                     actorId);
             }
         }
@@ -297,7 +293,7 @@ bool Install_VIPSoundRecovery_Hook()
 
     if (!target)
     {
-        Log("[SoundRecovery] Install failed: address not resolved\n");
+        LogError("SoundRecovery: no address for this build, VIP recovery lines off");
         return false;
     }
 
@@ -306,10 +302,8 @@ bool Install_VIPSoundRecovery_Hook()
         reinterpret_cast<void*>(&hkState_SoundRecovery),
         reinterpret_cast<void**>(&g_OrigState_SoundRecovery));
 
-#ifdef _DEBUG
-    Log("[SoundRecovery] Install State_StandEnterRecoverySleepFaintHoldupComradeBySound: %s\n",
-        ok ? "OK" : "FAIL");
-#endif
+    if (!ok)
+        LogError("SoundRecovery: hook failed @ %p, VIP recovery lines off", target);
 
     return ok;
 }
@@ -322,8 +316,5 @@ bool Uninstall_VIPSoundRecovery_Hook()
 
     g_OrigState_SoundRecovery = nullptr;
 
-#ifdef _DEBUG
-    LogDebug("[SoundRecovery] Hook removed\n");
-#endif
     return true;
 }

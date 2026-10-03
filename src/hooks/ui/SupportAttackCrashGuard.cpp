@@ -192,7 +192,7 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
 
         if (!ok)
-            Log("[DarkMatter] WARNING: could not build the support-attack effect pool; the cloud may not render.\n");
+            LogWarn("DarkMatter: support-attack effect pool build failed, cloud may not render");
         return ok ? bl : nullptr;
     }
 
@@ -284,8 +284,9 @@ namespace
             {
                 __try { *reinterpret_cast<void**>(w + 0x100) = nullptr; } __except (EXCEPTION_EXECUTE_HANDLER) {}
                 __try { *reinterpret_cast<void**>(w + 0xF8)  = nullptr; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+                if (!g_SynthFailed)
+                    LogWarn("DarkMatter: support-attack wiring faulted on fire, fallback without cloud");
                 g_SynthFailed = true;
-                Log("[DarkMatter] ERROR: a support-attack weapon's wiring faulted on fire; reverted to a no-crash fallback (no cloud).\n");
             }
         }
 
@@ -353,9 +354,7 @@ bool Install_SupportAttackCrashGuard()
 
     if (!fire || !cls || !vfx || !g_Factory || !g_BLFactory || !g_Alloc)
     {
-        Log("[DarkMatter] ERROR: missing hardcoded addresses on %s (fire:%p cls:%p vfx:%p fac:%p pool:%p alloc:%p); DarkMatter support-attack disabled.\n",
-            GetGameBuildName(gGameBuild), fire, cls, vfx,
-            reinterpret_cast<void*>(g_Factory), reinterpret_cast<void*>(g_BLFactory), reinterpret_cast<void*>(g_Alloc));
+        LogError("DarkMatter: support-attack addresses missing for this build, DarkMatter support-attack off");
         return false;
     }
 
@@ -382,20 +381,18 @@ bool Install_SupportAttackCrashGuard()
         if (dirGuardOk)
             g_EnableCloudRender = true;
         else
-            Log("[DarkMatter] WARNING: could not attach the crash-guard on the effect creator (0x%llX); the DM cloud is left OFF to avoid the random crash.\n",
-                static_cast<unsigned long long>(gAddr.Dm_OneShot));
+            LogError("DarkMatter: effect-creator crash-guard hook failed, DarkMatter cloud off");
     }
     else
     {
-        Log("[DarkMatter] WARNING: no effect-creator address for %s; the crash-guard is OFF and the DarkMatter cloud is disabled to avoid the random crash.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("DarkMatter: effect-creator address missing for this build, DarkMatter cloud off");
     }
 
     if (!fireOk || !clsOk)
-        Log("[DarkMatter] ERROR: support-attack hooks failed to install (fire:%s cls:%s); DarkMatter weapons disabled.\n",
-            fireOk ? "ok" : "FAIL", clsOk ? "ok" : "FAIL");
+        LogError("DarkMatter: support-attack hooks failed (fire %s, classify %s), DarkMatter weapons off",
+                 fireOk ? "ok" : "failed", clsOk ? "ok" : "failed");
     else if (!vfxOk)
-        Log("[DarkMatter] WARNING: the effect-resource hook failed to install; the DarkMatter cloud may not render.\n");
+        LogError("DarkMatter: effect-resource hook failed, DarkMatter cloud may not render");
 
     return fireOk && clsOk;
 }

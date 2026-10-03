@@ -16,6 +16,8 @@ namespace
     constexpr std::size_t kSetEquipNewSlot          = 0x258 / sizeof(void*);
     constexpr std::size_t kSetEquipNewDevelopedSlot = 0x280 / sizeof(void*);
     constexpr std::size_t kEnableDevelopSlot        = 0x1B8 / sizeof(void*);
+    constexpr int         kMaxThunkHops             = 4;
+    constexpr std::uint8_t kJumpRel32               = 0xE9;
 
     using SetEquipNew_t = void(__fastcall*)(void* controller, std::uint16_t index,
                                             std::uint8_t isNew);
@@ -60,6 +62,57 @@ namespace
                             kRecordBit, sizeof(kRecordBit));
     }
 
+    bool InGameImage(std::uintptr_t addr)
+    {
+        const std::uintptr_t base = GetExeBase();
+        if (!base || addr <= base)
+            return false;
+        __try
+        {
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+                return false;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+                base + static_cast<std::uintptr_t>(dos->e_lfanew));
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+                return false;
+            return addr < base + nt->OptionalHeader.SizeOfImage;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool FollowJumpThunks(void* at, void*& out)
+    {
+        std::uintptr_t p = reinterpret_cast<std::uintptr_t>(at);
+        for (int hop = 0; hop < kMaxThunkHops; ++hop)
+        {
+            if (!InGameImage(p))
+                return false;
+            std::uint8_t opcode = 0;
+            std::int32_t rel    = 0;
+            __try
+            {
+                opcode = *reinterpret_cast<const std::uint8_t*>(p);
+                if (opcode == kJumpRel32)
+                    rel = *reinterpret_cast<const std::int32_t*>(p + 1);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+            if (opcode != kJumpRel32)
+            {
+                out = reinterpret_cast<void*>(p);
+                return true;
+            }
+            p += static_cast<std::uintptr_t>(5 + static_cast<std::intptr_t>(rel));
+        }
+        return false;
+    }
+
     bool ReadVtableSlot(void* controller, std::size_t slot, void*& out)
     {
         __try
@@ -87,8 +140,8 @@ namespace
         return V_FrameWorkState::IsManagedDevelopId(developId);
     }
 
-    void GuardedSet(SetEquipNew_t orig, void* controller, std::uint16_t index,
-                    std::uint8_t isNew)
+    void GuardedSet(SetEquipNew_t orig, void* controller,
+                    std::uint16_t index, std::uint8_t isNew)
     {
         if (!orig)
             return;
@@ -140,28 +193,40 @@ namespace
 
     void InstallDevelopAvailableGate(void* controller)
     {
-        void* target = nullptr;
-        if (!ReadVtableSlot(controller, kEnableDevelopSlot, target)
+        void* slotTarget = nullptr;
+        void* target     = nullptr;
+        if (!ReadVtableSlot(controller, kEnableDevelopSlot, slotTarget)
+            || !FollowJumpThunks(slotTarget, target)
             || !LooksLikeEnableDevelop(target))
         {
-            Log("[EquipDevelop] ERROR: the develop-available gate was not installed: "
-                "the controller vtable slot does not hold IsEnableEquipDevelop on "
-                "this build, so a developed custom row keeps its NEW ribbon in R&D\n");
+            LogError("EquipDevelop: develop-available gate not installed (vtbl+0x1B8 = "
+                     "%p), developed custom rows keep the NEW ribbon", slotTarget);
             return;
         }
         if (!CreateAndEnableHook(target, &hkIsEnableEquipDevelop,
                                  reinterpret_cast<void**>(&g_OrigEnableDevelop)))
         {
             g_OrigEnableDevelop = nullptr;
-            Log("[EquipDevelop] ERROR: the develop-available gate was refused at %p "
-                "- a developed custom row keeps its NEW ribbon in R&D\n", target);
+            LogError("EquipDevelop: develop-available gate hook failed at %p, developed "
+                     "custom rows keep the NEW ribbon", target);
             return;
         }
         g_TargetEnableDevelop = target;
     }
 
-    void InstallNewBadgeGuard(void* undeveloped, void* developed)
+    void InstallNewBadgeGuard(void* undevelopedSlot, void* developedSlot)
     {
+        void* undeveloped = nullptr;
+        void* developed   = nullptr;
+        if (!FollowJumpThunks(undevelopedSlot, undeveloped)
+            || !FollowJumpThunks(developedSlot, developed))
+        {
+            LogError("EquipDevelop: NEW-badge guard not installed (vtbl+0x258/0x280 = "
+                     "%p/%p), seen custom rows badge again",
+                     undevelopedSlot, developedSlot);
+            return;
+        }
+
         const bool a = CreateAndEnableHook(
             undeveloped, &hkSetEquipNew,
             reinterpret_cast<void**>(&g_OrigUndeveloped));
@@ -179,10 +244,9 @@ namespace
             g_OrigDeveloped = nullptr;
 
         if (!a || !b)
-            Log("[EquipDevelop] ERROR: the NEW-badge guard was refused (undeveloped "
-                "%p=%d developed %p=%d) - the engine re-raises the badge on every "
-                "record write and every develop, so seen custom rows badge again\n",
-                undeveloped, a ? 1 : 0, developed, b ? 1 : 0);
+            LogError("EquipDevelop: NEW-badge guard hook failed (undeveloped %p=%d "
+                     "developed %p=%d), seen custom rows badge again",
+                     undeveloped, a ? 1 : 0, developed, b ? 1 : 0);
     }
 }
 

@@ -67,24 +67,23 @@ bool Install_SubtitlesEventMessage_Hook()
 {
     if (!gAddr.SubtitlesObjectSendMessage)
     {
-        LogDebug("[SubtitlesEvent] address not set for this build -- skipped\n");
+        LogError("SubtitlesEvent: SubtitlesObjectSendMessage address missing for this build, "
+            "SubtitlesEventMessage off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.SubtitlesObjectSendMessage);
     if (!target)
     {
-        Log("[SubtitlesEvent] resolve failed\n");
+        LogError("SubtitlesEvent: SubtitlesObjectSendMessage unresolved, SubtitlesEventMessage off");
         return false;
     }
 
     const bool ok = CreateAndEnableHook(
         target, reinterpret_cast<void*>(&hkSendMessage), reinterpret_cast<void**>(&g_OrigSendMessage));
 
-    if (ok)
-        LogDebug("[SubtitlesEvent] SubtitlesObjectSendMessage:OK\n");
-    else
-        Log("[SubtitlesEvent] SubtitlesObjectSendMessage:FAIL\n");
+    if (!ok)
+        LogError("SubtitlesEvent: SubtitlesObjectSendMessage hook failed, SubtitlesEventMessage off");
     return ok;
 }
 

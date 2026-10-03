@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -19,7 +20,6 @@
 #include "../../core/V_FrameWorkState.h"
 #include "EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
-#include "../equip/MenuPerf.h"
 #include "OutfitRegistry.h"
 #include "../../core/FoxHashes.h"
 
@@ -37,7 +37,11 @@ namespace outfit
             std::uint16_t  faceIds[kPlayerTypeMax]     = {};
             std::uint64_t  faceFv2Code[kPlayerTypeMax] = {};
             std::uint64_t  faceFpkCode[kPlayerTypeMax] = {};
+            std::uint8_t   faceLayerFlags[kPlayerTypeMax] = {};
+            HeadLayerPaths layerPaths[kPlayerTypeMax] = {};
             bool           showInDevelopMenu           = false;
+            bool           conflictLogged              = false;
+            std::uint8_t   slotByte                    = 0;
         };
         std::vector<PendingHead>  g_PendingHeads;
         std::atomic<bool>         g_HasPendingHeads{ false };
@@ -76,6 +80,7 @@ namespace outfit
         };
         std::unordered_map<std::string, SnakeFaceStages> g_SnakeStages;
         std::unordered_set<std::string> g_InfiniteAmmoHeads;
+        std::unordered_map<std::string, std::uint8_t> g_HeadBranchMasks;
 
         std::string SnakeStageKey(const char* name)
         {
@@ -115,11 +120,17 @@ namespace outfit
             return -1;
         }
 
-        bool IsSlotTakenUnlocked(std::uint8_t slotByte)
+        bool IsSlotTakenUnlocked(std::uint8_t slotByte, const char* ownerName = nullptr)
         {
             for (const CustomHeadEntry& e : g_Heads)
             {
                 if (e.used && e.slotByte == slotByte)
+                    return true;
+            }
+            for (const PendingHead& p : g_PendingHeads)
+            {
+                if (p.slotByte == slotByte
+                    && (!ownerName || std::strcmp(p.name, ownerName) != 0))
                     return true;
             }
             return false;
@@ -198,23 +209,26 @@ namespace outfit
         static std::uint16_t CompleteHeadRegistrationUnlocked(
             const char* name, const std::uint16_t* faceIds,
             const std::uint64_t* faceFv2Codes, const std::uint64_t* faceFpkCodes,
+            const std::uint8_t* faceLayerFlags,
+            const HeadLayerPaths* layerPaths,
             std::uint16_t developId, std::uint16_t rowIndex,
             bool showInDevelopMenu, bool provisional)
         {
             const std::int32_t idx = AllocateUnlocked();
             if (idx < 0)
             {
-                LogDebug("[CustomHead] complete: registry full (max=%zu, name=%s)\n",
-                    kMaxCustomHeads, name);
+                LogError("RegisterHeadOption '%s': head registry full (%zu), not "
+                         "registered", name, kMaxCustomHeads);
                 return 0;
             }
 
             std::uint8_t slotByte = ReadPersistedHeadSlot(name);
-            if (slotByte < kCustomHeadSlotBase || IsSlotTakenUnlocked(slotByte))
+            if (slotByte < kCustomHeadSlotBase || IsSlotTakenUnlocked(slotByte, name))
                 slotByte = AllocateSlotUnlocked();
             if (slotByte < kCustomHeadSlotBase)
             {
-                LogDebug("[CustomHead] complete: head slot space full (name=%s)\n", name);
+                LogError("RegisterHeadOption '%s': head slot space full, not "
+                         "registered", name);
                 return 0;
             }
 
@@ -222,6 +236,7 @@ namespace outfit
             e.used            = true;
             e.provisional     = provisional;
             e.hiddenInDevelop = !showInDevelopMenu;
+            e.rehomeBlockLogged = false;
             e.equipId      = rowIndex;
             e.developId    = developId;
             e.flowIndex    = 0;
@@ -230,8 +245,10 @@ namespace outfit
                 e.TppEnemyFaceId[i] = faceIds[i];
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
             {
-                e.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
-                e.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+                e.faceFv2Code[i]    = faceFv2Codes ? faceFv2Codes[i] : 0;
+                e.faceFpkCode[i]    = faceFpkCodes ? faceFpkCodes[i] : 0;
+                e.faceLayerFlags[i] = faceLayerFlags ? faceLayerFlags[i] : std::uint8_t{0};
+                e.layerPaths[i] = layerPaths ? layerPaths[i] : HeadLayerPaths{};
             }
 
             const std::size_t nameLen = std::strlen(name);
@@ -240,16 +257,10 @@ namespace outfit
             std::memcpy(e.name, name, copyLen);
             e.name[copyLen] = '\0';
 
-            LogDebug("[CustomHead] registered '%s' equipId=%u (rowIndex=0x%X) "
-                "developId=%u slot=0x%02X%s%s\n",
-                e.name, static_cast<unsigned>(e.equipId),
-                static_cast<unsigned>(e.equipId),
-                static_cast<unsigned>(e.developId),
-                static_cast<unsigned>(e.slotByte),
-                provisional ? " [PROVISIONAL from persisted ids - verified "
-                              "against the develop table at the next menu build]"
-                            : "",
-                showInDevelopMenu ? "" : " (hidden from R&D)");
+            LogInfo("RegisterHeadOption %s equipId:%u developId:%u slot:0x%02X",
+                    e.name, static_cast<unsigned>(e.equipId),
+                    static_cast<unsigned>(e.developId),
+                    static_cast<unsigned>(e.slotByte));
 
             if (!showInDevelopMenu)
             {
@@ -269,6 +280,7 @@ namespace outfit
         static void StorePendingHeadUnlocked(
             const char* name, const std::uint16_t* faceIds,
             const std::uint64_t* faceFv2Codes, const std::uint64_t* faceFpkCodes,
+            const std::uint8_t* faceLayerFlags, const HeadLayerPaths* layerPaths,
             bool showInDevelopMenu)
         {
             for (PendingHead& p : g_PendingHeads)
@@ -277,9 +289,11 @@ namespace outfit
                 {
                     for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
                     {
-                        p.faceIds[i]     = faceIds[i];
-                        p.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
-                        p.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+                        p.faceIds[i]        = faceIds[i];
+                        p.faceFv2Code[i]    = faceFv2Codes ? faceFv2Codes[i] : 0;
+                        p.faceFpkCode[i]    = faceFpkCodes ? faceFpkCodes[i] : 0;
+                        p.faceLayerFlags[i] = faceLayerFlags ? faceLayerFlags[i] : std::uint8_t{0};
+                        p.layerPaths[i] = layerPaths ? layerPaths[i] : HeadLayerPaths{};
                     }
                     p.showInDevelopMenu = showInDevelopMenu;
                     return;
@@ -293,13 +307,189 @@ namespace outfit
             p.name[copyLen] = '\0';
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
             {
-                p.faceIds[i]     = faceIds[i];
-                p.faceFv2Code[i] = faceFv2Codes ? faceFv2Codes[i] : 0;
-                p.faceFpkCode[i] = faceFpkCodes ? faceFpkCodes[i] : 0;
+                p.faceIds[i]        = faceIds[i];
+                p.faceFv2Code[i]    = faceFv2Codes ? faceFv2Codes[i] : 0;
+                p.faceFpkCode[i]    = faceFpkCodes ? faceFpkCodes[i] : 0;
+                p.faceLayerFlags[i] = faceLayerFlags ? faceLayerFlags[i] : std::uint8_t{0};
+                p.layerPaths[i] = layerPaths ? layerPaths[i] : HeadLayerPaths{};
             }
             p.showInDevelopMenu = showInDevelopMenu;
+            p.slotByte = ReadPersistedHeadSlot(name);
             g_PendingHeads.push_back(p);
             g_HasPendingHeads.store(true, std::memory_order_release);
+        }
+
+        struct ProvisionalRehome
+        {
+            CustomHeadEntry* head       = nullptr;
+            std::uint16_t    developRow = 0;
+            bool             blocked    = false;
+        };
+
+        bool IsLeavingItsRow(const CustomHeadEntry& holder,
+                             const std::vector<ProvisionalRehome>& rehomes)
+        {
+            for (const ProvisionalRehome& rehome : rehomes)
+            {
+                if (rehome.head == &holder)
+                    return !rehome.blocked;
+            }
+            return false;
+        }
+
+        bool IsRowWantedByAnotherRehome(const ProvisionalRehome& rehome,
+                                        const std::vector<ProvisionalRehome>& rehomes)
+        {
+            for (const ProvisionalRehome& other : rehomes)
+            {
+                if (&other != &rehome && other.developRow == rehome.developRow)
+                    return true;
+            }
+            return false;
+        }
+
+        bool IsRowHeldByStayingHeadUnlocked(const ProvisionalRehome& rehome,
+                                            const std::vector<ProvisionalRehome>& rehomes)
+        {
+            for (const CustomHeadEntry& holder : g_Heads)
+            {
+                if (holder.used && &holder != rehome.head
+                    && holder.equipId == rehome.developRow
+                    && !IsLeavingItsRow(holder, rehomes))
+                    return true;
+            }
+            return false;
+        }
+
+        void BlockUnreachableRehomesUnlocked(std::vector<ProvisionalRehome>& rehomes)
+        {
+            bool blockedAny = true;
+            while (blockedAny)
+            {
+                blockedAny = false;
+                for (ProvisionalRehome& rehome : rehomes)
+                {
+                    if (rehome.blocked)
+                        continue;
+                    if (!IsRowWantedByAnotherRehome(rehome, rehomes)
+                        && !IsRowHeldByStayingHeadUnlocked(rehome, rehomes))
+                        continue;
+                    rehome.blocked = true;
+                    blockedAny     = true;
+                    if (!rehome.head->rehomeBlockLogged)
+                    {
+                        rehome.head->rehomeBlockLogged = true;
+                        LogWarn("CustomHead: '%s' cannot move to develop row %u, "
+                                "keeps equipId %u",
+                                rehome.head->name,
+                                static_cast<unsigned>(rehome.developRow),
+                                static_cast<unsigned>(rehome.head->equipId));
+                    }
+                }
+            }
+        }
+
+        void ReleaseHiddenRowUnlocked(std::uint16_t row, bool& refreshGates)
+        {
+            refreshGates = true;
+            if (EquipDevelopAdd::IsGatedFlowIndex(row))
+                return;
+            std::uint32_t occupant = 0;
+            const bool keepHidden =
+                equip::TryReadRowDevelopId(row, occupant)
+                && IsStaticDevelopHidden(static_cast<unsigned short>(occupant));
+            SetDevelopHidden(row, keepHidden);
+        }
+
+        void ApplyRehomesUnlocked(const std::vector<ProvisionalRehome>& rehomes,
+                                  bool& refreshGates)
+        {
+            std::vector<CustomHeadEntry*> movedHeads;
+            std::vector<HeadOptionRemap>  remaps;
+            for (const ProvisionalRehome& rehome : rehomes)
+            {
+                if (rehome.blocked)
+                    continue;
+                HeadOptionRemap remap;
+                remap.oldEquipId = rehome.head->equipId;
+                remap.newEquipId = rehome.developRow;
+                remaps.push_back(remap);
+                movedHeads.push_back(rehome.head);
+            }
+            if (remaps.empty())
+                return;
+
+            for (std::size_t i = 0; i < movedHeads.size(); ++i)
+            {
+                if (movedHeads[i]->hiddenInDevelop)
+                    ReleaseHiddenRowUnlocked(remaps[i].oldEquipId, refreshGates);
+            }
+
+            for (std::size_t i = 0; i < movedHeads.size(); ++i)
+            {
+                CustomHeadEntry& head = *movedHeads[i];
+                head.equipId     = remaps[i].newEquipId;
+                head.provisional = false;
+                head.rehomeBlockLogged = false;
+                if (head.hiddenInDevelop)
+                    SetDevelopHidden(head.equipId, true);
+                PersistHeadRegistration(head);
+            }
+
+            RemapHeadOptionEquipIds(remaps.data(), remaps.size());
+        }
+
+        bool IsDevelopRowValid(std::int32_t row)
+        {
+            return row > 0 && row < 0xFFFF
+                && row != static_cast<std::int32_t>(kHeadOption_None);
+        }
+
+        enum class RowlessCause
+        {
+            NoDevelopRequest,
+            PagedOut,
+            NotInjectedYet,
+        };
+
+        void EvictRowlessHeadUnlocked(CustomHeadEntry& holder, const char* newOwner,
+                                      RowlessCause cause,
+                                      std::vector<PendingHead>& parked,
+                                      bool& refreshGates)
+        {
+            const std::uint16_t staleRow = holder.equipId;
+            UnresolveHeadOption(staleRow, FoxHashes::StrCode64(holder.name));
+
+            if (holder.hiddenInDevelop)
+                ReleaseHiddenRowUnlocked(staleRow, refreshGates);
+
+            PendingHead p{};
+            std::memcpy(p.name, holder.name, sizeof(p.name));
+            p.name[sizeof(p.name) - 1] = '\0';
+            for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
+            {
+                p.faceIds[i]        = holder.TppEnemyFaceId[i];
+                p.faceFv2Code[i]    = holder.faceFv2Code[i];
+                p.faceFpkCode[i]    = holder.faceFpkCode[i];
+                p.faceLayerFlags[i] = holder.faceLayerFlags[i];
+                p.layerPaths[i] = holder.layerPaths[i];
+            }
+            p.showInDevelopMenu = !holder.hiddenInDevelop;
+            p.slotByte          = holder.slotByte;
+            parked.push_back(p);
+
+            V_FrameWorkState::SetPersistedConstant(
+                kHeadPersistSpace, holder.name,
+                static_cast<std::int32_t>(
+                    static_cast<std::uint32_t>(holder.slotByte) << 16));
+
+            if (cause == RowlessCause::NoDevelopRequest)
+                LogWarn("CustomHead: '%s' has no AddToEquipDevelopTable this session, "
+                        "develop row %u goes to %s; head unlisted",
+                        holder.name, static_cast<unsigned>(staleRow),
+                        newOwner ? newOwner : "?");
+
+            holder.equipId = 0;
         }
     }
 
@@ -308,14 +498,23 @@ namespace outfit
         const std::uint16_t* TppEnemyFaceIdsPerPt,
         const std::uint64_t* faceFv2CodesPerPt,
         const std::uint64_t* faceFpkCodesPerPt,
-        bool showInDevelopMenu)
+        bool showInDevelopMenu,
+        const std::uint8_t* faceLayerFlagsPerPt,
+        const HeadLayerPaths* layerPathsPerPt)
     {
         static_assert(kPlayerTypeMax >= 4,
                       "head registration needs the vanilla player types");
 
         if (!name || !name[0])
         {
-            LogDebug("[CustomHead] RegisterHeadOption: missing name\n");
+            LogWarn("RegisterHeadOption: missing name, head not registered");
+            return 0;
+        }
+
+        if (std::strlen(name) >= sizeof(CustomHeadEntry::name))
+        {
+            LogWarn("RegisterHeadOption '%.40s...': key over %zu characters, not "
+                    "registered", name, sizeof(CustomHeadEntry::name) - 1);
             return 0;
         }
 
@@ -323,7 +522,9 @@ namespace outfit
         for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
         {
             const std::uint16_t v = TppEnemyFaceIdsPerPt ? TppEnemyFaceIdsPerPt[i] : 0;
-            faceIds[i] = (v != 0) ? v : kDefaultTppEnemyFaceId;
+            const std::uint16_t fallback = (i == kPlayerType_DDMale)
+                ? kDefaultTppEnemyFaceIdMale : kDefaultTppEnemyFaceId;
+            faceIds[i] = (v != 0) ? v : fallback;
         }
 
         std::lock_guard<std::mutex> lock(g_Mutex);
@@ -334,9 +535,21 @@ namespace outfit
             for (std::size_t i = 0; i < kPlayerTypeMax; ++i)
             {
                 e.TppEnemyFaceId[i] = faceIds[i];
-                e.faceFv2Code[i] = faceFv2CodesPerPt ? faceFv2CodesPerPt[i] : 0;
-                e.faceFpkCode[i] = faceFpkCodesPerPt ? faceFpkCodesPerPt[i] : 0;
+                e.faceFv2Code[i]    = faceFv2CodesPerPt ? faceFv2CodesPerPt[i] : 0;
+                e.faceFpkCode[i]    = faceFpkCodesPerPt ? faceFpkCodesPerPt[i] : 0;
+                e.faceLayerFlags[i] = faceLayerFlagsPerPt
+                    ? faceLayerFlagsPerPt[i] : std::uint8_t{0};
+                e.layerPaths[i] = layerPathsPerPt ? layerPathsPerPt[i] : HeadLayerPaths{};
             }
+
+            const bool hide = !showInDevelopMenu;
+            if (hide && !e.hiddenInDevelop)
+            {
+                SetDevelopHidden(e.equipId, true);
+                equip::SilenceDevelopRowAnnounce(
+                    static_cast<std::int32_t>(e.developId));
+            }
+            e.hiddenInDevelop = hide;
             return e.equipId;
         }
 
@@ -344,10 +557,11 @@ namespace outfit
         if (!V_FrameWorkState::ResolveOrCreateDevelopId(name, 0, developId)
             || developId <= 0 || developId > 0xFFFF)
         {
-            Log("[CustomHead] RegisterHeadOption: developId allocation "
-                "failed (name=%s, raw=%d)\n", name, developId);
+            LogError("RegisterHeadOption '%s': developId allocation failed (%d), "
+                     "not registered", name, developId);
             return 0;
         }
+        V_FrameWorkState::SetRowKind(name, V_FrameWorkState::kRowKindHeadOption);
 
         const std::int32_t rowIndex =
             TranslateDevelopIdToRowIndex(static_cast<std::uint32_t>(developId));
@@ -355,40 +569,29 @@ namespace outfit
         {
             return CompleteHeadRegistrationUnlocked(
                 name, faceIds, faceFv2CodesPerPt, faceFpkCodesPerPt,
+                faceLayerFlagsPerPt, layerPathsPerPt,
                 static_cast<std::uint16_t>(developId),
                 static_cast<std::uint16_t>(rowIndex), showInDevelopMenu, false);
         }
 
         std::int32_t provisionalRow = ReadPersistedHeadEquipId(name);
-        const char* provisionalSrc = "persisted head ids";
         if (!IsResolvedRowValidUnlocked(provisionalRow))
-        {
             provisionalRow = V_FrameWorkState::GetPersistedFlowIndex(name);
-            provisionalSrc = "persisted develop flow index";
-        }
         if (IsResolvedRowValidUnlocked(provisionalRow))
         {
             const std::uint16_t equipId = CompleteHeadRegistrationUnlocked(
                 name, faceIds, faceFv2CodesPerPt, faceFpkCodesPerPt,
+                faceLayerFlagsPerPt, layerPathsPerPt,
                 static_cast<std::uint16_t>(developId),
                 static_cast<std::uint16_t>(provisionalRow), showInDevelopMenu,
                 true);
             if (equipId != 0)
-            {
-                LogDebug("[CustomHead] '%s' develop row not committed yet "
-                         "(developId=%d) - completed from %s so a boot straight "
-                         "into a mission still renders the worn head\n",
-                    name, developId, provisionalSrc);
                 return equipId;
-            }
         }
 
         StorePendingHeadUnlocked(name, faceIds, faceFv2CodesPerPt,
-                                 faceFpkCodesPerPt, showInDevelopMenu);
-        LogDebug("[CustomHead] '%s' develop row not committed yet (developId=%d "
-                 "getIdx=0x%X) - DEFERRED; resolves when an equip or develop menu "
-                 "opens\n",
-            name, developId, static_cast<unsigned>(rowIndex));
+                                 faceFpkCodesPerPt, faceLayerFlagsPerPt,
+                                 layerPathsPerPt, showInDevelopMenu);
         return 0;
     }
 
@@ -405,15 +608,6 @@ namespace outfit
             slot.fv2[i] = fv2ByStage ? fv2ByStage[i] : 0;
             slot.fpk[i] = fpkByStage ? fpkByStage[i] : 0;
         }
-        LogDebug("[CustomHead] snake demon-stage fova set for '%s': "
-            "fv2=[%016llX %016llX %016llX] fpk=[%016llX %016llX %016llX]\n",
-            name,
-            static_cast<unsigned long long>(slot.fv2[0]),
-            static_cast<unsigned long long>(slot.fv2[1]),
-            static_cast<unsigned long long>(slot.fv2[2]),
-            static_cast<unsigned long long>(slot.fpk[0]),
-            static_cast<unsigned long long>(slot.fpk[1]),
-            static_cast<unsigned long long>(slot.fpk[2]));
     }
 
     std::uint64_t GetCustomHeadSnakeStageFv2(const char* name,
@@ -439,15 +633,9 @@ namespace outfit
         if (!name || !name[0]) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         if (enable)
-        {
-            if (g_InfiniteAmmoHeads.insert(SnakeStageKey(name)).second)
-                LogDebug("[CustomHead] '%s' grants INFINITE AMMO while worn\n",
-                    name);
-        }
+            g_InfiniteAmmoHeads.insert(SnakeStageKey(name));
         else
-        {
             g_InfiniteAmmoHeads.erase(SnakeStageKey(name));
-        }
     }
 
     bool GetCustomHeadInfiniteAmmo(const char* name)
@@ -457,17 +645,48 @@ namespace outfit
         return g_InfiniteAmmoHeads.count(SnakeStageKey(name)) != 0;
     }
 
+    void SetCustomHeadBranchMask(const char* name, std::uint8_t mask)
+    {
+        if (!name || !name[0]) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        g_HeadBranchMasks[SnakeStageKey(name)] = mask;
+    }
+
+    std::uint8_t GetCustomHeadBranchMask(const char* name)
+    {
+        if (!name || !name[0]) return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const auto it = g_HeadBranchMasks.find(SnakeStageKey(name));
+        return it != g_HeadBranchMasks.end() ? it->second : std::uint8_t{0};
+    }
+
     static std::atomic<DWORD> g_PendingHeadsRetryTick{ 0 };
+    static std::atomic<bool>  g_DevelopRowsMoved{ false };
 
     bool HasPendingCustomHeads()
     {
         return g_HasPendingHeads.load(std::memory_order_acquire);
     }
 
+    void NoteDevelopRowsMoved()
+    {
+        if (!g_DevelopRowsMoved.exchange(true, std::memory_order_acq_rel))
+            g_PendingHeadsRetryTick.store(0, std::memory_order_relaxed);
+    }
+
+    bool IsCustomHeadSlotReserved(std::uint8_t slotByte)
+    {
+        if (slotByte < kCustomHeadSlotBase)
+            return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return IsSlotTakenUnlocked(slotByte);
+    }
+
     int DrainPendingHeads()
     {
         if (!g_HasPendingHeads.load(std::memory_order_acquire)
-            && !g_HasProvisionalHeads.load(std::memory_order_acquire))
+            && !g_HasProvisionalHeads.load(std::memory_order_acquire)
+            && !g_DevelopRowsMoved.load(std::memory_order_acquire))
             return 0;
 
         const DWORD lastFail =
@@ -475,102 +694,172 @@ namespace outfit
         if (lastFail != 0 && (GetTickCount() - lastFail) < 250)
             return 0;
 
-        equip::MenuPerfScope _perf(equip::kPerf_DrainHeads);
-        std::lock_guard<std::mutex> lock(g_Mutex);
-
-        bool provisionalLeft = false;
-        for (CustomHeadEntry& e : g_Heads)
+        int  resolved     = 0;
+        bool refreshGates = false;
         {
-            if (!e.used || !e.provisional)
-                continue;
-            const std::int32_t row =
-                TranslateDevelopIdToRowIndex(
-                    static_cast<std::uint32_t>(e.developId));
-            if (row <= 0 || row >= 0xFFFF
-                || row == static_cast<std::int32_t>(kHeadOption_None))
-            {
-                provisionalLeft = true;
-                continue;
-            }
-            if (row == static_cast<std::int32_t>(e.equipId))
-            {
-                e.provisional = false;
-                continue;
-            }
-            bool rowTaken = false;
-            for (const CustomHeadEntry& o : g_Heads)
-            {
-                if (&o != &e && o.used
-                    && o.equipId == static_cast<std::uint16_t>(row))
-                {
-                    rowTaken = true;
-                    break;
-                }
-            }
-            if (rowTaken)
-            {
-                provisionalLeft = true;
-                Log("[CustomHead] provisional '%s' cannot re-home: develop row %d "
-                    "already belongs to another head - retried on the next menu "
-                    "build\n", e.name, row);
-                continue;
-            }
-            const std::uint16_t oldId = e.equipId;
-            e.equipId     = static_cast<std::uint16_t>(row);
-            e.provisional = false;
-            if (e.hiddenInDevelop)
-            {
-                SetDevelopHidden(oldId, false);
-                SetDevelopHidden(e.equipId, true);
-            }
-            PersistHeadRegistration(e);
-            const int patched = RemapHeadOptionEquipId(oldId, e.equipId);
-            Log("[CustomHead] provisional '%s' re-homed: persisted equipId %u no "
-                "longer matches its develop row - now equipId=%u (%d headOptions "
-                "patched)\n",
-                e.name, static_cast<unsigned>(oldId),
-                static_cast<unsigned>(e.equipId), patched);
-        }
-        g_HasProvisionalHeads.store(provisionalLeft, std::memory_order_release);
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            g_DevelopRowsMoved.store(false, std::memory_order_release);
 
-        int resolved = 0;
-        for (auto it = g_PendingHeads.begin(); it != g_PendingHeads.end(); )
-        {
-            const std::int32_t developId =
-                V_FrameWorkState::GetDevelopIdByKey(it->name);
-            const std::int32_t rowIndex =
-                (developId > 0 && developId <= 0xFFFF)
+            std::array<std::int32_t, kMaxCustomHeads> developRows{};
+            for (std::size_t i = 0; i < g_Heads.size(); ++i)
+            {
+                developRows[i] = g_Heads[i].used
+                    ? TranslateDevelopIdToRowIndex(
+                          static_cast<std::uint32_t>(g_Heads[i].developId))
+                    : -1;
+            }
+
+            std::vector<std::int32_t> pendingDevelopIds;
+            std::vector<std::int32_t> pendingRows;
+            pendingDevelopIds.reserve(g_PendingHeads.size());
+            pendingRows.reserve(g_PendingHeads.size());
+            for (const PendingHead& p : g_PendingHeads)
+            {
+                const std::int32_t developId =
+                    V_FrameWorkState::GetDevelopIdByKey(p.name);
+                pendingDevelopIds.push_back(developId);
+                pendingRows.push_back((developId > 0 && developId <= 0xFFFF)
                     ? TranslateDevelopIdToRowIndex(
                           static_cast<std::uint32_t>(developId))
-                    : -1;
-            if (IsResolvedRowValidUnlocked(rowIndex))
-            {
-                CompleteHeadRegistrationUnlocked(
-                    it->name, it->faceIds, it->faceFv2Code, it->faceFpkCode,
-                    static_cast<std::uint16_t>(developId),
-                    static_cast<std::uint16_t>(rowIndex),
-                    it->showInDevelopMenu, false);
-                it = g_PendingHeads.erase(it);
-                ++resolved;
+                    : -1);
             }
-            else
+
+            std::vector<PendingHead>      parked;
+            std::vector<CustomHeadEntry*> evicted;
+            for (std::size_t i = 0; i < g_Heads.size(); ++i)
             {
+                CustomHeadEntry& e = g_Heads[i];
+                if (!e.used || e.equipId == 0 || IsDevelopRowValid(developRows[i]))
+                    continue;
+                const std::int32_t heldRow = static_cast<std::int32_t>(e.equipId);
+                const char* newOwner = nullptr;
+                for (std::size_t j = 0; j < g_Heads.size() && !newOwner; ++j)
+                {
+                    if (j != i && g_Heads[j].used && developRows[j] == heldRow)
+                        newOwner = g_Heads[j].name;
+                }
+                for (std::size_t k = 0; k < g_PendingHeads.size() && !newOwner; ++k)
+                {
+                    if (pendingRows[k] == heldRow)
+                        newOwner = g_PendingHeads[k].name;
+                }
+                char ownerText[96] = { 0 };
+                std::uint32_t occupant = 0;
+                if (newOwner)
+                {
+                    std::snprintf(ownerText, sizeof(ownerText), "'%s'", newOwner);
+                }
+                else if (equip::TryReadRowDevelopId(e.equipId, occupant)
+                         && occupant != 0 && occupant != e.developId)
+                {
+                    std::snprintf(ownerText, sizeof(ownerText), "developId %u",
+                        static_cast<unsigned>(occupant));
+                }
+                else
+                {
+                    continue;
+                }
+                const RowlessCause cause =
+                    !EquipDevelopAdd::HasDevelopRequest(e.name)
+                        ? RowlessCause::NoDevelopRequest
+                        : (EquipDevelopAdd::IsDevelopKeyParked(e.name)
+                           || EquipDevelopAdd::IsDevelopIdParked(e.developId)
+                               ? RowlessCause::PagedOut
+                               : RowlessCause::NotInjectedYet);
+                if (!newOwner && cause == RowlessCause::NotInjectedYet)
+                    continue;
+                EvictRowlessHeadUnlocked(e, ownerText, cause, parked, refreshGates);
+                evicted.push_back(&e);
+            }
+
+            bool provisionalLeft = false;
+            std::vector<ProvisionalRehome> rehomes;
+            for (std::size_t i = 0; i < g_Heads.size(); ++i)
+            {
+                CustomHeadEntry& e = g_Heads[i];
+                if (!e.used || e.equipId == 0)
+                    continue;
+                if (!IsDevelopRowValid(developRows[i]))
+                {
+                    if (e.provisional)
+                        provisionalLeft = true;
+                    continue;
+                }
+                if (developRows[i] == static_cast<std::int32_t>(e.equipId))
+                {
+                    e.provisional = false;
+                    continue;
+                }
+                ProvisionalRehome rehome;
+                rehome.head       = &e;
+                rehome.developRow = static_cast<std::uint16_t>(developRows[i]);
+                rehomes.push_back(rehome);
+            }
+            BlockUnreachableRehomesUnlocked(rehomes);
+            for (const ProvisionalRehome& rehome : rehomes)
+            {
+                if (rehome.blocked)
+                    provisionalLeft = true;
+            }
+            ApplyRehomesUnlocked(rehomes, refreshGates);
+
+            std::size_t k = 0;
+            for (auto it = g_PendingHeads.begin(); it != g_PendingHeads.end(); ++k)
+            {
+                const std::int32_t rowIndex = pendingRows[k];
+                if (IsResolvedRowValidUnlocked(rowIndex))
+                {
+                    CompleteHeadRegistrationUnlocked(
+                        it->name, it->faceIds, it->faceFv2Code, it->faceFpkCode,
+                        it->faceLayerFlags, it->layerPaths,
+                        static_cast<std::uint16_t>(pendingDevelopIds[k]),
+                        static_cast<std::uint16_t>(rowIndex),
+                        it->showInDevelopMenu, false);
+                    it = g_PendingHeads.erase(it);
+                    ++resolved;
+                    continue;
+                }
+                if (IsDevelopRowValid(rowIndex) && !it->conflictLogged)
+                {
+                    const char* holderName = "?";
+                    for (const CustomHeadEntry& e : g_Heads)
+                    {
+                        if (e.used && e.equipId == static_cast<std::uint16_t>(rowIndex))
+                        {
+                            holderName = e.name;
+                            break;
+                        }
+                    }
+                    it->conflictLogged = true;
+                    LogWarn("CustomHead: '%s' unlisted, develop row %d held by '%s'",
+                            it->name, rowIndex, holderName);
+                }
                 ++it;
             }
+
+            for (CustomHeadEntry* e : evicted)
+                *e = CustomHeadEntry{};
+            if (!parked.empty())
+            {
+                for (const PendingHead& p : parked)
+                    g_PendingHeads.push_back(p);
+                g_HasPendingHeads.store(true, std::memory_order_release);
+            }
+            g_HasProvisionalHeads.store(provisionalLeft, std::memory_order_release);
+
+            if (g_PendingHeads.empty())
+                g_HasPendingHeads.store(false, std::memory_order_release);
+
+            if (g_PendingHeads.empty() && !provisionalLeft)
+                g_PendingHeadsRetryTick.store(0, std::memory_order_relaxed);
+            else
+                g_PendingHeadsRetryTick.store(GetTickCount(),
+                                              std::memory_order_relaxed);
+            if (g_DevelopRowsMoved.load(std::memory_order_acquire))
+                g_PendingHeadsRetryTick.store(0, std::memory_order_relaxed);
         }
-
-        if (g_PendingHeads.empty())
-            g_HasPendingHeads.store(false, std::memory_order_release);
-
-        if (g_PendingHeads.empty() && !provisionalLeft)
-            g_PendingHeadsRetryTick.store(0, std::memory_order_relaxed);
-        else
-            g_PendingHeadsRetryTick.store(GetTickCount(),
-                                          std::memory_order_relaxed);
-
-        if (resolved > 0)
-            LogDebug("[CustomHead] DrainPendingHeads: resolved %d deferred head(s); "
-                "%zu still pending\n", resolved, g_PendingHeads.size());
+        if (refreshGates)
+            EquipDevelopAdd::MaybeRefreshDynamicGates();
         return resolved;
     }
 
@@ -594,6 +883,51 @@ namespace outfit
         return nullptr;
     }
 
+    bool IsFv2PathCode(std::uint64_t pathCode64Ext)
+    {
+        static const std::uint64_t kFv2Ext =
+            FoxHashes::PathCode64Ext("/Assets/tpp/fova/probe.fv2") >> 51;
+        return pathCode64Ext != 0 && (pathCode64Ext >> 51) == kFv2Ext;
+    }
+
+    bool IsFpkPathCode(std::uint64_t pathCode64Ext)
+    {
+        static const std::uint64_t kFpkExt =
+            FoxHashes::PathCode64Ext("/Assets/tpp/pack/probe.fpk") >> 51;
+        static const std::uint64_t kFpkdExt =
+            FoxHashes::PathCode64Ext("/Assets/tpp/pack/probe.fpkd") >> 51;
+        const std::uint64_t ext = pathCode64Ext >> 51;
+        return pathCode64Ext != 0 && (ext == kFpkExt || ext == kFpkdExt);
+    }
+
+    bool TryGetDdHeadBranch(std::uint8_t slotByte, std::uint8_t playerType,
+                            DdHeadLayers* out)
+    {
+        if (!out || slotByte < kCustomHeadSlotBase || !IsDdPlayerType(playerType))
+            return false;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const CustomHeadEntry& e : g_Heads)
+        {
+            if (!e.used || e.slotByte != slotByte)
+                continue;
+            out->flags       = e.faceLayerFlags[playerType];
+            out->enemyFaceId = e.TppEnemyFaceId[playerType];
+            out->branchFv2   = e.faceFv2Code[playerType];
+            out->branchFpk   = e.faceFpkCode[playerType];
+            out->name        = e.name;
+            out->paths       = e.layerPaths[playerType];
+            return true;
+        }
+        return false;
+    }
+
+    bool TryGetDdHeadLayers(std::uint8_t slotByte, std::uint8_t playerType,
+                            DdHeadLayers* out)
+    {
+        return TryGetDdHeadBranch(slotByte, playerType, out)
+            && (out->flags & kHeadLayerDeclared) != 0;
+    }
+
     const CustomHeadEntry* TryGetCustomHeadBySlot(std::uint8_t slotByte)
     {
         if (slotByte < kCustomHeadSlotBase) return nullptr;
@@ -615,7 +949,7 @@ namespace outfit
             if (!g_GetQuarkSystemTable) return 0;
         }
 
-        std::uint8_t slotByte = 0;
+        std::uint16_t faceEquipId = 0;
         __try
         {
             auto* qt = reinterpret_cast<std::uint8_t*>(g_GetQuarkSystemTable());
@@ -624,16 +958,17 @@ namespace outfit
             if (!q98) return 0;
             auto* state = *reinterpret_cast<std::uint8_t**>(q98 + 0x10);
             if (!state) return 0;
-
-
-            slotByte = state[0xFA];
+            faceEquipId = *reinterpret_cast<std::uint16_t*>(state + 0xFE);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return 0;
         }
 
-        if (const CustomHeadEntry* head = TryGetCustomHeadBySlot(slotByte))
+        if (faceEquipId > 0xFF)
+            return 0;
+        if (const CustomHeadEntry* head =
+                TryGetCustomHeadBySlot(static_cast<std::uint8_t>(faceEquipId)))
             return head->equipId;
         return 0;
     }

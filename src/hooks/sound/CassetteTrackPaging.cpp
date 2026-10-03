@@ -257,8 +257,7 @@ namespace
                 if (RenderPagerRowSEH(r, label) != 1 && !g_LabelPathWarned)
                 {
                     g_LabelPathWarned = true;
-                    LogDebug("[CassetteMenu] pager row label path unavailable - "
-                        "pager rows work but show stale text\n");
+                    LogWarn("CassetteMenu: pager row label render faulted, rows show stale text");
                 }
                 return;
             }
@@ -287,10 +286,7 @@ void SetCassetteAlbumTracks(void* cassetteCallback, std::uint64_t albumId,
         w = BuildWindow_NoLock(window);
     }
     if (WriteWindowSEH(cassetteCallback, window, w) != 1)
-        LogDebug("[CassetteMenu] track window write faulted - album list unchanged\n");
-    else if (trackCount > kWindowCapacity)
-        LogDebug("[CassetteMenu] album has %u tracks - paged across %u pages\n",
-            trackCount, static_cast<unsigned>(g_PageStart.size()));
+        LogWarn("CassetteMenu: track window write faulted, album list unchanged");
 }
 
 int GetPagerActionForSlot(void* cassetteCallback, std::uint32_t slot)
@@ -338,14 +334,14 @@ void FlipCassettePage(void* cassetteCallback, int direction)
     }
     if (WriteWindowSEH(cassetteCallback, window, w) != 1)
     {
-        LogDebug("[CassetteMenu] page flip window write faulted\n");
+        LogWarn("CassetteMenu: page flip window write faulted");
         return;
     }
     WriteU32SEH(cassetteCallback, kImpl_Selected, 0);
     if (g_UpdateCallFuncs && CallImplFnSEH(g_UpdateCallFuncs, cassetteCallback) != 1)
-        LogDebug("[CassetteMenu] UpdateTrackListCallFuncs faulted on page flip\n");
+        LogWarn("CassetteMenu: UpdateTrackListCallFuncs faulted on page flip");
     if (g_RefreshPrefab && CallImplFnSEH(g_RefreshPrefab, cassetteCallback) != 1)
-        LogDebug("[CassetteMenu] RefreshTrackListPrefabParameter faulted on page flip\n");
+        LogWarn("CassetteMenu: RefreshTrackListPrefabParameter faulted on page flip");
 }
 
 bool Install_CassetteTrackPaging_Hooks()
@@ -358,9 +354,8 @@ bool Install_CassetteTrackPaging_Hooks()
 
     if (!g_UpdateCallFuncs || !g_RefreshPrefab || !rowFn)
     {
-        Log("[CassetteMenu] ERROR: track-list paging unavailable for this build "
-            "(update=%p refresh=%p rowRefresh=%p) - albums are capped at 128 "
-            "visible tracks\n",
+        LogError("CassetteMenu: paging address missing (update=%p refresh=%p row=%p), "
+            "albums capped at 128 tracks",
             reinterpret_cast<void*>(g_UpdateCallFuncs),
             reinterpret_cast<void*>(g_RefreshPrefab), rowFn);
         g_PagingReady = false;
@@ -372,16 +367,11 @@ bool Install_CassetteTrackPaging_Hooks()
         reinterpret_cast<void**>(&g_OrigRowRefresh));
     if (!ok)
     {
-        Log("[CassetteMenu] ERROR: pager row hook failed - albums are capped "
-            "at 128 visible tracks\n");
+        LogError("CassetteMenu: pager row hook failed, albums capped at 128 tracks");
         g_PagingReady = false;
         return true;
     }
     g_PagingReady = true;
-#ifdef _DEBUG
-    LogDebug("[CassetteMenu] track-list paging armed (window %u rows)\n",
-        kWindowCapacity);
-#endif
     return true;
 }
 

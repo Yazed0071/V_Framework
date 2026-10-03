@@ -18,26 +18,24 @@ namespace
     {
         if (!pointer)
         {
-            LogDebug("[GameOverMusic] TogglePatch(%s): address not set for current build\n",
-                isEnable ? "true" : "false");
+            LogError("GameOverMusic: address missing for this build, game-over music "
+                     "unchanged");
             return false;
         }
 
         void* target = ResolveGameAddress(pointer);
         if (!target)
         {
-            LogDebug("[GameOverMusic] TogglePatch(%s): ResolveGameAddress @0x%llx null\n",
-                isEnable ? "true" : "false", static_cast<unsigned long long>(pointer));
+            LogError("GameOverMusic: address 0x%llX unresolved, game-over music unchanged",
+                     static_cast<unsigned long long>(pointer));
             return false;
         }
 
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, dwSize, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[GameOverMusic] TogglePatch(%s): VirtualProtect failed @0x%llx (err=%lu)\n",
-                isEnable ? "true" : "false",
-                static_cast<unsigned long long>(pointer),
-                GetLastError());
+            LogWarn("GameOverMusic: VirtualProtect failed @0x%llX (%lu), game-over music "
+                    "unchanged", static_cast<unsigned long long>(pointer), GetLastError());
             return false;
         }
 

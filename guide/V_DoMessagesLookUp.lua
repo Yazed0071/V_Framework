@@ -45,6 +45,8 @@ this.DEBUG_strCode32List={
   "Mission",
   "MissionStateReset",
   "partsTypeChange",
+  "FinishHeadMotion",
+  "ItemSelected",
 }
 
 this.CassettePlay={
@@ -257,6 +259,16 @@ this.signatureTypes={
     {argName="playerPartsType",argType="number"},
     {argName="playerCamoType",argType="number"},
   },
+
+  FinishHeadMotion={
+    {argName="playerIndex",argType="number"},
+    {argName="clipName",argType="string"},
+  },
+
+  ItemSelected={
+    {argName="item",argType="number"},
+    {argName="heldSoldierId",argType="gameId"},
+  },
 }
 
 this.messageSignatures={
@@ -277,6 +289,8 @@ this.messageSignatures={
     OnPickUpCollection=this.signatureTypes.OnPickUpCollection,
     BarrierDamage=this.signatureTypes.BarrierDamage,
     partsTypeChange=this.signatureTypes.PartsTypeChange,
+    FinishHeadMotion=this.signatureTypes.FinishHeadMotion,
+    ItemSelected=this.signatureTypes.ItemSelected,
   },
 
   UI={
@@ -531,6 +545,8 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.StartWalkMan=this.signatureTypes.StartWalkMan
   InfLookup.signatureTypes.PauseWalkMan=this.signatureTypes.PauseWalkMan
   InfLookup.signatureTypes.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
+  InfLookup.signatureTypes.FinishHeadMotion=this.signatureTypes.FinishHeadMotion
+  InfLookup.signatureTypes.ItemSelected=this.signatureTypes.ItemSelected
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -553,6 +569,8 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Player.OnPickUpCollection=this.signatureTypes.OnPickUpCollection
   InfLookup.messageSignatures.Player.BarrierDamage=this.signatureTypes.BarrierDamage
   InfLookup.messageSignatures.Player.partsTypeChange=this.signatureTypes.PartsTypeChange
+  InfLookup.messageSignatures.Player.FinishHeadMotion=this.signatureTypes.FinishHeadMotion
+  InfLookup.messageSignatures.Player.ItemSelected=this.signatureTypes.ItemSelected
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
   InfLookup.messageSignatures.UI.StopWalkMan=this.signatureTypes.StopWalkMan
   InfLookup.messageSignatures.UI.StartWalkMan=this.signatureTypes.StartWalkMan

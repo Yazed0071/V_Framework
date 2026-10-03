@@ -39,7 +39,7 @@ namespace AddressSetRuntime
             0x146867240ull, // LoadPlayerVoiceFpk
             0x145CD0630ull, // LoadingScreenOrGameOverSplash2
             0x142BFFAC8ull, // MusicManager_s_instance
-            0x14006B2E0ull, // PathHashCode
+            0x141A09B10ull, // PathHashCode
             0x140972C70ull, // PauseMusicPlayer
             0x140EF6BD0ull, // PlayOrPauseSelectedTrack
             0x140A69070ull, // RequestCorpse
@@ -264,7 +264,6 @@ namespace AddressSetRuntime
             0x14d9aa3d0ull, // PluginFacial_ApplyMotion
             0x140f6d8e0ull, // EquipDevCtrl_IsEquipVisile
             0x14950ed50ull, // EquipDevCtrl_GetHeadBadgeCategory
-            0x1460b33f0ull, // MissionPrep_GetWornHeadCategory
             0x14a544d40ull, // MissionPrep_SetInitialSelectRecord
             0x1464a0e00ull, // TppEquip_RegisterConstant
             0x141e02930ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
@@ -330,7 +329,7 @@ namespace AddressSetRuntime
             0x141dabab0ull, // UiWindowFunction_GetLayout
             0x141041950ull, // AttackAction_Fire
             0x141303a40ull, // EquipObject_DoFire
-            0ull, // Shell_ActivateShellAtEmptyWork
+            0x14132bf90ull, // Shell_ActivateShellAtEmptyWork
             0x1411574f0ull, // CorePlugin_UpdateLoadoutRequest
             0x140dc0120ull, // WeaponSystem_DefineWeaponFireSound
             0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
@@ -340,11 +339,11 @@ namespace AddressSetRuntime
             0x140F31E50ull, // MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter
             0x149459D50ull, // MbDvcMissionListCallbackImpl_SetMenuHelp
             0x1464B6340ull, // Equip_ReloadChimeraPartsInfoTable
-            0x142C207C0ull, // Equip_ChimeraPartsPackageInfos
+            0x142C207A0ull, // Equip_ChimeraPartsPackageInfos
             0x141A75720ull, // Mtar_GetAnimFile
             0x141A762F0ull, // Mtar_GetDataInfo
             0x142A6B400ull, // Equip_MotionEntryTable
-            0x1422E24F0ull, // SimplePartsControllerImpl_Vtable
+            0x1422E2560ull, // SimplePartsControllerImpl_Vtable
             0x146826550ull, // SimplePartsControllerImpl_SetMotionData
             0x146826900ull, // SimplePartsControllerImpl_SetMotionDataByPath
             0x140DBFA70ull, // EquipSystemImpl_HideMagazine
@@ -360,7 +359,7 @@ namespace AddressSetRuntime
             0x141AB6E90ull, // Animx_SimpleControlAux
             0x145045590ull, // Equip_MotionEntrySlotHookA
             0x1450464F0ull, // Equip_MotionEntrySlotHookB
-            0x140A29CB0ull, // EquipIdTable_GetEquipTypeId
+            0x14649E9C0ull, // EquipIdTable_GetEquipTypeId
             0x1414404D0ull, // Soldier2InterrogateUtil_UpdateInterrogation
             0x141441EB0ull, // Soldier2InterrogateUtil_UpdateInterrogationMarker
             0x1468F0540ull, // SoundControllerImpl_CallVoice
@@ -389,8 +388,8 @@ namespace AddressSetRuntime
             0x147410F10ull, // MotionLoaderImpl_GetBarrelType
             0x142349730ull, // MotionLoaderImpl_MagazineTypeTable
             0x147412460ull, // MotionLoaderImpl_GetMagazineType
-            0x1423497F0ull, // MotionLoaderImpl_SightTypeTable
-            0x147413F80ull, // MotionLoaderImpl_GetSightType
+            0x1423497F0ull, // MotionLoaderImpl_StockTypeTable
+            0x147413F80ull, // MotionLoaderImpl_GetStockType
             0x14120B025ull, // TppPickable_ItemWindowBoundSite
             0x1409147F0ull, // UiUtility_GetWeaponItemNameLangId
             0x140983B25ull, // SoundPlayerAnimEvent_StepNoiseQuietCmp
@@ -452,20 +451,20 @@ namespace AddressSetRuntime
             0x14C886DF0ull, // DemoPlayback_DoFinish
             0x14C887060ull, // DemoPlayback_DoInterrupt
             0x140975710ull, // UpdateMusicPlayer
-            0ull, // GameObject_GetGameObjectIdWithName
-            0ull, // Vehicle_GetConnectPointWorldMatrix
+            0x146C96F50ull, // GameObject_GetGameObjectIdWithName
+            0x14124AA10ull, // Vehicle_GetConnectPointWorldMatrix
             0x14127A440ull, // Player_SequentialDemoActionExecute
             0x14127A880ull, // Player_SequentialDemoActionOnSignal
-            0ull, // Fox_GameObjectManager_GetSharedInstance
+            0x140BF9E80ull, // Fox_GameObjectManager_GetSharedInstance
             0x14229B7A0ull, // GameObjectType_Horse2_Vtable
             0x1422C54C0ull, // GameObjectType_Heli2_Vtable
             0x1422C4AA0ull, // GameObjectType_HeliAlt_Vtable
             0x1422CA6B0ull, // GameObjectType_WalkerGear2_Vtable
             0x1422E5CF0ull, // AnimationControllerImpl_Vtable
             0x1422FB080ull, // HeliAnimationControllerImpl_Vtable
-            0ull, // MotionLoaderImpl_GetMtarIds
-            0ull, // MotionLoaderImpl_GetMtarFilePath
-            0ull, // MotionLoaderImpl_GetBlockPackagePath
+            0x147413A00ull, // MotionLoaderImpl_GetMtarIds
+            0x147412E00ull, // MotionLoaderImpl_GetMtarFilePath
+            0x147411E30ull, // MotionLoaderImpl_GetBlockPackagePath
             0x141049400ull, // AttackAction_GetGunMotionIdFromTable
             0x141046620ull, // AttackAction_GetEquipMotionIdFromTable
             0x14104C110ull, // AttackAction_GetNormalGripMotionId
@@ -483,6 +482,7 @@ namespace AddressSetRuntime
             0x141049CA0ull, // AttackAction_GetHandgunOneHandMotionId
             0x141050FD0ull, // AttackAction_GetSubMachinegunOneHandMotionId
             0x141050640ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x1410504D0ull, // AttackAction_GetStepReloadHandgunMotionId
             0x1410567E0ull, // AttackAction_ResetMissionPrepareGripMotion
             0x14104C450ull, // AttackAction_GetNormalMotionIdByCategory
             0x141043F30ull, // AttackAction_GetAssaultMotionIdTable
@@ -495,13 +495,139 @@ namespace AddressSetRuntime
             0x141046BA0ull, // AttackAction_GetGrenadeLauncherMotionIdTable
             0x14104BE40ull, // AttackAction_GetMissileMotionIdTable
             0x141051C70ull, // AttackAction_GetChaseMotionIdTable
-            0ull, // EquipMotionDataTable_ReloadEquipMotionData2
+            0x1463B24B0ull, // EquipMotionDataTable_ReloadEquipMotionData2
             0x1416C363Dull, // MissionPreparationCallbackImpl_Start_PlayBgmEvent
             0x1416C6AA9ull, // MissionPreparationCallbackImpl_Update_StopBgmEvent
             0x1416C6DCEull, // MissionPreparationCallbackImpl_Update_StopBgmEvent2
             0x1416C33C0ull, // MissionPreparationCallbackImpl_Start
             0x1416C3F30ull, // MissionPreparationCallbackImpl_Update
             0x142c1d990ull, // Soldier2FaceSystem_Instance
+            0x140F812E0ull, // StaffControllerImpl_AddStaffShort
+            0x140F81620ull, // StaffControllerImpl_AddStaffFull
+            0x146756CA0ull, // tpp::mbm::impl::StaffIdToFaceId
+            0x140F97E40ull, // tpp::mbm::impl::StaffControllerImpl::StaffSeedToFaceTexturePathId
+            0x14A5BDC40ull, // tpp::ui::menu::mbm::impl::StaffListCallbackImpl::RefreshFaceRecord
+            0x141DEF540ull, // fox::ui::WindowFactoryCollector::FindWindowFactory
+            0x141DAB8B0ull, // fox::ui::WindowFunction::CreateWindow
+            0x140867C00ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle
+            0x14D94C970ull, // fox::ui::WindowFactoryCollector::FindWindowFactory (implementation reached through thunk)
+            0x145C1F580ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle (implementation reached through thunk)
+            0x1409ECF3Dull, // CalcFv2ResourceManagerInfoForFace
+            0x1409ED7D1ull, // ConvertExtendFaceFova2PathToFovaFile
+            0x1409EDDE5ull, // ConvertFova2PathToFovaFileForProg
+            0x14631B577ull, // GetFaceFovaFpkPathIdArrayAtFaceId
+            0x14631B899ull, // GetFaceFovaFpkPathIdAtFaceId
+            0x14631BCD7ull, // GetFaceFovaPathIdArrayAtFaceId
+            0x14631C119ull, // GetFaceFovaPathIdAtFaceId
+            0x1409F0405ull, // GetFaceFpkFileCodeListImpl
+            0x1409F05F4ull, // GetFaceFpkFileCodeListImpl
+            0x14631EFAEull, // GetHairFovaPathIdAtFaceId
+            0x1409F3003ull, // PushFaceFovaFpk
+            0x1409F4060ull, // SetFaceFovaDefinitionTableImpl
+            0x1409F4890ull, // SetFovaFileTable
+            0x140A3B330ull, // EquipParameterTablesImpl::GetAmmoParameterBlock
+            0x1466966F0ull, // WalkerGearSystemImpl::GetSubWeaponLoadAmmoMax
+            0x1471C0350ull, // BuddyQuietEquipControllerImpl::SetupCurrentSlot
+            0x149191CC0ull, // HostageEquipControllerImpl::SetupCurrentSlot
+            0x14A1170F0ull, // SoldierEquipControllerImpl::SetupCurrentSlot
+            0x14B716050ull, // BossQuietEquipControllerImpl::SetupCurrentSlot
+            0x140F665E0ull, // EquipDevelopControllerImpl::GetBulletCountMagazine
+            0x140F66710ull, // EquipDevelopControllerImpl::GetBulletCountMax
+            0x1495021D0ull, // EquipDevelopControllerImpl::GetBulletType
+            0x140DC368Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (receiver)
+            0x140DC3884ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (barrel)
+            0x140DC3A5Aull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (magazine)
+            0x140DC3A01ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (stock)
+            0x140DC3A9Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (muzzleOption)
+            0x140DC3BFCull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight)
+            0x140DC3C80ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight2)
+            0x140DC3B11ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash1)
+            0x140DC3B6Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash2)
+            0x140DC3CD0ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrel)
+            0x140DC3D56ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrelCmp)
+            0x140EE93C0ull, // InventoryImpl::CalcAmmoAndStockIfPickUp
+            0x14649F310ull, // EquipIdTableImpl::GetRootParameterId
+            0x1494F3520ull, // DeployControllerImpl::GenerateDeployMission
+            0x1494EB510ull, // DeployControllerImpl::AddLogMission
+            0x1494F3CC0ull, // DeployControllerImpl::GenerateDeployMissionInfoOffline
+            0x1494F13B0ull, // DeployControllerImpl::CreateDeployMissionSeedParam
+            0x140F63030ull, // DeployControllerImpl::GetDeployMissionNameMessageId
+            0x140F62AB0ull, // DeployControllerImpl::GetDeployMissionCaptionMessageId
+            0x1494F5420ull, // DeployControllerImpl::GetDeployMissionNameKeyId
+            0x140F64030ull, // DeployControllerImpl::RefreshMissionList
+            0x1494F3230ull, // DeployControllerImpl::GetNextRandomMissionId
+            0x140F61120ull, // DeployControllerImpl::CompletedDeployMissionOffline
+            0x140AB0740ull, // MotherBaseManagementSystemImpl::SetupAfterRestoreFromSVars
+            0x140F776A0ull, // PoolRewardControllerImpl::GeneratePoolRewardsInfo
+            0x14A4B2000ull, // CombatDeployCallbackImpl::RefreshMissionIconInGlobe
+            0x1413dce80ull, // NoticeAntiBuddyWalkerGearAiImpl::ShouldSleep
+            0x149fc3600ull, // CombatAntiBuddyWalkerGearAiImpl::UpdatePrimaryTarget
+            0x14138ed00ull, // AttackActionImpl::HasOtherSoldierOnVec
+            0x140d31280ull, // Bullet3Impl::OnOffenseHit
+            0x14145f880ull, // soldier DamageHandlerImpl::ProcessDamages
+            0x14136E110ull, // Soldier2Impl::UpdateMarkers
+            0x141644A20ull, // CombatDeployMissionListRecordCallFunc::Refresh
+            0x14164AC10ull, // SetRevengeIcon
+            0x1413e0260ull, // CombatAntiBuddyWalkerGearAiImpl::StepSurprise
+            0x143F68B80ull, // AK::MemoryMgr::Malloc
+            0x143F68840ull, // AK::MemoryMgr::Malign
+            0x143F66C00ull, // AK::MemoryMgr::Free
+            0x142B9EC18ull, // AK::MemoryMgr::s_pMemPools
+            0x142A0223Cull, // g_DefaultPoolId
+            0x142B9EB1Cull, // g_PrepareEventMemoryPoolID
+            0x149f7d6b0ull, // Soldier2Util::SearchActiveMember
+            0x1413e15f0ull, // CombatAntiBuddyWalkerGearAiImpl::UpdateSnipeTarget
+            0x1415a78f0ull, // WalkerGearActionImpl::HasOtherSoldierOnVec
+            0x141647310ull, // CombatDeployCallbackImpl::RefreshMissionList
+            0x14086E630ull, // MbTopMenuSelectorEv::UpdateMenuNotice
+            0x1414df3f0ull, // NoticeControllerImpl::CheckNoiseNoticeSoldier
+            0x14a254b20ull, // NoticeDownComradeAiImpl::ShouldSleep
+            0x14a379f60ull, // VehicleNoticeDownComradeAiImpl::ShouldSleep
+            0x14155C710ull, // RideVehicleActionImpl::HasOtherSoldierOnVec
+            0x1414AABE0ull, // LifeControllerImpl::SendStatusMessage
+            0x149FBF0E0ull, // CombatAntiBuddyWalkerGearAiImpl::CheckGrenade
+            0x1411FC660ull, // IDroidActionPluginImpl::CloseState
+            0x1411FBE00ull, // IDroidActionPluginImpl::Deactivate
+            0x140DC41C0ull, // EquipSystemImpl::SetItemVisible
+            0x1411FA830ull, // IDroidActionPluginImpl::IsPutAwayInterrupted
+            0x1411FB600ull, // IDroidActionPluginImpl::IsOtherAvatar
+            0x14D178330ull, // MotionGraphBlendNodeTraverser leaf clip-id read
+            0x141A6C590ull, // AnimControl::GetAnimFileFromGaniPath
+            0x141002B00ull, // player action plugin GetStance (1 stand, 2 squat, 3 crawl, 4 supine)
+            0x141181E03ull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x141181EBDull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x141181719ull, // CureActionPluginImpl::StateCure GetStance call
+            0x141181A39ull, // CureActionPluginImpl::StateCureEnd body GetStance call
+            0x1410A2050ull, // BasicActionImpl::SelectWakeupState
+            0x141180E10ull, // CureActionPluginImpl::FinishCureSprayEffect
+            0x1411815A0ull, // CureActionPluginImpl::StateCure
+            0x14110FEC0ull, // CallMenuManagerImpl::UpdateCommandSetInterrogation
+            0x1413621C0ull, // Soldier2Impl::ProcessSignal
+            0x1415135A0ull, // NoticeNoiseAiImpl::SearchSpecificComrade
+            0x1414DDFE0ull, // NoticeControllerImpl::CheckForceNotice
+            0x149826D90ull, // CallMenuManagerImpl::UpdateInShowing
+            0x141110A80ull, // CallMenuCommandSet::UpdateState
+            0x141110370ull, // CallMenuManagerImpl::UpdateCommandSetRescueBoy
+            0x141369BB0ull, // soldier::ActionController::SetCommand
+            0x141520C40ull, // NoticeNoiseAiImpl::StepMovePause
+            0x1491730D0ull, // hostage CoreAiImpl::SetSpecialActionParam
+            0x140EDB5C0ull, // hostage SpecialActionImpl::State_SpecialIdle
+            0x14A903970ull, // ui::hud::CallMenuImpl::UpdateOption
+            0x14A903C90ull, // ui::hud::CallMenuImpl::UpdateSelectDoc
+            0x1498213D0ull, // CallMenuManagerImpl::ShowCallMenu
+            0x142B743B0ull, // fox::gr::dg::MaterialManager::s_Instance (data)
+            0x142B743A8ull, // fox::gr::dg::ShaderTechniqueManager::s_Instance (data)
+            0x1473CCB80ull, // cp::RadioControllerImpl::StepRadioNoResponse
+            0x1473CD460ull, // cp::RadioControllerImpl::StepRadioWaitResponse
+            0x140D58370ull, // cp::CommandPost2Impl::Controller_RequestRadioByMember_
+            0x14729D4E0ull, // cp::CommandPost2Impl::Controller_SetRadioMemberReady_
+            0x147299F30ull, // cp::CommandPost2Impl::Controller_ReleaseRadioByMember_
+            0x140D5B230ull, // cp::CommandPost2Impl::FinishRadio
+            0x140DA1D30ull, // cp::RadioControllerImpl::StepRadio
+            0x140D58BB0ull, // cp::CommandPost2Impl::Controller_UpdateRadio_
+            0x140D627A0ull, // cp::CommandPost2Impl::RequestRadioByCp
+            0x1473CC750ull, // cp::RadioControllerImpl::StepIdle
+            0x140D58D20ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
         };
         return value;
     }
@@ -522,7 +648,7 @@ namespace AddressSetRuntime
             0x140FB90D0ull, // CopyAndAdjustInfo
             0x140D6E810ull, // DecrementPhaseCounter
             0x1431CC520ull, // FoxLuaRegisterLibrary
-            0x143227580ull, // FoxPath_Path
+            0x143227D20ull, // FoxPath_Path
             0x142EB6C10ull, // FoxStrHash32
             0x14C96BF00ull, // FoxStrHash64
             0x1477CFCB0ull, // GameOverSetVisible
@@ -765,7 +891,6 @@ namespace AddressSetRuntime
             0x14e02b500ull, // PluginFacial_ApplyMotion
             0x140f6d9e0ull, // EquipDevCtrl_IsEquipVisile
             0x149f28b70ull, // EquipDevCtrl_GetHeadBadgeCategory
-            0x147cd19f0ull, // MissionPrep_GetWornHeadCategory
             0x14afe4630ull, // MissionPrep_SetInitialSelectRecord
             0x1480e0f70ull, // TppEquip_RegisterConstant
             0x141e02960ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
@@ -831,7 +956,7 @@ namespace AddressSetRuntime
             0x141dab960ull, // UiWindowFunction_GetLayout
             0x1410419a0ull, // AttackAction_Fire
             0x141303b80ull, // EquipObject_DoFire
-            0ull, // Shell_ActivateShellAtEmptyWork
+            0x14132c0d0ull, // Shell_ActivateShellAtEmptyWork
             0x141157570ull, // CorePlugin_UpdateLoadoutRequest
             0x140dc0200ull, // WeaponSystem_DefineWeaponFireSound
             0x142C93480ull, // EquipSystem_ChimeraPartsSetWork
@@ -841,7 +966,7 @@ namespace AddressSetRuntime
             0x140F31F50ull, // MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter
             0x149D5F450ull, // MbDvcMissionListCallbackImpl_SetMenuHelp
             0x1480F7B50ull, // Equip_ReloadChimeraPartsInfoTable
-            0x142C207C0ull, // Equip_ChimeraPartsPackageInfos
+            0x142C207A0ull, // Equip_ChimeraPartsPackageInfos
             0x141A75850ull, // Mtar_GetAnimFile
             0x141A76420ull, // Mtar_GetDataInfo
             0x142A6B400ull, // Equip_MotionEntryTable
@@ -852,16 +977,16 @@ namespace AddressSetRuntime
             0x140DBF050ull, // EquipSystemImpl_GetPartsController
             0x140BFEF80ull, // Fox_GetQuarkSystemTable
             0x140071160ull, // Fox_ArrayBaseExtend
-            0x1420BCAD8ull, // Fox_ArrayOperatorVtbl
+            0x1420BCA98ull, // Fox_ArrayOperatorVtbl
             0x141AB7260ull, // Animx_GetControlSize
             0x141AB6C80ull, // Animx_SimpleControlCtorPool
             0x141AB7000ull, // Animx_SimpleControlCtorHeap
             0x141AB6E60ull, // Animx_SimpleControlDtorPool
             0x141AB7070ull, // Animx_SimpleControlDtorHeap
             0x141AB6FF0ull, // Animx_SimpleControlAux
-            0x1405D4C10ull, // Equip_MotionEntrySlotHookA
-            0x1405D4F70ull, // Equip_MotionEntrySlotHookB
-            0x140A29780ull, // EquipIdTable_GetEquipTypeId
+            0x144EB9920ull, // Equip_MotionEntrySlotHookA
+            0x144EBAC50ull, // Equip_MotionEntrySlotHookB
+            0x1480DE9B0ull, // EquipIdTable_GetEquipTypeId
             0x1414404B0ull, // Soldier2InterrogateUtil_UpdateInterrogation
             0x141441E90ull, // Soldier2InterrogateUtil_UpdateInterrogationMarker
             0x1484DA340ull, // SoundControllerImpl_CallVoice
@@ -890,8 +1015,8 @@ namespace AddressSetRuntime
             0x14957B690ull, // MotionLoaderImpl_GetBarrelType
             0x142349690ull, // MotionLoaderImpl_MagazineTypeTable
             0x14957C9A0ull, // MotionLoaderImpl_GetMagazineType
-            0x142349750ull, // MotionLoaderImpl_SightTypeTable
-            0x14957D970ull, // MotionLoaderImpl_GetSightType
+            0x142349750ull, // MotionLoaderImpl_StockTypeTable
+            0x14957D970ull, // MotionLoaderImpl_GetStockType
             0x14120B135ull, // TppPickable_ItemWindowBoundSite
             0x140914220ull, // UiUtility_GetWeaponItemNameLangId
             0x140983615ull, // SoundPlayerAnimEvent_StepNoiseQuietCmp
@@ -953,20 +1078,20 @@ namespace AddressSetRuntime
             0x14CFFA3A0ull, // DemoPlayback_DoFinish
             0x14CFFA6A0ull, // DemoPlayback_DoInterrupt
             0x140975200ull, // UpdateMusicPlayer
-            0ull, // GameObject_GetGameObjectIdWithName
-            0ull, // Vehicle_GetConnectPointWorldMatrix
+            0x148A57EA0ull, // GameObject_GetGameObjectIdWithName
+            0x14124AB50ull, // Vehicle_GetConnectPointWorldMatrix
             0x14127A570ull, // Player_SequentialDemoActionExecute
             0x14127A9B0ull, // Player_SequentialDemoActionOnSignal
-            0ull, // Fox_GameObjectManager_GetSharedInstance
+            0x140BF9A30ull, // Fox_GameObjectManager_GetSharedInstance
             0x14229B720ull, // GameObjectType_Horse2_Vtable
             0x1422C5440ull, // GameObjectType_Heli2_Vtable
             0x1422C4A20ull, // GameObjectType_HeliAlt_Vtable
             0x1422CA630ull, // GameObjectType_WalkerGear2_Vtable
             0x1422E5C80ull, // AnimationControllerImpl_Vtable
             0x1422FAFE0ull, // HeliAnimationControllerImpl_Vtable
-            0ull, // MotionLoaderImpl_GetMtarIds
-            0ull, // MotionLoaderImpl_GetMtarFilePath
-            0ull, // MotionLoaderImpl_GetBlockPackagePath
+            0x14957CE70ull, // MotionLoaderImpl_GetMtarIds
+            0x14957CB60ull, // MotionLoaderImpl_GetMtarFilePath
+            0x14957BDB0ull, // MotionLoaderImpl_GetBlockPackagePath
             0x141049450ull, // AttackAction_GetGunMotionIdFromTable
             0x141046670ull, // AttackAction_GetEquipMotionIdFromTable
             0x14104C160ull, // AttackAction_GetNormalGripMotionId
@@ -984,6 +1109,7 @@ namespace AddressSetRuntime
             0x141049CF0ull, // AttackAction_GetHandgunOneHandMotionId
             0x141051020ull, // AttackAction_GetSubMachinegunOneHandMotionId
             0x141050690ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x141050520ull, // AttackAction_GetStepReloadHandgunMotionId
             0x141056830ull, // AttackAction_ResetMissionPrepareGripMotion
             0x14104C4A0ull, // AttackAction_GetNormalMotionIdByCategory
             0x141043F80ull, // AttackAction_GetAssaultMotionIdTable
@@ -996,13 +1122,139 @@ namespace AddressSetRuntime
             0x141046BF0ull, // AttackAction_GetGrenadeLauncherMotionIdTable
             0x14104BE90ull, // AttackAction_GetMissileMotionIdTable
             0x141051CC0ull, // AttackAction_GetChaseMotionIdTable
-            0ull, // EquipMotionDataTable_ReloadEquipMotionData2
+            0x14800B500ull, // EquipMotionDataTable_ReloadEquipMotionData2
             0x1416C378Dull, // MissionPreparationCallbackImpl_Start_PlayBgmEvent
             0x1416C6BF9ull, // MissionPreparationCallbackImpl_Update_StopBgmEvent
             0x1416C6F1Eull, // MissionPreparationCallbackImpl_Update_StopBgmEvent2
             0x1416C3510ull, // MissionPreparationCallbackImpl_Start
             0x1416C4080ull, // MissionPreparationCallbackImpl_Update
             0x142c1d990ull, // Soldier2FaceSystem_Instance
+            0x140F813D0ull, // StaffControllerImpl_AddStaffShort
+            0x140F81710ull, // StaffControllerImpl_AddStaffFull
+            0x14835FB80ull, // tpp::mbm::impl::StaffIdToFaceId
+            0x140F97F30ull, // tpp::mbm::impl::StaffControllerImpl::StaffSeedToFaceTexturePathId
+            0x14B05BFB0ull, // tpp::ui::menu::mbm::impl::StaffListCallbackImpl::RefreshFaceRecord
+            0x141DEF540ull, // fox::ui::WindowFactoryCollector::FindWindowFactory
+            0x141DAB760ull, // fox::ui::WindowFunction::CreateWindow
+            0x140867880ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle
+            0x14DFDD520ull, // fox::ui::WindowFactoryCollector::FindWindowFactory (implementation reached through thunk)
+            0x14772F5C0ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle (implementation reached through thunk)
+            0x1409ECA0Dull, // CalcFv2ResourceManagerInfoForFace
+            0x1409ED2A1ull, // ConvertExtendFaceFova2PathToFovaFile
+            0x1409ED8B5ull, // ConvertFova2PathToFovaFileForProg
+            0x147FCBA27ull, // GetFaceFovaFpkPathIdArrayAtFaceId
+            0x147FCBF99ull, // GetFaceFovaFpkPathIdAtFaceId
+            0x147FCC317ull, // GetFaceFovaPathIdArrayAtFaceId
+            0x147FCC629ull, // GetFaceFovaPathIdAtFaceId
+            0x1409EFED5ull, // GetFaceFpkFileCodeListImpl
+            0x1409F00C4ull, // GetFaceFpkFileCodeListImpl
+            0x147FCF71Eull, // GetHairFovaPathIdAtFaceId
+            0x1409F2AD3ull, // PushFaceFovaFpk
+            0x1409F3B30ull, // SetFaceFovaDefinitionTableImpl
+            0x1409F4360ull, // SetFovaFileTable
+            0x140A3AE00ull, // EquipParameterTablesImpl::GetAmmoParameterBlock
+            0x1482C4EC0ull, // WalkerGearSystemImpl::GetSubWeaponLoadAmmoMax
+            0x14934AA90ull, // BuddyQuietEquipControllerImpl::SetupCurrentSlot
+            0x149AF68D0ull, // HostageEquipControllerImpl::SetupCurrentSlot
+            0x14AADB580ull, // SoldierEquipControllerImpl::SetupCurrentSlot
+            0x14B34C750ull, // BossQuietEquipControllerImpl::SetupCurrentSlot
+            0x140F666D0ull, // EquipDevelopControllerImpl::GetBulletCountMagazine
+            0x140F66800ull, // EquipDevelopControllerImpl::GetBulletCountMax
+            0x149F1B570ull, // EquipDevelopControllerImpl::GetBulletType
+            0x140DC376Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (receiver)
+            0x140DC3964ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (barrel)
+            0x140DC3B3Aull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (magazine)
+            0x140DC3AE1ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (stock)
+            0x140DC3B7Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (muzzleOption)
+            0x140DC3CDCull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight)
+            0x140DC3D60ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight2)
+            0x140DC3BF1ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash1)
+            0x140DC3C4Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash2)
+            0x140DC3DB0ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrel)
+            0x140DC3E36ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrelCmp)
+            0x140EE9540ull, // InventoryImpl::CalcAmmoAndStockIfPickUp
+            0x1480DEE30ull, // EquipIdTableImpl::GetRootParameterId
+            0x149F0FFE0ull, // DeployControllerImpl::GenerateDeployMission
+            0x149F07500ull, // DeployControllerImpl::AddLogMission
+            0x149F10500ull, // DeployControllerImpl::GenerateDeployMissionInfoOffline
+            0x149F0DD60ull, // DeployControllerImpl::CreateDeployMissionSeedParam
+            0x140F63110ull, // DeployControllerImpl::GetDeployMissionNameMessageId
+            0x140F62B90ull, // DeployControllerImpl::GetDeployMissionCaptionMessageId
+            0x149F11420ull, // DeployControllerImpl::GetDeployMissionNameKeyId
+            0x140F64120ull, // DeployControllerImpl::RefreshMissionList
+            0x149F0FE00ull, // DeployControllerImpl::GetNextRandomMissionId
+            0x140F61210ull, // DeployControllerImpl::CompletedDeployMissionOffline
+            0x140AB0250ull, // MotherBaseManagementSystemImpl::SetupAfterRestoreFromSVars
+            0x140F77790ull, // PoolRewardControllerImpl::GeneratePoolRewardsInfo
+            0x14AF22560ull, // CombatDeployCallbackImpl::RefreshMissionIconInGlobe
+            0x1413dce50ull, // NoticeAntiBuddyWalkerGearAiImpl::ShouldSleep
+            0x14a9f97c0ull, // CombatAntiBuddyWalkerGearAiImpl::UpdatePrimaryTarget
+            0x14138ece0ull, // AttackActionImpl::HasOtherSoldierOnVec
+            0x140d30ed0ull, // Bullet3Impl::OnOffenseHit
+            0x14145f870ull, // soldier DamageHandlerImpl::ProcessDamages
+            0x14136E0F0ull, // Soldier2Impl::UpdateMarkers
+            0x141644B50ull, // CombatDeployMissionListRecordCallFunc::Refresh
+            0x14164AD40ull, // SetRevengeIcon
+            0x1413e0230ull, // CombatAntiBuddyWalkerGearAiImpl::StepSurprise
+            0x143F8E060ull, // AK::MemoryMgr::Malloc
+            0x143F8DDF0ull, // AK::MemoryMgr::Malign
+            0x143F8BDA0ull, // AK::MemoryMgr::Free
+            0x142B9EC18ull, // AK::MemoryMgr::s_pMemPools
+            0x142A0223Cull, // g_DefaultPoolId
+            0x142B9EB1Cull, // g_PrepareEventMemoryPoolID
+            0x14a984bc0ull, // Soldier2Util::SearchActiveMember
+            0x1413e15c0ull, // CombatAntiBuddyWalkerGearAiImpl::UpdateSnipeTarget
+            0x1415a78a0ull, // WalkerGearActionImpl::HasOtherSoldierOnVec
+            0x141647440ull, // CombatDeployCallbackImpl::RefreshMissionList
+            0x14086E150ull, // MbTopMenuSelectorEv::UpdateMenuNotice
+            0x1414df3c0ull, // NoticeControllerImpl::CheckNoiseNoticeSoldier
+            0x14ab9a240ull, // NoticeDownComradeAiImpl::ShouldSleep
+            0x14ad7a540ull, // VehicleNoticeDownComradeAiImpl::ShouldSleep
+            0x14155C6D0ull, // RideVehicleActionImpl::HasOtherSoldierOnVec
+            0x1414AABB0ull, // LifeControllerImpl::SendStatusMessage
+            0x14A9F3F50ull, // CombatAntiBuddyWalkerGearAiImpl::CheckGrenade
+            0x1411FC770ull, // IDroidActionPluginImpl::CloseState
+            0x1411FBF10ull, // IDroidActionPluginImpl::Deactivate
+            0x140DC42A0ull, // EquipSystemImpl::SetItemVisible
+            0x1411FA940ull, // IDroidActionPluginImpl::IsPutAwayInterrupted
+            0x1411FB710ull, // IDroidActionPluginImpl::IsOtherAvatar
+            0x14D6B3B80ull, // MotionGraphBlendNodeTraverser leaf clip-id read
+            0x141A6C6B0ull, // AnimControl::GetAnimFileFromGaniPath
+            0x141002B50ull, // player action plugin GetStance (1 stand, 2 squat, 3 crawl, 4 supine)
+            0x141181E93ull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x141181F4Dull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x1411817A9ull, // CureActionPluginImpl::StateCure GetStance call
+            0x141181AC9ull, // CureActionPluginImpl::StateCureEnd body GetStance call
+            0x1410A20A0ull, // BasicActionImpl::SelectWakeupState
+            0x141180E90ull, // CureActionPluginImpl::FinishCureSprayEffect
+            0x141181630ull, // CureActionPluginImpl::StateCure
+            0x14110FF20ull, // CallMenuManagerImpl::UpdateCommandSetInterrogation
+            0x141362180ull, // Soldier2Impl::ProcessSignal
+            0x141513570ull, // NoticeNoiseAiImpl::SearchSpecificComrade
+            0x1414DDFB0ull, // NoticeControllerImpl::CheckForceNotice
+            0x14A2461E0ull, // CallMenuManagerImpl::UpdateInShowing
+            0x141110AE0ull, // CallMenuCommandSet::UpdateState
+            0x1411103D0ull, // CallMenuManagerImpl::UpdateCommandSetRescueBoy
+            0x141369B80ull, // soldier::ActionController::SetCommand
+            0x141520C10ull, // NoticeNoiseAiImpl::StepMovePause
+            0x149AD7830ull, // hostage CoreAiImpl::SetSpecialActionParam
+            0x140EDB740ull, // hostage SpecialActionImpl::State_SpecialIdle
+            0x14B284AF0ull, // ui::hud::CallMenuImpl::UpdateOption
+            0x14B284F50ull, // ui::hud::CallMenuImpl::UpdateSelectDoc
+            0x14A241BF0ull, // CallMenuManagerImpl::ShowCallMenu
+            0x142B743B0ull, // fox::gr::dg::MaterialManager::s_Instance (data)
+            0x142B743A8ull, // fox::gr::dg::ShaderTechniqueManager::s_Instance (data)
+            0x14952EF60ull, // cp::RadioControllerImpl::StepRadioNoResponse
+            0x14952F810ull, // cp::RadioControllerImpl::StepRadioWaitResponse
+            0x140D580D0ull, // cp::CommandPost2Impl::Controller_RequestRadioByMember_
+            0x14948EB90ull, // cp::CommandPost2Impl::Controller_SetRadioMemberReady_
+            0x14948BCC0ull, // cp::CommandPost2Impl::Controller_ReleaseRadioByMember_
+            0x140D5AF90ull, // cp::CommandPost2Impl::FinishRadio
+            0x140DA1CA0ull, // cp::RadioControllerImpl::StepRadio
+            0x140D58910ull, // cp::CommandPost2Impl::Controller_UpdateRadio_
+            0x140D62510ull, // cp::CommandPost2Impl::RequestRadioByCp
+            0x14952EC50ull, // cp::RadioControllerImpl::StepIdle
+            0x140D58A80ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
         };
 
         return value;

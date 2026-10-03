@@ -11,6 +11,7 @@ extern "C" {
 #include "V_PlayerLib.h"
 #include "PlayerFunctions.h"
 #include "OutfitLuaBindings.h"
+#include "CallMenuLuaBindings.h"
 
 namespace
 {
@@ -35,10 +36,26 @@ namespace
         { "SetQuietHoldCqc",                          l_SetQuietHoldCqc },
         { "SetQuietInterrogate",                      l_SetQuietInterrogate },
 
+        { "AddCallMenuItem",                          l_AddCallMenuItem },
+        { "GetCallMenuItem",                          l_GetCallMenuItem },
+        { "EnableCallMenuItem",                       l_EnableCallMenuItem },
+        { "DisableCallMenuItem",                      l_DisableCallMenuItem },
+        { "ShowCallMenuItem",                         l_ShowCallMenuItem },
+        { "HideCallMenuItem",                         l_HideCallMenuItem },
+        { "ResetCallMenuItem",                        l_ResetCallMenuItem },
+        { "ResetAllCallMenuItems",                    l_ResetAllCallMenuItems },
+        { "SetCallMenuItemInPlaceOf",                 l_SetCallMenuItemInPlaceOf },
+
         { "RegisterOutfit",                           l_RegisterOutfit },
         { "RegisterHeadOption",                       l_RegisterHeadOption },
         { "ExtendVanillaOutfit",                      l_ExtendVanillaOutfit },
         { "GetOutfitInfo",                            l_GetOutfitInfo },
+        { "GetHeadOptionSlot",                        l_GetHeadOptionSlot },
+        { "GetHeadOptions",                           l_GetHeadOptions },
+        { "PlayHeadMotion",                           l_PlayHeadMotion },
+        { "PlayHeadEffect",                           l_PlayHeadEffect },
+        { "StopHeadEffect",                           l_StopHeadEffect },
+        { "PlayHeadSound",                            l_PlayHeadSound },
 
         { nullptr,          nullptr }
     };

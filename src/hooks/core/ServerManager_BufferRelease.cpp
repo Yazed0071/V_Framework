@@ -65,10 +65,7 @@ namespace
             if (!g_Reported)
             {
                 g_Reported = true;
-                Log("[ServerManager] the menu teardown asked the online server manager to "
-                    "release its buffer while that singleton is already gone - the release "
-                    "is skipped, because running it reads through a null pointer and takes "
-                    "the process down mid-shutdown\n");
+                LogWarn("ServerManager: BufferRelease with singleton gone, release skipped");
             }
             return;
         }
@@ -92,9 +89,7 @@ bool Install_ServerManagerBufferRelease()
         ResolveInstanceSlot(reinterpret_cast<const std::uint8_t*>(target)));
     if (!g_Instance)
     {
-        Log("[ServerManager] ERROR: %p does not open with the expected singleton load, so "
-            "the teardown guard was not installed - a shutdown with no online session can "
-            "still fault there\n", target);
+        LogError("ServerManager: %p has no singleton load, teardown guard off", target);
         return false;
     }
 
@@ -102,8 +97,7 @@ bool Install_ServerManagerBufferRelease()
                              reinterpret_cast<void**>(&g_Orig)))
     {
         g_Orig = nullptr;
-        Log("[ServerManager] ERROR: the teardown guard was refused at %p - a shutdown with "
-            "no online session can still fault there\n", target);
+        LogError("ServerManager: teardown guard hook failed @ %p", target);
         return false;
     }
 

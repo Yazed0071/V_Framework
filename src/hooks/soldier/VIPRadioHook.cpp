@@ -86,12 +86,6 @@ static std::uint16_t GameObjectIdToSoldierIndex(std::uint32_t gameObjectId)
 }
 
 
-static const char* YesNo(bool value)
-{
-    return value ? "YES" : "NO";
-}
-
-
 static std::uint16_t NormalizeSoldierIndex(std::uint32_t gameObjectId, std::uint16_t soldierIndex)
 {
     if (soldierIndex != 0 && soldierIndex <= 0x00FFu)
@@ -371,7 +365,7 @@ bool Install_VIPRadio_Hook()
 
     if (!g_CallImpl || !requestCorpseTarget || !callWithRadioTypeTarget)
     {
-        Log("[Hook] VIPRadio: address resolve failed\n");
+        LogError("VIPRadio: addresses missing for this build, VIP body-found radio off");
         return false;
     }
 
@@ -387,12 +381,8 @@ bool Install_VIPRadio_Hook()
         reinterpret_cast<void*>(&hkCallWithRadioType),
         reinterpret_cast<void**>(&g_OrigCallWithRadioType));
 
-#ifdef _DEBUG
-    Log("[Hook] VIPRadio: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] VIPRadio: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("VIPRadio: hooks failed, VIP body-found radio off");
     return ok;
 }
 

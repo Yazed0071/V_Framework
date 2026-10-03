@@ -35,6 +35,15 @@ namespace EquipIdCompression
     static_assert(kItemBandLast + 1 == kWeaponBandFirst,
                   "band split must be contiguous");
 
+    constexpr std::int32_t kItemHandWindowFirst = 0x1C2;
+    constexpr std::int32_t kItemHandWindowLast  = 0x209;
+
+    inline bool IsLegalNativeCustomId(std::int32_t equipId)
+    {
+        return equipId >= kItemBandFirst && equipId <= kItemBandLast
+            && (equipId < kItemHandWindowFirst || equipId > kItemHandWindowLast);
+    }
+
     void  MarkCompressedSlotUsed(std::int32_t compressed);
     void  ClearCompressedSlotUsed(std::int32_t compressed);
     bool  IsCompressedSlotUsed(std::int32_t compressed);
@@ -45,9 +54,19 @@ namespace EquipIdCompression
     constexpr std::int32_t kChimeraEquipIdLast  = 0x36C;
 
 
-    constexpr std::int32_t kExtendedEquipIdFirst = kCompressedSlotBound;   // 0x289
-    constexpr std::int32_t kExtendedEquipIdLast  = 0xFFFF;
+    constexpr std::int32_t kNoEquipId            = 0x7FF;
+    constexpr std::int32_t kExtendedEquipIdFirst = kCompressedSlotBound;
+    constexpr std::int32_t kExtendedEquipIdLast  = kNoEquipId - 1;
     constexpr std::int32_t kExtendedAllocFirst   = 0x700;
+    constexpr std::int32_t kExtendedAllocLast    = kExtendedEquipIdLast;
+
+    static_assert(kExtendedAllocLast < kNoEquipId,
+                  "0x7FF is the engine's no-equip value: equip handles, pickable "
+                  "info and player EquipState all carry the equipId in 11 bits, so "
+                  "an allocated 0x7FF reads as an empty slot and anything above it "
+                  "truncates onto a vanilla equipId");
+    static_assert(kExtendedAllocLast <= kExtendedEquipIdLast,
+                  "allocation must stay inside the extended storage range");
     constexpr std::int32_t kExtendedFoldedFirst  =
         ComputeCompressed(kExtendedAllocFirst);
     constexpr std::int32_t kExtendedFoldedLast   =

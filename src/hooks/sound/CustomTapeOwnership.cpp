@@ -112,6 +112,9 @@ static std::uint8_t* ResolveLiveCassetteFlagTable();
 static void ApplyCustomTapeStateToLiveTable(std::int16_t saveIndex, bool owned, bool isNew);
 
 
+static void NudgeCassetteBadgeRefresh();
+
+
 static bool ResolveLuaHelpers()
 {
     if (!g_lua_isstring)
@@ -393,7 +396,7 @@ static bool SaveCustomTapeStateToDisk()
     std::ofstream file(path, std::ios::out | std::ios::trunc);
     if (!file.is_open())
     {
-        Log("[CustomTapeState] ERROR: could not write '%s' - custom-tape owned/new state will not persist across launches.\n", path.c_str());
+        LogError("CustomTapeState: could not write '%s', tape owned/new state will not persist", path.c_str());
         return false;
     }
 
@@ -1104,6 +1107,23 @@ static void* CallGetTrackInfoByAlbumAndIndex(void* soundMusicPlayer, std::uint64
 }
 
 
+static void RevealTapeOnAcquire(std::int16_t saveIndex)
+{
+    if (saveIndex < 0)
+        return;
+
+    bool revealed = false;
+
+    {
+        std::lock_guard<std::mutex> lock(g_CustomTapeStateMutex);
+        revealed = g_HiddenTapeSaveIndices.erase(static_cast<int>(saveIndex)) > 0;
+    }
+
+    if (revealed)
+        NudgeCassetteBadgeRefresh();
+}
+
+
 static void FlushCustomTapeStateIfChanged(bool ownedChanged, bool newChanged, bool metadataChanged)
 {
     if (ownedChanged || newChanged || metadataChanged)
@@ -1120,7 +1140,11 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrack(lua_State* luaState)
     void* trackInfo = ResolveTrackInfoByName(trackName);
     std::int16_t saveIndex = -1;
 
-    if (!TryGetTrackSaveIndex(trackInfo, saveIndex) || !IsCustomTapeSaveIndex(saveIndex))
+    const bool haveSaveIndex = TryGetTrackSaveIndex(trackInfo, saveIndex);
+    if (haveSaveIndex)
+        RevealTapeOnAcquire(saveIndex);
+
+    if (!haveSaveIndex || !IsCustomTapeSaveIndex(saveIndex))
         return g_OrigAddCassetteTapeTrack ? g_OrigAddCassetteTapeTrack(luaState) : 0ull;
 
     bool metadataChanged = false;
@@ -1143,6 +1167,7 @@ static std::uint64_t __cdecl hkAddCassetteTapeTrackByIndex(lua_State* luaState)
     if (g_lua_tointeger)
     {
         const std::int16_t saveIndex = static_cast<std::int16_t>(g_lua_tointeger(luaState, 1));
+        RevealTapeOnAcquire(saveIndex);
         if (IsCustomTapeSaveIndex(saveIndex))
         {
             const bool ownedChanged = SetCustomTapeOwnedSaveIndex(saveIndex, true);
@@ -1299,6 +1324,9 @@ void Set_CassetteTapeOwned(std::int16_t saveIndex, bool owned)
 
     if (!IsCustomTapeSaveIndex(saveIndex))
         return;
+
+    if (owned)
+        RevealTapeOnAcquire(saveIndex);
 
     const bool changed = SetCustomTapeOwnedSaveIndex(saveIndex, owned);
     ApplyCustomTapeStateToLiveTable(saveIndex, owned, IsCustomTapeNewFlagSaveIndex(saveIndex));
@@ -1852,7 +1880,7 @@ bool Install_CustomTapeOwnership_Hooks()
                 reinterpret_cast<void*>(&hkIsNewCassetteTapeTrack),
                 reinterpret_cast<void**>(&g_OrigIsNewCassetteTapeTrack)))
         {
-            Log("[CustomTapes] ERROR: failed to hook IsNewCassetteTapeTrack - custom tapes' per-track 'new' tags and in-menu new-count will be wrong.\n");
+            LogError("CustomTapes: IsNewCassetteTapeTrack hook failed, custom tape new tags and count wrong");
         }
     }
 
@@ -1863,7 +1891,7 @@ bool Install_CustomTapeOwnership_Hooks()
                 reinterpret_cast<void*>(&hkCassetteMenuCheckNewFlag),
                 reinterpret_cast<void**>(&g_OrigCassetteMenuCheckNewFlag)))
         {
-            Log("[CustomTapes] ERROR: failed to hook CheckNewFlag - custom tapes will not show the per-track NEW tag in the menu.\n");
+            LogError("CustomTapes: CassetteMenuCheckNewFlag hook failed, no per-track NEW tag");
         }
     }
 
@@ -1874,7 +1902,7 @@ bool Install_CustomTapeOwnership_Hooks()
                 reinterpret_cast<void*>(&hkCassetteAlbumCheckNewFlag),
                 reinterpret_cast<void**>(&g_OrigCassetteAlbumCheckNewFlag)))
         {
-            Log("[CustomTapes] ERROR: failed to hook album CheckNewFlag - custom albums will not show the category NEW mark.\n");
+            LogError("CustomTapes: CassetteAlbumCheckNewFlag hook failed, no album NEW mark");
         }
     }
 
@@ -1885,7 +1913,7 @@ bool Install_CustomTapeOwnership_Hooks()
                 reinterpret_cast<void*>(&hkCassetteCheckUnreadInfo),
                 reinterpret_cast<void**>(&g_OrigCassetteCheckUnreadInfo)))
         {
-            Log("[CustomTapes] ERROR: failed to hook CheckUnreadInfo - custom tapes will not show the category tab unread count.\n");
+            LogError("CustomTapes: CassetteCheckUnreadInfo hook failed, no category unread count");
         }
     }
 
@@ -1896,20 +1924,20 @@ bool Install_CustomTapeOwnership_Hooks()
                 reinterpret_cast<void*>(&hkGetCassetteTapeUnreadInfo),
                 reinterpret_cast<void**>(&g_OrigGetCassetteTapeUnreadInfo)))
         {
-            Log("[CustomTapes] ERROR: failed to hook GetCassetteTapeUnreadInfo - unowned custom tapes may show a phantom 'new' badge in the cassette menu.\n");
+            LogError("CustomTapes: GetCassetteTapeUnreadInfo hook failed, phantom new badge possible");
         }
     }
 
     if (!okAdd)
-        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrack - custom tapes cannot be marked owned when picked up.\n");
+        LogError("CustomTapes: AddCassetteTapeTrack hook failed, picked-up custom tapes not marked owned");
     if (!okAddByIndex)
-        Log("[CustomTapes] ERROR: failed to hook AddCassetteTapeTrackByIndex - custom tapes cannot be granted by save-index.\n");
+        LogError("CustomTapes: AddCassetteTapeTrackByIndex hook failed, grant by save index off");
     if (!okIsGot)
-        Log("[CustomTapes] ERROR: failed to hook IsGotCassetteTapeTrack - custom tapes will report wrong owned state.\n");
+        LogError("CustomTapes: IsGotCassetteTapeTrack hook failed, custom tape owned state wrong");
     if (!okSetNew)
-        Log("[CustomTapes] ERROR: failed to hook SetCassetteTapeTrackNewFlag - custom tapes' new-flag will not update.\n");
+        LogError("CustomTapes: SetCassetteTapeTrackNewFlag hook failed, custom tape new flag frozen");
     if (!okCollect)
-        Log("[CustomTapes] ERROR: failed to hook CollectGotTapes - owned custom tapes will not show in the cassette menu.\n");
+        LogError("CustomTapes: CollectGotTapes hook failed, owned custom tapes hidden in menu");
 
     return okAdd && okIsGot && okSetNew && okCollect;
 }

@@ -2,7 +2,6 @@
 #include "utility_GetIconFtexPath.h"
 
 #include <Windows.h>
-#include <atomic>
 #include <cstdint>
 #include <unordered_map>
 #include <mutex>
@@ -43,20 +42,6 @@ void EquipIcon_ClearAllIconFtexPaths()
 }
 
 
-#ifdef _DEBUG
-static std::atomic<int> g_IconProbeRemaining{0};
-#endif
-
-void EquipIcon_DebugArmProbe(int calls)
-{
-#ifdef _DEBUG
-    g_IconProbeRemaining.store(calls, std::memory_order_relaxed);
-    LogDebug("[IconProbe] armed for next %d GetIconFtexPath calls\n", calls);
-#else
-    (void)calls;
-#endif
-}
-
 static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::uint32_t equipId, int mode)
 {
     {
@@ -65,28 +50,11 @@ static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::
         if (it != g_PerEquipIconPaths.end())
         {
             *outPathId = static_cast<std::int64_t>(it->second);
-#ifdef _DEBUG
-            if (g_IconProbeRemaining.fetch_sub(1, std::memory_order_relaxed) > 0)
-                LogDebug("[IconProbe] equipId=%u mode=%d -> OVERRIDE hash=0x%016llX\n",
-                    equipId, mode,
-                    static_cast<unsigned long long>(it->second));
-            else
-                g_IconProbeRemaining.store(0, std::memory_order_relaxed);
-#endif
             return outPathId;
         }
     }
 
-    std::int64_t* r = g_OrigGetIconFtexPath(outPathId, equipId, mode);
-#ifdef _DEBUG
-    if (g_IconProbeRemaining.fetch_sub(1, std::memory_order_relaxed) > 0)
-        LogDebug("[IconProbe] equipId=%u mode=%d -> orig hash=0x%016llX\n",
-            equipId, mode,
-            r ? static_cast<unsigned long long>(*r) : 0ull);
-    else
-        g_IconProbeRemaining.store(0, std::memory_order_relaxed);
-#endif
-    return r;
+    return g_OrigGetIconFtexPath(outPathId, equipId, mode);
 }
 
 
@@ -100,7 +68,7 @@ bool Install_EquipIconFtexPath_Hook()
     void* target = ResolveGameAddress(gAddr.GetIconFtexPath);
     if (!target)
     {
-        Log("[EquipIcon] target resolve failed\n");
+        LogError("EquipIcon: GetIconFtexPath address missing for this build, custom equip icons off");
         return false;
     }
 
@@ -109,14 +77,11 @@ bool Install_EquipIconFtexPath_Hook()
         reinterpret_cast<void*>(&hkGetIconFtexPath),
         reinterpret_cast<void**>(&g_OrigGetIconFtexPath)))
     {
-        Log("[EquipIcon] hook install failed\n");
+        LogError("EquipIcon: GetIconFtexPath hook failed, custom equip icons off");
         return false;
     }
 
     g_EquipIconFtexPathHookInstalled = true;
-#ifdef _DEBUG
-    LogDebug("[EquipIcon] hook installed\n");
-#endif
     return true;
 }
 
@@ -132,9 +97,5 @@ bool Uninstall_EquipIconFtexPath_Hook()
 
     g_OrigGetIconFtexPath = nullptr;
     g_EquipIconFtexPathHookInstalled = false;
-
-#ifdef _DEBUG
-    LogDebug("[EquipIcon] hook removed\n");
-#endif
     return true;
 }

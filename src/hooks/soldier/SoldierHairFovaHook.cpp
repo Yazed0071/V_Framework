@@ -6,7 +6,6 @@
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "AddressSet.h"
-#include "log.h"
 #include "SoldierHairFovaHook.h"
 
 namespace
@@ -92,13 +91,6 @@ bool Install_SoldierHairFova_Hook()
     const bool ok = HookOne(gAddr.RealizedSoldier2Impl_UpdateHeadEquipMesh,
                             reinterpret_cast<void*>(&hk_UpdateFaceFovaMesh),
                             reinterpret_cast<void**>(&g_OrigFaceUpdate));
-
-#ifdef _DEBUG
-    LogDebug("[HairFova] install: FaceUpdate=%s GetFovaMgr=%s GetFovaModel=%s headEquipSrc=soldierData+0x5c\n",
-        gAddr.RealizedSoldier2Impl_UpdateHeadEquipMesh ? "set" : "0",
-        g_GetFovaResMgr ? "ok" : "NULL",
-        g_GetFovaModel ? "ok" : "NULL");
-#endif
     return ok;
 }
 

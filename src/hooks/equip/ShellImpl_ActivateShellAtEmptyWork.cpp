@@ -141,27 +141,15 @@ namespace
         if (replacement == 0)
         {
             if (first)
-                Log("[ShellGuard] magazine id %u has no row in the engine's shell table and no "
-                    "vanilla magazine carries its bullet %d, so nothing sane can stand in - the "
-                    "shot is dropped instead of faulting. Give the magazine a vanilla bulletId, "
-                    "or a bulletId a vanilla magazine also uses\n",
-                    id, bulletId);
+                LogWarn("ShellGuard: magazine %u has no shell row and no vanilla magazine "
+                        "fires bullet %d, shot dropped; use a vanilla bulletId", id, bulletId);
             return kNoShellIndex;
         }
 
-        if (first)
-        {
-            if (matchedBullet > 0)
-                Log("[ShellGuard] magazine id %u is past the engine's %d-entry shell table, so its "
-                    "projectile had no parameters - borrowing vanilla magazine %u, the one that "
-                    "fires the same bullet %d, so the shot flies and detonates like that round\n",
-                    id, kScanLast, replacement, matchedBullet);
-            else
-                Log("[ShellGuard] magazine id %u is past the engine's shell table and no vanilla "
-                    "magazine fires its bullet %d - falling back to magazine %u, whose projectile "
-                    "parameters are arbitrary; set a vanilla bulletId to get the right ones\n",
+        if (first && matchedBullet <= 0)
+            LogWarn("ShellGuard: magazine %u has no shell row and no vanilla magazine fires "
+                    "bullet %d, using magazine %u; use a vanilla bulletId",
                     id, bulletId, replacement);
-        }
 
         if (!WriteU16SEH(desc, kDescEquipId, static_cast<std::uint16_t>(replacement)))
             return kNoShellIndex;
@@ -183,8 +171,8 @@ bool ShellActivateGuard_Install()
     if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hkActivateShellAtEmptyWork),
                              reinterpret_cast<void**>(&g_Orig)))
     {
-        Log("[ShellGuard] ERROR: ActivateShellAtEmptyWork hook failed at %p - firing a launcher "
-            "whose shell id has no equip row still faults inside the engine\n", target);
+        LogError("ShellGuard: ActivateShellAtEmptyWork hook failed at %p, custom launcher "
+                 "shells can fault", target);
         return false;
     }
     g_Target = target;

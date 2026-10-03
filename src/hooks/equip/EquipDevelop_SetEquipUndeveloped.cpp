@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <algorithm>
@@ -229,8 +230,7 @@ namespace
         g_AnnouncingDevelopId.store(0, std::memory_order_relaxed);
 
         if (!ok)
-            Log("[EquipDevelop] announce FAILED: \"%s\" (developId=%d)\n",
-                text.c_str(), developId);
+            LogWarn("EquipDevelop: developId %d requirements-met announce faulted, not shown", developId);
     }
 
     static std::uint16_t SafeGetIndex(GetEquipDevelopIndex_t getIndex,
@@ -238,18 +238,6 @@ namespace
     {
         __try { return getIndex(controller, developId); }
         __except (EXCEPTION_EXECUTE_HANDLER) { return kInvalidDevelopIndex; }
-    }
-
-    static std::uint8_t SafeReadDevRecordByte(void* controller,
-                                              std::uint16_t index,
-                                              std::uint32_t byteOffset)
-    {
-        __try
-        {
-            return *(reinterpret_cast<const std::uint8_t*>(controller)
-                     + static_cast<std::size_t>(index) * 0x68 + byteOffset);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return 0xEE; }
     }
 
     static void SyncFlagFromNativeDevelop(void* controller, std::uint16_t index, bool developed)
@@ -276,11 +264,8 @@ namespace
         }
 
         if (EquipDevelopAdd::IsManagedFlowIndex(index))
-            LogDebug("[EquipDevelop] flow index %u is ours but no managed developId "
-                     "maps back to it - the %s is not written to the state file and "
-                     "reads back undeveloped after a reload\n",
-                static_cast<unsigned>(index),
-                developed ? "develop" : "undevelop");
+            LogWarn("EquipDevelop: flow index %u has no managed developId, %s not saved",
+                    static_cast<unsigned>(index), developed ? "develop" : "undevelop");
     }
 
     static bool IsDevelopIdDeveloped(void* controller, GetEquipDevelopIndex_t getIndex,
@@ -387,20 +372,21 @@ namespace
             return false;
         if (V_FrameWorkState::GetDevelopedByDevelopId(developId))
             return false;
-        if (EquipDevelop_IsDevelopTimerActive(index))
+        if (EquipDevelop_WasDevelopTimerActive(index))
             return false;
-        LogDebug("[EquipDevelop] ignored a save-replay develop bit for managed row "
-                 "(index=%u developId=%d) - the state file is authoritative\n", static_cast<unsigned>(index), developId);
         return true;
     }
 
     static void __fastcall hkSetEquipDeveloped(void* controller, std::uint16_t index)
     {
+        const bool timerProof =
+            EquipDevelopAdd::IsManagedFlowIndex(index)
+            && EquipDevelop_WasDevelopTimerActive(index);
         if (EquipDevelop_ShouldSuppressNativeDevelop(controller, index))
             return;
         if (g_OrigSetEquipDeveloped)
             g_OrigSetEquipDeveloped(controller, index);
-        EquipDevelop_NotifyNativeDevelopChanged(controller, index, true);
+        EquipDevelop_NotifyNativeDevelopChanged(controller, index, true, timerProof);
     }
 
     static void __fastcall hkSetEquipUndeveloped(void* controller, std::uint16_t index, char notify)
@@ -452,7 +438,8 @@ namespace
         auto setUndeveloped = NativeUndevelop();
         if (!getIndex || !setUndeveloped)
         {
-            LogDebug("[EquipUndevelop] native fn address not set for this build - skipped\n");
+            LogError("EquipUndevelop: native undevelop address missing for this build, developId %u skipped",
+                     developId);
             return false;
         }
 
@@ -598,10 +585,6 @@ namespace
                 continue;
 
             V_FrameWorkState::SetDevReqAnnouncedByDevelopId(developId, false);
-            LogDebug("[EquipDevelop] developId %d went from requirements-met back to "
-                     "not-met at row %u - its announce is re-armed so meeting them "
-                     "again announces once more\n",
-                     developId, static_cast<unsigned>(index));
         }
     }
 
@@ -672,22 +655,15 @@ namespace
         GetEquipDevelopIndex_t getIndex,
         SetEquipUndeveloped_t setUndeveloped,
         std::uint32_t developId,
-        bool wantDeveloped,
-        std::uint16_t* outIndex,
-        int* outBitBefore)
+        bool wantDeveloped)
     {
-        *outIndex = 0xFFFF;
-        *outBitBefore = -1;
-
         const std::uint16_t index = SafeGetIndex(getIndex, controller, developId);
-        *outIndex = index;
         if (!equip::IsValidFlowIndex(index))
             return 0;
         std::uint8_t b = 0;
         if (!equip::DevFlagsTryReadByte(controller, index, b))
             return 0;
         const int bit = (b & 1u) ? 1 : 0;
-        *outBitBefore = bit;
 
         if (wantDeveloped)
         {
@@ -726,11 +702,7 @@ bool EquipDevelop_UndevelopByDevelopId(std::uint32_t developId)
 
     void* controller = ResolveController();
     if (!controller)
-    {
-        LogDebug("[EquipUndevelop] controller not resolved (game not booted?); developId=%u skipped\n",
-            developId);
         return false;
-    }
 
     if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
     {
@@ -744,8 +716,8 @@ bool EquipDevelop_UndevelopByDevelopId(std::uint32_t developId)
         return false;
 
     if (!ok)
-        Log("[EquipUndevelop] developId=%u index=%u -> FAILED (native, persistent)\n",
-            developId, index);
+        LogWarn("EquipUndevelop: developId %u index %u native undevelop faulted",
+                developId, static_cast<unsigned>(index));
     return ok;
 }
 
@@ -756,11 +728,7 @@ bool EquipDevelop_DevelopByDevelopId(std::uint32_t developId)
 
     void* controller = ResolveController();
     if (!controller)
-    {
-        LogDebug("[EquipDevelop] controller not resolved (game not booted?); developId=%u skipped\n",
-            developId);
         return false;
-    }
 
     if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
     {
@@ -772,7 +740,8 @@ bool EquipDevelop_DevelopByDevelopId(std::uint32_t developId)
     auto setDeveloped = NativeDevelop();
     if (!getIndex || !setDeveloped)
     {
-        LogDebug("[EquipDevelop] native fn address not set for this build - skipped\n");
+        LogError("EquipDevelop: native develop address missing for this build, developId %u skipped",
+                 developId);
         return false;
     }
 
@@ -796,8 +765,8 @@ bool EquipDevelop_DevelopByDevelopId(std::uint32_t developId)
         return false;
 
     if (!ok)
-        Log("[EquipDevelop] developId=%u index=%u -> FAILED (native, persistent)\n",
-            developId, index);
+        LogWarn("EquipDevelop: developId %u index %u native develop faulted",
+                developId, static_cast<unsigned>(index));
     return ok;
 }
 
@@ -875,23 +844,17 @@ namespace
                     if (j != i && slots[j] == want) { clash = true; break; }
                 if (clash)
                 {
-                    LogDebug("[EquipDevelop] in-flight R&D timer: developId=%d "
-                             "wants flow row %u but another slot holds it - left at "
-                             "old index %d to avoid a collision\n",
-                        developId, static_cast<unsigned>(currentIndex), storedIndex);
+                    LogWarn("EquipDevelop: developId %d R&D timer cannot move to row %u (slot taken), left at %d",
+                            developId, static_cast<unsigned>(currentIndex), storedIndex);
                     continue;
                 }
 
                 slots[i] = want;
-                LogDebug("[EquipDevelop] in-flight R&D timer migrated: developId=%d "
-                         "slot %d re-pointed %d -> %u (flow row shifted between "
-                         "launches)\n",
-                    developId, i, storedIndex, static_cast<unsigned>(currentIndex));
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[EquipDevelop] in-flight R&D timer reconcile: SEH fault - skipped.\n");
+            LogWarn("EquipDevelop: fault reconciling in-flight R&D timers, skipped");
         }
     }
 }
@@ -917,20 +880,85 @@ bool EquipDevelop_IsDevelopTimerActive(std::uint16_t flowIndex)
     }
 }
 
+namespace
+{
+    std::mutex                 g_DevTimerSnapMutex;
+    std::int16_t               g_DevTimerSnap[kDevTimerSlotCount] = {};
+    std::atomic<std::uint32_t> g_DevTimerSnapTick{ 0 };
+
+    static bool CopyDevTimerSlots(std::int16_t* out)
+    {
+        std::uint8_t* svars = ResolveDevelopSaveVars();
+        if (!svars)
+            return false;
+        __try
+        {
+            std::memcpy(out, svars + kSvars_DevTimerSlots,
+                        sizeof(std::int16_t) * kDevTimerSlotCount);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void ResetDevTimerSnapshotFromLive()
+    {
+        std::int16_t live[kDevTimerSlotCount] = {};
+        if (!CopyDevTimerSlots(live))
+            return;
+        std::lock_guard<std::mutex> lock(g_DevTimerSnapMutex);
+        std::memcpy(g_DevTimerSnap, live, sizeof(g_DevTimerSnap));
+    }
+
+    static void ConsumeDevTimerSnapshot(std::uint16_t flowIndex)
+    {
+        const std::int16_t want = static_cast<std::int16_t>(flowIndex + 1);
+        std::lock_guard<std::mutex> lock(g_DevTimerSnapMutex);
+        for (int i = 0; i < kDevTimerSlotCount; ++i)
+            if (g_DevTimerSnap[i] == want)
+                g_DevTimerSnap[i] = 0;
+    }
+}
+
+void EquipDevelop_RefreshDevelopTimerSnapshot()
+{
+    const std::uint32_t now = GetTickCount();
+    if (g_DevTimerSnapTick.exchange(now, std::memory_order_relaxed) == now)
+        return;
+    std::int16_t live[kDevTimerSlotCount] = {};
+    if (!CopyDevTimerSlots(live))
+        return;
+    std::lock_guard<std::mutex> lock(g_DevTimerSnapMutex);
+    for (int i = 0; i < kDevTimerSlotCount; ++i)
+        if (live[i] != 0)
+            g_DevTimerSnap[i] = live[i];
+}
+
+bool EquipDevelop_WasDevelopTimerActive(std::uint16_t flowIndex)
+{
+    if (EquipDevelop_IsDevelopTimerActive(flowIndex))
+        return true;
+    const std::int16_t want = static_cast<std::int16_t>(flowIndex + 1);
+    std::lock_guard<std::mutex> lock(g_DevTimerSnapMutex);
+    for (int i = 0; i < kDevTimerSlotCount; ++i)
+        if (g_DevTimerSnap[i] == want)
+            return true;
+    return false;
+}
+
 void EquipDevelop_DrainPendingUndevelops()
 {
     void* controller = ResolveController();
     if (!controller)
-    {
-        LogDebug("[EquipDevelop] reconcile: controller not resolved - skipped\n");
         return;
-    }
 
     auto getIndex = NativeGetIndex();
     auto setUndeveloped = NativeUndevelop();
     if (!getIndex)
     {
-        LogDebug("[EquipDevelop] reconcile: GetEquipDevelopIndex addr unset - skipped\n");
+        LogError("EquipDevelop: GetEquipDevelopIndex address missing for this build, develop reconcile skipped");
         return;
     }
 
@@ -950,18 +978,15 @@ void EquipDevelop_DrainPendingUndevelops()
             managed.push_back({ developId, developed, isNew });
         });
 
-    unsigned newlySeen = 0;
     for (const auto& row : managed)
     {
         if (EquipDevelopAdd::IsDevelopIdParked(
                 static_cast<std::uint32_t>(row.developId)))
             continue;
 
-        std::uint16_t index = 0xFFFF;
-        int bitBefore = -1;
         ReconcileOneManaged(
             controller, getIndex, setUndeveloped,
-            static_cast<std::uint32_t>(row.developId), row.developed, &index, &bitBefore);
+            static_cast<std::uint32_t>(row.developId), row.developed);
 
         const std::uint32_t developId =
             static_cast<std::uint32_t>(row.developId);
@@ -977,62 +1002,13 @@ void EquipDevelop_DrainPendingUndevelops()
         if (row.isNew
             && TryReadNewBadge(controller, getIndex, developId, badgeShown)
             && !badgeShown)
-        {
             V_FrameWorkState::SetNewByDevelopId(row.developId, false);
-            ++newlySeen;
-        }
     }
-
-    if (newlySeen)
-        LogDebug("[EquipDevelop] %u custom develop row(s) lost their NEW badge in "
-                 "the menu and were recorded as seen - without this they are "
-                 "re-badged from the state file on every launch\n", newlySeen);
 
     SyncDevelopPrereqGates(controller, getIndex);
     AnnounceNewlyDevelopable(controller, getIndex);
     ReconcileInFlightDevelopTimers(controller, getIndex);
-
-#ifdef _DEBUG
-    {
-        unsigned mapped = 0, parkedUndeveloped = 0;
-        unsigned parkedDeveloped = 0, fobFlagged = 0;
-        for (const auto& row : managed)
-        {
-            const std::uint16_t idx = SafeGetIndex(getIndex, controller,
-                static_cast<std::uint32_t>(row.developId));
-            if (!equip::IsValidFlowIndex(idx))
-            {
-                if (row.developed)
-                {
-                    ++parkedDeveloped;
-                    LogDebug("[FobDiag] developId=%d parked (developed - windowed "
-                        "out of the R&D list; pages back in on its tab's R&D "
-                        "open)\n", row.developId);
-                }
-                else
-                {
-                    ++parkedUndeveloped;
-                }
-                continue;
-            }
-            ++mapped;
-            const std::uint8_t fobByte =
-                SafeReadDevRecordByte(controller, idx, 0x58);
-            if ((fobByte >> 7) & 1)
-            {
-                ++fobFlagged;
-                LogDebug("[FobDiag] developId=%d index=%u recByte58=0x%02X fobBit7=1 "
-                    "- this row carries the FOB/online develop bit\n",
-                    row.developId, static_cast<unsigned>(idx),
-                    static_cast<unsigned>(fobByte));
-            }
-        }
-        if (fobFlagged || parkedDeveloped)
-            LogDebug("[FobDiag] develop sync: %u mapped, %u parked-undeveloped, "
-                "%u parked-developed, %u carrying the FOB bit\n",
-                mapped, parkedUndeveloped, parkedDeveloped, fobFlagged);
-    }
-#endif
+    ResetDevTimerSnapshotFromLive();
 
     g_DevelopSyncArmed = true;
 }
@@ -1093,10 +1069,18 @@ bool EquipDevelop_ShouldSuppressNativeDevelop(void* controller, std::uint16_t in
 }
 
 void EquipDevelop_NotifyNativeDevelopChanged(void* controller, std::uint16_t index,
-                                             bool developed)
+                                             bool developed, bool timerProof)
 {
     if (!g_DevelopSyncArmed)
+    {
+        if (!developed)
+            return;
+        if (!timerProof)
+            return;
+        SyncFlagFromNativeDevelop(controller, index, true);
+        ConsumeDevTimerSnapshot(index);
         return;
+    }
     SyncFlagFromNativeDevelop(controller, index, developed);
     SyncDevelopPrereqGates(controller, NativeGetIndex());
     if (developed)
@@ -1122,10 +1106,8 @@ void EquipDevelop_InstallDevelopSyncHooks()
             reinterpret_cast<void**>(&g_OrigSetEquipUndeveloped));
 
     if (!okDev || !okUndev)
-        Log("[EquipDevelop] develop-sync hooks FAILED: SetEquipDeveloped=%s "
-            "SetEquipUndeveloped=%s - develops are not written to the state file "
-            "and read back undeveloped\n",
-            okDev ? "OK" : "FAIL", okUndev ? "OK" : "FAIL");
+        LogError("EquipDevelop: develop-sync hooks failed (SetEquipDeveloped %s, SetEquipUndeveloped %s), develops not saved",
+                 okDev ? "ok" : "failed", okUndev ? "ok" : "failed");
 }
 
 bool EquipDevelop_IsDevelopedByDevelopId(std::uint32_t developId)
@@ -1225,6 +1207,7 @@ bool EquipDevelop_SetVisibleByDevelopId(std::uint32_t developId, bool visible)
         return false;
 
     outfit::SetDevelopHidden(flowIndex, !visible);
+    outfit::NoteStaticDevelopHidden(static_cast<unsigned short>(developId), !visible);
 
     if (visible)
     {
@@ -1416,7 +1399,6 @@ namespace
     int  g_RowLabelNameOffset     = -1;
     int  g_RowLabelInfoOffset     = 0x28;
     int  g_RowLabelListNameOffset = 0x20;
-    bool g_RowLabelNameMissingLogged = false;
 
     std::uint16_t g_RowLabelFlow      = 0;
     std::uint64_t g_RowLabelSavedName = 0;
@@ -1436,6 +1418,7 @@ void EquipDevelop_SetRecordNameOffsets(int nameOff, int infoOff,
     if (listNameOff >= 0) g_RowLabelListNameOffset = listNameOff;
 }
 
-
-
-
+std::string EquipDevelop_DisplayName(std::int32_t developId)
+{
+    return ResolveDevelopDisplayName(developId);
+}

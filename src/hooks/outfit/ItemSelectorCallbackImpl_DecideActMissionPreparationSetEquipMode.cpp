@@ -7,7 +7,6 @@
 #include "CustomHeadRegistry.h"
 
 #include <cstdint>
-#include <unordered_set>
 
 #include "../equip/DevelopArrayGrow.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
@@ -36,9 +35,6 @@ namespace
 
     static SetSupplyCBoxInfo_t g_OrigSetSupplyCBoxInfo = nullptr;
     static bool                g_InstalledSetSupplyCBox = false;
-
-
-    static std::unordered_set<std::uint32_t> g_UnresolvedSuitClickLogged;
 
     constexpr std::uint32_t kEquipKindMissionPrepSuit = 0x80;
 
@@ -121,13 +117,6 @@ namespace
                 if (outfit::TryGetOutfitByFlowIndex(s.selectedId, &rowEntry)
                     && rowEntry && rowEntry != entry)
                 {
-                    Log("[OutfitItemSelector] WARN stale variant cell: selector "
-                        "0x%02X resolves to developId=%u but the clicked row is "
-                        "developId=%u - trusting the row (the byte was rotated to "
-                        "another outfit)\n",
-                        static_cast<unsigned>(s.selectorCode),
-                        static_cast<unsigned>(entry->developId),
-                        static_cast<unsigned>(rowEntry->developId));
                     entry = nullptr;
                 }
             }
@@ -218,41 +207,6 @@ namespace
                     outfit::SetPendingOutfitDevelopId(devId);
                     published = true;
                 }
-                else
-                {
-                    LogDebug("[OutfitItemSelector:%s] equip refused: live-byte "
-                             "pools full and every bound outfit is pinned - "
-                             "developId=%u stays vanilla; unequip something to free "
-                             "a slot\n", tag, static_cast<unsigned>(devId));
-                }
-            }
-            if (devId == 0 && isSuitClick)
-            {
-                const std::uint32_t sig =
-                    (static_cast<std::uint32_t>(s.selectedId) << 8)
-                    | static_cast<std::uint32_t>(s.selectorCode);
-                if (g_UnresolvedSuitClickLogged.insert(sig).second)
-                {
-                    const outfit::OutfitEntry* byFlow = nullptr;
-                    const outfit::OutfitEntry* byDev  = nullptr;
-                    const bool haveFlow =
-                        outfit::TryGetOutfitByFlowIndex(s.selectedId, &byFlow)
-                        && byFlow;
-                    const bool haveDev =
-                        outfit::TryGetOutfitByDevelopId(s.selectedId, &byDev)
-                        && byDev;
-                    LogDebug("[OutfitItemSelector:%s] suit click matched no "
-                             "registered outfit: flowIndex=%u selector=0x%02X "
-                             "equipKind=0x%X byFlow=%s byDevelop=%s - no partsType "
-                             "activated and no pending developId, so the engine "
-                             "falls back to the vanilla suit\n",
-                        tag,
-                        static_cast<unsigned>(s.selectedId),
-                        static_cast<unsigned>(s.selectorCode),
-                        static_cast<unsigned>(s.equipKind),
-                        haveFlow ? "hit" : "miss",
-                        haveDev ? "hit" : "miss");
-                }
             }
 
             if (!published && isSuitClick)
@@ -262,20 +216,7 @@ namespace
             if (isHeadOption && s.selectedId != 0xFFFF)
             {
                 outfit::SetPendingHeadOptionEquipId(s.selectedId);
-#ifdef _DEBUG
-                LogDebug("[OutfitItemSelector:%s] head-option stash: "
-                    "equipId=0x%X (will be re-injected into faceEquipId "
-                    "during apply if orig drops it)\n",
-                    tag,
-                    static_cast<unsigned>(s.selectedId));
-#endif
             }
-        }
-        else
-        {
-#ifdef _DEBUG
-            Log("[OutfitItemSelector:%s] fire: selection-state read failed\n", tag);
-#endif
         }
         return s;
     }
@@ -310,12 +251,6 @@ namespace
             *cell       = (sw.saved & 0xFFFFFF00u)
                         | static_cast<std::uint32_t>(sel);
             sw.cellWord = cell;
-#ifdef _DEBUG
-            LogDebug("[OutfitItemSelector:%s] vext selector swap-in: flowIndex=%u "
-                "cell=%zu 0x%08X -> 0x%08X (restored after orig)\n",
-                tag, static_cast<unsigned>(s.selectedId), s.cellIndex,
-                sw.saved, *cell);
-#endif
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -360,12 +295,10 @@ namespace
         constexpr std::uint16_t kCustomFlowLast  =
             static_cast<std::uint16_t>(equip::kMaxFlowSlots - 1);
         std::uint8_t newSelector = 0;
-        const char*  why         = nullptr;
         if (resolves
             && entry->defaultVariant < outfit::kMaxVariantsPerOutfit)
         {
             newSelector = entry->variantSelectorCodes[entry->defaultVariant];
-            why = "single custom outfit";
         }
         else if (s.selectedId >= kCustomFlowFirst && s.selectedId <= kCustomFlowLast)
         {
@@ -373,17 +306,9 @@ namespace
                 && EquipDevelopAdd::IsManagedFlowIndex(
                        static_cast<std::uint16_t>(s.selectedId)))
             {
-#ifdef _DEBUG
-                LogDebug("[OutfitItemSelector:%s] supply-cell left alone: "
-                         "flowIndex=%u cell=%zu is a registered NON-OUTFIT custom "
-                         "row - the vanilla-suit degrade would stamp a suit "
-                         "selector into a weapon/item crate\n",
-                    tag, static_cast<unsigned>(s.selectedId), s.cellIndex);
-#endif
                 return;
             }
             newSelector = 0x4F;
-            why = "UNREGISTERED custom row - degraded to coherent VANILLA crate";
         }
         else
         {
@@ -398,22 +323,11 @@ namespace
             const std::uint32_t prev = *cell;
             *cell = (prev & 0xFFFFFF00u)
                   | static_cast<std::uint32_t>(newSelector);
-#ifdef _DEBUG
-            LogDebug("[OutfitItemSelector:%s] supply-cell selector fixup: "
-                     "flowIndex=%u cell=%zu 0x%08X -> 0x%08X (%s: the crate payload "
-                     "now carries selector 0x%02X so the pickup resolver produces a "
-                     "coherent suit)\n",
-                tag,
-                static_cast<unsigned>(s.selectedId),
-                s.cellIndex, prev, *cell,
-                why,
-                static_cast<unsigned>(newSelector));
-#endif
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[OutfitItemSelector:%s] SEH writing supply-cell selector "
-                "(cell=%zu) - skipped\n", tag, s.cellIndex);
+            LogWarn("OutfitItemSelector %s: supply cell %zu write faulted, crate selector not fixed",
+                tag, s.cellIndex);
         }
     }
 
@@ -430,13 +344,6 @@ namespace
             && sPrep.equipKind == kEquipKindMissionPrepSuit)
         {
             outfit::ResetAllVanillaExtVariants();
-#ifdef _DEBUG
-            LogDebug("[OutfitItemSelector:prep] non-vext suit pick "
-                "(flowIndex=%u selector=0x%02X) - vext variants reset "
-                "(prep applies bypass SetSuit)\n",
-                static_cast<unsigned>(sPrep.selectedId),
-                static_cast<unsigned>(sPrep.selectorCode));
-#endif
         }
         if (sPrep.haveSample
             && (sPrep.equipKind == kEquipKindSupplyDropSuit
@@ -469,9 +376,6 @@ namespace
                 && !outfit::IsOutfitBound(entry->developId)
                 && !outfit::BindOutfit(entry->developId, true, "order-click"))
             {
-                LogDebug("[OutfitItemSelector:prep] order refused: live byte pools "
-                    "full for developId=%u - unequip an outfit to free a "
-                    "slot\n", static_cast<unsigned>(entry->developId));
                 matched = false;
             }
             if (matched && entry)
@@ -480,13 +384,6 @@ namespace
                 outfit::SetPendingSupplyDropDevelopId(entry->developId);
                 outfit::SetPendingSupplyDropVariantIdx(variantIdx);
                 outfit::SetPendingOutfitDevelopId(entry->developId);
-#ifdef _DEBUG
-                LogDebug("[OutfitItemSelector:prep] supply ORDER of custom outfit "
-                         "developId=%u variantIdx=%u - stashed for crate pickup "
-                         "(the crate delivers this variant)\n",
-                    static_cast<unsigned>(entry->developId),
-                    static_cast<unsigned>(variantIdx));
-#endif
             }
         }
         outfit::SetHeadEquipDecideActive(true);
@@ -568,10 +465,6 @@ namespace
                     && !outfit::BindOutfit(entry->developId, true,
                                            "supply-click"))
                 {
-                    LogDebug("[OutfitItemSelector:supply] order refused: live byte "
-                        "pools full for developId=%u - unequip an outfit to "
-                        "free a slot\n",
-                        static_cast<unsigned>(entry->developId));
                     matched = false;
                 }
 
@@ -582,18 +475,6 @@ namespace
 
 
                     outfit::SetPendingOutfitDevelopId(entry->developId);
-
-#ifdef _DEBUG
-                    LogDebug("[OutfitItemSelector:supply] stashed "
-                             "pendingSupplyDropDevelopId=%u variantIdx=%u "
-                             "(equipKind=0x%X isSuitClick=%d isCustomSelector=%d) "
-                             "for crate-pickup force-equip\n",
-                        static_cast<unsigned>(entry->developId),
-                        static_cast<unsigned>(variantIdx),
-                        s.equipKind,
-                        isSuitClick ? 1 : 0,
-                        isCustomSelector ? 1 : 0);
-#endif
                 }
             }
         }
@@ -626,10 +507,6 @@ namespace
                            && entry;
             else
             {
-                LogDebug("[OutfitItemSelector:devmenu] R&D request for developId=%u "
-                         "not stashed: live byte pools full - unequip an outfit to "
-                         "free a slot\n",
-                    static_cast<unsigned>(entry->developId));
                 isCustom = false;
             }
         }
@@ -641,16 +518,6 @@ namespace
 
 
             outfit::SetPendingSupplyDropVariantIdx(entry->defaultVariant);
-#ifdef _DEBUG
-            LogDebug("[OutfitItemSelector:devmenu] R&D request for custom outfit "
-                     "flowIndex=%u developId=%u partsType=0x%02X selector=0x%02X - "
-                     "stashed both pending ids (variantIdx=0) for crate-pickup "
-                     "recovery\n",
-                static_cast<unsigned>(flowIndex),
-                static_cast<unsigned>(entry->developId),
-                static_cast<unsigned>(entry->partsType),
-                static_cast<unsigned>(entry->selectorCode));
-#endif
         }
 
         if (g_OrigSetSupplyCBoxInfo)
@@ -662,17 +529,11 @@ namespace
             {
                 *reinterpret_cast<std::uint32_t*>(
                     reinterpret_cast<std::uint8_t*>(self) + 0x23A0) = 0xFFFFFFFFu;
-#ifdef _DEBUG
-                LogDebug("[OutfitItemSelector:devmenu] custom HEAD row flowIndex=%u "
-                         "is not orderable - drop request neutralized (heads equip "
-                         "via the HEAD OPTION submenu)\n",
-                    static_cast<unsigned>(flowIndex));
-#endif
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[OutfitItemSelector:devmenu] SEH neutralizing head-row "
-                    "drop request (self=%p)\n", self);
+                LogWarn("OutfitItemSelector devmenu: head row %u drop request write faulted, request not cancelled",
+                    static_cast<unsigned>(flowIndex));
             }
             return;
         }
@@ -686,31 +547,17 @@ namespace
                 auto* flags   = reinterpret_cast<std::uint32_t*>(base + 0x246C);
                 auto* payload = base + 0x23B0;
 
-                const std::uint32_t prevType  = *reqType;
-                const std::uint32_t prevFlags = *flags;
-                const std::uint8_t  prevCamo  = payload[1];
-
                 *reqType   = 3;
                 *flags     = 0x1u | 0x80u;
                 payload[0] = 0;
                 payload[1] = entry->variantSelectorCodes[entry->defaultVariant];
                 payload[2] = 0;
                 payload[3] = 0;
-
-#ifdef _DEBUG
-                LogDebug("[OutfitItemSelector:devmenu] post-orig "
-                         "SupplyCboxDropRequest repair: type 0x%X->3 flags "
-                         "0x%X->0x81 camo 0x%02X->0x%02X (flowIndex=%u) - coherent "
-                         "suit crate; pickup resolves identity from the camo byte\n",
-                    prevType, prevFlags, prevCamo, payload[1],
-                    static_cast<unsigned>(flowIndex));
-#endif
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[OutfitItemSelector:devmenu] SEH writing "
-                         "SupplyCboxDropRequest at self+0x23A0..0x246C (self=%p) - "
-                         "the offset assumption may be wrong\n", self);
+                LogWarn("OutfitItemSelector devmenu: drop request write for row %u faulted, crate may be vanilla",
+                    static_cast<unsigned>(flowIndex));
             }
         }
     }
@@ -728,7 +575,7 @@ namespace outfit
                 gAddr.ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode);
             if (!target)
             {
-                LogDebug("[OutfitItemSelector] prep target unresolved; module disabled\n");
+                LogError("OutfitItemSelector: prep address missing, custom outfit equip off");
                 return false;
             }
 
@@ -737,12 +584,8 @@ namespace outfit
                 reinterpret_cast<void*>(&hkDecideActMissionPrep),
                 reinterpret_cast<void**>(&g_OrigDecideActMissionPrep));
 
-            if (g_Installed)
-                LogDebug("[OutfitItemSelector] prep installed OK (target=%p)\n",
-                         target);
-            else
-                Log("[OutfitItemSelector] prep install FAILED (target=%p)\n",
-                    target);
+            if (!g_Installed)
+                LogError("OutfitItemSelector: prep hook failed at %p, custom outfit equip off", target);
         }
 
         if (!g_InstalledSupplyDrop)
@@ -751,8 +594,7 @@ namespace outfit
                 gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseDeviceSupportDropMode);
             if (!target)
             {
-                LogDebug("[OutfitItemSelector] supply-drop target unresolved; "
-                    "supply-drop hook disabled\n");
+                LogError("OutfitItemSelector: supply drop address missing, custom outfit supply drop off");
             }
             else
             {
@@ -761,12 +603,8 @@ namespace outfit
                     reinterpret_cast<void*>(&hkDecideActSupplyDrop),
                     reinterpret_cast<void**>(&g_OrigDecideActSupplyDrop));
 
-                if (g_InstalledSupplyDrop)
-                    LogDebug("[OutfitItemSelector] supply installed OK "
-                             "(target=%p)\n", target);
-                else
-                    Log("[OutfitItemSelector] supply install FAILED "
-                        "(target=%p)\n", target);
+                if (!g_InstalledSupplyDrop)
+                    LogError("OutfitItemSelector: supply drop hook failed at %p, custom outfit supply drop off", target);
             }
         }
 
@@ -776,8 +614,7 @@ namespace outfit
                 gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseCustomize);
             if (!target)
             {
-                LogDebug("[OutfitItemSelector] customize target unresolved; "
-                    "Mother-Base customize hook disabled\n");
+                LogError("OutfitItemSelector: customize address missing, Mother Base customize outfits off");
             }
             else
             {
@@ -786,12 +623,8 @@ namespace outfit
                     reinterpret_cast<void*>(&hkDecideActCustomize),
                     reinterpret_cast<void**>(&g_OrigDecideActCustomize));
 
-                if (g_InstalledCustomize)
-                    LogDebug("[OutfitItemSelector] customize installed OK "
-                             "(target=%p)\n", target);
-                else
-                    Log("[OutfitItemSelector] customize install FAILED "
-                        "(target=%p)\n", target);
+                if (!g_InstalledCustomize)
+                    LogError("OutfitItemSelector: customize hook failed at %p, Mother Base customize outfits off", target);
             }
         }
 
@@ -801,8 +634,7 @@ namespace outfit
                 gAddr.EquipDevelopCallbackImpl_SetSupplyCBoxInfo);
             if (!target)
             {
-                LogDebug("[OutfitItemSelector] R&D dev-menu SetSupplyCBoxInfo "
-                    "target unresolved; R&D-menu request hook disabled\n");
+                LogError("OutfitItemSelector: SetSupplyCBoxInfo address missing, R&D outfit requests off");
             }
             else
             {
@@ -811,12 +643,8 @@ namespace outfit
                     reinterpret_cast<void*>(&hkSetSupplyCBoxInfo),
                     reinterpret_cast<void**>(&g_OrigSetSupplyCBoxInfo));
 
-                if (g_InstalledSetSupplyCBox)
-                    LogDebug("[OutfitItemSelector] devmenu SetSupplyCBoxInfo "
-                             "installed OK (target=%p)\n", target);
-                else
-                    Log("[OutfitItemSelector] devmenu SetSupplyCBoxInfo install "
-                        "FAILED (target=%p)\n", target);
+                if (!g_InstalledSetSupplyCBox)
+                    LogError("OutfitItemSelector: SetSupplyCBoxInfo hook failed at %p, R&D outfit requests off", target);
             }
         }
 
@@ -857,8 +685,5 @@ namespace outfit
             g_OrigSetSupplyCBoxInfo  = nullptr;
             g_InstalledSetSupplyCBox = false;
         }
-#ifdef _DEBUG
-        LogDebug("[OutfitItemSelector] removed\n");
-#endif
     }
 }

@@ -76,7 +76,8 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, sizeof(g_FactionNopOriginal), PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[OccasionalChatList] faction-NOP VirtualProtect failed (err=%lu)\n", GetLastError());
+            LogWarn("OccasionalChatList: faction NOP VirtualProtect failed (err=%lu), not applied",
+                    GetLastError());
             return;
         }
 
@@ -198,21 +199,21 @@ bool Install_OccasionalChatList_Hook()
 
     if (!gAddr.NoticeControllerImpl_GetOccasionalChat)
     {
-        LogDebug("[OccasionalChatList] GetOccasionalChat address is 0 (unsupported build)\n");
+        LogError("OccasionalChatList: no address for this build, chat list off");
         return false;
     }
 
     void* getTarget = ResolveGameAddress(gAddr.NoticeControllerImpl_GetOccasionalChat);
     if (!getTarget)
     {
-        Log("[OccasionalChatList] GetOccasionalChat resolve failed\n");
+        LogError("OccasionalChatList: address did not resolve, chat list off");
         return false;
     }
 
     if (!CreateAndEnableHook(getTarget, reinterpret_cast<void*>(&hk_GetOccasionalChat),
                              reinterpret_cast<void**>(&g_OrigGet)))
     {
-        Log("[OccasionalChatList] GetOccasionalChat hook FAILED @ %p\n", getTarget);
+        LogError("OccasionalChatList: GetOccasionalChat hook failed @ %p", getTarget);
         return false;
     }
 
@@ -224,15 +225,11 @@ bool Install_OccasionalChatList_Hook()
             !CreateAndEnableHook(convTarget, reinterpret_cast<void*>(&hk_ConvertType),
                                  reinterpret_cast<void**>(&g_OrigConvert)))
         {
-            Log("[OccasionalChatList] classifier hook FAILED\n");
+            LogError("OccasionalChatList: classifier hook failed @ %p", convTarget);
         }
     }
 
     g_Installed = true;
-#ifdef _DEBUG
-    LogDebug("[OccasionalChatList] installed (get=%p convert=%p)\n",
-        getTarget, reinterpret_cast<void*>(g_OrigConvert));
-#endif
     return true;
 }
 

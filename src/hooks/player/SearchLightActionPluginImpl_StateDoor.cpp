@@ -80,7 +80,7 @@ bool Install_SearchLightActionPluginImpl_StateDoor_Hook()
     if (!gAddr.SearchLightActionPluginImpl_StateDoorStart ||
         !gAddr.SearchLightActionPluginImpl_StateDoorEnd)
     {
-        LogDebug("[LockPick] addresses not set for this build -- skipped\n");
+        LogError("LockPick: StateDoor addresses missing, OnPlayerLockPickStart/End off");
         return false;
     }
 
@@ -88,7 +88,7 @@ bool Install_SearchLightActionPluginImpl_StateDoor_Hook()
     void* endTarget   = ResolveGameAddress(gAddr.SearchLightActionPluginImpl_StateDoorEnd);
     if (!startTarget || !endTarget)
     {
-        Log("[LockPick] resolve failed (start=%p end=%p)\n", startTarget, endTarget);
+        LogError("LockPick: StateDoor addresses unresolved, OnPlayerLockPickStart/End off");
         return false;
     }
 
@@ -97,12 +97,9 @@ bool Install_SearchLightActionPluginImpl_StateDoor_Hook()
     const bool endOk = CreateAndEnableHook(
         endTarget, reinterpret_cast<void*>(&hkStateDoorEnd), reinterpret_cast<void**>(&g_OrigEnd));
 
-#ifdef _DEBUG
-    Log("[LockPick] StateDoorStart:%s StateDoorEnd:%s\n", startOk ? "OK" : "FAIL", endOk ? "OK" : "FAIL");
-#else
     if (!startOk || !endOk)
-        Log("[LockPick] StateDoorStart:%s StateDoorEnd:%s\n", startOk ? "OK" : "FAIL", endOk ? "OK" : "FAIL");
-#endif
+        LogError("LockPick: StateDoor hook failed (start %s, end %s), lock-pick messages off",
+            startOk ? "ok" : "failed", endOk ? "ok" : "failed");
     return startOk && endOk;
 }
 

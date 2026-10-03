@@ -473,10 +473,8 @@ void Add_LostHostageDiscovery(std::uint32_t gameObjectId, int hostageType)
 {
     if (hostageType < 0 || hostageType > 2)
     {
-        Log(
-            "[LostHostageDiscovery] Add ignored: invalid hostageType=%d gameObjectId=0x%08X\n",
-            hostageType,
-            gameObjectId);
+        LogWarn("LostHostageDiscovery: invalid hostageType %d for gameObjectId 0x%08X, "
+                "ignored", hostageType, gameObjectId);
         return;
     }
 
@@ -485,10 +483,8 @@ void Add_LostHostageDiscovery(std::uint32_t gameObjectId, int hostageType)
 
     if (rawGameObjectId == LHD_INVALID_TARGET_ID || speechLabel == 0u)
     {
-        Log(
-            "[LostHostageDiscovery] Add ignored: rawGameObjectId=0x%04X speechLabel=0x%08X\n",
-            static_cast<unsigned>(rawGameObjectId),
-            static_cast<unsigned>(speechLabel));
+        LogWarn("LostHostageDiscovery: gameObjectId 0x%04X invalid, ignored",
+                static_cast<unsigned>(rawGameObjectId));
         return;
     }
 
@@ -548,10 +544,8 @@ bool Install_LostHostageDiscovery_Hooks()
 
     if (!checkSightTarget || !stepTarget)
     {
-        Log(
-            "[LostHostageDiscovery] Install failed: checkSight=%p step=%p\n",
-            checkSightTarget,
-            stepTarget);
+        LogError("LostHostageDiscovery: hook addresses missing (checkSight=%p step=%p), "
+                 "hostage-type radio off", checkSightTarget, stepTarget);
         return false;
     }
 
@@ -570,15 +564,12 @@ bool Install_LostHostageDiscovery_Hooks()
         reinterpret_cast<void*>(&hkLostHostageDiscovery_StepRadioDiscovery),
         reinterpret_cast<void**>(&g_LHD_OrigStepRadioDiscovery));
 
-#ifdef _DEBUG
-    Log("[LostHostageDiscovery] Install CheckSightNoticeHostage: %s\n", okCheckSight ? "OK" : "FAIL");
-    Log("[LostHostageDiscovery] Install StepRadioDiscovery: %s\n", okStep ? "OK" : "FAIL");
-#else
     if (!okCheckSight)
-        Log("[LostHostageDiscovery] Install CheckSightNoticeHostage: %s\n", okCheckSight ? "OK" : "FAIL");
+        LogError("LostHostageDiscovery: CheckSightNoticeHostage hook failed, "
+                 "hostage-type radio off");
     if (!okStep)
-        Log("[LostHostageDiscovery] Install StepRadioDiscovery: %s\n", okStep ? "OK" : "FAIL");
-#endif
+        LogError("LostHostageDiscovery: StepRadioDiscovery hook failed, "
+                 "hostage-type radio off");
 
     return okCheckSight && okStep;
 }
@@ -597,8 +588,5 @@ bool Uninstall_LostHostageDiscovery_Hooks()
         LostHostageDiscovery_ResetRuntimeState_NoLock();
     }
 
-#ifdef _DEBUG
-    LogDebug("[LostHostageDiscovery] removed\n");
-#endif
     return true;
 }

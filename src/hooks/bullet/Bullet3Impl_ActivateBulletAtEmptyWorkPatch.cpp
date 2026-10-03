@@ -26,7 +26,7 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[FriendlyFire] VirtualProtect failed (err=%lu)\n", GetLastError());
+            LogError("FriendlyFire: VirtualProtect failed (err %lu), patch not written", GetLastError());
             return false;
         }
         std::memcpy(target, src, size);
@@ -37,20 +37,21 @@ namespace
     }
 }
 
-static void PatchSite(std::uintptr_t addr,
+static void PatchSite(std::uintptr_t addr, const char* addrName,
                       const std::uint8_t* orig, const std::uint8_t* patch, std::size_t size,
                       bool enable, bool& applied, void*& savedSite, const char* name)
 {
     if (!addr)
     {
         if (enable && !applied)
-            LogDebug("[FriendlyFire] %s: no address for current build (EN15.4-only for now) - no-op\n", name);
+            LogError("FriendlyFire: %s address missing on %s, %s stays vanilla",
+                     addrName, GetGameBuildName(gGameBuild), name);
         return;
     }
     void* site = ResolveGameAddress(addr);
     if (!site)
     {
-        LogDebug("[FriendlyFire] %s: ResolveGameAddress returned null\n", name);
+        LogError("FriendlyFire: %s address not resolved, %s stays vanilla", addrName, name);
         return;
     }
     auto* p = static_cast<std::uint8_t*>(site);
@@ -58,14 +59,13 @@ static void PatchSite(std::uintptr_t addr,
     {
         if (std::memcmp(p, orig, size) != 0)
         {
-            LogDebug("[FriendlyFire] %s: unexpected bytes @ %p - not patching\n", name, site);
+            LogError("FriendlyFire: %s site bytes unexpected, %s stays vanilla", addrName, name);
             return;
         }
         if (WriteBytes(site, patch, size))
         {
             savedSite = site;
             applied   = true;
-            LogDebug("[FriendlyFire] %s ENABLED @ %p\n", name, site);
         }
     }
     else if (!enable && applied)
@@ -73,7 +73,6 @@ static void PatchSite(std::uintptr_t addr,
         if (WriteBytes(savedSite, orig, size))
         {
             applied = false;
-            LogDebug("[FriendlyFire] %s DISABLED @ %p\n", name, savedSite);
             savedSite = nullptr;
         }
     }
@@ -92,9 +91,11 @@ void Set_FriendlyFire(bool enable)
     static const std::uint8_t kDmgPatch[2]  = { 0xEB, 0x25 };       // JMP +0x25
 
     PatchSite(gAddr.Soldier_ShootOneBullet_GroupMaskCall,
+              "Soldier_ShootOneBullet_GroupMaskCall",
               kMaskOrig, kMaskPatch, sizeof(kMaskOrig), enable, g_MaskApplied, g_MaskSite, "collision-mask");
 
     PatchSite(gAddr.Soldier_ActivateBulletAtEmptyWork_SameArmyJnz,
+              "Soldier_ActivateBulletAtEmptyWork_SameArmyJnz",
               kDmgOrig, kDmgPatch, sizeof(kDmgOrig), enable, g_DmgApplied, g_DmgSite, "same-army-damage");
 }
 

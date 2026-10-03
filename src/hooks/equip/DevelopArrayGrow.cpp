@@ -42,6 +42,8 @@ namespace equip
         constexpr std::uint32_t kNewParDisp20   = kNewParallelOff - 0x20;
         constexpr std::uint32_t kWorkBufDisp    = 0x1FEC0;
         constexpr std::uint32_t kNullSinkOff    = kNewCtlOff + kCtlSize;
+        constexpr std::uint32_t kOldEquipEquipedWords = 0x20;
+        constexpr std::uint32_t kNewEquipEquipedWords = (kNewRows + 31) / 32;
 
         static_assert(0x28 + kNewRows * kRecStride <= kNewCtlOff,
                       "records must not overrun the relocated control fields");
@@ -52,6 +54,10 @@ namespace equip
                       "the always-zero qword must be 8-byte aligned");
         static_assert(kNewCtlOff + kCtlSize <= kNewParallelOff,
                       "control fields must not overrun the parallel array");
+        static_assert(kOldEquipEquipedWords * 32 == kOldRows,
+                      "the vanilla equip-equiped bitset spans exactly 1024 rows");
+        static_assert(kNewEquipEquipedWords * 32 >= kNewRows,
+                      "the grown equip-equiped bitset must span every grown row");
 
         struct ImmPatch
         {
@@ -85,6 +91,11 @@ namespace equip
             { 0, "provider count bound",     2, { 0x41, 0xBF }, 0x400, kNewRows },
             { 0, "provider fill bound",      2, { 0x41, 0xBD }, 0x400, kNewRows },
             { 0, "menu list gate bound",     1, { 0xB8 },       0x400, kNewRows },
+
+            { 0, "equip-equiped bits alloc words", 1, { 0xB9 },
+              kOldEquipEquipedWords, kNewEquipEquipedWords },
+            { 0, "equip-equiped bits clear size",  2, { 0x41, 0xB8 },
+              kOldEquipEquipedWords * 4, kNewEquipEquipedWords * 4 },
         };
 
         constexpr std::size_t kPatchCount =
@@ -101,7 +112,7 @@ namespace equip
             std::uint8_t   newBytes[4];
         };
 
-        const ByteFix kSiblingLoopFixTemplate[] = {
+        const ByteFix kByteFixTemplate[] = {
             { 0, "sibling retire loop index init", 3,
               { 0x40, 0x32, 0xF6 },       { 0x33, 0xF6, 0x90, 0x00 } },
             { 0, "sibling retire loop index read", 4,
@@ -110,13 +121,16 @@ namespace equip
               { 0x40, 0xFE, 0xC6 },       { 0xFF, 0xC6, 0x90, 0x00 } },
             { 0, "sibling retire loop index test", 4,
               { 0x40, 0x0F, 0xB6, 0xC6 }, { 0x8B, 0xC6, 0x90, 0x90 } },
+            { 0, "develop-list count miss branch", 2,
+              { 0x73, 0x09 },             { 0x74, 0x09 } },
+            { 0, "develop-list apply miss branch", 4,
+              { 0x0F, 0x83, 0xFA, 0x00 }, { 0x0F, 0x84, 0xFA, 0x00 } },
         };
 
-        constexpr std::size_t kSiblingLoopFixCount =
-            sizeof(kSiblingLoopFixTemplate)
-            / sizeof(kSiblingLoopFixTemplate[0]);
+        constexpr std::size_t kByteFixCount =
+            sizeof(kByteFixTemplate) / sizeof(kByteFixTemplate[0]);
 
-        ByteFix kSiblingLoopFixes[kSiblingLoopFixCount] = {};
+        ByteFix kByteFixes[kByteFixCount] = {};
 
         constexpr std::uint16_t kSiblingListCap = 1024;
 
@@ -136,62 +150,15 @@ namespace equip
         constexpr std::uint64_t kVisTtlMs = 250;
         void*         g_VisSelf   = nullptr;
         DWORD         g_VisThread = 0;
-        std::uint64_t g_VisCalls  = 0;
-        std::uint64_t g_VisHits   = 0;
         std::uint8_t  g_VisCache[kNewRows] = {};
 
-        std::uint64_t g_VisWinCalls = 0;
-        std::uint64_t g_VisWinHits  = 0;
+        std::uint16_t g_CustomBluePrintDevelopIds[kNewRows] = {};
 
-        std::uint64_t g_SibCalls = 0;
-        std::uint64_t g_SibSum   = 0;
-        std::uint32_t g_SibMax   = 0;
-        LARGE_INTEGER g_VisT0    = {};
-
-        using CaptureBackTrace_t =
-            USHORT(NTAPI*)(ULONG, ULONG, PVOID*, PULONG);
-        CaptureBackTrace_t g_CaptureBackTrace = nullptr;
-        bool               g_CaptureResolved  = false;
-
-        void LogSiblingBacktrace(unsigned long long nth)
-        {
-            if (!g_CaptureResolved)
-            {
-                g_CaptureResolved = true;
-                if (HMODULE nt = GetModuleHandleW(L"ntdll.dll"))
-                    g_CaptureBackTrace = reinterpret_cast<CaptureBackTrace_t>(
-                        GetProcAddress(nt, "RtlCaptureStackBackTrace"));
-            }
-            if (!g_CaptureBackTrace)
-            {
-                LogDebug("[DevelopArrayGrow] RtlCaptureStackBackTrace unresolved - "
-                         "develop-scan caller unidentified\n");
-                return;
-            }
-
-            PVOID frames[40] = {};
-            const USHORT n = g_CaptureBackTrace(1, 40, frames, nullptr);
-
-            char line[1200];
-            int  len = sprintf_s(line, sizeof(line),
-                                 "[DevelopArrayGrow] develop-scan caller chain at "
-                                 "sibling-count call #%llu (unwind-accurate, "
-                                 "innermost first):", nth);
-            for (USHORT i = 0; i < n && len > 0 && len < 1050; ++i)
-            {
-                const std::uintptr_t a =
-                    reinterpret_cast<std::uintptr_t>(frames[i]);
-                if (a >= 0x140000000ull && a < 0x142E00000ull)
-                {
-                    const int w = sprintf_s(line + len, sizeof(line) - len,
-                                            " 0x%llX",
-                                            static_cast<unsigned long long>(a));
-                    if (w <= 0) break;
-                    len += w;
-                }
-            }
-            Log("%s\n", line);
-        }
+        constexpr std::size_t  kRecDevelopIdOff             = 0x8;
+        constexpr std::size_t  kRecDisplayInfoOff           = 0x58;
+        constexpr std::uint8_t kDisplayInfoMask             = 0x7;
+        constexpr std::uint8_t kDisplayInfoSkillOrBluePrint = 1;
+        constexpr std::uint8_t kDisplayInfoBluePrintOnly    = 4;
 
         struct CtlDispSite
         {
@@ -578,21 +545,12 @@ namespace equip
         static const BoundImmSite kBoundImmSites[] = {
             { 0x140F64DBDull, 1 },
             { 0x140F652EBull, 1 },
-            { 0x140F65375ull, 1 },
-            { 0x140F65509ull, 1 },
             { 0x140F655D0ull, 1 },
-            { 0x140F6564Bull, 1 },
-            { 0x140F65776ull, 1 },
             { 0x140F657ABull, 1 },
             { 0x140F65809ull, 2 },
             { 0x140F658A9ull, 2 },
             { 0x140F6594Dull, 2 },
             { 0x140F65C80ull, 1 },
-            { 0x140F65D94ull, 1 },
-            { 0x140F65DF4ull, 1 },
-            { 0x140F664B4ull, 1 },
-            { 0x140F665C4ull, 1 },
-            { 0x140F66624ull, 1 },
             { 0x140F6693Aull, 1 },
             { 0x140F66DA1ull, 2 },
             { 0x140F66F8Cull, 1 },
@@ -617,25 +575,13 @@ namespace equip
             { 0x140F69202ull, 2 },
             { 0x140F6931Full, 1 },
             { 0x140F694CDull, 1 },
-            { 0x140F697D4ull, 1 },
-            { 0x140F69B94ull, 1 },
             { 0x140F69CBBull, 2 },
             { 0x140F69E94ull, 2 },
-            { 0x140F6A21Dull, 1 },
             { 0x140F6A26Aull, 1 },
-            { 0x140F6A33Dull, 1 },
-            { 0x140F6A39Dull, 1 },
-            { 0x140F6A401ull, 1 },
-            { 0x140F6A4D8ull, 1 },
             { 0x140F6A542ull, 1 },
             { 0x140F6A62Aull, 1 },
             { 0x140F6A66Aull, 1 },
             { 0x140F6A74Aull, 1 },
-            { 0x140F6AD3Cull, 2 },
-            { 0x140F6B21Eull, 1 },
-            { 0x140F6B360ull, 1 },
-            { 0x140F6B557ull, 1 },
-            { 0x140F6B5CCull, 2 },
             { 0x140F6BD55ull, 1 },
             { 0x140F6BFC5ull, 1 },
             { 0x140F6C1E5ull, 1 },
@@ -645,10 +591,8 @@ namespace equip
             { 0x140F6C893ull, 2 },
             { 0x140F6C8F8ull, 1 },
             { 0x140F6C993ull, 1 },
-            { 0x140F6CBA0ull, 1 },
             { 0x140F6CBF0ull, 2 },
             { 0x140F6CE13ull, 1 },
-            { 0x140F6D521ull, 1 },
             { 0x140F6DD95ull, 1 },
             { 0x140F6DE4Full, 1 },
             { 0x140F6E501ull, 1 },
@@ -663,7 +607,6 @@ namespace equip
             { 0x140F6ED1Full, 1 },
             { 0x140F6EDA0ull, 1 },
             { 0x140F6F652ull, 1 },
-            { 0x140F6FF45ull, 2 },
             { 0x140F71002ull, 3 },
         };
         }
@@ -1039,21 +982,12 @@ namespace equip
         static const BoundImmSite kBoundImmSites[] = {
             { 0x140F64E1Dull, 1 },
             { 0x140F6534Bull, 1 },
-            { 0x140F653D5ull, 1 },
-            { 0x140F65569ull, 1 },
             { 0x140F65630ull, 1 },
-            { 0x140F656ABull, 1 },
-            { 0x140F657D6ull, 1 },
             { 0x140F6580Bull, 1 },
             { 0x140F65869ull, 2 },
             { 0x140F65909ull, 2 },
             { 0x140F659ADull, 2 },
             { 0x140F65CE0ull, 1 },
-            { 0x140F65DF4ull, 1 },
-            { 0x140F65E54ull, 1 },
-            { 0x140F66514ull, 1 },
-            { 0x140F66624ull, 1 },
-            { 0x140F66684ull, 1 },
             { 0x140F6699Aull, 1 },
             { 0x140F66E01ull, 2 },
             { 0x140F66FECull, 1 },
@@ -1078,25 +1012,13 @@ namespace equip
             { 0x140F69262ull, 2 },
             { 0x140F6937Full, 1 },
             { 0x140F6952Dull, 1 },
-            { 0x140F69834ull, 1 },
-            { 0x140F69BF4ull, 1 },
             { 0x140F69D1Bull, 2 },
             { 0x140F69EF4ull, 2 },
-            { 0x140F6A27Dull, 1 },
             { 0x140F6A2CAull, 1 },
-            { 0x140F6A39Dull, 1 },
-            { 0x140F6A3FDull, 1 },
-            { 0x140F6A461ull, 1 },
-            { 0x140F6A538ull, 1 },
             { 0x140F6A5A2ull, 1 },
             { 0x140F6A68Aull, 1 },
             { 0x140F6A6CAull, 1 },
             { 0x140F6A7AAull, 1 },
-            { 0x140F6AD9Cull, 2 },
-            { 0x140F6B27Eull, 1 },
-            { 0x140F6B3C0ull, 1 },
-            { 0x140F6B5B7ull, 1 },
-            { 0x140F6B62Cull, 2 },
             { 0x140F6BDB5ull, 1 },
             { 0x140F6C025ull, 1 },
             { 0x140F6C245ull, 1 },
@@ -1106,10 +1028,8 @@ namespace equip
             { 0x140F6C8F3ull, 2 },
             { 0x140F6C958ull, 1 },
             { 0x140F6C9F3ull, 1 },
-            { 0x140F6CC00ull, 1 },
             { 0x140F6CC50ull, 2 },
             { 0x140F6CE73ull, 1 },
-            { 0x140F6D581ull, 1 },
             { 0x140F6DDF5ull, 1 },
             { 0x140F6DEAFull, 1 },
             { 0x140F6E561ull, 1 },
@@ -1124,7 +1044,6 @@ namespace equip
             { 0x140F6ED7Full, 1 },
             { 0x140F6EE00ull, 1 },
             { 0x140F6F6B2ull, 1 },
-            { 0x140F6FFA5ull, 2 },
             { 0x140F71062ull, 3 },
         };
         }
@@ -1497,11 +1416,7 @@ namespace equip
         };
 
         static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F65B05ull, 1 },
-            { 0x140F65C99ull, 1 },
             { 0x140F65D60ull, 1 },
-            { 0x140F65DDBull, 1 },
-            { 0x140F65F06ull, 1 },
             { 0x140F65F3Bull, 1 },
             { 0x140F670CAull, 1 },
             { 0x140F67531ull, 2 },
@@ -1514,8 +1429,6 @@ namespace equip
             { 0x140F6856Aull, 1 },
             { 0x140F695AEull, 1 },
             { 0x140F69C5Dull, 1 },
-            { 0x140F6B9AEull, 1 },
-            { 0x140F6BCE7ull, 1 },
             { 0x140F6C4E5ull, 1 },
             { 0x140F6C755ull, 1 },
             { 0x140F6C975ull, 1 },
@@ -1524,53 +1437,42 @@ namespace equip
             { 0x140F6D023ull, 2 },
             { 0x140F6D123ull, 1 },
             { 0x140F6D8EAull, 1 },
-            { 0x140F6DCB1ull, 1 },
             { 0x140F6E5DFull, 1 },
-            { 0x140F706D5ull, 2 },
+            { 0x140F71792ull, 3 },
             { 0x1494FC2CDull, 1 },
             { 0x1494FDEEBull, 1 },
             { 0x1494FE629ull, 2 },
             { 0x1494FE859ull, 2 },
             { 0x1494FEB4Dull, 2 },
             { 0x149500D30ull, 1 },
-            { 0x149501264ull, 1 },
-            { 0x149501474ull, 1 },
-            { 0x149503934ull, 1 },
-            { 0x149503DE4ull, 1 },
-            { 0x149504154ull, 1 },
             { 0x149505E89ull, 2 },
             { 0x149508EA0ull, 1 },
+            { 0x149509507ull, 2 },
             { 0x1495098DAull, 2 },
+            { 0x1495099B7ull, 2 },
+            { 0x149509E22ull, 2 },
+            { 0x14950A12Dull, 2 },
+            { 0x14950AD2Eull, 2 },
             { 0x14950B31Aull, 1 },
             { 0x14950BB63ull, 2 },
             { 0x14950BF87ull, 2 },
+            { 0x14950CCD5ull, 2 },
             { 0x14950CE80ull, 1 },
             { 0x14950DB70ull, 1 },
             { 0x14950DCA2ull, 2 },
             { 0x14950DE80ull, 1 },
             { 0x14950E77Full, 1 },
-            { 0x14950ED54ull, 1 },
-            { 0x14950FF24ull, 1 },
             { 0x1495100FAull, 2 },
             { 0x149510BD4ull, 2 },
-            { 0x14951222Dull, 1 },
             { 0x14951231Aull, 1 },
-            { 0x14951259Dull, 1 },
-            { 0x149512A3Dull, 1 },
-            { 0x1495132D0ull, 1 },
-            { 0x1495135B8ull, 1 },
             { 0x149513B42ull, 1 },
             { 0x149513C2Aull, 1 },
             { 0x1495140E9ull, 1 },
             { 0x1495141CAull, 1 },
             { 0x14951612Bull, 2 },
             { 0x149516692ull, 2 },
-            { 0x14951880Cull, 2 },
-            { 0x14951AE20ull, 1 },
-            { 0x14951B7FBull, 2 },
             { 0x14951CE8Cull, 2 },
             { 0x14951D418ull, 1 },
-            { 0x14951E0D0ull, 1 },
             { 0x14951EB70ull, 2 },
             { 0x14951F464ull, 1 },
             { 0x1495200A3ull, 1 },
@@ -1960,11 +1862,7 @@ namespace equip
         };
 
         static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F65BF5ull, 1 },
-            { 0x140F65D89ull, 1 },
             { 0x140F65E50ull, 1 },
-            { 0x140F65ECBull, 1 },
-            { 0x140F65FF6ull, 1 },
             { 0x140F6602Bull, 1 },
             { 0x140F671CAull, 1 },
             { 0x140F67631ull, 2 },
@@ -1977,8 +1875,6 @@ namespace equip
             { 0x140F6866Aull, 1 },
             { 0x140F696AEull, 1 },
             { 0x140F69D5Dull, 1 },
-            { 0x140F6BAAEull, 1 },
-            { 0x140F6BDE7ull, 1 },
             { 0x140F6C5E5ull, 1 },
             { 0x140F6C855ull, 1 },
             { 0x140F6CA75ull, 1 },
@@ -1987,53 +1883,42 @@ namespace equip
             { 0x140F6D123ull, 2 },
             { 0x140F6D223ull, 1 },
             { 0x140F6D9EAull, 1 },
-            { 0x140F6DDB1ull, 1 },
             { 0x140F6E6CFull, 1 },
-            { 0x140F707C5ull, 2 },
+            { 0x140F71882ull, 3 },
             { 0x149F167ADull, 1 },
             { 0x149F1787Bull, 1 },
             { 0x149F17E49ull, 2 },
             { 0x149F18239ull, 2 },
             { 0x149F1874Dull, 2 },
             { 0x149F1A8E0ull, 1 },
-            { 0x149F1AFE4ull, 1 },
-            { 0x149F1B3D4ull, 1 },
-            { 0x149F1CAC4ull, 1 },
-            { 0x149F1CFA4ull, 1 },
-            { 0x149F1D0A4ull, 1 },
             { 0x149F1EA49ull, 2 },
             { 0x149F217D0ull, 1 },
+            { 0x149F22107ull, 2 },
             { 0x149F22E5Aull, 2 },
+            { 0x149F23347ull, 2 },
+            { 0x149F23502ull, 2 },
+            { 0x149F2393Dull, 2 },
+            { 0x149F2429Eull, 2 },
             { 0x149F2442Aull, 1 },
             { 0x149F24A03ull, 2 },
             { 0x149F24E07ull, 2 },
+            { 0x149F263C5ull, 2 },
             { 0x149F269F0ull, 1 },
             { 0x149F27330ull, 1 },
             { 0x149F27682ull, 2 },
             { 0x149F27BE0ull, 1 },
             { 0x149F285CFull, 1 },
-            { 0x149F28B74ull, 1 },
-            { 0x149F2A5E4ull, 1 },
             { 0x149F2A83Aull, 2 },
             { 0x149F2ABA4ull, 2 },
-            { 0x149F2BCDDull, 1 },
             { 0x149F2C2DAull, 1 },
-            { 0x149F2C4FDull, 1 },
-            { 0x149F2CA0Dull, 1 },
-            { 0x149F2CBD0ull, 1 },
-            { 0x149F2CD08ull, 1 },
             { 0x149F2CEE2ull, 1 },
             { 0x149F2CFCAull, 1 },
             { 0x149F2D119ull, 1 },
             { 0x149F2D1FAull, 1 },
             { 0x149F2F87Bull, 2 },
             { 0x149F2FBC2ull, 2 },
-            { 0x149F3187Cull, 2 },
-            { 0x149F33BF0ull, 1 },
-            { 0x149F348DBull, 2 },
             { 0x149F35A6Cull, 2 },
             { 0x149F36198ull, 1 },
-            { 0x149F37690ull, 1 },
             { 0x149F38460ull, 2 },
             { 0x149F39484ull, 1 },
             { 0x149F39EE3ull, 1 },
@@ -2091,13 +1976,21 @@ namespace equip
             0x149D7C1C9,
         };
 
-        const std::uintptr_t kSweepFpJp154[] = { 0 };
+        const std::uintptr_t kSweepFpJp154[] = {
+            0x140FE52C5, 0x140FFE958, 0x14127A085, 0x14127A3AE,
+            0x141311077, 0x1413110E5, 0x141A58225, 0x1430D9F20,
+            0x1430E52CC, 0x149765F03, 0x149D8C125, 0x149D8EB35,
+            0x149D93671, 0x149DAC5B5, 0x149DB4C35, 0x149DBA015,
+            0x149DC7451, 0x149DD4BF5, 0x149DDE595, 0x149DDFCDD,
+            0x149DE47B9, 0x149DF1899, 0x149E03FE1, 0x149E0CCF5,
+            0x149E99AB5,
+        };
 
         struct BuildAddrs
         {
             std::uintptr_t patch[kPatchCount];
-            std::uintptr_t sibFix[kSiblingLoopFixCount];
-            std::uint8_t   sibFixOld[kSiblingLoopFixCount][4];
+            std::uintptr_t byteFix[kByteFixCount];
+            std::uint8_t   byteFixOld[kByteFixCount][4];
             std::uintptr_t blockReset;
             std::uintptr_t setDeveloped;
             std::uintptr_t setUndeveloped;
@@ -2108,6 +2001,7 @@ namespace equip
             std::uintptr_t equipIdCount;
             std::uintptr_t equipIdRow;
             std::uintptr_t getBaseId;
+            std::uintptr_t getDerivationDevelopIndex;
             std::uintptr_t siblingCount;
             std::uintptr_t isVisible;
             std::uintptr_t quarkAlloc;
@@ -2130,14 +2024,17 @@ namespace equip
               0x140F6C83A, 0x140F6C843, 0x140F6E105, 0x140F6E117,
               0x140F6E135, 0x140F6E140, 0x140F6E14B, 0x140F6E156,
               0x140F69240, 0x140F6D15A, 0x140F68DF0, 0x140F68CB0,
-              0x140F68C75, 0x140F6AA62, 0x140F6A9BB, 0x140F6CD04 },
-            { 0x140F693DA, 0x140F69400, 0x140F6944C, 0x140F6944F },
+              0x140F68C75, 0x140F6AA62, 0x140F6A9BB, 0x140F6CD04,
+              0x140F64AF1, 0x140F64B1A },
+            { 0x140F693DA, 0x140F69400, 0x140F6944C, 0x140F6944F,
+              0x140F6AD5F, 0x140F6FF79 },
             { { 0x40, 0x32, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 } },
+              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
+              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
             0x140F6C820, 0x140F6E600, 0x140F6E800,
             0x140F68CD0, 0x140F68D00,
             0x140F65930, 0x140F657E0,
-            0x140F6B020, 0x140F6B430, 0x140F65C80,
+            0x140F6B020, 0x140F6B430, 0x140F65C80, 0x140F67000,
             0x140F6A660, 0x140F6D150,
             0x140BFF0E0,
             0x14239B460, 0x14239BCD0, 0x14239B530, 0x14239BDA0,
@@ -2157,14 +2054,17 @@ namespace equip
               0x140F6C89A, 0x140F6C8A3, 0x140F6E165, 0x140F6E177,
               0x140F6E195, 0x140F6E1A0, 0x140F6E1AB, 0x140F6E1B6,
               0x140F692A0, 0x140F6D1BA, 0x140F68E50, 0x140F68D10,
-              0x140F68CD5, 0x140F6AAC2, 0x140F6AA1B, 0x140F6CD64 },
-            { 0x140F6943A, 0x140F69460, 0x140F694AC, 0x140F694AF },
+              0x140F68CD5, 0x140F6AAC2, 0x140F6AA1B, 0x140F6CD64,
+              0x140F64B51, 0x140F64B7A },
+            { 0x140F6943A, 0x140F69460, 0x140F694AC, 0x140F694AF,
+              0x140F6ADBF, 0x140F6FFD9 },
             { { 0x40, 0x32, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 } },
+              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
+              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
             0x140F6C880, 0x140F6E660, 0x140F6E860,
             0x140F68D30, 0x140F68D60,
             0x140F65990, 0x140F65840,
-            0x140F6B080, 0x140F6B490, 0x140F65CE0,
+            0x140F6B080, 0x140F6B490, 0x140F65CE0, 0x140F67060,
             0x140F6A6C0, 0x140F6D1B0,
             0x140BFF060,
             0x14239B770, 0x14239BFE0, 0x14239B840, 0x14239C0B0,
@@ -2175,60 +2075,87 @@ namespace equip
             tbl_jp154::kBoundImmSites,
             sizeof(tbl_jp154::kBoundImmSites)
                 / sizeof(tbl_jp154::kBoundImmSites[0]),
-            kSweepFpJp154, 0,
+            kSweepFpJp154,
+            sizeof(kSweepFpJp154) / sizeof(kSweepFpJp154[0]),
         };
 
-        const std::uintptr_t kSweepFpEn153[] = { 0 };
-        const std::uintptr_t kSweepFpJp153[] = { 0 };
+        const std::uintptr_t kSweepFpEn153[] = {
+            0x140FFF068, 0x14127AA45, 0x14127AD6E, 0x141311B57,
+            0x141311BC5, 0x141A58575, 0x143410E77, 0x143D2D0A5,
+            0x14418BCFE, 0x1449EAFF3, 0x144BC98DE, 0x144E04EF7,
+            0x14546A46A, 0x14563F287, 0x14595A073, 0x145B69C7E,
+            0x145B90678, 0x14610B5ED, 0x1464AABE8, 0x146516E78,
+            0x1465DEA9E, 0x1467D5C61, 0x146D65287, 0x149A04154,
+            0x149D513A2,
+        };
+        const std::uintptr_t kSweepFpJp153[] = {
+            0x140FFF0B8, 0x14127AB75, 0x14127AE9E, 0x141311C97,
+            0x141311D05, 0x141A58675, 0x14335A2A5, 0x143B4F454,
+            0x143F7D9B8, 0x1445E2A1F, 0x1446DBC69, 0x14482529D,
+            0x1452417FE, 0x14538BB2B, 0x1453D5570, 0x14543D05D,
+            0x146F282AD, 0x147F39DE0, 0x14805F6B1, 0x148A6EC4E,
+            0x148BFA15A, 0x148C2F914, 0x148FD2EFD, 0x14942F589,
+            0x14A5BEF2E, 0x14AFFAFFE, 0x14B37258A, 0x14B6B7362,
+            0x14C933470, 0x14CB825E1, 0x14CE50B67, 0x14D372AB4,
+            0x14D6305AB, 0x14DC2AC2F, 0x14DD445BA,
+        };
 
         const BuildAddrs kAddrsEn153 = {
             { 0x1494FD523, 0x1494F9348, 0x1494F93AF, 0x14951D19A,
               0x14951D1A9, 0x14951D1B2, 0,           0x149524FD7,
               0x149524FF5, 0x149525000, 0x14952500B, 0x149525016,
-              0, 0, 0, 0, 0, 0, 0, 0 },
-            { 0x14950E83D, 0x14950E860, 0x14950E8AC, 0x14950E8AF },
+              0, 0, 0, 0, 0, 0, 0, 0,
+              0x1494F9531, 0x1494F955A },
+            { 0x14950E83D, 0x14950E860, 0x14950E8AC, 0x14950E8AF,
+              0x14951882F, 0x140F70709 },
             { { 0x40, 0x30, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 } },
+              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
+              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
             0x14951D190, 0x140F6ED90, 0x149527750,
             0x14950D190, 0x14950D350,
             0x1494FEB30, 0x1494FE600,
-            0x14951A1E0, 0x14951AF70, 0,
+            0x14951A1E0, 0x14951AF70, 0x149500D30, 0x149505E80,
             0x1495140E0, 0x140F6D8E0,
             0x140BFF480,
             0x14239B5C0, 0x14239BE30, 0x14239B690, 0x14239BF00,
-            0,
+            0x1494FA630,
             tbl_en153::kCtlDispSites,
             sizeof(tbl_en153::kCtlDispSites)
                 / sizeof(tbl_en153::kCtlDispSites[0]),
             tbl_en153::kBoundImmSites,
             sizeof(tbl_en153::kBoundImmSites)
                 / sizeof(tbl_en153::kBoundImmSites[0]),
-            kSweepFpEn153, 0,
+            kSweepFpEn153,
+            sizeof(kSweepFpEn153) / sizeof(kSweepFpEn153[0]),
         };
 
         const BuildAddrs kAddrsJp153 = {
             { 0x149F17083, 0x149F14CC8, 0x149F14D2F, 0x149F35D4A,
               0x149F35D59, 0x149F35D62, 0,           0x149F407C7,
               0x149F407E5, 0x149F407F0, 0x149F407FB, 0x149F40806,
-              0, 0, 0, 0, 0, 0, 0, 0 },
-            { 0x149F2868D, 0x149F286B0, 0x149F286FC, 0x149F286FF },
+              0, 0, 0, 0, 0, 0, 0, 0,
+              0x149F14EB1, 0x149F14EDA },
+            { 0x149F2868D, 0x149F286B0, 0x149F286FC, 0x149F286FF,
+              0x149F3189F, 0x140F707F9 },
             { { 0x40, 0x30, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 } },
+              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
+              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
             0x149F35D40, 0x149F42DF0, 0x149F44B70,
             0x149F26DD0, 0x140F69590,
             0x149F18730, 0x149F17E20,
-            0x149F32A10, 0x149F33EC0, 0,
+            0x149F32A10, 0x149F33EC0, 0x149F1A8E0, 0x149F1EA40,
             0x149F2D110, 0x140F6D9E0,
             0x140BFF010,
             0x14239B5F0, 0x14239BE60, 0x14239B6C0, 0x14239BF30,
-            0,
+            0x149F159A0,
             tbl_jp153::kCtlDispSites,
             sizeof(tbl_jp153::kCtlDispSites)
                 / sizeof(tbl_jp153::kCtlDispSites[0]),
             tbl_jp153::kBoundImmSites,
             sizeof(tbl_jp153::kBoundImmSites)
                 / sizeof(tbl_jp153::kBoundImmSites[0]),
-            kSweepFpJp153, 0,
+            kSweepFpJp153,
+            sizeof(kSweepFpJp153) / sizeof(kSweepFpJp153[0]),
         };
 
         const BuildAddrs* g_A = nullptr;
@@ -2260,12 +2187,11 @@ namespace equip
                 kPatches[i]      = kPatchTemplate[i];
                 kPatches[i].addr = g_A->patch[i];
             }
-            for (std::size_t i = 0; i < kSiblingLoopFixCount; ++i)
+            for (std::size_t i = 0; i < kByteFixCount; ++i)
             {
-                kSiblingLoopFixes[i]      = kSiblingLoopFixTemplate[i];
-                kSiblingLoopFixes[i].addr = g_A->sibFix[i];
-                std::memcpy(kSiblingLoopFixes[i].oldBytes,
-                            g_A->sibFixOld[i], 4);
+                kByteFixes[i]      = kByteFixTemplate[i];
+                kByteFixes[i].addr = g_A->byteFix[i];
+                std::memcpy(kByteFixes[i].oldBytes, g_A->byteFixOld[i], 4);
             }
             for (std::size_t i = 0; i < g_A->ctlCount && i < kMaxCtlSites; ++i)
                 g_CtlMut[i] = g_A->ctl[i];
@@ -2292,7 +2218,6 @@ namespace equip
         };
         PrePatchState g_PrePatch       = PrePatchState::NotAttempted;
         int           g_PrePatchDetail = -1;
-        bool          g_Migrated       = false;
         std::uintptr_t g_GrownBlock    = 0;
         char          g_PreVerifyDetail[192] = {};
 
@@ -2318,7 +2243,6 @@ namespace equip
             va_start(args, fmt);
             vsnprintf(g_PreVerifyDetail, sizeof(g_PreVerifyDetail), fmt, args);
             va_end(args);
-            LogDebug("[DevelopArrayGrow] %s\n", g_PreVerifyDetail);
         }
 
         std::atomic<std::uintptr_t> g_ArmedBase20{ 0 };
@@ -2326,13 +2250,12 @@ namespace equip
         constexpr std::size_t kFlagsShadowSize = 0x10000;
         static_assert(kFlagsShadowSize >= kNewRows, "shadow must cover all rows");
         std::uint8_t  g_FlagsShadow[kFlagsShadowSize] = {};
+        std::uint32_t g_EquipEquipedBits[kNewEquipEquipedWords] = {};
         std::uint8_t* g_SvarsFlags = nullptr;
         void*         g_BlockSeen  = nullptr;
 
         std::uint8_t  g_SyncMirror[kOldRows] = {};
         std::uint32_t g_LastSyncTick   = 0;
-        bool          g_SyncPullLogged = false;
-        bool          g_SyncReassertLogged = false;
 
         using BlockReset_t     = void (__fastcall*)(std::uintptr_t block);
         using SetDeveloped_t   = void (__fastcall*)(std::uintptr_t base20,
@@ -2347,6 +2270,8 @@ namespace equip
                                                     std::uint16_t* outBuf);
         using RowListGate_t    = char (__fastcall*)(std::uintptr_t block,
                                                     std::uint16_t idx);
+        using SetItemDevelopedLv_t =
+            void (__fastcall*)(std::uintptr_t block, std::uint16_t idx);
         using EquipIdQuery_t   = long long (__fastcall*)(std::uintptr_t base20,
                                                          std::uint16_t equipId);
         using RowQueryTail_t   = long long (__fastcall*)(std::uintptr_t block,
@@ -2356,6 +2281,9 @@ namespace equip
         using GetQuark_t       = std::uint8_t* (__fastcall*)();
         using GetBaseId_t      = std::uint16_t (__fastcall*)(std::uintptr_t base20,
                                                              std::uint16_t row);
+        using GetDerivationDevelopIndex_t =
+            std::uint16_t (__fastcall*)(std::uintptr_t block, std::uint16_t row,
+                                        std::uint8_t nth);
 
         using EdcDtor_t = void* (__fastcall*)(void* self, unsigned int flags);
 
@@ -2370,6 +2298,7 @@ namespace equip
         EquipIdQuery_t   g_OrigEquipIdCount   = nullptr;
         EquipIdQuery_t   g_OrigEquipIdRow     = nullptr;
         GetBaseId_t      g_OrigGetBaseId      = nullptr;
+        GetDerivationDevelopIndex_t g_OrigGetDerivationDevelopIndex = nullptr;
 
         void*            g_HookBlockReset     = nullptr;
         void*            g_HookSetDeveloped   = nullptr;
@@ -2381,40 +2310,23 @@ namespace equip
         void*            g_HookEquipIdCount   = nullptr;
         void*            g_HookEquipIdRow     = nullptr;
         void*            g_HookGetBaseId      = nullptr;
+        void*            g_HookGetDerivationDevelopIndex = nullptr;
         void*            g_HookEdcDtor        = nullptr;
         bool             g_DtorGuardInstalled = false;
-        bool             g_OrphanDtorSkipped  = false;
 
         void* __fastcall hkEdcDtorGuard(void* self, unsigned int flags)
         {
             if (g_GrownBlock
                 && reinterpret_cast<std::uintptr_t>(self) != g_GrownBlock)
-            {
-                if (!g_OrphanDtorSkipped)
-                {
-                    g_OrphanDtorSkipped = true;
-                    LogDebug("[DevelopArrayGrow] EquipDevelopController dtor skipped "
-                             "on block %p (the grown block is %p) - the relocated "
-                             "field displacements are sized for the grown allocation, "
-                             "so running the dtor here would read past the end of this "
-                             "smaller one; the pre-migration block is orphaned and was "
-                             "never freed, so skipping it leaks nothing that was still "
-                             "reachable\n",
-                        self, reinterpret_cast<void*>(g_GrownBlock));
-                }
                 return self;
-            }
             __try
             {
                 return g_OrigEdcDtor ? g_OrigEdcDtor(self, flags) : self;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                Log("[DevelopArrayGrow] EquipDevelopController dtor faulted on "
-                    "the grown block %p - swallowed so shutdown finishes, but a "
-                    "fault here means the teardown stopped part-way and the heap "
-                    "may already be inconsistent\n",
-                    self);
+                LogWarn("DevelopArrayGrow: EquipDevelopController dtor faulted on %p, "
+                        "teardown stopped part-way", self);
                 return self;
             }
         }
@@ -2430,6 +2342,7 @@ namespace equip
 #define kAddr_EquipIdCount   (g_A->equipIdCount)
 #define kAddr_EquipIdRow     (g_A->equipIdRow)
 #define kAddr_GetBaseId      (g_A->getBaseId)
+#define kAddr_GetDerivationDevelopIndex (g_A->getDerivationDevelopIndex)
 #define kAddr_SiblingCount   (g_A->siblingCount)
 #define kAddr_IsVisible      (g_A->isVisible)
 
@@ -2522,18 +2435,7 @@ namespace equip
             if (live >= kFirstCustomRow && live < kNewRows
                 && !IsReservedFlowRow(live)
                 && RowHoldsDevelopId(live, developId))
-            {
-                if (persistedUsable && persisted != live)
-                {
-                    static std::atomic<std::uint32_t> s_moved{ 0 };
-                    if (s_moved.fetch_add(1, std::memory_order_relaxed) < 6)
-                        LogDebug("[DevelopArrayGrow] developId %d sits at row %u, "
-                                 "not the bookkept row %u - the announced bit "
-                                 "follows the record\n",
-                                 developId, live, persisted);
-                }
                 return live;
-            }
 
             return persistedUsable ? persisted : 0;
         }
@@ -2643,8 +2545,8 @@ namespace equip
                     return;
                 g_LastSyncTick = now;
             }
+            EquipDevelop_RefreshDevelopTimerSnapshot();
             std::uint32_t pulled = 0;
-            std::uint32_t reasserted = 0;
             __try
             {
                 for (std::uint32_t i = 0; i < kOldRows; ++i)
@@ -2658,8 +2560,6 @@ namespace equip
                     }
                     if (i >= kFirstCustomRow)
                     {
-                        if (s != g_SyncMirror[i])
-                            ++reasserted;
                         g_SvarsFlags[i] = h;
                         g_SyncMirror[i] = h;
                         continue;
@@ -2679,9 +2579,13 @@ namespace equip
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[DevelopArrayGrow] flags sync: exception touching the "
-                         "save develop-flag array at %p - vanilla develop state "
-                         "stays stale until the next sync\n", g_SvarsFlags);
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("DevelopArrayGrow: fault reading save develop flags at %p, "
+                            "sync skipped", static_cast<void*>(g_SvarsFlags));
+                }
                 return;
             }
             MarkReservedRowsAnnounced();
@@ -2692,23 +2596,6 @@ namespace equip
             {
                 InvalidateDevelopVisibilityCache();
                 EquipDevelop_RequestDevelopRestore();
-            }
-            if (pulled && !g_SyncPullLogged)
-            {
-                g_SyncPullLogged = true;
-                LogDebug("[DevelopArrayGrow] flags sync: adopted %u develop flag(s) "
-                         "the save load wrote behind the shadow\n",
-                    pulled);
-            }
-            if (reasserted && !g_SyncReassertLogged)
-            {
-                g_SyncReassertLogged = true;
-                LogDebug("[DevelopArrayGrow] flags sync: the save load rewrote %u "
-                         "custom-band byte(s) (rows %u..%u) behind the shadow - the "
-                         "save cannot carry custom rows, so state-file values were "
-                         "re-asserted (adopting them empties the custom loadout "
-                         "lists)\n",
-                    reasserted, kFirstCustomRow, kOldRows - 1);
             }
         }
 
@@ -2722,8 +2609,8 @@ namespace equip
             if (!VirtualProtect(addr, p.opLen + 4, PAGE_EXECUTE_READWRITE,
                                 &oldProt))
             {
-                Log("[DevelopArrayGrow] site %s @%p: VirtualProtect failed "
-                    "(%lu)\n", p.what, addr, GetLastError());
+                LogWarn("DevelopArrayGrow: site %s @%p: VirtualProtect failed (%lu)",
+                        p.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr + p.opLen, &value, 4);
@@ -2769,8 +2656,8 @@ namespace equip
             DWORD oldProt = 0;
             if (!VirtualProtect(addr, 4, PAGE_EXECUTE_READWRITE, &oldProt))
             {
-                Log("[DevelopArrayGrow] site @%p: VirtualProtect failed "
-                    "(%lu)\n", addr, GetLastError());
+                LogWarn("DevelopArrayGrow: site @%p: VirtualProtect failed (%lu)",
+                        static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr, &value, 4);
@@ -2999,7 +2886,6 @@ namespace equip
                 return false;
             }
 
-            const std::uintptr_t firstOld = kCtlDispSites[order[0]].addr;
             for (std::size_t i = 0; i < nFailed; ++i)
             {
                 const std::intptr_t d =
@@ -3017,11 +2903,6 @@ namespace equip
                 if (!dup && g_CloneDeltaCount < 4)
                     g_CloneDelta[g_CloneDeltaCount++] = d;
             }
-            Log("[DevelopArrayGrow] %zu Arxan clone ctl site(s) re-laid by this "
-                "update - relocated per-site (0x%llX -> 0x%llX) and byte-verified\n",
-                nFailed,
-                static_cast<unsigned long long>(firstOld),
-                static_cast<unsigned long long>(placed[0]));
             return true;
         }
 
@@ -3089,7 +2970,6 @@ namespace equip
             }
 
             int unknown = 0;
-            int benign  = 0;
             __try
             {
                 const IMAGE_DOS_HEADER* dos =
@@ -3145,10 +3025,7 @@ namespace equip
                             if (SweepAllowed(va))
                                 continue;
                             if (!executable)
-                            {
-                                ++benign;
                                 continue;
-                            }
                             bool detourTail = false;
                             for (int k = 1; k <= 4 && !detourTail; ++k)
                             {
@@ -3171,10 +3048,7 @@ namespace equip
                                     detourTail = true;
                             }
                             if (detourTail)
-                            {
-                                ++benign;
                                 continue;
-                            }
                             if (unknown == 0 && !quiet)
                                 NoteVerifyFail(
                                     "image sweep: unknown develop-field "
@@ -3183,13 +3057,6 @@ namespace equip
                                     reinterpret_cast<const void*>(va), v);
                             if (unknown < kSweepReportCap)
                             {
-                                if (!quiet)
-                                    LogDebug("[DevelopArrayGrow] sweep unknown "
-                                        "site %d: 0x%llX disp 0x%X prot "
-                                        "0x%X\n",
-                                        unknown + 1,
-                                        static_cast<unsigned long long>(va),
-                                        v, static_cast<unsigned>(mbi.Protect));
                                 g_SweepUnknown[unknown] = SweepFind{ va, v };
                                 g_SweepUnknownCount = unknown + 1;
                             }
@@ -3205,13 +3072,6 @@ namespace equip
                                "game image");
                 return false;
             }
-            if (unknown > kSweepReportCap && !quiet)
-                LogDebug("[DevelopArrayGrow] sweep found %d unknown sites, only "
-                    "the first %d are listed\n", unknown, kSweepReportCap);
-            if (unknown != 0 && benign != 0 && !quiet)
-                LogDebug("[DevelopArrayGrow] sweep skipped %d match(es) in "
-                         "non-executable memory (data coincidences)\n",
-                    benign);
             return unknown == 0;
         }
 
@@ -3226,8 +3086,8 @@ namespace equip
                 if (std::memcmp(addr, f.oldBytes, f.len) == 0
                     || std::memcmp(addr, f.newBytes, f.len) == 0)
                     return true;
-                NoteVerifyFail("byte fix %s @%p: opcode bytes are not the "
-                               "expected 8-bit-index form", f.what, addr);
+                NoteVerifyFail("byte fix %s @%p: bytes match neither the "
+                               "original nor the fixed form", f.what, addr);
                 return false;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3247,8 +3107,8 @@ namespace equip
             DWORD oldProt = 0;
             if (!VirtualProtect(addr, f.len, PAGE_EXECUTE_READWRITE, &oldProt))
             {
-                Log("[DevelopArrayGrow] byte fix %s @%p: VirtualProtect failed "
-                    "(%lu)\n", f.what, addr, GetLastError());
+                LogWarn("DevelopArrayGrow: byte fix %s @%p: VirtualProtect failed (%lu)",
+                        f.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr, bytes, f.len);
@@ -3266,38 +3126,35 @@ namespace equip
                                    : 0;
             if (n > kSiblingListCap)
             {
-                LogDebug("[DevelopArrayGrow] develop row %u has %u same-group rows "
-                         "- clamped to the engine's 1024-entry stack array; "
-                         "siblings past 1024 are not retired, which beats writing "
-                         "%u bytes past it\n",
-                    static_cast<unsigned>(row), static_cast<unsigned>(n),
-                    static_cast<unsigned>((n - kSiblingListCap) * 2u));
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("DevelopArrayGrow: develop row %u has %u same-group rows, "
+                            "clamped to 1024", static_cast<unsigned>(row),
+                            static_cast<unsigned>(n));
+                }
                 n = kSiblingListCap;
-            }
-            ++g_SibCalls;
-            g_SibSum += n;
-            if (n > g_SibMax)
-                g_SibMax = n;
-            if (g_SibCalls == 200000
-                && g_VisArmed
-                && g_VisThread == GetCurrentThreadId())
-            {
-                LogDebug("[DevelopArrayGrow] variant-chain walk hit 200000 "
-                         "iterations in one list build (normal is a few hundred) - "
-                         "no end sentinel reached; caller chain follows\n");
-                LogSiblingBacktrace(g_SibCalls);
             }
             return n;
         }
 
-        bool CustomRowLive(const void* self, std::uint16_t row)
+        bool CustomBluePrintShowsRow(const void* self, std::uint16_t row)
         {
+            if (row >= kNewRows)
+                return false;
+            const std::uint16_t developId = g_CustomBluePrintDevelopIds[row];
+            if (developId == 0 || MissionCodeGuard::ShouldBypassHooks())
+                return false;
             __try
             {
-                const std::uint8_t* rec =
-                    static_cast<const std::uint8_t*>(self)
+                const std::uint8_t* rec = static_cast<const std::uint8_t*>(self)
                     + static_cast<std::size_t>(row) * kRecStride;
-                return *reinterpret_cast<const std::uint16_t*>(rec + 0x8) != 0;
+                if (*reinterpret_cast<const std::uint16_t*>(rec + kRecDevelopIdOff) != developId)
+                    return false;
+                const std::uint8_t displayInfo = rec[kRecDisplayInfoOff] & kDisplayInfoMask;
+                return displayInfo == kDisplayInfoSkillOrBluePrint
+                    || displayInfo == kDisplayInfoBluePrintOnly;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -3307,13 +3164,9 @@ namespace equip
 
         bool __fastcall hkIsVisible(void* self, std::uint16_t row)
         {
-            ++g_VisWinCalls;
             if (outfit::IsDevelopHidden(row))
                 return false;
-            if (row >= kFirstCustomRow && row < kNewRows
-                && !IsReservedFlowRow(row)
-                && !MissionCodeGuard::ShouldBypassHooks()
-                && CustomRowLive(self, row))
+            if (CustomBluePrintShowsRow(self, row))
                 return true;
             if (row >= kNewRows || g_VisThread != GetCurrentThreadId())
                 return g_OrigIsVisible ? g_OrigIsVisible(self, row) : false;
@@ -3336,13 +3189,8 @@ namespace equip
                 return g_OrigIsVisible ? g_OrigIsVisible(self, row) : false;
             }
 
-            ++g_VisCalls;
             if (const std::uint8_t c = g_VisCache[row])
-            {
-                ++g_VisHits;
-                ++g_VisWinHits;
                 return c == 2;
-            }
             const bool v = g_OrigIsVisible ? g_OrigIsVisible(self, row) : false;
             g_VisCache[row] = v ? std::uint8_t{ 2 } : std::uint8_t{ 1 };
             return v;
@@ -3373,37 +3221,29 @@ namespace equip
             }
         }
 
-        void RevertAllPatches(const char* why)
+        void RevertAllPatches()
         {
             g_Active = false;
             g_ArmedBase20.store(0, std::memory_order_relaxed);
-            int reverted = 0;
             for (const ImmPatch& p : kPatches)
-                if (p.addr && WriteImmAt(p, p.oldImm))
-                    ++reverted;
+                if (p.addr)
+                    WriteImmAt(p, p.oldImm);
             for (std::size_t i = 0; i < kCtlSiteCount; ++i)
-                if (g_CtlDispOff[i]
-                    && WriteU32At(kCtlDispSites[i].addr, g_CtlDispOff[i],
-                                  kCtlDispSites[i].oldDisp))
-                    ++reverted;
+                if (g_CtlDispOff[i])
+                    WriteU32At(kCtlDispSites[i].addr, g_CtlDispOff[i],
+                               kCtlDispSites[i].oldDisp);
             for (std::size_t i = 0; i < kBoundSiteCount; ++i)
-                if (WriteU32At(kBoundImmSites[i].addr,
-                               kBoundImmSites[i].immOff, 0x400))
-                    ++reverted;
-            for (const ByteFix& f : kSiblingLoopFixes)
-                if (WriteByteFix(f, f.oldBytes))
-                    ++reverted;
-            LogDebug("[DevelopArrayGrow] REVERTED (%s): %d site(s) restored - bound "
-                     "back at 1024 rows this session\n",
-                why, reverted);
+                WriteU32At(kBoundImmSites[i].addr, kBoundImmSites[i].immOff, 0x400);
+            for (const ByteFix& f : kByteFixes)
+                WriteByteFix(f, f.oldBytes);
         }
 
         void DeactivateGrow(const char* why)
         {
             g_Active = false;
             g_ArmedBase20.store(0, std::memory_order_relaxed);
-            LogDebug("[DevelopArrayGrow] CRITICAL (%s): grown band deactivated - "
-                     "rows >= 1024 unusable; restart before developing anything\n", why);
+            LogError("DevelopArrayGrow: %s, rows >= 1024 disabled; restart before "
+                     "developing", why);
         }
 
         bool ProbeGrownRowsClean(std::uintptr_t base20)
@@ -3440,12 +3280,9 @@ namespace equip
                 {
                     static std::atomic<int> s_occupied{ 0 };
                     if (s_occupied.fetch_add(1, std::memory_order_relaxed) < 4)
-                        Log("[DevelopArrayGrow] WARNING: develop row %u already "
-                            "holds a live record (developId=%u) - rows 0x3FD-0x3FF "
-                            "hard-map to gunsmith equips 871/873/875, so this row "
-                            "is left to the game; a custom weapon here equips a "
-                            "gunsmith pseudo-weapon\n",
-                            row, static_cast<unsigned>(word0));
+                        LogWarn("DevelopArrayGrow: reserved develop row %u already "
+                                "holds developId %u, left to the game",
+                                row, static_cast<unsigned>(word0));
                     continue;
                 }
                 if (word0 != 0xFFFF)
@@ -3475,11 +3312,7 @@ namespace equip
 
                 if (!ProbeGrownRowsClean(base20))
                 {
-                    LogDebug("[DevelopArrayGrow] CRITICAL: rows 1024..%u of develop "
-                             "block %p hold foreign data (the block predates the "
-                             "grow patches) - refusing the grown band\n",
-                        kNewRows - 1, reinterpret_cast<void*>(block));
-                    DeactivateGrow("pre-existing develop block");
+                    DeactivateGrow("develop block predates the grow patches");
                     return;
                 }
 
@@ -3492,9 +3325,9 @@ namespace equip
                 {
                     if (g_BlockSeen
                         && g_BlockSeen != reinterpret_cast<void*>(block))
-                        Log("[DevelopArrayGrow] WARNING: second develop block "
-                            "%p (first %p) - shadow re-bound to the newest\n",
-                            reinterpret_cast<void*>(block), g_BlockSeen);
+                        LogWarn("DevelopArrayGrow: second develop block %p (first %p), "
+                                "flags shadow re-bound",
+                                reinterpret_cast<void*>(block), g_BlockSeen);
                     g_BlockSeen  = reinterpret_cast<void*>(block);
                     g_SvarsFlags = svarsFlags;
                     std::memcpy(g_FlagsShadow, svarsFlags, kOldRows);
@@ -3508,10 +3341,6 @@ namespace equip
                     InvalidateDevelopVisibilityCache();
                     InvalidateDevelopLookupIndex();
                     EquipDevelop_RequestDevelopRestore();
-                    LogDebug("[DevelopArrayGrow] develop block %p armed at first "
-                             "use (its reset ran before the hooks): flags shadow "
-                             "bound (svars=%p), rows 0x3FD-0x400 claimed\n",
-                        reinterpret_cast<void*>(block), svarsFlags);
                 }
                 else if (!g_BlockSeen)
                 {
@@ -3521,8 +3350,13 @@ namespace equip
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[DevelopArrayGrow] ArmFromBase20: exception probing the "
-                         "develop block - grown rows stay unarmed this pass\n");
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("DevelopArrayGrow: fault probing develop block, grown "
+                            "rows stay unarmed");
+                }
             }
         }
 
@@ -3552,9 +3386,9 @@ namespace equip
                 if (!svarsFlags)
                     return;
                 if (g_BlockSeen && g_BlockSeen != reinterpret_cast<void*>(block))
-                    Log("[DevelopArrayGrow] WARNING: second develop block %p "
-                        "(first %p) - shadow re-bound to the newest\n",
-                        reinterpret_cast<void*>(block), g_BlockSeen);
+                    LogWarn("DevelopArrayGrow: second develop block %p (first %p), "
+                            "flags shadow re-bound",
+                            reinterpret_cast<void*>(block), g_BlockSeen);
                 g_BlockSeen  = reinterpret_cast<void*>(block);
                 g_SvarsFlags = svarsFlags;
                 std::memcpy(g_FlagsShadow, svarsFlags, kOldRows);
@@ -3569,14 +3403,11 @@ namespace equip
                 InvalidateDevelopVisibilityCache();
                 InvalidateDevelopLookupIndex();
                 EquipDevelop_RequestDevelopRestore();
-                LogDebug("[DevelopArrayGrow] develop block reset: flags shadow "
-                         "re-armed (svars=%p rows=%u), rows 0x3FD-0x400 "
-                         "pre-claimed\n", svarsFlags, kNewRows);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[DevelopArrayGrow] hkBlockReset: exception re-arming "
-                    "the flags shadow\n");
+                LogWarn("DevelopArrayGrow: fault re-arming the flags shadow on "
+                        "develop block reset");
             }
         }
 
@@ -3598,42 +3429,54 @@ namespace equip
 
         void __fastcall hkSetDeveloped(std::uintptr_t base20, std::uint16_t idx)
         {
+            if (idx == kFlowSentinel)
+                return;
             if (idx >= equip::NativeFlowBound())
             {
-                LogDebug("[DevelopArrayGrow] SetEquipDeveloped REFUSED garbage "
-                    "index %u (bound %u)\n", idx, equip::NativeFlowBound());
+                static std::atomic<int> s_overBound{ 0 };
+                if (s_overBound.fetch_add(1, std::memory_order_relaxed) < 4)
+                    LogWarn("DevelopArrayGrow: SetEquipDeveloped index %u over bound %u, "
+                            "refused", static_cast<unsigned>(idx), equip::NativeFlowBound());
                 return;
             }
             if (idx >= kOldRows && !GrownRowFlagsBound(base20))
             {
-                LogDebug("[DevelopArrayGrow] SetEquipDeveloped REFUSED grown index "
-                         "%u: flags shadow unbound - the write would land in the "
-                         "online develop array\n", idx);
+                static std::atomic<int> s_unbound{ 0 };
+                if (s_unbound.fetch_add(1, std::memory_order_relaxed) < 4)
+                    LogWarn("DevelopArrayGrow: SetEquipDeveloped row %u refused, flags "
+                            "shadow unbound", static_cast<unsigned>(idx));
                 return;
             }
             void* ctl = reinterpret_cast<void*>(base20);
+            const bool timerProof =
+                idx >= kFirstCustomRow && EquipDevelop_WasDevelopTimerActive(idx);
             if (EquipDevelop_ShouldSuppressNativeDevelop(ctl, idx))
                 return;
             RearmNewBadgeOnDevelop(base20, idx);
             g_OrigSetDeveloped(base20, idx);
             MirrorFlagByte(idx);
-            EquipDevelop_NotifyNativeDevelopChanged(ctl, idx, true);
+            EquipDevelop_NotifyNativeDevelopChanged(ctl, idx, true, timerProof);
         }
 
         void __fastcall hkSetUndeveloped(std::uintptr_t base20,
                                          std::uint16_t idx, char notify)
         {
+            if (idx == kFlowSentinel)
+                return;
             if (idx >= equip::NativeFlowBound())
             {
-                LogDebug("[DevelopArrayGrow] SetEquipUndeveloped REFUSED garbage "
-                    "index %u (bound %u)\n", idx, equip::NativeFlowBound());
+                static std::atomic<int> s_overBound{ 0 };
+                if (s_overBound.fetch_add(1, std::memory_order_relaxed) < 4)
+                    LogWarn("DevelopArrayGrow: SetEquipUndeveloped index %u over bound %u, "
+                            "refused", static_cast<unsigned>(idx), equip::NativeFlowBound());
                 return;
             }
             if (idx >= kOldRows && !GrownRowFlagsBound(base20))
             {
-                LogDebug("[DevelopArrayGrow] SetEquipUndeveloped REFUSED grown "
-                         "index %u: flags shadow unbound - the write would land in "
-                         "the online develop array\n", idx);
+                static std::atomic<int> s_unbound{ 0 };
+                if (s_unbound.fetch_add(1, std::memory_order_relaxed) < 4)
+                    LogWarn("DevelopArrayGrow: SetEquipUndeveloped row %u refused, flags "
+                            "shadow unbound", static_cast<unsigned>(idx));
                 return;
             }
             void* ctl = reinterpret_cast<void*>(base20);
@@ -3653,10 +3496,6 @@ namespace equip
         std::uintptr_t g_LookupBase   = 0;
         std::uint32_t  g_LookupBound  = 0;
         std::uint64_t  g_LookupStamp  = 0;
-        std::uint64_t  g_LookupBuilds = 0;
-        std::uint64_t  g_FindCalls    = 0;
-        std::uint64_t  g_FindIndexed  = 0;
-        std::uint64_t  g_FindStale    = 0;
 
         std::uint64_t g_VanIdentityBits[kEquipIdSlots / 64] = {};
         bool          g_VanIdentityDirty = false;
@@ -3700,7 +3539,6 @@ namespace equip
             g_LookupBound = bound;
             g_LookupStamp = GetTickCount64();
             g_LookupValid = true;
-            ++g_LookupBuilds;
         }
 
         void PushVanillaIdentityIds()
@@ -3792,7 +3630,6 @@ namespace equip
                     out = row;
                     return true;
                 }
-                ++g_FindStale;
                 InvalidateDevelopLookupIndex();
             }
             return false;
@@ -3801,13 +3638,10 @@ namespace equip
         std::uint16_t __fastcall hkFindByDevId(std::uintptr_t base20,
                                                std::uint16_t developId)
         {
-            ++g_FindCalls;
+            EquipDevelop_RefreshDevelopTimerSnapshot();
             std::uint16_t served = 0;
             if (ServeFromIndex(base20, developId, false, served))
-            {
-                ++g_FindIndexed;
                 return served;
-            }
             const std::uint8_t* base =
                 reinterpret_cast<const std::uint8_t*>(base20);
             for (std::uint32_t i = 0; i < equip::NativeFlowBound(); ++i)
@@ -3827,7 +3661,7 @@ namespace equip
         {
             if (equipId == 0)
                 return kFlowSentinel;
-            ++g_FindCalls;
+            EquipDevelop_RefreshDevelopTimerSnapshot();
             if (equipId < kEquipIdSlots
                 && !MissionCodeGuard::ShouldBypassHooks()
                 && V_FrameWorkState::IsClaimedEquipId(
@@ -3844,10 +3678,7 @@ namespace equip
             std::uint16_t served = 0;
             if (equipId < kEquipIdSlots
                 && ServeFromIndex(base20, equipId, true, served))
-            {
-                ++g_FindIndexed;
                 return served;
-            }
             const std::uint8_t* base =
                 reinterpret_cast<const std::uint8_t*>(base20);
             for (std::uint32_t i = 0; i < equip::NativeFlowBound(); ++i)
@@ -3889,6 +3720,54 @@ namespace equip
             return flags && (flags[idx] & 1) != 0;
         }
 
+        constexpr std::size_t   kBase20_RecDevelopGmpCostOff = 0x24;
+        constexpr std::uint16_t kCboxDsrDevelopId            = 12000;
+
+        std::uint32_t DevelopZeroCostEquips(std::uintptr_t base20)
+        {
+            const std::uintptr_t block = base20 - 0x20;
+            const std::uintptr_t vtbl =
+                *reinterpret_cast<const std::uintptr_t*>(block);
+            const RowListGate_t gate =
+                *reinterpret_cast<const RowListGate_t*>(vtbl + 0x30);
+            const SetItemDevelopedLv_t setItemDevelopedLv =
+                *reinterpret_cast<const SetItemDevelopedLv_t*>(vtbl + 0x68);
+            std::uint8_t* const flags =
+                *reinterpret_cast<std::uint8_t* const*>(
+                    base20 + kBase20_FlagsPtrOff);
+            if (!gate || !setItemDevelopedLv || !flags)
+                return 0;
+
+            const std::uint32_t bound =
+                GrownRowFlagsBound(base20) ? kNewRows : kOldRows;
+            std::uint32_t developed = 0;
+            for (std::uint32_t i = 0; i < bound; ++i)
+            {
+                if (IsReservedFlowRow(i))
+                    continue;
+                const std::uint16_t row = static_cast<std::uint16_t>(i);
+                if (gate(block, row) == 0)
+                    continue;
+                const std::uintptr_t rec =
+                    base20 + static_cast<std::size_t>(i) * kRecStride;
+                const std::uint16_t developId =
+                    *reinterpret_cast<const std::uint16_t*>(
+                        rec + kBase20_RecFieldOff);
+                const std::uint32_t developGmpCost =
+                    *reinterpret_cast<const std::uint32_t*>(
+                        rec + kBase20_RecDevelopGmpCostOff);
+                if (developId == 0 || developId == kCboxDsrDevelopId
+                    || developGmpCost != 0)
+                    continue;
+                flags[i] |= 1;
+                setItemDevelopedLv(block, row);
+                ++developed;
+            }
+            if (developed != 0)
+                InvalidateDevelopVisibilityCache();
+            return developed;
+        }
+
         std::uint16_t __fastcall hkListDevCount(std::uintptr_t base20)
         {
             if (!IsGrownBase20(base20))
@@ -3905,16 +3784,15 @@ namespace equip
                         ++n;
                 }
                 if (n == 0)
-                    return g_OrigListDevCount(base20);
+                    n = DevelopZeroCostEquips(base20);
                 if (n > kOldRows)
                 {
                     static bool logged = false;
                     if (!logged)
                     {
                         logged = true;
-                        LogDebug("[DevelopArrayGrow] menu candidate count %u over "
-                                 "the native 1024-entry list buffer - clamped; "
-                                 "items past the cap will not list\n", n);
+                        LogWarn("DevelopArrayGrow: %u develop menu entries over the "
+                                "1024 cap, extras not listed", n);
                     }
                     n = kOldRows;
                 }
@@ -3922,9 +3800,14 @@ namespace equip
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[DevelopArrayGrow] hkListDevCount: exception scanning "
-                         "grown rows - falling back to the native 1024 scan\n");
-                return g_OrigListDevCount(base20);
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("DevelopArrayGrow: fault counting develop rows, equip list "
+                            "empty this pass");
+                }
+                return 0;
             }
         }
 
@@ -3950,21 +3833,23 @@ namespace equip
                     if (RowQualifiesForList(base20, i))
                         outBuf[w++] = static_cast<std::uint16_t>(i);
                 }
-                if (w == 0)
-                    g_OrigListDevFill(base20, maxCount, outBuf);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                LogDebug("[DevelopArrayGrow] hkListDevFill: exception scanning "
-                         "grown rows - falling back to the native 1024 scan\n");
-                g_OrigListDevFill(base20, maxCount, outBuf);
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("DevelopArrayGrow: fault filling develop rows, equip list "
+                            "truncated this pass");
+                }
             }
         }
 
         std::uint16_t FindLastRowForEquipId(std::uintptr_t base20,
                                             std::uint16_t equipId)
         {
-            std::uint16_t found = 0x400;
+            std::uint16_t found = kFlowSentinel;
             const std::uint32_t bound = equip::NativeFlowBound();
             for (std::uint32_t i = 0; i < bound; ++i)
             {
@@ -4051,13 +3936,26 @@ namespace equip
             {
                 static std::atomic<int> s_selfParent{ 0 };
                 if (s_selfParent.fetch_add(1, std::memory_order_relaxed) < 4)
-                    LogDebug("[DevelopArrayGrow] develop row %u is its own parent - "
-                             "reported as no-parent, because the menu's parent walk "
-                             "would hang on the self-reference\n",
-                        static_cast<unsigned>(row));
+                    LogWarn("DevelopArrayGrow: develop row %u is its own parent, "
+                            "treated as no parent", static_cast<unsigned>(row));
                 return kFlowSentinel;
             }
             return parent;
+        }
+
+        std::uint16_t __fastcall hkGetDerivationDevelopIndex(std::uintptr_t block,
+                                                             std::uint16_t row,
+                                                             std::uint8_t nth)
+        {
+            if (row >= static_cast<std::uint16_t>(kNewRows)
+                || IsReservedFlowRow(row))
+                return kFlowSentinel;
+            const std::uint16_t found =
+                g_OrigGetDerivationDevelopIndex(block, row, nth);
+            if (found >= static_cast<std::uint16_t>(kNewRows)
+                || IsReservedFlowRow(found))
+                return kFlowSentinel;
+            return found;
         }
 
         bool VerifyPatchSite(const ImmPatch& p)
@@ -4109,8 +4007,8 @@ namespace equip
             if (!VirtualProtect(addr, p.opLen + 4, PAGE_EXECUTE_READWRITE,
                                 &oldProt))
             {
-                Log("[DevelopArrayGrow] site %s @%p: VirtualProtect failed "
-                    "(%lu)\n", p.what, addr, GetLastError());
+                LogWarn("DevelopArrayGrow: site %s @%p: VirtualProtect failed (%lu)",
+                        p.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr + p.opLen, &p.newImm, 4);
@@ -4120,14 +4018,19 @@ namespace equip
             return true;
         }
 
-        int TotalPatchCount()
+        std::size_t ListedPatchCount()
         {
             std::size_t listed = 0;
             for (std::size_t i = 0; i < kPatchCount; ++i)
                 if (kPatches[i].addr)
                     ++listed;
-            return static_cast<int>(listed + kCtlSiteCount
-                                    + kBoundSiteCount + kSiblingLoopFixCount);
+            return listed;
+        }
+
+        int TotalPatchCount()
+        {
+            return static_cast<int>(ListedPatchCount() + kCtlSiteCount
+                                    + kBoundSiteCount + kByteFixCount);
         }
 
         int ApplyAllPatches()
@@ -4145,7 +4048,7 @@ namespace equip
                 if (WriteU32At(kBoundImmSites[i].addr,
                                kBoundImmSites[i].immOff, kNewRows))
                     ++applied;
-            for (const ByteFix& f : kSiblingLoopFixes)
+            for (const ByteFix& f : kByteFixes)
                 if (WriteByteFix(f, f.newBytes))
                     ++applied;
             return applied;
@@ -4212,11 +4115,8 @@ namespace equip
             if (size == kOldAllocSize && align == 0x10 && flags == 0x3002C)
             {
                 realSize = kNewAllocSize;
-                LogDebug("[DevelopArrayGrow] CRITICAL: a develop-block allocation "
-                         "still asked for the OLD size 0x%X after the size patch - "
-                         "the protector restored original bytes; grown to 0x%X here "
-                         "so a 4096-row init cannot overrun it\n",
-                    kOldAllocSize, kNewAllocSize);
+                LogWarn("DevelopArrayGrow: develop block alloc asked old size 0x%X, "
+                        "grown to 0x%X", kOldAllocSize, kNewAllocSize);
             }
             void* p = g_OrigQuarkAlloc(realSize, align, flags);
             if (p && realSize == kNewAllocSize && align == 0x10
@@ -4279,7 +4179,8 @@ namespace equip
                 g_HookBlockReset,    g_HookSetDeveloped,  g_HookSetUndeveloped,
                 g_HookFindByDevId,   g_HookFindByEquipId, g_HookListDevCount,
                 g_HookListDevFill,   g_HookEquipIdCount,  g_HookEquipIdRow,
-                g_HookGetBaseId,     g_HookEdcDtor,
+                g_HookGetBaseId,     g_HookGetDerivationDevelopIndex,
+                g_HookEdcDtor,
             };
 
             const std::uintptr_t s = reinterpret_cast<std::uintptr_t>(site);
@@ -4299,7 +4200,6 @@ namespace equip
             static HealedSite healed[kMaxHealed];
             std::size_t nHealed        = 0;
             int         nForeign       = 0;
-            int         nDetoured      = 0;
             std::uintptr_t foreignAddr = 0;
             std::uint32_t  foreignVal  = 0;
             const char*    foreignWhat = nullptr;
@@ -4330,10 +4230,7 @@ namespace equip
                  ++i)
             {
                 if (SiteInsideOurDetour(kCtlDispSites[i].addr))
-                {
-                    ++nDetoured;
                     continue;
-                }
                 std::uint32_t v = 0;
                 if (!TryReadU32(kCtlDispSites[i].addr, g_CtlDispOff[i], v))
                     continue;
@@ -4355,10 +4252,7 @@ namespace equip
                  i < kBoundSiteCount && nHealed < kMaxHealed; ++i)
             {
                 if (SiteInsideOurDetour(kBoundImmSites[i].addr))
-                {
-                    ++nDetoured;
                     continue;
-                }
                 std::uint32_t v = 0;
                 if (!TryReadU32(kBoundImmSites[i].addr,
                                 kBoundImmSites[i].immOff, v))
@@ -4377,9 +4271,9 @@ namespace equip
                 }
             }
             for (std::size_t i = 0;
-                 i < kSiblingLoopFixCount && nHealed < kMaxHealed; ++i)
+                 i < kByteFixCount && nHealed < kMaxHealed; ++i)
             {
-                const ByteFix& f = kSiblingLoopFixes[i];
+                const ByteFix& f = kByteFixes[i];
                 std::uint8_t cur[4] = {};
                 if (!f.addr || f.len > 4
                     || !TryReadBytes(f.addr, cur, f.len))
@@ -4389,29 +4283,16 @@ namespace equip
                         { 3, static_cast<std::uint16_t>(i) };
             }
 
-            static bool detourNoteLogged = false;
-            if (nDetoured != 0 && !detourNoteLogged)
-            {
-                detourNoteLogged = true;
-                LogDebug("[DevelopArrayGrow] %d patched site(s) sit in the first "
-                         "bytes of a function this module also detours - MinHook "
-                         "copied the patched instruction into its trampoline, so "
-                         "the bound is live through it; excluded from the integrity "
-                         "re-check\n", nDetoured);
-            }
-
             static int foreignLogged = 0;
             if (nForeign != 0 && foreignLogged < 3)
             {
                 ++foreignLogged;
-                Log("[DevelopArrayGrow] WARNING: %d patched site(s) hold neither "
-                    "the original nor the patched value (first %s @0x%llX = 0x%X) - "
-                    "a detour on the same bytes or an encrypted clone; left "
-                    "untouched, rechecked next pass\n",
-                    nForeign,
-                    foreignWhat ? foreignWhat : "?",
-                    static_cast<unsigned long long>(foreignAddr),
-                    foreignVal);
+                LogWarn("DevelopArrayGrow: %d patched site(s) hold foreign values "
+                        "(first %s @0x%llX = 0x%X), left untouched",
+                        nForeign,
+                        foreignWhat ? foreignWhat : "?",
+                        static_cast<unsigned long long>(foreignAddr),
+                        foreignVal);
             }
             if (nHealed == 0)
                 return;
@@ -4448,7 +4329,7 @@ namespace equip
                 }
                 case 3:
                 {
-                    const ByteFix& f = kSiblingLoopFixes[healed[i].idx];
+                    const ByteFix& f = kByteFixes[healed[i].idx];
                     ok = WriteByteFix(f, f.newBytes);
                     break;
                 }
@@ -4458,9 +4339,8 @@ namespace equip
             }
             ResumeOtherThreads(suspended, nSuspended);
 
-            Log("[DevelopArrayGrow] WARNING: the protector restored %zu patched "
-                "site(s) to original bytes - %zu re-applied; develop data touched "
-                "in that window may be inconsistent until the next R&D rebuild\n", nHealed, repaired);
+            LogWarn("DevelopArrayGrow: protector restored %zu patched site(s), "
+                    "%zu re-applied", nHealed, repaired);
             InvalidateDevelopVisibilityCache();
             InvalidateDevelopLookupIndex();
         }
@@ -4516,7 +4396,6 @@ namespace equip
                     ++g1;
                 const int n = g1 - g0;
 
-                std::size_t matchStart = 0;
                 int matches = 0;
                 if (n >= 2 && static_cast<std::size_t>(n) <= kCtlSiteCount)
                 {
@@ -4546,10 +4425,7 @@ namespace equip
                                 fit = false;
                         }
                         if (fit)
-                        {
                             ++matches;
-                            matchStart = j;
-                        }
                     }
                 }
 
@@ -4564,67 +4440,17 @@ namespace equip
                                                   g_SweepUnknown[g0 + i].disp)))
                             ++patched;
                     ResumeOtherThreads(suspended, nSuspended);
-                    Log("[DevelopArrayGrow] WARNING: a late-materialized clone "
-                        "surfaced with %d unpatched develop-field ref(s) at 0x%llX "
-                        "(clone of the %zu-site run near 0x%llX) - %d patched in "
-                        "place\n",
-                        n,
-                        static_cast<unsigned long long>(
-                            g_SweepUnknown[g0].va),
-                        static_cast<std::size_t>(n),
-                        static_cast<unsigned long long>(
-                            kCtlDispSites[order[matchStart]].addr),
-                        patched);
+                    LogWarn("DevelopArrayGrow: late clone with %d develop-field "
+                            "ref(s) at 0x%llX, %d patched", n,
+                            static_cast<unsigned long long>(g_SweepUnknown[g0].va),
+                            patched);
                 }
                 else if (!LateCloneAlreadyLogged(g_SweepUnknown[g0].va))
                 {
-                    LogDebug("[DevelopArrayGrow] CRITICAL: %d unpatched "
-                             "develop-field ref(s) at 0x%llX match %d known-site "
-                             "runs (need exactly 1%s) - NOT patched; code running "
-                             "through that copy reads the OLD control offsets, "
-                             "which overlap grown rows 1024..1259\n",
-                        n,
-                        static_cast<unsigned long long>(
-                            g_SweepUnknown[g0].va),
-                        matches,
-                        n < 2 ? "; a lone site is never matched, the run "
-                                "matcher needs two or more" : "");
-                    for (int i = 0; i < n; ++i)
-                    {
-                        const SweepFind& f = g_SweepUnknown[g0 + i];
-                        std::size_t owners = 0;
-                        std::uintptr_t firstOwner = 0;
-                        for (std::size_t k = 0; k < kCtlSiteCount; ++k)
-                            if (kCtlDispSites[k].oldDisp == f.disp)
-                            {
-                                if (owners == 0)
-                                    firstOwner = kCtlDispSites[k].addr;
-                                ++owners;
-                            }
-                        char bytes[80];
-                        bytes[0] = '\0';
-                        __try
-                        {
-                            const std::uint8_t* p =
-                                reinterpret_cast<const std::uint8_t*>(
-                                    f.va - 6);
-                            for (int b = 0; b < 14; ++b)
-                                std::snprintf(bytes + b * 3, 4, "%02X ", p[b]);
-                        }
-                        __except (EXCEPTION_EXECUTE_HANDLER)
-                        {
-                            std::snprintf(bytes, sizeof(bytes),
-                                          "<unreadable>");
-                        }
-                        LogDebug("[DevelopArrayGrow]   site %d: 0x%llX disp 0x%X "
-                                 "held by %zu known site(s), first 0x%llX | bytes "
-                                 "%s\n",
-                            i + 1,
-                            static_cast<unsigned long long>(f.va),
-                            f.disp, owners,
-                            static_cast<unsigned long long>(firstOwner),
-                            bytes);
-                    }
+                    LogWarn("DevelopArrayGrow: %d develop-field ref(s) at 0x%llX "
+                            "match %d known runs, not patched; grown rows at risk",
+                            n, static_cast<unsigned long long>(g_SweepUnknown[g0].va),
+                            matches);
                 }
                 g0 = g1;
             }
@@ -4733,6 +4559,15 @@ namespace equip
                 std::memcpy(nb + kNewCtlOff,
                             reinterpret_cast<const void*>(block + kOldCtlOff),
                             kCtlSize);
+                const std::uint32_t* oldEquiped =
+                    *reinterpret_cast<const std::uint32_t* const*>(
+                        block + kWorkBufDisp);
+                if (oldEquiped)
+                    std::memcpy(g_EquipEquipedBits, oldEquiped,
+                                kOldEquipEquipedWords * sizeof(std::uint32_t));
+                *reinterpret_cast<std::uint32_t**>(
+                    nb + kNewCtlOff + (kWorkBufDisp - kOldCtlOff)) =
+                    g_EquipEquipedBits;
                 std::memcpy(nb + kNewParallelOff,
                             reinterpret_cast<const void*>(block + 0x1A028),
                             static_cast<std::size_t>(kOldRows) * kParStride);
@@ -4741,7 +4576,7 @@ namespace equip
                 const int applied = ApplyAllPatches();
                 if (applied != TotalPatchCount())
                 {
-                    RevertAllPatches("partial apply during migration");
+                    RevertAllPatches();
                     ResumeOtherThreads(suspended, nSuspended);
                     nSuspended = -1;
                     NoteVerifyFail("migrate: only %d of %d patches applied - "
@@ -4820,30 +4655,29 @@ namespace equip
             V_FrameWorkState::SetDevReqAnnouncedByDevelopId(developId, true);
     }
 
+    bool OwnsDevelopVisibilityHook(const void* target)
+    {
+        return target && g_A && g_IsVisibleInstalled
+            && ResolveGameAddress(kAddr_IsVisible) == target;
+    }
+
     void InvalidateDevelopVisibilityCache()
     {
         g_VisValid = false;
         g_VisSelf  = nullptr;
     }
 
+    void SetCustomBluePrintRow(std::uint32_t row, std::uint16_t developId)
+    {
+        if (row >= kNewRows)
+            return;
+        g_CustomBluePrintDevelopIds[row] = developId;
+        InvalidateDevelopVisibilityCache();
+    }
+
     void InvalidateDevelopLookupIndex()
     {
         g_LookupValid = false;
-    }
-
-    void DevelopLookupTakeCounters(unsigned long long& calls,
-                                   unsigned long long& indexed,
-                                   unsigned long long& builds,
-                                   unsigned long long& stale)
-    {
-        calls   = g_FindCalls;
-        indexed = g_FindIndexed;
-        builds  = g_LookupBuilds;
-        stale   = g_FindStale;
-        g_FindCalls    = 0;
-        g_FindIndexed  = 0;
-        g_LookupBuilds = 0;
-        g_FindStale    = 0;
     }
 
     void BeginDevelopVisibilityCache()
@@ -4852,35 +4686,8 @@ namespace equip
             return;
         g_VisValid  = false;
         g_VisSelf   = nullptr;
-        g_VisCalls  = 0;
-        g_VisHits   = 0;
-        g_SibCalls  = 0;
-        g_SibSum    = 0;
-        g_SibMax    = 0;
         g_VisThread = GetCurrentThreadId();
-        QueryPerformanceCounter(&g_VisT0);
         g_VisArmed  = true;
-    }
-
-    void LogDevelopScanCounters(const char* phase)
-    {
-        LARGE_INTEGER t1, f;
-        QueryPerformanceCounter(&t1);
-        QueryPerformanceFrequency(&f);
-        const double ms = (g_VisT0.QuadPart && f.QuadPart)
-            ? (double)(t1.QuadPart - g_VisT0.QuadPart) * 1000.0 / (double)f.QuadPart
-            : 0.0;
-        LogDebug("[DevelopArrayGrow] list build took %.1f ms\n", ms);
-        LogDebug("[DevelopArrayGrow] scan counters (%s): visibility predicate %llu "
-                 "calls / %llu cached; sibling-count %llu calls, %llu collected "
-                 "rows, largest group %u (collected rows = the retire loop's total "
-                 "iterations)\n",
-            phase,
-            static_cast<unsigned long long>(g_VisCalls),
-            static_cast<unsigned long long>(g_VisHits),
-            static_cast<unsigned long long>(g_SibCalls),
-            static_cast<unsigned long long>(g_SibSum),
-            static_cast<unsigned>(g_SibMax));
     }
 
     void EndDevelopVisibilityCache()
@@ -4888,7 +4695,6 @@ namespace equip
         if (!g_VisArmed)
             return;
         g_VisArmed = false;
-        LogDevelopScanCounters("build finished");
     }
 
     DevelopVisibilityScope::DevelopVisibilityScope()
@@ -4898,13 +4704,7 @@ namespace equip
             return;
         g_VisValid  = false;
         g_VisSelf   = nullptr;
-        g_VisCalls  = 0;
-        g_VisHits   = 0;
-        g_SibCalls  = 0;
-        g_SibSum    = 0;
-        g_SibMax    = 0;
         g_VisThread = GetCurrentThreadId();
-        QueryPerformanceCounter(&g_VisT0);
         g_VisArmed  = true;
         owned       = true;
     }
@@ -4913,15 +4713,6 @@ namespace equip
     {
         if (owned)
             g_VisArmed = false;
-    }
-
-    void DevelopVisibilityTakeCounters(unsigned long long& calls,
-                                       unsigned long long& hits)
-    {
-        calls = g_VisWinCalls;
-        hits  = g_VisWinHits;
-        g_VisWinCalls = 0;
-        g_VisWinHits  = 0;
     }
 
     std::uint32_t NativeFlowBound()
@@ -5024,35 +4815,71 @@ namespace equip
         SyncFlagsWithSvars(false);
     }
 
-    std::size_t CollectVanillaIdentityEquipIds(std::int32_t* out,
-                                               std::size_t capacity)
+    std::size_t ScanVanillaDevelopEquipIds(std::uint64_t* bits, std::size_t words)
     {
-        if (!out || capacity == 0)
+        if (!bits || words < kEquipIdSlots / 64 || !g_A)
             return 0;
-        const std::uintptr_t base20 =
-            g_ArmedBase20.load(std::memory_order_relaxed);
-        if (!base20)
+        const GetQuark_t getQuark = reinterpret_cast<GetQuark_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        const std::uintptr_t vt20A = reinterpret_cast<std::uintptr_t>(
+            ResolveGameAddress(kAddr_Base20VtblA));
+        const std::uintptr_t vt20B = reinterpret_cast<std::uintptr_t>(
+            ResolveGameAddress(kAddr_Base20VtblB));
+        if (!getQuark || (!vt20A && !vt20B))
             return 0;
+
+        std::uint64_t local[kEquipIdSlots / 64] = {};
+        std::size_t found = 0;
         __try
         {
-            BuildLookupIndex(base20, equip::NativeFlowBound());
+            const std::uint8_t* quark = getQuark();
+            if (!quark)
+                return 0;
+            const std::uintptr_t app =
+                *reinterpret_cast<const std::uintptr_t*>(quark + 0x98);
+            if (!app)
+                return 0;
+            const std::uintptr_t f110 =
+                *reinterpret_cast<const std::uintptr_t*>(app + 0x110);
+            if (!f110)
+                return 0;
+            const std::uintptr_t base20 =
+                *reinterpret_cast<const std::uintptr_t*>(f110 + 0xAC8);
+            if (!base20)
+                return 0;
+            const std::uintptr_t vt20 =
+                *reinterpret_cast<const std::uintptr_t*>(base20);
+            if (vt20 != vt20A && vt20 != vt20B)
+                return 0;
+            const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
+            for (std::uint32_t i = 0; i < kFirstCustomRow; ++i)
+            {
+                const std::uint8_t* rec =
+                    base + static_cast<std::size_t>(i) * kRecStride;
+                const std::uint16_t dev = *reinterpret_cast<const std::uint16_t*>(
+                    rec + kBase20_RecFieldOff);
+                if (dev == 0)
+                    return 0;
+                const std::uint16_t eqp = static_cast<std::uint16_t>(
+                    *reinterpret_cast<const std::uint16_t*>(rec + 0xC) >> 4);
+                if (eqp == 0)
+                    continue;
+                const std::uint64_t bit = 1ull << (eqp & 63);
+                if ((local[eqp >> 6] & bit) == 0)
+                {
+                    local[eqp >> 6] |= bit;
+                    ++found;
+                }
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            g_LookupValid = false;
             return 0;
         }
-
-        std::size_t n = 0;
-        for (std::uint32_t w = 0; w < kEquipIdSlots / 64 && n < capacity; ++w)
-        {
-            if (g_VanIdentityBits[w] == 0)
-                continue;
-            for (std::uint32_t b = 0; b < 64 && n < capacity; ++b)
-                if (g_VanIdentityBits[w] & (1ull << b))
-                    out[n++] = static_cast<std::int32_t>(w * 64 + b);
-        }
-        return n;
+        if (found < 64)
+            return 0;
+        std::memcpy(bits, local, sizeof(local));
+        return found;
     }
 
     void PreApplyDevelopArrayGrowPatches()
@@ -5111,8 +4938,8 @@ namespace equip
                 g_PrePatchDetail = 2000 + static_cast<int>(i);
                 return;
             }
-        for (std::size_t i = 0; i < kSiblingLoopFixCount; ++i)
-            if (!VerifyByteFix(kSiblingLoopFixes[i]))
+        for (std::size_t i = 0; i < kByteFixCount; ++i)
+            if (!VerifyByteFix(kByteFixes[i]))
             {
                 g_PrePatch       = PrePatchState::VerifyFailed;
                 g_PrePatchDetail = 4000 + static_cast<int>(i);
@@ -5133,7 +4960,6 @@ namespace equip
                 g_PrePatch = PrePatchState::BlockExists;
                 return;
             }
-            g_Migrated = true;
             g_PrePatch = PrePatchState::Applied;
             return;
         }
@@ -5141,7 +4967,7 @@ namespace equip
         const int applied = ApplyAllPatches();
         if (applied != TotalPatchCount())
         {
-            RevertAllPatches("partial apply");
+            RevertAllPatches();
             g_PrePatch       = PrePatchState::ApplyFailed;
             g_PrePatchDetail = applied;
             return;
@@ -5149,7 +4975,7 @@ namespace equip
 
         if (EquipDevelop_ResolveDevelopController())
         {
-            RevertAllPatches("develop block appeared mid-patch");
+            RevertAllPatches();
             g_PrePatch = PrePatchState::RacedMidPatch;
             return;
         }
@@ -5166,35 +4992,30 @@ namespace equip
         case PrePatchState::Applied:
             return true;
         case PrePatchState::WrongBuild:
-            LogDebug("[DevelopArrayGrow] no relocation table for this build (only "
-                     "EN/JP 1.0.15.4 are ported) - develop array stays 1024 rows\n");
+            LogError("DevelopArrayGrow: no tables for this game build, develop rows "
+                     "stay 1024");
             return false;
         case PrePatchState::DisabledByMarker:
-            LogDebug("[DevelopArrayGrow] DISABLED by "
-                     "V_FrameWork_no_develop_grow.txt - bound stays 1024 rows; "
-                     "delete that file to re-enable\n");
+            LogWarn("DevelopArrayGrow: disabled by V_FrameWork_no_develop_grow.txt, "
+                    "develop rows stay 1024");
             return false;
         case PrePatchState::BlockExists:
-            LogDebug("[DevelopArrayGrow] REFUSING install: the develop block "
-                     "predates the DLL and could not be migrated (%s) - bound stays "
-                     "1024\n",
-                g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
+            LogError("DevelopArrayGrow: develop block could not be migrated (%s), "
+                     "develop rows stay 1024",
+                     g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
             return false;
         case PrePatchState::VerifyFailed:
-            Log("[DevelopArrayGrow] REFUSING install: patch site %d failed "
-                "verification at DllMain (0=core, 1000+=ctl disp, 2000+=scan bound, "
-                "3000=image sweep, 4000+=loop byte fix; %s) - nothing applied, "
-                "bound stays 1024\n", g_PrePatchDetail,
-                g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
+            LogError("DevelopArrayGrow: patch site %d failed verification (%s), "
+                     "develop rows stay 1024", g_PrePatchDetail,
+                     g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
             return false;
         case PrePatchState::ApplyFailed:
-            LogDebug("[DevelopArrayGrow] REFUSING install: only %d patch sites "
-                     "applied at DllMain - all reverted, bound stays 1024\n", g_PrePatchDetail);
+            LogError("DevelopArrayGrow: only %d patch sites applied, reverted; "
+                     "develop rows stay 1024", g_PrePatchDetail);
             return false;
         case PrePatchState::RacedMidPatch:
-            LogDebug("[DevelopArrayGrow] REFUSING install: the develop block was "
-                     "constructed mid-patch at DllMain - all reverted, bound stays "
-                     "1024\n");
+            LogError("DevelopArrayGrow: develop block built mid-patch, reverted; "
+                     "develop rows stay 1024");
             return false;
         default:
             return false;
@@ -5240,17 +5061,20 @@ namespace equip
                                    reinterpret_cast<void*>(&hkEquipIdRow),
                                    reinterpret_cast<void**>(&g_OrigEquipIdRow))
             && (g_HookEquipIdRow = ResolveGameAddress(kAddr_EquipIdRow)) != nullptr
-            && (kAddr_GetBaseId == 0
-                || CreateAndEnableHook(ResolveGameAddress(kAddr_GetBaseId),
+            && CreateAndEnableHook(ResolveGameAddress(kAddr_GetDerivationDevelopIndex),
+                                   reinterpret_cast<void*>(&hkGetDerivationDevelopIndex),
+                                   reinterpret_cast<void**>(&g_OrigGetDerivationDevelopIndex))
+            && (g_HookGetDerivationDevelopIndex =
+                    ResolveGameAddress(kAddr_GetDerivationDevelopIndex)) != nullptr
+            && CreateAndEnableHook(ResolveGameAddress(kAddr_GetBaseId),
                                    reinterpret_cast<void*>(&hkGetBaseId),
                                    reinterpret_cast<void**>(&g_OrigGetBaseId))
-            && (g_HookGetBaseId = ResolveGameAddress(kAddr_GetBaseId))
-                   != nullptr);
+            && (g_HookGetBaseId = ResolveGameAddress(kAddr_GetBaseId)) != nullptr;
         if (!hooks)
         {
-            Log("[DevelopArrayGrow] REFUSING install: hook installation "
-                "failed - reverting all patches, bound stays 1024\n");
-            RevertAllPatches("hook installation failed");
+            LogError("DevelopArrayGrow: hook install failed, patches reverted; "
+                     "develop rows stay 1024");
+            RevertAllPatches();
             Uninstall_DevelopArrayGrow();
             return false;
         }
@@ -5260,18 +5084,16 @@ namespace equip
             reinterpret_cast<void*>(&hkSiblingCount),
             reinterpret_cast<void**>(&g_OrigSiblingCount));
         if (!g_ClampInstalled)
-            Log("[DevelopArrayGrow] sibling-count clamp hook failed - the collector "
-                "now scans %u rows but still gathers into a 1024-entry stack array, "
-                "so a bigger group overruns the menu thread's stack\n", kNewRows);
+            LogError("DevelopArrayGrow: sibling-count clamp hook failed, a large "
+                     "develop group can overrun the menu stack");
 
         g_IsVisibleInstalled = CreateAndEnableHook(
             ResolveGameAddress(kAddr_IsVisible),
             reinterpret_cast<void*>(&hkIsVisible),
             reinterpret_cast<void**>(&g_OrigIsVisible));
         if (!g_IsVisibleInstalled)
-            Log("[DevelopArrayGrow] row-visibility cache hook failed - the "
-                "predicate stays uncached, so every list build re-walks the "
-                "QuarkSystemTable per row and weapon lists take seconds\n");
+            LogError("DevelopArrayGrow: row-visibility cache hook failed, weapon "
+                     "lists build slowly");
 
         g_AllocGuardInstalled = CreateAndEnableHook(
             ResolveGameAddress(kAddr_QuarkBlockHeapAlloc),
@@ -5280,9 +5102,8 @@ namespace equip
         if (g_AllocGuardInstalled)
             g_HookQuarkAlloc = ResolveGameAddress(kAddr_QuarkBlockHeapAlloc);
         else
-            Log("[DevelopArrayGrow] block-alloc guard hook failed - a fresh develop "
-                "block keeps an uninitialized grown tail, so the relocated control "
-                "fields hold garbage and the dtor frees it\n");
+            LogError("DevelopArrayGrow: block-alloc guard hook failed, a fresh "
+                     "develop block keeps a garbage tail");
 
         if (kAddr_EdcDtor != 0)
         {
@@ -5293,9 +5114,8 @@ namespace equip
             if (g_DtorGuardInstalled)
                 g_HookEdcDtor = ResolveGameAddress(kAddr_EdcDtor);
             else
-                Log("[DevelopArrayGrow] destructor guard hook failed - a teardown "
-                    "fault in the EquipDevelopController dtor now crashes the game "
-                    "at quit\n");
+                LogError("DevelopArrayGrow: dtor guard hook failed, a teardown fault "
+                         "crashes the game at quit");
         }
 
         g_Active = true;
@@ -5309,9 +5129,8 @@ namespace equip
             else
             {
                 g_IntegrityThreadStarted.store(false);
-                Log("[DevelopArrayGrow] patch-integrity watchdog failed to start - "
-                    "protector byte-restores and late clones go undetected this "
-                    "session\n");
+                LogError("DevelopArrayGrow: integrity watchdog failed to start, "
+                         "protector restores go undetected");
             }
         }
 
@@ -5328,24 +5147,9 @@ namespace equip
                     ++sunk;
             }
             if (workBufSites != 0 && sunk == 0)
-                Log("[DevelopArrayGrow] WARNING: none of the %d develop-controller "
-                    "work-buffer site(s) matched the free-load form, so every "
-                    "teardown still frees that buffer once per destructor - the "
-                    "repeat free corrupts the heap and the process dies at exit\n",
-                    workBufSites);
+                LogWarn("DevelopArrayGrow: no work-buffer free-load site matched "
+                        "(%d sites), heap may corrupt at exit", workBufSites);
         }
-        LogDebug("[DevelopArrayGrow] INSTALLED: develop array 1024 -> %u rows (%s: "
-                 "%zu core + %zu ctl disps + %zu scan bounds + %zu loop/sentinel "
-                 "fixes; 10 hooks + %s); custom flow band %u..%u minus rows "
-                 "0x3FD-0x400; ctl fields 0x%X -> 0x%X; flags rows >= 1024 "
-                 "shadow-backed\n",
-            kNewRows,
-            g_Migrated ? "pre-existing block MIGRATED + patches applied"
-                       : "patches pre-applied",
-            kPatchCount,
-            kCtlSiteCount, kBoundSiteCount, kSiblingLoopFixCount,
-            g_ClampInstalled ? "sibling-count clamp" : "NO clamp",
-            922, kNewRows - 1, kOldCtlOff, kNewCtlOff);
         return true;
         }
 
@@ -5362,10 +5166,9 @@ namespace equip
             if (g_PrePatch == PrePatchState::RetryPending)
             {
                 g_PrePatch = PrePatchState::VerifyFailed;
-                Log("[DevelopArrayGrow] REFUSING install: patch site %d still "
-                    "failed verification after 15s of retries (%s) - the protector "
-                    "never materialized that region; bound stays 1024\n", g_PrePatchDetail,
-                    g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
+                LogError("DevelopArrayGrow: patch site %d unverified after 15s (%s), "
+                         "develop rows stay 1024", g_PrePatchDetail,
+                         g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
                 return 0;
             }
             if (LogGrowInstallGate())
@@ -5384,12 +5187,6 @@ namespace equip
 
         if (g_PrePatch == PrePatchState::RetryPending)
         {
-            LogDebug("[DevelopArrayGrow] ctl site %d not verifiable yet - the "
-                     "protector has not materialized that clone region (%s); "
-                     "retrying in the background for up to 15s\n",
-                g_PrePatchDetail >= 1000 ? g_PrePatchDetail - 1000
-                                         : g_PrePatchDetail,
-                g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
             HANDLE h = CreateThread(nullptr, 0, &GrowRetryThread, nullptr,
                                     0, nullptr);
             if (h)
@@ -5398,8 +5195,8 @@ namespace equip
                 return true;
             }
             g_PrePatch = PrePatchState::VerifyFailed;
-            LogDebug("[DevelopArrayGrow] REFUSING install: could not start the "
-                     "background retry thread - bound stays 1024\n");
+            LogError("DevelopArrayGrow: retry thread failed to start, develop rows "
+                     "stay 1024");
             return false;
         }
 
@@ -5440,6 +5237,8 @@ namespace equip
             g_OrigEdcDtor        = nullptr;
             g_DtorGuardInstalled = false;
         }
+        if (g_HookGetDerivationDevelopIndex)
+            DisableAndRemoveHook(g_HookGetDerivationDevelopIndex);
         if (g_HookGetBaseId)      DisableAndRemoveHook(g_HookGetBaseId);
         if (g_HookEquipIdRow)     DisableAndRemoveHook(g_HookEquipIdRow);
         if (g_HookEquipIdCount)   DisableAndRemoveHook(g_HookEquipIdCount);
@@ -5450,7 +5249,7 @@ namespace equip
         if (g_HookSetUndeveloped) DisableAndRemoveHook(g_HookSetUndeveloped);
         if (g_HookSetDeveloped)   DisableAndRemoveHook(g_HookSetDeveloped);
         if (g_HookBlockReset)     DisableAndRemoveHook(g_HookBlockReset);
-        g_HookGetBaseId = nullptr;
+        g_HookGetBaseId = g_HookGetDerivationDevelopIndex = nullptr;
         g_HookEquipIdRow = g_HookEquipIdCount = nullptr;
         g_HookListDevFill = g_HookListDevCount = nullptr;
         g_HookFindByEquipId = g_HookFindByDevId = nullptr;

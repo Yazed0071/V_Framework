@@ -14,6 +14,7 @@
 #include "GetGameObjectIdWithIndex.h"
 #include "AddressSet.h"
 #include "FieldTaxiMenu.h"
+#include "AccIDroidPutAway.h"
 
 #pragma intrinsic(_ReturnAddress)
 
@@ -75,7 +76,6 @@ namespace
     static volatile unsigned int g_taxiRideState = 0x08;
     static volatile unsigned int g_taxiPose = 0x03;
     static volatile bool         g_taxiPoseLocked = false;
-    static volatile bool         g_taxiRideLog   = false;
     static volatile bool         g_taxiRequested = false;
     static volatile unsigned int g_dbgCur  = 0;
     static volatile unsigned int g_dbgNext = 0;
@@ -408,6 +408,7 @@ namespace
 
     static void __fastcall hkExecPreMotion(void* self, unsigned int idx)
     {
+        AccIDroidPutAway_OnRideHeliPreMotion(self, idx);
         static bool s_prevCarry = false;
         const bool nowCarry = g_carryActive;
         if (s_prevCarry && !nowCarry) g_taxiRequested = false;
@@ -632,11 +633,6 @@ void FieldTaxi_ResetTaxiState()
     g_taxiMapOpen    = false;
 }
 
-void FieldTaxi_SetTaxiRideLog(bool enabled)
-{
-    g_taxiRideLog = enabled;
-}
-
 void FieldTaxi_SetTaxiLandingZoneHidden(unsigned int lzNameHash, bool hidden)
 {
     std::size_t idx = g_hiddenLz.size();
@@ -689,6 +685,7 @@ bool Install_FieldTaxiMenu()
     if (placedBind)  CreateAndEnableHook(placedBind,  reinterpret_cast<void*>(&hkPlacedBind),       reinterpret_cast<void**>(&g_OrigPlacedBind));
     if (regLzMarker) CreateAndEnableHook(regLzMarker, reinterpret_cast<void*>(&hkRegisterLZMarker), reinterpret_cast<void**>(&g_OrigRegisterLZMarker));
     if (execPreMotion) CreateAndEnableHook(execPreMotion, reinterpret_cast<void*>(&hkExecPreMotion), reinterpret_cast<void**>(&g_OrigExecPreMotion));
+    AccIDroidPutAway_Install();
 
     return ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10;
 }
@@ -708,6 +705,7 @@ bool Uninstall_FieldTaxiMenu()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.PlacedSystemImpl_BindResource));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.UiMarkerCommonDataImpl_RegisterLZMarkerInUpdate));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.RideHeliActionPluginImpl_ExecPreMotionGraph));
+    AccIDroidPutAway_Uninstall();
     g_OrigCanHeliTaxi = nullptr;
     g_OrigCallRescueHeli = nullptr;
     g_OrigStepWithdraw = nullptr;

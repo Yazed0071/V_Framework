@@ -239,10 +239,8 @@ namespace uniquedefaultoutfit
             if (!V_FrameWorkState::ResolveOrCreateDevelopId(spec.key, 0, developId)
                 || developId <= 0 || developId > 0xFFFF)
             {
-                Log("[UniqueDefaultOutfit] no developId could be reserved for '%s' "
-                    "at start-up, so its develop row is only injected once the Lua "
-                    "pass registers the outfit - by then the persisted outfits hold "
-                    "the low rows and it sorts last in the Uniform list\n", spec.key);
+                LogWarn("UniqueDefaultOutfit: '%s': no developId at start-up, row sorts last in the Uniform list",
+                    spec.key);
                 continue;
             }
             V_FrameWorkState::SetRowKind(spec.key,
@@ -270,9 +268,7 @@ namespace uniquedefaultoutfit
 
             std::uint8_t allocated = 0;
             if (!outfit::RegisterOutfit(def, &allocated))
-                Log("[UniqueDefaultOutfit] the outfit registry refused '%s' at "
-                    "start-up, so its develop row cannot be injected before the "
-                    "persisted outfits and it lands last in the Uniform list\n",
+                LogWarn("UniqueDefaultOutfit: '%s': outfit refused at start-up, row sorts last in the Uniform list",
                     spec.key);
         }
 
@@ -296,9 +292,8 @@ namespace uniquedefaultoutfit
 
             if (!EquipDevelopAdd::QueueNativeDevelopRequest(
                     spec.key, constNums, 2, constStrs, 4, flowNums, 3))
-                Log("[UniqueDefaultOutfit] could not queue the develop row for "
-                    "'%s' before the persisted outfits, so it lands after them in "
-                    "the Uniform list\n", spec.key);
+                LogWarn("UniqueDefaultOutfit: '%s': develop row not queued early, row sorts last in the Uniform list",
+                    spec.key);
         }
     }
 
@@ -318,21 +313,15 @@ namespace uniquedefaultoutfit
                     < kMaxGlobalWaits)
                 g_InProgress.store(false, std::memory_order_relaxed);
             else if (!g_GaveUpLogged.exchange(true))
-                Log("[UniqueDefaultOutfit] TppEquip.EQP_SUIT or "
-                    "TppMbDev.EQP_DEV_TYPE_Suit never appeared in the Lua globals, "
-                    "so Ocelot and Quiet get no develop row of their own and their "
-                    "Uniform list keeps borrowing a vanilla suit row with the wrong "
-                    "name, icon and details\n");
+                LogWarn("UniqueDefaultOutfit: TppEquip.EQP_SUIT or TppMbDev.EQP_DEV_TYPE_Suit missing, Ocelot/Quiet default rows off");
             return false;
         }
 
         if (g_Attempts.fetch_add(1, std::memory_order_relaxed) >= kMaxAttempts)
         {
             if (!g_GaveUpLogged.exchange(true))
-                Log("[UniqueDefaultOutfit] the built-in default-outfit rows for "
-                    "Ocelot and Quiet were refused %d times, so both characters keep "
-                    "borrowing a vanilla suit row with the wrong name, icon and "
-                    "details\n", kMaxAttempts);
+                LogWarn("UniqueDefaultOutfit: rows refused %d times, Ocelot/Quiet default rows off",
+                    kMaxAttempts);
             return false;
         }
 
@@ -347,8 +336,7 @@ namespace uniquedefaultoutfit
 
             if (!haveEntry && !RegisterOutfitViaLua(L, spec))
             {
-                Log("[UniqueDefaultOutfit] V_Player.RegisterOutfit refused '%s', so "
-                    "that character keeps the borrowed vanilla suit row\n", spec.key);
+                LogWarn("UniqueDefaultOutfit: RegisterOutfit refused '%s', vanilla suit row kept", spec.key);
                 continue;
             }
 
@@ -358,8 +346,7 @@ namespace uniquedefaultoutfit
             g_RegisteringFobAllowed.store(false, std::memory_order_relaxed);
             if (!rowOk)
             {
-                Log("[UniqueDefaultOutfit] the develop row for '%s' was refused, so "
-                    "the outfit exists but never reaches the Uniform list\n",
+                LogWarn("UniqueDefaultOutfit: AddToEquipDevelopTable refused '%s', not in the Uniform list",
                     spec.key);
                 continue;
             }
@@ -371,15 +358,6 @@ namespace uniquedefaultoutfit
         if (registered == 0) return false;
 
         g_Done.store(true, std::memory_order_release);
-
-#ifdef _DEBUG
-        LogDebug("[UniqueDefaultOutfit] registered %d default-outfit row(s) for "
-                 "Ocelot and Quiet (equipID=%d equipDevelopTypeID=%d) - their own "
-                 "suit is now a real develop row, so its name, info and icon come "
-                 "from that row instead of a borrowed vanilla one\n",
-                 registered, static_cast<int>(equipId),
-                 static_cast<int>(developTypeId));
-#endif
         return true;
     }
 

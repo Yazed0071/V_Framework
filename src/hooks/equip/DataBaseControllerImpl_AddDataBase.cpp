@@ -32,12 +32,17 @@ namespace
     constexpr std::uint32_t kTempEntryMarker  = 0xBF169F98;
 
     using AddDataBase_t = void(__fastcall*)(void* self, std::uint16_t id, bool isNew);
+    using RemoveDataBase_t = void(__fastcall*)(void* self, std::uint16_t id);
     using IsGotDataBase_t = int(__fastcall*)(lua_State* L);
     using AddTempDataBase_t = int(__fastcall*)(lua_State* L);
 
     void* g_Controller = nullptr;
 
     AddDataBase_t g_Orig = nullptr;
+    RemoveDataBase_t g_OrigRemove = nullptr;
+    bool g_RemoveInstalled = false;
+    bool g_RemoveOutOfRangeLogged = false;
+    bool g_ReservedIdRemoveLogged = false;
     IsGotDataBase_t g_OrigIsGot = nullptr;
     AddTempDataBase_t g_OrigAddTemp = nullptr;
     bool g_Installed = false;
@@ -46,19 +51,74 @@ namespace
     bool g_OutOfRangeLogged = false;
     bool g_IsGotOutOfRangeLogged = false;
     bool g_AddTempOutOfRangeLogged = false;
+    bool g_ReservedIdGrantLogged = false;
+
+    void NoteReservedDataBaseGrantDropped(std::int32_t id)
+    {
+        if (g_ReservedIdGrantLogged)
+            return;
+        g_ReservedIdGrantLogged = true;
+        LogWarn("BluePrint: dataBaseId %d is reserved for custom blueprint requirements, grant dropped",
+            id);
+    }
+
+    void __fastcall hkRemoveDataBase(void* self, std::uint16_t id)
+    {
+        if (id == kNoDataBaseId)
+            return;
+
+        if (bluePrint::IsReservedDataBaseId(id))
+        {
+            if (!g_ReservedIdRemoveLogged)
+            {
+                g_ReservedIdRemoveLogged = true;
+                LogWarn("BluePrint: dataBaseId %u is reserved for custom blueprint requirements, removal dropped",
+                    static_cast<unsigned>(id));
+            }
+            return;
+        }
+
+        const std::int32_t slot = bluePrint::SlotFromPublicId(static_cast<std::int32_t>(id));
+        if (slot > 0)
+        {
+            if (!bluePrint::Set(slot, false))
+                LogError("BluePrint: blueprint id %u not removed, DataBase flag array unreachable, still owned",
+                    static_cast<unsigned>(id));
+            return;
+        }
+
+        if (id < kFlagByteCount)
+        {
+            if (g_OrigRemove)
+                g_OrigRemove(self, id);
+            return;
+        }
+
+        if (!g_RemoveOutOfRangeLogged)
+        {
+            g_RemoveOutOfRangeLogged = true;
+            LogWarn("BluePrint: dataBaseId %u out of range and not a custom blueprint, removal dropped",
+                static_cast<unsigned>(id));
+        }
+    }
 
     void __fastcall hkAddDataBase(void* self, std::uint16_t id, bool isNew)
     {
         if (id == kNoDataBaseId)
             return;
 
+        if (bluePrint::IsReservedDataBaseId(id))
+        {
+            NoteReservedDataBaseGrantDropped(id);
+            return;
+        }
+
         const std::int32_t slot = bluePrint::SlotFromPublicId(static_cast<std::int32_t>(id));
         if (slot > 0)
         {
             if (!bluePrint::Set(slot, true))
             {
-                Log("[BluePrint] custom blueprint id %u could not be stored - the DataBase "
-                    "flag array was unreachable, so the blueprint is not granted\n",
+                LogError("BluePrint: blueprint id %u not stored, DataBase flag array unreachable, not granted",
                     static_cast<unsigned>(id));
             }
             else if (isNew)
@@ -78,9 +138,8 @@ namespace
         if (!g_OutOfRangeLogged)
         {
             g_OutOfRangeLogged = true;
-            Log("[BluePrint] dataBaseId %u is past the %u-entry flag array and is not a custom "
-                "blueprint id - the grant was dropped to stop it corrupting neighbouring save "
-                "vars\n", static_cast<unsigned>(id), static_cast<unsigned>(kFlagByteCount));
+            LogWarn("BluePrint: dataBaseId %u out of range and not a custom blueprint, grant dropped",
+                static_cast<unsigned>(id));
         }
     }
 
@@ -210,11 +269,8 @@ namespace
 
             if (index > kRewardLangCeiling)
             {
-                Log("[BluePrint] %d reward names are already queued unflushed, which is "
-                    "every TppReward.LANG_ENUM[%d] slot from %d to %d, so reward lang '%s' "
-                    "was not registered and TppReward.Push will silently drop it\n",
-                    queued, kRewardCategoryMbManagement, kRewardLangFirstCustom,
-                    kRewardLangCeiling, langId.c_str());
+                LogWarn("BluePrint: all reward lang slots %d-%d queued, reward lang '%s' not registered",
+                    kRewardLangFirstCustom, kRewardLangCeiling, langId.c_str());
                 g_lua_settop(L, top);
                 return;
             }
@@ -245,9 +301,6 @@ namespace
         g_lua_settable(L, -3);
 
         g_lua_settop(L, top);
-
-        Log("[BluePrint] reward lang '%s' registered as LANG_ENUM[%d] index %d\n",
-            langId.c_str(), kRewardCategoryMbManagement, index);
     }
 
     std::mutex g_DocMutex;
@@ -322,15 +375,8 @@ namespace
         g_lua_settop(L, top);
 
         if (langId.empty())
-        {
-            Log("[BluePrint] TppTerminal.BLUE_PRINT_LANG_ID[%d] is unset - PickUpBluePrint has no name to put in its announce, so the HUD line shows the raw format string\n",
+            LogWarn("BluePrint: TppTerminal.BLUE_PRINT_LANG_ID[%d] unset, announce shows raw text",
                 publicId);
-            return;
-        }
-
-#ifdef _DEBUG
-        LogDebug("[BluePrintAnnounce] AddTempDataBase reached for blueprint id %d, BLUE_PRINT_LANG_ID='%s' - PickUpBluePrint raises the get_blueprint announce as soon as this returns\n", publicId, langId.c_str());
-#endif
     }
 
     std::int32_t g_WantedLangIndex = 0;
@@ -407,9 +453,13 @@ namespace
             if (name.empty())
             {
                 g_lua_settop(L, top);
-                Log("[BluePrint] a reward queued before this launch used LANG_ENUM[%d] index %d, "
-                    "which no persisted name claims, so the REWARDS screen will render that row "
-                    "blank\n", kRewardCategoryMbManagement, index);
+                static bool s_blankLogged[kRewardLangCeiling + 1] = {};
+                if (!s_blankLogged[index])
+                {
+                    s_blankLogged[index] = true;
+                    LogWarn("BluePrint: queued reward lang index %d has no persisted name, REWARDS row blank",
+                        index);
+                }
                 continue;
             }
 
@@ -465,8 +515,8 @@ namespace
         if (rc != 0)
         {
             const char* err = GetLuaString(L, -1);
-            Log("[BluePrint] TppReward.Push failed for reward lang '%s' (%s), so the pickup will "
-                "not appear on the REWARDS screen\n", langId.c_str(), err ? err : "no message");
+            LogWarn("BluePrint: TppReward.Push failed for '%s' (%s), pickup not on REWARDS screen",
+                langId.c_str(), err ? err : "no message");
             g_lua_settop(L, top);
             return false;
         }
@@ -487,9 +537,6 @@ namespace
             const bool owned = bluePrint::Has(slot);
             CacheBluePrintNameLangId(L, id);
             RestoreQueuedRewardLangs(L);
-            Log("[BluePrint] IsGotDataBase(%d) -> %s%s\n", id, owned ? "true" : "false",
-                owned ? " - a caller gated on 'not owned' (AcquireKeyItem, PickUpBluePrint) "
-                        "will do nothing, including its announce and reward" : "");
             PushLuaBool(L, owned);
             return 1;
         }
@@ -500,10 +547,7 @@ namespace
         if (!g_IsGotOutOfRangeLogged)
         {
             g_IsGotOutOfRangeLogged = true;
-            Log("[BluePrint] IsGotDataBase was asked about dataBaseId %d, which is past the "
-                "%u-entry flag array and is not a custom blueprint id - answered false instead of "
-                "letting the unbounded vanilla read return a neighbouring save var\n",
-                id, static_cast<unsigned>(kFlagByteCount));
+            LogWarn("BluePrint: IsGotDataBase dataBaseId %d out of range, answered false", id);
         }
 
         PushLuaBool(L, false);
@@ -542,6 +586,12 @@ namespace
         if (!ReadDataBaseIdArg(L, id) || id == kNoDataBaseId)
             return g_OrigAddTemp(L);
 
+        if (bluePrint::IsReservedDataBaseId(id))
+        {
+            NoteReservedDataBaseGrantDropped(id);
+            return 0;
+        }
+
         const std::int32_t slot = bluePrint::SlotFromPublicId(id);
         if (slot > 0)
         {
@@ -558,15 +608,11 @@ namespace
 
             if (!bluePrint::Set(slot, true))
             {
-                Log("[BluePrint] custom blueprint id %d reached neither the temp buffer nor the "
-                    "flag store, so the pickup was lost outright\n", id);
+                LogError("BluePrint: blueprint id %d not stored, pickup lost", id);
             }
             else
             {
-                Log("[BluePrint] custom blueprint id %d could not be held in the temp buffer "
-                    "(full at %u entries, or the DataBase controller was unreachable), so it was "
-                    "granted at once instead of on extraction\n",
-                    id, static_cast<unsigned>(kTempBuf_Capacity));
+                LogWarn("BluePrint: blueprint id %d temp buffer full or unreachable, granted at once", id);
             }
             return 0;
         }
@@ -577,10 +623,7 @@ namespace
         if (!g_AddTempOutOfRangeLogged)
         {
             g_AddTempOutOfRangeLogged = true;
-            Log("[BluePrint] AddTempDataBase was handed dataBaseId %d, which is past the %u-entry "
-                "flag array and is not a custom blueprint id - dropped, because the vanilla path "
-                "maps an unknown id to category 0xFF and increments a byte far outside its "
-                "counter block\n", id, static_cast<unsigned>(kFlagByteCount));
+            LogWarn("BluePrint: AddTempDataBase dataBaseId %d out of range, dropped", id);
         }
 
         return 0;
@@ -598,9 +641,7 @@ namespace
                                  reinterpret_cast<void**>(&g_OrigAddTemp)))
         {
             g_OrigAddTemp = nullptr;
-            Log("[BluePrint] ERROR: the AddTempDataBase guard was refused at %p - routing a custom "
-                "blueprint through TppTerminal.PickUpBluePrint would corrupt the Mother Base "
-                "management block; do not use that path on this build\n", target);
+            LogError("BluePrint: AddTempDataBase hook failed, do not use PickUpBluePrint for custom blueprints");
         }
     }
 
@@ -616,18 +657,16 @@ namespace
                                  reinterpret_cast<void**>(&g_OrigIsGot)))
         {
             g_OrigIsGot = nullptr;
-            Log("[BluePrint] ERROR: the IsGotDataBase guard was refused at %p - vanilla Lua asking "
-                "about a custom blueprint reads past the DataBase flag array and gets a garbage "
-                "answer\n", target);
+            LogError("BluePrint: IsGotDataBase hook failed, custom blueprint ownership reads are wrong");
         }
     }
 
-    void* ReadVirtualSeh(void* controller)
+    void* ReadVirtualSeh(void* controller, std::size_t slot)
     {
         __try
         {
             void** vtbl = *reinterpret_cast<void***>(controller);
-            return vtbl ? vtbl[0] : nullptr;
+            return vtbl ? vtbl[slot] : nullptr;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -652,10 +691,8 @@ namespace bluePrintDb
 
             if (onTab >= static_cast<std::size_t>(kMaxRowsPerTab))
             {
-                Log("[BluePrint] dataBaseId %d was not given a DATABASE row - tab %u already "
-                    "holds %zu custom entries and the tab renders at most %d rows in total, so "
-                    "this row could never be drawn; move it to another tab\n",
-                    publicId, static_cast<unsigned>(doc.tab), onTab, kMaxRowsPerTab);
+                LogWarn("BluePrint: dataBaseId %d not given a DATABASE row, tab %u full (%d rows)",
+                    publicId, static_cast<unsigned>(doc.tab), kMaxRowsPerTab);
                 return false;
             }
         }
@@ -720,7 +757,7 @@ namespace bluePrintDb
         if (rc != 0)
         {
             const char* err = GetLuaString(L, -1);
-            Log("[BluePrint] TppUI.ShowAnnounceLog failed for blueprint id %d (%s), so the grant is silent\n", publicId, err ? err : "no message");
+            LogWarn("BluePrint: TppUI.ShowAnnounceLog failed for blueprint id %d (%s), grant is silent", publicId, err ? err : "no message");
             g_lua_settop(L, top);
             return false;
         }
@@ -756,10 +793,23 @@ namespace bluePrintDb
         EnsureIsGotDataBaseHook();
         EnsureAddTempDataBaseHook();
 
+        if (!g_RemoveInstalled && controller)
+        {
+            g_RemoveInstalled = true;
+            void* removeTarget = ReadVirtualSeh(controller, 1);
+            if (!removeTarget
+                || !CreateAndEnableHook(removeTarget, &hkRemoveDataBase,
+                                        reinterpret_cast<void**>(&g_OrigRemove)))
+            {
+                g_OrigRemove = nullptr;
+                LogError("BluePrint: RemoveDataBase hook failed, DirectRemoveDataBase of a custom blueprint id writes past the save's DataBase array");
+            }
+        }
+
         if (g_Installed || !controller)
             return;
 
-        void* target = ReadVirtualSeh(controller);
+        void* target = ReadVirtualSeh(controller, 0);
         if (!target)
             return;
 
@@ -767,9 +817,7 @@ namespace bluePrintDb
                                  reinterpret_cast<void**>(&g_Orig)))
         {
             g_Installed = true;
-            Log("[BluePrint] ERROR: the AddDataBase guard was refused at %p - granting a custom "
-                "blueprint through TppTerminal.PickUpBluePrint would write past the DataBase "
-                "flag array and corrupt the save\n", target);
+            LogError("BluePrint: AddDataBase hook failed, PickUpBluePrint of a custom blueprint would corrupt the save");
             return;
         }
 
@@ -780,6 +828,8 @@ namespace bluePrintDb
     {
         g_Installed = false;
         g_Orig = nullptr;
+        g_RemoveInstalled = false;
+        g_OrigRemove = nullptr;
         g_IsGotInstalled = false;
         g_OrigIsGot = nullptr;
         g_AddTempInstalled = false;

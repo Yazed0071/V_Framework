@@ -183,9 +183,7 @@ namespace
         if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hk_InputFlags),
                                  reinterpret_cast<void**>(&g_OrigInput)))
         {
-            Log("[TargetCqcStance] ERROR: the CQC hold input-flag reader at %p "
-                "could not be hooked - the desired-stance flag is still parked, but "
-                "the hold keeps the pressed stance\n", fn);
+            LogError("TargetCqcStance: CQC hold input-flag hook failed, hold keeps the pressed stance");
             return;
         }
 
@@ -271,9 +269,7 @@ bool Request_PlayerTargetStance(lua_State* L, int stance)
     const std::uintptr_t addr = Addr_RequestToSetTargetStance();
     if (addr == 0)
     {
-        Log("[TargetCqcStance] ERROR: Player::RequestToSetTargetStance is unmapped "
-            "for this build - the CQC-hold path still works, but stance cannot "
-            "change while aiming or moving normally\n");
+        LogError("TargetCqcStance: RequestToSetTargetStance address missing for this build, stance changes only in CQC hold");
         return false;
     }
 
@@ -290,8 +286,7 @@ bool Request_PlayerTargetStance(lua_State* L, int stance)
 
     if (!ok)
     {
-        Log("[TargetCqcStance] ERROR: Player::RequestToSetTargetStance at %p "
-            "faulted - the request outside a CQC hold was dropped\n", target);
+        LogWarn("TargetCqcStance: RequestToSetTargetStance faulted, request dropped");
         return false;
     }
 
@@ -320,9 +315,7 @@ bool Install_TargetCqcStance_Hook()
     const std::uintptr_t addr = Addr_StateHoldMove();
     if (!addr)
     {
-        Log("[TargetCqcStance] ERROR: CqcActionPluginImpl::StateHoldMove is missing "
-            "for this build - the request is accepted but the CQC hold keeps its "
-            "vanilla stance\n");
+        LogError("TargetCqcStance: StateHoldMove address missing for this build, CQC hold keeps vanilla stance");
         return true;
     }
 
@@ -330,8 +323,7 @@ bool Install_TargetCqcStance_Hook()
     if (!target || !CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_StateHoldMove),
                                         reinterpret_cast<void**>(&g_OrigState)))
     {
-        Log("[TargetCqcStance] ERROR: CqcActionPluginImpl::StateHoldMove hook failed - "
-            "V_Player.RequestToSetTargetCqcStance will do nothing.\n");
+        LogError("TargetCqcStance: StateHoldMove hook failed, RequestToSetTargetCqcStance has no effect");
         return false;
     }
 
@@ -340,9 +332,7 @@ bool Install_TargetCqcStance_Hook()
     const std::uintptr_t gunAddr = Addr_StateGunHoldMove();
     if (!gunAddr)
     {
-        Log("[TargetCqcStance] ERROR: CqcActionPluginImpl::StateGunHoldMove is "
-            "missing for this build - the plain CQC hold works, but aiming a gun "
-            "during the hold runs a different state handler and is unaffected\n");
+        LogError("TargetCqcStance: StateGunHoldMove address missing for this build, gun CQC hold unaffected");
         return true;
     }
 
@@ -350,9 +340,7 @@ bool Install_TargetCqcStance_Hook()
     if (!gunTarget || !CreateAndEnableHook(gunTarget, reinterpret_cast<void*>(&hk_StateGunHoldMove),
                                            reinterpret_cast<void**>(&g_OrigGunState)))
     {
-        Log("[TargetCqcStance] ERROR: CqcActionPluginImpl::StateGunHoldMove hook at "
-            "%p failed - the request is ignored while aiming a gun during a CQC "
-            "hold; the plain hold still works\n", gunTarget);
+        LogError("TargetCqcStance: StateGunHoldMove hook failed, gun CQC hold unaffected");
         return true;
     }
 

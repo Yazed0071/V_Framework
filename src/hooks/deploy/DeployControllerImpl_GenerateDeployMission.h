@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_DeployControllerImpl_GenerateDeployMission_Hook();
+bool Uninstall_DeployControllerImpl_GenerateDeployMission_Hook();

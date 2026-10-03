@@ -3,7 +3,6 @@
 #include "OutfitLuaBindings.h"
 
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <memory>
 
@@ -14,7 +13,9 @@
 #include "../hooks/outfit/OutfitRegistry.h"
 #include "../hooks/outfit/UniqueCharacterOwnSuit.h"
 #include "../hooks/outfit/CustomHeadRegistry.h"
+#include "../hooks/outfit/HeadMotion.h"
 #include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
+#include "../hooks/equip/EquipDevelop_SetEquipUndeveloped.h"
 
 static void SetLuaTop(lua_State* L, int idx)
 {
@@ -129,9 +130,7 @@ namespace
                 const std::uint32_t bit = 1u << playerType;
                 if (seen & bit)
                 {
-                    Log("[OutfitLua] %s: playerType branch declared more than once "
-                        "(key=%s branch=%s) - Lua orders table keys arbitrarily, so "
-                        "only the first spelling reached is applied\n",
+                    LogWarn("%s '%s': branch %s declared twice, first one reached used",
                         site, key ? key : "(unnamed)", branchName);
                 }
                 else
@@ -197,9 +196,7 @@ namespace
                 const char* ext = RequiredExtForField(fieldName);
                 if (ext && !PathHasRequiredExt(s, ext))
                 {
-                    LogDebug("[OutfitLua] REJECTED %s '%s': must end in '%s' "
-                        "(a wrong/missing extension hangs the engine loader "
-                        "forever) - field ignored, using default\n",
+                    LogWarn("OutfitLua: %s '%s' must end in '%s', default used",
                         fieldName, s, ext);
                 }
                 else
@@ -244,16 +241,13 @@ namespace
                 {
                     if (!PathHasRequiredExt(path, ".fpk"))
                     {
-                        LogDebug("[OutfitLua] REJECTED voiceFpk[%s] '%s': must "
-                            "end in '.fpk' (a wrong extension hangs the engine "
-                            "loader forever) - that voice keeps the vanilla fpk\n",
-                            name, path);
+                        LogWarn("OutfitLua: voiceFpk[%s] '%s' must end in '.fpk', "
+                            "vanilla voice kept", name, path);
                     }
                     else if (count >= maxOut)
                     {
-                        Log("[OutfitLua] voiceFpk holds more than %zu entries - "
-                            "'%s' was dropped, so that voice keeps the vanilla "
-                            "fpk\n", maxOut, name);
+                        LogWarn("OutfitLua: voiceFpk over %zu entries, '%s' dropped",
+                            maxOut, name);
                     }
                     else
                     {
@@ -286,9 +280,7 @@ namespace
                 const char* ext = RequiredExtForField(fieldName);
                 if (ext && !PathHasRequiredExt(s, ext))
                 {
-                    LogDebug("[OutfitLua] REJECTED %s '%s': must end in '%s' "
-                        "(a wrong/missing extension hangs the engine loader "
-                        "forever) - branch will be skipped\n",
+                    LogWarn("OutfitLua: %s '%s' must end in '%s', path ignored",
                         fieldName, s, ext);
                 }
                 else
@@ -376,6 +368,38 @@ namespace
         return static_cast<std::uint8_t>(level);
     }
 
+    static std::uint8_t ReadSprintField(lua_State* L, int tbl)
+    {
+        if (TryReadTableBoolField(L, tbl, "raidenSprint", false))
+            return outfit::kSprintRaiden;
+        if (TryReadTableBoolField(L, tbl, "ninjaSprint", false))
+            return outfit::kSprintNinja;
+        return outfit::kSprintNone;
+    }
+
+    static void WarnTopLevelAbilities(lua_State* L, const char* api, const char* name)
+    {
+        LuaGetField(L, 1, "abilities");
+        if (LuaType(L, -1) == LUA_TTABLE)
+            LogWarn("%s '%s': 'abilities' must be inside a character branch "
+                "(e.g. ddFemale = { abilities = {...} }), ignored",
+                api, name ? name : "(by number)");
+        LuaPop(L, 1);
+    }
+
+    static std::uint64_t ReadSprintSparkField(lua_State* L, int tbl)
+    {
+        LuaGetField(L, tbl, "sprintSpark");
+        std::uint64_t result = 0;
+        if (LuaType(L, -1) == LUA_TSTRING)
+        {
+            if (const char* s = GetLuaString(L, -1); s && *s)
+                result = FoxHashes::PathCode64Ext(s);
+        }
+        LuaPop(L, 1);
+        return result;
+    }
+
     void ReadDeclaredAbilities(lua_State* L, int ownerTblIdx,
                                outfit::DeclaredAbilities& out)
     {
@@ -393,6 +417,8 @@ namespace
             out.suitParamKind = kQuietSuitAbilities;
 
         out.silentSteps = TryReadTableBoolField(L, tbl, "silentFootsteps", false);
+        out.sprint = ReadSprintField(L, tbl);
+        out.sprintSpark = ReadSprintSparkField(L, tbl);
 
         int level = 0;
         if (TryReadTableIntField(L, tbl, "defense", level))
@@ -416,8 +442,7 @@ namespace
     }
 
     void ReadBranchAbilities(
-        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch,
-        const char* branchName)
+        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
     {
         LuaGetField(L, branchTblIdx, "abilities");
         if (LuaType(L, -1) != LUA_TTABLE)
@@ -433,6 +458,8 @@ namespace
 
         branch.abilitySilentSteps =
             TryReadTableBoolField(L, abilitiesTbl, "silentFootsteps", false);
+        branch.abilitySprint = ReadSprintField(L, abilitiesTbl);
+        branch.abilitySprintSpark = ReadSprintSparkField(L, abilitiesTbl);
 
         int level = 0;
         if (TryReadTableIntField(L, abilitiesTbl, "defense", level))
@@ -451,24 +478,6 @@ namespace
             ReadSoundSwitchField(L, abilitiesTbl, "damageSe", damageSeName);
         if (damageSeSwitch != outfit::kSoundSwitchUnset)
             branch.abilityDamageSe = damageSeSwitch;
-
-        if (branch.abilitySilentSteps || branch.abilityDefense
-            || branch.abilityLifeRecovery
-            || branch.abilityRattleSuit != outfit::kSoundSwitchUnset
-            || branch.abilityDamageSe != outfit::kSoundSwitchUnset
-            || branch.suitParamKind != 0)
-            LogDebug("[OutfitLua] abilities on branch '%s': silentFootsteps=%d "
-                "defense=%u lifeRecovery=%u rattleSuit='%s'=0x%08X "
-                "damageSe='%s'=0x%08X quietMovement=%d\n",
-                branchName ? branchName : "?",
-                branch.abilitySilentSteps ? 1 : 0,
-                static_cast<unsigned>(branch.abilityDefense),
-                static_cast<unsigned>(branch.abilityLifeRecovery),
-                rattleName ? rattleName : "(raw)",
-                static_cast<unsigned>(branch.abilityRattleSuit),
-                damageSeName ? damageSeName : "(raw)",
-                static_cast<unsigned>(branch.abilityDamageSe),
-                branch.suitParamKind != 0 ? 1 : 0);
 
         SetLuaTop(L, -2);
     }
@@ -573,11 +582,18 @@ namespace
 
     bool ReadHeadOptionsArrayInto(
         lua_State* L, int tableIndex,
-        std::uint16_t* outIds, std::uint8_t& outCount,
-        std::uint64_t* outPendingHashes, std::uint8_t& outPendingCount)
+        std::uint16_t* outIds, std::uint16_t* outIdOrder, std::uint8_t& outCount,
+        std::uint64_t* outPendingHashes, std::uint16_t* outPendingOrder,
+        std::uint8_t& outPendingCount)
     {
         outCount = 0;
         outPendingCount = 0;
+
+        auto appendId = [&](std::uint16_t equipId, std::uint16_t declaredOrder)
+        {
+            outIdOrder[outCount] = declaredOrder;
+            outIds[outCount++]   = equipId;
+        };
 
         LuaGetField(L, tableIndex, "headOptions");
         const bool present = (LuaType(L, -1) == LUA_TTABLE);
@@ -589,13 +605,14 @@ namespace
 
             for (std::size_t i = 1; i <= lim; ++i)
             {
+                const auto declaredOrder = static_cast<std::uint16_t>(i - 1);
                 LuaRawGetI(L, -1, static_cast<int>(i));
                 if (LuaIsNumber(L, -1))
                 {
                     const int v = GetLuaInt(L, -1);
                     if (v > 0 && v <= 0xFFFF)
                     {
-                        outIds[outCount++] = static_cast<std::uint16_t>(v);
+                        appendId(static_cast<std::uint16_t>(v), declaredOrder);
                     }
                 }
                 else if (LuaIsString(L, -1))
@@ -604,28 +621,24 @@ namespace
                     if (const std::uint16_t alias = TryResolveHeadAlias(name);
                         alias != 0)
                     {
-                        outIds[outCount++] = alias;
+                        appendId(alias, declaredOrder);
                     }
                     else if (const auto* head =
                              outfit::TryGetCustomHeadByName(name))
                     {
-                        outIds[outCount++] = head->equipId;
+                        appendId(head->equipId, declaredOrder);
                     }
                     else if (name && name[0]
                              && outPendingCount < outfit::kMaxHeadOptionsPerOutfit)
                     {
+                        outPendingOrder[outPendingCount] = declaredOrder;
                         outPendingHashes[outPendingCount++] =
                             FoxHashes::StrCode64(name);
-#ifdef _DEBUG
-                        LogDebug("[OutfitLua] headOptions: '%s' not registered yet -> "
-                            "DEFERRED (resolves when its RegisterCustomHead runs)\n",
-                            name);
-#endif
                     }
                     else
                     {
-                        LogDebug("[OutfitLua] headOptions: unknown/empty head name '%s' "
-                            "skipped\n", name ? name : "(null)");
+                        LogWarn("OutfitLua: headOptions '%s' skipped, empty or too many pending",
+                            name ? name : "(null)");
                     }
                 }
                 LuaPop(L, 1);
@@ -731,8 +744,9 @@ namespace
                         std::uint8_t vHeadCount    = 0;
                         std::uint8_t vPendingCount = 0;
                         const bool declared = ReadHeadOptionsArrayInto(
-                            L, variantTbl, v.headOptionEquipIds, vHeadCount,
-                            v.pendingHeadNameHashes, vPendingCount);
+                            L, variantTbl, v.headOptionEquipIds, v.headOptionOrder,
+                            vHeadCount, v.pendingHeadNameHashes, v.pendingHeadOrder,
+                            vPendingCount);
                         v.headOptionsDeclared = declared;
                         v.headOptionCount     = vHeadCount;
                         v.pendingHeadCount    = vPendingCount;
@@ -830,15 +844,12 @@ namespace
 
             if (slot < 0)
             {
-                LogDebug("[OutfitLua] motionMtars: unknown archive '%s' - ignored; the "
-                    "key must be a player2 motion archive name such as \"cqc\" or "
-                    "\"jump\"\n", keyName ? keyName : "(non-string key)");
+                LogWarn("OutfitLua: motionMtars '%s' is not a player2 motion archive, ignored",
+                    keyName ? keyName : "(non-string key)");
             }
             else if (LuaType(L, -1) == LUA_TBOOLEAN)
             {
-                LogDebug("[OutfitLua] motionMtars.%s is a boolean - ignored; there is no "
-                    "disable form, omit the key to keep the vanilla archive\n",
-                    keyName);
+                LogWarn("OutfitLua: motionMtars.%s is a boolean, ignored", keyName);
             }
             else if (LuaType(L, -1) == LUA_TSTRING)
             {
@@ -857,8 +868,7 @@ namespace
     }
 
     bool ReadPlayerTypeBranchTable(
-        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch,
-        const char* branchName)
+        lua_State* L, int branchTblIdx, outfit::OutfitPlayerTypeData& branch)
     {
         if (LuaType(L, branchTblIdx) != LUA_TTABLE) return false;
 
@@ -897,7 +907,7 @@ namespace
         branch.enableArm  = TryReadTableBoolField(L, branchTblIdx, "enableArm",  true);
         branch.enableHead = TryReadTableBoolField(L, branchTblIdx, "enableHead", true);
 
-        ReadBranchAbilities(L, branchTblIdx, branch, branchName);
+        ReadBranchAbilities(L, branchTblIdx, branch);
 
 
         LuaGetField(L, branchTblIdx, "displayName");
@@ -927,8 +937,8 @@ namespace
         std::uint8_t branchHeadCount    = 0;
         std::uint8_t branchPendingCount = 0;
         ReadHeadOptionsArrayInto(L, branchTblIdx,
-            branch.headOptionEquipIds, branchHeadCount,
-            branch.pendingHeadNameHashes, branchPendingCount);
+            branch.headOptionEquipIds, branch.headOptionOrder, branchHeadCount,
+            branch.pendingHeadNameHashes, branch.pendingHeadOrder, branchPendingCount);
         branch.headOptionCount     = branchHeadCount;
         branch.pendingHeadCount    = branchPendingCount;
         branch.supportsHeadOptions = (branchHeadCount > 0);
@@ -948,9 +958,8 @@ namespace
                 const char* nm = GetLuaString(L, -1);
                 camoIdx = ResolveCamoTypeNameToIndex(nm);
                 if (camoIdx < 0)
-                    LogDebug("[OutfitLua] camoBonusType: unknown camo name '%s' - ignored "
-                        "(use a playerCamoTypes name like \"RAIDEN\" or a number "
-                        "0..116)\n", nm ? nm : "(null)");
+                    LogWarn("OutfitLua: camoBonusType '%s' unknown, ignored",
+                        nm ? nm : "(null)");
             }
             SetLuaTop(L, -2);
             if (camoIdx >= 0 && camoIdx <= outfit::kVanillaCamoTypeMax)
@@ -963,58 +972,6 @@ namespace
         branch.used = true;
         return true;
     }
-
-    void BuildOutfitSummary(const outfit::OutfitEntry* e,
-                            char* out, std::size_t outSize)
-    {
-        if (!out || outSize == 0) return;
-        out[0] = '\0';
-        if (!e) return;
-
-        static const char* const kNames[outfit::kPlayerTypeMax] =
-            { "Snake", "DDMale", "DDFemale", "Avatar", "pt4", "Ocelot", "Quiet" };
-
-        std::size_t pos = 0;
-        auto append = [&](const char* fmt, auto... args)
-        {
-            if (pos + 1 >= outSize) return;
-            const int w = std::snprintf(out + pos, outSize - pos, fmt, args...);
-            if (w < 0) return;
-            const std::size_t room = outSize - pos - 1;
-            pos += (static_cast<std::size_t>(w) < room)
-                 ? static_cast<std::size_t>(w) : room;
-        };
-
-        append("branches=[");
-        bool first = true;
-        for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
-        {
-            if (!e->DeclaresPlayerType(pt)) continue;
-            const std::uint16_t* ids = nullptr;
-            std::uint8_t heads = 0;
-            e->GetHeadOptionsFor(pt, &ids, &heads);
-            unsigned motion = 0;
-            for (std::size_t s = 0; s < outfit::kMotionMtarSlotCount; ++s)
-                if (e->perPlayerType[pt].motionMtars[s] != 0)
-                    ++motion;
-            append("%s%s(variants=%u,heads=%u,arm=%d,head=%d,motion=%u)",
-                   first ? "" : ",",
-                   kNames[pt],
-                   static_cast<unsigned>(e->GetVariantCountFor(pt)),
-                   static_cast<unsigned>(heads),
-                   e->perPlayerType[pt].enableArm ? 1 : 0,
-                   e->perPlayerType[pt].enableHead ? 1 : 0,
-                   motion);
-            first = false;
-        }
-        append("] variants=%u selectors=[",
-               static_cast<unsigned>(e->variantCount));
-        for (std::uint8_t i = 0;
-             i < e->variantCount && i < outfit::kMaxVariantsPerOutfit; ++i)
-            append("%s0x%02X", (i == 0) ? "" : ",",
-                   static_cast<unsigned>(e->variantSelectorCodes[i]));
-        append("]");
-    }
 }
 
 int __cdecl l_RegisterOutfit(lua_State* L)
@@ -1023,7 +980,7 @@ int __cdecl l_RegisterOutfit(lua_State* L)
 
     if (LuaType(L, 1) != LUA_TTABLE)
     {
-        LogDebug("[OutfitLua] RegisterOutfit: arg 1 must be a table\n");
+        LogWarn("RegisterOutfit: argument #1 must be a table");
         PushLuaBool(L, false);
         return 1;
     }
@@ -1038,12 +995,11 @@ int __cdecl l_RegisterOutfit(lua_State* L)
 
     if (!key || !key[0])
     {
-        LogDebug("[OutfitLua] RegisterOutfit: 'key' (non-empty string) is required; "
-                 "developId and flowIndex are auto-allocated and persisted under it "
-                 "in V_FrameWork_State.lua\n");
+        LogWarn("RegisterOutfit: missing 'key', not registered");
         PushLuaBool(L, false);
         return 1;
     }
+    WarnTopLevelAbilities(L, "RegisterOutfit", key);
     std::uint8_t branchCount = 0;
     ForEachPlayerTypeBranch(L, 1, "RegisterOutfit", key,
         [&](std::uint8_t playerType, const char* branchName, int branchIdx)
@@ -1051,32 +1007,28 @@ int __cdecl l_RegisterOutfit(lua_State* L)
         const auto branchStore =
             std::make_unique<outfit::OutfitPlayerTypeData>();
         outfit::OutfitPlayerTypeData& branch = *branchStore;
-        if (ReadPlayerTypeBranchTable(L, branchIdx, branch, branchName))
+        if (ReadPlayerTypeBranchTable(L, branchIdx, branch))
         {
             def.perPlayerType[playerType] = branch;
             ++branchCount;
         }
         else
         {
-            LogDebug("[OutfitLua] RegisterOutfit: branch '%s' present but "
-                "missing required partsPath/fpkPath - skipping (key=%s)\n",
-                branchName, key);
+            LogWarn("RegisterOutfit '%s': branch %s missing partsPath/fpkPath, skipped",
+                key, branchName);
         }
     });
 
     if (branchCount == 0)
     {
-        LogDebug("[OutfitLua] RegisterOutfit: at least one playerType branch is "
-                 "required (snake/ddMale/ddFemale/avatar), each a sub-table with "
-                 "partsPath and fpkPath (key=%s)\n", key);
+        LogWarn("RegisterOutfit '%s': no valid playerType branch, not registered", key);
         PushLuaBool(L, false);
         return 1;
     }
 
-    bool wasCreated = false;
     {
         std::int32_t newId = 0;
-        if (V_FrameWorkState::ResolveOrCreateDevelopId(key, 0, newId, &wasCreated)
+        if (V_FrameWorkState::ResolveOrCreateDevelopId(key, 0, newId)
             && newId > 0 && newId <= 0xFFFF)
         {
             def.developId = static_cast<std::uint16_t>(newId);
@@ -1085,8 +1037,7 @@ int __cdecl l_RegisterOutfit(lua_State* L)
     }
     if (def.developId == 0)
     {
-        Log("[OutfitLua] RegisterOutfit: failed to allocate developId for "
-            "key='%s'\n", key);
+        LogError("RegisterOutfit '%s': developId allocation failed, not registered", key);
         PushLuaBool(L, false);
         return 1;
     }
@@ -1127,23 +1078,10 @@ int __cdecl l_RegisterOutfit(lua_State* L)
     if (outfit::TryGetOutfitByDevelopId(def.developId, &e) && e)
         finalSelector = e->selectorCode;
 
-    char summary[320];
-    BuildOutfitSummary(e, summary, sizeof(summary));
-
-    if (wasCreated)
-        LogDebug("[Outfit] Added \"%s\" (partsType 0x%02X, develop %u, flow %u, "
-            "selector 0x%02X; %s) - first time; saved.\n",
-            key, allocatedPartsType,
-            static_cast<unsigned>(def.developId),
-            static_cast<unsigned>(def.flowIndex),
-            static_cast<unsigned>(finalSelector), summary);
-    else
-        LogDebug("[Outfit] Loaded \"%s\" (partsType 0x%02X, develop %u, flow %u, "
-            "selector 0x%02X; %s)\n",
-            key, allocatedPartsType,
-            static_cast<unsigned>(def.developId),
-            static_cast<unsigned>(def.flowIndex),
-            static_cast<unsigned>(finalSelector), summary);
+    LogInfo("RegisterOutfit %s partsType:0x%02X developId:%u selector:0x%02X",
+        key, static_cast<unsigned>(allocatedPartsType),
+        static_cast<unsigned>(def.developId),
+        static_cast<unsigned>(finalSelector));
 
     PushLuaNumber(L, static_cast<float>(allocatedPartsType));
     PushLuaNumber(L, static_cast<float>(def.developId));
@@ -1152,11 +1090,117 @@ int __cdecl l_RegisterOutfit(lua_State* L)
 }
 
 
+namespace
+{
+    struct HeadLayerKey
+    {
+        const char*  name;
+        std::uint8_t bit;
+        const char*  pathName;
+        std::uint64_t outfit::HeadLayerPaths::*path;
+        const char*  fpkName;
+        std::uint64_t outfit::HeadLayerPaths::*fpk;
+    };
+    static constexpr HeadLayerKey k_HeadLayerKeys[] = {
+        { "enableFaceFova", outfit::kHeadLayerKeepFace,
+          "faceFovaPath", &outfit::HeadLayerPaths::faceFova,
+          "faceFovaFpkPath", &outfit::HeadLayerPaths::faceFovaFpk },
+        { "enableFaceDecoFova", outfit::kHeadLayerKeepFaceDeco,
+          "faceDecoFovaPath", &outfit::HeadLayerPaths::faceDecoFova,
+          "faceDecoFovaFpkPath", &outfit::HeadLayerPaths::faceDecoFovaFpk },
+        { "enableHairFova", outfit::kHeadLayerKeepHair,
+          "hairFovaPath", &outfit::HeadLayerPaths::hairFova,
+          "hairFovaFpkPath", &outfit::HeadLayerPaths::hairFovaFpk },
+        { "enableHairDecoFova", outfit::kHeadLayerKeepHairDeco,
+          "hairDecoFovaPath", &outfit::HeadLayerPaths::hairDecoFova,
+          "hairDecoFovaFpkPath", &outfit::HeadLayerPaths::hairDecoFovaFpk },
+    };
+
+    constexpr int kFaceUnitCount = 900;
+
+    std::uint8_t ReadHeadLayerFlags(lua_State* L, int tableIdx, const char* key,
+                                    const char* where, bool allowed)
+    {
+        std::uint8_t flags = 0;
+        for (const HeadLayerKey& k : k_HeadLayerKeys)
+        {
+            LuaGetField(L, tableIdx, const_cast<char*>(k.name));
+            const int type = LuaType(L, -1);
+            if (type != LUA_TNIL && type != LUA_TNONE)
+            {
+                if (!allowed)
+                {
+                    LogWarn("RegisterHeadOption '%s': %s only read in ddMale/ddFemale, "
+                        "ignored in %s", key, k.name, where);
+                }
+                else if (type != LUA_TBOOLEAN)
+                {
+                    LogWarn("RegisterHeadOption '%s': %s.%s is not a boolean, ignored",
+                        key, where, k.name);
+                }
+                else
+                {
+                    flags |= outfit::kHeadLayerDeclared;
+                    if (GetLuaBool(L, -1) != 0)
+                        flags |= k.bit;
+                }
+            }
+            SetLuaTop(L, -2);
+        }
+        return flags;
+    }
+
+    outfit::HeadLayerPaths ReadHeadLayerPaths(lua_State* L, int tableIdx,
+        const char* key, const char* where, bool allowed, std::uint8_t flags)
+    {
+        outfit::HeadLayerPaths paths{};
+        for (const HeadLayerKey& k : k_HeadLayerKeys)
+        {
+            for (int pack = 0; pack < 2; ++pack)
+            {
+                const char* field = pack ? k.fpkName : k.pathName;
+                LuaGetField(L, tableIdx, const_cast<char*>(field));
+                const int type = LuaType(L, -1);
+                if (type != LUA_TNIL && type != LUA_TNONE)
+                {
+                    if (!allowed)
+                        LogWarn("RegisterHeadOption '%s': %s only read in ddMale/ddFemale, "
+                            "ignored in %s", key, field, where);
+                    else if (type != LUA_TSTRING)
+                        LogWarn("RegisterHeadOption '%s': %s.%s must be a %s path string, "
+                            "ignored", key, where, field, pack ? "FPK" : "FV2");
+                    else if (const char* value = GetLuaString(L, -1); value && value[0])
+                    {
+                        const std::uint64_t code = FoxHashes::PathCode64Ext(value);
+                        if (!(pack ? outfit::IsFpkPathCode(code) : outfit::IsFv2PathCode(code)))
+                            LogWarn("RegisterHeadOption '%s': %s.%s '%s' must end in %s, "
+                                "ignored", key, where, field, value,
+                                pack ? ".fpk or .fpkd" : ".fv2");
+                        else if ((flags & k.bit) == 0)
+                            LogWarn("RegisterHeadOption '%s': %s.%s ignored, %s is not true",
+                                key, where, field, k.name);
+                        else
+                            paths.*(pack ? k.fpk : k.path) = code;
+                    }
+                }
+                SetLuaTop(L, -2);
+            }
+            if (paths.*(k.fpk) && !(paths.*(k.path)))
+            {
+                LogWarn("RegisterHeadOption '%s': %s.%s needs a valid %s, ignored",
+                    key, where, k.fpkName, k.pathName);
+                paths.*(k.fpk) = 0;
+            }
+        }
+        return paths;
+    }
+}
+
 int __cdecl l_RegisterHeadOption(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
     {
-        LogDebug("[CustomHead] RegisterHeadOption: arg 1 must be a table\n");
+        LogWarn("RegisterHeadOption: argument #1 must be a table");
         PushLuaNumber(L, 0);
         return 1;
     }
@@ -1165,7 +1209,7 @@ int __cdecl l_RegisterHeadOption(lua_State* L)
     TryReadTableStringField(L, 1, "key", key);
     if (!key || !key[0])
     {
-        LogDebug("[CustomHead] RegisterHeadOption: missing 'key'\n");
+        LogWarn("RegisterHeadOption: missing 'key', not registered");
         PushLuaNumber(L, 0);
         return 1;
     }
@@ -1173,19 +1217,59 @@ int __cdecl l_RegisterHeadOption(lua_State* L)
     std::uint16_t faceIds[outfit::kPlayerTypeMax] = {};
     std::uint64_t faceFv2Codes[outfit::kPlayerTypeMax] = {};
     std::uint64_t faceFpkCodes[outfit::kPlayerTypeMax] = {};
+    std::uint8_t  faceLayerFlags[outfit::kPlayerTypeMax] = {};
+    outfit::HeadLayerPaths layerPaths[outfit::kPlayerTypeMax] = {};
     std::uint64_t snakeStageFv2[outfit::kSnakeFaceStageCount] = {};
     std::uint64_t snakeStageFpk[outfit::kSnakeFaceStageCount] = {};
     bool          haveSnakeStages = false;
+    std::uint8_t  branchMask = 0;
     ForEachPlayerTypeBranch(L, 1, "RegisterHeadOption", key,
         [&](std::uint8_t playerType, const char* branchName, int branchIdx)
     {
+        const bool isDd = outfit::IsDdPlayerType(playerType);
+        branchMask |= static_cast<std::uint8_t>(1u << playerType);
+
+        faceLayerFlags[playerType] =
+            ReadHeadLayerFlags(L, branchIdx, key, branchName, isDd);
+        layerPaths[playerType] = ReadHeadLayerPaths(L, branchIdx, key, branchName,
+            isDd, faceLayerFlags[playerType]);
+
+        const char* branchFv2 = nullptr;
+        const char* branchFpk = nullptr;
+        const bool givesFv2 =
+            TryReadTableStringField(L, branchIdx, "fv2", branchFv2) && branchFv2
+            && branchFv2[0];
+        const bool givesFpk =
+            TryReadTableStringField(L, branchIdx, "fpk", branchFpk) && branchFpk
+            && branchFpk[0];
+        const bool givesModelPair = givesFv2 && givesFpk;
+
         int rawBranchFace = 0;
-        if (TryReadTableIntField(L, branchIdx, "TppEnemyFaceId",
-                                 rawBranchFace)
-            && rawBranchFace > 0 && rawBranchFace <= 0xFFFF)
+        const bool haveBranchFace =
+            TryReadTableIntField(L, branchIdx, "TppEnemyFaceId", rawBranchFace);
+        const bool validBranchFace =
+            haveBranchFace && rawBranchFace > 0 && rawBranchFace < kFaceUnitCount;
+        const unsigned fallbackFace = (playerType == outfit::kPlayerType_DDMale)
+            ? outfit::kDefaultTppEnemyFaceIdMale : outfit::kDefaultTppEnemyFaceId;
+        if (isDd && givesFv2 != givesFpk)
+            LogWarn("RegisterHeadOption '%s': %s gives %s but no %s, using face 0x%X",
+                key, branchName, givesFv2 ? "fv2" : "fpk", givesFv2 ? "fpk" : "fv2",
+                validBranchFace ? static_cast<unsigned>(rawBranchFace) : fallbackFace);
+        if (validBranchFace)
         {
             faceIds[playerType] =
                 static_cast<std::uint16_t>(rawBranchFace);
+        }
+        else if (isDd && haveBranchFace)
+        {
+            LogWarn("RegisterHeadOption '%s': %s.TppEnemyFaceId %d not in 1..%d, %s face 0x%X",
+                key, branchName, rawBranchFace, kFaceUnitCount - 1,
+                givesModelPair ? "fallback" : "using", fallbackFace);
+        }
+        else if (isDd && !givesFv2 && !givesFpk)
+        {
+            LogWarn("RegisterHeadOption '%s': %s has no TppEnemyFaceId, using face 0x%X",
+                key, branchName, fallbackFace);
         }
 
         const char* fv2 = nullptr;
@@ -1194,6 +1278,105 @@ int __cdecl l_RegisterHeadOption(lua_State* L)
         const char* fpk = nullptr;
         if (TryReadTableStringField(L, branchIdx, "fpk", fpk) && fpk && fpk[0])
             faceFpkCodes[playerType] = FoxHashes::PathCode64Ext(fpk);
+
+        if (layerPaths[playerType].faceFova
+            && !outfit::IsFpkPathCode(layerPaths[playerType].faceFovaFpk
+                ? layerPaths[playerType].faceFovaFpk : faceFpkCodes[playerType]))
+        {
+            LogWarn("RegisterHeadOption '%s': %s.faceFovaPath needs a .fpk/.fpkd "
+                "faceFovaFpkPath or fpk, ignored", key, branchName);
+            layerPaths[playerType].faceFova = 0;
+        }
+
+        if (isDd && givesModelPair
+            && (!outfit::IsFv2PathCode(faceFv2Codes[playerType])
+                || !outfit::IsFpkPathCode(faceFpkCodes[playerType])))
+            LogWarn("RegisterHeadOption '%s': %s fv2 '%s'/fpk '%s' need .fv2 and .fpk/.fpkd, "
+                "using face 0x%X", key, branchName, fv2 ? fv2 : "", fpk ? fpk : "",
+                validBranchFace ? static_cast<unsigned>(rawBranchFace) : fallbackFace);
+
+        LuaGetField(L, branchIdx, "motion");
+        if (LuaType(L, -1) == LUA_TTABLE)
+        {
+            const int motionIdx = GetLuaTop(L);
+            const char* mtarPath = nullptr;
+            std::vector<outfit::headmotion::Clip> clips;
+            if (TryReadTableStringField(L, motionIdx, "mtar", mtarPath) && mtarPath && mtarPath[0])
+            {
+                LuaGetField(L, motionIdx, "clips");
+                if (LuaType(L, -1) == LUA_TTABLE)
+                {
+                    const int clipsIdx = GetLuaTop(L);
+                    g_lua_pushnil(L);
+                    while (g_lua_next(L, clipsIdx) != 0)
+                    {
+                        if (LuaType(L, -2) == LUA_TSTRING && LuaType(L, -1) == LUA_TSTRING)
+                        {
+                            outfit::headmotion::Clip clip;
+                            clip.name = GetLuaString(L, -2);
+                            clip.code = outfit::headmotion::ParseClipId(GetLuaString(L, -1));
+                            if (clip.code)
+                                clips.push_back(std::move(clip));
+                        }
+                        LuaPop(L, 1);
+                    }
+                }
+                LuaPop(L, 1);
+            }
+
+            std::vector<outfit::headmotion::Effect> effects;
+            LuaGetField(L, motionIdx, "effects");
+            if (LuaType(L, -1) == LUA_TTABLE)
+            {
+                const int effectsIdx = GetLuaTop(L);
+                g_lua_pushnil(L);
+                while (g_lua_next(L, effectsIdx) != 0)
+                {
+                    if (LuaType(L, -2) == LUA_TSTRING && LuaType(L, -1) == LUA_TTABLE)
+                    {
+                        const int fxIdx = GetLuaTop(L);
+                        outfit::headmotion::Effect fx;
+                        fx.name = GetLuaString(L, -2);
+                        const char* vfxPath = nullptr;
+                        const char* point   = nullptr;
+                        const char* clip    = nullptr;
+                        TryReadTableStringField(L, fxIdx, "vfx", vfxPath);
+                        TryReadTableStringField(L, fxIdx, "point", point);
+                        TryReadTableStringField(L, fxIdx, "clip", clip);
+                        if (vfxPath && vfxPath[0])
+                        {
+                            fx.vfx   = FoxHashes::PathCode64Ext(vfxPath);
+                            fx.point = outfit::headmotion::ParseEffectPoint(point);
+                            if (clip)
+                                fx.clip = clip;
+                            effects.push_back(std::move(fx));
+                        }
+                        else
+                        {
+                            LogWarn("RegisterHeadOption '%s': %s.motion.effects.%s needs vfx, skipped",
+                                key, branchName, fx.name.c_str());
+                        }
+                    }
+                    LuaPop(L, 1);
+                }
+            }
+            LuaPop(L, 1);
+
+            const bool hasClips   = mtarPath && mtarPath[0] && !clips.empty();
+            const bool hasEffects = !effects.empty();
+            if (hasClips)
+                outfit::headmotion::SetBranchMotion(key, playerType,
+                    FoxHashes::PathCode64Ext(mtarPath), std::move(clips));
+            if (hasEffects)
+                outfit::headmotion::SetBranchEffects(key, playerType, std::move(effects));
+            const char* restClip = nullptr;
+            if (TryReadTableStringField(L, motionIdx, "rest", restClip) && restClip && restClip[0])
+                outfit::headmotion::SetBranchRest(key, playerType, restClip);
+            if (!hasClips && ((mtarPath && mtarPath[0]) || !hasEffects))
+                LogWarn("RegisterHeadOption '%s': %s.motion needs mtar and clips, ignored",
+                    key, branchName);
+        }
+        LuaPop(L, 1);
 
         if (playerType == outfit::kPlayerType_Snake)
         {
@@ -1247,10 +1430,15 @@ int __cdecl l_RegisterHeadOption(lua_State* L)
         SetLuaTop(L, -2);
     }
 
+    ReadHeadLayerFlags(L, 1, key, "the top level", false);
+    ReadHeadLayerPaths(L, 1, key, "the top level", false, 0);
+
     const std::uint16_t equipId = outfit::RegisterHeadOption(
-        key, faceIds, faceFv2Codes, faceFpkCodes, showInDevelopMenu);
+        key, faceIds, faceFv2Codes, faceFpkCodes, showInDevelopMenu,
+        faceLayerFlags, layerPaths);
 
     outfit::SetCustomHeadInfiniteAmmo(key, infiniteAmmo);
+    outfit::SetCustomHeadBranchMask(key, branchMask);
 
     if (haveSnakeStages)
         outfit::SetCustomHeadSnakeFaceStages(key, snakeStageFv2, snakeStageFpk);
@@ -1307,9 +1495,6 @@ void OutfitLua_EnsureEquipDevelopBound()
     EquipDevelopAdd::Bind(deps);
 
     g_EquipDevelopBound = true;
-#ifdef _DEBUG
-    LogDebug("[OutfitLua] EquipDevelopAdd::Bind done\n");
-#endif
 }
 
 static std::uint8_t ReadVanillaExtVariants(
@@ -1341,6 +1526,12 @@ static std::uint8_t ReadVanillaExtVariants(
                                    outfit::kSubAssetUseVanilla);
                 v.voiceFpk   = ReadSubAssetField(L, -1, "voiceFpk",
                                    outfit::kSubAssetUseVanilla);
+                const char* variantVoiceTypeName = nullptr;
+                v.voiceType = ReadSoundSwitchField(L, GetLuaTop(L), "voiceType",
+                                                   variantVoiceTypeName);
+                v.voiceFpkByTypeCount = ReadVoiceFpkByTypeField(
+                    L, GetLuaTop(L), v.voiceFpkByType,
+                    outfit::kMaxVoiceFpkByType);
 
                 LuaGetField(L, -1, "displayName");
                 if (LuaType(L, -1) == LUA_TSTRING)
@@ -1370,7 +1561,7 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
 {
     if (LuaType(L, 1) != LUA_TTABLE)
     {
-        LogDebug("[OutfitLua] ExtendVanillaOutfit: arg 1 must be a table\n");
+        LogWarn("ExtendVanillaOutfit: argument #1 must be a table");
         PushLuaBool(L, false);
         return 1;
     }
@@ -1385,9 +1576,7 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
         labelCamo = ResolveCamoTypeNameToIndex(outfitName);
         if (labelCamo < 0)
         {
-            LogDebug("[OutfitLua] ExtendVanillaOutfit: unknown outfit name '%s' - "
-                     "use a vanilla camo name (BATTLEDRESS, SNEAKING_SUIT_TPP, "
-                     "NAKED) or a raw partsType\n", outfitName);
+            LogWarn("ExtendVanillaOutfit: unknown outfit '%s', not applied", outfitName);
             PushLuaBool(L, false);
             return 1;
         }
@@ -1416,59 +1605,56 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
 
     if (vanillaPartsType == 0xFF)
     {
-        LogDebug("[OutfitLua] ExtendVanillaOutfit: could not resolve a vanilla "
-            "partsType (missing/invalid 'outfit' name/camoType or "
-            "'partsType'%s)\n",
-            labelCamo >= 0 ? "; engine camo->partsType map unavailable" : "");
+        LogWarn("ExtendVanillaOutfit: no vanilla partsType resolved%s, not applied",
+            labelCamo >= 0 ? " (camo->partsType map unavailable)" : "");
         PushLuaBool(L, false);
         return 1;
     }
 
+    WarnTopLevelAbilities(L, "ExtendVanillaOutfit", outfitName);
+
     bool any = false;
     ForEachPlayerTypeBranch(L, 1, "ExtendVanillaOutfit", outfitName,
-        [&](std::uint8_t playerType, const char* branchName, int branchIdx)
+        [&](std::uint8_t playerType, const char*, int branchIdx)
     {
-        std::uint16_t ids[outfit::kMaxHeadOptionsPerOutfit]  = {};
+        std::uint16_t ids[outfit::kMaxHeadOptionsPerOutfit]       = {};
+        std::uint16_t idOrder[outfit::kMaxHeadOptionsPerOutfit]   = {};
         std::uint8_t  idCount = 0;
-        std::uint64_t pend[outfit::kMaxHeadOptionsPerOutfit] = {};
+        std::uint64_t pend[outfit::kMaxHeadOptionsPerOutfit]      = {};
+        std::uint16_t pendOrder[outfit::kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  pendCount = 0;
-        ReadHeadOptionsArrayInto(L, branchIdx, ids, idCount, pend, pendCount);
+        ReadHeadOptionsArrayInto(L, branchIdx, ids, idOrder, idCount,
+                                 pend, pendOrder, pendCount);
         const std::uint8_t headScopeCamo =
             (labelCamo >= 0) ? static_cast<std::uint8_t>(labelCamo)
                              : outfit::kHeadOptionAnyCamo;
         if ((idCount > 0 || pendCount > 0)
             && outfit::ExtendVanillaSuitHeadOptions(vanillaPartsType,
-                   playerType, headScopeCamo, ids, idCount,
-                   pend, pendCount))
+                   playerType, headScopeCamo, ids, idOrder, idCount,
+                   pend, pendOrder, pendCount))
         {
             any = true;
-            LogDebug("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
-                "partsType 0x%02X: %s +%u head option(s) (+%u deferred)\n",
-                outfitName ? outfitName : "(by number)",
-                labelCamo,
-                static_cast<unsigned>(vanillaPartsType),
-                branchName,
-                static_cast<unsigned>(idCount),
-                static_cast<unsigned>(pendCount));
         }
 
         const std::uint64_t suitVoice = ReadSubAssetField(
             L, branchIdx, "voiceFpk", outfit::kSubAssetUseVanilla);
-        if (suitVoice > outfit::kSubAssetUseVanilla
+        const char* suitVoiceTypeName = nullptr;
+        const std::uint32_t suitVoiceType =
+            ReadSoundSwitchField(L, branchIdx, "voiceType", suitVoiceTypeName);
+        outfit::VoiceFpkByType suitVoiceByType[outfit::kMaxVoiceFpkByType] = {};
+        const std::uint8_t suitVoiceByTypeCount = ReadVoiceFpkByTypeField(
+            L, branchIdx, suitVoiceByType, outfit::kMaxVoiceFpkByType);
+        if ((suitVoice > outfit::kSubAssetUseVanilla
+             || suitVoiceType != outfit::kSoundSwitchUnset
+             || suitVoiceByTypeCount > 0)
             && outfit::ExtendVanillaSuitVoice(vanillaPartsType,
                    playerType,
                    labelCamo >= 0 ? static_cast<std::uint8_t>(labelCamo)
                                   : std::uint8_t{0xFF},
-                   suitVoice))
+                   suitVoice, suitVoiceType, suitVoiceByType,
+                   suitVoiceByTypeCount))
         {
             any = true;
-            LogDebug("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
-                "partsType 0x%02X: %s suit-wide voiceFpk set (applies to "
-                "base + native variations + variants, kept in FOB)\n",
-                outfitName ? outfitName : "(by number)",
-                labelCamo,
-                static_cast<unsigned>(vanillaPartsType),
-                branchName);
         }
 
         bool hasArm = false, armVal = true;
@@ -1486,17 +1672,12 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
                    hasArm, armVal, hasHead, headVal))
         {
             any = true;
-            LogDebug("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
-                "partsType 0x%02X: %s arm/head override (arm=%s head=%s)\n",
-                outfitName ? outfitName : "(by number)",
-                labelCamo, static_cast<unsigned>(vanillaPartsType), branchName,
-                hasArm ? (armVal ? "on" : "off") : "-",
-                hasHead ? (headVal ? "on" : "off") : "-");
         }
 
         outfit::OutfitPlayerTypeData abilityBranch;
-        ReadBranchAbilities(L, branchIdx, abilityBranch, branchName);
+        ReadBranchAbilities(L, branchIdx, abilityBranch);
         if (abilityBranch.abilitySilentSteps
+            || abilityBranch.abilitySprint != outfit::kSprintNone
             || abilityBranch.abilityDefense
             || abilityBranch.abilityLifeRecovery
             || abilityBranch.abilityRattleSuit != outfit::kSoundSwitchUnset
@@ -1505,6 +1686,8 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
         {
             outfit::VanillaSuitAbilities va{};
             va.silentSteps   = abilityBranch.abilitySilentSteps;
+            va.sprint        = abilityBranch.abilitySprint;
+            va.sprintSpark   = abilityBranch.abilitySprintSpark;
             va.defense       = abilityBranch.abilityDefense;
             va.lifeRecovery  = abilityBranch.abilityLifeRecovery;
             va.rattleSuit    = abilityBranch.abilityRattleSuit;
@@ -1516,21 +1699,6 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
                     va))
             {
                 any = true;
-                LogDebug("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
-                    "partsType 0x%02X: %s abilities set (silentFootsteps=%d "
-                    "defense=%u lifeRecovery=%u rattleSuit=0x%08X "
-                    "damageSe=0x%08X quietMovement=%d) - they are dropped in "
-                    "FOB like every other edit to a vanilla suit\n",
-                    outfitName ? outfitName : "(by number)",
-                    labelCamo,
-                    static_cast<unsigned>(vanillaPartsType),
-                    branchName,
-                    va.silentSteps ? 1 : 0,
-                    static_cast<unsigned>(va.defense),
-                    static_cast<unsigned>(va.lifeRecovery),
-                    static_cast<unsigned>(va.rattleSuit),
-                    static_cast<unsigned>(va.damageSe),
-                    va.suitParamKind != 0 ? 1 : 0);
             }
         }
 
@@ -1540,9 +1708,8 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
             L, branchIdx, vars, outfit::kMaxVariantsPerOutfit - 1);
         if (vCount > 0 && labelCamo < 0)
         {
-            LogDebug("[OutfitLua] ExtendVanillaOutfit: variants need a "
-                     "camo-named outfit (got raw partsType 0x%02X) - variants "
-                     "skipped; use a camo name or number\n", static_cast<unsigned>(vanillaPartsType));
+            LogWarn("ExtendVanillaOutfit partsType 0x%02X: variants need a camo-named outfit, "
+                "skipped", static_cast<unsigned>(vanillaPartsType));
         }
         else if (vCount > 0
             && outfit::ExtendVanillaSuitVariants(vanillaPartsType,
@@ -1550,30 +1717,20 @@ int __cdecl l_ExtendVanillaOutfit(lua_State* L)
                    vars, vCount))
         {
             any = true;
-            std::uint8_t vAbil = 0;
-            for (std::uint8_t vi = 0; vi < vCount; ++vi)
-                if (vars[vi].abilities.declared)
-                    ++vAbil;
-            LogDebug("[Outfit] ExtendVanillaOutfit '%s' (camo %d) -> vanilla "
-                "partsType 0x%02X: %s +%u variant(s), %u of them declare their "
-                "own abilities (those override the branch abilities while that "
-                "variant is worn)\n",
-                outfitName ? outfitName : "(by number)",
-                labelCamo,
-                static_cast<unsigned>(vanillaPartsType),
-                branchName,
-                static_cast<unsigned>(vCount),
-                static_cast<unsigned>(vAbil));
         }
     });
 
     if (!any)
     {
-        LogDebug("[OutfitLua] ExtendVanillaOutfit: no playerType branch with a "
-            "headOptions or variants array - nothing registered\n");
+        LogWarn("ExtendVanillaOutfit '%s': no branch applied anything, nothing registered",
+            outfitName ? outfitName : "(by number)");
         PushLuaBool(L, false);
         return 1;
     }
+
+    LogInfo("ExtendVanillaOutfit %s partsType:0x%02X",
+        outfitName ? outfitName : "(by number)",
+        static_cast<unsigned>(vanillaPartsType));
 
     PushLuaNumber(L, static_cast<float>(vanillaPartsType));
     return 1;
@@ -1589,8 +1746,7 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
 
     if (!key || !key[0])
     {
-        LogDebug("[OutfitLua] GetOutfitInfo: pass the outfit key string "
-            "(or a table with key=)\n");
+        LogWarn("GetOutfitInfo: missing key");
         PushLuaBool(L, false);
         return 1;
     }
@@ -1598,8 +1754,7 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
     const std::int32_t developId = V_FrameWorkState::GetDevelopIdByKey(key);
     if (developId <= 0 || developId > 0xFFFF)
     {
-        LogDebug("[OutfitLua] GetOutfitInfo: unknown outfit key '%s' "
-            "(RegisterOutfit must run before this)\n", key);
+        LogWarn("GetOutfitInfo '%s': unknown outfit key", key);
         PushLuaBool(L, false);
         return 1;
     }
@@ -1608,8 +1763,7 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
     if (!outfit::TryGetOutfitByDevelopId(
             static_cast<std::uint16_t>(developId), &e) || !e)
     {
-        LogDebug("[OutfitLua] GetOutfitInfo: key '%s' has developId=%d "
-            "but no registered outfit entry\n", key, developId);
+        LogWarn("GetOutfitInfo '%s': developId %d has no outfit entry", key, developId);
         PushLuaBool(L, false);
         return 1;
     }
@@ -1621,9 +1775,7 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
         if (!outfit::TryGetOutfitByDevelopId(
                 static_cast<std::uint16_t>(developId), &e) || !e || !e->bound)
         {
-            LogDebug("[OutfitLua] GetOutfitInfo: '%s' could not take "
-                "live bytes (pools full) - returns false, vars stay vanilla\n",
-                key);
+            LogError("GetOutfitInfo '%s': outfit pools full, not bound", key);
             PushLuaBool(L, false);
             return 1;
         }
@@ -1633,6 +1785,128 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
     PushLuaNumber(L, static_cast<float>(e->selectorCode));
     PushLuaNumber(L, static_cast<float>(e->developId));
     return 3;
+}
+
+int __cdecl l_GetHeadOptionSlot(lua_State* L)
+{
+    const char* key = nullptr;
+    if (LuaType(L, 1) == LUA_TSTRING)
+        key = GetLuaString(L, 1);
+    else if (LuaType(L, 1) == LUA_TTABLE)
+        TryReadTableStringField(L, 1, "key", key);
+
+    if (!key || !key[0])
+    {
+        LogWarn("GetHeadOptionSlot: missing key");
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadByName(key);
+    if ((!head || head->slotByte < outfit::kCustomHeadSlotBase)
+        && outfit::HasPendingCustomHeads())
+    {
+        outfit::DrainPendingHeads();
+        head = outfit::TryGetCustomHeadByName(key);
+    }
+
+    if (!head || head->slotByte < outfit::kCustomHeadSlotBase)
+    {
+        LogWarn("GetHeadOptionSlot '%s': no slot yet", key);
+        PushLuaBool(L, false);
+        return 1;
+    }
+
+    PushLuaNumber(L, static_cast<float>(head->slotByte));
+    PushLuaNumber(L, static_cast<float>(head->equipId));
+    return 2;
+}
+
+int __cdecl l_GetHeadOptions(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_createtable || !g_lua_settable)
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    g_lua_createtable(L, 0, 0);
+    const int list = GetLuaTop(L);
+    int index = 0;
+    for (std::size_t i = 0; i < outfit::kMaxCustomHeads; ++i)
+    {
+        const auto slot = static_cast<std::uint8_t>(outfit::kCustomHeadSlotBase + i);
+        const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(slot);
+        if (!head || !head->name[0])
+            continue;
+
+        PushLuaNumber(L, static_cast<float>(++index));
+        g_lua_createtable(L, 0, 5);
+        const int entry = GetLuaTop(L);
+
+        PushLuaString(L, "key");
+        PushLuaString(L, head->name);
+        g_lua_settable(L, entry);
+
+        PushLuaString(L, "slot");
+        PushLuaNumber(L, static_cast<float>(head->slotByte));
+        g_lua_settable(L, entry);
+
+        PushLuaString(L, "equipId");
+        PushLuaNumber(L, static_cast<float>(head->equipId));
+        g_lua_settable(L, entry);
+
+        const std::string display = head->developId
+            ? EquipDevelop_DisplayName(static_cast<std::int32_t>(head->developId)) : std::string();
+        PushLuaString(L, "name");
+        PushLuaString(L, display.empty() ? head->name : display.c_str());
+        g_lua_settable(L, entry);
+
+        PushLuaString(L, "playerTypes");
+        g_lua_createtable(L, 0, 0);
+        const int types = GetLuaTop(L);
+        const std::uint8_t mask = outfit::GetCustomHeadBranchMask(head->name);
+        for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+        {
+            if ((mask & (1u << pt)) == 0)
+                continue;
+            PushLuaNumber(L, static_cast<float>(pt));
+            PushLuaBool(L, true);
+            g_lua_settable(L, types);
+        }
+        g_lua_settable(L, entry);
+
+        g_lua_settable(L, list);
+    }
+    return 1;
+}
+
+int __cdecl l_PlayHeadMotion(lua_State* L)
+{
+    const char* name = (LuaType(L, 1) == LUA_TSTRING) ? GetLuaString(L, 1) : nullptr;
+    PushLuaBool(L, outfit::headmotion::Play(name));
+    return 1;
+}
+
+int __cdecl l_PlayHeadEffect(lua_State* L)
+{
+    const char* name = (LuaType(L, 1) == LUA_TSTRING) ? GetLuaString(L, 1) : nullptr;
+    PushLuaBool(L, outfit::headmotion::PlayEffect(name));
+    return 1;
+}
+
+int __cdecl l_StopHeadEffect(lua_State* L)
+{
+    const char* name = (LuaType(L, 1) == LUA_TSTRING) ? GetLuaString(L, 1) : nullptr;
+    PushLuaBool(L, outfit::headmotion::StopEffect(name));
+    return 1;
+}
+
+int __cdecl l_PlayHeadSound(lua_State* L)
+{
+    const char* name = (LuaType(L, 1) == LUA_TSTRING) ? GetLuaString(L, 1) : nullptr;
+    const char* point = (LuaType(L, 2) == LUA_TSTRING) ? GetLuaString(L, 2) : nullptr;
+    PushLuaBool(L, outfit::headmotion::PlaySound(name, point));
+    return 1;
 }
 
 int __cdecl l_AddToEquipDevelopTable(lua_State* L)

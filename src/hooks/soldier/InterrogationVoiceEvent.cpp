@@ -155,66 +155,6 @@ namespace
         RunUpdateGuarded(g_OrigUpdateMarker, soldier2, index, knowledge, hung, ev);
     }
 
-    struct SlotSnapshot
-    {
-        int           valid;
-        std::uint32_t curVoiceType;
-        std::uint64_t playingId;
-        std::uint32_t queuedEvent;
-        std::uint32_t label0;
-        std::uint32_t label1;
-        std::uint16_t queuedVoiceType;
-        std::uint16_t flags;
-        std::uint32_t status;
-    };
-
-    void ReadEntrySnapshot(const void* entry, SlotSnapshot& out)
-    {
-        out.valid = 0;
-        __try
-        {
-            const auto e = reinterpret_cast<const std::uint8_t*>(entry);
-            out.curVoiceType    = *reinterpret_cast<const std::uint32_t*>(e + 0x00);
-            out.playingId       = *reinterpret_cast<const std::uint64_t*>(e + 0x08);
-            out.queuedEvent     = *reinterpret_cast<const std::uint32_t*>(e + 0x20);
-            out.label0          = *reinterpret_cast<const std::uint32_t*>(e + 0x24);
-            out.label1          = *reinterpret_cast<const std::uint32_t*>(e + 0x28);
-            out.queuedVoiceType = *reinterpret_cast<const std::uint16_t*>(e + 0x2c);
-            out.flags           = *reinterpret_cast<const std::uint16_t*>(e + 0x2e);
-            out.status          = *reinterpret_cast<const std::uint32_t*>(e + 0x50);
-            out.valid = 1;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out.valid = 0; }
-    }
-
-    void ReadSlotSnapshot(const void* self, std::uint32_t slot, SlotSnapshot& out)
-    {
-        out.valid = 0;
-        const std::uint8_t* entry = nullptr;
-        __try
-        {
-            const auto base = reinterpret_cast<const std::uint8_t*>(self);
-            const std::uint32_t count = *reinterpret_cast<const std::uint32_t*>(base + 0x48);
-            const auto table = *reinterpret_cast<const std::uint8_t* const*>(base + 0x30);
-            if (table && slot < count)
-                entry = table + static_cast<std::size_t>(slot) * 0x58;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { entry = nullptr; }
-        if (entry)
-            ReadEntrySnapshot(entry, out);
-    }
-
-    bool IsInterestingVoxEvent(std::uint32_t evId)
-    {
-        if (evId == kDdVoxEne || evId == kDdVoxEneState)
-            return true;
-        std::lock_guard<std::mutex> lk(g_mtx);
-        for (const auto& kv : g_eventsByCp)
-            if (kv.second.mainEvent == evId || kv.second.markerEvent == evId)
-                return true;
-        return false;
-    }
-
     bool LabelInFamily(std::uint32_t label, const std::uint32_t* bases, std::uint32_t count)
     {
         for (std::uint32_t i = 0; i < count; ++i)
@@ -258,10 +198,7 @@ namespace
         {
             static std::atomic<bool> s_warnedUnmappedSlot{ false };
             if (!s_warnedUnmappedSlot.exchange(true, std::memory_order_relaxed))
-                Log("[InterrogationVoice] WARN: a soldier vox call on sound slot %u "
-                    "arrived with an interrogation voice pending, but that slot is "
-                    "not mapped to a soldier index yet - keeping the vanilla "
-                    "voice\n", slot);
+                LogWarn("InterrogationVoice: sound slot %u not mapped to a soldier, vanilla voice kept", slot);
             return 0;
         }
 
@@ -295,60 +232,8 @@ namespace
                 ev = pending;
         }
 
-#ifdef _DEBUG
-        if (generic)
-        {
-            const std::uint32_t rawSpeaker = GetSoldierIndexFromSoundSlot(slot);
-            SlotSnapshot pre{};
-            SlotSnapshot post{};
-            ReadSlotSnapshot(self, slot, pre);
-            const char ret = g_OrigCallVoice
-                ? g_OrigCallVoice(self, slot, voiceType, ev, a5, a6, a7) : 0;
-            ReadSlotSnapshot(self, slot, post);
-            LogDebug("[InterrogationVoice] %s slot=%u spk=0x%X vt=%u ev=0x%X->0x%X "
-                     "a5=0x%llX a6=0x%llX a7=0x%llX ret=%d | pre v=%d cur=%u pid=0x%llX "
-                     "qev=0x%X qvt=%u fl=0x%X st=0x%X | post cur=%u pid=0x%llX qev=0x%X "
-                     "qvt=%u fl=0x%X st=0x%X\n",
-                     (ev != event) ? "SWAP" : "pass",
-                     slot, rawSpeaker, voiceType, event, ev,
-                     static_cast<unsigned long long>(a5),
-                     static_cast<unsigned long long>(a6),
-                     static_cast<unsigned long long>(a7),
-                     static_cast<int>(ret),
-                     pre.valid, pre.curVoiceType,
-                     static_cast<unsigned long long>(pre.playingId),
-                     pre.queuedEvent, pre.queuedVoiceType, pre.flags, pre.status,
-                     post.curVoiceType,
-                     static_cast<unsigned long long>(post.playingId),
-                     post.queuedEvent, post.queuedVoiceType, post.flags, post.status);
-            return ret;
-        }
-#endif
         return g_OrigCallVoice ? g_OrigCallVoice(self, slot, voiceType, ev, a5, a6, a7) : 0;
     }
-}
-
-void Debug_InterrogationVoice_NoteDequeue(void* entry, std::uint32_t slot)
-{
-#ifdef _DEBUG
-    if (!entry)
-        return;
-    SlotSnapshot s{};
-    ReadEntrySnapshot(entry, s);
-    if (!s.valid)
-        return;
-    if (!IsInterestingVoxEvent(s.queuedEvent))
-        return;
-    const std::uint32_t rawSpeaker = GetSoldierIndexFromSoundSlot(slot);
-    LogDebug("[InterrogationVoice] deq slot=%u spk=0x%X qev=0x%X qvt=%u lb0=0x%X lb1=0x%X "
-             "cur=%u pid=0x%llX fl=0x%X st=0x%X\n",
-             slot, rawSpeaker, s.queuedEvent, s.queuedVoiceType, s.label0, s.label1,
-             s.curVoiceType, static_cast<unsigned long long>(s.playingId),
-             s.flags, s.status);
-#else
-    (void)entry;
-    (void)slot;
-#endif
 }
 
 void Register_InterrogationVoiceEvent(std::uint32_t cpIndex, std::uint32_t eventId,
@@ -391,15 +276,13 @@ bool Install_InterrogationVoiceEvent_Hook()
     void* cv = ResolveGameAddress(gAddr.SoundControllerImpl_CallVoice);
     if (!cv)
     {
-        Log("[InterrogationVoice] ERROR: CallVoice address 0 (unsupported build) - custom "
-            "interrogation voice disabled.\n");
+        LogError("InterrogationVoice: CallVoice address missing on this build, custom interrogation voice off");
         return true;
     }
     if (!CreateAndEnableHook(cv, reinterpret_cast<void*>(&hk_CallVoice),
                              reinterpret_cast<void**>(&g_OrigCallVoice)))
     {
-        Log("[InterrogationVoice] ERROR: CallVoice hook failed - custom interrogation voice "
-            "will not apply.\n");
+        LogError("InterrogationVoice: CallVoice hook failed, custom interrogation voice off");
         return false;
     }
     g_CallVoiceTarget = cv;
@@ -409,16 +292,14 @@ bool Install_InterrogationVoiceEvent_Hook()
                                   reinterpret_cast<void**>(&g_OrigUpdate)))
         g_UpdateTarget = up;
     else
-        Log("[InterrogationVoice] WARN: UpdateInterrogation hook failed - main interrogation "
-            "line will keep the vanilla voice.\n");
+        LogError("InterrogationVoice: UpdateInterrogation hook failed, main line keeps vanilla voice");
 
     void* mk = ResolveGameAddress(gAddr.Soldier2InterrogateUtil_UpdateInterrogationMarker);
     if (mk && CreateAndEnableHook(mk, reinterpret_cast<void*>(&hk_UpdateInterrogationMarker),
                                   reinterpret_cast<void**>(&g_OrigUpdateMarker)))
         g_MarkerTarget = mk;
     else
-        Log("[InterrogationVoice] WARN: UpdateInterrogationMarker hook failed - marker "
-            "interrogation lines will keep the vanilla voice.\n");
+        LogError("InterrogationVoice: UpdateInterrogationMarker hook failed, marker lines keep vanilla voice");
 
     return true;
 }

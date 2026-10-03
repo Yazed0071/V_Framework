@@ -5,7 +5,6 @@ extern "C" {
 }
 
 #include <cstdint>
-#include <cstring>
 #include <mutex>
 #include <vector>
 
@@ -197,12 +196,7 @@ namespace
         if (!LuaStackHeadroomOf(L, room))
             return true;
 
-        static int s_minFrame  = kImplausibleFreeSlots;
         static int s_skipLines = 0;
-
-        const bool newMin = room.frameFree < s_minFrame;
-        if (newMin)
-            s_minFrame = room.frameFree;
 
         if (room.frameFree < kBroadcastPushSlots
             || room.physicalFree < kBroadcastPushSlots)
@@ -210,18 +204,12 @@ namespace
             if (s_skipLines < kMaxHazardLogLines)
             {
                 ++s_skipLines;
-                LogDebug("[LuaBroadcast] dropped category=%s msg=%s frameFree=%d "
-                         "physicalFree=%d needed=%d - pushing here would run past "
-                         "the running Lua function's ci->top and corrupt the VM\n",
-                    category, msg, room.frameFree, room.physicalFree, kBroadcastPushSlots);
+                LogWarn("LuaBroadcast: %s.%s dropped, Lua stack has %d/%d free slots, "
+                    "%d needed", category, msg, room.frameFree, room.physicalFree,
+                    kBroadcastPushSlots);
             }
             return false;
         }
-
-        if (newMin)
-            LogDebug("[LuaBroadcast] closest approach so far: frameFree=%d physicalFree=%d "
-                "needed=%d category=%s msg=%s\n",
-                room.frameFree, room.physicalFree, kBroadcastPushSlots, category, msg);
 
         return true;
     }
@@ -318,21 +306,6 @@ namespace
         return safeArgCount;
     }
 
-    static void LogBroadcastError(const LuaApi& lua,
-        lua_State* L,
-        int err,
-        const char* category,
-        const char* msg)
-    {
-        const char* errMsg = lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
-
-        LogDebug("[V_FrameWork] Mission.SendMessage pcall err=%d category=%s msg=%s: %s\n",
-            err,
-            category,
-            msg,
-            errMsg ? errMsg : "<no message>");
-    }
-
 }
 
 static void EmitInline(const char* category,
@@ -340,7 +313,7 @@ static void EmitInline(const char* category,
     const V_FrameWork::LuaBroadcastArg* args,
     int argCount)
 {
-    if (!category || !msg)
+    if (!category || !msg || !SafeToEmitInline())
         return;
 
     lua_State* L = V_FrameWork_AnyLuaState();
@@ -354,13 +327,6 @@ static void EmitInline(const char* category,
     if (!BroadcastStackHasRoom(L, category, msg))
         return;
 
-#ifdef _DEBUG
-    const bool traceWalk =
-        category[0] == 'U' && category[1] == 'I' && category[2] == '\0' &&
-        std::strstr(msg, "WalkMan") != nullptr;
-    static thread_local int s_walkTrace = 0;
-#endif
-
     static thread_local int s_dispatchDepth = 0;
     if (s_dispatchDepth >= 8)
     {
@@ -368,25 +334,12 @@ static void EmitInline(const char* category,
         if (s_loggedDepth < 12)
         {
             ++s_loggedDepth;
-            LogDebug("[LuaBroadcast] re-entrant dispatch depth>=8: DROPPING "
-                     "category=%s msg=%s to break a message-recursion loop - a "
-                     "receiver re-triggered an emit that led back here (for a "
-                     "WalkMan message, a tape-finish auto-advance feeding itself)\n",
-                category, msg);
+            LogWarn("LuaBroadcast: %s.%s dropped, dispatch depth 8 reached (message "
+                "loop)", category, msg);
         }
         return;
     }
     ++s_dispatchDepth;
-
-#ifdef _DEBUG
-    if (traceWalk && s_walkTrace < 40)
-    {
-        ++s_walkTrace;
-        LogDebug("[LuaBroadcast] dispatch BEGIN %s.%s depth=%d - no matching "
-                 "'dispatch END' means TppMain.OnMessage hung inside a receiver\n",
-            category, msg, s_dispatchDepth);
-    }
-#endif
 
     DWORD  sehCode     = 0;
     PVOID  sehAddr     = nullptr;
@@ -418,12 +371,17 @@ static void EmitInline(const char* category,
                     lua.pushnil(L);
             }
 
-            const int err = lua.pcall(L, 7, 0, 0);
-            if (err != 0)
+            if (lua.pcall(L, 7, 0, 0) != 0)
             {
-                const char* errMsg = lua.tolstring(L, -1, nullptr);
-                LogDebug("[V_FrameWork] TppMain.OnMessage pcall err=%d category=%s msg=%s: %s\n",
-                    err, category, msg, errMsg ? errMsg : "<no message>");
+                static int s_errLines = 0;
+                if (s_errLines < kMaxHazardLogLines)
+                {
+                    ++s_errLines;
+                    const char* errMsg =
+                        lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
+                    LogWarn("LuaBroadcast: %s.%s: TppMain.OnMessage error: %s",
+                        category, msg, errMsg ? errMsg : "(no message)");
+                }
             }
         }
 
@@ -436,25 +394,25 @@ static void EmitInline(const char* category,
                sehFault = (sehKind ? GetExceptionInformation()->ExceptionRecord->ExceptionInformation[1] : 0),
                EXCEPTION_EXECUTE_HANDLER))
     {
-        if (sehKind)
+        static int s_faultLines = 0;
+        if (s_faultLines < kMaxHazardLogLines)
         {
-            LogDebug("[V_FrameWork] BroadcastMessage SEH category=%s msg=%s code=0x%08X at=%p faulting=0x%llX\n",
-                category, msg, sehCode, sehAddr,
-                static_cast<unsigned long long>(sehFault));
-        }
-        else
-        {
-            LogDebug("[V_FrameWork] BroadcastMessage SEH category=%s msg=%s code=0x%08X at=%p\n",
-                category, msg, sehCode, sehAddr);
+            ++s_faultLines;
+            if (sehKind)
+            {
+                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p, address 0x%llX), "
+                    "dispatch aborted", category, msg, static_cast<unsigned>(sehCode),
+                    sehAddr, static_cast<unsigned long long>(sehFault));
+            }
+            else
+            {
+                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p), dispatch aborted",
+                    category, msg, static_cast<unsigned>(sehCode), sehAddr);
+            }
         }
     }
 
     --s_dispatchDepth;
-
-#ifdef _DEBUG
-    if (traceWalk && s_walkTrace <= 40)
-        LogDebug("[LuaBroadcast] dispatch END   %s.%s\n", category, msg);
-#endif
 }
 
 void V_FrameWork::EmitMessageValues(const char* category,
@@ -474,7 +432,7 @@ void V_FrameWork::EmitMessageValues(const char* category,
 void V_FrameWork::DrainDeferredBroadcasts()
 {
     static thread_local bool s_draining = false;
-    if (s_draining)
+    if (s_draining || !SafeToEmitInline())
         return;
 
     std::vector<DeferredBroadcast> local;
@@ -491,6 +449,17 @@ void V_FrameWork::DrainDeferredBroadcasts()
             d.args.empty() ? nullptr : d.args.data(),
             static_cast<int>(d.args.size()));
     s_draining = false;
+}
+
+void V_FrameWork::QueueMessageValues(const char* category,
+    const char* msg,
+    const LuaBroadcastArg* args,
+    int argCount)
+{
+    if (!category || !msg)
+        return;
+
+    EnqueueDeferredBroadcast(category, msg, args, argCount);
 }
 
 void V_FrameWork::EnterLuaPcall()

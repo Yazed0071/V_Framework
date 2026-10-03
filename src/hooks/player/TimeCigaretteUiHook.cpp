@@ -154,20 +154,6 @@ namespace
 
         const bool nowShown = read && TryIsShown(element);
 
-        {
-            static unsigned long long s_lastMs = 0;
-            const bool transition = (wasShown != nowShown);
-            const unsigned long long now = GetTickCount64();
-            if (transition || now - s_lastMs >= 2000)
-            {
-                s_lastMs = now;
-                LogDebug("[TimeCigDiag] SHOW read=%d was=%d now=%d idx=%u%s\n",
-                    static_cast<int>(read), static_cast<int>(wasShown),
-                    static_cast<int>(nowShown), index,
-                    transition ? " <TRANSITION>" : "");
-            }
-        }
-
         if (read && !wasShown && nowShown)
             ReportShown(index);
     }
@@ -188,20 +174,6 @@ namespace
             g_OrigHide(this_, index);
 
         const bool nowShown = read && TryIsShown(element);
-
-        {
-            static unsigned long long s_lastMs = 0;
-            const bool transition = (wasShown != nowShown);
-            const unsigned long long now = GetTickCount64();
-            if (transition || now - s_lastMs >= 2000)
-            {
-                s_lastMs = now;
-                LogDebug("[TimeCigDiag] HIDE read=%d was=%d now=%d idx=%u%s\n",
-                    static_cast<int>(read), static_cast<int>(wasShown),
-                    static_cast<int>(nowShown), index,
-                    transition ? " <TRANSITION>" : "");
-            }
-        }
 
         if (read && wasShown && !nowShown)
             ReportHidden(index);
@@ -237,14 +209,14 @@ bool Install_TimeCigaretteUi_Hook()
 
     if (!gAddr.TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi)
     {
-        LogDebug("[TimeCigaretteUi] address not set for this build\n");
+        LogError("TimeCigaretteUi: ShowTimeCigaretteUi address missing on this build, TimeCigaretteUi message off");
         return false;
     }
 
     void* showTarget = ResolveGameAddress(gAddr.TimeCigaretteActionPluginImpl_ShowTimeCigaretteUi);
     if (!showTarget)
     {
-        Log("[TimeCigaretteUi] resolve failed\n");
+        LogError("TimeCigaretteUi: ShowTimeCigaretteUi address not resolved, TimeCigaretteUi message off");
         return false;
     }
 
@@ -266,10 +238,10 @@ bool Install_TimeCigaretteUi_Hook()
             reinterpret_cast<void**>(&g_OrigHide)))
         g_HideTarget = hideTarget;
     else
-        Log("[TimeCigaretteUi] WARN: Hide hook failed - TimeCigaretteUi will not fire on hide.\n");
+        LogError("TimeCigaretteUi: HideTimeCigaretteUi hook failed, no message on hide");
 
-    Log("[TimeCigDiag] install show=%s (target=%p) hide=%s (target=%p)\n",
-        showOk ? "OK" : "FAIL", showTarget, g_HideTarget ? "OK" : "off", hideTarget);
+    if (!showOk)
+        LogError("TimeCigaretteUi: ShowTimeCigaretteUi hook failed, no message on show");
     return showOk;
 }
 

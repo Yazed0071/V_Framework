@@ -26,5 +26,8 @@ namespace outfit
     void SetDevelopHidden(unsigned short index, bool hidden = true);
     bool IsDevelopHidden(unsigned short index);
 
+    void NoteStaticDevelopHidden(unsigned short developId, bool hidden);
+    bool IsStaticDevelopHidden(unsigned short developId);
+
     void InvalidateEquipVisibilityCache();
 }

@@ -1,5 +1,22 @@
 #pragma once
 
+#include <cstdint>
+
+struct MagazineParameters
+{
+    int id = 0;
+    std::uint16_t equipId = 0;
+    std::uint16_t capacity = 0;
+    std::uint16_t carryMax = 0;
+    std::uint16_t bulletId = 0;
+};
+
+bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
+                                   MagazineParameters& underbarrel);
+bool EquipParam_GetMagazineParameters(int ammoId, MagazineParameters& parameters);
+bool EquipParam_WideMagazinesReady();
+bool EquipParam_InitializeWidePartIds();
+
 struct lua_State;
 
 int __cdecl l_SetMagazine(lua_State* L);
@@ -32,13 +49,13 @@ bool Install_MotionLoader_BarrelTypeHook();
 void Uninstall_MotionLoader_BarrelTypeHook();
 bool Install_MotionLoader_MagazineTypeHook();
 void Uninstall_MotionLoader_MagazineTypeHook();
-bool Install_MotionLoader_SightTypeHook();
-void Uninstall_MotionLoader_SightTypeHook();
+bool Install_MotionLoader_StockTypeHook();
+void Uninstall_MotionLoader_StockTypeHook();
 bool Install_UiController_UiSightTypeHook();
 void Uninstall_UiController_UiSightTypeHook();
 int  EquipParam_InheritPartMotionTypes(int barrelDst, int barrelSrc,
                                        int magazineDst, int magazineSrc,
-                                       int sightDst, int sightSrc,
+                                       int stockDst, int stockSrc,
                                        int* outEligible = nullptr);
 
 bool Install_GetAttackIdGuard();
@@ -53,6 +70,7 @@ void Uninstall_BulletEffectGuard();
 bool Install_WeaponKeyLog();
 void Uninstall_WeaponKeyLog();
 void EquipParam_SetWeaponHandling(unsigned int fromKey, unsigned int toKey);
+unsigned int EquipParam_GetWeaponHandlingDonor(unsigned int equipId);
 
 bool Install_FireSoundOverride_Hook();
 void Uninstall_FireSoundOverride_Hook();
@@ -87,7 +105,9 @@ enum EquipVanillaSpace
 };
 
 int  EquipParam_GetWideAlias(int space, int wideId);
+int  EquipParam_WidePartRowState(int space, int wideId);
 int  EquipParam_GetWideReceiverDonor(int wideId);
+bool EquipParam_SetReceiverMotionType(int receiverId, int receiverType);
 void EquipParam_RefillMotionEntries();
 int  EquipParam_GetReceiverForEquipId(int equipId);
 int  EquipParam_GetDeclaredWeaponAttackId(int equipId);

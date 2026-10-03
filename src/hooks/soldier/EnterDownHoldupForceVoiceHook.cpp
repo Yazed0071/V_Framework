@@ -130,7 +130,7 @@ static void DispatchHoldupDownReaction(void* self, std::uint32_t actorId, std::u
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[HoldupDownForce] Dispatch exception\n");
+        LogWarn("HoldupDownForce: reaction dispatch faulted, forced down voice skipped");
     }
 }
 
@@ -194,7 +194,7 @@ bool Install_State_EnterDownHoldupForceVoice_Hook()
     void* target = ResolveGameAddress(gAddr.State_EnterDownHoldup);
     if (!target)
     {
-        Log("[HoldupDownForce] target resolve failed\n");
+        LogError("HoldupDownForce: address missing, forced down voice off");
         return false;
     }
 
@@ -203,12 +203,8 @@ bool Install_State_EnterDownHoldupForceVoice_Hook()
         reinterpret_cast<void*>(&hkState_EnterDownHoldup),
         reinterpret_cast<void**>(&g_OrigState_EnterDownHoldup));
 
-#ifdef _DEBUG
-    Log("[HoldupDownForce] Install: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[HoldupDownForce] Install: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("HoldupDownForce: hook failed, forced down voice off");
     return ok;
 }
 
@@ -217,9 +213,5 @@ bool Uninstall_State_EnterDownHoldupForceVoice_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.State_EnterDownHoldup));
     g_OrigState_EnterDownHoldup = nullptr;
-
-#ifdef _DEBUG
-    LogDebug("[HoldupDownForce] Removed\n");
-#endif
     return true;
 }

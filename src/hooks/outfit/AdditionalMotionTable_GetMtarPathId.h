@@ -9,6 +9,5 @@ namespace outfit
     void NotePartsPipelineBusy(bool busy);
     void NoteLiveOutfitIdentity(unsigned char partsType, bool settled);
     void* RedirectMotionMtarForClip(void* mtar);
-    bool  ConsumeAnimControlCensusRequest();
     void  NoteAnimControl(void* animControl);
 }

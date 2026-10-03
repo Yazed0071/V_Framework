@@ -6,6 +6,7 @@
 #include "../equip/DevelopArrayGrow.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -21,7 +22,6 @@
 #include "log.h"
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
-#include "../equip/MenuPerf.h"
 
 namespace
 {
@@ -146,9 +146,6 @@ namespace
             ClearDevelopedNow(edc, idx);
 
         EquipDevelop_DrainPendingUndevelops();
-#ifdef _DEBUG
-        LogDebug("[BadgeProbe] the suit-index drain ran - every managed develop row has had its developed bit replayed from the state file by this point\n");
-#endif
     }
 
     static bool AsksAboutWornSuit(std::uint8_t livePT,
@@ -166,7 +163,6 @@ namespace
     static std::uint32_t __fastcall hkEdcGetSuitIndex(
         void* self, std::uint32_t camoType, std::uint32_t level)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_GetSuitIdx);
         if (self && g_CachedEDC != self)
         {
             g_CachedEDC = self;
@@ -206,15 +202,6 @@ namespace
                 uniquedefaultoutfit::GetDefaultOutfitRow(livePT);
             if (def != 0 && def < kEdcRowCapacity)
             {
-                static std::atomic<int> s_defLogged{ 0 };
-                if (s_defLogged.fetch_add(1, std::memory_order_relaxed) == 0)
-                    LogDebug("[UniqueOwnSuit] player type %u is on the vanilla "
-                        "pin, so the equipped-suit query resolved to a vanilla "
-                        "develop row - answered with their default-outfit row %u "
-                        "instead, which is where the Uniform name, icon and "
-                        "description come from\n",
-                        static_cast<unsigned>(livePT),
-                        static_cast<unsigned>(def));
                 return def;
             }
         }
@@ -343,20 +330,6 @@ namespace
             }
             if (resolve)
                 out = head->equipId;
-#ifdef _DEBUG
-            {
-                static int s_probe = 0;
-                if (s_probe < 12)
-                {
-                    ++s_probe;
-                    LogDebug("[HeadSummary] GetFaceEquipDevelopInfoIndex: faceVal=0x%X "
-                        "bySlot=%d livePT=0x%02X resolve=%d -> out=0x%X\n",
-                        faceVal, bySlot ? 1 : 0,
-                        static_cast<unsigned>(outfit::ReadLivePartsType()),
-                        resolve ? 1 : 0, out);
-                }
-            }
-#endif
         }
 
         return out;
@@ -496,7 +469,6 @@ namespace
     static std::uint8_t __fastcall hkEdcIsEquipSuit(
         void* self, std::uint32_t playerType, std::uint32_t devIndex)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_IsEquipSuit);
         outfit::DrainPendingHeads();
         if (outfit::IsCustomHeadEquipId(static_cast<std::uint16_t>(devIndex)))
             return 0;
@@ -505,7 +477,7 @@ namespace
         if (playerType <= 3
             && outfit::TryGetOutfitByFlowIndex(
                    static_cast<std::uint16_t>(devIndex), &e) && e
-            && !e->IsPlayerTypeSupported(static_cast<std::uint8_t>(playerType)))
+            && !e->CanBeWornBy(static_cast<std::uint8_t>(playerType)))
         {
             return 0;
         }
@@ -555,12 +527,6 @@ namespace
     {
         if (idx >= equip::NativeFlowBound())
         {
-            static std::atomic<int> s_logged{ 0 };
-            if (s_logged.fetch_add(1) < 4)
-                LogDebug("[EquipDevelop] GetBaseDevelopId guarded: caller passed "
-                    "index %u (record array holds %u) - returned 0.\n",
-                    static_cast<unsigned>(idx),
-                    equip::NativeFlowBound());
             return 0;
         }
         return g_OrigEdcGetBaseDevelopId
@@ -629,15 +595,15 @@ namespace outfit
         if (void* tVisile = ResolveGameAddress(gAddr.EquipDevCtrl_IsEquipVisile);
             gAddr.EquipDevCtrl_IsEquipVisile && tVisile)
         {
-            g_InstalledIsEquipVisile = CreateAndEnableHook(
-                tVisile,
-                reinterpret_cast<void*>(&hkIsEquipVisile),
-                reinterpret_cast<void**>(&g_OrigIsEquipVisile));
-            if (!g_InstalledIsEquipVisile)
-                Log("[OutfitDevelopVisibility] ERROR: IsEquipVisile hook at %p "
-                    "refused - DevelopArrayGrow already owns that address, so the "
-                    "develop-menu hide filter runs from there instead; if it does "
-                    "not, showInDevelopMenu=false is ignored\n", tVisile);
+            if (!equip::OwnsDevelopVisibilityHook(tVisile))
+            {
+                g_InstalledIsEquipVisile = CreateAndEnableHook(
+                    tVisile,
+                    reinterpret_cast<void*>(&hkIsEquipVisile),
+                    reinterpret_cast<void**>(&g_OrigIsEquipVisile));
+                if (!g_InstalledIsEquipVisile)
+                    LogError("OutfitDevelopVisibility: hook failed at %p, develop menu hide filter off", tVisile);
+            }
         }
 
         if (void* tCamo = ResolveGameAddress(gAddr.EquipDevCtrl_GetSuitCamoType);
@@ -729,6 +695,27 @@ namespace outfit
     bool IsDevelopHidden(unsigned short index)
     {
         return index < kDevelopHiddenCap && g_DevelopHiddenBits[index] != 0;
+    }
+
+    namespace
+    {
+        std::array<std::atomic<std::uint64_t>, 0x10000 / 64> g_StaticHiddenDevelopIds{};
+    }
+
+    void NoteStaticDevelopHidden(unsigned short developId, bool hidden)
+    {
+        const std::uint64_t bit = 1ull << (developId & 63);
+        auto& word = g_StaticHiddenDevelopIds[developId >> 6];
+        if (hidden)
+            word.fetch_or(bit, std::memory_order_relaxed);
+        else
+            word.fetch_and(~bit, std::memory_order_relaxed);
+    }
+
+    bool IsStaticDevelopHidden(unsigned short developId)
+    {
+        return (g_StaticHiddenDevelopIds[developId >> 6].load(std::memory_order_relaxed)
+                & (1ull << (developId & 63))) != 0;
     }
 
     void* GetCachedEquipDevelopController()

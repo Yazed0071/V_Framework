@@ -3,8 +3,6 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
-#include <string>
-#include <set>
 #include <mutex>
 #include <unordered_map>
 
@@ -13,7 +11,6 @@
 #include "log.h"
 #include "VoicePitchOverride.h"
 #include "MissionCodeGuard.h"
-#include "../soldier/SoldierAkObjIdMap.h"
 
 
 namespace
@@ -91,55 +88,6 @@ namespace
     }
 
 
-    static std::atomic<bool>          g_ReportSpeakers{ true };
-    static std::atomic<std::uint32_t> g_ReportSpeakerCalls{ 0 };
-
-    static constexpr std::size_t   kSpeakerNameCap    = 48;
-    static constexpr std::size_t   kUnnamedSpeakerCap = 16;
-    static constexpr std::uint32_t kSpeakerProbeCalls = 4000000u;
-
-    static void ReportSpeakingAkObjId(std::uint64_t akObjId)
-    {
-        if (g_ReportSpeakerCalls.fetch_add(1, std::memory_order_relaxed)
-            >= kSpeakerProbeCalls)
-        {
-            g_ReportSpeakers.store(false, std::memory_order_relaxed);
-            return;
-        }
-
-        const std::string name = SoldierAkObjIdMap::GetEmitterNameForAkObjId(
-            static_cast<std::uint32_t>(akObjId));
-
-        static std::mutex              s_mutex;
-        static std::set<std::string>   s_namesHeard;
-        static std::set<std::uint64_t> s_unnamedHeard;
-
-        std::lock_guard<std::mutex> lock(s_mutex);
-
-        if (name.empty())
-        {
-            if (s_unnamedHeard.size() >= kUnnamedSpeakerCap
-                || !s_unnamedHeard.insert(akObjId).second)
-                return;
-
-            LogDebug("[VoicePitch] akObjId %llu is producing sound but never passed "
-                     "through the emitter registration hook, so it has no name to key "
-                     "a pitch override on\n",
-                static_cast<unsigned long long>(akObjId));
-            return;
-        }
-
-        if (!s_namesHeard.insert(name).second)
-            return;
-        if (s_namesHeard.size() >= kSpeakerNameCap)
-            g_ReportSpeakers.store(false, std::memory_order_relaxed);
-
-        LogDebug("[VoicePitch] emitter '%s' is producing sound on akObjId %llu - a "
-                 "pitch bias keyed to that id reaches this voice\n",
-            name.c_str(), static_cast<unsigned long long>(akObjId));
-    }
-
-
     static void __fastcall hk_SetPitch(void* self, float pitchCents)
     {
         MISSION_GUARD_ORIGINAL_VOID(g_OrigSetPitch, self, pitchCents);
@@ -149,11 +97,8 @@ namespace
             g_HavePerAkObjIdBias.load(std::memory_order_relaxed);
 
         std::uint64_t akObjId = 0;
-        const bool probing = g_ReportSpeakers.load(std::memory_order_relaxed);
-        if ((haveAnyPerObj || probing) && self)
+        if (haveAnyPerObj && self)
             akObjId = ResolveAkObjIdFromResampler(self);
-        if (probing && akObjId)
-            ReportSpeakingAkObjId(akObjId);
 
         float bias = globalBias;
         if (haveAnyPerObj && akObjId)

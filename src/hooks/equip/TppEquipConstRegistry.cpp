@@ -106,7 +106,7 @@ bool TppEquipConst_Declare(
         return false;
     if (!IsValidConstantName(name))
     {
-        Log("[TppEquipConst] ERROR: invalid constant name '%s' (identifiers only, [A-Za-z0-9_], max 128 chars); rejected.\n",
+        LogWarn("TppEquipConst: invalid constant name '%s' ([A-Za-z0-9_], max 128), rejected",
             name ? name : "(null)");
         return false;
     }
@@ -117,7 +117,7 @@ bool TppEquipConst_Declare(
         if (!V_FrameWorkState::ResolveOrCreateEquipId(
                 name, 0, value, std::strncmp(name, "EQP_WP_", 7) == 0))
         {
-            Log("[TppEquipConst] ERROR: no free native equip slot for '%s'.\n", name);
+            LogError("RegisterConstantEquipId '%s': no free equipId, rejected", name);
             return false;
         }
     }
@@ -266,10 +266,8 @@ bool TppEquipConst_Declare(
         WriteConstant(L, name, value);
 
     outValue = static_cast<std::uint32_t>(value);
-#ifdef _DEBUG
-    LogDebug("[TppEquipConst] TppEquip.%s = %d (space %s)\n",
-        name, value, kSpaceTags[spaceIndex]);
-#endif
+    if (spaceIndex == kSpaceEqp)
+        LogInfo("RegisterConstantEquipId %s equipId:%d", name, value);
     return true;
 }
 
@@ -323,11 +321,6 @@ void TppEquipConst_InjectAll(lua_State* L)
 
     for (const auto& kv : snapshot)
         WriteConstant(L, kv.first.c_str(), kv.second);
-
-#ifdef _DEBUG
-    LogDebug("[TppEquipConst] injected %u custom constant(s) into L=%p\n",
-        static_cast<unsigned>(snapshot.size()), L);
-#endif
 }
 
 void TppEquipConst_ResetRuntimeState()

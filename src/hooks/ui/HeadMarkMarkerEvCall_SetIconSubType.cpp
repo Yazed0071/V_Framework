@@ -15,6 +15,7 @@
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "FoxHashes.h"
 #include "MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon.h"
+#include "Soldier2Impl_UpdateMarkers.h"
 
 namespace
 {
@@ -57,6 +58,9 @@ namespace
     constexpr std::uint32_t kMarkerSlotCount     = 0x80;
     constexpr std::size_t   kManager_SetColour   = 0x318;
     constexpr std::size_t   kSetColourScanLen    = 0x100;
+    constexpr std::uint8_t  kJumpRel32           = 0xE9;
+    constexpr std::size_t   kJumpRel32Len        = 5;
+    constexpr int           kThunkHopLimit       = 4;
     constexpr std::size_t   kVtblSlotLimit       = 0x1000;
     constexpr std::size_t   kNode_Colour         = 0x50;
 
@@ -169,6 +173,7 @@ namespace
 
     SetIconSubType_t g_Orig      = nullptr;
     IsFobMode_t      g_IsFobMode = nullptr;
+    bool             g_Installed = false;
 
     bool g_ColourFailureLogged   = false;
     bool g_RgbProbeDone          = false;
@@ -200,6 +205,7 @@ namespace
     std::unordered_map<std::uint32_t, PaletteRgb> g_PaletteRgb;
     std::size_t g_RgbSlot        = 0;
     bool g_IdentityFailureLogged = false;
+    bool g_StatusRangeLogged     = false;
 
     constexpr std::uint32_t kNoSoldierIndex     = 0xFFFFFFFFu;
 
@@ -332,13 +338,34 @@ namespace
         if (!GetSoldierStatusArray(base, count))
             return false;
         if (index >= count)
+        {
+            if (!g_StatusRangeLogged)
+            {
+                g_StatusRangeLogged = true;
+                LogWarn("HeadMarkDying: soldier index %u is past the %u-entry soldier status array, keeps enemy colour while dying",
+                        index, count);
+            }
             return false;
+        }
 
         std::uint32_t flags = 0;
         if (!ReadStatusFlagsSeh(base + index * kStatus_Stride + kStatus_Flags, flags))
             return false;
 
         return (flags & kStatus_DyingBit) != 0;
+    }
+
+    bool SoldierMarkerIdResolves(std::uint16_t systemId)
+    {
+        if (SoldierIndexFromSystemId(systemId) != kNoSoldierIndex)
+            return true;
+        if (!g_IdentityFailureLogged)
+        {
+            g_IdentityFailureLogged = true;
+            LogWarn("HeadMarkDying: soldier marker id 0x%04X is outside the soldier id band, keeps enemy colour while dying",
+                    static_cast<unsigned>(systemId));
+        }
+        return false;
     }
 
     bool IsSoldierDying(std::uint16_t systemId)
@@ -350,17 +377,7 @@ namespace
 
         const std::uint32_t index = SoldierIndexFromSystemId(systemId);
         if (index == kNoSoldierIndex)
-        {
-            if (!g_IdentityFailureLogged)
-            {
-                g_IdentityFailureLogged = true;
-                Log("[HeadMarkDying] a soldier head-mark carries marker-system id 0x%04X, which is "
-                    "no soldier index among %u soldiers - that marker keeps the vanilla enemy "
-                    "colour while dying\n",
-                    systemId, count);
-            }
             return false;
-        }
         return IsIndexDying(index);
     }
 
@@ -417,11 +434,39 @@ namespace
         return p >= base && p < base + size;
     }
 
+    const std::uint8_t* FollowImageThunkSeh(const std::uint8_t* at)
+    {
+        __try
+        {
+            for (int hop = 0; hop < kThunkHopLimit; ++hop)
+            {
+                if (at[0] != kJumpRel32)
+                    return at;
+
+                const std::int32_t  rel  = *reinterpret_cast<const std::int32_t*>(at + 1);
+                const std::uint8_t* next = at + kJumpRel32Len + rel;
+                if (!AddressInMainModuleSeh(next))
+                    return at;
+
+                at = next;
+            }
+            return at;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
     bool DeriveRgbSlotSeh(void** vtbl, std::size_t& outSlot)
     {
         __try
         {
-            auto fn = reinterpret_cast<const std::uint8_t*>(vtbl[kManager_SetColour / sizeof(void*)]);
+            auto entry = reinterpret_cast<const std::uint8_t*>(vtbl[kManager_SetColour / sizeof(void*)]);
+            if (!entry)
+                return false;
+
+            auto fn = FollowImageThunkSeh(entry);
             if (!fn)
                 return false;
 
@@ -446,7 +491,8 @@ namespace
                     continue;
 
                 void* target = vtbl[disp / sizeof(void*)];
-                if (!target || target == reinterpret_cast<const void*>(fn))
+                if (!target || target == reinterpret_cast<const void*>(fn) ||
+                    target == reinterpret_cast<const void*>(entry))
                     continue;
                 if (!AddressInMainModuleSeh(target))
                     continue;
@@ -476,14 +522,11 @@ namespace
         std::size_t slot = 0;
         if (!DeriveRgbSlotSeh(vtbl, slot))
         {
-            Log("[HeadMarkDying] the raw-colour setter could not be read out of the palette "
-                "setter, so head-marks given an r/g/b colour keep the vanilla colour - use "
-                "palette colour names instead on this build\n");
+            LogError("HeadMarkDying: raw-colour setter not found, r/g/b head-mark colours stay vanilla; use palette names");
             return false;
         }
 
         g_RgbSlot = slot;
-        LogDebug("[HeadMarkDying] raw-colour setter derived at manager vtable +0x%zX\n", slot);
         return true;
     }
 
@@ -592,14 +635,11 @@ namespace
         if (sampled && (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]))
         {
             g_Readback = 1;
-            LogDebug("[HeadMarkDying] head-mark colour read-back confirmed at element +0x%zX\n",
-                kNode_Colour);
             return true;
         }
 
         g_Readback = 2;
-        Log("[HeadMarkDying] the head-mark element does not carry its colour where this build "
-            "expects it, so colours still apply but never fade between states\n");
+        LogWarn("HeadMarkDying: head-mark colour read-back failed, colours apply without fades");
         return false;
     }
 
@@ -670,6 +710,8 @@ namespace
         std::uint16_t systemId = kInvalidMarkerId;
         ResolveMarkerSystemIdSeh(self, before.slot, systemId);
 
+        Apply_HeadMarkStaffNameLangText(self, marker, systemId);
+
         if (before.type == kMarkerType_Soldier || before.type == kMarkerType_Soldier2 ||
             before.type == kMarkerType_Alt     || before.type == kMarkerType_Alt2)
         {
@@ -681,6 +723,7 @@ namespace
             if (dyingWanted &&
                 (before.type == kMarkerType_Soldier || before.type == kMarkerType_Soldier2) &&
                 systemId != kInvalidMarkerId &&
+                SoldierMarkerIdResolves(systemId) &&
                 IsSoldierDying(systemId))
             {
                 flags |= kSubTypeSelectBit;
@@ -787,8 +830,8 @@ namespace
             if (!g_ColourFailureLogged)
             {
                 g_ColourFailureLogged = true;
-                Log("[HeadMarkDying] the head-mark colour setter could not be reached, so marker "
-                    "state %u keeps its vanilla colour\n", static_cast<unsigned>(after));
+                LogWarn("HeadMarkDying: colour setter unreachable, marker state %u keeps vanilla colour",
+                        static_cast<unsigned>(after));
             }
             return;
         }
@@ -836,8 +879,8 @@ namespace
         else if (!g_ColourFailureLogged)
         {
             g_ColourFailureLogged = true;
-            Log("[HeadMarkDying] the head-mark colour setter could not be reached, so marker "
-                "state %u keeps its vanilla colour\n", static_cast<unsigned>(after));
+            LogWarn("HeadMarkDying: colour setter unreachable, marker state %u keeps vanilla colour",
+                    static_cast<unsigned>(after));
         }
     }
 
@@ -925,8 +968,7 @@ bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
     std::vector<Region> regions;
     if (!CollectExecutableRegionsSeh(regions))
     {
-        Log("[HeadMarkDying] ERROR: no executable section could be read, so the dying-soldier "
-            "marker colour is off\n");
+        LogError("HeadMarkDying: no executable section readable, dying marker colour off");
         return false;
     }
 
@@ -936,17 +978,15 @@ bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
 
     if (sites.size() != 1)
     {
-        Log("[HeadMarkDying] the marker colour table matched %zu places instead of 1, so "
-            "SetIconSubType could not be located and dying soldiers keep the enemy colour\n",
-            sites.size());
+        LogError("HeadMarkDying: SetIconSubType signature matched %zu places, dying marker colour off",
+                 sites.size());
         return false;
     }
 
     std::uint8_t* entry = sites[0] - kConstBlockToEntry;
     if (!PrologueMatchesSeh(entry))
     {
-        Log("[HeadMarkDying] the bytes at %p do not match the SetIconSubType prologue, so dying "
-            "soldiers keep the enemy colour\n", entry);
+        LogError("HeadMarkDying: SetIconSubType prologue mismatch, dying marker colour off");
         return false;
     }
 
@@ -955,27 +995,31 @@ bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
     g_IsFobMode = reinterpret_cast<IsFobMode_t>(
         ResolveGameAddress(gAddr.Barrier_IsFobMode));
     if (!g_IsFobMode)
-        Log("[HeadMarkDying] no IsFobMode address for this build - the dying colour falls back to "
-            "the mission-code gate alone to stay out of FOB\n");
+        LogWarn("HeadMarkDying: IsFobMode address missing, FOB gate uses the mission code only");
 
     if (!CreateAndEnableHook(entry, &hkSetIconSubType, reinterpret_cast<void**>(&g_Orig)))
     {
-        Log("[HeadMarkDying] ERROR: the SetIconSubType hook was refused at %p, so dying soldiers "
-            "keep the enemy colour\n", entry);
+        LogError("HeadMarkDying: SetIconSubType hook failed, dying marker colour off");
         return false;
     }
 
+    g_Installed = true;
     Install_MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon_Patch();
 
-    LogDebug("[HeadMarkDying] dying-soldier marker colour armed at %p (single-player only)\n", entry);
     return true;
 }
 
 void Uninstall_HeadMarkMarkerEvCall_SetIconSubType_Patch()
 {
     Uninstall_MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon_Patch();
+    g_Installed = false;
     g_Orig = nullptr;
     g_IsFobMode = nullptr;
+}
+
+bool HeadMarkMarkerEvCall_SetIconSubType_Installed()
+{
+    return g_Installed;
 }
 
 
@@ -991,51 +1035,14 @@ std::uint32_t ResolveHeadMarkColourId(const char* name)
             static_cast<std::uint32_t>(FoxHashes::StrCode64("cmn-col-marker-enemy-dying") & 0xFFFFFFFFull);
         if (probe != kColour_EnemyDying)
         {
-            Log("[HeadMarkDying] StrCode64 low32 gives 0x%08X for cmn-col-marker-enemy-dying but the "
-                "palette uses 0x%08X - colour NAMES will not resolve on this build, pass the raw "
-                "low 32 bits of the palette hash instead\n", probe, kColour_EnemyDying);
+            LogError("HeadMarkDying: StrCode64 gives 0x%08X, palette expects 0x%08X; colour names unresolved, pass raw ids",
+                     probe, kColour_EnemyDying);
         }
     }
 
     return static_cast<std::uint32_t>(FoxHashes::StrCode64(name) & 0xFFFFFFFFull);
 }
 
-
-void DescribeHeadMarkOverrides(std::uint16_t systemId, char* out, std::size_t cap)
-{
-    if (!out || cap == 0)
-        return;
-    out[0] = 0;
-
-    unsigned entityStates = 0;
-    unsigned globalStates = 0;
-    std::size_t entities   = 0;
-    bool        haveEntity = false;
-
-    {
-        std::lock_guard<std::mutex> lock(g_EntityMutex);
-        entities = g_EntityColours.size();
-        auto it  = g_EntityColours.find(systemId);
-        if (it != g_EntityColours.end())
-        {
-            haveEntity = true;
-            for (unsigned i = 0; i < kSubTypeCount; ++i)
-                if (it->second.state[i].count != 0)
-                    entityStates |= (1u << i);
-        }
-    }
-
-    for (unsigned i = 0; i < kSubTypeCount; ++i)
-        if (g_GlobalState[i].count != 0)
-            globalStates |= (1u << i);
-
-    _snprintf_s(out, cap, _TRUNCATE,
-                "%zu entit%s carry an override; this one is %s (its state mask 0x%X);"
-                " the global state mask is 0x%X",
-                entities, entities == 1 ? "y" : "ies",
-                haveEntity ? "registered" : "NOT registered",
-                entityStates, globalStates);
-}
 
 bool GetHeadMarkColourForSlot(std::uint16_t systemId, unsigned slot, float outRgb[3],
                               int* outReason)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -16,19 +17,21 @@ struct ReceiverMotionClips
     std::uint64_t magazineGrip = 0;
     std::uint64_t magazineGripDual = 0;
     std::uint64_t underBarrelGrip  = 0;
-    std::uint64_t stepReload       = 0;
+    std::array<std::uint64_t, 4> stepReload      = {};
+    std::array<std::uint64_t, 4> stepReloadEmpty = {};
 };
 
 constexpr int kReceiverMotionGrip             = 100;
 constexpr int kReceiverMotionMagazineGrip     = 101;
 constexpr int kReceiverMotionMagazineGripDual = 102;
 constexpr int kReceiverMotionUnderBarrelGrip  = 103;
-constexpr int kReceiverMotionStepReload       = 104;
 
 constexpr int kReceiverVariantTwoHand    = 0;
 constexpr int kReceiverVariantOneHand    = 1;
 constexpr int kReceiverVariantOneHandCqc = 2;
 constexpr int kReceiverVariantHorse      = 3;
+constexpr int kReceiverVariantCrouch     = 4;
+constexpr int kReceiverVariantOneHandCrouch = 5;
 
 struct ReceiverPartMotionRow
 {
@@ -60,7 +63,9 @@ struct ReceiverMotionDesc
     ReceiverMotionClips playerClips;
     ReceiverMotionClips oneHandClips;
     ReceiverMotionClips oneHandCqcClips;
+    ReceiverMotionClips oneHandCrouchClips;
     ReceiverMotionClips horseClips;
+    ReceiverMotionClips crouchClips;
     std::uint64_t       weaponMtar  = 0;
     ReceiverMotionClips weaponClips;
     ReceiverPartMotion  partMotion;
@@ -87,14 +92,14 @@ int           ReceiverMotion_RowByteFor(int receiverId);
 void          ReceiverMotion_CollectPartMotions(std::vector<ReceiverPartMotionSnapshot>& out);
 void          ReceiverMotion_SetPartRowIndices(int receiverId,
                                                const ReceiverPartRowIndices& idx);
+bool          ReceiverMotion_CylinderShotDegrees(unsigned int equipId, double& outDegrees);
 bool          ReceiverMotion_GetPartRowIndices(int receiverId,
                                                ReceiverPartRowIndices& out);
 bool          ReceiverMotion_EnsurePartRowsPublished(int receiverId);
-bool          ReceiverMotion_ReceiverTypeOverride(unsigned int setupEquipId, unsigned int* outType);
 std::uint64_t ReceiverMotion_WeaponArchiveForEquip(unsigned int equipId);
-std::uint64_t ReceiverMotion_PlayerClip(unsigned int receiverType, int gunUseMotionType, bool roundsLeft);
-std::uint64_t ReceiverMotion_PlayerClipVariant(unsigned int receiverType, int variant, int gunUseMotionType, bool roundsLeft);
-std::uint64_t ReceiverMotion_WeaponClip(unsigned int receiverType, int gunUseMotionType, bool roundsLeft);
+void          ReceiverMotion_NoteGunBasicRow(unsigned int gunBasicRow, int receiverId);
+std::uint64_t ReceiverMotion_PlayerClip(const void* weaponInfo, int variant, int gunUseMotionType, std::uint8_t descFlags);
+std::uint64_t ReceiverMotion_WeaponClip(const void* weaponInfo, int gunUseMotionType, std::uint8_t descFlags);
 
 bool Install_MotionLoaderImpl_GetMtarIds_Hook();
 void Uninstall_MotionLoaderImpl_GetMtarIds_Hook();

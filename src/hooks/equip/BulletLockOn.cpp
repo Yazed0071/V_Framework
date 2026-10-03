@@ -12,9 +12,11 @@
 #include "AddressSet.h"
 #include "BulletLockOn.h"
 #include "EquipPartParams.h"
+#include "SoldierSuppressedShot.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "../shell/RemoteMissile.h"
+#include "../soldier/SoldierFaction.h"
 
 namespace
 {
@@ -625,8 +627,6 @@ namespace
             return false;
         g_OrigGetLockParam = orig;
         g_ProviderSlot = slot;
-        LogDebug("[BulletLockOn] lock provider hooked via vtable slot +0x80 "
-            "(orig=%p)\n", reinterpret_cast<void*>(orig));
         return true;
     }
 
@@ -747,8 +747,6 @@ namespace
             *slot = reinterpret_cast<void*>(&hkQueryExec);
             VirtualProtect(slot, sizeof(void*), oldProt, &oldProt);
             g_QuerySlot = slot;
-            LogDebug("[BulletLockOn] lock query hooked via executor vtable slot 0 "
-                "(orig=%p)\n", reinterpret_cast<void*>(g_OrigQueryExec));
             return true;
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
@@ -822,75 +820,6 @@ namespace
         }
     }
 
-#ifdef _DEBUG
-    struct DoFireDiag
-    {
-        std::uint32_t equipId = 0;
-        std::uint32_t hw = 0;
-        std::uint32_t flags8a = 0;
-        std::uint32_t t7e = 0;
-        std::uint32_t t7f = 0;
-        std::uint32_t fireBits = 0;
-        std::uint32_t ammo = 0;
-        std::uint32_t st0 = 0;
-        std::uint32_t st1 = 0;
-        float timer = 0.0f;
-        float rate = -1.0f;
-        std::uint32_t liveRate = 0;
-        std::uint32_t liveTrig = 0;
-        std::uint32_t liveShot = 0;
-        std::uint32_t liveTrigWord = 0;
-    };
-
-    bool ReadDoFireDiagSEH(std::uint8_t* self, std::uint32_t rowIdx,
-                           std::uint32_t slot, std::uint8_t* req, DoFireDiag* d)
-    {
-        __try
-        {
-            std::uint8_t* tbl = *reinterpret_cast<std::uint8_t**>(
-                *reinterpret_cast<std::uint8_t**>(self + 0x58) + 0x28);
-            std::uint8_t* row = tbl + static_cast<size_t>(rowIdx) * 0xe;
-            d->equipId = *reinterpret_cast<std::uint16_t*>(row);
-            d->hw = row[8];
-            d->ammo = *reinterpret_cast<std::uint16_t*>(row + 4);
-            std::uint8_t* iface = *reinterpret_cast<std::uint8_t**>(self + 0x68);
-            std::uint8_t* work =
-                *reinterpret_cast<std::uint8_t**>(iface + 0x1a0)
-                + static_cast<size_t>(d->hw) * 0x90;
-            d->flags8a = *reinterpret_cast<std::uint16_t*>(work + 0x8a);
-            d->t7e = work[0x7e];
-            d->t7f = work[0x7f];
-            d->liveRate = *reinterpret_cast<std::uint16_t*>(work + 0x68);
-            d->liveTrigWord = *reinterpret_cast<std::uint32_t*>(work + 0x88);
-            d->liveTrig = (d->liveTrigWord >> 10) & 0x7;
-            d->liveShot = work[0x7e];
-            if (req)
-                d->fireBits = *reinterpret_cast<std::uint32_t*>(req + 0x54);
-            const std::uint32_t rebased =
-                slot - *reinterpret_cast<std::uint32_t*>(self + 0x54);
-            std::uint8_t* recs = *reinterpret_cast<std::uint8_t**>(self + 0xe8);
-            std::uint8_t* r = recs + static_cast<size_t>(rebased) * 0x14;
-            d->st0 = r[0x10];
-            d->st1 = r[0x11];
-            d->timer = *reinterpret_cast<float*>(r);
-            std::uint8_t* i30 = *reinterpret_cast<std::uint8_t**>(self + 0x30);
-            if (i30)
-            {
-                std::uint8_t* rateArr =
-                    *reinterpret_cast<std::uint8_t**>(i30 + 0x18);
-                if (rateArr)
-                    d->rate = *reinterpret_cast<float*>(
-                        rateArr + static_cast<size_t>(rebased) * 4);
-            }
-            return true;
-        }
-        __except (SehKeepAvOnly(GetExceptionCode()))
-        {
-            return false;
-        }
-    }
-#endif
-
     bool ReadFiredEquipAndMuzzleSEH(void* self, std::uint32_t rowIdx, void* req,
                                     int* outEquipId, float outPos[3],
                                     float outDir[3])
@@ -937,12 +866,6 @@ namespace
             if (desired >= 0)
                 WriteRecTypeSEH(rec, desired);
         }
-#ifdef _DEBUG
-        DoFireDiag pre{};
-        const bool diagOk = ReadDoFireDiagSEH(
-            static_cast<std::uint8_t*>(self), p2, p3,
-            static_cast<std::uint8_t*>(req), &pre);
-#endif
         {
             int firedEquipId = 0;
             float muzzlePos[3] = { 0.0f, 0.0f, 0.0f };
@@ -952,32 +875,9 @@ namespace
                 shell::RemoteMissile_ArmShot(0, firedEquipId);
         }
 
+        SoldierShot_MarkSuppressed(self, p2, req);
         g_OrigDoFire(self, p2, p3, req);
         shell::RemoteMissile_DisarmShot();
-#ifdef _DEBUG
-        if (diagOk)
-        {
-            DoFireDiag post{};
-            if (ReadDoFireDiagSEH(static_cast<std::uint8_t*>(self), p2, p3,
-                                  static_cast<std::uint8_t*>(req), &post))
-            {
-                static std::mutex s_Mx;
-                static std::unordered_map<unsigned, int> s_Cnt;
-                std::lock_guard<std::mutex> lock(s_Mx);
-                int& n = s_Cnt[pre.equipId];
-                ++n;
-                if (n <= 6)
-                    LogDebug("[WeaponKey] DoFire eq=%u obj=%p slot=%u hw=%u "
-                             "flags8A=0x%04X ammo=%u state %u/%u -> %u/%u rate=%.4f "
-                             "|| live gunInfo fireRate(+0x68)=%u trigger(+0x88)=%u "
-                             "shotType(+0x7e)=%u [+0x88=0x%08X] - this is the "
-                             "gunInfo the shot itself reads at trigger time\n",
-                        pre.equipId, self, p3, pre.hw, pre.flags8a, pre.ammo,
-                        pre.st0, pre.st1, post.st0, post.st1, post.rate,
-                        pre.liveRate, pre.liveTrig, pre.liveShot, pre.liveTrigWord);
-            }
-        }
-#endif
     }
 
     std::uint64_t __fastcall hkGetLockParam(void* self, std::uint32_t bulletId,
@@ -1095,6 +995,7 @@ namespace
                     static_cast<int>(dpre.bulletId));
         }
 
+        SoldierFaction_WidenBulletRequest(self, descIdx);
         g_OrigActivate(self, descIdx);
 
         if (falloffSwapped)
@@ -1287,12 +1188,7 @@ namespace
         void* win = nullptr;
         void* winLayout = nullptr;
         if (ReuseLockWindowSEH(&win, &winLayout))
-        {
-            if (g_OurLockWindow != win)
-                LogDebug("[BulletLockOn] lock reticle window found and shown "
-                    "(window=%p layout=%p)\n", win, winLayout);
             g_OurLockWindow = win;
-        }
     }
 
     int ReadReticleLayoutSEH(void** outLayout)
@@ -1422,9 +1318,7 @@ namespace equip
     {
         if (bulletId <= 0 || bulletId > 255)
         {
-            LogDebug("[BulletLockOn] bulletId=%d rejected: the lock query reads the "
-                     "held-weapon bullet id as one byte, so lockOn bullets must use "
-                     "ids 1-255\n", bulletId);
+            LogWarn("BulletLockOn: bulletId %d rejected, lockOn needs bulletId 1-255", bulletId);
             return;
         }
         LockOnSpec spec{};
@@ -1466,19 +1360,11 @@ namespace equip
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
             g_SpecByBulletId[bulletId] = spec;
         }
-        LogDebug("[BulletLockOn] bulletId=%d lock-on registered: count=%d "
-            "time=%.2fs turnRate=%.0fdeg/s range=%.0f-%.0fm speed=%s "
-            "homingStart=%.1fm\n",
-            bulletId, c, t, turn, rMin, rMax > 0.0 ? rMax : 50.0,
-            spec.speedScale > 0.0f ? "custom" : "inherit", hs);
 
         if (!g_ProviderHookTried || !g_OrigGetLockParam)
         {
             g_ProviderHookTried = true;
-            if (!EnsureProviderVtableHook())
-                LogDebug("[BulletLockOn] lock provider not hookable yet "
-                         "(EquipParameterTablesImpl vtable not ready) - retrying on "
-                         "the next registration\n");
+            EnsureProviderVtableHook();
         }
     }
 
@@ -1493,8 +1379,6 @@ namespace equip
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
             g_TypeByBulletId[bulletId] = swap;
         }
-        LogDebug("[BulletLockOn] bulletId=%d locked bulletType=%d (normal=%d) "
-            "registered\n", bulletId, lockedType, normalType);
     }
 
     bool LockOn_IsLockedNow()
@@ -1517,8 +1401,7 @@ namespace equip
             || !fnUpd || !fnSim || !fnAct
             || !g_GetQuarkSystemTable)
         {
-            LogDebug("[BulletLockOn] not installed (addresses unresolved on this "
-                "build) - SetBullet lockOn inactive.\n");
+            LogError("BulletLockOn: addresses missing on this build, SetBullet lockOn off");
             return true;
         }
 
@@ -1532,7 +1415,7 @@ namespace equip
             fnAct, reinterpret_cast<void*>(&hkActivateBullet),
             reinterpret_cast<void**>(&g_OrigActivate));
 
-        const bool okP = EnsureProviderVtableHook();
+        EnsureProviderVtableHook();
 
         void* fnSU = ResolveGameAddress(gAddr.SightManager_Update);
         g_UpdateMissileLockOnUi = reinterpret_cast<UpdateLockUi_t>(
@@ -1558,12 +1441,16 @@ namespace equip
                 fnDF, reinterpret_cast<void*>(&hkDoFire),
                 reinterpret_cast<void**>(&g_OrigDoFire));
 
-        Log("[BulletLockOn] hooks: lockProvider=%s sightUpdate=%s bulletSim=%s "
-            "bulletActivate=%s reticleUi=%s doFire=%s "
-            "(SetBullet lockOn={...} active)\n",
-            okP ? "OK" : "deferred", okU ? "OK" : "FAIL",
-            okS ? "OK" : "FAIL", okA ? "OK" : "FAIL",
-            okSU ? "OK" : "off", okDF ? "OK" : "off");
+        if (!okU)
+            LogError("BulletLockOn: UpdateMissileLockOn hook failed, lock-on off");
+        if (!okS)
+            LogError("BulletLockOn: DoSimulation hook failed, lock-on off");
+        if (!okA)
+            LogError("BulletLockOn: ActivateBulletAtEmptyWork hook failed, lock-on off");
+        if (fnSU && g_UpdateMissileLockOnUi && !okSU)
+            LogError("BulletLockOn: SightManager Update hook failed, lock reticle off");
+        if (fnDF && !okDF)
+            LogError("BulletLockOn: DoFire hook failed, locked bulletType swap off");
         return okU && okS && okA;
     }
 

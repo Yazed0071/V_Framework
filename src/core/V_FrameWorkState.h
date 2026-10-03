@@ -18,6 +18,7 @@ namespace V_FrameWorkState
     void Save();
 
     void FlushPendingSaves();
+    bool PersistNow();
     void SaveOnProcessExit();
     void AbandonFlusherThread();
 
@@ -60,9 +61,10 @@ namespace V_FrameWorkState
 
     std::int32_t GetDevelopIdByKey(const char* key);
 
-    constexpr std::uint8_t kRowKindUnknown = 0;
-    constexpr std::uint8_t kRowKindWeapon  = 1;
-    constexpr std::uint8_t kRowKindOutfit  = 2;
+    constexpr std::uint8_t kRowKindUnknown    = 0;
+    constexpr std::uint8_t kRowKindWeapon     = 1;
+    constexpr std::uint8_t kRowKindOutfit     = 2;
+    constexpr std::uint8_t kRowKindHeadOption = 3;
 
     void SetRowKind(const char* key, std::uint8_t kind);
 
@@ -157,6 +159,47 @@ namespace V_FrameWorkState
     void SetTapeNew(const char* key, bool isNew);
 
 
+    constexpr std::size_t  kDispatchRewardRecordSize     = 0x30;
+    constexpr std::int32_t kDispatchOrphanGraceLaunches  = 2;
+
+    struct DispatchMission
+    {
+        std::string  key;
+        std::int32_t deployMissionId = 0;
+        std::int32_t rewardRow = 0;
+        bool         cleared = false;
+        bool         rewardPending = false;
+        bool         hasReward = false;
+        std::uint8_t reward[kDispatchRewardRecordSize] = {};
+        std::int32_t misses = 0;
+    };
+
+    struct DispatchSlotFact
+    {
+        std::int32_t slot = 0;
+        std::int32_t placeholderId = 0;
+        std::int32_t seed = 0;
+        std::string  key;
+        std::int32_t misses = 0;
+    };
+
+    struct DispatchCursor
+    {
+        std::string  key;
+        std::int32_t anchor = 0;
+    };
+
+    void SetDispatchMission(const DispatchMission& mission);
+    void MarkDispatchMissionRegistered(const char* key);
+    std::vector<DispatchMission> GetDispatchMissions();
+
+    std::vector<DispatchSlotFact> GetDispatchSlotFacts();
+    void SetDispatchSlotFacts(const std::vector<DispatchSlotFact>& facts);
+
+    DispatchCursor GetDispatchCursor(bool rareBand);
+    void SetDispatchCursor(bool rareBand, const DispatchCursor& cursor);
+
+
     void SetTapeOwnedBySaveIndex(std::int16_t saveIndex, bool owned);
     void SetTapeNewBySaveIndex(std::int16_t saveIndex, bool isNew);
 
@@ -170,6 +213,38 @@ namespace V_FrameWorkState
                                  std::int16_t saveIndex,
                                  bool owned,
                                  bool isNew)>& callback);
+
+
+    constexpr std::int8_t kNoOverride = -1;
+
+    struct CallMenuItem
+    {
+        std::string                key;
+        std::uint64_t              label          = 0;
+        std::uint64_t              description    = 0;
+        std::int32_t               column         = 0;
+        std::int32_t               when           = 0;
+        std::uint32_t              message        = 0;
+        std::uint32_t              exclusive      = 0;
+        std::int32_t               inPlaceOf      = -1;
+        std::int32_t               icon           = 0;
+        std::uint64_t              iconTexture    = 0;
+        std::int32_t               iconCell       = 0;
+        bool                       hasIconUvShift = false;
+        float                      iconUvShift[2]  = {};
+        float                      iconUvRepeat[2] = { 0.5f, 0.5f };
+        std::vector<std::uint32_t> voices;
+        std::int8_t                enabled        = kNoOverride;
+        std::int8_t                visible        = kNoOverride;
+        bool                       hasInPlaceOfOverride = false;
+        std::int32_t               inPlaceOfOverride    = -1;
+        std::int32_t               page           = 0;    // where it was last placed, 0 = not placed yet
+        std::int32_t               row            = -1;
+        std::int32_t               misses         = 0;    // launches since a mod last added it
+    };
+
+    void SetCallMenuItem(const CallMenuItem& item);
+    std::vector<CallMenuItem> GetCallMenuItems();
 
 
     void Reset();

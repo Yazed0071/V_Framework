@@ -8,9 +8,10 @@ extern "C" {
 
 #include "AddressSet.h"
 #include "HookUtils.h"
-#include "log.h"
 #include "V_TppGameObjectConstants.h"
+#include "CallMenuCommandSet_UpdateState.h"
 #include "LuaApi.h"
+#include "log.h"
 
 
 namespace
@@ -62,78 +63,133 @@ namespace
         {"DELTA_4", 13},  {"DMITRY_4",  13},
         { nullptr, 0.0 }
     };
+    static const ConstEntry V_ReceiverType[] = {
+        {"AssaultQuickRefire",                  4},
+        {"HandgunQuickRefire",                  5},
+        {"HandgunCockEveryShot",                6},
+        {"HandgunReloadOneRound",               10},
+        {"HandgunLongGunStance",                11},
+        {"HandgunRefireAfterAnimation",         15},
+        {"MachineGunQuickRefire",               20},
+        {"ShotgunPumpReloadOneRoundPlusOne",    21},
+        {"ShotgunPumpReloadFullPlusOne",        22},
+        {"ShotgunReloadOneRound",               23},
+        {"ShotgunPumpReloadOneRound",           24},
+        {"ShotgunReloadFull",                   26},
+        {"SubMachineGunQuickRefire",            28},
+        {"SniperQuickRefire",                   30},
+        {"SniperBoltAction",                    32},
+        {"SniperBoltActionFastCycle",           34},
+        {"SniperQuickRefireTacticalReload",     37},
+        {"GrenadeLauncherRefireAfterAnimation", 39},
+        {"GrenadeLauncherQuickRefire",          40},
+        {"GrenadeLauncherReloadOneRound",       42},
+        {"MissileWideReloadAim",                43},
+        { nullptr, 0.0 }
+    };
+    static const ConstEntry V_MagazineType[] = {
+        {"HandgunNormal",             1},
+        {"HandgunSpeedLoader",        2},
+        {"AssaultNormal",             3},
+        {"AssaultDualMagazine",       6},
+        {"MachineGunNormal",          28},
+        {"ShotgunNormal",             29},
+        {"SubMachineGunNormal",       33},
+        {"SubMachineGunDualMagazine", 35},
+        {"SniperNormal",              37},
+        {"GrenadeLauncherNormal",     41},
+        { nullptr, 0.0 }
+    };
+    static const ConstEntry V_CallMenuItem[] = {
+        {"KNOCK",            CallMenuItems::Knock},
+        {"ACTIVE_SONAR",     CallMenuItems::ActiveSonar},
+        {"BUDDY_1",          CallMenuItems::Buddy1},
+        {"BUDDY_2",          CallMenuItems::Buddy2},
+        {"BUDDY_3",          CallMenuItems::Buddy3},
+        {"BUDDY_4",          CallMenuItems::Buddy4},
+        {"REQUEST_INFO",     CallMenuItems::RequestInfo},
+        {"SELL_OUT_COMRADE", CallMenuItems::SellOutComrade},
+        {"REQUEST_CRAWL",    CallMenuItems::RequestCrawl},
+        {"CALL_COMRADE",     CallMenuItems::CallComrade},
+        {"RESCUE_BOY",       CallMenuItems::RescueBoy},
+        {"FALSE_RADIO_RESPONSE", CallMenuItems::FalseRadioResponse},
+        { nullptr, 0.0 }
+    };
+    static const ConstEntry V_CallMenuColumn[] = {
+        {"KNOCK",         CallMenuItems::KnockColumn},
+        {"BUDDY",         CallMenuItems::BuddyColumn},
+        {"ACTIVE_SONAR",  CallMenuItems::SonarColumn},
+        {"INTERROGATION", CallMenuItems::InterrogationColumn},
+        { nullptr, 0.0 }
+    };
+    static const ConstEntry V_CallMenuCondition[] = {
+        {"ALWAYS",      CallMenuItems::Always},
+        {"HOLDING",     CallMenuItems::Holding},
+        {"NOT_HOLDING", CallMenuItems::NotHolding},
+        { nullptr, 0.0 }
+    };
+    static const ConstEntry V_CallMenuIcon[] = {
+        {"KNOCK",         CallMenuItems::KnockIcon},
+        {"INTERROGATION", CallMenuItems::InterrogationIcon},
+        {"BUDDY",         CallMenuItems::BuddyIcon},
+        {"SONAR",         CallMenuItems::SonarIcon},
+        { nullptr, 0.0 }
+    };
+
+    static const ConstEntry V_NoticeKind[] = {   // the soldier's own notice types, named after the check that raises them
+        {"DISCOVERED",          0x00},
+        {"SUSPICIOUS_ON_GUARD", 0x05},
+        {"SAW_HOSTILE_ANIMAL",  0x0A},
+        {"SAW_FULTON",          0x14},
+        {"SUSPICIOUS",          0x19},
+        {"SAW_DECOY",           0x1B},
+        {"SAW_SUPPLY_DROP",     0x24},
+        {"HEARD_NOISE",         0x32},
+        {"CALLED_OVER",         0x33},
+        {"CALL_FOR_HELP",       0x34},
+        {"SAW_ANIMAL",          0x37},
+        { nullptr, 0.0 }
+    };
+
+    luaL_Reg g_NoFunctions[] = { { nullptr, nullptr } };
+
+    void RegisterConstantTable(lua_State* L, const char* tableName, const ConstEntry* entries)
+    {
+        if (!L || !ResolveLuaApi())
+            return;
+
+        const int top = g_lua_gettop(L);
+        RegisterLuaLibrary(L, tableName, g_NoFunctions);   // the global table is read-only while the game boots; only the library register lifts that, and it leaves the table on top
+        if (g_lua_gettop(L) != top + 1 || g_lua_type(L, -1) != LUA_TTABLE)
+        {
+            g_lua_settop(L, top);
+            LogError("LuaConstants: %s not registered, scripts that use it will fail", tableName);
+            return;
+        }
+
+        for (const ConstEntry* e = entries; e->name; ++e)
+        {
+            g_lua_pushstring(L, const_cast<char*>(e->name));
+            g_lua_pushnumber(L, e->value);
+            g_lua_settable(L, -3);
+        }
+        g_lua_settop(L, top);
+    }
 }
 
 void Register_V_TppGameObjectConstants(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return;
-
-    g_lua_pushstring(L, const_cast<char*>("V_TppGameObject"));
-    g_lua_createtable(L, 0, 0);
-
-    int registered = 0;
-    for (const auto& e : V_TppGameObject)
-    {
-        if (!e.name) break;
-        g_lua_pushstring(L, const_cast<char*>(e.name));
-        g_lua_pushnumber(L, e.value);
-        g_lua_settable(L, -3);
-        ++registered;
-    }
-
-    g_lua_settable(L, LUA_GLOBALSINDEX_51);
-#ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered global V_TppGameObject (%d constants)\n", registered);
-#endif
+    RegisterConstantTable(L, "V_TppGameObject", V_TppGameObject);
 }
 
 void Register_V_TppMbDevConstants(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return;
-
-    g_lua_pushstring(L, const_cast<char*>("V_TppMbDev"));
-    g_lua_createtable(L, 0, 0);
-
-    int registered = 0;
-    for (const auto& e : V_TppMbDev)
-    {
-        if (!e.name) break;
-        g_lua_pushstring(L, const_cast<char*>(e.name));
-        g_lua_pushnumber(L, e.value);
-        g_lua_settable(L, -3);
-        ++registered;
-    }
-
-    g_lua_settable(L, LUA_GLOBALSINDEX_51);
-#ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered global V_TppMbDev (%d constants)\n", registered);
-#endif
+    RegisterConstantTable(L, "V_TppMbDev", V_TppMbDev);
 }
 
 void Register_V_PlayerCqcStanceConstants(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return;
-
-    g_lua_pushstring(L, const_cast<char*>("V_PlayerCqcStance"));
-    g_lua_createtable(L, 0, 0);
-
-    int registered = 0;
-    for (const auto& e : V_PlayerCqcStance)
-    {
-        if (!e.name) break;
-        g_lua_pushstring(L, const_cast<char*>(e.name));
-        g_lua_pushnumber(L, e.value);
-        g_lua_settable(L, -3);
-        ++registered;
-    }
-
-    g_lua_settable(L, LUA_GLOBALSINDEX_51);
-    #ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered global V_PlayerCqcStance (%d constants)\n", registered);
-    #endif
+    RegisterConstantTable(L, "V_PlayerCqcStance", V_PlayerCqcStance);
 }
 
 bool IsListableDataBaseTab(std::int32_t tab)
@@ -149,48 +205,33 @@ bool IsListableDataBaseTab(std::int32_t tab)
 
 void Register_V_TppDataBaseConstants(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return;
-
-    g_lua_pushstring(L, const_cast<char*>("V_TppDataBase"));
-    g_lua_createtable(L, 0, 0);
-
-    int registered = 0;
-    for (const auto& e : V_TppDataBase)
-    {
-        if (!e.name) break;
-        g_lua_pushstring(L, const_cast<char*>(e.name));
-        g_lua_pushnumber(L, e.value);
-        g_lua_settable(L, -3);
-        ++registered;
-    }
-
-    g_lua_settable(L, LUA_GLOBALSINDEX_51);
-#ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered global V_TppDataBase (%d constants)\n", registered);
-#endif
+    RegisterConstantTable(L, "V_TppDataBase", V_TppDataBase);
 }
 
 void Register_V_TppCallSignConstants(lua_State* L)
 {
-    if (!L || !ResolveLuaApi())
-        return;
+    RegisterConstantTable(L, "V_TppCallSign", V_TppCallSign);
+}
 
-    g_lua_pushstring(L, const_cast<char*>("V_TppCallSign"));
-    g_lua_createtable(L, 0, 0);
+void Register_V_ReceiverTypeConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_ReceiverType", V_ReceiverType);
+}
 
-    int registered = 0;
-    for (const auto& e : V_TppCallSign)
-    {
-        if (!e.name) break;
-        g_lua_pushstring(L, const_cast<char*>(e.name));
-        g_lua_pushnumber(L, e.value);
-        g_lua_settable(L, -3);
-        ++registered;
-    }
+void Register_V_MagazineTypeConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_MagazineType", V_MagazineType);
+}
 
-    g_lua_settable(L, LUA_GLOBALSINDEX_51);
-#ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered global V_TppCallSign (%d constants)\n", registered);
-#endif
+void Register_V_CallMenuConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_CallMenuItem", V_CallMenuItem);
+    RegisterConstantTable(L, "V_CallMenuColumn", V_CallMenuColumn);
+    RegisterConstantTable(L, "V_CallMenuCondition", V_CallMenuCondition);
+    RegisterConstantTable(L, "V_CallMenuIcon", V_CallMenuIcon);
+}
+
+void Register_V_NoticeConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_NoticeKind", V_NoticeKind);
 }

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars();
+void Uninstall_LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars();

@@ -40,7 +40,8 @@ namespace
             ResolveGameAddress(gAddr.Sahelan_PhaseSneakAiImpl_StepFuncsTable));
         if (!tableBase)
         {
-            LogDebug("[Sahelan] %s phase=%u: step-funcs table unresolved\n", label, phase);
+            LogError("Sahelan: StepFuncsTable address missing, %s skipped for phase %u",
+                label, static_cast<unsigned>(phase));
             return false;
         }
 
@@ -51,7 +52,8 @@ namespace
 
         if (!stepFunc)
         {
-            LogDebug("[Sahelan] %s phase=%u: null step func\n", label, phase);
+            LogWarn("Sahelan: phase %u has no step func, %s skipped",
+                static_cast<unsigned>(phase), label);
             return false;
         }
 
@@ -65,7 +67,8 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[Sahelan] %s phase=%u: SEH in step proc=%u\n", label, phase, stepProc);
+            LogWarn("Sahelan: %s faulted for phase %u, phase change incomplete",
+                label, static_cast<unsigned>(phase));
             return false;
         }
     }
@@ -108,8 +111,8 @@ namespace
             return;
         }
 
-        const bool okExit = DispatchStepProc(self, slot, kStepProcExit,
-                                             knowledge, currentByte, "Phase Exit");
+        DispatchStepProc(self, slot, kStepProcExit,
+                         knowledge, currentByte, "Phase Exit");
 
         __try
         {
@@ -118,22 +121,16 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[Sahelan] Phase change: SEH writing knowledge\n");
+            LogWarn("Sahelan: phase write faulted, forced phase %u dropped",
+                static_cast<unsigned>(forcedByte));
             SahelanPhaseForce::g_ForcedPhase.store(-1, std::memory_order_relaxed);
             return;
         }
 
-        const bool okEnter = DispatchStepProc(self, slot, kStepProcEnter,
-                                              knowledge, forcedByte, "Phase Enter");
+        DispatchStepProc(self, slot, kStepProcEnter,
+                         knowledge, forcedByte, "Phase Enter");
 
         SahelanPhaseForce::g_ForcedPhase.store(-1, std::memory_order_relaxed);
-
-#ifdef _DEBUG
-        LogDebug("[Sahelan] Phase: %u -> %u (Exit=%s Enter=%s)\n",
-            currentByte, forcedByte,
-            okExit  ? "ok" : "fail",
-            okEnter ? "ok" : "fail");
-#endif
     }
 }
 
@@ -144,10 +141,10 @@ bool Install_PhaseSneakAiImpl_PreUpdate_Hook()
         reinterpret_cast<void*>(&hk_PreUpdate),
         reinterpret_cast<void**>(&g_OrigPreUpdate));
 
-#ifdef _DEBUG
-    Log("[Hook] PhaseSneakAiImpl::PreUpdate: %s target=%p\n",
-        ok ? "OK" : "FAIL", target);
-#endif
+    if (!target)
+        LogError("Sahelan: PhaseSneakAiImpl::PreUpdate address missing, SetSahelanPhase off");
+    else if (!ok)
+        LogError("Sahelan: PhaseSneakAiImpl::PreUpdate hook failed, SetSahelanPhase off");
     return ok;
 }
 
@@ -164,13 +161,10 @@ void Set_SahelanForcePhase(std::int32_t phase)
 {
     if (phase < 0 || phase > 0xFF)
     {
-        LogDebug("[Sahelan] ForcePhase: ignoring out-of-range phase=%d\n", phase);
+        LogWarn("SetSahelanPhase: phase %d out of range 0..255, ignored", phase);
         return;
     }
     SahelanPhaseForce::g_ForcedPhase.store(phase, std::memory_order_relaxed);
-#ifdef _DEBUG
-    LogDebug("[Sahelan] ForcePhase: queued phase=%d (single-shot Exit/Enter on next PreUpdate)\n", phase);
-#endif
 }
 
 std::int32_t Get_SahelanCurrentPhase()

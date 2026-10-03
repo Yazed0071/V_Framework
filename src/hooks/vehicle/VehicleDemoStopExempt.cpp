@@ -1,7 +1,6 @@
 #include "pch.h"
 
 #include <Windows.h>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -18,6 +17,14 @@ namespace
         0x66, 0x83, 0x4B, 0x58, 0x08, 0xEB, 0x09, 0xB8, 0xF7, 0xFF, 0x00, 0x00, 0x66, 0x21,
         0x43, 0x58
     };
+    constexpr std::uint8_t kSitePattern153[] =
+    {
+        0x48, 0x8B, 0x06, 0xB2, 0x20, 0x48, 0x89, 0xF1, 0xFF, 0x10, 0x84, 0xC0, 0x74, 0x07,
+        0x66, 0x83, 0x4B, 0x58, 0x08, 0xEB, 0x09, 0xB8, 0xF7, 0xFF, 0x00, 0x00, 0x66, 0x21,
+        0x43, 0x58
+    };
+    static_assert(sizeof(kSitePattern153) == sizeof(kSitePattern) && kSitePattern153[0] == kSitePattern[0],
+                  "both encodings of the site must share the scan length and first byte");
     constexpr std::size_t   kSiteOffsetInPattern = 3;
     constexpr std::size_t   kPatchSize           = 7;
     constexpr std::size_t   kThunkSize           = 64;
@@ -28,17 +35,11 @@ namespace
     constexpr std::size_t   kEntryIgnoreFlags    = 0x7C;
     constexpr std::uint16_t kEntryIgnoreBit      = 0x1000;
     constexpr unsigned      kMaxEntries          = 256;
-    constexpr std::uint64_t kReportIntervalMs    = 10000;
 
     std::uint8_t* g_Site  = nullptr;
     std::uint8_t* g_Thunk = nullptr;
     std::uint8_t  g_OrigBytes[kPatchSize] = {};
     bool          g_Patched = false;
-
-    std::atomic<std::uint64_t> g_LastExemptReportMs{ 0 };
-    std::atomic<std::uint64_t> g_LastStoppedReportMs{ 0 };
-    std::atomic<std::uint64_t> g_ExemptFrames{ 0 };
-    std::atomic<std::uint64_t> g_StoppedFrames{ 0 };
 
     bool FindIgnoringVehicle(std::uint8_t* type, unsigned* outIndex, unsigned* outRealized)
     {
@@ -102,16 +103,10 @@ namespace
         return nullptr;
     }
 
-    bool RegionMatches(const std::uint8_t* at)
+    bool SiteMatchesAt(const std::uint8_t* at)
     {
-        __try
-        {
-            return std::memcmp(at, kSitePattern, sizeof(kSitePattern)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return std::memcmp(at, kSitePattern, sizeof(kSitePattern)) == 0
+            || std::memcmp(at, kSitePattern153, sizeof(kSitePattern153)) == 0;
     }
 
     std::size_t ScanRegion(std::uint8_t* begin, std::size_t size, std::uint8_t** outSite,
@@ -127,7 +122,7 @@ namespace
             {
                 if (begin[i] != first)
                     continue;
-                if (std::memcmp(begin + i, kSitePattern, sizeof(kSitePattern)) == 0)
+                if (SiteMatchesAt(begin + i))
                 {
                     if (found == 0)
                         *outSite = begin + i + kSiteOffsetInPattern;
@@ -180,34 +175,7 @@ bool VehicleDemoStopExemptDecision(std::uint8_t* type)
 {
     unsigned index = 0;
     unsigned realized = 0;
-    const bool exempt = FindIgnoringVehicle(type, &index, &realized);
-    const std::uint64_t now = GetTickCount64();
-    if (exempt)
-    {
-        g_ExemptFrames.fetch_add(1, std::memory_order_relaxed);
-        const std::uint64_t last = g_LastExemptReportMs.load(std::memory_order_relaxed);
-        if (now - last >= kReportIntervalMs)
-        {
-            g_LastExemptReportMs.store(now, std::memory_order_relaxed);
-            Log("[VehicleDemoStop] S_STOP_FOR_DEMO is raised but vehicle instance %u carries "
-                "SetIgnoreDisableNpc, so the vehicle type is not flagged stopped this frame - %u "
-                "realized vehicle(s) keep driving (the stop flag lives on the type object, so every "
-                "realized vehicle is released together while an exempt one exists)\n",
-                index, realized);
-        }
-    }
-    else
-    {
-        g_StoppedFrames.fetch_add(1, std::memory_order_relaxed);
-        const std::uint64_t last = g_LastStoppedReportMs.load(std::memory_order_relaxed);
-        if (now - last >= kReportIntervalMs)
-        {
-            g_LastStoppedReportMs.store(now, std::memory_order_relaxed);
-            Log("[VehicleDemoStop] S_STOP_FOR_DEMO applied to the vehicle type: %u realized "
-                "vehicle(s), none carry SetIgnoreDisableNpc\n", realized);
-        }
-    }
-    return exempt;
+    return FindIgnoringVehicle(type, &index, &realized);
 }
 
 namespace
@@ -259,9 +227,8 @@ bool Install_VehicleDemoStopExempt()
     const std::size_t matches = FindSite(&site);
     if (matches != 1 || !site)
     {
-        Log("[VehicleDemoStop] the vehicle type's S_STOP_FOR_DEMO check was not found uniquely "
-            "(%zu match(es)), so vehicles still freeze for every demo regardless of "
-            "SetIgnoreDisableNpc\n", matches);
+        LogError("VehicleDemoStop: S_STOP_FOR_DEMO check matched %zu times, SetIgnoreDisableNpc demo exemption off",
+            matches);
         return false;
     }
 
@@ -269,8 +236,8 @@ bool Install_VehicleDemoStopExempt()
         AllocateThunkNear(reinterpret_cast<std::uintptr_t>(site), 0x1000));
     if (!g_Thunk)
     {
-        Log("[VehicleDemoStop] no executable page could be placed near 0x%llX, so the check is "
-            "left untouched\n", static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(site)));
+        LogError("VehicleDemoStop: no thunk page near 0x%llX, demo exemption off",
+            static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(site)));
         return false;
     }
     BuildThunk(g_Thunk);
@@ -281,7 +248,7 @@ bool Install_VehicleDemoStopExempt()
     {
         VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
-        Log("[VehicleDemoStop] the thunk landed out of rel32 range, so the check is left untouched\n");
+        LogError("VehicleDemoStop: thunk out of rel32 range, demo exemption off");
         return false;
     }
 
@@ -294,7 +261,7 @@ bool Install_VehicleDemoStopExempt()
     {
         VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
-        Log("[VehicleDemoStop] the check site could not be unprotected, so it is left untouched\n");
+        LogError("VehicleDemoStop: site unprotect failed, demo exemption off");
         return false;
     }
     std::memcpy(g_OrigBytes, site, kPatchSize);
@@ -304,11 +271,6 @@ bool Install_VehicleDemoStopExempt()
 
     g_Site = site;
     g_Patched = true;
-    Log("[VehicleDemoStop] armed at 0x%llX (thunk %p): the vehicle type's S_STOP_FOR_DEMO check now "
-        "yields to SetIgnoreDisableNpc - while a realized vehicle carries that command the vehicle "
-        "type is not frozen for a demo (the flag is type-wide, so it cannot be released per "
-        "vehicle at this site; a demo with no exempt vehicle behaves exactly as before)\n",
-        static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(site)), g_Thunk);
     return true;
 }
 

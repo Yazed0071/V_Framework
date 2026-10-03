@@ -190,7 +190,7 @@ static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std:
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[SleepFaint] DispatchNoticeReaction exception\n");
+        LogWarn("SleepFaint: notice reaction dispatch faulted, officer wake line skipped");
     }
 }
 
@@ -262,9 +262,7 @@ static bool TryInterceptRecoveryWake(
     if (!TryResolveDownedSoldierIndex(self, actorId, sleeperIndex))
     {
         if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
-            Log("[SleepFaint] actor=%u: the downed soldier could not be identified from the notice "
-                "record, so no important-comrade line is substituted and the vanilla line plays\n",
-                actorId);
+            LogWarn("SleepFaint: actor=%u downed soldier not identified, vanilla wake line plays", actorId);
 
         return false;
     }
@@ -312,7 +310,7 @@ void Add_VIPSleepFaintImportantGameObjectId(std::uint32_t gameObjectId, bool isO
     const std::uint16_t soldierIndex = NormalizeSoldierIndexFromGameObjectId(gameObjectId);
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[SleepFaint] Add ignored: invalid soldier GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("SetVIPImportant: 0x%08X is not a soldier, sleep wake line not set", gameObjectId);
         return;
     }
 
@@ -332,7 +330,7 @@ void Remove_VIPSleepFaintImportantGameObjectId(std::uint32_t gameObjectId)
     const std::uint16_t soldierIndex = NormalizeSoldierIndexFromGameObjectId(gameObjectId);
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[SleepFaint] Remove ignored: invalid soldier GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("RemoveVIPImportant: 0x%08X is not a soldier, sleep wake line not cleared", gameObjectId);
         return;
     }
 
@@ -377,15 +375,10 @@ bool Install_VIPSleepFaint_Hook()
         reinterpret_cast<void*>(&hkState_RecoveryKick),
         reinterpret_cast<void**>(&g_OrigState_RecoveryKick));
 
-#ifdef _DEBUG
-    Log("[SleepFaint] Install State_RecoveryTouch: %s\n", okTouch ? "OK" : "FAIL");
-    Log("[SleepFaint] Install State_RecoveryKick:  %s\n", okKick ? "OK" : "FAIL");
-#else
     if (!okTouch)
-        Log("[SleepFaint] Install State_RecoveryTouch: %s\n", okTouch ? "OK" : "FAIL");
+        LogError("SleepFaint: State_RecoveryTouch hook failed, VIP wake line off for touch");
     if (!okKick)
-        Log("[SleepFaint] Install State_RecoveryKick:  %s\n", okKick ? "OK" : "FAIL");
-#endif
+        LogError("SleepFaint: State_RecoveryKick hook failed, VIP wake line off for kick");
 
     return okTouch && okKick;
 }
@@ -404,8 +397,5 @@ bool Uninstall_VIPSleepFaint_Hook()
         g_ImportantTargetsBySoldierIndex.clear();
     }
 
-#ifdef _DEBUG
-    LogDebug("[SleepFaint] Hooks removed and state cleared\n");
-#endif
     return true;
 }

@@ -5,8 +5,8 @@ extern "C" {
     #include "lauxlib.h"
 }
 
-#include <atomic>
 #include <cstdint>
+#include <string>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -15,19 +15,13 @@ extern "C" {
 #include "FoxFunctions.h"
 #include "LuaApi.h"
 #include "FoxPath.h"
+#include "../hooks/outfit/HeadMotion.h"
+#include "../hooks/player/AccSeatIdleMotion.h"
 
 namespace
 {
-    static std::atomic<bool> g_GameConsoleEnabled{ false };
-
-    static int __cdecl hk_FoxLog(lua_State* L)
+    static int __cdecl hk_FoxLog(lua_State*)
     {
-        if (g_GameConsoleEnabled.load(std::memory_order_relaxed))
-        {
-            size_t len = 0;
-            const char* msg = g_lua_tolstring ? g_lua_tolstring(L, 1, &len) : nullptr;
-            LogDebug("[Fox.Log] %s\n", msg ? msg : "(non-string arg)");
-        }
         return 0;
     }
 
@@ -48,22 +42,20 @@ namespace
         }
         g_lua_settop(L, top);
         if (!ok)
-            Log("[GameLogConsole] WARN: 'Fox' global is type %d, not a table -- Fox.Log capture unavailable\n", foxType);
+            LogWarn("ShowConsole: 'Fox' global is type %d, not a table; Fox.Log not "
+                    "re-bound", foxType);
         return ok;
     }
 
     static int __cdecl l_ShowConsole(lua_State* L)
     {
         const bool enable = GetLuaBool(L, 1) != 0;
-        g_GameConsoleEnabled.store(enable, std::memory_order_relaxed);
         if (enable)
         {
             EnsureConsole();
             if (HWND hwnd = GetConsoleWindow())
                 ShowWindow(hwnd, SW_SHOW);
-            const bool ok = RebindFoxLog(L);
-            Log("[GameLogConsole] enabled -- %s; V_FrameWork.Log mirrored too\n",
-                ok ? "Fox.Log re-bound" : "Fox.Log NOT re-bound (see WARN above)");
+            RebindFoxLog(L);
         }
         else if (HWND hwnd = GetConsoleWindow())
         {
@@ -72,10 +64,42 @@ namespace
         return 0;
     }
 
+    std::uint64_t GaniArg(lua_State* L, int index, const char* function)
+    {
+        const char* text = (GetLuaTop(L) >= index && LuaIsString(L, index)) ? GetLuaString(L, index) : nullptr;
+        if (!text || !*text)
+            return 0;
+        std::string path = text;
+        const std::size_t slash = path.find_last_of('/');
+        if (slash != std::string::npos && path.find('.', slash) == std::string::npos)
+            path += ".gani";
+        const std::uint64_t clip = outfit::headmotion::ParseClipId(path.c_str());
+        if (!clip)
+            LogWarn("%s: '%s' is not a clip path or id, ignored", function, text);
+        return clip;
+    }
+
+    static int __cdecl l_SwapGani(lua_State* L)
+    {
+        const std::uint64_t from = GaniArg(L, 1, "SwapGani");
+        const std::uint64_t to = GaniArg(L, 2, "SwapGani");
+        PushLuaBool(L, from && to && SwapGani(from, to));
+        return 1;
+    }
+
+    static int __cdecl l_RestoreGani(lua_State* L)
+    {
+        const std::uint64_t from = GaniArg(L, 1, "RestoreGani");
+        PushLuaBool(L, from && RestoreGani(from, GaniArg(L, 2, "RestoreGani")));
+        return 1;
+    }
+
     static luaL_Reg g_VFoxLib[] =
     {
         { "FNVHash32",                  l_FNVHash32 },
         { "ShowConsole",                l_ShowConsole },
+        { "SwapGani",                   l_SwapGani },
+        { "RestoreGani",                l_RestoreGani },
 
         { nullptr,          nullptr }
     };

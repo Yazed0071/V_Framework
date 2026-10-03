@@ -99,6 +99,8 @@ namespace
         const char* instanceName,
         std::uint32_t& gameObjectIdOut)
     {
+        if (GetCurrentThreadId() != V_FrameWork_LuaOwnerThreadId())
+            return false;
         lua_State* L = V_FrameWork_AnyLuaState();
         if (!L)
             return false;
@@ -122,18 +124,7 @@ namespace
             const int savedTop = gettop(L);
 
             if (!luaguard::HasStackRoom(L, 6))
-            {
-                static bool s_logged = false;
-                if (!s_logged)
-                {
-                    s_logged = true;
-                    LogDebug("[GetGameObjectIdWithIndex] by-name resolve skipped "
-                             "(type=%s name=%s): the Lua frame is too tight to push "
-                             "safely; the step machine retries next frame\n",
-                        typeName, instanceName);
-                }
                 return false;
-            }
 
             getfield(L, kLuaGlobalsIndex51, const_cast<char*>("GameObject"));
             if (luatype(L, -1) != LUA_TTABLE)
@@ -168,8 +159,13 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[GetGameObjectIdWithIndex] SEH in by-name resolve type=%s name=%s\n",
-                typeName, instanceName);
+            static bool s_logged = false;
+            if (!s_logged)
+            {
+                s_logged = true;
+                LogWarn("GetGameObjectIdWithIndex: fault in by-name resolve for %s '%s', not resolved",
+                    typeName, instanceName);
+            }
             return false;
         }
 
@@ -182,18 +178,7 @@ namespace
     {
         ByNameReentryGuard guard;
         if (!guard.entered)
-        {
-            static bool logged = false;
-            if (!logged)
-            {
-                logged = true;
-                LogDebug("[GetGameObjectIdWithIndex] re-entrant by-name resolve "
-                         "REFUSED (type=%s name=%s) - it arrived from inside our "
-                         "own lua_pcall, which is what wedged the main thread\n",
-                    typeName, instanceName);
-            }
             return false;
-        }
 
         return ResolveByNameViaLua_Unguarded(typeName, instanceName,
                                              gameObjectIdOut);
@@ -226,9 +211,13 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[GetGameObjectIdWithIndex] SEH in native by-name resolve "
-                     "type=%s name=%s - falling back to Lua\n",
-                typeName, instanceName);
+            static bool s_logged = false;
+            if (!s_logged)
+            {
+                s_logged = true;
+                LogWarn("GetGameObjectIdWithIndex: fault in native by-name resolve for %s '%s', using Lua",
+                    typeName, instanceName);
+            }
             return false;
         }
 
@@ -257,9 +246,12 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[GetGameObjectIdWithIndex] SEH exception type=%s index=%u\n",
-                typeName,
-                index);
+            static bool s_logged = false;
+            if (!s_logged)
+            {
+                s_logged = true;
+                LogWarn("GetGameObjectIdWithIndex: fault resolving %s index %u", typeName, index);
+            }
             return false;
         }
 
@@ -276,17 +268,26 @@ bool Install_GetGameObjectIdWithIndex()
     if (g_GetGameObjectIdWithIndex)
         return true;
 
+    static bool s_failLogged = false;
+
     if (!gAddr.GetGameObjectIdWithIndex)
     {
-        Log("[GetGameObjectIdWithIndex] ERROR: address is missing for this build.\n");
+        if (!s_failLogged)
+        {
+            s_failLogged = true;
+            LogError("GetGameObjectIdWithIndex: address missing for this build, index lookups off");
+        }
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.GetGameObjectIdWithIndex);
     if (!target)
     {
-        Log("[GetGameObjectIdWithIndex] ERROR: ResolveGameAddress failed. abs=0x%llX\n",
-            static_cast<unsigned long long>(gAddr.GetGameObjectIdWithIndex));
+        if (!s_failLogged)
+        {
+            s_failLogged = true;
+            LogError("GetGameObjectIdWithIndex: address resolve failed, index lookups off");
+        }
         return false;
     }
 
@@ -299,10 +300,6 @@ bool Install_GetGameObjectIdWithIndex()
 bool Uninstall_GetGameObjectIdWithIndex()
 {
     g_GetGameObjectIdWithIndex = nullptr;
-
-#ifdef _DEBUG
-    LogDebug("[GetGameObjectIdWithIndex] uninstalled.\n");
-#endif
     return true;
 }
 
@@ -332,10 +329,6 @@ bool GetGameObjectIdWithIndex(const char* typeName,
 
     if (TryNativeWithTypeNameId(typeName, index, gameObjectIdOut))
         return true;
-
-    LogDebug("[GetGameObjectIdWithIndex] unmapped type=%s index=%u (add it to TppGameObjectType)\n",
-        typeName,
-        index);
 
     return false;
 }

@@ -2,7 +2,6 @@
 
 #include "UiEquipPreviewControllerImpl_ScrollNext.h"
 
-#include <atomic>
 #include <cstdint>
 
 #include "AddressSet.h"
@@ -56,17 +55,7 @@ namespace
                 reinterpret_cast<std::uint8_t*>(ctl) + 0x88);
             if (*cached == live) return;
 
-            void* stale = *cached;
             *cached = live;
-
-            static std::atomic<int> s_staleLogged{ 0 };
-            if (s_staleLogged.fetch_add(1) < 8)
-                LogDebug("[EquipPreview] the preview controller held a stale "
-                         "develop-controller pointer (%p -> %p) - the record block "
-                         "was relocated after it cached one, so every cursor-move "
-                         "preview resolved to equip id 0; repointed to the live "
-                         "block\n",
-                    stale, live);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -113,10 +102,7 @@ namespace equip
             ResolveGameAddress(gAddr.UiEquipPreviewController_ScrollPrev);
         if (!nextTarget || !prevTarget)
         {
-            LogDebug("[EquipPreview] ScrollNext/ScrollPrev unresolved on this build "
-                     "- the preview controller keeps its pre-migration "
-                     "develop-controller pointer, so cursor-move previews resolve "
-                     "to equip id 0 and only menu-open rows render\n");
+            LogError("EquipPreview: ScrollNext/ScrollPrev address missing, cursor-move previews render nothing");
             return false;
         }
 
@@ -128,9 +114,8 @@ namespace equip
             reinterpret_cast<void**>(&g_OrigScrollPrev));
 
         if (!a || !b)
-            Log("[EquipPreview] scroll hook install FAILED (next=%p ok=%d, "
-                "prev=%p ok=%d); cursor-move previews will render nothing\n",
-                nextTarget, a ? 1 : 0, prevTarget, b ? 1 : 0);
+            LogError("EquipPreview: scroll hook failed (next=%d prev=%d), cursor-move previews render nothing",
+                a ? 1 : 0, b ? 1 : 0);
 
         void* startTarget =
             ResolveGameAddress(gAddr.ItemSelector_StartEquipPreviewImpl);
@@ -140,9 +125,7 @@ namespace equip
                 startTarget, reinterpret_cast<void*>(&hkStartEquipPreviewImpl),
                 reinterpret_cast<void**>(&g_OrigStart));
             if (!g_StartInstalled)
-                Log("[EquipPreview] StartEquipPreviewImpl hook FAILED (target=%p) - "
-                    "the stale develop-controller pointer only heals on the first "
-                    "cursor move, so a tab rebuild before that reloads nothing\n", startTarget);
+                LogError("EquipPreview: StartEquipPreviewImpl hook failed, previews heal only after the first cursor move");
         }
 
         g_ScrollInstalled = a && b;

@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <cstdio>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -109,18 +108,82 @@ namespace
     #define kMenuRootRenderCap (MenuRootRenderCap())
     std::unordered_map<int, int> g_NativeRootsByType;
     std::unordered_map<int, std::unordered_set<std::uint32_t>> g_CustomRootsByType;
-    std::unordered_set<std::string> g_MenuCapRefusalLogged;
-    std::unordered_set<std::string> g_PlacementWarnLogged;
 
     std::unordered_set<std::string> g_ParkedKeys;
     std::unordered_map<std::string, int> g_RotateFailCount;
     constexpr int      kMaxRotateFailsPerKey = 2;
+
+    enum class DevelopInjectRefusal : std::uint8_t
+    {
+        None,
+        NotReady,
+        BandFull,
+        VanillaBandPopulating,
+        TabRootCap,
+        TabRowCap,
+        FamilyMemberCap,
+        ParentAtMaxGrade,
+        ParentNotReady,
+        BranchCap,
+        CellOccupied,
+        RecordLost,
+    };
+
+    static const char* DevelopInjectRefusalText(DevelopInjectRefusal why)
+    {
+        switch (why)
+        {
+        case DevelopInjectRefusal::NotReady:
+            return "the develop controller or Lua state was not ready";
+        case DevelopInjectRefusal::BandFull:
+            return "no develop record was free";
+        case DevelopInjectRefusal::VanillaBandPopulating:
+            return "the first free develop row was still inside the vanilla band";
+        case DevelopInjectRefusal::TabRootCap:
+            return "its R&D tab already holds the menu's maximum top-level rows";
+        case DevelopInjectRefusal::TabRowCap:
+            return "its R&D tab already renders the grid's maximum rows";
+        case DevelopInjectRefusal::FamilyMemberCap:
+            return "its development chain already holds the menu's maximum members";
+        case DevelopInjectRefusal::ParentAtMaxGrade:
+            return "its parent row is already at the maximum grade";
+        case DevelopInjectRefusal::ParentNotReady:
+            return "its parent row is not resident";
+        case DevelopInjectRefusal::BranchCap:
+            return "its parent already carries the maximum branch chains";
+        case DevelopInjectRefusal::CellOccupied:
+            return "its grade and branch cell under the parent is already occupied";
+        case DevelopInjectRefusal::RecordLost:
+            return "the native register did not keep its record";
+        default:
+            return "no reason was recorded";
+        }
+    }
+
+    static bool SwapCanClearRefusal(DevelopInjectRefusal why)
+    {
+        return why == DevelopInjectRefusal::None
+            || why == DevelopInjectRefusal::BandFull
+            || why == DevelopInjectRefusal::TabRootCap
+            || why == DevelopInjectRefusal::TabRowCap;
+    }
+
+    struct RememberedRefusal
+    {
+        DevelopInjectRefusal why = DevelopInjectRefusal::None;
+        int tab = 0;
+        std::uint32_t familyRoot = 0;
+        std::uint32_t parentDev = 0;
+    };
+
+    std::unordered_map<std::string, RememberedRefusal> g_SwapRefusalByKey;
+    std::unordered_map<std::string, DevelopInjectRefusal> g_StuckParkLogged;
     std::atomic<bool>  g_AnyParkedKeys{ false };
     std::atomic<bool>  g_AnyPendingReg{ false };
     std::atomic<bool>  g_RotationInProgress{ false };
     std::atomic<bool>  g_RotateRequested{ false };
+    std::atomic<bool>  g_FullRotateRequested{ false };
     std::atomic<bool>  g_GateRefreshRequested{ false };
-    std::atomic<bool>  g_RotateDeferLogged{ false };
     std::atomic<int>   g_MenuFillDepth{ 0 };
     std::atomic<int>   g_RotateTabHint{ -1 };
     volatile DWORD     g_LastVisPredicateTick = 0;
@@ -137,9 +200,19 @@ namespace
     constexpr int         kLuaRegistryIndex = -10000;
     constexpr const char* kGateTableKey     = "V_FrameWork_DevGates";
     struct DynamicGate { std::uint16_t flowIndex; std::string key; };
-    std::vector<DynamicGate> g_DynamicGates;
-    std::vector<DynamicGate> g_BluePrintGates;
+    struct BluePrintGate
+    {
+        std::uint16_t flowIndex;
+        std::uint16_t developId;
+        std::int32_t  bluePrintPublicId;
+        std::string   developKey;
+        std::string   bluePrintKey;
+    };
+    constexpr std::uint16_t kNoBluePrintId = 0xFFFF;
+    std::vector<DynamicGate>   g_DynamicGates;
+    std::vector<BluePrintGate> g_BluePrintGates;
     std::atomic<bool>        g_AnyDynamicGate{ false };
+    std::atomic<bool>        g_AnyBluePrintGate{ false };
     volatile DWORD           g_LastGateRefreshTick = 0;
     constexpr DWORD          kGateRefreshThrottleMs = 300;
 
@@ -191,6 +264,7 @@ namespace
                                     const std::string& key)
     {
         std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+        g_AnyDynamicGate.store(true, std::memory_order_relaxed);
         for (DynamicGate& gt : g_DynamicGates)
         {
             if (gt.key == key)
@@ -200,28 +274,39 @@ namespace
             }
         }
         g_DynamicGates.push_back({ flowIndex, key });
-        g_AnyDynamicGate.store(true, std::memory_order_relaxed);
     }
 
+    static bool SyncRecordBluePrintId(std::uint16_t flowIndex, std::uint16_t developId,
+                                      std::uint16_t bluePrintId);
+
     static void RegisterBluePrintGate(std::uint16_t flowIndex,
-                                     const std::string& key)
+                                     std::uint16_t developId,
+                                     const std::string& developKey,
+                                     const std::string& bluePrintKey,
+                                     std::int32_t bluePrintPublicId)
     {
         std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
-        for (DynamicGate& gt : g_BluePrintGates)
+        g_AnyDynamicGate.store(true, std::memory_order_relaxed);
+        g_AnyBluePrintGate.store(true, std::memory_order_relaxed);
+        equip::SetCustomBluePrintRow(flowIndex, developId);
+        for (BluePrintGate& gt : g_BluePrintGates)
         {
-            if (gt.key == key)
+            if (gt.developKey == developKey)
             {
-                gt.flowIndex = flowIndex;
+                gt.flowIndex         = flowIndex;
+                gt.developId         = developId;
+                gt.bluePrintPublicId = bluePrintPublicId;
+                gt.bluePrintKey      = bluePrintKey;
                 return;
             }
         }
-        g_BluePrintGates.push_back({ flowIndex, key });
-        g_AnyDynamicGate.store(true, std::memory_order_relaxed);
+        g_BluePrintGates.push_back({ flowIndex, developId, bluePrintPublicId,
+                                     developKey, bluePrintKey });
     }
 
     static bool RefreshBluePrintGates()
     {
-        std::vector<DynamicGate> gates;
+        std::vector<BluePrintGate> gates;
         {
             std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
             if (g_BluePrintGates.empty())
@@ -229,16 +314,31 @@ namespace
             gates = g_BluePrintGates;
         }
 
-        bool anyRevealed = false;
-        for (const DynamicGate& gt : gates)
+        bluePrint::KeepReservedDataBaseBits();
+
+        bool anyUnlocked = false;
+        for (const BluePrintGate& gt : gates)
         {
-            const bool visible   = bluePrint::HasKey(gt.key.c_str());
-            const bool wasHidden = outfit::IsDevelopHidden(gt.flowIndex);
-            outfit::SetDevelopHidden(gt.flowIndex, !visible);
-            if (wasHidden && visible)
-                anyRevealed = true;
+            const bool owned = bluePrint::HasKey(gt.bluePrintKey.c_str());
+            const std::uint16_t required =
+                owned ? bluePrint::kOwnedDataBaseId : bluePrint::kLockedDataBaseId;
+            if (SyncRecordBluePrintId(gt.flowIndex, gt.developId, required) && owned)
+                anyUnlocked = true;
         }
-        return anyRevealed;
+        return anyUnlocked;
+    }
+
+    static void NoteGateError(const char* key, const char* message)
+    {
+        static std::mutex s_Mutex;
+        static std::unordered_set<std::string> s_Logged;
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            if (!s_Logged.insert(key ? key : "").second)
+                return;
+        }
+        LogWarn("DevelopGate: '%s' bluePrintId function failed (%s), row keeps its last visibility",
+            key ? key : "?", message && *message ? message : "no message");
     }
 
     static int EvalOneGateSEH(lua_State* L, std::uint16_t flowIndex,
@@ -250,15 +350,6 @@ namespace
             const int top = g_lua_gettop(L);
             if (!luaguard::HasStackRoom(L, 4))
             {
-                static bool s_logged = false;
-                if (!s_logged)
-                {
-                    s_logged = true;
-                    LogDebug("[EquipDevelop] dynamic gate eval skipped (key=%s): "
-                             "the Lua frame is too tight to push safely - "
-                             "re-evaluates on the next R&D menu build\n",
-                        key);
-                }
                 return 0;
             }
             g_lua_getfield(L, kLuaRegistryIndex,
@@ -282,12 +373,14 @@ namespace
                 outfit::SetDevelopHidden(flowIndex, !visible);
                 if (wasHidden != !visible)
                 {
-                    LogDebug("[EquipDevelop] dynamic gate key=%s flowIndex=%u -> %s\n",
-                        key, static_cast<unsigned>(flowIndex),
-                        visible ? "VISIBLE" : "HIDDEN");
                     if (visible)
                         flippedVisible = 1;
                 }
+            }
+            else
+            {
+                NoteGateError(key, g_lua_tolstring
+                    ? g_lua_tolstring(L, -1, nullptr) : nullptr);
             }
             g_lua_settop(L, top);
         }
@@ -299,14 +392,14 @@ namespace
 
     static void RefreshDynamicGatesImpl()
     {
-        bool bluePrintRevealed = RefreshBluePrintGates();
+        const bool bluePrintUnlocked = RefreshBluePrintGates();
 
         std::vector<DynamicGate> gates;
         {
             std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
             if (g_DynamicGates.empty())
             {
-                if (bluePrintRevealed)
+                if (bluePrintUnlocked)
                     EquipDevelop_TriggerRequirementsMetAnnounce();
                 return;
             }
@@ -318,7 +411,7 @@ namespace
         if (!L)
             return;
 
-        bool anyRevealed = bluePrintRevealed;
+        bool anyRevealed = bluePrintUnlocked;
         for (const DynamicGate& gt : gates)
             if (EvalOneGateSEH(L, gt.flowIndex, gt.key.c_str()) == 1)
                 anyRevealed = true;
@@ -361,6 +454,7 @@ namespace
 
     constexpr std::size_t kDevelopRecordArrayOffset = 0x8;
     constexpr std::size_t kDevelopRecordStride      = 0x68;
+    constexpr std::size_t kDevelopRecordBluePrintId = 0xE;
 
     struct NativeRecordSnap
     {
@@ -394,82 +488,24 @@ namespace
         }
     }
 
-    constexpr std::size_t kResultRankLimitByte = 0x50;
-
-    using EdcDevelopIdToRow_t = std::uint16_t (__fastcall*)(void* self, std::uint16_t developId);
-    using EdcIsRankLimited_t  = std::uint8_t  (__fastcall*)(void* self, std::uint16_t row);
-
-    constexpr std::size_t kEdcDevelopIdToRowSlot = 0x0E0 / sizeof(void*);
-    constexpr std::size_t kEdcIsRankLimitedSlot  = 0x490 / sizeof(void*);
-
-    using RankLimitBinding_t = int (__fastcall*)(void* luaState);
-
-    static RankLimitBinding_t g_OrigRankLimitBinding = nullptr;
-    static bool               g_RankLimitBindingHooked = false;
-    static int                g_RankLimitBindingCalls  = 0;
-
-    static constexpr std::uintptr_t kRankLimitBindingAddr = 0x140A96BB0ull;
-    static constexpr std::uint8_t   kRankLimitBindingPrologue[10] =
-        { 0x48, 0x89, 0x5C, 0x24, 0x18, 0x56, 0x48, 0x83, 0xEC, 0x20 };
-
-    static int __fastcall hkRankLimitBinding(void* luaState)
+    static bool SyncRecordBluePrintId(std::uint16_t flowIndex, std::uint16_t developId,
+                                      std::uint16_t bluePrintId)
     {
-        const int n = ++g_RankLimitBindingCalls;
-        if (n <= 8)
-            Log("[EquipDevelop] IsResultRankLimitedItem called by the game (call #%d) - "
-                "the result-rank path DOES consult this binding\n", n);
-        return g_OrigRankLimitBinding ? g_OrigRankLimitBinding(luaState) : 0;
-    }
-
-    static void EnsureRankLimitBindingHook()
-    {
-        if (g_RankLimitBindingHooked)
-            return;
-        g_RankLimitBindingHooked = true;
-
-        void* target = ResolveGameAddress(kRankLimitBindingAddr);
-        if (!target)
-            return;
-
+        void* controller = EquipDevelop_ResolveDevelopController();
+        if (!controller || flowIndex >= equip::NativeFlowBound())
+            return false;
         __try
         {
-            if (std::memcmp(target, kRankLimitBindingPrologue,
-                            sizeof(kRankLimitBindingPrologue)) != 0)
-            {
-                Log("[EquipDevelop] IsResultRankLimitedItem prologue mismatch at %p - "
-                    "call tracing skipped on this build\n", target);
-                return;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return;
-        }
-
-        if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hkRankLimitBinding),
-                                 reinterpret_cast<void**>(&g_OrigRankLimitBinding)))
-            Log("[EquipDevelop] IsResultRankLimitedItem call tracer failed to install at %p\n",
-                target);
-    }
-
-    static bool ProbeEngineRankLimit(void* controller, std::uint16_t developId,
-                                     std::uint16_t knownRow, std::uint16_t& outEngineRow,
-                                     std::uint8_t& outEngineFlag, std::uint8_t& outFlagAtKnownRow)
-    {
-        __try
-        {
-            auto** vtbl = *reinterpret_cast<void***>(controller);
-            if (!vtbl)
+            std::uint8_t* rec = static_cast<std::uint8_t*>(controller)
+                + kDevelopRecordArrayOffset
+                + static_cast<std::size_t>(flowIndex) * kDevelopRecordStride;
+            if (*reinterpret_cast<const std::uint16_t*>(rec) != developId)
                 return false;
-
-            auto toRow = reinterpret_cast<EdcDevelopIdToRow_t>(vtbl[kEdcDevelopIdToRowSlot]);
-            auto isLim = reinterpret_cast<EdcIsRankLimited_t>(vtbl[kEdcIsRankLimitedSlot]);
-            if (!toRow || !isLim)
+            std::uint16_t* field =
+                reinterpret_cast<std::uint16_t*>(rec + kDevelopRecordBluePrintId);
+            if (*field == bluePrintId)
                 return false;
-
-            outEngineRow      = toRow(controller, developId);
-            outEngineFlag     = isLim(controller, outEngineRow);
-            outFlagAtKnownRow = isLim(controller, knownRow);
+            *field = bluePrintId;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -479,10 +515,8 @@ namespace
     }
 
     static void ProbeNameFieldOffset(void* controller, std::uint16_t flowIndex,
-                                    std::uint16_t developId,
                                     const std::vector<FieldValue>& constFields)
     {
-        static std::atomic<int> s_logged{ 0 };
         static std::atomic<int> s_p30{ -1 };
         static std::atomic<int> s_p07{ -1 };
         static std::atomic<int> s_p06{ -1 };
@@ -500,10 +534,6 @@ namespace
                 + kDevelopRecordArrayOffset
                 + static_cast<std::size_t>(flowIndex) * kDevelopRecordStride;
 
-            char found[640];
-            found[0] = 0;
-            std::size_t used = 0;
-
             for (const FieldValue& f : constFields)
             {
                 if (f.type != FieldValue::Type::String) continue;
@@ -512,18 +542,18 @@ namespace
                 const std::uint64_t want = FoxHashes::StrCode64(f.stringValue);
                 if (!want) continue;
 
-                int off = -1, width = 0;
+                int off = -1;
                 for (std::size_t o = 0; o + 8 <= kDevelopRecordStride; ++o)
                 {
                     const std::uint64_t q =
                         *reinterpret_cast<const std::uint64_t*>(rec + o);
                     const std::uint32_t d =
                         *reinterpret_cast<const std::uint32_t*>(rec + o);
-                    if (q == want) { off = static_cast<int>(o); width = 64; break; }
+                    if (q == want) { off = static_cast<int>(o); break; }
                     if ((q & 0xFFFFFFFFFFFFull) == (want & 0xFFFFFFFFFFFFull))
-                    { off = static_cast<int>(o); width = 48; break; }
+                    { off = static_cast<int>(o); break; }
                     if (d == static_cast<std::uint32_t>(want))
-                    { off = static_cast<int>(o); width = 32; break; }
+                    { off = static_cast<int>(o); break; }
                 }
 
                 if (off >= 0)
@@ -532,32 +562,17 @@ namespace
                     else if (f.name == "p07") s_p07.store(off, std::memory_order_relaxed);
                     else if (f.name == "p06") s_p06.store(off, std::memory_order_relaxed);
                 }
-
-                if (used + 40 < sizeof(found))
-                {
-                    const int n = _snprintf_s(found + used, sizeof(found) - used,
-                                              _TRUNCATE, "%s=rec+0x%X(%db) ",
-                                              f.name.c_str(), off, width);
-                    if (n > 0) used += static_cast<std::size_t>(n);
-                }
             }
 
             EquipDevelop_SetRecordNameOffsets(
                 s_p30.load(std::memory_order_relaxed),
                 s_p07.load(std::memory_order_relaxed),
                 s_p06.load(std::memory_order_relaxed));
-
-            if (s_logged.fetch_add(1, std::memory_order_relaxed) < 6)
-                Log("[EquipDevelop] record string fields row=%u developId=%u: %s"
-                    "(-1 = that field is not stored in the 0x68-byte record; p30 "
-                    "langEquipRealName is the field the own-suit row name is "
-                    "written to)\n", flowIndex, developId, found);
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
     static void ProbeResultRankLimitBit(std::uint16_t flowIndex,
-                                        std::uint16_t developId,
                                         const std::vector<FieldValue>& fields)
     {
         const FieldValue* p31 = nullptr;
@@ -572,51 +587,11 @@ namespace
         if (!p31)
             return;
 
-        int requested = -1;
-        if (p31->type == FieldValue::Type::Boolean)
-            requested = p31->boolValue ? 1 : 0;
-        else if (p31->type == FieldValue::Type::Number)
-            requested = static_cast<int>(p31->numberValue);
-
-        EnsureRankLimitBindingHook();
-
         void* controller = EquipDevelop_ResolveDevelopController();
         if (!controller)
-        {
-            Log("[EquipDevelop] p31 probe: develop controller unresolved - cannot tell "
-                "whether isResultRankLimited landed on row %u\n", flowIndex);
             return;
-        }
 
-        __try
-        {
-            const std::uint8_t* rec =
-                reinterpret_cast<const std::uint8_t*>(controller)
-                + kDevelopRecordArrayOffset
-                + static_cast<std::size_t>(flowIndex) * kDevelopRecordStride;
-            const std::uint16_t rowDevelopId = *reinterpret_cast<const std::uint16_t*>(rec);
-            const std::uint32_t word =
-                *reinterpret_cast<const std::uint32_t*>(rec + kResultRankLimitByte);
-            std::uint16_t engineRow  = 0xFFFF;
-            std::uint8_t  engineFlag = 0xFF;
-            std::uint8_t  flagAtRow  = 0xFF;
-            const bool engineOk = ProbeEngineRankLimit(controller, developId, flowIndex,
-                                                       engineRow, engineFlag, flagAtRow);
-
-            Log("[EquipDevelop] p31 probe: row=%u developId=%u rowDevelopId=%u "
-                "word@rec+0x50=0x%08X bit7=%u bit15=%u requested=%d | engine: %s "
-                "row=%u flagAtEngineRow=%u flagAtRealRow=%u\n",
-                flowIndex, developId, rowDevelopId, word,
-                (word >> 7) & 1u, (word >> 15) & 1u, requested,
-                engineOk ? "ok" : "FAULTED", engineRow, engineFlag, flagAtRow);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            Log("[EquipDevelop] p31 probe: record read faulted at row %u - "
-                "isResultRankLimited state unknown\n", flowIndex);
-        }
-
-        ProbeNameFieldOffset(controller, flowIndex, developId, fields);
+        ProbeNameFieldOffset(controller, flowIndex, fields);
     }
 
     static void BuildNativeRecordSnapshot(std::vector<NativeRecordSnap>& out)
@@ -638,44 +613,6 @@ namespace
         }
     }
 
-    static void LogNativeRowBudgetOnce(
-        const std::vector<NativeRecordSnap>& snap,
-        const std::unordered_map<std::uint32_t, std::uint32_t>& baseById)
-    {
-        static bool s_logged = false;
-        if (s_logged || snap.empty())
-            return;
-        s_logged = true;
-        std::unordered_map<int, std::unordered_set<std::uint64_t>> rowsByTab;
-        for (const NativeRecordSnap& s : snap)
-        {
-            std::uint32_t root = s.developId;
-            for (int hop = 0; hop < 64; ++hop)
-            {
-                auto it = baseById.find(root);
-                if (it == baseById.end() || it->second == 0
-                    || it->second == root)
-                    break;
-                root = it->second;
-            }
-            rowsByTab[s.type].insert(
-                (static_cast<std::uint64_t>(root) << 8)
-                | static_cast<std::uint64_t>(s.side & 0xFF));
-        }
-        std::string line;
-        line.reserve(256);
-        char buf[48];
-        for (const auto& kv : rowsByTab)
-        {
-            std::snprintf(buf, sizeof(buf), "tab %d=%zu rows (%d free)  ",
-                          kv.first, kv.second.size(),
-                          114 - static_cast<int>(kv.second.size()));
-            line += buf;
-        }
-        LogDebug("[EquipDevelop] native grid budget (114 rows/tab): %s\n",
-            line.c_str());
-    }
-
     static std::unordered_set<std::uint64_t>& TabRenderRows_NoLock(int devType)
     {
         std::unordered_set<std::uint64_t>& rows = g_TabRenderRows[devType];
@@ -688,7 +625,6 @@ namespace
                 std::unordered_map<std::uint32_t, std::uint32_t> baseById;
                 for (const NativeRecordSnap& s : snap)
                     baseById[s.developId] = s.base;
-                LogNativeRowBudgetOnce(snap, baseById);
                 int nativeRoots = 0;
                 for (const NativeRecordSnap& s : snap)
                 {
@@ -1376,15 +1312,18 @@ namespace
         return firstEmpty >= kVanillaDevelopRowCount;
     }
 
-    static void RequestRotationIfBandHasRoom()
+    static void RequestRotationIfBandHasRoom(bool directFillOnly)
     {
         void* controller = EquipDevelop_ResolveDevelopController();
         if (!controller)
             return;
         std::uint16_t freeIdx = 0;
-        if (FindFirstEmptyRecordIndex(controller, freeIdx)
-            && freeIdx >= kVanillaDevelopRowCount)
-            g_RotateRequested.store(true, std::memory_order_release);
+        if (!FindFirstEmptyRecordIndex(controller, freeIdx)
+            || freeIdx < kVanillaDevelopRowCount)
+            return;
+        if (!directFillOnly)
+            g_FullRotateRequested.store(true, std::memory_order_release);
+        g_RotateRequested.store(true, std::memory_order_release);
     }
 
     static void EnsureAllocatorSeeded_NoLock()
@@ -1492,7 +1431,7 @@ namespace
 
         if (g_NextDevelopId > kMaxAllocId || g_NextFlowIndex > kMaxAllocId)
         {
-            LogDebug("[EquipDevelop] ID allocator overflow\n");
+            LogError("EquipDevelop: '%s' develop id allocator exhausted", key.c_str());
             return false;
         }
 
@@ -1822,6 +1761,86 @@ namespace
         return true;
     }
 
+    constexpr std::int32_t kDataBaseIdCount = 0x1CB;
+
+    static bool IsVanillaDataBaseId(std::int32_t id)
+    {
+        return id >= 0 && id < kDataBaseIdCount
+            && !bluePrint::IsReservedDataBaseId(id);
+    }
+
+    static void DropInvalidBluePrintId(const std::string& key,
+                                       std::vector<FieldValue>& constFields)
+    {
+        for (auto it = constFields.begin(); it != constFields.end(); ++it)
+        {
+            if (it->name != "p05" || it->type != FieldValue::Type::Number)
+                continue;
+            const std::int32_t id = it->numberValue;
+            if (id == kNoBluePrintId || IsVanillaDataBaseId(id)
+                || bluePrint::SlotFromPublicId(id) > 0)
+                return;
+            if (bluePrint::IsReservedDataBaseId(id))
+                LogWarn("AddToEquipDevelopTable '%s': bluePrintId %d is reserved by V_FrameWork, row has no blueprint requirement",
+                    key.c_str(), id);
+            else
+                LogWarn("AddToEquipDevelopTable '%s': bluePrintId %d is not a DataBase id, row has no blueprint requirement",
+                    key.c_str(), id);
+            constFields.erase(it);
+            return;
+        }
+    }
+
+    static bool IsBluePrintKeyField(const FieldValue& field)
+    {
+        if (field.name != "p05")
+            return false;
+        if (field.type == FieldValue::Type::String)
+            return !field.stringValue.empty();
+        return field.type == FieldValue::Type::Number
+            && bluePrint::SlotFromPublicId(field.numberValue) > 0;
+    }
+
+    static std::int32_t RegisteredBluePrintSlot(const FieldValue& field)
+    {
+        const std::int32_t slot = bluePrint::SlotFromPublicId(field.numberValue);
+        return bluePrint::KeyFromSlot(slot).empty() ? 0 : slot;
+    }
+
+    static std::int32_t FindBluePrintSlot(const FieldValue& field)
+    {
+        if (field.type == FieldValue::Type::String)
+            return bluePrint::Find(field.stringValue.c_str());
+        return RegisteredBluePrintSlot(field);
+    }
+
+    static std::int32_t RegisterBluePrintSlot(const FieldValue& field)
+    {
+        if (field.type == FieldValue::Type::String)
+            return bluePrint::Register(field.stringValue.c_str());
+        return RegisteredBluePrintSlot(field);
+    }
+
+    static void RegisterBluePrintRequirement(const std::string& developKey,
+                                             const FieldValue& field,
+                                             std::uint16_t flowIndex,
+                                             std::uint16_t developId)
+    {
+        const std::int32_t slot = FindBluePrintSlot(field);
+        if (slot > 0)
+        {
+            RegisterBluePrintGate(flowIndex, developId, developKey,
+                                  bluePrint::KeyFromSlot(slot), bluePrint::PublicId(slot));
+            return;
+        }
+        if (field.type == FieldValue::Type::String)
+            LogWarn("AddToEquipDevelopTable '%s': blueprint '%s' not allocated, row has no blueprint requirement",
+                developKey.c_str(), field.stringValue.c_str());
+        else
+            LogWarn("AddToEquipDevelopTable '%s': bluePrintId %d not registered this session, row has no blueprint requirement",
+                developKey.c_str(), field.numberValue);
+    }
+
     static void BuildConstRowTable(
         lua_State* L,
         std::uint16_t developId,
@@ -1834,12 +1853,18 @@ namespace
 
         for (const FieldValue& field : fields)
         {
-            if (field.type == FieldValue::Type::String && field.name == "p05")
+            if (IsBluePrintKeyField(field))
+            {
+                const std::int32_t slot = RegisterBluePrintSlot(field);
+                if (slot > 0)
+                {
+                    bluePrint::KeepReservedDataBaseBits();
+                    SetIntField(L, tableIndex, "p05", bluePrint::Has(slot)
+                        ? bluePrint::kOwnedDataBaseId : bluePrint::kLockedDataBaseId);
+                }
                 continue;
-            if (field.type == FieldValue::Type::Number && field.name == "p05"
-                && bluePrint::SlotFromPublicId(field.numberValue) > 0)
-                continue;
-            if (field.type == FieldValue::Type::Boolean && field.name == "p05")
+            }
+            if (field.name == "p05" && field.type != FieldValue::Type::Number)
                 continue;
             if (field.wide)
                 SetWideField(L, tableIndex, field.name.c_str(), field.wideValue);
@@ -1881,43 +1906,36 @@ namespace
                                            std::uint16_t developId,
                                            std::uint16_t& outIndex);
 
-    static bool ShouldLogPark(const std::string& key)
-    {
-        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
-        return g_MenuCapRefusalLogged.insert(key).second
-            || g_SwapInProgress.load(std::memory_order_relaxed);
-    }
-
     static bool InjectDevelopPairWithIds(
         lua_State* L,
         const PendingDevelopRequest& req,
         std::uint16_t developId,
-        std::uint16_t& flowIndex)
+        std::uint16_t& flowIndex,
+        DevelopInjectRefusal* refusal = nullptr)
     {
-        if (!L || !EnsureLuaReady())
+        if (refusal)
+            *refusal = DevelopInjectRefusal::None;
+        const auto refuse = [refusal](DevelopInjectRefusal why)
+        {
+            if (refusal)
+                *refusal = why;
             return false;
+        };
+        if (!L || !EnsureLuaReady())
+            return refuse(DevelopInjectRefusal::NotReady);
 
         void* recController = EquipDevelop_ResolveDevelopController();
         if (!recController)
-            return false;
+            return refuse(DevelopInjectRefusal::NotReady);
         std::uint16_t appendIdx = 0;
         if (!FindFirstEmptyRecordIndex(recController, appendIdx))
         {
-            if (ShouldLogPark(req.key))
-                LogDebug("[EquipDevelop] PARKED key=%s: no empty develop record "
-                         "slot - pages in when one frees\n", req.key.c_str());
             ParkKeyForPaging(req.key);
-            return false;
+            return refuse(DevelopInjectRefusal::BandFull);
         }
         if (appendIdx < kVanillaDevelopRowCount)
         {
-            static std::atomic<std::uint32_t> s_HoleLogged{ 0xFFFFFFFFu };
-            if (s_HoleLogged.exchange(appendIdx,
-                                      std::memory_order_relaxed) != appendIdx)
-                LogDebug("[EquipDevelop] inject held: first empty develop row %u is "
-                         "inside the vanilla band (native table still populating) - "
-                         "pending registrations retry later\n", appendIdx);
-            return false;
+            return refuse(DevelopInjectRefusal::VanillaBandPopulating);
         }
 
         std::int32_t devType = 0;
@@ -1962,15 +1980,8 @@ namespace
                     nativeRoots + static_cast<int>(rootSet.size()) + 1;
                 if (total > kMenuRootRenderCap)
                 {
-                    if (ShouldLogPark(req.key))
-                        LogDebug("[EquipDevelop] PARKED key=%s: R&D tab %d already "
-                                 "holds %d top-level rows of the menu's %d - pages "
-                                 "in on later menu opens\n",
-                            req.key.c_str(), devType,
-                            nativeRoots + static_cast<int>(rootSet.size()),
-                            kMenuRootRenderCap);
                     ParkKeyForPaging(req.key);
-                    return false;
+                    return refuse(DevelopInjectRefusal::TabRootCap);
                 }
 
                 auto& rows = TabRenderRows_NoLock(devType);
@@ -1981,15 +1992,8 @@ namespace
                 {
                     if (static_cast<int>(rows.size()) >= kMenuRootRenderCap)
                     {
-                        if (ShouldLogPark(req.key))
-                            LogDebug("[EquipDevelop] PARKED key=%s: R&D tab %d "
-                                     "already renders %d rows of the grid's %d - "
-                                     "pages in on later menu opens\n",
-                                req.key.c_str(), devType,
-                                static_cast<int>(rows.size()),
-                                kMenuRootRenderCap);
                         ParkKeyForPaging(req.key);
-                        return false;
+                        return refuse(DevelopInjectRefusal::TabRowCap);
                     }
                     rows.insert(rowKey);
                 }
@@ -2007,32 +2011,17 @@ namespace
             }
             if (!alreadyMember && fam.memberCount >= kMenuFamilyCap)
             {
-                if (ShouldLogPark(req.key))
-                    LogDebug("[EquipDevelop] PARKED key=%s: the chain of "
-                             "baseEquipDevelopId=%u already has %d members (menu "
-                             "ceiling %d) - pages in on later menu opens\n",
-                        req.key.c_str(), baseDevelopId, fam.memberCount,
-                        kMenuFamilyCap - 1);
                 ParkKeyForPaging(req.key);
-                return false;
+                return refuse(DevelopInjectRefusal::FamilyMemberCap);
             }
 
             if (fam.parentGrade >= 1 && finalGrade <= fam.parentGrade)
             {
                 if (fam.parentGrade >= kMaxGrade)
                 {
-                    if (ShouldLogPark(req.key))
-                        LogDebug("[EquipDevelop] PARKED key=%s: parent developId=%u "
-                                 "is already grade %d - a child's grade must exceed "
-                                 "its parent's and none is higher\n",
-                            req.key.c_str(), baseDevelopId, fam.parentGrade);
                     ParkKeyForPaging(req.key);
-                    return false;
+                    return refuse(DevelopInjectRefusal::ParentAtMaxGrade);
                 }
-                LogDebug("[EquipDevelop] key=%s: grade %d does not exceed parent "
-                         "grade %d - raised to %d (chain grades must ascend)\n",
-                    req.key.c_str(), finalGrade, fam.parentGrade,
-                    fam.parentGrade + 1);
                 finalGrade = fam.parentGrade + 1;
             }
 
@@ -2041,20 +2030,8 @@ namespace
 
             if (fam.parentGrade < 1)
             {
-                std::size_t joinCount = 0, edgeCount = 0;
-                {
-                    std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
-                    joinCount = g_NativeFlowByDevelopId.size();
-                    edgeCount = g_NativeBaseByDevelopId.size();
-                }
-                if (ShouldLogPark(req.key))
-                    LogDebug("[EquipDevelop] PARKED key=%s: parent developId=%u is "
-                             "not resolvable yet (parent parked, or native develop "
-                             "data not captured: flowJoin=%zu constEdges=%zu) - "
-                             "pages in once the parent is present\n",
-                        req.key.c_str(), baseDevelopId, joinCount, edgeCount);
                 ParkKeyForPaging(req.key);
-                return false;
+                return refuse(DevelopInjectRefusal::ParentNotReady);
             }
 
             auto cellUsed = [&](int g, int s) -> bool
@@ -2099,36 +2076,17 @@ namespace
                 int ordinal = maxUsed + 1;
                 if (requestedOrdinal > maxUsed)
                     ordinal = requestedOrdinal;
-                else if (requestedOrdinal >= 1 && ordinal <= kMaxSideGrade)
-                    LogDebug("[EquipDevelop] key=%s: requested branch %d under "
-                             "baseEquipDevelopId=%u is at or below an existing "
-                             "branch - moved to branch %d\n",
-                        req.key.c_str(), requestedOrdinal, baseDevelopId,
-                        ordinal);
                 if (ordinal > kMaxSideGrade)
                 {
-                    if (ShouldLogPark(req.key))
-                        LogDebug("[EquipDevelop] PARKED key=%s: parent developId=%u "
-                                 "already carries %d branch chains (the record "
-                                 "packs the branch ordinal in 3 bits) - pages in "
-                                 "when one frees\n",
-                            req.key.c_str(), baseDevelopId, kMaxSideGrade);
                     ParkKeyForPaging(req.key);
-                    return false;
+                    return refuse(DevelopInjectRefusal::BranchCap);
                 }
                 int row = fam.parentSide + 1 + fam.forkSpanPrefix[ordinal];
                 if (row > 15) row = 15;
                 if (cellUsed(col0, row))
                 {
-                    if (ShouldLogPark(req.key))
-                        LogDebug("[EquipDevelop] PARKED key=%s: branch %d under "
-                                 "baseEquipDevelopId=%u computes to an occupied "
-                                 "cell (grade %d, row %d) - family data is "
-                                 "irregular; pages in later\n",
-                            req.key.c_str(), ordinal, baseDevelopId,
-                            col0, row);
                     ParkKeyForPaging(req.key);
-                    return false;
+                    return refuse(DevelopInjectRefusal::CellOccupied);
                 }
                 finalGrade   = col0;
                 finalSide    = row;
@@ -2136,8 +2094,6 @@ namespace
                 placed       = true;
             }
 
-            const bool moved = (finalGrade != requestedGrade)
-                || (finalOrdinal != requestedOrdinal);
             parentRowForDelta = fam.parentSide;
 
             {
@@ -2150,28 +2106,11 @@ namespace
                 {
                     if (static_cast<int>(rows.size()) >= kMenuRootRenderCap)
                     {
-                        if (ShouldLogPark(req.key))
-                            LogDebug("[EquipDevelop] PARKED key=%s: R&D tab %d "
-                                     "already renders %d rows of the grid's %d and "
-                                     "this would open a new branch row - pages in "
-                                     "on later menu opens\n",
-                                req.key.c_str(), devType,
-                                static_cast<int>(rows.size()),
-                                kMenuRootRenderCap);
                         ParkKeyForPaging(req.key);
-                        return false;
+                        return refuse(DevelopInjectRefusal::TabRowCap);
                     }
                     rows.insert(rowKey);
                 }
-            }
-
-            if (moved)
-            {
-                LogDebug("[EquipDevelop] key=%s: placed under baseEquipDevelopId=%u "
-                         "at grade %d (column), branch %d (row %d); parent grade "
-                         "%d, requested %d\n",
-                    req.key.c_str(), baseDevelopId, finalGrade, finalOrdinal,
-                    finalSide, fam.parentGrade, requestedGrade);
             }
         }
 
@@ -2184,11 +2123,6 @@ namespace
 
         if (appendIdx != flowIndex)
         {
-            if (flowIndex != 0)
-                LogDebug("[EquipDevelop] key=%s: develop record landed at row %u "
-                         "(bookkept %u) - flow row follows the record, bookkeeping "
-                         "re-synced\n",
-                    req.key.c_str(), appendIdx, flowIndex);
             flowIndex = appendIdx;
         }
 
@@ -2196,8 +2130,8 @@ namespace
         BuildConstRowTable(L, developId, req.constFields);
         g_OrigRegCstDev(L);
         equip::InvalidateDevelopLookupIndex();
+        outfit::NoteDevelopRowsMoved();
         ProbeResultRankLimitBit(static_cast<std::uint16_t>(flowIndex),
-                                static_cast<std::uint16_t>(developId),
                                 req.constFields);
         ObserveDevelopId(developId);
 
@@ -2242,18 +2176,6 @@ namespace
             || uniquedefaultoutfit::IsRegisteringFobAllowedRow();
         if (!fobAllowedRow)
             SetIntField(L, flowRowIndex, "p74", 0);
-        else
-        {
-            static int s_fobRowLogged = 0;
-            if (s_fobRowLogged < 4)
-            {
-                ++s_fobRowLogged;
-                Log("[EquipDevelop] '%s' keeps isFobAvailable - it is a unique "
-                    "character's own default-outfit row, which declares that "
-                    "character's stock parts and fpk\n",
-                    req.key.c_str());
-            }
-        }
 
         int storedP51 = persistedP51;
         if (storedP51 < 0)             storedP51 = 0;
@@ -2281,20 +2203,20 @@ namespace
                 if (FindRecordIndexByDevelopId(recController, developId,
                                                actualIdx))
                 {
-                    Log("[EquipDevelop] WARN key=%s: develop record landed at row "
-                        "%u instead of the bookkept %u - bookkeeping resynced\n",
-                        req.key.c_str(), actualIdx, flowIndex);
                     flowIndex = actualIdx;
                 }
                 else
                 {
-                    Log("[EquipDevelop] WARN key=%s: develop record not found after "
-                        "registration (row %u holds developId %u) - the native "
-                        "register hit the reserved sentinel row; the key stays "
-                        "pending\n",
-                        req.key.c_str(), flowIndex, landedDev);
+                    static bool s_lostWarned = false;
+                    if (!s_lostWarned)
+                    {
+                        s_lostWarned = true;
+                        LogWarn("AddToEquipDevelopTable '%s': develop record lost (row %u holds developId %u), key stays pending",
+                            req.key.c_str(), static_cast<unsigned>(flowIndex),
+                            static_cast<unsigned>(landedDev));
+                    }
                     g_Deps.LuaSetTop(L, 0);
-                    return false;
+                    return refuse(DevelopInjectRefusal::RecordLost);
                 }
             }
         }
@@ -2307,61 +2229,23 @@ namespace
             RegisterDynamicGate(flowIndex, req.key);
             outfit::SetDevelopHidden(flowIndex, true);
             RefreshDynamicGatesImpl();
-#ifdef _DEBUG
-            LogDebug("[EquipDevelop] bluePrintId dynamic gate key=%s flowIndex=%u "
-                     "(re-evaluated each R&D menu build)\n",
-                req.key.c_str(), flowIndex);
-#endif
         }
         else
         {
             for (const FieldValue& f : req.constFields)
             {
-                if (f.type == FieldValue::Type::String && f.name == "p05"
-                    && !f.stringValue.empty())
-                {
-                    const std::int32_t bpId = bluePrint::Register(f.stringValue.c_str());
-                    if (bpId <= 0)
-                    {
-                        Log("[EquipDevelop] key=%s: blueprint '%s' could not be allocated - "
-                            "the row is left permanently visible instead of blueprint-gated\n",
-                            req.key.c_str(), f.stringValue.c_str());
-                        break;
-                    }
-                    RegisterBluePrintGate(flowIndex, f.stringValue);
-                    outfit::SetDevelopHidden(flowIndex, !bluePrint::Has(bpId));
-                    break;
-                }
-                if (f.type == FieldValue::Type::Number && f.name == "p05")
-                {
-                    const std::int32_t slot = bluePrint::SlotFromPublicId(f.numberValue);
-                    if (slot <= 0)
-                        break;
-
-                    const std::string key = bluePrint::KeyFromSlot(slot);
-                    if (key.empty())
-                    {
-                        Log("[EquipDevelop] key=%s: bluePrintId %d is a custom id with no "
-                            "registered key this session - the row is left permanently visible "
-                            "instead of blueprint-gated\n",
-                            req.key.c_str(), f.numberValue);
-                        break;
-                    }
-
-                    RegisterBluePrintGate(flowIndex, key);
-                    outfit::SetDevelopHidden(flowIndex, !bluePrint::Has(slot));
-                    break;
-                }
-                if (f.type == FieldValue::Type::Boolean && f.name == "p05")
+                if (f.name != "p05")
+                    continue;
+                if (f.type == FieldValue::Type::Boolean)
                 {
                     outfit::SetDevelopHidden(flowIndex, !f.boolValue);
-#ifdef _DEBUG
-                    LogDebug("[EquipDevelop] bluePrintId gate key=%s flowIndex=%u -> %s\n",
-                        req.key.c_str(), flowIndex,
-                        f.boolValue ? "VISIBLE" : "HIDDEN");
-#endif
-                    break;
+                    outfit::NoteStaticDevelopHidden(developId, !f.boolValue);
                 }
+                else if (IsBluePrintKeyField(f))
+                {
+                    RegisterBluePrintRequirement(req.key, f, flowIndex, developId);
+                }
+                break;
             }
         }
 
@@ -2419,13 +2303,6 @@ namespace
 
             if (!CanInjectRowsNow_NoLock())
             {
-                static std::atomic<bool> s_StallLogged{ false };
-                if (!g_PendingRequests.empty()
-                    && !s_StallLogged.exchange(true,
-                                               std::memory_order_relaxed))
-                    LogDebug("[EquipDevelop] %zu pending develop registration(s) "
-                             "held: no injectable row yet (native table populating "
-                             "or no room below the custom band)\n", g_PendingRequests.size());
                 return;
             }
 
@@ -2450,9 +2327,15 @@ namespace
                 return developed;
             });
         if (developedCount > 102)
-            Log("[EquipDevelop] WARNING: %zu DEVELOPED custom items exceed the "
-                "102-slot record band - the overflow pages and loses equip-list "
-                "visibility while parked\n", developedCount);
+        {
+            static bool s_warned = false;
+            if (!s_warned)
+            {
+                s_warned = true;
+                LogWarn("EquipDevelop: %zu developed custom items exceed the 102-slot band, overflow hidden while parked",
+                    developedCount);
+            }
+        }
 
         {
             std::vector<int> weaponEquipIds;
@@ -2516,26 +2399,6 @@ namespace
             g_AnyPendingReg.store(leftover != 0, std::memory_order_relaxed);
             g_IsFlushingPending = false;
         }
-
-        static std::atomic<std::size_t> s_LeftoverLogged{ 0 };
-        if (leftover == 0)
-        {
-            s_LeftoverLogged.store(0, std::memory_order_relaxed);
-        }
-        else if (s_LeftoverLogged.exchange(leftover,
-                                           std::memory_order_relaxed)
-                 != leftover)
-        {
-            std::uint16_t firstEmpty = 0xFFFF;
-            void* controller = EquipDevelop_ResolveDevelopController();
-            if (!controller
-                || !FindFirstEmptyRecordIndex(controller, firstEmpty))
-                firstEmpty = 0xFFFF;
-            LogDebug("[EquipDevelop] %zu develop registration(s) still pending "
-                     "after a flush (first empty row %u; 0xFFFF = none) - they "
-                     "retry on later registrations and menu opens\n",
-                leftover, firstEmpty);
-        }
     }
 
     static void __fastcall hkRegCstDev(lua_State* L)
@@ -2572,6 +2435,7 @@ namespace
         if (g_OrigRegCstDev)
             g_OrigRegCstDev(L);
         equip::InvalidateDevelopLookupIndex();
+        outfit::NoteDevelopRowsMoved();
 
         FlushPendingRegistrations(L);
     }
@@ -2609,15 +2473,6 @@ namespace
                     && !uniquedefaultoutfit::IsRegisteringFobAllowedRow())
                 {
                     SetIntField(L, 1, "p74", 0);
-#ifdef _DEBUG
-                    static int s_fobLog = 0;
-                    if (s_fobLog < 8)
-                    {
-                        ++s_fobLog;
-                        LogDebug("[EquipDevelop] hkRegFlwDev: forced isFobAvailable=0 "
-                            "(p74) on managed flow row flowIndex=%d\n", flowIndex);
-                    }
-#endif
                 }
             }
         }
@@ -2641,6 +2496,7 @@ namespace
             for (std::size_t i = 0; i < kDevelopRecordStride; ++i)
                 rec[i] = 0;
             equip::InvalidateDevelopLookupIndex();
+            outfit::NoteDevelopRowsMoved();
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -2720,7 +2576,16 @@ namespace
             else
                 ++it;
         }
-        g_AnyDynamicGate.store(!g_DynamicGates.empty());
+        for (auto it = g_BluePrintGates.begin(); it != g_BluePrintGates.end();)
+        {
+            if (it->flowIndex == flowIndex)
+                it = g_BluePrintGates.erase(it);
+            else
+                ++it;
+        }
+        equip::SetCustomBluePrintRow(flowIndex, 0);
+        g_AnyDynamicGate.store(!g_DynamicGates.empty() || !g_BluePrintGates.empty());
+        g_AnyBluePrintGate.store(!g_BluePrintGates.empty());
     }
 
     static void ForgetCustomRootMembership(std::uint32_t developId)
@@ -2749,9 +2614,11 @@ namespace EquipDevelopAdd
 
         if (!ReadKeyAndPayload(L, key, constFields, flowFields, hasDynamicGate))
         {
-            LogDebug("[EquipDevelop] Invalid AddToEquipDevelopTable call\n");
+            LogWarn("AddToEquipDevelopTable: invalid call, expects (key, { const = {...}, flow = {...} })");
             return 0;
         }
+
+        DropInvalidBluePrintId(key, constFields);
 
         std::uint16_t developId = 0;
         std::uint16_t flowIndex = 0;
@@ -2765,8 +2632,7 @@ namespace EquipDevelopAdd
                 && dev32 > 0 && dev32 <= static_cast<std::int32_t>(kMaxAllocId);
             if (!haveDev)
             {
-                Log("[EquipDevelop] Failed to reserve ids for key=%s\n",
-                    key.c_str());
+                LogError("AddToEquipDevelopTable '%s': no develop id reserved, not registered", key.c_str());
                 return 0;
             }
             {
@@ -2779,13 +2645,10 @@ namespace EquipDevelopAdd
                 g_AnyParkedKeys.store(true, std::memory_order_relaxed);
             }
             V_FrameWorkState::ReleaseSessionFlowIndex(key.c_str());
-            RequestRotationIfBandHasRoom();
+            RequestRotationIfBandHasRoom(false);
             PublishSummaryDisplay(
                 static_cast<std::uint16_t>(dev32), constFields);
-            if (g_MenuCapRefusalLogged.insert(key).second)
-                LogDebug("[EquipDevelop] PARKED key=%s (developId %d): no free "
-                         "develop record slot - pages in on later menu opens\n",
-                    key.c_str(), dev32);
+            LogInfo("AddToEquipDevelopTable %s developId:%d", key.c_str(), dev32);
             g_Deps.PushLuaNumber(L, static_cast<float>(dev32));
             return 1;
         }
@@ -2813,6 +2676,8 @@ namespace EquipDevelopAdd
 
         FlushPendingRegistrations(L);
 
+        if (created)
+            LogInfo("AddToEquipDevelopTable %s developId:%u", key.c_str(), static_cast<unsigned>(developId));
         g_Deps.PushLuaNumber(L, static_cast<float>(developId));
         return 1;
     }
@@ -2821,6 +2686,22 @@ namespace EquipDevelopAdd
     {
         std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
         return g_ParkedDevelopIds.find(developId) != g_ParkedDevelopIds.end();
+    }
+
+    bool IsDevelopKeyParked(const char* key)
+    {
+        if (!key || !key[0])
+            return false;
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+        return g_ParkedKeys.find(key) != g_ParkedKeys.end();
+    }
+
+    bool HasDevelopRequest(const char* key)
+    {
+        if (!key || !key[0])
+            return false;
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+        return g_RequestByKey.find(key) != g_RequestByKey.end();
     }
 
     struct SwapScope
@@ -2832,9 +2713,15 @@ namespace EquipDevelopAdd
     static bool HasResidentChildren_NoLock(std::uint32_t developId);
 
     static bool SwapDevelopRowCore(
-        lua_State* L, const std::string& outKey, const std::string& inKey)
+        lua_State* L, const std::string& outKey, const std::string& inKey,
+        DevelopInjectRefusal* refusal = nullptr, bool* outSideFault = nullptr)
     {
         SwapScope _swapScope;
+        if (refusal)
+            *refusal = DevelopInjectRefusal::None;
+        if (outSideFault)
+            *outSideFault = false;
+        auto blameOut = [&]() { if (outSideFault) *outSideFault = true; };
         std::uint16_t outDev = 0, outIdx = 0;
         PendingDevelopRequest inReq;
         PendingDevelopRequest outReq;
@@ -2844,30 +2731,23 @@ namespace EquipDevelopAdd
             auto itOut = g_KeyRegistry.find(outKey);
             if (itOut == g_KeyRegistry.end() || itOut->second.flowIndex == 0)
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow refused: outKey=%s does not "
-                    "own a live develop row.\n", outKey.c_str());
+                blameOut();
                 return false;
             }
             if (g_GradeByDevelopId.find(itOut->second.developId)
                 == g_GradeByDevelopId.end())
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow refused: outKey=%s has a "
-                         "reserved slot but no materialized record\n", outKey.c_str());
+                blameOut();
                 return false;
             }
             auto itIn = g_KeyRegistry.find(inKey);
             if (itIn != g_KeyRegistry.end() && itIn->second.flowIndex != 0)
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow refused: inKey=%s already "
-                    "owns a live develop row.\n", inKey.c_str());
                 return false;
             }
             auto itReq = g_RequestByKey.find(inKey);
             if (itReq == g_RequestByKey.end())
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow refused: inKey=%s has no "
-                         "retained registration (it must call "
-                         "AddToEquipDevelopTable this session)\n", inKey.c_str());
                 return false;
             }
             outDev = itOut->second.developId;
@@ -2887,8 +2767,6 @@ namespace EquipDevelopAdd
                 inDev32) ||
             inDev32 <= 0 || inDev32 > static_cast<std::int32_t>(kMaxAllocId))
         {
-            LogDebug("[EquipDevelop] SwapDevelopRow refused: could not resolve a "
-                "developId for inKey=%s.\n", inKey.c_str());
             return false;
         }
         const std::uint16_t inDev = static_cast<std::uint16_t>(inDev32);
@@ -2896,8 +2774,8 @@ namespace EquipDevelopAdd
         void* controller = EquipDevelop_ResolveDevelopController();
         if (!controller)
         {
-            LogDebug("[EquipDevelop] SwapDevelopRow refused: develop controller not "
-                "resolved (game not booted?).\n");
+            if (refusal)
+                *refusal = DevelopInjectRefusal::NotReady;
             return false;
         }
 
@@ -2905,10 +2783,6 @@ namespace EquipDevelopAdd
             std::uint16_t trueIdx = 0;
             if (!FindRecordIndexByDevelopId(controller, outDev, trueIdx))
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow: outKey=%s (developId %u) "
-                         "is marked live at row %u but has no record in the band - "
-                         "healed to parked\n",
-                    outKey.c_str(), outDev, outIdx);
                 RemoveDynamicGatesForFlowIndex(outIdx);
                 ForgetCustomRootMembership(outDev);
                 {
@@ -2926,22 +2800,18 @@ namespace EquipDevelopAdd
                 EquipDevelop_SetDevelopParent(outDev, 0);
                 outfit::SetOutfitFlowIndexByDevelopId(outDev, 0);
                 V_FrameWorkState::ReleaseSessionFlowIndex(outKey.c_str());
+                blameOut();
                 return false;
             }
             if (trueIdx != outIdx)
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow: outKey=%s record sits at "
-                    "row %u (bookkeeping said %u) - using the real row.\n",
-                    outKey.c_str(), trueIdx, outIdx);
                 outIdx = trueIdx;
             }
         }
 
         if (EquipDevelop_IsDevelopTimerActive(outIdx))
         {
-            LogDebug("[EquipDevelop] SwapDevelopRow refused: a development is in "
-                     "flight on outKey=%s (flow row %u) - finish or cancel it "
-                     "first\n", outKey.c_str(), outIdx);
+            blameOut();
             return false;
         }
 
@@ -2949,17 +2819,15 @@ namespace EquipDevelopAdd
             std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
             if (HasResidentChildren_NoLock(outDev))
             {
-                LogDebug("[EquipDevelop] SwapDevelopRow refused: outKey=%s "
-                         "(developId %u) still has live chain members - page those "
-                         "out first\n", outKey.c_str(), outDev);
+                blameOut();
                 return false;
             }
         }
 
         if (!ZeroDevelopRecord(controller, outIdx))
         {
-            Log("[EquipDevelop] SwapDevelopRow FAILED: fault while clearing "
-                "record %u - nothing changed.\n", outIdx);
+            LogWarn("EquipDevelop: develop record %u clear faulted, row swap skipped", static_cast<unsigned>(outIdx));
+            blameOut();
             return false;
         }
 
@@ -2982,11 +2850,13 @@ namespace EquipDevelopAdd
         EquipDevelop_SetDevelopParent(outDev, 0);
         outfit::SetOutfitFlowIndexByDevelopId(outDev, 0);
 
-        if (!InjectDevelopPairWithIds(L, inReq, inDev, outIdx))
+        DevelopInjectRefusal inWhy = DevelopInjectRefusal::None;
+        if (!InjectDevelopPairWithIds(L, inReq, inDev, outIdx, &inWhy))
         {
-            Log("[EquipDevelop] SwapDevelopRow: inKey=%s injection failed - "
-                "rolling the slot back to outKey=%s.\n",
-                inKey.c_str(), outKey.c_str());
+            if (refusal)
+                *refusal = inWhy;
+            LogWarn("AddToEquipDevelopTable '%s': not paged in, %s; row given back to '%s'",
+                inKey.c_str(), DevelopInjectRefusalText(inWhy), outKey.c_str());
             {
                 std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
                 g_KeyRegistry[inKey] = DevelopKeyIds{ inDev, 0 };
@@ -3012,9 +2882,8 @@ namespace EquipDevelopAdd
                 outfit::SetOutfitFlowIndexByDevelopId(outDev, outIdx);
             }
             else
-                LogDebug("[EquipDevelop] SwapDevelopRow CRITICAL: slot %u is now "
-                         "EMPTY mid-band - custom rows above it stay hidden until "
-                         "restart\n", outIdx);
+                LogError("EquipDevelop: develop row %u left empty mid-band, custom rows above it hidden until restart",
+                    static_cast<unsigned>(outIdx));
             return false;
         }
 
@@ -3022,11 +2891,9 @@ namespace EquipDevelopAdd
             std::uint16_t landed = 0;
             if (ReadRecordDevelopId(controller, outIdx, landed)
                 && landed != inDev)
-                LogDebug("[EquipDevelop] SwapDevelopRow CRITICAL: slot %u holds "
-                         "developId %u after injecting %u - the const registration "
-                         "landed elsewhere (an empty record exists below %u); "
-                         "restart before developing\n",
-                    outIdx, landed, inDev, outIdx);
+                LogError("EquipDevelop: develop row %u holds developId %u after injecting %u, restart before developing",
+                    static_cast<unsigned>(outIdx), static_cast<unsigned>(landed),
+                    static_cast<unsigned>(inDev));
         }
 
         V_FrameWorkState::ReleaseSessionFlowIndex(outKey.c_str());
@@ -3043,16 +2910,15 @@ namespace EquipDevelopAdd
                                   std::memory_order_relaxed);
         }
 
-        LogDebug("[EquipDevelop] SwapDevelopRow: flow row %u now holds key=%s "
-            "(developId %u); key=%s (developId %u) parked.\n",
-            outIdx, inKey.c_str(), inDev, outKey.c_str(), outDev);
-
         return true;
     }
 
-    static bool DirectMaterializeCore(lua_State* L, const std::string& inKey)
+    static bool DirectMaterializeCore(lua_State* L, const std::string& inKey,
+                                      DevelopInjectRefusal* refusal = nullptr)
     {
         SwapScope _swapScope;
+        if (refusal)
+            *refusal = DevelopInjectRefusal::None;
         PendingDevelopRequest inReq;
         {
             std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
@@ -3067,11 +2933,24 @@ namespace EquipDevelopAdd
 
         void* controller = EquipDevelop_ResolveDevelopController();
         if (!controller)
+        {
+            if (refusal)
+                *refusal = DevelopInjectRefusal::NotReady;
             return false;
+        }
         std::uint16_t freeIdx = 0;
-        if (!FindFirstEmptyRecordIndex(controller, freeIdx)
-            || freeIdx < kVanillaDevelopRowCount)
+        if (!FindFirstEmptyRecordIndex(controller, freeIdx))
+        {
+            if (refusal)
+                *refusal = DevelopInjectRefusal::BandFull;
             return false;
+        }
+        if (freeIdx < kVanillaDevelopRowCount)
+        {
+            if (refusal)
+                *refusal = DevelopInjectRefusal::VanillaBandPopulating;
+            return false;
+        }
 
         std::int32_t inDev32 = 0;
         if (!V_FrameWorkState::ResolveOrCreateDevelopId(
@@ -3088,7 +2967,7 @@ namespace EquipDevelopAdd
         }
 
         std::uint16_t idx = freeIdx;
-        if (!InjectDevelopPairWithIds(L, inReq, inDev, idx))
+        if (!InjectDevelopPairWithIds(L, inReq, inDev, idx, refusal))
         {
             {
                 std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
@@ -3107,9 +2986,6 @@ namespace EquipDevelopAdd
             g_AnyParkedKeys.store(!g_ParkedKeys.empty(),
                                   std::memory_order_relaxed);
         }
-
-        LogDebug("[EquipDevelop] develop row materialized into free slot %u: "
-            "key=%s (developId %u).\n", idx, inKey.c_str(), inDev);
 
         return true;
     }
@@ -3177,18 +3053,132 @@ namespace EquipDevelopAdd
         return cur;
     }
 
-    static void RotateDevelopWindow(lua_State* L)
+    static void NoteStuckParkedKey(const std::string& key, DevelopInjectRefusal why)
+    {
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+            auto it = g_StuckParkLogged.find(key);
+            if (it != g_StuckParkLogged.end() && it->second == why)
+                return;
+            g_StuckParkLogged[key] = why;
+        }
+        LogWarn("AddToEquipDevelopTable '%s': kept out of the R&D menu, %s", key.c_str(), DevelopInjectRefusalText(why));
+    }
+
+    static void RememberSwapRefusal_NoLock(const std::string& key,
+                                           DevelopInjectRefusal why, int tab,
+                                           std::uint32_t familyRoot,
+                                           std::uint32_t parentDev)
+    {
+        if (why == DevelopInjectRefusal::None || why == DevelopInjectRefusal::BandFull)
+            return;
+        g_SwapRefusalByKey[key] = RememberedRefusal{ why, tab, familyRoot, parentDev };
+    }
+
+    static bool RefusalStillHolds_NoLock(const RememberedRefusal& r)
+    {
+        switch (r.why)
+        {
+        case DevelopInjectRefusal::TabRootCap:
+            return g_NativeRootsByType[r.tab]
+                + static_cast<int>(g_CustomRootsByType[r.tab].size()) + 1
+                > kMenuRootRenderCap;
+        case DevelopInjectRefusal::TabRowCap:
+            return static_cast<int>(TabRenderRows_NoLock(r.tab).size())
+                >= kMenuRootRenderCap;
+        case DevelopInjectRefusal::NotReady:
+        case DevelopInjectRefusal::VanillaBandPopulating:
+        case DevelopInjectRefusal::ParentNotReady:
+        case DevelopInjectRefusal::RecordLost:
+            return false;
+        default:
+            return true;
+        }
+    }
+
+    static bool RefusalBlocksCandidate_NoLock(const std::string& key,
+                                              std::uint32_t familyRoot,
+                                              std::uint32_t parentDev,
+                                              int requestedOrdinal)
+    {
+        auto own = g_SwapRefusalByKey.find(key);
+        if (own != g_SwapRefusalByKey.end())
+        {
+            if (!RefusalStillHolds_NoLock(own->second))
+                g_SwapRefusalByKey.erase(own);
+            else if (!SwapCanClearRefusal(own->second.why))
+                return true;
+        }
+        for (const auto& kv : g_SwapRefusalByKey)
+        {
+            if (kv.first == key)
+                continue;
+            if (kv.second.why == DevelopInjectRefusal::ParentAtMaxGrade
+                && parentDev != 0 && kv.second.parentDev == parentDev)
+                return true;
+            if (kv.second.why == DevelopInjectRefusal::FamilyMemberCap
+                && familyRoot != 0 && kv.second.familyRoot == familyRoot)
+                return true;
+            if (kv.second.why == DevelopInjectRefusal::BranchCap
+                && requestedOrdinal >= 1
+                && parentDev != 0 && kv.second.parentDev == parentDev)
+                return true;
+        }
+        return false;
+    }
+
+    static void ForgetRefusalsLiftedBy_NoLock(std::uint32_t familyRoot,
+                                              std::uint32_t outDev)
+    {
+        for (auto it = g_SwapRefusalByKey.begin(); it != g_SwapRefusalByKey.end(); )
+        {
+            bool lifted = false;
+            switch (it->second.why)
+            {
+            case DevelopInjectRefusal::TabRootCap:
+            case DevelopInjectRefusal::TabRowCap:
+                break;
+            case DevelopInjectRefusal::ParentAtMaxGrade:
+                lifted = outDev != 0 && it->second.parentDev == outDev;
+                break;
+            default:
+                lifted = familyRoot != 0 && it->second.familyRoot == familyRoot;
+                break;
+            }
+            if (lifted)
+                it = g_SwapRefusalByKey.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    static void RotateDevelopWindow(lua_State* L, bool directFillOnly)
     {
         V_FrameWorkState::SaveBatch _batch;
 
+        std::uint32_t wornHeadDev = 0;
+        {
+            std::uint16_t wornSlot = outfit::ReadLiveWornHeadCategory();
+            if (wornSlot < outfit::kCustomHeadSlotBase || wornSlot > 0xFF)
+                wornSlot = outfit::GetWornCustomHeadSlot();
+            if (wornSlot >= outfit::kCustomHeadSlotBase && wornSlot <= 0xFF)
+                if (const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(
+                        static_cast<std::uint8_t>(wornSlot)))
+                    wornHeadDev = head->developId;
+        }
+
         int swapped = 0;
+        int directFilled = 0;
         std::size_t parkedLeft = 0;
         std::uint32_t stickyInRoot = 0;
-        std::unordered_set<std::string> rotatedIn, rotatedOut;
+        std::unordered_set<std::string> rotatedIn, rotatedOut, skippedIn, failedOut;
         for (int i = 0; i < kMaxSwapsPerRotation; ++i)
         {
             std::string inKey, outKey;
             int inType = 0;
+            std::uint32_t inParent = 0;
+            std::uint32_t outRoot = 0;
+            std::uint32_t outDev = 0;
             std::unordered_set<std::uint32_t> readyRoots;
             {
                 std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
@@ -3225,7 +3215,7 @@ namespace EquipDevelopAdd
                     if (itFail != g_RotateFailCount.end()
                         && itFail->second >= kMaxRotateFailsPerKey)
                         continue;
-                    if (rotatedOut.count(k))
+                    if (rotatedOut.count(k) || skippedIn.count(k))
                         continue;
                     auto itReq = g_RequestByKey.find(k);
                     if (itReq == g_RequestByKey.end())
@@ -3242,6 +3232,15 @@ namespace EquipDevelopAdd
                     c.side  = RequestFlowNumber(itReq->second, "p51");
                     c.grade = RequestFlowNumber(itReq->second, "p52");
                     c.devType = RequestConstNumber(itReq->second, "p02");
+                    {
+                        const std::int32_t base =
+                            RequestConstNumber(itReq->second, "p03");
+                        if (RefusalBlocksCandidate_NoLock(
+                                k, c.root,
+                                base > 0 ? static_cast<std::uint32_t>(base) : 0u,
+                                c.side))
+                            continue;
+                    }
                     c.developed = V_FrameWorkState::GetDevelopedByDevelopId(
                         static_cast<std::int32_t>(itDev->second));
                     auto itOut = g_PageOutStamp.find(k);
@@ -3300,21 +3299,67 @@ namespace EquipDevelopAdd
                 {
                     auto itSel = g_RequestByKey.find(inKey);
                     if (itSel != g_RequestByKey.end())
+                    {
                         inType = RequestConstNumber(itSel->second, "p02");
+                        const std::int32_t base =
+                            RequestConstNumber(itSel->second, "p03");
+                        inParent = base > 0 ? static_cast<std::uint32_t>(base) : 0u;
+                    }
                 }
                 for (const InCand& c : ready)
                     readyRoots.insert(c.root);
             }
 
-            if (DirectMaterializeCore(L, inKey))
+            DevelopInjectRefusal directWhy = DevelopInjectRefusal::None;
+            if (DirectMaterializeCore(L, inKey, &directWhy))
             {
                 rotatedIn.insert(inKey);
                 {
                     std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
                     g_PageInStamp[inKey] = ++g_PageStampCounter;
                     g_RotateFailCount.erase(inKey);
+                    g_SwapRefusalByKey.erase(inKey);
+                    g_StuckParkLogged.erase(inKey);
                 }
                 ++swapped;
+                ++directFilled;
+                continue;
+            }
+
+            if (directWhy == DevelopInjectRefusal::NotReady
+                || directWhy == DevelopInjectRefusal::VanillaBandPopulating)
+                break;
+            if (directFillOnly && directWhy == DevelopInjectRefusal::BandFull)
+                break;
+
+            DevelopInjectRefusal need = directWhy;
+            bool informed = need != DevelopInjectRefusal::BandFull;
+            {
+                std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+                if (need == DevelopInjectRefusal::BandFull)
+                {
+                    auto itPrev = g_SwapRefusalByKey.find(inKey);
+                    if (itPrev != g_SwapRefusalByKey.end())
+                    {
+                        need = itPrev->second.why;
+                        informed = true;
+                    }
+                }
+                else
+                {
+                    RememberSwapRefusal_NoLock(inKey, need, inType, stickyInRoot,
+                                               inParent);
+                }
+            }
+            if (directFillOnly)
+            {
+                skippedIn.insert(inKey);
+                continue;
+            }
+            if (!SwapCanClearRefusal(need))
+            {
+                NoteStuckParkedKey(inKey, need);
+                skippedIn.insert(inKey);
                 continue;
             }
 
@@ -3339,6 +3384,7 @@ namespace EquipDevelopAdd
                 struct OutCand
                 {
                     std::string key;
+                    std::uint32_t developId = 0;
                     int side = 0, grade = 0;
                     bool pinned = false;
                     bool developed = false;
@@ -3353,6 +3399,8 @@ namespace EquipDevelopAdd
                     if (outfit::shadow::Get(s, &sh) && sh.developId != 0)
                         wornDevs.insert(sh.developId);
                 }
+                if (wornHeadDev != 0)
+                    wornDevs.insert(wornHeadDev);
 
                 std::unordered_map<std::uint64_t, int> rowOccupancy;
                 std::vector<std::pair<std::uint32_t, OutCand>> residents;
@@ -3371,6 +3419,7 @@ namespace EquipDevelopAdd
                         continue;
                     OutCand c;
                     c.key = kv.first;
+                    c.developId = dev;
                     auto itG = g_GradeByDevelopId.find(dev);
                     auto itS = g_SideByDevelopId.find(dev);
                     c.grade = (itG != g_GradeByDevelopId.end()) ? itG->second : 0;
@@ -3435,7 +3484,8 @@ namespace EquipDevelopAdd
                 std::vector<std::pair<std::uint32_t, const OutCand*>> pools[16];
                 for (const auto& kv : tipByRoot)
                 {
-                    if (kv.second.pinned || kv.first == stickyInRoot)
+                    if (kv.second.pinned || kv.first == stickyInRoot
+                        || failedOut.count(kv.second.key))
                         continue;
                     auto itOcc = rowOccupancy.find(kv.second.rowKey);
                     const bool freesRow =
@@ -3443,6 +3493,12 @@ namespace EquipDevelopAdd
                         && nativeRowKeys.count(kv.second.rowKey) == 0;
                     const bool prot = readyRoots.count(kv.first) != 0;
                     const bool sameTab = (kv.second.devType == inType);
+                    if (need == DevelopInjectRefusal::TabRootCap
+                        && !(sameTab && kv.first == kv.second.developId))
+                        continue;
+                    if (need == DevelopInjectRefusal::TabRowCap
+                        && !(sameTab && freesRow))
+                        continue;
                     const int poolIdx =
                         (sameTab ? 0 : 8)
                         + (kv.second.developed ? 0 : 4)
@@ -3466,18 +3522,48 @@ namespace EquipDevelopAdd
                                 return a.second->inStamp < b.second->inStamp;
                             return a.first > b.first;
                         });
-                    outKey =
-                        (*pool)[g_RotateOutCursor++ % pool->size()].second->key;
+                    const auto& chosen =
+                        (*pool)[g_RotateOutCursor++ % pool->size()];
+                    outKey  = chosen.second->key;
+                    outRoot = chosen.first;
+                    outDev  = chosen.second->developId;
                     haveOut = true;
                 }
             }
             if (!haveOut)
-                break;
-
-            if (!SwapDevelopRowCore(L, outKey, inKey))
             {
+                if (need == DevelopInjectRefusal::TabRootCap
+                    || need == DevelopInjectRefusal::TabRowCap)
+                {
+                    NoteStuckParkedKey(inKey, need);
+                    skippedIn.insert(inKey);
+                    continue;
+                }
+                break;
+            }
+
+            DevelopInjectRefusal swapWhy = DevelopInjectRefusal::None;
+            bool outFault = false;
+            if (!SwapDevelopRowCore(L, outKey, inKey, &swapWhy, &outFault))
+            {
+                if (swapWhy == DevelopInjectRefusal::NotReady
+                    || swapWhy == DevelopInjectRefusal::VanillaBandPopulating)
+                    break;
                 std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
-                ++g_RotateFailCount[inKey];
+                if (outFault)
+                {
+                    failedOut.insert(outKey);
+                    continue;
+                }
+                if (swapWhy == DevelopInjectRefusal::None || informed)
+                    ++g_RotateFailCount[inKey];
+                RememberSwapRefusal_NoLock(inKey, swapWhy, inType, stickyInRoot,
+                                           inParent);
+                auto itFail = g_RotateFailCount.find(inKey);
+                if (!SwapCanClearRefusal(swapWhy)
+                    || (itFail != g_RotateFailCount.end()
+                        && itFail->second >= kMaxRotateFailsPerKey))
+                    skippedIn.insert(inKey);
                 continue;
             }
             rotatedIn.insert(inKey);
@@ -3487,6 +3573,9 @@ namespace EquipDevelopAdd
                 g_PageInStamp[inKey]   = ++g_PageStampCounter;
                 g_PageOutStamp[outKey] = ++g_PageStampCounter;
                 g_RotateFailCount.erase(inKey);
+                g_SwapRefusalByKey.erase(inKey);
+                g_StuckParkLogged.erase(inKey);
+                ForgetRefusalsLiftedBy_NoLock(outRoot, outDev);
             }
             ++swapped;
         }
@@ -3501,31 +3590,9 @@ namespace EquipDevelopAdd
         if (swapped)
         {
             outfit::InvalidateEquipVisibilityCache();
-            LogDebug("[EquipDevelop] develop-window rotation: paged %d row(s) in "
-                     "(%zu key(s) still parked)\n", swapped, parkedLeft);
-            void* controller = EquipDevelop_ResolveDevelopController();
-            if (controller)
-            {
-                std::string map;
-                map.reserve(1200);
-                char buf[24];
-                for (std::uint32_t i = 922; i < equip::NativeFlowBound(); ++i)
-                {
-                    if (equip::IsReservedFlowRow(i))
-                        continue;
-                    std::uint16_t dev = 0;
-                    if (!ReadRecordDevelopId(
-                            controller, static_cast<std::uint16_t>(i), dev)
-                        || dev == 0)
-                        break;
-                    std::snprintf(buf, sizeof(buf), "%u=%u ", i, dev);
-                    map += buf;
-                }
-                LogDebug("[EquipDevelop] band after rotation: %s\n", map.c_str());
-            }
         }
-        if (swapped && parkedLeft != 0)
-            RequestRotationIfBandHasRoom();
+        if (directFilled && parkedLeft != 0)
+            RequestRotationIfBandHasRoom(true);
     }
 
     static void TryRunPendingRotation()
@@ -3545,8 +3612,10 @@ namespace EquipDevelopAdd
         if (!L || !EnsureLuaReady())
             return;
         g_RotateRequested.store(false, std::memory_order_relaxed);
+        const bool fullRotation =
+            g_FullRotateRequested.exchange(false, std::memory_order_acquire);
         g_RotationInProgress.store(true, std::memory_order_relaxed);
-        RotateDevelopWindow(L);
+        RotateDevelopWindow(L, !fullRotation);
         g_RotationInProgress.store(false, std::memory_order_relaxed);
     }
 
@@ -3561,14 +3630,8 @@ namespace EquipDevelopAdd
         g_LastVisPredicateTick = now;
         if (last != 0 && (now - last) < kMenuOpenGapMs)
             return;
+        g_FullRotateRequested.store(true, std::memory_order_release);
         g_RotateRequested.store(true, std::memory_order_release);
-        const unsigned long luaTid = V_FrameWork_LuaOwnerThreadId();
-        if (luaTid != 0 && GetCurrentThreadId() != luaTid
-            && !g_RotateDeferLogged.exchange(true))
-            LogDebug("[EquipDevelop] develop-window rotation requested off the Lua "
-                     "thread (menu tid %lu, Lua owner %lu) - deferred to the "
-                     "game-thread pump\n",
-                GetCurrentThreadId(), luaTid);
         TryRunPendingRotation();
     }
 
@@ -3590,6 +3653,8 @@ namespace EquipDevelopAdd
     void PumpDevelopMenuWork()
     {
         equip::SyncDevelopFlagsWithSave();
+        if (g_AnyBluePrintGate.load(std::memory_order_relaxed))
+            bluePrint::KeepReservedDataBaseBits();
         if (g_RotateRequested.load(std::memory_order_relaxed))
             TryRunPendingRotation();
         if (g_GateRefreshRequested.load(std::memory_order_relaxed))
@@ -3658,9 +3723,7 @@ namespace EquipDevelopAdd
         bool          created    = false;
         if (!GetOrCreateIdsForKey(key, developId, flowIndex, created))
         {
-            Log("[EquipDevelop] '%s' could not reserve a develop id, so its row "
-                "stays out of the pending queue and the item never reaches the "
-                "develop table\n", key);
+            LogError("EquipDevelop: '%s' no develop id reserved, row never reaches the R&D menu", key);
             return false;
         }
 
@@ -3708,10 +3771,38 @@ namespace EquipDevelopAdd
         }
         const DWORD now = GetTickCount();
         if (now - g_LastGateRefreshTick < kGateRefreshThrottleMs)
+        {
+            g_GateRefreshRequested.store(true, std::memory_order_release);
             return;
+        }
         g_LastGateRefreshTick = now;
         g_GateRefreshRequested.store(false, std::memory_order_relaxed);
         RefreshDynamicGatesImpl();
+    }
+
+    bool IsGatedFlowIndex(std::uint16_t flowIndex)
+    {
+        if (flowIndex == 0)
+            return false;
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+        for (const DynamicGate& gt : g_DynamicGates)
+            if (gt.flowIndex == flowIndex)
+                return true;
+        return false;
+    }
+
+    std::int32_t BluePrintIdForFlowIndex(std::uint16_t flowIndex, std::uint16_t developId)
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+        for (const BluePrintGate& gt : g_BluePrintGates)
+            if (gt.flowIndex == flowIndex && gt.developId == developId)
+                return gt.bluePrintPublicId;
+        return 0;
+    }
+
+    void RequestDynamicGateRefresh()
+    {
+        g_GateRefreshRequested.store(true, std::memory_order_release);
     }
 
     bool GetDevelopNameLangId(std::int32_t developId,
@@ -3755,7 +3846,7 @@ namespace EquipDevelopAdd
 
         if (!regCstTarget || !regFlwTarget)
         {
-            Log("[EquipDevelop] Failed to resolve RegCstDev / RegFlwDev\n");
+            LogError("EquipDevelop: RegCstDev/RegFlwDev address missing, AddToEquipDevelopTable off");
             return false;
         }
 
@@ -3766,7 +3857,7 @@ namespace EquipDevelopAdd
                 reinterpret_cast<void*>(&hkRegCstDev),
                 reinterpret_cast<void**>(&g_OrigRegCstDev)))
             {
-                Log("[EquipDevelop] Failed to hook RegCstDev\n");
+                LogError("EquipDevelop: RegCstDev hook failed, AddToEquipDevelopTable off");
                 return false;
             }
 
@@ -3780,7 +3871,7 @@ namespace EquipDevelopAdd
                 reinterpret_cast<void*>(&hkRegFlwDev),
                 reinterpret_cast<void**>(&g_OrigRegFlwDev)))
             {
-                Log("[EquipDevelop] Failed to hook RegFlwDev\n");
+                LogError("EquipDevelop: RegFlwDev hook failed, AddToEquipDevelopTable off");
                 return false;
             }
 

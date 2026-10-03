@@ -354,10 +354,10 @@ bool Install_EnemyLangIdOverride_Hooks()
     void* binoTarget = ResolveGameAddress(gAddr.TppUIBinoSubjectiveImpl_GetEnemyUnitName);
 
     if (!mapTarget)
-        Log("[Hook] EnemyLangId Map: address resolve failed\n");
+        LogError("EnemyLangId: map address missing, map name override off");
 
     if (!binoTarget)
-        Log("[Hook] EnemyLangId Bino: address resolve failed\n");
+        LogError("EnemyLangId: binoculars address missing, binoculars name override off");
 
     bool okMap = false;
     bool okBino = false;
@@ -368,12 +368,8 @@ bool Install_EnemyLangIdOverride_Hooks()
             mapTarget,
             reinterpret_cast<void*>(&hkGetEnemyInformationLangId),
             reinterpret_cast<void**>(&g_OrigGetEnemyInformationLangId));
-#ifdef _DEBUG
-        Log("[Hook] EnemyLangId Map: %s\n", okMap ? "OK" : "FAIL");
-#else
         if (!okMap)
-            Log("[Hook] EnemyLangId Map: %s\n", okMap ? "OK" : "FAIL");
-#endif
+            LogError("EnemyLangId: map hook failed, map name override off");
     }
 
     if (binoTarget)
@@ -382,12 +378,8 @@ bool Install_EnemyLangIdOverride_Hooks()
             binoTarget,
             reinterpret_cast<void*>(&hkGetEnemyUnitName),
             reinterpret_cast<void**>(&g_OrigGetEnemyUnitName));
-#ifdef _DEBUG
-        Log("[Hook] EnemyLangId Bino: %s\n", okBino ? "OK" : "FAIL");
-#else
         if (!okBino)
-            Log("[Hook] EnemyLangId Bino: %s\n", okBino ? "OK" : "FAIL");
-#endif
+            LogError("EnemyLangId: binoculars hook failed, binoculars name override off");
     }
 
     return okMap || okBino;

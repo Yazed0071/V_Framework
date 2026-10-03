@@ -150,9 +150,8 @@ bool Register_CustomRadioCassette(
 
     if (g_Entries.size() >= kMaxCustomRadioCassette)
     {
-        LogDebug("[RadioCassette] register refused: %zu cassettes reached the "
-            "int16 save-index ceiling (%zu)\n",
-            g_Entries.size(), kMaxCustomRadioCassette);
+        LogWarn("RegisterRadioCassette 0x%08X: limit of %zu cassettes reached, not registered",
+                gimmickNameHash, kMaxCustomRadioCassette);
         return false;
     }
 
@@ -433,8 +432,7 @@ bool Install_CustomRadioCassette_Hooks()
 
     if (!searchTarget || !musicTarget)
     {
-        Log("[RadioCassette] ERROR: core addresses unavailable for this build (search=%p music=%p) - custom radio cassettes are disabled.\n",
-            searchTarget, musicTarget);
+        LogError("RadioCassette: core addresses missing for this build, custom radio cassettes off");
         return false;
     }
 
@@ -454,11 +452,11 @@ bool Install_CustomRadioCassette_Hooks()
                 saveIdxTarget,
                 reinterpret_cast<void*>(&hkGetCassetteSaveIndex),
                 reinterpret_cast<void**>(&g_OrigGetCassetteSaveIndex)))
-            Log("[RadioCassette] ERROR: failed to hook GetCassetteSaveIndex - custom radio cassettes may stay silent.\n");
+            LogError("RadioCassette: GetCassetteSaveIndex hook failed, custom radio cassettes may stay silent");
     }
     else
     {
-        Log("[RadioCassette] ERROR: GetCassetteSaveIndex address unavailable for this build - custom radio cassettes may stay silent.\n");
+        LogError("RadioCassette: GetCassetteSaveIndex address missing for this build, custom radio cassettes may stay silent");
     }
 
     if (isGotTarget)
@@ -467,17 +465,16 @@ bool Install_CustomRadioCassette_Hooks()
                 isGotTarget,
                 reinterpret_cast<void*>(&hkIsGotCassette),
                 reinterpret_cast<void**>(&g_OrigIsGotCassette)))
-            Log("[RadioCassette] ERROR: failed to hook IsGotCassette - custom radio cassettes may stay silent.\n");
+            LogError("RadioCassette: IsGotCassette hook failed, custom radio cassettes may stay silent");
     }
 
     void* postTarget = ResolveGameAddress(gAddr.RadioCassette_SdPostEvent);
     if (postTarget)
     {
-        if (!CreateAndEnableHook(
-                postTarget,
-                reinterpret_cast<void*>(&hkSdPostEvent),
-                reinterpret_cast<void**>(&g_OrigSdPostEvent)))
-            Log("[RadioCassette] WARN: failed to hook SdPostEvent (diagnostic only) - no functional impact on custom radio cassettes.\n");
+        CreateAndEnableHook(
+            postTarget,
+            reinterpret_cast<void*>(&hkSdPostEvent),
+            reinterpret_cast<void**>(&g_OrigSdPostEvent));
     }
 
     void* radioUpdateTarget = ResolveGameAddress(gAddr.RadioCassette_RadioUpdate);
@@ -487,11 +484,11 @@ bool Install_CustomRadioCassette_Hooks()
                 radioUpdateTarget,
                 reinterpret_cast<void*>(&hkRadioUpdate),
                 reinterpret_cast<void**>(&g_OrigRadioUpdate)))
-            Log("[RadioCassette] ERROR: failed to hook radio Update - custom radio cassettes will not be ownership-gated.\n");
+            LogError("RadioCassette: radio Update hook failed, custom radio cassettes not ownership-gated");
     }
     else
     {
-        Log("[RadioCassette] ERROR: radio Update address unavailable for this build - custom radio cassettes will not be ownership-gated.\n");
+        LogError("RadioCassette: radio Update address missing for this build, custom radio cassettes not ownership-gated");
     }
 
     void* sameSaveIdxTarget = ResolveGameAddress(gAddr.RadioCassette_IsSameSaveIndexFromName);
@@ -501,20 +498,20 @@ bool Install_CustomRadioCassette_Hooks()
                 sameSaveIdxTarget,
                 reinterpret_cast<void*>(&hkIsSameSaveIndexFromName),
                 reinterpret_cast<void**>(&g_OrigIsSameSaveIndexFromName)))
-            Log("[RadioCassette] ERROR: failed to hook IsSameSaveIndexFromName - taking a custom radio cassette will not work.\n");
+            LogError("RadioCassette: IsSameSaveIndexFromName hook failed, custom radio cassettes cannot be taken");
     }
     else
     {
-        Log("[RadioCassette] ERROR: IsSameSaveIndexFromName address unavailable for this build - taking a custom radio cassette will not work.\n");
+        LogError("RadioCassette: IsSameSaveIndexFromName address missing for this build, custom radio cassettes cannot be taken");
     }
 
     g_ActivateRadioUnit = reinterpret_cast<RadioActivateUnit_t>(
         ResolveGameAddress(gAddr.RadioCassette_ActivateUnit));
     if (!g_ActivateRadioUnit)
-        Log("[RadioCassette] WARN: activate-unit address unavailable for this build - custom radio cassettes will not auto-play.\n");
+        LogError("RadioCassette: activate-unit address missing for this build, custom radio cassettes will not auto-play");
 
     if (!ok)
-        Log("[RadioCassette] ERROR: one or more core radio-cassette hooks failed - custom radio cassettes are disabled.\n");
+        LogError("RadioCassette: core hooks failed, custom radio cassettes off");
     return ok;
 }
 

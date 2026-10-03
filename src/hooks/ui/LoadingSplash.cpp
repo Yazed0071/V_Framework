@@ -57,16 +57,6 @@ namespace
         if (blurTex != 0 && blurNode)
             g_SetTextureName(blurNode, blurTex, SLOT_MAIN_TEXTURE, 2);
 
-        if (mainTex != 0 || blurTex != 0)
-            LogDebug("[LoadingSplash] mission %u -> main %016llX blur %016llX%s (main node %p blur node %p)\n",
-                     mission,
-                     static_cast<unsigned long long>(mainTex),
-                     static_cast<unsigned long long>(blurTex),
-                     force ? " (splash init)" : " (changed during load)",
-                     mainNode, blurNode);
-        else if (force)
-            LogDebug("[LoadingSplash] splash init for mission %u - no override set, vanilla textures kept\n", mission);
-
         g_AppliedSelf = self;
         g_AppliedMain = mainTex;
         g_AppliedBlur = blurTex;
@@ -91,9 +81,8 @@ namespace
 void LoadingSplash_SetMainTexture(uint64_t textureHash, uint32_t missionCode)
 {
     g_MainTextures.Set(missionCode, textureHash);
-    LogDebug("[LoadingSplash] set main texture %016llX for mission %u%s\n",
-             static_cast<unsigned long long>(textureHash), missionCode,
-             textureHash == 0 ? " (hash is zero - the path did not hash)" : "");
+    if (textureHash == 0)
+        LogWarn("SetLoadingSplashMainTexturePath: path hashed to 0 (mission %u), vanilla texture used", missionCode);
 }
 
 void LoadingSplash_ClearMainTexture(uint32_t missionCode)
@@ -104,9 +93,8 @@ void LoadingSplash_ClearMainTexture(uint32_t missionCode)
 void LoadingSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
 {
     g_BlurTextures.Set(missionCode, textureHash);
-    LogDebug("[LoadingSplash] set blur texture %016llX for mission %u%s\n",
-             static_cast<unsigned long long>(textureHash), missionCode,
-             textureHash == 0 ? " (hash is zero - the path did not hash)" : "");
+    if (textureHash == 0)
+        LogWarn("SetLoadingSplashBlurTexturePath: path hashed to 0 (mission %u), vanilla texture used", missionCode);
 }
 
 void LoadingSplash_ClearBlurTexture(uint32_t missionCode)
@@ -118,7 +106,6 @@ void LoadingSplash_ClearTextures(uint32_t missionCode)
 {
     g_MainTextures.Clear(missionCode);
     g_BlurTextures.Clear(missionCode);
-    LogDebug("[LoadingSplash] cleared textures for mission %u\n", missionCode);
 }
 
 
@@ -143,12 +130,8 @@ bool Install_LoadingSplash_Hook()
                 reinterpret_cast<void**>(&g_OrigTips));
     }
 
-#ifdef _DEBUG
-    Log("[Hook] LoadingSplash: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] LoadingSplash: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("LoadingSplash: splash hook failed, custom loading textures off");
     return ok;
 }
 

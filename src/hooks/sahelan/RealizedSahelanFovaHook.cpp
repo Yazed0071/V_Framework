@@ -83,8 +83,8 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            LogDebug("[SahelanFova] ApplyFovaWithHash: exception (self=%p, param2=%u, hash=0x%016llX)\n",
-                self, param2, static_cast<unsigned long long>(hash));
+            LogWarn("SahelanFova: applying fova 0x%016llX faulted, fova not applied",
+                static_cast<unsigned long long>(hash));
         }
     }
 
@@ -135,8 +135,7 @@ bool Install_RealizedSahelanFova_Hook()
 
     if (!setFovaTarget || !realizeTarget)
     {
-        Log("[Hook] RealizedSahelanFova: target resolve failed (SetFovaImpl=%p, Realize=%p)\n",
-            setFovaTarget, realizeTarget);
+        LogError("SahelanFova: address missing, fova override off");
         return false;
     }
 
@@ -150,11 +149,8 @@ bool Install_RealizedSahelanFova_Hook()
         reinterpret_cast<void*>(&hkRealize),
         reinterpret_cast<void**>(&g_OrigRealize));
 
-#ifdef _DEBUG
-    Log("[Hook] RealizedSahelanFova: SetFovaImpl=%s (target=%p), Realize=%s (target=%p)\n",
-        okSetFova ? "OK" : "FAIL", setFovaTarget,
-        okRealize ? "OK" : "FAIL", realizeTarget);
-#endif
+    if (!okSetFova || !okRealize)
+        LogError("SahelanFova: hook failed, fova override off");
 
     return okSetFova && okRealize;
 }
@@ -165,10 +161,6 @@ bool Uninstall_RealizedSahelanFova_Hook()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.RealizedSahelan2Impl_Realize));
     g_OrigSetFovaImpl = nullptr;
     g_OrigRealize = nullptr;
-
-#ifdef _DEBUG
-    LogDebug("[Hook] RealizedSahelanFova: removed\n");
-#endif
     return true;
 }
 
@@ -179,19 +171,13 @@ void Set_SahelanFovaHash(std::uint64_t hash)
 
     if (hash != 0)
         g_BypassMissionCheck.store(true, std::memory_order_relaxed);
-
-#ifdef _DEBUG
-    LogDebug("[SahelanFova] hash override set to 0x%016llX (bypassMission=%s)\n",
-        static_cast<unsigned long long>(hash),
-        g_BypassMissionCheck.load() ? "ON" : "OFF");
-#endif
 }
 
 void Set_SahelanFovaPath(const char* path)
 {
     if (!path || !*path)
     {
-        LogDebug("[SahelanFova] SetSahelanFovaPath: ignoring empty path\n");
+        LogWarn("SetSahelanFova: fv2 missing or empty, ignored");
         return;
     }
 
@@ -205,10 +191,6 @@ void Clear_SahelanFovaOverride()
     g_OverrideFovaHash.store(0, std::memory_order_relaxed);
     g_HasFovaOverride.store(false, std::memory_order_relaxed);
     g_BypassMissionCheck.store(false, std::memory_order_relaxed);
-
-#ifdef _DEBUG
-    LogDebug("[SahelanFova] override cleared (vanilla restored)\n");
-#endif
 }
 
 std::uint64_t Get_SahelanFovaHash()

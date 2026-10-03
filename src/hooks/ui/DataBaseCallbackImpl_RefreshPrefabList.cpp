@@ -298,11 +298,8 @@ namespace
                 if (!g_NameMissingLogged)
                 {
                     g_NameMissingLogged = true;
-                    Log("[BluePrint] no langDocName was registered for blueprint dataBaseId %u, so "
-                        "its DATABASE row stays '???' even once owned - call "
-                        "V_TppMotherBaseManagement.SetDataBaseDisplay{ dataBaseId = %u, "
-                        "langDocName = \"<langId>\" }\n",
-                        static_cast<unsigned>(id), static_cast<unsigned>(id));
+                    LogWarn("BluePrint: dataBaseId %u has no langDocName (SetDataBaseDisplay), "
+                        "DATABASE row shows '???'", static_cast<unsigned>(id));
                 }
             }
             else if (SetRowNameSeh(self, doc.nameHash))
@@ -312,9 +309,8 @@ namespace
             else if (!g_NameSetFailedLogged)
             {
                 g_NameSetFailedLogged = true;
-                Log("[BluePrint] the DATABASE name node was unreachable for dataBaseId %u, so its "
-                    "row stays '???' - the row-record layout differs on this build\n",
-                    static_cast<unsigned>(id));
+                LogWarn("BluePrint: DATABASE name node unreachable for dataBaseId %u, row "
+                    "shows '???'", static_cast<unsigned>(id));
             }
         }
 
@@ -332,9 +328,8 @@ namespace
             if (!SetRowIconSeh(self, doc.iconHash) && !g_IconSetFailedLogged)
             {
                 g_IconSetFailedLogged = true;
-                Log("[BluePrint] the DATABASE icon node was unreachable for dataBaseId %u, so its "
-                    "row keeps the '?' icon - the row-record layout differs on this build\n",
-                    static_cast<unsigned>(id));
+                LogWarn("BluePrint: DATABASE icon node unreachable for dataBaseId %u, row "
+                    "keeps '?' icon", static_cast<unsigned>(id));
             }
             return;
         }
@@ -479,8 +474,8 @@ namespace
         if (!SetInfoTextSeh(self, doc.infoHash) && !g_InfoLayoutFailedLogged)
         {
             g_InfoLayoutFailedLogged = true;
-            Log("[BluePrint] the DATABASE description node was unreachable, so the detail panel "
-                "keeps '???' for custom blueprints - the screen layout differs on this build\n");
+            LogWarn("BluePrint: DATABASE description node unreachable, custom detail text "
+                "shows '???'");
         }
     }
 
@@ -504,8 +499,8 @@ namespace
         if (!SetImageIconSeh(self, rec, imageHash) && !g_ImageIconFailedLogged)
         {
             g_ImageIconFailedLogged = true;
-            Log("[BluePrint] the DATABASE detail image node was unreachable, so the panel keeps "
-                "the '?' icon for custom blueprints - the record layout differs on this build\n");
+            LogWarn("BluePrint: DATABASE detail image node unreachable, custom detail "
+                "image shows '?'");
         }
     }
 
@@ -550,9 +545,8 @@ namespace
         if (added < ids.size() && !g_CapacityLogged)
         {
             g_CapacityLogged = true;
-            Log("[BluePrint] only %zu of %zu custom blueprint row(s) fit DATABASE tab %u "
-                "(it holds %zu rows total), so the rest are missing from that tab\n",
-                added, ids.size(), static_cast<unsigned>(tab), kRowsCapacity);
+            LogWarn("BluePrint: only %zu of %zu custom rows fit DATABASE tab %u (%zu max), "
+                "rest hidden", added, ids.size(), static_cast<unsigned>(tab), kRowsCapacity);
         }
     }
 
@@ -566,8 +560,8 @@ namespace
             return true;
 
         *orig = nullptr;
-        Log("[BluePrint] ERROR: the DATABASE %s hook was refused at %p - custom blueprint rows "
-            "keep the vanilla default there\n", what, target);
+        LogError("BluePrint: DATABASE %s hook failed, custom blueprint rows keep the "
+            "vanilla default there", what);
         return false;
     }
 
@@ -594,8 +588,8 @@ bool Install_DataBaseBluePrintList_Hook()
                              reinterpret_cast<void**>(&g_Orig)))
     {
         g_Orig = nullptr;
-        Log("[BluePrint] ERROR: the DATABASE blueprint-list hook was refused at %p - custom "
-            "blueprints will not be listed under iDroid DATABASE\n", target);
+        LogError("BluePrint: DATABASE blueprint-list hook failed, custom blueprints not "
+            "listed");
         return false;
     }
 

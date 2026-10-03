@@ -11,11 +11,10 @@
 
 namespace
 {
-    constexpr std::size_t  kWeaponInfoReceiverType = 0xB9;
     constexpr std::size_t  kWeaponInfoFlags        = 0xCC;
-    constexpr unsigned int kFirstOwnedReceiverType = 48;
-    constexpr std::uint8_t kGunUseDescRoundsLeft   = 0x10;
+    constexpr std::uint8_t kGunUseDescCrouch       = 0x08;
     constexpr std::size_t  kGunUseDescHoldType     = 2;
+    constexpr int          kHoldTypeTwoHand        = 0;
     constexpr int          kHoldTypeOneHand        = 1;
     constexpr int          kHoldTypeCqc            = 2;
     constexpr int          kHoldTypeHorse          = 3;
@@ -41,6 +40,7 @@ namespace
     MotionSelector_t       g_OrigGetHandgunOneHandMotionId          = nullptr;
     MotionSelector_t       g_OrigGetSubMachinegunOneHandMotionId    = nullptr;
     MotionSelector_t       g_OrigGetStepReloadHandgunOneHandMotionId = nullptr;
+    MotionSelector_t       g_OrigGetStepReloadHandgunMotionId       = nullptr;
     PrepareGrip_t          g_OrigResetMissionPrepareGripMotion      = nullptr;
     MotionSelector_t       g_OrigTwoHandTable[11]                   = {};
     std::vector<void*>     g_HookedTargets;
@@ -82,16 +82,10 @@ namespace
         }
     }
 
-    unsigned int OwnedReceiverType(const void* weaponInfo)
-    {
-        const int t = weaponInfo ? ReadByteSEH(weaponInfo, kWeaponInfoReceiverType) : -1;
-        return (t >= static_cast<int>(kFirstOwnedReceiverType)) ? static_cast<unsigned int>(t) : 0;
-    }
-
-    bool RoundsLeft(const void* gunUseMotionDesc)
+    std::uint8_t DescFlags(const void* gunUseMotionDesc)
     {
         const int b = gunUseMotionDesc ? ReadByteSEH(gunUseMotionDesc, 0) : 0;
-        return b > 0 && (b & kGunUseDescRoundsLeft) != 0;
+        return b < 0 ? 0 : static_cast<std::uint8_t>(b);
     }
 
     int HoldType(const void* gunUseMotionDesc)
@@ -102,7 +96,15 @@ namespace
 
     int OneHandVariant(const void* gunUseMotionDesc)
     {
-        return HoldType(gunUseMotionDesc) == kHoldTypeCqc ? kReceiverVariantOneHandCqc : kReceiverVariantOneHand;
+        if (HoldType(gunUseMotionDesc) == kHoldTypeCqc)
+            return kReceiverVariantOneHandCqc;
+        return (DescFlags(gunUseMotionDesc) & kGunUseDescCrouch) ? kReceiverVariantOneHandCrouch
+                                                                 : kReceiverVariantOneHand;
+    }
+
+    int OneHandOrHorseVariant(const void* gunUseMotionDesc)
+    {
+        return HoldType(gunUseMotionDesc) == kHoldTypeHorse ? kReceiverVariantHorse : OneHandVariant(gunUseMotionDesc);
     }
 
     int VariantFor(const void* weaponInfo, const void* gunUseMotionDesc)
@@ -116,33 +118,36 @@ namespace
             return OneHandVariant(gunUseMotionDesc);
         if (ReadU32SEH(weaponInfo, kWeaponInfoFlags) & kFlagsOneHand)
             return OneHandVariant(gunUseMotionDesc);
+        if (hold == kHoldTypeTwoHand && (DescFlags(gunUseMotionDesc) & kGunUseDescCrouch))
+            return kReceiverVariantCrouch;
         return kReceiverVariantTwoHand;
+    }
+
+    int TwoHandTableVariant(const void* weaponInfo, const void* gunUseMotionDesc)
+    {
+        const int variant = VariantFor(weaponInfo, gunUseMotionDesc);
+        return variant == kVariantVanilla ? kReceiverVariantTwoHand : variant;
     }
 
     std::uint64_t __fastcall hkGetGunMotionIdFromTable(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned)
+        const int variant = VariantFor(weaponInfo, desc);
+        if (variant != kVariantVanilla)
         {
-            const int variant = VariantFor(weaponInfo, desc);
-            if (variant != kVariantVanilla)
-            {
-                const std::uint64_t clip =
-                    ReceiverMotion_PlayerClipVariant(owned, variant, gunUseMotionType, RoundsLeft(desc));
-                if (clip)
-                    return clip;
-            }
+            const std::uint64_t clip =
+                ReceiverMotion_PlayerClip(weaponInfo, variant, gunUseMotionType, DescFlags(desc));
+            if (clip)
+                return clip;
         }
         return g_OrigGetGunMotionIdFromTable(gunUseMotionType, weaponInfo, desc);
     }
 
     std::uint64_t __fastcall hkGetEquipMotionIdFromTable(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned && gunUseMotionType >= 0 && gunUseMotionType <= 4)
+        if (gunUseMotionType >= 0 && gunUseMotionType <= 4)
         {
             const std::uint64_t clip =
-                ReceiverMotion_WeaponClip(owned, gunUseMotionType, RoundsLeft(desc));
+                ReceiverMotion_WeaponClip(weaponInfo, gunUseMotionType, DescFlags(desc));
             if (clip)
                 return clip;
         }
@@ -151,8 +156,7 @@ namespace
 
     std::uint64_t TwoHandGrip(void* weaponInfo)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        return owned ? ReceiverMotion_PlayerClip(owned, kReceiverMotionGrip, true) : 0;
+        return ReceiverMotion_PlayerClip(weaponInfo, kReceiverVariantTwoHand, kReceiverMotionGrip, 0);
     }
 
     std::uint64_t __fastcall hkGetNormalGripMotionId(int gripType, void* weaponInfo, void* desc)
@@ -164,17 +168,13 @@ namespace
 
     std::uint64_t __fastcall hkGetNormalMagazineGripMotionId(void* weaponInfo)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned)
-        {
-            std::uint64_t clip = 0;
-            if (ReadU32SEH(weaponInfo, kWeaponInfoFlags) & kFlagsDualMagazine)
-                clip = ReceiverMotion_PlayerClip(owned, kReceiverMotionMagazineGripDual, true);
-            if (!clip)
-                clip = ReceiverMotion_PlayerClip(owned, kReceiverMotionMagazineGrip, true);
-            if (clip)
-                return clip;
-        }
+        std::uint64_t clip = 0;
+        if (ReadU32SEH(weaponInfo, kWeaponInfoFlags) & kFlagsDualMagazine)
+            clip = ReceiverMotion_PlayerClip(weaponInfo, kReceiverVariantTwoHand, kReceiverMotionMagazineGripDual, 0);
+        if (!clip)
+            clip = ReceiverMotion_PlayerClip(weaponInfo, kReceiverVariantTwoHand, kReceiverMotionMagazineGrip, 0);
+        if (clip)
+            return clip;
         return g_OrigGetNormalMagazineGripMotionId(weaponInfo);
     }
 
@@ -188,68 +188,65 @@ namespace
 
     std::uint64_t __fastcall hkGetAssaultUnderBarrelGripMotionId(int gripType, void* weaponInfo, void* desc)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned)
-        {
-            const std::uint64_t clip = ReceiverMotion_PlayerClip(owned, kReceiverMotionUnderBarrelGrip, true);
-            if (clip)
-                return clip;
-        }
+        const std::uint64_t clip =
+            ReceiverMotion_PlayerClip(weaponInfo, kReceiverVariantTwoHand, kReceiverMotionUnderBarrelGrip, 0);
+        if (clip)
+            return clip;
         return g_OrigGetAssaultUnderBarrelGripMotionId(gripType, weaponInfo, desc);
     }
 
     std::uint64_t __fastcall hkGetHandgunOneHandGripMotionId(int gripType, void* weaponInfo, void* desc)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned)
-        {
-            const std::uint64_t clip =
-                ReceiverMotion_PlayerClipVariant(owned, OneHandVariant(desc), kReceiverMotionGrip, true);
-            if (clip)
-                return clip;
-        }
+        const std::uint64_t clip =
+            ReceiverMotion_PlayerClip(weaponInfo, OneHandVariant(desc), kReceiverMotionGrip, 0);
+        if (clip)
+            return clip;
         return g_OrigGetHandgunOneHandGripMotionId(gripType, weaponInfo, desc);
-    }
-
-    std::uint64_t OneHandClip(void* weaponInfo, void* desc, int gunUseMotionType, bool roundsLeft)
-    {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (!owned)
-            return 0;
-        return ReceiverMotion_PlayerClipVariant(owned, OneHandVariant(desc), gunUseMotionType, roundsLeft);
     }
 
     std::uint64_t __fastcall hkGetHandgunOneHandMotionId(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        if (const std::uint64_t clip = OneHandClip(weaponInfo, desc, gunUseMotionType, RoundsLeft(desc)))
+        const std::uint64_t clip =
+            ReceiverMotion_PlayerClip(weaponInfo, OneHandVariant(desc), gunUseMotionType, DescFlags(desc));
+        if (clip)
             return clip;
         return g_OrigGetHandgunOneHandMotionId(gunUseMotionType, weaponInfo, desc);
     }
 
     std::uint64_t __fastcall hkGetSubMachinegunOneHandMotionId(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        if (const std::uint64_t clip = OneHandClip(weaponInfo, desc, gunUseMotionType, RoundsLeft(desc)))
+        const std::uint64_t clip =
+            ReceiverMotion_PlayerClip(weaponInfo, OneHandVariant(desc), gunUseMotionType, DescFlags(desc));
+        if (clip)
             return clip;
         return g_OrigGetSubMachinegunOneHandMotionId(gunUseMotionType, weaponInfo, desc);
     }
 
     std::uint64_t __fastcall hkGetStepReloadHandgunOneHandMotionId(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        if (const std::uint64_t clip = OneHandClip(weaponInfo, desc, kReceiverMotionStepReload, true))
+        const std::uint64_t clip =
+            ReceiverMotion_PlayerClip(weaponInfo, OneHandOrHorseVariant(desc), gunUseMotionType, DescFlags(desc));
+        if (clip)
             return clip;
         return g_OrigGetStepReloadHandgunOneHandMotionId(gunUseMotionType, weaponInfo, desc);
+    }
+
+    std::uint64_t __fastcall hkGetStepReloadHandgunMotionId(int gunUseMotionType, void* weaponInfo, void* desc)
+    {
+        const std::uint64_t clip = ReceiverMotion_PlayerClip(
+            weaponInfo, TwoHandTableVariant(weaponInfo, desc), gunUseMotionType, DescFlags(desc));
+        if (clip)
+            return clip;
+        return g_OrigGetStepReloadHandgunMotionId(gunUseMotionType, weaponInfo, desc);
     }
 
     template <int N>
     std::uint64_t __fastcall hkTwoHandTable(int gunUseMotionType, void* weaponInfo, void* desc)
     {
-        const unsigned int owned = OwnedReceiverType(weaponInfo);
-        if (owned)
-        {
-            const std::uint64_t clip = ReceiverMotion_PlayerClip(owned, gunUseMotionType, RoundsLeft(desc));
-            if (clip)
-                return clip;
-        }
+        const std::uint64_t clip = ReceiverMotion_PlayerClip(
+            weaponInfo, TwoHandTableVariant(weaponInfo, desc), gunUseMotionType, DescFlags(desc));
+        if (clip)
+            return clip;
         return g_OrigTwoHandTable[N](gunUseMotionType, weaponInfo, desc);
     }
 
@@ -259,11 +256,10 @@ namespace
         g_OrigResetMissionPrepareGripMotion(self, work, playerIndex, adjust, restoreDefault);
         if (restoreDefault || !work)
             return;
-        const unsigned int owned = OwnedReceiverType(work + kWorkWeaponInfo);
-        if (!owned || !(ReadU32SEH(work, kWorkFlags) & kFlagsOneHand))
+        if (!(ReadU32SEH(work, kWorkFlags) & kFlagsOneHand))
             return;
-        const std::uint64_t clip =
-            ReceiverMotion_PlayerClipVariant(owned, kReceiverVariantOneHand, kReceiverMotionGrip, true);
+        const std::uint64_t clip = ReceiverMotion_PlayerClip(
+            work + kWorkWeaponInfo, kReceiverVariantOneHand, kReceiverMotionGrip, 0);
         if (clip)
             WriteU64SEH(work, kWorkGripSlot, clip);
     }
@@ -278,8 +274,7 @@ namespace
             g_HookedTargets.push_back(target);
             return true;
         }
-        Log("[ReceiverMotion] ERROR: %s hook failed at %p - no-donor receivers get no "
-            "clips from that selector\n", what, target);
+        LogError("ReceiverMotion: %s hook failed, SetReceiverMotion clips from it play vanilla", what);
         return false;
     }
 }
@@ -332,6 +327,8 @@ bool Install_GetGunMotionIdFromTable_Hook()
           reinterpret_cast<void**>(&g_OrigGetSubMachinegunOneHandMotionId), "GetSubMachinegunOneHandMotionId" },
         { gAddr.AttackAction_GetStepReloadHandgunOneHandMotionId, &hkGetStepReloadHandgunOneHandMotionId,
           reinterpret_cast<void**>(&g_OrigGetStepReloadHandgunOneHandMotionId), "GetStepReloadHandgunOneHandMotionId" },
+        { gAddr.AttackAction_GetStepReloadHandgunMotionId, &hkGetStepReloadHandgunMotionId,
+          reinterpret_cast<void**>(&g_OrigGetStepReloadHandgunMotionId), "GetStepReloadHandgunMotionId" },
         { gAddr.AttackAction_ResetMissionPrepareGripMotion, &hkResetMissionPrepareGripMotion,
           reinterpret_cast<void**>(&g_OrigResetMissionPrepareGripMotion), "ResetMissionPrepareGripMotion" },
         { gAddr.AttackAction_GetNormalMotionIdByCategory, &hkTwoHandTable<0>,
@@ -380,6 +377,7 @@ void Uninstall_GetGunMotionIdFromTable_Hook()
     g_OrigGetHandgunOneHandMotionId = nullptr;
     g_OrigGetSubMachinegunOneHandMotionId = nullptr;
     g_OrigGetStepReloadHandgunOneHandMotionId = nullptr;
+    g_OrigGetStepReloadHandgunMotionId = nullptr;
     g_OrigResetMissionPrepareGripMotion = nullptr;
     for (MotionSelector_t& o : g_OrigTwoHandTable)
         o = nullptr;

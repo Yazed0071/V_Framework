@@ -347,54 +347,11 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
                     const std::uint32_t voiceParam = ResolveCallSignVoiceParam(*family, callSign);
                     if (voiceParam != 0)
                     {
-#ifdef _DEBUG
-                        char clipName[16] = {};
-                        BuildCallSignClipName(*family, callSign, clipName, sizeof(clipName));
-
-                        std::uint32_t vanillaVoiceParam = 0;
-                        if (g_OrigGetVoiceParamWithCallSign)
-                            vanillaVoiceParam = static_cast<std::uint32_t>(
-                                g_OrigGetVoiceParamWithCallSign(self, ownerIndex) & 0xFFFFFFFFu);
-
-                        LogDebug("[SoldierCallSign] APPLIED callSign %u -> clip %s (0x%08X) on soldier "
-                            "0x%04X, line wildcard 0x%08X, rawCallSign %u; vanilla would have played "
-                            "0x%08X\n",
-                            static_cast<unsigned>(callSign),
-                            clipName,
-                            voiceParam,
-                            static_cast<unsigned>(0x0400u | resolvedSoldierIndex),
-                            baseVoiceParam,
-                            static_cast<unsigned>(entry58.rawCallSign0A),
-                            vanillaVoiceParam);
-#endif
                         return static_cast<std::uint64_t>(voiceParam);
                     }
                 }
             }
         }
-#ifdef _DEBUG
-        else
-        {
-            CallSignOwnerEntry58 skipped{};
-            if (TryReadCallSignOwnerEntry58(self, ownerIndex, skipped))
-            {
-                const std::uint16_t skippedIndex =
-                    NormalizeSoldierIndexFromOwnerEntry(skipped.soldierIndex0C);
-
-                bool isRegistered = false;
-                if (skippedIndex != 0xFFFFu)
-                {
-                    std::lock_guard<std::mutex> lock(g_CallSignMutex);
-                    isRegistered = g_SoldierCallSigns.find(skippedIndex) != g_SoldierCallSigns.end();
-                }
-
-                if (isRegistered)
-                    LogDebug("[SoldierCallSign] SKIPPED soldier 0x%04X: line wildcard 0x%08X carries no "
-                        "call sign clips, so it keeps its vanilla voice\n",
-                        static_cast<unsigned>(0x0400u | skippedIndex), baseVoiceParam);
-            }
-        }
-#endif
     }
 
     const std::uint64_t finalVoiceParam =
@@ -413,15 +370,14 @@ void Set_SoldierCallSign(std::uint32_t gameObjectId, std::uint8_t callSign)
 
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[SoldierCallSign] Set ignored: invalid GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("SetRadioCallSign 0x%08X: not a soldier, ignored", gameObjectId);
         return;
     }
 
     if (callSign < kMinCallSign || callSign > kMaxCallSign)
     {
-        Log("[SoldierCallSign] ERROR: SetRadioCallSign could not apply callSign %u to game object 0x%08X "
-            "- valid call signs are %u to %u, so that soldier keeps its vanilla call sign.\n",
-            static_cast<unsigned>(callSign), gameObjectId,
+        LogWarn("SetRadioCallSign 0x%08X: callSign %u not in %u-%u, vanilla call sign kept",
+            gameObjectId, static_cast<unsigned>(callSign),
             static_cast<unsigned>(kMinCallSign), static_cast<unsigned>(kMaxCallSign));
         return;
     }
@@ -430,9 +386,6 @@ void Set_SoldierCallSign(std::uint32_t gameObjectId, std::uint8_t callSign)
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_SoldierCallSigns[soldierIndex] = callSign;
     }
-
-    LogDebug("[SoldierCallSign] REGISTERED callSign %u for game object 0x%08X (soldier index %u)\n",
-        static_cast<unsigned>(callSign), gameObjectId, static_cast<unsigned>(soldierIndex));
 }
 
 
@@ -443,7 +396,7 @@ void Remove_SoldierCallSign(std::uint32_t gameObjectId)
 
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[SoldierCallSign] Remove ignored: invalid GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("SetRadioCallSign 0x%08X: not a soldier, ignored", gameObjectId);
         return;
     }
 
@@ -468,7 +421,7 @@ bool Install_SoldierCallSign_Hook()
     void* target = ResolveGameAddress(gAddr.GetVoiceParamWithCallSign);
     if (!target)
     {
-        Log("[Hook] SoldierCallSign: target resolve failed\n");
+        LogError("SoldierCallSign: address missing, radio call signs off");
         return false;
     }
 
@@ -477,12 +430,8 @@ bool Install_SoldierCallSign_Hook()
         reinterpret_cast<void*>(&hkGetVoiceParamWithCallSign),
         reinterpret_cast<void**>(&g_OrigGetVoiceParamWithCallSign));
 
-#ifdef _DEBUG
-    Log("[Hook] SoldierCallSign: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] SoldierCallSign: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("SoldierCallSign: hook failed, radio call signs off");
     return ok;
 }
 
@@ -496,9 +445,5 @@ bool Uninstall_SoldierCallSign_Hook()
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_SoldierCallSigns.clear();
     }
-
-#ifdef _DEBUG
-    LogDebug("[Hook] SoldierCallSign: removed\n");
-#endif
     return true;
 }

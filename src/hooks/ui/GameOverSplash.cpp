@@ -69,11 +69,6 @@ namespace
             if (node10) g_SetTextureName(node10, blurTex, SLOT_MAIN_TEXTURE, 2);
             if (node11) g_SetTextureName(node11, blurTex, SLOT_MAIN_TEXTURE, 2);
         }
-
-        LogDebug("[GameOverSplash] mission %u -> main %016llX blur %016llX\n",
-                 mission,
-                 static_cast<unsigned long long>(mainTex),
-                 static_cast<unsigned long long>(blurTex));
     }
 }
 
@@ -81,8 +76,6 @@ namespace
 void GameOverSplash_SetMainTexture(uint64_t textureHash, uint32_t missionCode)
 {
     g_MainTextures.Set(missionCode, textureHash);
-    LogDebug("[GameOverSplash] set main texture %016llX for mission %u\n",
-             static_cast<unsigned long long>(textureHash), missionCode);
 }
 
 void GameOverSplash_ClearMainTexture(uint32_t missionCode)
@@ -93,8 +86,6 @@ void GameOverSplash_ClearMainTexture(uint32_t missionCode)
 void GameOverSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
 {
     g_BlurTextures.Set(missionCode, textureHash);
-    LogDebug("[GameOverSplash] set blur texture %016llX for mission %u\n",
-             static_cast<unsigned long long>(textureHash), missionCode);
 }
 
 void GameOverSplash_ClearBlurTexture(uint32_t missionCode)
@@ -120,12 +111,8 @@ bool Install_GameOverSplash_Hook()
         reinterpret_cast<void*>(&hkGameOverSetVisible),
         reinterpret_cast<void**>(&g_OrigGameOverSetVisible));
 
-#ifdef _DEBUG
-    Log("[Hook] GameOverSplash: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] GameOverSplash: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("GameOverSplash: hook failed, custom game over textures off");
     return ok;
 }
 

@@ -13,7 +13,6 @@
 #include "OutfitRegistry.h"
 #include "UniqueCharacterPartsTypePin.h"
 
-#include <atomic>
 #include "log.h"
 
 namespace
@@ -34,6 +33,7 @@ namespace
     };
 
     static bool g_Applied = false;
+    static bool g_ApplyFailLogged = false;
 
     using SlotNum_t = std::uint32_t (__fastcall*)(void*);
     static SlotNum_t g_OrigSlotNum   = nullptr;
@@ -89,15 +89,6 @@ namespace
 
         if (offered) return ret;
 
-        static std::atomic<int> s_trimLogged{ 0 };
-        if (s_trimLogged.fetch_add(1, std::memory_order_relaxed) == 0)
-            LogDebug("[SuitSlot] player type %u wears partsType 0x%02X, which "
-                "offers no head option, so the slot list drops the empty HEAD "
-                "OPTION row (count %u -> %u) - the engine asks its own gate, "
-                "which answers for a vanilla suit id\n",
-                static_cast<unsigned>(livePT),
-                static_cast<unsigned>(parts),
-                kCountWithHeadOption, kCountWithoutHead);
         return kCountWithoutHead;
     }
 
@@ -108,8 +99,8 @@ namespace
         void* target = ResolveGameAddress(gAddr.CharaSlotSelectionNum);
         if (!target)
         {
-            LogDebug("[SuitSlot] no chara-slot-count address for this build - a "
-                     "suit with no head option keeps an empty HEAD OPTION row\n");
+            LogError("SuitSlot: CharaSlotSelectionNum address missing for this build, "
+                "Ocelot/Quiet slot list stays vanilla");
             return false;
         }
 
@@ -117,9 +108,8 @@ namespace
             reinterpret_cast<void*>(&hkCharaSlotSelectionNum),
             reinterpret_cast<void**>(&g_OrigSlotNum));
         if (!g_HookInstalled)
-            Log("[SuitSlot] chara-slot-count hook FAILED at %p - Ocelot and Quiet "
-                "keep an empty HEAD OPTION row whenever their suit offers none\n",
-                target);
+            LogError("SuitSlot: CharaSlotSelectionNum hook failed, Ocelot/Quiet slot "
+                "list stays vanilla");
         return g_HookInstalled;
     }
 
@@ -129,8 +119,12 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, len, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[SuitSlot] VirtualProtect failed at %p (err=%lu) - Ocelot and "
-                "Quiet keep a character-only slot list\n", target, GetLastError());
+            if (!g_ApplyFailLogged)
+            {
+                g_ApplyFailLogged = true;
+                LogWarn("SuitSlot: VirtualProtect failed at %p (err %lu), slot list "
+                    "unchanged", target, GetLastError());
+            }
             return false;
         }
 
@@ -149,17 +143,25 @@ namespace
         const std::uintptr_t rva = gAddr.CharaSlotSelectionNumGate;
         if (!rva)
         {
-            LogDebug("[SuitSlot] no address for this build - Ocelot and Quiet keep "
-                     "a character-only slot list, so no uniform row is reachable\n");
+            if (!g_ApplyFailLogged)
+            {
+                g_ApplyFailLogged = true;
+                LogError("SuitSlot: CharaSlotSelectionNumGate address missing for this "
+                    "build, Ocelot/Quiet keep character-only slot list");
+            }
             return false;
         }
 
         auto* base = static_cast<std::uint8_t*>(ResolveGameAddress(rva));
         if (!base)
         {
-            LogDebug("[SuitSlot] rva %llX could not be resolved - Ocelot and Quiet "
-                     "keep a character-only slot list\n",
-                static_cast<unsigned long long>(rva));
+            if (!g_ApplyFailLogged)
+            {
+                g_ApplyFailLogged = true;
+                LogError("SuitSlot: CharaSlotSelectionNumGate 0x%llX unresolved, "
+                    "Ocelot/Quiet keep character-only slot list",
+                    static_cast<unsigned long long>(rva));
+            }
             return false;
         }
 
@@ -169,9 +171,13 @@ namespace
             const std::uint8_t* expect = on ? kSites[i].original : kSites[i].patched;
             if (std::memcmp(site, expect, kPatchLen) != 0)
             {
-                LogDebug("[SuitSlot] found %02X %02X at %p instead of the expected "
-                         "run - refusing to write either site, so the slot list "
-                         "stays as it is\n", site[0], site[1], site);
+                if (!g_ApplyFailLogged)
+                {
+                    g_ApplyFailLogged = true;
+                    LogError("SuitSlot: unexpected bytes %02X %02X at %p, slot list "
+                        "unchanged", static_cast<unsigned>(site[0]),
+                        static_cast<unsigned>(site[1]), static_cast<void*>(site));
+                }
                 return false;
             }
         }
@@ -190,12 +196,6 @@ namespace
         }
 
         g_Applied = on;
-        LogDebug("[SuitSlot] character slot list %s at %p - Ocelot and Quiet %s\n",
-            on ? "widened" : "narrowed", base,
-            on ? "now get the uniform row (and the head-option row when the suit "
-                 "allows one); vanilla returns a count of 1 for player types 5 and "
-                 "6, so only the character row was ever reachable"
-               : "are back to a character-only list");
         return true;
     }
 }
@@ -211,12 +211,7 @@ void UniqueCharacterSuitSlot_EnforceMissionGuard()
 bool Install_UniqueCharacterSuitSlot()
 {
     if (!InstallSlotNumHook())
-    {
-        Log("[SuitSlot] the chara-slot-count hook did not install, so the slot "
-            "list is left as vanilla - widening it without the hook would give "
-            "Ocelot and Quiet a permanently empty HEAD OPTION row\n");
         return true;
-    }
     if (MissionCodeGuard::ShouldBypassHooks()) return true;
     Apply(true);
     return true;
@@ -226,9 +221,7 @@ void Uninstall_UniqueCharacterSuitSlot()
 {
     if (!Apply(false))
     {
-        Log("[SuitSlot] the widening NOPs could not be reverted, so the "
-            "chara-slot-count hook stays installed - removing it would leave the "
-            "list widened with nothing left to trim the empty HEAD OPTION row\n");
+        LogWarn("SuitSlot: widening NOPs not reverted, chara-slot-count hook kept");
         return;
     }
     if (g_HookInstalled)

@@ -5,61 +5,243 @@ extern "C" {
     #include "lauxlib.h"
 }
 
+#include <cmath>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
 #include <string>
 
 #include "LuaApi.h"
 #include "V_TppSoldierFaceLib.h"
 #include "log.h"
-#include "FoxHashes.h"
+#include "AddressSet.h"
+#include "HookUtils.h"
+#include "MissionCodeGuard.h"
 #include "../hooks/outfit/CustomFaceTable.h"
 #include "../hooks/outfit/FaceIdRegistry.h"
+#include "../hooks/outfit/StaffControllerImpl_AddStaff.h"
 
 namespace
 {
+    using StaffIdToFaceIdLua_t = int(__fastcall*)(lua_State*);
+    StaffIdToFaceIdLua_t g_OriginalStaffIdToFaceId = nullptr;
+
+    int __fastcall hkStaffIdToFaceId(lua_State* L)
+    {
+        const int results = g_OriginalStaffIdToFaceId(L);
+        if (results != 1 || MissionCodeGuard::ShouldBypassHooks()
+            || !ResolveLuaApi() || !g_lua_tonumber || LuaType(L, 1) != LUA_TTABLE
+            || LuaType(L, -1) != LUA_TNUMBER)
+            return results;
+        const double nativeFace = g_lua_tonumber(L, -1);
+        if (!std::isfinite(nativeFace) || nativeFace < 0 || nativeFace > 899
+            || std::floor(nativeFace) != nativeFace)
+            return results;
+        const int top = GetLuaTop(L);
+        LuaGetField(L, 1, "staffId");
+        const bool numeric = LuaType(L, -1) == LUA_TNUMBER;
+        const double identity = numeric ? g_lua_tonumber(L, -1) : -1;
+        LuaPop(L, GetLuaTop(L) - top);
+        if (!std::isfinite(identity) || identity < 0 || identity > 9007199254740991.0
+            || std::floor(identity) != identity)
+            return results;
+        std::uint16_t visualFace = static_cast<std::uint16_t>(nativeFace);
+        if (outfit::TryResolveStaffVisualFace(static_cast<std::uint64_t>(identity),
+                                             visualFace, visualFace))
+        {
+            LuaPop(L, 1);
+            PushLuaNumber(L, static_cast<float>(visualFace));
+        }
+        return results;
+    }
+
     bool ReadStringField(lua_State* L, int tableIndex, const char* fieldName, const char*& outValue)
     {
         const int top = GetLuaTop(L);
         LuaGetField(L, tableIndex, fieldName);
-        const bool ok = LuaIsString(L, -1);
+        const bool ok = LuaType(L, -1) == LUA_TSTRING;
         if (ok)
             outValue = GetLuaString(L, -1);
         LuaPop(L, GetLuaTop(L) - top);
         return ok;
     }
 
-    bool ReadIntField(lua_State* L, int tableIndex, const char* fieldName, int& outValue)
+    bool ReadBoundedInteger(lua_State* L, int valueIndex, int maxValue, int& outValue)
+    {
+        if (LuaType(L, valueIndex) != LUA_TNUMBER || !ResolveLuaApi() || !g_lua_tonumber)
+            return false;
+        const lua_Number raw = g_lua_tonumber(L, valueIndex);
+        if (!std::isfinite(raw) || raw < 0 || raw > maxValue || std::floor(raw) != raw)
+            return false;
+        outValue = static_cast<int>(raw);
+        return true;
+    }
+
+    bool ReadBoolField(lua_State* L, int tableIndex, const char* fieldName,
+                       bool& outValue, std::string& reason)
     {
         const int top = GetLuaTop(L);
         LuaGetField(L, tableIndex, fieldName);
-        const bool ok = LuaIsNumber(L, -1);
-        if (ok)
-            outValue = GetLuaInt(L, -1);
+        const int type = LuaType(L, -1);
+        if (type == LUA_TBOOLEAN)
+            outValue = GetLuaBool(L, -1);
         LuaPop(L, GetLuaTop(L) - top);
-        return ok;
+        if (type == LUA_TNIL || type == LUA_TBOOLEAN)
+            return true;
+        reason = std::string(fieldName) + " must be a boolean";
+        return false;
     }
 
-    bool ReadBoolField(lua_State* L, int tableIndex, const char* fieldName, bool defaultValue)
+    bool ReadRangedField(lua_State* L, int tableIndex, const char* fieldName, int maxValue,
+                         int& outValue, std::string& reason)
     {
         const int top = GetLuaTop(L);
         LuaGetField(L, tableIndex, fieldName);
-        bool value = defaultValue;
-        if (LuaType(L, -1) == LUA_TBOOLEAN)
-            value = GetLuaBool(L, -1);
+        const bool absent = LuaType(L, -1) == LUA_TNIL;
+        const bool ok = absent || ReadBoundedInteger(L, -1, maxValue, outValue);
         LuaPop(L, GetLuaTop(L) - top);
-        return value;
+        if (!ok)
+        {
+            reason = std::string(fieldName) + " must be an integer in 0.." + std::to_string(maxValue);
+            return false;
+        }
+        return true;
     }
 
-    std::uint16_t ReadFovaField(lua_State* L, int tableIndex, const char* fieldName)
+    void WarnLegacyFieldOverride(lua_State* L, int tableIndex, const char* fieldName,
+                                 const char* legacyName)
     {
-        int raw = 0;
-        if (!ReadIntField(L, tableIndex, fieldName, raw))
-            return outfit::kFovaNone;
-        if (raw < 0)
-            return outfit::kFovaNone;
-        return static_cast<std::uint16_t>(raw);
+        const char* key = nullptr;
+        ReadStringField(L, tableIndex, "key", key);
+        LogWarn("RegisterFace '%s': %s conflicts with %s, using %s",
+                key && key[0] ? key : "(unknown)", legacyName, fieldName, fieldName);
+    }
+
+    void WarnRemovedField(lua_State* L, int tableIndex, const char* fieldName, const char* consequence)
+    {
+        const int top = GetLuaTop(L);
+        LuaGetField(L, tableIndex, fieldName);
+        const bool present = LuaType(L, -1) != LUA_TNIL;
+        LuaPop(L, GetLuaTop(L) - top);
+        if (!present)
+            return;
+        const char* key = nullptr;
+        ReadStringField(L, tableIndex, "key", key);
+        LogWarn("RegisterFace '%s': %s is no longer supported, ignored; %s",
+                key && key[0] ? key : "(unknown)", fieldName, consequence);
+    }
+
+    bool ReadRangedFieldAlias(lua_State* L, int tableIndex, const char* fieldName,
+                              const char* legacyName, int maxValue,
+                              int& outValue, std::string& reason)
+    {
+        int namedValue = -1;
+        int legacyValue = -1;
+        if (!ReadRangedField(L, tableIndex, fieldName, maxValue, namedValue, reason)
+            || !ReadRangedField(L, tableIndex, legacyName, maxValue, legacyValue, reason))
+            return false;
+        if (namedValue >= 0 && legacyValue >= 0 && namedValue != legacyValue)
+            WarnLegacyFieldOverride(L, tableIndex, fieldName, legacyName);
+        if (namedValue >= 0)
+            outValue = namedValue;
+        else if (legacyValue >= 0)
+            outValue = legacyValue;
+        return true;
+    }
+
+    bool ReadOptionalStringField(lua_State* L, int tableIndex, const char* fieldName,
+                                 std::string& outValue, std::string& reason)
+    {
+        const int top = GetLuaTop(L);
+        LuaGetField(L, tableIndex, fieldName);
+        const int type = LuaType(L, -1);
+        if (type == LUA_TSTRING)
+        {
+            const char* text = GetLuaString(L, -1);
+            outValue = text ? text : "";
+        }
+        LuaPop(L, GetLuaTop(L) - top);
+        if (type == LUA_TNIL || type == LUA_TSTRING)
+            return true;
+        reason = std::string(fieldName) + " must be a string";
+        return false;
+    }
+
+    bool ReadOptionalFovaScalar(lua_State* L, int tableIndex, const char* fieldName,
+                               std::uint16_t& outValue, std::string& reason)
+    {
+        int raw = outValue;
+        if (!ReadRangedField(L, tableIndex, fieldName, outfit::kFovaNone, raw, reason))
+            return false;
+        if (raw == outfit::kFovaLegacyNone)
+            raw = outfit::kFovaNone;
+        if (raw > 31 && raw != outfit::kFovaNone)
+        {
+            reason = std::string(fieldName) + " must be 0..31, or 32767 or 65535 for none";
+            return false;
+        }
+        outValue = static_cast<std::uint16_t>(raw);
+        return true;
+    }
+
+    bool ReadNativeFaceFields(lua_State* L, int tableIndex,
+                              outfit::CustomFaceRow& row, std::string& reason)
+    {
+        WarnRemovedField(L, tableIndex, "faceFlags",
+            "use race, mbEligible, forceHairFova");
+        WarnRemovedField(L, tableIndex, "unk1",
+            "use race, mbEligible, forceHairFova");
+
+        int nativeUnique = -1;
+        int nativeEyeMesh = -1;
+        if (!ReadRangedField(L, tableIndex, "unk2", 1, nativeUnique, reason)
+            || !ReadRangedField(L, tableIndex, "unk5", 1, nativeEyeMesh, reason))
+            return false;
+
+        if (nativeUnique >= 0)
+            row.unique = nativeUnique != 0;
+        if (nativeEyeMesh >= 0)
+            row.eyeMeshType = static_cast<std::uint8_t>(nativeEyeMesh);
+
+        int gender = row.gender;
+        int race = row.race;
+        int eyeMeshType = row.eyeMeshType;
+        int outsideFaceRef1 = row.outsideFaceRef1;
+        int outsideFaceRef2 = row.outsideFaceRef2;
+        int outsideFaceRef3 = row.outsideFaceRef3;
+        int outsideFaceCount = row.outsideFaceCount;
+        if (!ReadOptionalFovaScalar(L, tableIndex, "eyeFova", row.eyeFova, reason)
+            || !ReadOptionalFovaScalar(L, tableIndex, "skinFova", row.skinFova, reason)
+            || !ReadRangedField(L, tableIndex, "gender", 1, gender, reason)
+            || !ReadRangedField(L, tableIndex, "race", 3, race, reason)
+            || !ReadRangedField(L, tableIndex, "eyeMeshType", 1, eyeMeshType, reason)
+            || !ReadBoolField(L, tableIndex, "forceHairFova", row.forceHairFova, reason)
+            || !ReadBoolField(L, tableIndex, "mbEligible", row.mbEligible, reason)
+            || !ReadBoolField(L, tableIndex, "unique", row.unique, reason)
+            || !ReadRangedFieldAlias(L, tableIndex, "outsideFaceRef1", "unk7", 1023, outsideFaceRef1, reason)
+            || !ReadRangedFieldAlias(L, tableIndex, "outsideFaceRef2", "unk8", 1023, outsideFaceRef2, reason)
+            || !ReadRangedFieldAlias(L, tableIndex, "outsideFaceRef3", "unk9", 1023, outsideFaceRef3, reason)
+            || !ReadRangedFieldAlias(L, tableIndex, "outsideFaceCount", "unk10", 3, outsideFaceCount, reason)
+            || !ReadOptionalStringField(L, tableIndex, "uiTextureName", row.uiTextureName, reason)
+            || !ReadOptionalStringField(L, tableIndex, "uiTexBasePath", row.uiTexBasePath, reason))
+            return false;
+
+        if (nativeUnique >= 0 && (nativeUnique != 0) != row.unique)
+            WarnLegacyFieldOverride(L, tableIndex, "unique", "unk2");
+        if (nativeEyeMesh >= 0 && nativeEyeMesh != eyeMeshType)
+            WarnLegacyFieldOverride(L, tableIndex, "eyeMeshType", "unk5");
+
+        int textureCount = row.uiTextureName.empty() ? 0 : 1;
+        if (!ReadRangedField(L, tableIndex, "uiTextureCount", 3, textureCount, reason))
+            return false;
+
+        row.gender = static_cast<std::uint8_t>(gender);
+        row.race = static_cast<std::uint8_t>(race);
+        row.eyeMeshType = static_cast<std::uint8_t>(eyeMeshType);
+        row.outsideFaceRef1 = static_cast<std::uint16_t>(outsideFaceRef1);
+        row.outsideFaceRef2 = static_cast<std::uint16_t>(outsideFaceRef2);
+        row.outsideFaceRef3 = static_cast<std::uint16_t>(outsideFaceRef3);
+        row.outsideFaceCount = static_cast<std::uint8_t>(outsideFaceCount);
+        row.uiTextureCount = static_cast<std::uint8_t>(textureCount);
+        return true;
     }
 
     int FailWithReason(lua_State* L, const char* reason)
@@ -69,26 +251,13 @@ namespace
         return 2;
     }
 
-    bool ParseFovaColumnArg(lua_State* L, int idx, int& outColumn)
-    {
-        if (LuaType(L, idx) == LUA_TNUMBER)
-        {
-            outColumn = GetLuaInt(L, idx);
-            return outColumn >= 0 && outColumn < outfit::kHeadFovaColumnCount;
-        }
-        if (LuaType(L, idx) != LUA_TSTRING)
-            return false;
-        outColumn = outfit::ParseFovaColumnName(GetLuaString(L, idx));
-        return outColumn >= 0;
-    }
-
-    bool ReadColumnField(lua_State* L, int tableIndex, int& outColumn)
+    bool FieldIsNilOrString(lua_State* L, int tableIndex, const char* fieldName)
     {
         const int top = GetLuaTop(L);
-        LuaGetField(L, tableIndex, "column");
-        const bool ok = ParseFovaColumnArg(L, GetLuaTop(L), outColumn);
+        LuaGetField(L, tableIndex, fieldName);
+        const int type = LuaType(L, -1);
         LuaPop(L, GetLuaTop(L) - top);
-        return ok;
+        return type == LUA_TNIL || type == LUA_TSTRING;
     }
 
     bool ReadFovaPairTable(lua_State* L, int tableIndex, std::string& fv2, std::string& fpk)
@@ -104,46 +273,38 @@ namespace
         return true;
     }
 
-    bool IhSaysFpkIsMissing(lua_State* L, const std::string& fpk)
+    void ReportOverflowedFovaColumns()
     {
-        if (!g_lua_pcall || !g_lua_toboolean)
-            return false;
+        static bool reported = false;
+        if (reported)
+            return;
 
-        const int top = GetLuaTop(L);
-        LuaGetField(L, LUA_GLOBALSINDEX_51, "InfCore");
-        if (LuaType(L, -1) != LUA_TTABLE)
+        for (int column = 0; column < outfit::kHeadFovaColumnCount; ++column)
         {
-            LuaPop(L, GetLuaTop(L) - top);
-            return false;
+            outfit::FovaColumnInfo info;
+            if (!outfit::ReadFovaColumnInfo(column, info))
+                continue;
+            reported = true;
+            if (info.registered <= info.capacity)
+                continue;
+            LogError("CustomFace: %s list holds %u rows but the fova table fits %u, rows %u+ "
+                     "unusable; see ih_log.txt",
+                     outfit::FovaColumnName(column), info.registered, info.capacity,
+                     info.capacity);
         }
-        LuaGetField(L, -1, "FpkExistsInternal");
-        if (LuaType(L, -1) != LUA_TFUNCTION)
-        {
-            LuaPop(L, GetLuaTop(L) - top);
-            return false;
-        }
-
-        PushLuaString(L, FoxHashes::NormalizeAssetPath(fpk).c_str());
-        const bool missing = g_lua_pcall(L, 1, 1, 0) == 0 && g_lua_toboolean(L, -1) == 0;
-        LuaPop(L, GetLuaTop(L) - top);
-        return missing;
     }
 
-    const char* MissingFpkReason()
+    bool ResolveByFv2(int column, const char* fieldName, const std::string& fv2, const char* fpk,
+                      std::uint16_t& outIndex, std::string& reason)
     {
-        return "the fpk is not in the game's QAR dats according to snakebite.xml, and a pack the "
-               "loader cannot open hangs the mission load forever - install it with SnakeBite, or "
-               "pass trustFpk=true if you packed it another way";
-    }
-
-    std::string ColumnStateSuffix(int column)
-    {
-        outfit::FovaColumnInfo info;
-        if (!outfit::ReadFovaColumnInfo(column, info))
-            return "";
-        char text[64];
-        std::snprintf(text, sizeof text, " (rows %u of %u used)", info.registered, info.capacity);
-        return text;
+        std::uint32_t found = 0;
+        if (const char* failure = outfit::FindFovaIndexByFv2(column, fv2.c_str(), fpk, found))
+        {
+            reason = std::string(fieldName) + " '" + fv2 + "': " + failure;
+            return false;
+        }
+        outIndex = static_cast<std::uint16_t>(found);
+        return true;
     }
 
     bool ResolveHeadFovaValue(lua_State* L, int valueIndex, const char* fieldName, int column,
@@ -157,29 +318,20 @@ namespace
 
         if (type == LUA_TNUMBER)
         {
-            const int raw = GetLuaInt(L, valueIndex);
-            if (raw < 0 || raw > outfit::kFovaNone)
+            int raw = 0;
+            if (!ReadBoundedInteger(L, valueIndex, outfit::kFovaNone, raw))
             {
-                reason = std::string(fieldName) + " must be 0..32767";
+                reason = std::string(fieldName) + " must be an integer in 0..65535";
                 return false;
             }
-            outIndex = static_cast<std::uint16_t>(raw);
+            outIndex = raw == outfit::kFovaLegacyNone ? outfit::kFovaNone : static_cast<std::uint16_t>(raw);
             return true;
         }
 
         if (type == LUA_TSTRING)
         {
             const char* fv2 = GetLuaString(L, valueIndex);
-            std::uint32_t found = 0;
-            if (const char* failure = outfit::FindFovaIndexByFv2(column, fv2, found))
-            {
-                reason = std::string(fieldName) + " '" + (fv2 ? fv2 : "") + "': " + failure;
-                if (std::strstr(failure, "not in the fova file table"))
-                    reason += " - pass {fv2=, fpk=} to register it";
-                return false;
-            }
-            outIndex = static_cast<std::uint16_t>(found);
-            return true;
+            return ResolveByFv2(column, fieldName, fv2 ? fv2 : "", nullptr, outIndex, reason);
         }
 
         if (type == LUA_TTABLE)
@@ -187,38 +339,19 @@ namespace
             std::string fv2, fpk;
             if (!ReadFovaPairTable(L, valueIndex, fv2, fpk))
             {
-                reason = std::string(fieldName) + ": a pair table needs an fv2 path";
+                reason = std::string(fieldName) + ": a {fv2=, fpk=} table needs an fv2 path";
                 return false;
             }
-            if (fpk.empty())
+            if (!FieldIsNilOrString(L, valueIndex, "fpk"))
             {
-                std::uint32_t found = 0;
-                if (const char* failure = outfit::FindFovaIndexByFv2(column, fv2.c_str(), found))
-                {
-                    reason = std::string(fieldName) + " '" + fv2 + "': " + failure;
-                    if (std::strstr(failure, "not in the fova file table"))
-                        reason += " - add fpk= to register it";
-                    return false;
-                }
-                outIndex = static_cast<std::uint16_t>(found);
-                return true;
-            }
-            if (!ReadBoolField(L, valueIndex, "trustFpk", false) && IhSaysFpkIsMissing(L, fpk))
-            {
-                reason = std::string(fieldName) + " '" + fpk + "': " + MissingFpkReason();
+                reason = std::string(fieldName) + ": fpk must be a path string when it is given";
                 return false;
             }
-            std::uint32_t registered = 0;
-            if (const char* failure = outfit::RegisterFovaPair(column, fv2.c_str(), fpk.c_str(), registered))
-            {
-                reason = std::string(fieldName) + " '" + fv2 + "': " + failure + ColumnStateSuffix(column);
-                return false;
-            }
-            outIndex = static_cast<std::uint16_t>(registered);
-            return true;
+            return ResolveByFv2(column, fieldName, fv2, fpk.empty() ? nullptr : fpk.c_str(),
+                                outIndex, reason);
         }
 
-        reason = std::string(fieldName) + " must be a row index, an fv2 path string or a {fv2=,fpk=} table";
+        reason = std::string(fieldName) + " must be a row index, an fv2 path string or a {fv2=, fpk=} table";
         return false;
     }
 
@@ -230,33 +363,6 @@ namespace
         const bool ok = ResolveHeadFovaValue(L, GetLuaTop(L), fieldName, column, outIndex, reason);
         LuaPop(L, GetLuaTop(L) - top);
         return ok;
-    }
-
-    void FormatFovaColumn(const outfit::FovaColumnDiagnostics& column, char* out, std::size_t size)
-    {
-        if (!column.present)
-        {
-            std::snprintf(out, size, "none(%u/%u)", column.registered, column.capacity);
-            return;
-        }
-        if (column.index >= column.registered)
-        {
-            std::snprintf(out, size, "%u/%u/%u UNREGISTERED",
-                column.index, column.registered, column.capacity);
-            return;
-        }
-        std::string extra;
-        if (column.custom)
-            extra += " custom fv2=" + column.fv2Path + " fpk=" + column.fpkPath;
-        if (column.fv2PathId == 0)
-            extra += " zeroFv2";
-        if (column.fpkPathId == 0)
-            extra += " zeroFpk";
-        std::snprintf(out, size, "%u/%u/%u fv2=0x%016llX fpk=0x%016llX%s",
-            column.index, column.registered, column.capacity,
-            static_cast<unsigned long long>(column.fv2PathId),
-            static_cast<unsigned long long>(column.fpkPathId),
-            extra.c_str());
     }
 
     int __cdecl l_RegisterFace(lua_State* L)
@@ -271,15 +377,21 @@ namespace
         if (!outfit::IsValidFaceKey(key))
             return FailWithReason(L, "key must start with a letter or underscore and hold only letters, digits, '_', '.' or '-'");
 
+        outfit::NoteFaceKeyRequested(key);
+
         if (!outfit::IsFaceSystemReady())
             return FailWithReason(L, "the soldier face system is not ready yet");
 
-        int residue = outfit::kFaceResidueAny;
-        if (ReadIntField(L, 1, "preferResidue", residue))
-        {
-            if (residue < 0 || residue > 3)
-                return FailWithReason(L, "preferResidue must be 0..3");
-        }
+        ReportOverflowedFovaColumns();
+
+        WarnRemovedField(L, 1, "preferResidue", "faceIds have no residue filter");
+
+        const int top = GetLuaTop(L);
+        LuaGetField(L, 1, "faceId");
+        const bool hasFaceId = LuaType(L, -1) != LUA_TNIL;
+        LuaPop(L, GetLuaTop(L) - top);
+        if (hasFaceId)
+            return FailWithReason(L, "faceId is not supported by RegisterFace; IDs are allocated automatically from key");
 
         outfit::CustomFaceRow row;
         std::string fovaReason;
@@ -288,39 +400,51 @@ namespace
          || !ResolveHeadFovaField(L, 1, "hairFova",     outfit::kFovaColumn_Hair,     row.hairFova,     fovaReason)
          || !ResolveHeadFovaField(L, 1, "hairDecoFova", outfit::kFovaColumn_HairDeco, row.hairDecoFova, fovaReason))
         {
-            Log("[CustomFace] '%s' was not created: %s - the face will not exist\n",
-                key, fovaReason.c_str());
+            LogWarn("RegisterFace '%s': %s, face not created", key, fovaReason.c_str());
             return FailWithReason(L, fovaReason.c_str());
         }
-        row.eyeFova      = ReadFovaField(L, 1, "eyeFova");
-        row.skinFova     = ReadFovaField(L, 1, "skinFova");
+        std::string fieldReason;
+        if (!ReadNativeFaceFields(L, 1, row, fieldReason))
+        {
+            LogWarn("RegisterFace '%s': %s, face not created", key, fieldReason.c_str());
+            return FailWithReason(L, fieldReason.c_str());
+        }
+        if (row.mbEligible && !outfit::EnsureFobFaceGuard())
+        {
+            row.mbEligible = false;
+            LogWarn("RegisterFace '%s': FOB face guard unavailable, mbEligible ignored", key);
+        }
 
-        int scratch = 0;
-        if (ReadIntField(L, 1, "gender", scratch))
-            row.gender = static_cast<std::uint8_t>(scratch < 0 ? 0 : scratch);
-        if (ReadIntField(L, 1, "race", scratch))
-            row.race = static_cast<std::uint8_t>(scratch < 0 ? 0 : scratch);
-        if (ReadIntField(L, 1, "eyeMeshType", scratch))
-            row.eyeMeshType = static_cast<std::uint8_t>(scratch < 0 ? 0 : scratch);
+        std::string refused;
+        if (!outfit::ValidateCustomFaceRow(row, refused))
+        {
+            LogWarn("RegisterFace '%s': %s, face not created", key, refused.c_str());
+            return FailWithReason(L, refused.c_str());
+        }
 
-        row.forceHairFova = ReadBoolField(L, 1, "forceHairFova", false);
-
-        const std::int32_t faceId = outfit::RegisterFaceId(key, residue);
+        outfit::FaceIdRegistrationFailure registrationFailure = outfit::FaceIdRegistrationFailure::None;
+        const std::int32_t faceId = outfit::RegisterFaceId(key, &registrationFailure);
         if (faceId <= 0)
         {
-            Log("[CustomFace] '%s' got no faceId - the %d..%d pool has no free id left%s, so this face was not created\n",
-                key, outfit::kFaceIdBandFirst, outfit::kFaceIdBandLast,
-                residue >= 0 ? " for the requested preferResidue" : "");
-            return FailWithReason(L, residue >= 0 ? "residue_unavailable" : "pool_exhausted");
+            if (registrationFailure == outfit::FaceIdRegistrationFailure::InvalidKey)
+                return FailWithReason(L, "invalid_key");
+            if (registrationFailure == outfit::FaceIdRegistrationFailure::PersistedFaceIdConflict)
+                return FailWithReason(L, "persisted_face_id_conflict: resolve the occupied ID or duplicate key; saved staff IDs are never silently moved");
+            LogError("RegisterFace '%s': all %d custom faceIds taken, face not created",
+                     key, static_cast<int>(outfit::FaceIdPoolSize()));
+            return FailWithReason(L, "pool_exhausted");
         }
 
-        if (const char* failure = outfit::WriteCustomFaceRow(faceId, row))
+        std::string failure;
+        if (!outfit::WriteCustomFaceRow(faceId, row, failure))
         {
-            Log("[CustomFace] '%s' (faceId %d) was not written: %s - the face will not render\n",
-                key, static_cast<int>(faceId), failure);
-            return FailWithReason(L, failure);
+            LogWarn("RegisterFace '%s' faceId:%d: %s, face not written",
+                    key, static_cast<int>(faceId), failure.c_str());
+            return FailWithReason(L, failure.c_str());
         }
 
+        outfit::RememberFaceMetadata(faceId, row.gender, row.race);
+        LogInfo("RegisterFace %s faceId:%d", key, static_cast<int>(faceId));
         PushLuaNumber(L, static_cast<float>(faceId));
         return 1;
     }
@@ -334,180 +458,15 @@ namespace
             PushLuaNil(L);
             return 1;
         }
+
         PushLuaNumber(L, static_cast<float>(faceId));
         return 1;
     }
 
-    int __cdecl l_IsFaceIdClaimed(lua_State* L)
-    {
-        const int faceId = GetLuaInt(L, 1);
-        PushLuaBool(L, outfit::IsFaceRowDefined(faceId));
-        return 1;
-    }
-
-    int __cdecl l_IsManagedFaceId(lua_State* L)
-    {
-        const int faceId = GetLuaInt(L, 1);
-        PushLuaBool(L, outfit::IsManagedFaceId(faceId));
-        return 1;
-    }
-
-    int __cdecl l_GetRegisteredFovaCounts(lua_State* L)
-    {
-        for (int column = 0; column < outfit::kFovaColumnCount; ++column)
-            PushLuaNumber(L, static_cast<float>(outfit::GetRegisteredFovaCount(column)));
-        return outfit::kFovaColumnCount;
-    }
-
-    int __cdecl l_GetFaceIdPoolInfo(lua_State* L)
-    {
-        int residue = outfit::kFaceResidueAny;
-        if (LuaIsNumber(L, 1))
-        {
-            residue = GetLuaInt(L, 1);
-            if (residue < 0 || residue > 3)
-                residue = outfit::kFaceResidueAny;
-        }
-
-        PushLuaNumber(L, static_cast<float>(outfit::kFaceIdBandFirst));
-        PushLuaNumber(L, static_cast<float>(outfit::kFaceIdBandLast));
-        PushLuaNumber(L, static_cast<float>(outfit::FaceIdPoolSize()));
-        PushLuaNumber(L, static_cast<float>(outfit::FaceIdFreeSlotCount(residue)));
-        return 4;
-    }
-
-    int __cdecl l_DumpFaceInfo(lua_State* L)
-    {
-        const int faceId = GetLuaInt(L, 1);
-
-        outfit::FaceDiagnostics info;
-        if (!outfit::ReadFaceDiagnostics(faceId, info))
-        {
-            Log("[CustomFace] faceId %d could not be inspected - the soldier face system is not created yet, so nothing about this face can be reported\n", faceId);
-            return FailWithReason(L, "the soldier face system is not ready yet");
-        }
-
-        Log("[CustomFace] faceId %d forensics: rowDefined=%d fovaWord=0x%08X flags=0x%08X faceFova=%u"
-            " | resident=%d needIndex=%d needCounts=%u,%u,%u needTable=%u/%u blacklisted=%d"
-            " | needFiles=%s,%s,%s,%s"
-            " | special=%d specialCount=%u specialIds=%u,%u,%u,%u\n",
-            faceId,
-            info.rowDefined ? 1 : 0,
-            info.fovaWord,
-            info.flags,
-            info.fovaWord & 0xFFu,
-            info.resident ? 1 : 0,
-            info.needIndex,
-            info.needCounts[0], info.needCounts[1], info.needCounts[2],
-            info.needCount, info.needCapacity,
-            info.needBlacklisted ? 1 : 0,
-            info.needFiles[0] ? "set" : "NULL",
-            info.needFiles[1] ? "set" : "NULL",
-            info.needFiles[2] ? "set" : "NULL",
-            info.needFiles[3] ? "set" : "NULL",
-            info.special ? 1 : 0,
-            info.specialCount,
-            info.specialIds[0], info.specialIds[1], info.specialIds[2], info.specialIds[3]);
-
-        char face[400], faceDeco[400], hair[400], hairDeco[400];
-        FormatFovaColumn(info.columns[outfit::kFovaColumn_Face],     face,     sizeof face);
-        FormatFovaColumn(info.columns[outfit::kFovaColumn_FaceDeco], faceDeco, sizeof faceDeco);
-        FormatFovaColumn(info.columns[outfit::kFovaColumn_Hair],     hair,     sizeof hair);
-        FormatFovaColumn(info.columns[outfit::kFovaColumn_HairDeco], hairDeco, sizeof hairDeco);
-        Log("[CustomFace] faceId %d fova rows (index/registered/capacity) fovaTable=%s: "
-            "faceFova=%s | faceDecoFova=%s | hairFova=%s | hairDecoFova=%s\n",
-            faceId, info.fovaTableReady ? "ready" : "NOT-READY",
-            face, faceDeco, hair, hairDeco);
-
-        PushLuaBool(L, info.rowDefined);
-        PushLuaBool(L, info.resident);
-        PushLuaBool(L, info.special);
-        return 3;
-    }
-
-    int __cdecl l_RegisterFovaPair(lua_State* L)
-    {
-        if (LuaType(L, 1) != LUA_TTABLE)
-            return FailWithReason(L, "RegisterFovaPair expects a table");
-
-        int column = 0;
-        if (!ReadColumnField(L, 1, column))
-            return FailWithReason(L, "column must be faceFova, faceDecoFova, hairFova or hairDecoFova");
-
-        std::string fv2, fpk;
-        if (!ReadFovaPairTable(L, 1, fv2, fpk) || fpk.empty())
-            return FailWithReason(L, "RegisterFovaPair needs both fv2 and fpk paths");
-
-        if (!ReadBoolField(L, 1, "trustFpk", false) && IhSaysFpkIsMissing(L, fpk))
-        {
-            Log("[CustomFace] %s pair '%s' + '%s' was refused: %s - no row was added\n",
-                outfit::FovaColumnName(column), fv2.c_str(), fpk.c_str(), MissingFpkReason());
-            return FailWithReason(L, MissingFpkReason());
-        }
-
-        std::uint32_t index = 0;
-        if (const char* failure = outfit::RegisterFovaPair(column, fv2.c_str(), fpk.c_str(), index))
-        {
-            Log("[CustomFace] %s pair '%s' + '%s' was refused: %s%s - no row was added, so no face can use it\n",
-                outfit::FovaColumnName(column), fv2.c_str(), fpk.c_str(), failure,
-                ColumnStateSuffix(column).c_str());
-            return FailWithReason(L, failure);
-        }
-
-        PushLuaNumber(L, static_cast<float>(index));
-        return 1;
-    }
-
-    int __cdecl l_FindFovaIndex(lua_State* L)
-    {
-        if (LuaType(L, 1) != LUA_TTABLE)
-            return FailWithReason(L, "FindFovaIndex expects a table");
-
-        int column = 0;
-        if (!ReadColumnField(L, 1, column))
-            return FailWithReason(L, "column must be faceFova, faceDecoFova, hairFova or hairDecoFova");
-
-        const char* fv2 = nullptr;
-        if (!ReadStringField(L, 1, "fv2", fv2) || !fv2 || !fv2[0])
-            return FailWithReason(L, "FindFovaIndex needs an fv2 path");
-
-        std::uint32_t index = 0;
-        if (const char* failure = outfit::FindFovaIndexByFv2(column, fv2, index))
-            return FailWithReason(L, failure);
-
-        PushLuaNumber(L, static_cast<float>(index));
-        return 1;
-    }
-
-    int __cdecl l_GetFovaColumnInfo(lua_State* L)
-    {
-        int column = 0;
-        if (!ParseFovaColumnArg(L, 1, column))
-            return FailWithReason(L, "column must be faceFova, faceDecoFova, hairFova or hairDecoFova");
-
-        outfit::FovaColumnInfo info;
-        if (!outfit::ReadFovaColumnInfo(column, info))
-            return FailWithReason(L, "the fova file table is not filled yet - call this from LoadLibraries or later");
-
-        PushLuaNumber(L, static_cast<float>(info.registered));
-        PushLuaNumber(L, static_cast<float>(info.capacity));
-        PushLuaNumber(L, static_cast<float>(info.base));
-        PushLuaNumber(L, static_cast<float>(info.widthLimit));
-        return 4;
-    }
-
     luaL_Reg g_VTppSoldierFaceLib[] =
     {
-        { "RegisterFace",             l_RegisterFace },
-        { "GetFaceId",                l_GetFaceId },
-        { "IsFaceIdClaimed",          l_IsFaceIdClaimed },
-        { "IsManagedFaceId",          l_IsManagedFaceId },
-        { "GetRegisteredFovaCounts",  l_GetRegisteredFovaCounts },
-        { "GetFaceIdPoolInfo",        l_GetFaceIdPoolInfo },
-        { "DumpFaceInfo",             l_DumpFaceInfo },
-        { "RegisterFovaPair",         l_RegisterFovaPair },
-        { "FindFovaIndex",            l_FindFovaIndex },
-        { "GetFovaColumnInfo",        l_GetFovaColumnInfo },
+        { "RegisterFace", l_RegisterFace },
+        { "GetFaceId",    l_GetFaceId },
 
         { nullptr, nullptr }
     };
@@ -516,4 +475,30 @@ namespace
 bool Register_V_TppSoldierFaceLibrary(lua_State* L)
 {
     return RegisterLuaLibrary(L, "V_TppSoldierFace", g_VTppSoldierFaceLib);
+}
+
+bool Install_StaffFaceLuaHook()
+{
+    void* target = ResolveGameAddress(gAddr.StaffIdToFaceIdLua);
+    if (!target || !ResolveLuaApi())
+    {
+        LogError("StaffFace: StaffIdToFaceId address missing, custom staff faces show "
+                 "the vanilla stand-in");
+        return false;
+    }
+    if (CreateAndEnableHook(target, &hkStaffIdToFaceId,
+                            reinterpret_cast<void**>(&g_OriginalStaffIdToFaceId)))
+        return true;
+    LogError("StaffFace: StaffIdToFaceId hook failed, custom staff faces show the "
+             "vanilla stand-in");
+    return false;
+}
+
+void Uninstall_StaffFaceLuaHook()
+{
+    if (g_OriginalStaffIdToFaceId)
+    {
+        DisableAndRemoveHook(ResolveGameAddress(gAddr.StaffIdToFaceIdLua));
+        g_OriginalStaffIdToFaceId = nullptr;
+    }
 }

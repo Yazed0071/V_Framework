@@ -5,3 +5,4 @@ void Uninstall_BarrierEffectSpawn();
 
 bool BarrierEffect_IsShieldActive();
 bool BarrierEffect_IsShieldDeployed();
+bool Barrier_InSinglePlayer();

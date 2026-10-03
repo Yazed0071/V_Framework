@@ -3,8 +3,11 @@
 #include "MissionPreparationSystemImpl_IsEnableHeadOptionSuit.h"
 #include "OutfitRegistry.h"
 #include "CustomHeadRegistry.h"
+#include "PlayerAppearance_LoadPlayerFv2s.h"
+#include "FoxPathInternal.h"
 #include "UniqueCharacterPartsTypePin.h"
 #include "UniqueCharacterDefaultOutfit.h"
+#include "StaffControllerImpl_AddStaff.h"
 
 #include <atomic>
 #include <cstdint>
@@ -87,11 +90,7 @@ namespace
                 return;
             if (CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkMenuGetLangText),
                                     reinterpret_cast<void**>(&g_OrigMenuGetLangText)))
-            {
                 g_MenuGetLangTextTarget = fn;
-                LogDebug("[FobGuard] FOB-block popup lang swap hooked "
-                    "(menu GetLangText impl=%p)\n", fn);
-            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -105,14 +104,30 @@ namespace
     static ConverFaceId_t g_OrigConverFaceId           = nullptr;
     static bool           g_ConverFaceIdInstalled      = false;
 
+    static bool BranchFpkInstalled(const outfit::DdHeadLayers& branch,
+                                   std::uint16_t fallbackFaceId,
+                                   std::uint64_t overrideFpk = 0)
+    {
+        if (fox::detail::PathExistsByCode(overrideFpk ? overrideFpk : branch.branchFpk))
+            return true;
+        static std::atomic<const char*> s_lastMissing{ nullptr };
+        if (s_lastMissing.exchange(branch.name, std::memory_order_relaxed) != branch.name)
+            LogWarn("CustomHead: '%s' fpk not installed, using face 0x%X",
+                branch.name ? branch.name : "?",
+                static_cast<unsigned>(fallbackFaceId));
+        return false;
+    }
+
     static std::uint16_t __fastcall hkConverFaceIdWithFaceEquipId(
         std::uint8_t playerType, std::int16_t faceId,
         std::uint8_t playerFaceEquipId)
     {
+        outfit::ddheadlayers::DisarmBranchFace();
+
         if (MissionCodeGuard::ShouldBypassHooks())
         {
             const std::uint8_t safeSlot =
-                outfit::IsCustomHeadSlot(playerFaceEquipId)
+                playerFaceEquipId >= outfit::kCustomHeadSlotBase
                     ? std::uint8_t{0} : playerFaceEquipId;
             return g_OrigConverFaceId
                 ? g_OrigConverFaceId(playerType, faceId, safeSlot)
@@ -141,6 +156,31 @@ namespace
                         (playerType < outfit::kPlayerTypeMax) ? playerType : 0;
                     std::uint16_t fid = head->TppEnemyFaceId[pt];
                     if (fid == 0) fid = head->TppEnemyFaceId[0];
+
+                    outfit::DdHeadLayers branch{};
+                    const bool haveBranch = outfit::TryGetDdHeadBranch(
+                        playerFaceEquipId, playerType, &branch);
+                    if (haveBranch && (branch.flags & outfit::kHeadLayerKeepFace) != 0
+                        && outfit::ddheadlayers::IsReady())
+                    {
+                        const auto faceFpk = branch.paths.faceFovaFpk
+                            ? branch.paths.faceFovaFpk : branch.branchFpk;
+                        if (branch.paths.faceFova
+                            && outfit::ddheadlayers::CanReplaceFace()
+                            && outfit::IsFpkPathCode(faceFpk)
+                            && BranchFpkInstalled(branch,
+                                static_cast<std::uint16_t>(faceId), faceFpk))
+                            outfit::ddheadlayers::ArmBranchFace(
+                                static_cast<std::uint16_t>(faceId),
+                                branch.paths.faceFova, faceFpk);
+                        return static_cast<std::uint16_t>(faceId);
+                    }
+
+                    if (haveBranch && outfit::ReplacesFaceWithBranchModel(branch)
+                        && outfit::ddheadlayers::CanReplaceFace()
+                        && BranchFpkInstalled(branch, fid))
+                        outfit::ddheadlayers::ArmBranchFace(
+                            fid, branch.branchFv2, branch.branchFpk);
                     return fid;
                 }
             }
@@ -236,8 +276,8 @@ namespace
                 if (int n = s_fault.load(std::memory_order_relaxed); n < 8)
                 {
                     s_fault.store(n + 1, std::memory_order_relaxed);
-                    LogDebug("[OutfitHeadOption] HeadEquipType FAULT: sIdx=%u "
-                        "(read chain bad -> offsets wrong)\n", soldierIndex);
+                    LogWarn("OutfitHeadOption: ConvertHeadEquipModelType fault on soldier %u, vanilla head used",
+                        soldierIndex);
                 }
             }
         }
@@ -317,6 +357,8 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
     }
 
+    static std::atomic<std::uint16_t> g_LastFobBlockedEquip{ 0 };
+
     static bool FobLoadoutHasBannedManagedEquip(void* self)
     {
         static_cast<void>(self);
@@ -353,18 +395,13 @@ namespace
 
             struct ScanEntry
             {
-                std::uint16_t slotOff;
-                std::uint8_t  index;
                 std::uint16_t equipId;
                 std::uint16_t devIdx;
-                std::uint8_t  managed;
-                std::uint8_t  fobOk;
                 std::uint8_t  tainted;
             };
             ScanEntry entries[19] = {};
             int       entryCount = 0;
             int       bannedAt   = -1;
-            std::uint64_t digest = 1469598103934665603ull;
 
             for (const SlotRange& r : ranges)
             {
@@ -374,7 +411,6 @@ namespace
                 for (std::uint8_t i = 0; i < r.count; ++i)
                 {
                     const std::uint16_t equipId = SafeCallPrepGetU16(get, sys, i);
-                    digest = (digest ^ equipId) * 1099511628211ull;
                     if (equipId == 0 || equipId == 0xEEEE)
                         continue;
                     const std::uint16_t idx = mapIdx(ctrl, equipId, 0);
@@ -388,13 +424,8 @@ namespace
                         && (!managed || fobBit(ctrl, idx) != 0);
                     if (entryCount < 19)
                     {
-                        entries[entryCount].slotOff =
-                            static_cast<std::uint16_t>(r.slot * 8);
-                        entries[entryCount].index   = i;
                         entries[entryCount].equipId = equipId;
                         entries[entryCount].devIdx  = idx;
-                        entries[entryCount].managed = managed ? 1 : 0;
-                        entries[entryCount].fobOk   = fobOk ? 1 : 0;
                         entries[entryCount].tainted = tainted ? 1 : 0;
                         if ((managed || tainted) && !fobOk && bannedAt < 0)
                             bannedAt = entryCount;
@@ -406,41 +437,22 @@ namespace
                     }
                 }
             }
-#ifdef _DEBUG
-            {
-                static std::uint64_t s_lastDigest = 0;
-                if (digest != s_lastDigest)
-                {
-                    s_lastDigest = digest;
-                    for (int e = 0; e < entryCount; ++e)
-                        LogDebug("[FobDeploy] loadout slot=0x%X i=%u equipId=%u "
-                            "(0x%X) devIdx=%u managed=%u fobOk=%u tainted=%u\n",
-                            static_cast<unsigned>(entries[e].slotOff),
-                            static_cast<unsigned>(entries[e].index),
-                            static_cast<unsigned>(entries[e].equipId),
-                            static_cast<unsigned>(entries[e].equipId),
-                            static_cast<unsigned>(entries[e].devIdx),
-                            static_cast<unsigned>(entries[e].managed),
-                            static_cast<unsigned>(entries[e].fobOk),
-                            static_cast<unsigned>(entries[e].tainted));
-                }
-            }
-#endif
             if (bannedAt >= 0)
             {
                 if (bannedAt < entryCount)
                 {
-                    if (entries[bannedAt].tainted)
-                        LogDebug("[FobGuard] FOB deploy blocked: vanilla equipId=%u "
-                                 "uses parts or damage rows a module modified - "
-                                 "unequip it to deploy\n",
-                            static_cast<unsigned>(entries[bannedAt].equipId));
-                    else
-                        LogDebug("[OutfitHeadOption] FOB deploy blocked: managed "
-                            "equipId=%u (flowIndex=%u) is equipped and not "
-                            "FOB-available\n",
-                            static_cast<unsigned>(entries[bannedAt].equipId),
-                            static_cast<unsigned>(entries[bannedAt].devIdx));
+                    const std::uint16_t bannedEquipId = entries[bannedAt].equipId;
+                    if (g_LastFobBlockedEquip.exchange(
+                            bannedEquipId, std::memory_order_relaxed) != bannedEquipId)
+                    {
+                        if (entries[bannedAt].tainted)
+                            LogWarn("FobGuard: deploy blocked, equipId %u uses parts or damage rows a mod changed",
+                                static_cast<unsigned>(bannedEquipId));
+                        else
+                            LogWarn("FobGuard: deploy blocked, equipId %u (flowIndex %u) not FOB-available",
+                                static_cast<unsigned>(bannedEquipId),
+                                static_cast<unsigned>(entries[bannedAt].devIdx));
+                    }
                 }
                 return true;
             }
@@ -519,17 +531,6 @@ namespace
 
         {
             const bool fobCtx = IsFobSortieContext(self);
-#ifdef _DEBUG
-            {
-                static int s_calls = 0;
-                if (s_calls < 24)
-                {
-                    ++s_calls;
-                    LogDebug("[FobDeploy] IsEnableCurrentSuit called: fobCtx=%d\n",
-                        fobCtx ? 1 : 0);
-                }
-            }
-#endif
             if (fobCtx)
             {
                 if (!g_OrigMenuGetLangText)
@@ -541,13 +542,45 @@ namespace
                         std::memory_order_relaxed);
                     return 0;
                 }
+                std::uint16_t customFaceId = 0;
+                if (outfit::IsLocalPlayerWearingCustomFace(customFaceId))
+                {
+                    static std::atomic<std::uint16_t> s_lastBlockedFace{ 0 };
+                    if (s_lastBlockedFace.exchange(
+                            customFaceId, std::memory_order_relaxed)
+                        != customFaceId)
+                        LogWarn("FobGuard: deploy blocked, character wears custom face %u",
+                            static_cast<unsigned>(customFaceId));
+                    g_FobBlockVfwOnly.store(
+                        g_OrigIsEnableCurrentSuit(self) != 0,
+                        std::memory_order_relaxed);
+                    return 0;
+                }
                 const std::uint16_t wornHeadEquipId =
                     outfit::GetCurrentWornHeadEquipId();
-                if (wornHeadEquipId != 0)
+                const std::uint8_t headPlayer = outfit::ReadLivePlayerType();
+                const std::uint8_t headParts  = outfit::ReadLivePartsType();
+                const outfit::OutfitEntry* headOutfit = nullptr;
+                const bool headWorn =
+                    wornHeadEquipId != 0
+                    && ((headParts >= outfit::kCustomPartsTypeStart
+                         && headParts <= outfit::kCustomPartsTypeEnd
+                         && outfit::TryGetOutfitByPartsType(headParts, &headOutfit)
+                         && headOutfit
+                         && headOutfit->HasHeadOptionAnyVariant(wornHeadEquipId,
+                                                                headPlayer))
+                        || (headParts < outfit::kCustomPartsTypeStart
+                            && outfit::VanillaExtHasHeadOption(
+                                   headParts, wornHeadEquipId, headPlayer,
+                                   outfit::ReadLiveSelectorCode())));
+                if (headWorn)
                 {
-                    LogDebug("[OutfitHeadOption] FOB deploy blocked: custom head "
-                        "option worn (equipId=%u) - remove it to deploy\n",
-                        static_cast<unsigned>(wornHeadEquipId));
+                    static std::atomic<std::uint16_t> s_lastBlockedHead{ 0 };
+                    if (s_lastBlockedHead.exchange(
+                            wornHeadEquipId, std::memory_order_relaxed)
+                        != wornHeadEquipId)
+                        LogWarn("FobGuard: deploy blocked, custom head option equipId %u worn",
+                            static_cast<unsigned>(wornHeadEquipId));
                     g_FobBlockVfwOnly.store(
                         g_OrigIsEnableCurrentSuit(self) != 0,
                         std::memory_order_relaxed);
@@ -561,17 +594,6 @@ namespace
                     && outfit::ReadLivePlayerType() == defOwnerPt;
                 if (wornIsOwnDefault)
                 {
-                    static std::atomic<std::uint8_t> s_lastAllowedPt{ 0 };
-                    if (s_lastAllowedPt.exchange(
-                            wornPt, std::memory_order_relaxed) != wornPt)
-                        Log("[FobGuard] player type %u wears their own "
-                            "default-outfit row (partsType=0x%02X), which declares "
-                            "the character's stock parts and fpk and whose "
-                            "abilities are dropped in FOB like every other edit - "
-                            "allowed online; every other custom outfit is still "
-                            "refused\n",
-                            static_cast<unsigned>(defOwnerPt),
-                            static_cast<unsigned>(wornPt));
                     g_FobBlockVfwOnly.store(false, std::memory_order_relaxed);
                     return 1;
                 }
@@ -582,10 +604,7 @@ namespace
                     static std::atomic<std::uint8_t> s_lastBlockedPt{ 0 };
                     if (s_lastBlockedPt.exchange(
                             wornPt, std::memory_order_relaxed) != wornPt)
-                        Log("[FobGuard] FOB deploy blocked: a custom outfit "
-                            "is worn (partsType=0x%02X) - custom outfits are "
-                            "not available online, switch to a vanilla suit "
-                            "to deploy\n",
+                        LogWarn("FobGuard: deploy blocked, custom outfit partsType 0x%02X worn",
                             static_cast<unsigned>(wornPt));
                     g_FobBlockVfwOnly.store(
                         g_OrigIsEnableCurrentSuit(self) != 0,
@@ -595,10 +614,11 @@ namespace
                 if (wornPt < outfit::kCustomPartsTypeStart
                     && outfit::GetActiveVariant(wornPt) != 0)
                 {
-                    LogDebug("[OutfitHeadOption] FOB deploy blocked: extended "
-                        "vanilla variant active on worn partsType=0x%02X - "
-                        "switch to the base suit to deploy\n",
-                        static_cast<unsigned>(wornPt));
+                    static std::atomic<std::uint8_t> s_lastBlockedVariantPt{ 0 };
+                    if (s_lastBlockedVariantPt.exchange(
+                            wornPt, std::memory_order_relaxed) != wornPt)
+                        LogWarn("FobGuard: deploy blocked, extended variant active on partsType 0x%02X",
+                            static_cast<unsigned>(wornPt));
                     g_FobBlockVfwOnly.store(
                         g_OrigIsEnableCurrentSuit(self) != 0,
                         std::memory_order_relaxed);
@@ -638,103 +658,50 @@ namespace outfit
 
         void* target = ResolveGameAddress(gAddr.MissionPrep_IsEnableCurrentHeadOption);
         if (target)
-        {
             g_Installed = CreateAndEnableHook(
                 target,
                 reinterpret_cast<void*>(&hkIsEnableCurrentHeadOption),
                 reinterpret_cast<void**>(&g_OrigIsEnableHead));
-            if (g_Installed)
-                LogDebug("[OutfitHeadOption] enable-gate hook installed OK "
-                         "(target=%p)\n", target);
-            else
-                Log("[OutfitHeadOption] enable-gate hook install FAILED "
-                    "(target=%p)\n", target);
-        }
-        else
-        {
-            LogDebug("[OutfitHeadOption] enable-gate unresolved; skipped (submenu may "
-                "show greyed, head render still installs below)\n");
-        }
+        if (!g_Installed)
+            LogError("OutfitHeadOption: IsEnableCurrentHeadOption hook failed, head option menu stays vanilla");
 
         void* suitTarget = ResolveGameAddress(gAddr.IsEnableCurrentSuit);
         if (suitTarget)
-        {
             g_IsEnableCurrentSuitInstalled = CreateAndEnableHook(
                 suitTarget,
                 reinterpret_cast<void*>(&hkIsEnableCurrentSuit),
                 reinterpret_cast<void**>(&g_OrigIsEnableCurrentSuit));
-            if (g_IsEnableCurrentSuitInstalled)
-                LogDebug("[OutfitHeadOption:SuitGate] override hook installed "
-                         "(target=%p)\n", suitTarget);
-            else
-                Log("[OutfitHeadOption:SuitGate] override hook install FAILED "
-                    "(target=%p)\n", suitTarget);
-        }
-        else
-        {
-            LogDebug("[OutfitHeadOption:SuitGate] target unresolved; skipped\n");
-        }
-
+        if (!g_IsEnableCurrentSuitInstalled)
+            LogError("OutfitHeadOption: IsEnableCurrentSuit hook failed, suit gate and FOB deploy guard off");
 
         void* hosTarget = ResolveGameAddress(
             gAddr.MissionPrepSystem_IsEnableHeadOptionSuit);
         if (hosTarget)
-        {
             g_IsEnableHeadOptionSuitInstalled = CreateAndEnableHook(
                 hosTarget,
                 reinterpret_cast<void*>(&hkIsEnableHeadOptionSuit),
                 reinterpret_cast<void**>(&g_OrigIsEnableHeadOptionSuit));
-            if (g_IsEnableHeadOptionSuitInstalled)
-                LogDebug("[OutfitHeadOption:HOSuit] override hook installed "
-                         "(target=%p)\n", hosTarget);
-            else
-                Log("[OutfitHeadOption:HOSuit] override hook install FAILED "
-                    "(target=%p)\n", hosTarget);
-        }
-        else
-        {
-            LogDebug("[OutfitHeadOption:HOSuit] target unresolved; skipped\n");
-        }
-
+        if (!g_IsEnableHeadOptionSuitInstalled)
+            LogError("OutfitHeadOption: IsEnableHeadOptionSuit hook failed, head options stay vanilla");
 
         void* cfTarget = ResolveGameAddress(gAddr.Player_ConverFaceIdWithFaceEquipId);
         if (cfTarget)
-        {
             g_ConverFaceIdInstalled = CreateAndEnableHook(
                 cfTarget,
                 reinterpret_cast<void*>(&hkConverFaceIdWithFaceEquipId),
                 reinterpret_cast<void**>(&g_OrigConverFaceId));
-            if (g_ConverFaceIdInstalled)
-                LogDebug("[OutfitHeadOption:ConverFace] hook installed "
-                         "(target=%p)\n", cfTarget);
-            else
-                Log("[OutfitHeadOption:ConverFace] hook install FAILED "
-                    "(target=%p)\n", cfTarget);
-        }
-        else
-        {
-            LogDebug("[OutfitHeadOption:ConverFace] target unresolved; skipped\n");
-        }
+        if (!g_ConverFaceIdInstalled)
+            LogError("OutfitHeadOption: ConverFaceIdWithFaceEquipId hook failed, custom head faces off");
 
         void* heTarget =
             ResolveGameAddress(gAddr.RealizedSoldier2Impl_ConvertHeadEquipModelType);
         if (heTarget)
-        {
             g_ConvertHeadEquipInstalled = CreateAndEnableHook(
                 heTarget,
                 reinterpret_cast<void*>(&hkConvertHeadEquipModelType),
                 reinterpret_cast<void**>(&g_OrigConvertHeadEquip));
-            if (g_ConvertHeadEquipInstalled)
-                LogDebug("[OutfitHeadOption:HeadEquipType] hook installed "
-                         "(target=%p)\n", heTarget);
-            else
-                Log("[OutfitHeadOption:HeadEquipType] hook install FAILED "
-                    "(target=%p)\n", heTarget);
-        }
-        else
-        {
-            LogDebug("[OutfitHeadOption:HeadEquipType] target unresolved; skipped\n");
-        }
+        if (!g_ConvertHeadEquipInstalled)
+            LogError("OutfitHeadOption: ConvertHeadEquipModelType hook failed, custom head gate off");
 
         return g_ConverFaceIdInstalled || g_Installed
             || g_IsEnableCurrentSuitInstalled || g_IsEnableHeadOptionSuitInstalled
@@ -789,8 +756,5 @@ namespace outfit
             DisableAndRemoveHook(t);
         g_OrigIsEnableHead = nullptr;
         g_Installed        = false;
-#ifdef _DEBUG
-        LogDebug("[OutfitHeadOption] removed\n");
-#endif
     }
 }

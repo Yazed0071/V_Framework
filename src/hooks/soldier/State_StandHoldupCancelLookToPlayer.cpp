@@ -14,8 +14,6 @@
 #include "GetGameObjectIdWithIndex.h"
 #include "MissionCodeGuard.h"
 
-extern void Log(const char* fmt, ...);
-
 
 static uintptr_t gBase = 0;
 
@@ -142,8 +140,12 @@ static void TrySpeak_EnterDownHoldupStyle(void* holdupThis, uint32_t id32, uint3
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[Holdup] Speak vfunc EXCEPTION. this=%p id=%u line=0x%08X\n",
-            holdupThis, id32, lineId);
+        static bool s_Warned = false;
+        if (!s_Warned)
+        {
+            s_Warned = true;
+            LogWarn("Holdup: speak call faulted for holdup %u line 0x%08X, line skipped", id32, lineId);
+        }
     }
 }
 
@@ -160,14 +162,12 @@ static void EmitHoldupCancelLookToPlayerMessage(uint32_t soldierIndex)
     const std::uint32_t gameObjectId = GetGameObjectIdByIndex("TppSoldier2", soldierIndex);
     if (!gameObjectId)
     {
-        Log("[Holdup] failed to resolve soldier index %u\n", soldierIndex);
+        LogWarn("Holdup: soldier index %u has no game object id, HoldupCancelLookToPlayer not sent", soldierIndex);
         return;
     }
 
     V_FrameWork::EmitMessage("GameObject", "HoldupCancelLookToPlayer", gameObjectId);
 }
-
-static std::atomic<uint64_t> gDetourHits{ 0 };
 
 static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
 {
@@ -204,11 +204,6 @@ static void __fastcall Hook_State(void* holdupThis, uint64_t id, int phase)
         static_cast<uint64_t>(lineId);
 
     TrySpeak_EnterDownHoldupStyle(holdupThis, holdupId, lineId);
-
-    const uint64_t n = ++gDetourHits;
-    if (n == 1 || (n % 50) == 0)
-    {
-    }
 }
 
 
@@ -224,11 +219,9 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
     __try { std::memcpy(pro, (void*)target, sizeof(pro)); }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        Log("[Holdup] ERROR: cannot read target bytes.\n");
+        LogError("Holdup: StandHoldupCancelLookToPlayer bytes unreadable, hook off");
         return false;
     }
-
-    for (int i = 0; i < 16; i++) ;
 
     MH_STATUS s1 = MH_CreateHook((LPVOID)target, (LPVOID)&Hook_State, (LPVOID*)&gOrig_State);
     if (s1 != MH_OK) return false;
@@ -236,9 +229,6 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
     MH_STATUS s2 = EnableOrQueueHook((LPVOID)target);
     if (s2 != MH_OK) return false;
 
-#ifdef _DEBUG
-    LogDebug("[Holdup] Hook installed OK.\n");
-#endif
     return true;
 }
 
@@ -254,12 +244,8 @@ bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook()
 
     gOrig_State = nullptr;
     gBase = 0;
-    gDetourHits.store(0);
     gFireIdx.store(0);
     std::memset(gFireRing, 0, sizeof(gFireRing));
 
-#ifdef _DEBUG
-    LogDebug("[Holdup] Hook removed.\n");
-#endif
     return true;
 }

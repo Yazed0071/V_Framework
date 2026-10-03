@@ -7,6 +7,8 @@
 #include "MissionCodeGuard.h"
 #include "MissionStateReset.h"
 #include "../hooks/player/QuietCqcPatches.h"
+#include "../hooks/player/Player2Impl_UpdateVoiceType.h"
+#include "../hooks/player/AccSeatIdleMotion.h"
 #include "../hooks/outfit/UniqueCharacterSuitSlot.h"
 #include "log.h"
 #include "DeployGuard.h"
@@ -17,6 +19,8 @@
 #include "../hooks/outfit/AdditionalMotionTable_GetMtarPathId.h"
 #include "../hooks/menupopup/MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter.h"
 #include "../hooks/outfit/OutfitAbilities.h"
+#include "../hooks/player/CallMenuCommandSet_UpdateState.h"
+#include "../hooks/soldier/NoticeControllerImpl_CheckForceNotice.h"
 #include "../hooks/player/CqcActionPluginImpl_StateHoldMove.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 #include "../hooks/sahelan/SetEyeLampColorHook.h"
@@ -26,8 +30,11 @@
 #include "../hooks/soldier/InterrogationVoiceEvent.h"
 #include "../hooks/soldier/LostHostageHook.h"
 #include "../hooks/soldier/SoldierVehicleAvoid.h"
+#include "../hooks/soldier/Soldier2Impl_UpdateMarkers.h"
+#include "../hooks/soldier/SoldierFaction.h"
 #include "../hooks/soldier/NoticeControllerImpl_CheckSightNoticePlayer.h"
 #include "../hooks/soldier/NoticeControllerImpl_GetOccasionalChat.h"
+#include "../hooks/soldier/RadioControllerImpl_StepRadioWaitResponse.h"
 #include "../hooks/soldier/SoldierAkObjIdMap.h"
 #include "../hooks/soldier/SoldierObjectRtpc.h"
 #include "../hooks/soldier/StepRadioDiscovery.h"
@@ -42,9 +49,8 @@ namespace
     std::atomic<std::uint32_t> g_epochMissionCode{ 0xFFFFFFFFu };
     std::atomic<bool>          g_finalizerRegistered{ false };
     std::atomic<bool>          g_finalizerFired{ false };
-    std::atomic<bool>          g_broadcastPending{ false };
 
-    void RunAllClears()
+    void RunAllClears(std::uint32_t code)
     {
         outfit::Reset_PartsTypeChangeTracking();
         Unset_AllSoldierVoicePitch();
@@ -62,6 +68,9 @@ namespace
         Clear_EyeLampColor();
         Clear_HeartLightColor();
         Clear_InterrogationVoiceEvents();
+        CallMenuItems::ClearForNewMission();
+        CpRadioResponse::Clear();
+        SoldierNotice::ClearPending();
         ClearOccasionalChatListOverride();
         Clear_VIPSleepFaintImportantGameObjectIds();
         Clear_VIPHoldupImportantGameObjectIds();
@@ -69,13 +78,17 @@ namespace
         Clear_VIPRadioImportantGameObjectIds();
         Clear_AllSoldierIgnorePlayer();
         Clear_AllSoldierIgnoreVehicle();
+        Clear_AllSoldierFactions();
         Clear_TargetCqcStance();
         Clear_HeadMarkEntityColours();
+        Clear_AllHeadMarkStaffNames();
         Clear_AllMissionDeployWarnings();
         Set_FriendlyFire(false);
         outfit::RevertAdditionalMotionSwaps();
+        RestoreAllGani();
+        Reset_PlayerVoiceLiveSlot();
 
-        g_broadcastPending.store(true, std::memory_order_relaxed);
+        V_FrameWork::EmitMessage("Mission", "MissionStateReset", code);
     }
 
     int __cdecl l_MissionStateFinalizer(lua_State* L)
@@ -86,11 +99,7 @@ namespace
 
         g_finalizerFired.store(true, std::memory_order_relaxed);
         g_epochMissionCode.store(code, std::memory_order_relaxed);
-        RunAllClears();
-
-        LogDebug("[MissionStateReset] mission %u teardown: cleared all per-mission "
-                 "overrides via the mission finalizer\n",
-            code);
+        RunAllClears(code);
         return 0;
     }
 }
@@ -126,10 +135,7 @@ void MissionStateReset::EnsureFinalizerRegistered(lua_State* L)
     g_finalizerRegistered.store(true, std::memory_order_relaxed);
 
     if (rc != 0)
-        Log("[MissionStateReset] ERROR: Mission.AddResidentFinalizer refused the "
-            "per-mission reset finalizer (lua error %d) - overrides now depend on "
-            "the mission-code poll, which cannot clear a mission that issues no "
-            "GameObject.SendCommand\n", rc);
+        LogWarn("MissionStateReset: AddResidentFinalizer failed (lua error %d), using mission-code poll", rc);
 }
 
 void MissionStateReset::PollMissionChange()
@@ -138,9 +144,6 @@ void MissionStateReset::PollMissionChange()
     DeployGuard::OnMissionCode(code);
     QuietCqc_EnforceMissionGuard();
     UniqueCharacterSuitSlot_EnforceMissionGuard();
-
-    if (g_broadcastPending.exchange(false, std::memory_order_relaxed))
-        V_FrameWork::EmitMessage("Mission", "MissionStateReset", code);
 
     if (g_finalizerFired.load(std::memory_order_relaxed))
     {
@@ -154,11 +157,5 @@ void MissionStateReset::PollMissionChange()
     if (!g_epochMissionCode.compare_exchange_strong(prev, code, std::memory_order_relaxed))
         return;
 
-    RunAllClears();
-
-    if (prev != 0xFFFFFFFFu)
-        LogDebug("[MissionStateReset] mission %u -> %u: cleared all per-mission "
-                 "overrides via the mission-code poll (the finalizer has not fired "
-                 "yet)\n",
-            prev, code);
+    RunAllClears(code);
 }

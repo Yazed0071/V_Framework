@@ -28,7 +28,6 @@ void LaserColor_ClearOption(int optionId);
 bool LaserColor_Resolve(int optionId, int equipId, LaserColor& out);
 bool LaserTweaks_Resolve(int optionId, LaserTweaks& out);
 bool LaserColor_AnyRegistered();
-bool LaserColor_LoneDefault(LaserColor& out);
 
 void LaserColor_NoteWeaponOption(int equipId, int optionId);
 

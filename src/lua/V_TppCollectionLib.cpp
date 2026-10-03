@@ -39,9 +39,7 @@ namespace
 
         if (!vacant && g_InjectedTypeConstants.count(typeName) == 0)
         {
-            Log("[TppCollection] TppCollection.%s already exists (vanilla constant or "
-                "function) - the custom type still works by name, but no Lua constant "
-                "was injected for it\n", typeName);
+            LogWarn("RegisterCollectionType '%s': TppCollection name taken, no Lua constant added", typeName);
             g_lua_settop(L, top);
             return;
         }
@@ -134,10 +132,7 @@ namespace
 
         if (LuaType(L, 2) != LUA_TTABLE)
         {
-            Log("[TppCollection] RegisterCollectionType('%s') needs a spec TABLE as its second "
-                "argument - the old positional form was replaced, so this call registered "
-                "nothing: { Model = \"/Assets/...\", Color = {r=,g=,b=,a=}, "
-                "Strength = {x=,y=,z=,w=}, Yoffset = , GroundEffectSize = }\n",
+            LogWarn("RegisterCollectionType '%s': arg 2 must be a spec table, nothing registered",
                 typeName ? typeName : "");
             PushLuaNil(L);
             return 1;

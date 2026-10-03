@@ -129,9 +129,8 @@ namespace
         {
             static std::atomic<int> s_loggedPlayerType{ -1 };
             if (s_loggedPlayerType.exchange(playerType) != playerType)
-                Log("[UniqueCharName] no character name resolved for player "
-                    "type %d, so the Sortie Prep CHARACTER row keeps the Snake "
-                    "name the staff roster lookup fell back to\n", playerType);
+                LogWarn("UniqueCharName: no name for playerType %d, CHARACTER row "
+                        "keeps Snake", playerType);
             return vanilla;
         }
 
@@ -151,10 +150,8 @@ namespace outfit
             gAddr.MissionPrepSystem_GetPlayerNameFromPlayerTypeAndStaffId);
         if (!target)
         {
-            Log("[UniqueCharName] GetPlayerNameFromPlayerTypeAndStaffId is not "
-                "ported for %s, so the Sortie Prep CHARACTER row still reads "
-                "Snake while playing as Ocelot or Quiet\n",
-                GetGameBuildName(gGameBuild));
+            LogError("UniqueCharName: no address for %s, CHARACTER row stays Snake",
+                     GetGameBuildName(gGameBuild));
             return false;
         }
 
@@ -164,9 +161,8 @@ namespace outfit
                     &hkGetPlayerNameFromPlayerTypeAndStaffId),
                 reinterpret_cast<void**>(&g_OrigGetPlayerName)))
         {
-            Log("[UniqueCharName] GetPlayerNameFromPlayerTypeAndStaffId hook "
-                "FAIL at %p, so the Sortie Prep CHARACTER row still reads Snake "
-                "while playing as Ocelot or Quiet\n", target);
+            LogError("UniqueCharName: hook failed @ %p, CHARACTER row stays Snake",
+                     target);
             g_OrigGetPlayerName = nullptr;
             return false;
         }

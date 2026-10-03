@@ -30,11 +30,8 @@ namespace outfit::shadow
         {
             static std::atomic<int> s_oobSet{ 0 };
             if (s_oobSet.fetch_add(1, std::memory_order_relaxed) < 8)
-                Log("[ShadowState] parts slot %zu is past the %zu-slot mirror, so "
-                    "this outfit write is lost and that slot keeps serving whatever "
-                    "its shadow last held - the parts pipeline has more slots than "
-                    "the mirror was sized for\n",
-                    slot, kMaxSlots);
+                LogWarn("ShadowState: parts slot %zu past the %zu-slot mirror, outfit "
+                    "write lost", slot, kMaxSlots);
             return;
         }
         bool changed = false;
@@ -56,20 +53,7 @@ namespace outfit::shadow
         }
 
         if (changed)
-        {
-#ifdef _DEBUG
-            LogDebug("[ShadowState] slot=%zu SET realPartsType=0x%02X realCamo=0x%02X "
-                "realArmType=%u realPlayerType=%u developId=%u variantIdx=%u\n",
-                slot,
-                static_cast<unsigned>(s.realPartsType),
-                static_cast<unsigned>(s.realCamoType),
-                static_cast<unsigned>(s.realArmType),
-                static_cast<unsigned>(s.realPlayerType),
-                static_cast<unsigned>(s.developId),
-                static_cast<unsigned>(s.variantIdx));
-#endif
             outfit::RequestAdditionalMotionReresolve();
-        }
     }
 
     void Clear(std::size_t slot)
@@ -78,35 +62,18 @@ namespace outfit::shadow
         {
             static std::atomic<int> s_oobClear{ 0 };
             if (s_oobClear.fetch_add(1, std::memory_order_relaxed) < 8)
-                Log("[ShadowState] parts slot %zu is past the %zu-slot mirror, so "
-                    "this drop is lost and a dead outfit may still be substituted "
-                    "for that slot\n",
-                    slot, kMaxSlots);
+                LogWarn("ShadowState: parts slot %zu past the %zu-slot mirror, drop "
+                    "lost", slot, kMaxSlots);
             return;
         }
         std::lock_guard<std::mutex> lock(g_Mutex);
-        if (g_Slots[slot].used)
-        {
-#ifdef _DEBUG
-            LogDebug("[ShadowState] slot=%zu CLEAR (was developId=%u)\n",
-                slot, static_cast<unsigned>(g_Slots[slot].developId));
-#endif
-        }
         g_Slots[slot] = Slot{};
     }
 
-    void ResetAll(const char* reason)
+    void ResetAll(const char*)
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
-        bool anyUsed = false;
-        for (auto& s : g_Slots) { if (s.used) { anyUsed = true; break; } }
         for (auto& s : g_Slots) s = Slot{};
-        if (anyUsed)
-        {
-#ifdef _DEBUG
-            LogDebug("[ShadowState] RESET-ALL reason=%s\n", reason ? reason : "(unspecified)");
-#endif
-        }
     }
 
     bool Get(std::size_t slot, Slot* out)

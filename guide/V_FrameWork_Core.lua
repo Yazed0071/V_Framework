@@ -4,12 +4,10 @@ if rawget(_G, "V_FrameWork_Core") then
     return _G.V_FrameWork_Core
 end
 
-local ok, V_FrameWorkOrErr = pcall(require, "V_FrameWork")
-if not ok then
-    error("V_FrameWork_Core: failed to require V_FrameWork: " .. tostring(V_FrameWorkOrErr))
+local VFW = rawget(_G, "V_FrameWork")
+if not VFW then
+    error("V_FrameWork_Core: V_FrameWork.dll isn't loaded. It goes in MGS_TPP\\plugins\\ and needs IHHook r25 or newer with enable_dll_loader=true in ihhook_config.lua")
 end
-
-local VFW = V_FrameWorkOrErr
 local V_FrameWork = VFW
 
 _G.VFW = VFW
@@ -27,6 +25,7 @@ this.registerIvars = {
     "V_FrameWork_V_TppHelicopter_SetTaxiRidePose",
     "V_FrameWork_V_Quiet_QuietHoldCQC",
     "V_FrameWork_V_Quiet_QuietInterr",
+    "V_FrameWork_V_ACC_iDroidClose",
 }
 
 -- Infinite Heaven menu definition
@@ -36,6 +35,7 @@ this.V_FrameWork = {
         "Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose",
         "Ivars.V_FrameWork_V_Quiet_QuietHoldCQC",
         "Ivars.V_FrameWork_V_Quiet_QuietInterr",
+        "Ivars.V_FrameWork_V_ACC_iDroidClose",
     }
 }
 
@@ -45,6 +45,7 @@ this.langStrings = {
         V_FrameWork_V_TppHelicopter_SetTaxiRidePose = "Set Taxi Ride Pose",
         V_FrameWork_V_Quiet_QuietHoldCQC = "Enables Quiet to hold with CQC",
         V_FrameWork_V_Quiet_QuietInterr = "Enables Quiet to Interrogate",
+        V_FrameWork_V_ACC_iDroidClose = "Play close iDroid animation while in the ACC.",
     },
     help = {
         eng = {
@@ -84,6 +85,15 @@ this.V_FrameWork_V_Quiet_QuietInterr = {
         this._SetQuietInterrogate(setting)
     end
 }
+this.V_FrameWork_V_ACC_iDroidClose = {
+    save = IvarProc.CATEGORY_EXTERNAL,
+    range = Ivars.switchRange,
+    settingNames = "set_switch",
+    default = 1,
+    OnChange = function(self, setting)
+        this._SetPlayIDroidEndMotion(setting)
+    end
+}
 
 local TAXI_RIDE_POSE_STATES = { 0x03, 0x08, 0x0A }   -- 1 = StateAtk, 2 = StateInside, 3 = StateInsideBackSeatStart
 
@@ -114,6 +124,29 @@ function this._SetQuietInterrogate(enable)
 		V_Player.SetQuietInterrogate(false)
 	end
 end
+function this._SetPlayIDroidEndMotion(enable)
+	if  enable == 1 then
+		V_title_sequence.SetPlayIDroidEndMotion(true)
+	else
+		V_title_sequence.SetPlayIDroidEndMotion(false)
+	end
+end
+
+-- IH Appearance > Headgear: add custom heads once, after every module's LoadLibraries registered them
+function this.LoadSave()
+    local list = InfFova.playerFaceEquipIdInfo
+    for _, head in ipairs(V_Player.GetHeadOptions() or {}) do
+        while #list < head.slot do
+            table.insert(list, { name = "", playerFaceEquipId = #list, playerTypes = {} })
+        end
+        table.insert(list, {
+            name = head.key,
+            description = head.name,
+            playerFaceEquipId = head.slot,
+            playerTypes = head.playerTypes,
+        })
+    end
+end
 
 function this.OnAllocate(missionTable)
     -- HELI TAXI POSE
@@ -125,6 +158,9 @@ function this.OnAllocate(missionTable)
     -- QUIET
     this._SetQuietHoldCqc(Ivars.V_FrameWork_V_Quiet_QuietHoldCQC:Get())
     this._SetQuietInterrogate(Ivars.V_FrameWork_V_Quiet_QuietInterr:Get())
+
+    -- IDROID END
+    this._SetPlayIDroidEndMotion(Ivars.V_FrameWork_V_ACC_iDroidClose:Get())
 end
 
 function this.AddMissionPacks(missionCode, packPaths)

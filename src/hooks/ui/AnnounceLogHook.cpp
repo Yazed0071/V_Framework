@@ -2,7 +2,6 @@
 #include "AnnounceLogHook.h"
 
 #include <Windows.h>
-#include <intrin.h>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -12,7 +11,6 @@
 #include <unordered_set>
 
 #include "AddressSet.h"
-#include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "FoxHashes.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
@@ -99,11 +97,7 @@ namespace
                 g_RotateCursor = kModSeIdBase;
             const std::uint32_t evicted = g_TypeBySlot[seId];
             if (evicted != 0)
-            {
                 g_SeIdByType.erase(evicted);
-                LogDebug("[AnnounceLog] rotating live seId 0x%X: type 0x%X -> 0x%X\n",
-                         seId, evicted, announceType);
-            }
         }
         g_TypeBySlot[seId] = announceType;
         g_SeIdByType[announceType] = seId;
@@ -123,7 +117,6 @@ namespace
 
     static long  g_AnnounceOverflowed  = 0;
     static DWORD g_LastOverflowReport  = 0;
-    static DWORD g_LastHoldReport      = 0;
 
     struct DeferredAnnounce
     {
@@ -159,23 +152,10 @@ namespace
             if (now - g_LastOverflowReport >= kAnnounceReportMs)
             {
                 g_LastOverflowReport = now;
-                Log("[AnnounceLog] the deferred announce queue is full at %zu "
-                    "entries (%ld lost) - announces are being raised faster than "
-                    "the log types them out, so these newest lines never reach "
-                    "the announce HUD\n",
+                LogWarn("AnnounceLog: deferred queue full at %zu, %ld announces lost",
                     kAnnounceQueueMax, lost);
             }
             return;
-        }
-        if (now - g_LastHoldReport >= kAnnounceReportMs)
-        {
-            g_LastHoldReport = now;
-            Log("[AnnounceLog] the engine announce log has no free slot (display cursor "
-                "%u of %u) - %zu line(s) are held back and are released as the HUD types "
-                "the backlog out\n",
-                AnnounceLogCursor(g_AnnounceCdm),
-                static_cast<unsigned>(kAnnounceLogSlots),
-                g_AnnounceQueue.size() + 1u);
         }
 
         DeferredAnnounce entry;
@@ -216,29 +196,6 @@ namespace
             }
         }
 
-#ifdef _DEBUG
-        static int s_viewCount = 0;
-        static int s_viewTotal = 0;
-        ++s_viewTotal;
-        if (s_viewCount < 12)
-        {
-            ++s_viewCount;
-            const std::int32_t announcing = EquipDevelop_AnnouncingDevelopId();
-            char origin[64];
-            if (announcing != 0)
-                std::snprintf(origin, sizeof(origin), "developId=%d",
-                              announcing);
-            else
-                std::snprintf(origin, sizeof(origin),
-                              "developId=none (the game raised this, not V_FrameWork)");
-
-            LogDebug("[AnnounceDiag] AnnounceLogView #%d caller=%p type=%u se=%u important=%d %s text=\"%s\"\n",
-                s_viewTotal, _ReturnAddress(),
-                static_cast<unsigned>(type), static_cast<unsigned>(se),
-                important ? 1 : 0, origin, text ? text : "(null)");
-        }
-#endif
-
         return g_OrigAnnounceLogViewDiag
              ? g_OrigAnnounceLogViewDiag(cdm, text, type, se, important)
              : 0;
@@ -247,17 +204,6 @@ namespace
     static std::uint32_t __fastcall hkGetAnnounceLogSE(void* manager, int announceType)
     {
         const std::uint32_t type = static_cast<std::uint32_t>(announceType);
-
-#ifdef _DEBUG
-        {
-            static int s_diagCount = 0;
-            if (s_diagCount < 40)
-            {
-                ++s_diagCount;
-                LogDebug("[AnnounceDiag] GetAnnounceLogSE fired: announceType=0x%08X\n", type);
-            }
-        }
-#endif
 
         const auto it = g_Overrides.find(type);
         if (it != g_Overrides.end())
@@ -480,14 +426,14 @@ bool Install_AnnounceLogHook()
 
     if (!gAddr.Hud_GetAnnounceLogSE)
     {
-        LogDebug("[AnnounceLog] address not set for this build\n");
+        LogError("AnnounceLog: no address for this build, custom announce SE off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.Hud_GetAnnounceLogSE);
     if (!target)
     {
-        Log("[AnnounceLog] resolve failed\n");
+        LogError("AnnounceLog: address did not resolve, custom announce SE off");
         return false;
     }
 
@@ -498,8 +444,8 @@ bool Install_AnnounceLogHook()
 
     if (ok)
         g_Installed = true;
-
-    Log("[AnnounceDiag] GetAnnounceLogSE hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
+    else
+        LogError("AnnounceLog: GetAnnounceLogSE hook failed @ %p", target);
 
     if (gAddr.HudCommonDataManager_AnnounceLogView)
     {
@@ -508,12 +454,13 @@ bool Install_AnnounceLogHook()
             viewTarget,
             reinterpret_cast<void*>(&hkAnnounceLogViewDiag),
             reinterpret_cast<void**>(&g_OrigAnnounceLogViewDiag));
-        Log("[AnnounceDiag] AnnounceLogView hook: %s (target=%p)\n",
-            viewOk ? "OK" : "FAIL", viewTarget);
+        if (!viewOk)
+            LogError("AnnounceLog: AnnounceLogView hook failed @ %p, overflow not deferred",
+                viewTarget);
     }
     else
     {
-        LogDebug("[AnnounceDiag] AnnounceLogView address is 0 for this build\n");
+        LogError("AnnounceLog: no AnnounceLogView address for this build, overflow not deferred");
     }
 
     if (ok && gAddr.Hud_TypingLogActUpdate)
@@ -553,22 +500,12 @@ bool Install_AnnounceLogHook()
             }
         }
 
-#ifdef _DEBUG
-        Log("[AnnounceLog] TypingLogAct::Update hook: %s | event=%s voice/dialogue=%s\n",
-            g_UpdateInstalled ? "OK" : "FAIL",
-            g_SoundControlStart ? "ready" : "off",
-            (g_GetInstance && g_GetGraphState && g_VoicePlay) ? "ready" : "off");
-#else
         if (!g_UpdateInstalled)
-            Log("[AnnounceLog] TypingLogAct::Update hook: %s | event=%s voice/dialogue=%s\n",
-                g_UpdateInstalled ? "OK" : "FAIL",
-                g_SoundControlStart ? "ready" : "off",
-                (g_GetInstance && g_GetGraphState && g_VoicePlay) ? "ready" : "off");
-#endif
+            LogError("AnnounceLog: TypingLogAct::Update hook failed, custom announce sounds off");
     }
     else if (ok)
     {
-        LogDebug("[AnnounceLog] custom-sound path disabled (TypingLogAct::Update address not set)\n");
+        LogError("AnnounceLog: no TypingLogAct::Update address for this build, custom announce sounds off");
     }
 
     return ok;

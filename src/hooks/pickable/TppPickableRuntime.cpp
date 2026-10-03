@@ -10,6 +10,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "EquipPartParams.h"
 
 namespace
 {
@@ -224,24 +225,66 @@ static void ApplyOverrideToInfo(std::uint16_t* info, const PickableOverride& ove
 }
 
 
+static int ReadLocatorEquipId(const std::uint8_t* locator)
+{
+    if (!locator)
+        return 0;
+    __try
+    {
+        return *reinterpret_cast<const std::uint16_t*>(locator + 0x26) & 0x7FF;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return 0;
+    }
+}
+
+static void ApplyMagazineCounts(std::uint16_t* info, const MagazineParameters& primary,
+                                 const MagazineParameters& underbarrel)
+{
+    if (!info)
+        return;
+    __try
+    {
+        if (primary.id > 0)
+        {
+            info[2] = ClampPickableCount(primary.carryMax);
+            info[4] = primary.capacity < info[2] ? primary.capacity : info[2];
+        }
+        if (underbarrel.id > 0)
+        {
+            info[3] = ClampPickableCount(underbarrel.carryMax);
+            info[5] = underbarrel.capacity < info[3] ? underbarrel.capacity : info[3];
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
 static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo, void* statusPtr, std::uint8_t* locatorParam)
 {
     g_LastPickableSystem = thisPtr;
 
-    MISSION_GUARD_ORIGINAL_VOID(g_OrigCopyAndAdjustInfo, thisPtr, outInfo, statusPtr, locatorParam);
-
     g_OrigCopyAndAdjustInfo(thisPtr, outInfo, statusPtr, locatorParam);
 
     std::uint16_t locatorIndex = 0;
-    if (!TryGetLocatorIndexFromOutInfo(thisPtr, outInfo, locatorIndex))
-        return;
-
-    std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
-    const auto it = g_PickableOverrides.find(locatorIndex);
-    if (it == g_PickableOverrides.end())
-        return;
-
-    ApplyOverrideToInfo(outInfo, it->second);
+    PickableOverride override_{};
+    if (!MissionCodeGuard::ShouldBypassHooks()
+        && TryGetLocatorIndexFromOutInfo(thisPtr, outInfo, locatorIndex))
+    {
+        std::lock_guard<std::mutex> lock(g_PickableOverridesMutex);
+        const auto it = g_PickableOverrides.find(locatorIndex);
+        if (it != g_PickableOverrides.end())
+            override_ = it->second;
+    }
+    const int equipId = (override_.mask & (1u << kTppPickableFieldEquipId))
+        ? override_.values[kTppPickableFieldEquipId] : ReadLocatorEquipId(locatorParam);
+    MagazineParameters primary{}, underbarrel{};
+    if (EquipParam_GetWeaponMagazines(equipId, primary, underbarrel))
+        ApplyMagazineCounts(outInfo, primary, underbarrel);
+    if (override_.mask)
+        ApplyOverrideToInfo(outInfo, override_);
 }
 
 
@@ -316,8 +359,13 @@ bool Get_TppPickableCountRawByIndex(std::uint32_t locatorIndex, std::uint16_t& o
         }
     }
 
-    Log("[TppPickable] GetCountRawByIndex failed index=%u\n",
-        static_cast<unsigned>(locatorIndex));
+    static std::uint32_t s_lastMissIndex = 0xFFFFFFFFu;
+    if (s_lastMissIndex != locatorIndex)
+    {
+        s_lastMissIndex = locatorIndex;
+        LogWarn("TppPickable: GetCountRaw index %u: no live info or override, nil returned",
+            static_cast<unsigned>(locatorIndex));
+    }
     return false;
 }
 
@@ -372,13 +420,12 @@ namespace
         {
             if (at[i] != kOrig[i])
             {
-                LogDebug("[TppPickable] item-window bound patch REFUSED at 0x%llX: "
-                         "expected CMP EBX,0x209 but found %02X %02X %02X %02X %02X "
-                         "%02X - another module detoured it or the address is "
-                         "wrong; item equipIds below 0x1C2 keep crashing on "
-                         "drop/pickup\n",
+                LogError("TppPickable: item-window patch at 0x%llX: found %02X %02X %02X "
+                         "%02X %02X %02X, low item equipIds crash on drop",
                     static_cast<unsigned long long>(site),
-                    at[0], at[1], at[2], at[3], at[4], at[5]);
+                    static_cast<unsigned>(at[0]), static_cast<unsigned>(at[1]),
+                    static_cast<unsigned>(at[2]), static_cast<unsigned>(at[3]),
+                    static_cast<unsigned>(at[4]), static_cast<unsigned>(at[5]));
                 return false;
             }
         }
@@ -389,9 +436,8 @@ namespace
         std::uint8_t* t = static_cast<std::uint8_t*>(AllocThunkNear(site, 64));
         if (!t)
         {
-            LogDebug("[TppPickable] item-window bound patch REFUSED: no executable "
-                     "page within rel32 of 0x%llX - item equipIds below 0x1C2 keep "
-                     "crashing on drop/pickup\n", static_cast<unsigned long long>(site));
+            LogError("TppPickable: item-window patch at 0x%llX: no thunk page, low item "
+                     "equipIds crash on drop", static_cast<unsigned long long>(site));
             return false;
         }
 
@@ -414,9 +460,8 @@ namespace
         if (relIn > INT32_MAX || relIn < INT32_MIN)
         {
             VirtualFree(t, 0, MEM_RELEASE);
-            LogDebug("[TppPickable] item-window bound patch REFUSED: thunk out of "
-                     "rel32 range of 0x%llX - item equipIds below 0x1C2 keep "
-                     "crashing on drop/pickup\n", static_cast<unsigned long long>(site));
+            LogError("TppPickable: item-window patch at 0x%llX: thunk out of rel32, low "
+                     "item equipIds crash on drop", static_cast<unsigned long long>(site));
             return false;
         }
 
@@ -424,10 +469,8 @@ namespace
         if (!VirtualProtect(at, 6, PAGE_EXECUTE_READWRITE, &old))
         {
             VirtualFree(t, 0, MEM_RELEASE);
-            Log("[TppPickable] item-window bound patch REFUSED: VirtualProtect "
-                "failed at 0x%llX - item equipIds below 0x1C2 keep crashing on "
-                "drop/pickup\n",
-                static_cast<unsigned long long>(site));
+            LogError("TppPickable: item-window patch at 0x%llX: VirtualProtect failed, low "
+                     "item equipIds crash on drop", static_cast<unsigned long long>(site));
             return false;
         }
         const std::int32_t relIn32 = static_cast<std::int32_t>(relIn);
@@ -456,7 +499,7 @@ bool Install_TppPickableHooks()
         reinterpret_cast<void*>(&hkCopyAndAdjustInfo),
         reinterpret_cast<void**>(&g_OrigCopyAndAdjustInfo)) != MH_OK)
     {
-        Log("[TppPickable] Install hooks: FAIL create hook\n");
+        LogError("TppPickable: CopyAndAdjustInfo hook create failed, pickable overrides off");
         return false;
     }
 
@@ -464,14 +507,11 @@ bool Install_TppPickableHooks()
     {
         MH_RemoveHook(target);
         g_OrigCopyAndAdjustInfo = nullptr;
-        Log("[TppPickable] Install hooks: FAIL enable hook\n");
+        LogError("TppPickable: CopyAndAdjustInfo hook enable failed, pickable overrides off");
         return false;
     }
 
     g_TppPickableHooksInstalled = true;
-#ifdef _DEBUG
-    LogDebug("[TppPickable] Install hooks: OK\n");
-#endif
     return true;
 }
 
@@ -492,8 +532,5 @@ bool Uninstall_TppPickableHooks()
 
     Clear_TppPickableOverrides();
 
-#ifdef _DEBUG
-    LogDebug("[TppPickable] Uninstall hooks: OK\n");
-#endif
     return true;
 }

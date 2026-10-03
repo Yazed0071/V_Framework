@@ -27,7 +27,7 @@ namespace
 
         if (playHash == 0 || stopHash == 0)
         {
-            LogDebug("WARNING [MissionPreparationBgm] SetMissionPreparationMusic: needs both a play and a stop event (name string or hash number); music left as is\n");
+            LogWarn("SetMissionPreparationMusic: play and stop events required, music unchanged");
             PushLuaBool(L, false);
             return 1;
         }
@@ -45,14 +45,14 @@ namespace
 
         if (typeRaw < GAME_OVER_GENERAL || typeRaw > GAME_OVER_CYPRUS)
         {
-            LogDebug("[GameOverMusic] SetGameOverMusic: invalid type=%d (expected 0..3)\n", typeRaw);
+            LogWarn("SetGameOverMusic: type %d out of range 0..3, ignored", typeRaw);
             PushLuaBool(L, false);
             return 1;
         }
 
         if (isEnable && (playHash == 0 || stopHash == 0))
         {
-            LogDebug("[GameOverMusic] SetGameOverMusic: enable=true requires a valid play/stop event (name string or hash number)\n");
+            LogWarn("SetGameOverMusic: type %d: enable needs play and stop events, ignored", typeRaw);
             PushLuaBool(L, false);
             return 1;
         }

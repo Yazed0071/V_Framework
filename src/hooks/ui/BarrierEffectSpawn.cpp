@@ -11,6 +11,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaBroadcaster.h"
+#include "UiControllerImpl_UpdateEquipHud.h"
 
 bool WormholePortal_AnyDeployed();
 
@@ -164,7 +165,7 @@ namespace
                 static std::atomic<bool> s_MuteWarned{ false };
                 bool w = false;
                 if (s_MuteWarned.compare_exchange_strong(w, true))
-                    Log("[Barrier] WARNING: wall-hit SE site '%s' @ 0x%llX has unexpected bytes; that per-hit sound stays audible.\n",
+                    LogWarn("Barrier: %s site 0x%llX bytes differ, that hit sound stays audible",
                         sites[i].name, static_cast<unsigned long long>(sites[i].addr));
             }
         }
@@ -300,7 +301,9 @@ namespace
     {
         int id = g_OrigGetItemId(lmenu, index, a3, a4);
         if (_ReturnAddress() == g_SetEquipItemCallRet)
-            g_DesiredUp.store(id == kBarrierEquipId, std::memory_order_relaxed);
+            g_DesiredUp.store(
+                id == kBarrierEquipId && EquipHud_IsItemUsable(kBarrierEquipId),
+                std::memory_order_relaxed);
         return id;
     }
 
@@ -429,7 +432,7 @@ namespace
                                         static std::atomic<bool> s_RegWarned{ false };
                                         bool re = false;
                                         if (s_RegWarned.compare_exchange_strong(re, true))
-                                            Log("[Barrier] WARNING: defense-callback registration did not take (node=%p); dome hits will not register.\n",
+                                            LogWarn("Barrier: defense callback did not register (node %p), dome hits will not register",
                                                 static_cast<void*>(node));
                                     }
                                 }
@@ -459,8 +462,8 @@ namespace
                                     static std::atomic<bool> s_AbsorbWarned{ false };
                                     bool aw = false;
                                     if (s_AbsorbWarned.compare_exchange_strong(aw, true))
-                                        Log("[Barrier] WARNING: LifeController FOB-absorb byte @ %p already 0x%02X; not forcing (dome hits may damage the player).\n",
-                                            static_cast<void*>(lifeCtl + 0x8E), lifeCtl[0x8E]);
+                                        LogWarn("Barrier: LifeController absorb byte %p already 0x%02X, not forced, dome hits may damage the player",
+                                            static_cast<void*>(lifeCtl + 0x8E), static_cast<unsigned>(lifeCtl[0x8E]));
                                 }
                             }
 
@@ -533,7 +536,7 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             g_Failed.store(true, std::memory_order_relaxed);
-            Log("[Barrier] ERROR: Energy Wall render faulted reading player state; render disabled to stay safe.\n");
+            LogError("Barrier: Energy Wall update faulted reading player state, dome off");
             return g_Orig ? g_Orig(r15, index, r8, r9) : nullptr;
         }
 
@@ -548,7 +551,7 @@ namespace
         {
             if (forced && sub204) *sub204 = oldSub204;
             g_Failed.store(true, std::memory_order_relaxed);
-            Log("[Barrier] ERROR: engine effect update crashed while the Energy Wall was forced; reverted + render disabled.\n");
+            LogError("Barrier: effect update faulted with the Energy Wall forced, reverted, dome off");
             return ret;
         }
 
@@ -673,10 +676,6 @@ namespace
         const std::uint32_t r = g_OrigPredicate(a1, a2, a3, a4, a5, a6);
         if (r == 0 && g_ShieldDeployed.load(std::memory_order_relaxed) && !InFob())
         {
-            static std::atomic<bool> s_PredWarned{ false };
-            bool e = false;
-            if (s_PredWarned.compare_exchange_strong(e, true))
-                Log("[Barrier] WARNING: wall pair predicate rejected in SP -- forcing accept so the dome keeps stopping bullets.\n");
             return 1;
         }
         return r;
@@ -712,59 +711,59 @@ bool Install_BarrierEffectSpawn()
     g_IsFobMode = reinterpret_cast<BoolFn>(
         ResolveGameAddress(gAddr.Barrier_IsFobMode));
     if (!g_IsFobMode)
-        Log("[Barrier] WARNING: no IsFobMode address for %s; the dome cannot stand down inside FOB missions (may render there too).\n", GetGameBuildName(gGameBuild));
+        LogError("Barrier: IsFobMode address missing on %s, dome not disabled in FOB", GetGameBuildName(gGameBuild));
 
     g_SetEquipItemCallRet = ResolveGameAddress(gAddr.Barrier_EquipItemCallRet);
     if (!g_SetEquipItemCallRet)
-        Log("[Barrier] WARNING: no equip return-address for %s; the dome may not trigger when the Energy Wall is equipped.\n", GetGameBuildName(gGameBuild));
+        LogError("Barrier: equip return address missing on %s, dome may not trigger", GetGameBuildName(gGameBuild));
 
     void* git = ResolveGameAddress(gAddr.Barrier_GetItemId);
     const bool gitOk = git && CreateAndEnableHook(git, reinterpret_cast<void*>(&hk_GetItemId), reinterpret_cast<void**>(&g_OrigGetItemId));
     g_GitAddr = gitOk ? git : nullptr;
     if (!gitOk)
-        Log("[Barrier] ERROR: could not hook equip detection (addr 0x%llX) for %s; the Energy Wall dome will never appear on this build.\n",
+        LogError("Barrier: GetItemId hook failed at 0x%llX on %s, Energy Wall dome off",
             static_cast<unsigned long long>(gAddr.Barrier_GetItemId), GetGameBuildName(gGameBuild));
+
+    Install_UiControllerImpl_UpdateEquipHud();
 
     void* upd = ResolveGameAddress(gAddr.Barrier_Updater);
     const bool updOk = upd && CreateAndEnableHook(upd, reinterpret_cast<void*>(&hk_Update), reinterpret_cast<void**>(&g_Orig));
     g_UpdAddr = updOk ? upd : nullptr;
     if (!updOk)
-        Log("[Barrier] ERROR: could not hook the effect updater (addr 0x%llX) for %s; the Energy Wall dome will not render on this build.\n",
+        LogError("Barrier: effect updater hook failed at 0x%llX on %s, Energy Wall dome off",
             static_cast<unsigned long long>(gAddr.Barrier_Updater), GetGameBuildName(gGameBuild));
 
     void* dtor = ResolveGameAddress(BarrierPlayerDtorAddr());
     if (dtor && CreateAndEnableHook(dtor, reinterpret_cast<void*>(&hk_PlayerDtor), reinterpret_cast<void**>(&g_OrigDtor)))
         g_DtorAddr = dtor;
     else if (!dtor)
-        Log("[Barrier] WARNING: no teardown-cleanup address for %s; reloading a checkpoint with the dome up may crash.\n", GetGameBuildName(gGameBuild));
+        LogError("Barrier: player dtor address missing on %s, checkpoint reload with dome up may crash", GetGameBuildName(gGameBuild));
     else
-        Log("[Barrier] ERROR: could not hook the teardown-cleanup site for %s; reloading a checkpoint with the dome up may crash.\n", GetGameBuildName(gGameBuild));
+        LogError("Barrier: player dtor hook failed on %s, checkpoint reload with dome up may crash", GetGameBuildName(gGameBuild));
 
     void* blow = reinterpret_cast<void*>(BarrierBlowCbAddr());
     if (blow && CreateAndEnableHook(blow, reinterpret_cast<void*>(&hk_BlowCb), reinterpret_cast<void**>(&g_OrigBlowCb)))
         g_BlowCbAddr = blow;
     else
-        Log("[Barrier] WARNING: dome hit hook unavailable for %s; self pulses will drain the wall and no BarrierDamage messages will be sent.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Barrier: dome hit hook failed on %s, no BarrierDamage messages", GetGameBuildName(gGameBuild));
 
     g_RegisterDefenseCb = reinterpret_cast<RegisterCbFn>(BarrierRegisterDefenseCbAddr());
     g_DefenseFunctor    = reinterpret_cast<void*>(BarrierDefenseFunctorAddr());
     if (!g_RegisterDefenseCb || !g_DefenseFunctor)
-        Log("[Barrier] WARNING: no defense-callback registration address for %s; dome hits will not register (no HP loss or hit effects).\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Barrier: defense callback address missing on %s, dome hits will not register", GetGameBuildName(gGameBuild));
 
     void* pred = reinterpret_cast<void*>(BarrierPredicateAddr());
     if (pred && CreateAndEnableHook(pred, reinterpret_cast<void*>(&hk_Predicate), reinterpret_cast<void**>(&g_OrigPredicate)))
         g_PredicateAddr = pred;
     else if (g_RegisterDefenseCb)
-        Log("[Barrier] WARNING: wall pair-predicate hook unavailable for %s; if its FOB state is absent the dome may stop blocking bullets.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Barrier: pair predicate hook failed on %s, dome may stop blocking bullets", GetGameBuildName(gGameBuild));
 
     return gitOk && updOk;
 }
 
 void Uninstall_BarrierEffectSpawn()
 {
+    Uninstall_UiControllerImpl_UpdateEquipHud();
     if (g_GitAddr) DisableAndRemoveHook(g_GitAddr);
     if (g_UpdAddr) DisableAndRemoveHook(g_UpdAddr);
     if (g_DtorAddr) DisableAndRemoveHook(g_DtorAddr);
@@ -789,4 +788,18 @@ bool BarrierEffect_IsShieldActive()
 bool BarrierEffect_IsShieldDeployed()
 {
     return g_ShieldDeployed.load(std::memory_order_relaxed) && !InFob();
+}
+
+bool Barrier_InSinglePlayer()
+{
+    if (!g_IsFobMode)
+        return false;
+    __try
+    {
+        return g_IsFobMode() == 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
 }

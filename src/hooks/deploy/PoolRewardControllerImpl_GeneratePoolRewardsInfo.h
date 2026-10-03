@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_PoolRewardControllerImpl_GeneratePoolRewardsInfo_Hook();
+bool Uninstall_PoolRewardControllerImpl_GeneratePoolRewardsInfo_Hook();

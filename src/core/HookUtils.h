@@ -78,8 +78,7 @@ inline bool CreateAndEnableHook(void* target, void* detour, void** original)
         const DWORD lastErr = GetLastError();
         const uintptr_t base = GetExeBase();
         const uintptr_t abs = reinterpret_cast<uintptr_t>(target);
-        Log("[Hook] MH_CreateHook refused %p (game+0x%llX): %s (last error %lu) - this "
-            "hook is not installed, so the feature behind it stays vanilla\n",
+        LogError("Hook: create failed %p (game+0x%llX): %s, last error %lu",
             target,
             static_cast<unsigned long long>(base ? abs - base : 0ull),
             MhStatusName(st),
@@ -88,16 +87,14 @@ inline bool CreateAndEnableHook(void* target, void* detour, void** original)
     }
     if (st == MH_ERROR_ALREADY_CREATED && !*original)
     {
-        Log("[Hook] %p is already hooked by another module and no trampoline was "
-            "handed back - this hook is not installed\n", target);
+        LogError("Hook: %p already hooked by another module, not installed", target);
         return false;
     }
 
     st = EnableOrQueueHook(target);
     if (st != MH_OK && st != MH_ERROR_ENABLED)
     {
-        Log("[Hook] enable refused %p: %s - the hook was created but never armed\n",
-            target, MhStatusName(st));
+        LogError("Hook: enable failed %p: %s", target, MhStatusName(st));
         return false;
     }
 
@@ -113,4 +110,32 @@ inline bool DisableAndRemoveHook(void* target)
     MH_DisableHook(target);
     MH_RemoveHook(target);
     return true;
+}
+
+
+// For hooks only reachable once the game runs: a code hook made then stops every thread (~0.5 s on slow PCs), this stops none.
+inline bool SwapVtableSlot(void** slot, void* hook, void** original)
+{
+    if (!slot || !hook || !original)
+        return false;
+    if (*slot == hook)
+        return true;
+
+    DWORD previous = 0;
+    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &previous))
+        return false;
+    *original = *slot;
+    InterlockedExchangePointer(slot, hook);
+    VirtualProtect(slot, sizeof(void*), previous, &previous);
+    return true;
+}
+
+
+inline void RestoreVtableSlot(void** slot, void* original)
+{
+    DWORD previous = 0;
+    if (!slot || !original || !VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &previous))
+        return;
+    InterlockedExchangePointer(slot, original);
+    VirtualProtect(slot, sizeof(void*), previous, &previous);
 }

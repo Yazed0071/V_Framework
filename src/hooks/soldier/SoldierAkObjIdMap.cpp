@@ -3,17 +3,14 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <mutex>
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
-#include "log.h"
 #include "InterrogationVoiceEvent.h"
 #include "SoldierAkObjIdMap.h"
 #include "SoldierObjectRtpc.h"
@@ -234,8 +231,6 @@ namespace
 
         const std::uint32_t soldierIndex = GetSoldierIndexFromSoundSlot(slot);
 
-        Debug_InterrogationVoice_NoteDequeue(param_2, slot);
-
         const std::uint32_t     prev     = t_CurrentSpeakingSlot;
         const std::uint32_t     prevRaw  = t_CurrentSoundSlotRaw;
         void* const             prevCtl  = t_CurrentVoiceController;
@@ -269,73 +264,15 @@ namespace
 
 
     static constexpr const char* kCommandPostEmitterName = "CommandPost";
-    static constexpr std::size_t kEmitterNameLogCap      = 64;
-    static constexpr std::size_t kCommandPostLogCap      = 64;
 
 
-    static void NoteEmitterName(const char* name, std::uint32_t akObjId,
-                                const void* owner)
+    static void NoteEmitterName(const char* name, std::uint32_t akObjId)
     {
         if (!name)
             return;
 
-        {
-            std::lock_guard<std::mutex> lock(g_EmitterNameMutex);
-            g_EmitterNameByAkObjId[akObjId] = name;
-        }
-
-        static std::mutex             s_reportMutex;
-        static std::set<std::string>  s_namesSeen;
-        static std::size_t            s_commandPostsSeen = 0;
-
-        std::lock_guard<std::mutex> lock(s_reportMutex);
-
-        if (std::strcmp(name, kCommandPostEmitterName) == 0
-            && s_commandPostsSeen < kCommandPostLogCap)
-        {
-            ++s_commandPostsSeen;
-
-            char stack[256];
-            int  written = 0;
-            for (std::size_t i = t_ActiveObjectDepth;
-                 i-- > 0 && written < static_cast<int>(sizeof(stack)) - 1; )
-            {
-                const int n = std::snprintf(
-                    stack + written,
-                    sizeof(stack) - static_cast<std::size_t>(written),
-                    " [%zu]=%p", i, t_ActiveObjectStack[i]);
-                if (n < 0)
-                    break;
-                written += n;
-            }
-            if (written <= 0)
-                stack[0] = '\0';
-
-            LogDebug("[SoldierAkObjIdMap] command post #%zu emitter akObjId %u owner %p "
-                     "cpIndex %d voiceType=0x%08X (%s) voiceParam=0x%08X event=0x%08X "
-                     "category=%u depth %zu activation stack:%s - the post, HQ and the "
-                     "soldier answering all transmit on this one emitter, so the voice "
-                     "type is what tells them apart: cp_a* is the post's own voice and "
-                     "takes the bias, hq_a* and ene_a* are the far end and keep their "
-                     "vanilla pitch; cpIndex -1 is the radio static that brackets a "
-                     "transmission rather than a spoken line\n",
-                     s_commandPostsSeen, akObjId, owner,
-                     static_cast<int>(static_cast<std::int32_t>(t_CurrentSoundSlotRaw)),
-                     t_CurrentVoiceLine.voiceType,
-                     IsCommandPostOwnVoiceType(t_CurrentVoiceLine.voiceType)
-                         ? "command post" : "far end",
-                     t_CurrentVoiceLine.voiceParam, t_CurrentVoiceLine.event,
-                     t_CurrentVoiceLine.category,
-                     t_ActiveObjectDepth, stack);
-            return;
-        }
-
-        if (s_namesSeen.size() >= kEmitterNameLogCap
-            || !s_namesSeen.insert(name).second)
-            return;
-
-        LogDebug("[SoldierAkObjIdMap] sound emitter '%s' registered akObjId %u "
-                 "(owner %p)\n", name, akObjId, owner);
+        std::lock_guard<std::mutex> lock(g_EmitterNameMutex);
+        g_EmitterNameByAkObjId[akObjId] = name;
     }
 
 
@@ -367,7 +304,7 @@ namespace
 
         if (akObjId && owner)
         {
-            NoteEmitterName(name, akObjId, owner);
+            NoteEmitterName(name, akObjId);
 
             bool isNewMapping = false;
             try

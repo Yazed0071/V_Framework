@@ -4,7 +4,6 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
-#include <cstdio>
 
 #include "AddressSet.h"
 #include "FoxHashes.h"
@@ -16,7 +15,7 @@
 
 namespace
 {
-    using SetTextureName_t = void(__fastcall*)(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type);
+    using SetTextureName_t = std::uint64_t(__fastcall*)(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type);
     using SetBgTexture_t   = void(__fastcall*)(void* self);
     using GetUixUtility_t  = void** (__fastcall*)();
     using GetLayout_t      = void* (__fastcall*)(void* holder, std::uint32_t id);
@@ -34,6 +33,7 @@ namespace
     constexpr std::uint64_t VANILLA_TELOP_BG = 0x156846156e516e5eull;
     constexpr std::uint64_t SLOT_MASK = 0xbcae534bull;
     constexpr std::uint64_t SLOT_MAIN = 0x3bbf9889ull;
+    constexpr std::uint64_t WHITE_MASK = 0x156B0FA3F5A52C33ull;
 
     constexpr std::uint32_t TELOP_LAYOUT_ID = 0x5997da9cu;
     constexpr std::uint32_t TELOP_MODEL_ID  = 0xa7965f2eu;
@@ -70,9 +70,22 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
+    static std::uint64_t BindNeutralMask(void* node, std::uint64_t custom, int type)
+    {
+        Prefetch(WHITE_MASK);
+        const std::uint64_t bound = g_OrigSetTextureName(node, WHITE_MASK, SLOT_MASK, type);
+        if ((bound & 0xFF) != 0)
+            return bound;
+        static std::atomic<bool> s_Warned { false };
+        if (!s_Warned.exchange(true))
+            LogWarn("MissionTelopBg: white mask 0x%llX did not bind, custom background black pixels render invisible",
+                    static_cast<unsigned long long>(WHITE_MASK));
+        return g_OrigSetTextureName(node, custom, SLOT_MASK, type);
+    }
+
     static void BindCustom(void* node, std::uint64_t custom)
     {
-        g_OrigSetTextureName(node, custom, SLOT_MASK, 2);
+        BindNeutralMask(node, custom, 2);
         g_OrigSetTextureName(node, custom, SLOT_MAIN, 2);
     }
 
@@ -120,73 +133,9 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-#ifdef _DEBUG
-    static std::atomic<int> g_DdTraceBudget { 512 };
-
-    static constexpr std::size_t kSeenCapacity = 512;
-    static std::uint64_t         g_SeenHashes[kSeenCapacity] = {};
-    static std::atomic<int>      g_SeenCount { 0 };
-
-    static bool FirstSightOfTexture(std::uint64_t hash)
+    static std::uint64_t __fastcall hk_SetTextureName(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type)
     {
-        const int count = g_SeenCount.load(std::memory_order_relaxed);
-        for (int i = 0; i < count && i < static_cast<int>(kSeenCapacity); ++i)
-        {
-            if (g_SeenHashes[i] == hash)
-                return false;
-        }
-        if (count >= static_cast<int>(kSeenCapacity))
-            return false;
-        g_SeenHashes[count] = hash;
-        g_SeenCount.store(count + 1, std::memory_order_relaxed);
-        return true;
-    }
-
-    static void TraceDdFamilyBind(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type)
-    {
-        if (textureHash == 0)
-            return;
-        if (!FirstSightOfTexture(textureHash))
-            return;
-        if (g_DdTraceBudget.fetch_sub(1, std::memory_order_relaxed) <= 0)
-            return;
-
-        void* frames[8] = {};
-        const USHORT count = RtlCaptureStackBackTrace(1, 8, frames, nullptr);
-        const std::uintptr_t base = GetExeBase();
-
-        char chain[400];
-        std::size_t used = 0;
-        for (USHORT i = 0; i < count && used < sizeof(chain) - 40; ++i)
-        {
-            const std::uintptr_t va = reinterpret_cast<std::uintptr_t>(frames[i]);
-            int n = 0;
-            if (base && va >= base && va < base + 0xA200000ull)
-                n = snprintf(chain + used, sizeof(chain) - used, " game+0x%llX",
-                             static_cast<unsigned long long>(va - base));
-            else
-                n = snprintf(chain + used, sizeof(chain) - used, " ext:%p", frames[i]);
-            if (n <= 0) break;
-            used += static_cast<std::size_t>(n);
-        }
-        chain[used] = 0;
-
-        LogDebug("[UiTexTrace] first bind hash=%016llX slot=%08llX pool=%d node=%p mission=%u callers:%s\n",
-                 static_cast<unsigned long long>(textureHash),
-                 static_cast<unsigned long long>(slotHash),
-                 type, node,
-                 static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()),
-                 chain);
-    }
-#endif
-
-    static void __fastcall hk_SetTextureName(void* node, std::uint64_t textureHash, std::uint64_t slotHash, int type)
-    {
-        MISSION_GUARD_ORIGINAL_VOID(g_OrigSetTextureName, node, textureHash, slotHash, type);
-
-#ifdef _DEBUG
-        TraceDdFamilyBind(node, textureHash, slotHash, type);
-#endif
+        MISSION_GUARD_ORIGINAL_RET(g_OrigSetTextureName, node, textureHash, slotHash, type);
 
         std::uint64_t mainTex = 0;
         if (textureHash == VANILLA_TELOP_BG && g_InTelop.load(std::memory_order_relaxed))
@@ -195,20 +144,25 @@ namespace
             if (custom != 0)
             {
                 Prefetch(custom);
-                textureHash = custom;
                 mainTex = custom;
             }
         }
 
-        if (g_OrigSetTextureName)
-            g_OrigSetTextureName(node, textureHash, slotHash, type);
+        if (!g_OrigSetTextureName)
+            return 0;
+        if (mainTex == 0)
+            return g_OrigSetTextureName(node, textureHash, slotHash, type);
 
-        if (mainTex != 0 && g_OrigSetTextureName)
+        std::uint64_t bound = 0;
+        if (slotHash == SLOT_MASK)
+            bound = BindNeutralMask(node, mainTex, type);
+        else
         {
-            g_OrigSetTextureName(node, mainTex, SLOT_MAIN, 2);
-            if (slotHash != SLOT_MASK)
-                g_OrigSetTextureName(node, mainTex, SLOT_MASK, 2);
+            bound = g_OrigSetTextureName(node, mainTex, slotHash, type);
+            BindNeutralMask(node, mainTex, 2);
         }
+        g_OrigSetTextureName(node, mainTex, SLOT_MAIN, 2);
+        return bound;
     }
 
     static void __fastcall hk_SetBgTexture(void* self)
@@ -227,9 +181,6 @@ namespace
             {
                 Prefetch(custom);
                 ApplyCustomToMeshes(GetTelopModel(self), custom);
-                LogDebug("[MissionTelopBg] mission %u -> %016llX\n",
-                         static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode()),
-                         static_cast<unsigned long long>(custom));
             }
         }
     }
@@ -243,8 +194,6 @@ void Set_MissionTelopSplashTexturePath(const char* path, std::uint32_t missionCo
     const std::uint64_t h = FoxHashes::PathCode64Ext(path);
     g_Textures.Set(missionCode, h);
     Prefetch(h);
-    LogDebug("[MissionTelopBg] set texture %016llX for mission %u (%s)\n",
-             static_cast<unsigned long long>(h), missionCode, path);
 }
 
 void Unset_MissionTelopSplashTexturePath(std::uint32_t missionCode)
@@ -260,7 +209,7 @@ bool Install_MissionTelopBgTexture_Hook()
 
     if (!gAddr.SetTextureName)
     {
-        Log("[MissionTelopBg] ERROR: SetTextureName address missing -- telop bg override disabled\n");
+        LogError("MissionTelopBg: SetTextureName address missing for this build, telop background override off");
         return false;
     }
 
@@ -276,8 +225,8 @@ bool Install_MissionTelopBgTexture_Hook()
     g_GetModel  = reinterpret_cast<GetModel_t>(ResolveGameAddress(a.getModel));
 
     if (!texOk || !bgOk || !g_GetLayout || !g_GetModel)
-        Log("[MissionTelopBg] ERROR: hook/resolve failed (tex=%d bg=%d layout=%d model=%d) -- telop bg override disabled\n",
-            texOk ? 1 : 0, bgOk ? 1 : 0, g_GetLayout ? 1 : 0, g_GetModel ? 1 : 0);
+        LogError("MissionTelopBg: hook/resolve failed (tex=%d bg=%d layout=%d model=%d), telop background override off",
+                 texOk ? 1 : 0, bgOk ? 1 : 0, g_GetLayout ? 1 : 0, g_GetModel ? 1 : 0);
 
     return texOk && bgOk;
 }

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -199,26 +200,48 @@ namespace
         }
     }
 
-    bool ApplySEH(void* self, const LaserColor* color, const LaserTweaks* tweaks)
+    struct EngineValues
+    {
+        LaserColor color{};
+        float      tweak[kLaserTweakCount] = {};
+        bool       dirty = false;
+    };
+
+    std::mutex                              g_EngineMutex;
+    std::unordered_map<void*, EngineValues> g_EngineValues;
+
+    bool ReadEngineValuesSEH(void* self, EngineValues& out)
     {
         __try
         {
             auto* base = static_cast<std::uint8_t*>(self);
-            if (color)
-            {
-                auto* f = reinterpret_cast<float*>(base + kLaserSight_Color);
-                f[0] = color->r;
-                f[1] = color->g;
-                f[2] = color->b;
-                f[3] = color->a;
-            }
-            if (tweaks)
-            {
-                for (int i = 0; i < kLaserTweakCount; ++i)
-                    if (tweaks->set[i])
-                        *reinterpret_cast<float*>(base + kTweaks[i].offset) =
-                            tweaks->value[i];
-            }
+            auto* f = reinterpret_cast<float*>(base + kLaserSight_Color);
+            out.color.r = f[0];
+            out.color.g = f[1];
+            out.color.b = f[2];
+            out.color.a = f[3];
+            for (int i = 0; i < kLaserTweakCount; ++i)
+                out.tweak[i] = *reinterpret_cast<float*>(base + kTweaks[i].offset);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool ApplySEH(void* self, const LaserColor& color, const float* tweak)
+    {
+        __try
+        {
+            auto* base = static_cast<std::uint8_t*>(self);
+            auto* f = reinterpret_cast<float*>(base + kLaserSight_Color);
+            f[0] = color.r;
+            f[1] = color.g;
+            f[2] = color.b;
+            f[3] = color.a;
+            for (int i = 0; i < kLaserTweakCount; ++i)
+                *reinterpret_cast<float*>(base + kTweaks[i].offset) = tweak[i];
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -244,25 +267,47 @@ namespace
         if (!self || !g_Any.load(std::memory_order_acquire))
             return;
 
+        EngineValues engine{};
+        {
+            std::lock_guard<std::mutex> lock(g_EngineMutex);
+            const auto it = g_EngineValues.find(self);
+            if (it == g_EngineValues.end())
+                return;
+            engine = it->second;
+        }
+
         int equipId = 0;
         const int optionId = OptionForDrawnWeapon(&equipId);
 
-        LaserColor color{};
-        bool haveColor = (optionId > 0) && LaserColor_Resolve(optionId, equipId, color);
-        if (!haveColor)
-            haveColor = LaserColor_LoneDefault(color);
+        LaserColor resolvedColor{};
+        const bool haveColor =
+            (optionId > 0) && LaserColor_Resolve(optionId, equipId, resolvedColor);
+        LaserTweaks resolvedTweaks{};
+        const bool haveTweaks =
+            (optionId > 0) && LaserTweaks_Resolve(optionId, resolvedTweaks);
 
-        LaserTweaks tweaks{};
-        const bool haveTweaks = (optionId > 0) && LaserTweaks_Resolve(optionId, tweaks);
-
-        if (!haveColor && !haveTweaks)
+        const bool custom = haveColor || haveTweaks;
+        if (!custom && !engine.dirty)
             return;
 
+        const LaserColor color = haveColor ? resolvedColor : engine.color;
+        float tweak[kLaserTweakCount];
+        for (int i = 0; i < kLaserTweakCount; ++i)
+            tweak[i] = (haveTweaks && resolvedTweaks.set[i])
+                           ? resolvedTweaks.value[i] : engine.tweak[i];
+
         static std::atomic<bool> s_faulted{ false };
-        if (!ApplySEH(self, haveColor ? &color : nullptr, haveTweaks ? &tweaks : nullptr)
-            && !s_faulted.exchange(true))
-            Log("[LaserColor] the write to the live laser faulted - every laser keeps "
-                "the engine's own values for this session\n");
+        if (!ApplySEH(self, color, tweak))
+        {
+            if (!s_faulted.exchange(true))
+                LogWarn("LaserColor: write to live laser faulted, laser keeps its last values");
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(g_EngineMutex);
+        const auto it = g_EngineValues.find(self);
+        if (it != g_EngineValues.end())
+            it->second.dirty = custom;
     }
 
     void __fastcall hkUpdatePrim(void* self)
@@ -274,7 +319,16 @@ namespace
     void* __fastcall hkLaserSightCtor(void* self, void* desc)
     {
         void* r = g_OrigLaserCtor(self, desc);
-        StampInstance(self);
+        if (self)
+        {
+            EngineValues engine{};
+            if (ReadEngineValuesSEH(self, engine))
+            {
+                std::lock_guard<std::mutex> lock(g_EngineMutex);
+                g_EngineValues[self] = engine;
+            }
+            StampInstance(self);
+        }
         return r;
     }
 
@@ -385,26 +439,6 @@ bool LaserColor_AnyRegistered()
     return g_Any.load(std::memory_order_acquire);
 }
 
-bool LaserColor_LoneDefault(LaserColor& out)
-{
-    if (!g_Any.load(std::memory_order_acquire))
-        return false;
-    std::lock_guard<std::mutex> lock(g_Mutex);
-    const LaserColor* found = nullptr;
-    for (const auto& kv : g_Options)
-    {
-        if (!kv.second.hasDefault)
-            continue;
-        if (found)
-            return false;
-        found = &kv.second.def;
-    }
-    if (!found)
-        return false;
-    out = *found;
-    return true;
-}
-
 void LaserColor_NoteWeaponOption(int equipId, int optionId)
 {
     if (equipId <= 0)
@@ -421,9 +455,7 @@ bool LaserSight_UpdatePrim_Install()
     const std::uintptr_t createAddr = CreateLaserSightControllerAddr();
     if (createAddr == 0)
     {
-        Log("[LaserColor] not armed: this build has no verified "
-            "CreateLaserSightController address, so laserColor and the laser tuning "
-            "fields are ignored and every laser keeps the engine's own values\n");
+        LogError("LaserColor: CreateLaserSightController address missing, laserColor and laser tuning off");
         return true;
     }
 
@@ -432,9 +464,7 @@ bool LaserSight_UpdatePrim_Install()
         kUpdatePrimAnchor, sizeof(kUpdatePrimAnchor), &hits);
     if (!anchor)
     {
-        Log("[LaserColor] not armed: the LaserSight::UpdatePrim anchor matched %d "
-            "time(s) instead of once, so there is no safe target and every laser keeps "
-            "the engine's own values\n", hits);
+        LogError("LaserColor: LaserSight::UpdatePrim anchor matched %d times, laserColor and laser tuning off", hits);
         return true;
     }
 
@@ -442,8 +472,7 @@ bool LaserSight_UpdatePrim_Install()
     if (!CreateAndEnableHook(updatePrim, &hkUpdatePrim,
                              reinterpret_cast<void**>(&g_OrigUpdatePrim)))
     {
-        Log("[LaserColor] not armed: the LaserSight::UpdatePrim hook at %p was refused, "
-            "so every laser keeps the engine's own values\n", updatePrim);
+        LogError("LaserColor: LaserSight::UpdatePrim hook failed at %p, laserColor and laser tuning off", updatePrim);
         return true;
     }
     g_UpdatePrimAddr = updatePrim;
@@ -455,9 +484,7 @@ bool LaserSight_UpdatePrim_Install()
         DisableAndRemoveHook(g_UpdatePrimAddr);
         g_UpdatePrimAddr = nullptr;
         g_OrigUpdatePrim = nullptr;
-        Log("[LaserColor] not armed: 0x%llX does not hold CreateLaserSightController on "
-            "this build (its 0x811C9DC5 seed store is absent), so the address is stale "
-            "and every laser keeps the engine's own values\n",
+        LogError("LaserColor: CreateLaserSightController 0x%llX is stale, laserColor and laser tuning off",
             static_cast<unsigned long long>(createAddr));
         return true;
     }
@@ -467,9 +494,8 @@ bool LaserSight_UpdatePrim_Install()
         DisableAndRemoveHook(g_UpdatePrimAddr);
         g_UpdatePrimAddr = nullptr;
         g_OrigUpdatePrim = nullptr;
-        Log("[LaserColor] not armed: CreateLaserSightController at 0x%llX was refused, "
-            "so the drawn weapon cannot be identified and every laser keeps the "
-            "engine's own values\n", static_cast<unsigned long long>(createAddr));
+        LogError("LaserColor: CreateLaserSightController hook failed at 0x%llX, laserColor and laser tuning off",
+            static_cast<unsigned long long>(createAddr));
         return true;
     }
     g_CreateLscAddr = createLsc;
@@ -485,12 +511,8 @@ bool LaserSight_UpdatePrim_Install()
             g_LaserCtorAddr = ctor;
     }
     if (!g_LaserCtorAddr)
-        Log("[LaserColor] the LaserSight constructor could not be hooked (anchor matched "
-            "%d time(s)) - the beam keeps the vertex colours baked at creation, so only "
-            "the dot follows laserColor\n", ctorHits);
+        LogError("LaserColor: LaserSight ctor hook failed (anchor hits %d), only the dot follows laserColor", ctorHits);
 
-    LogDebug("[LaserColor] armed: UpdatePrim=%p CreateLaserSightController=%p ctor=%p\n",
-        updatePrim, createLsc, g_LaserCtorAddr);
     return true;
 }
 
@@ -515,4 +537,6 @@ void LaserSight_UpdatePrim_Uninstall()
         g_OrigLaserCtor = nullptr;
     }
     g_PlayerCtx.store(nullptr, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(g_EngineMutex);
+    g_EngineValues.clear();
 }

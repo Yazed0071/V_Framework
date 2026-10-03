@@ -235,7 +235,7 @@ static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std:
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[Holdup] DispatchNoticeReaction exception\n");
+        LogWarn("Holdup: recovery reaction dispatch faulted, reaction skipped");
     }
 }
 
@@ -498,7 +498,7 @@ void Add_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId, bool isOffic
 
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[Holdup] Add ignored: invalid soldier GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("SetVIPImportant: 0x%08X is not a soldier, holdup recovery not set", gameObjectId);
         return;
     }
 
@@ -520,7 +520,7 @@ void Remove_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId)
 
     if (soldierIndex == 0xFFFFu)
     {
-        LogDebug("[Holdup] Remove ignored: invalid soldier GameObjectId=0x%08X\n", gameObjectId);
+        LogWarn("RemoveVIPImportant: 0x%08X is not a soldier, ignored", gameObjectId);
         return;
     }
 
@@ -573,12 +573,8 @@ bool Install_VIPHoldup_Hook()
         reinterpret_cast<void*>(&hkState_StandRecoveryHoldup),
         reinterpret_cast<void**>(&g_OrigState_StandRecoveryHoldup));
 
-#ifdef _DEBUG
-    Log("[Holdup] Install State_StandRecoveryHoldup: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Holdup] Install State_StandRecoveryHoldup: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("Holdup: State_StandRecoveryHoldup hook failed, VIP holdup recovery voices off");
     return ok;
 }
 
@@ -596,8 +592,5 @@ bool Uninstall_VIPHoldup_Hook()
         g_RecentNonVipSuppressByTarget.clear();
     }
 
-#ifdef _DEBUG
-    LogDebug("[Holdup] Hooks removed and state cleared\n");
-#endif
     return true;
 }

@@ -112,25 +112,15 @@ namespace
     OwnerKind         g_OwnerKind       = OwnerKind::Vehicle;
     std::atomic<bool> g_Active{ false };
     std::atomic<std::uint64_t> g_HandoffDeadlineMs{ 0 };
-    std::atomic<std::uint64_t> g_SleepReleasedAtMs{ 0 };
     std::atomic<std::uint64_t> g_StreamPlacedAtMs{ 0 };
     std::atomic<std::int64_t>  g_PerFrameHookQpc{ 0 };
-    bool         g_ReportedWarpRetired = false;
 
     constexpr std::uint64_t kStreamLiveWindowMs = 40;
-    constexpr unsigned      kSummaryWrites = 30;
-
-    unsigned     g_SummaryWrites = 0;
-    std::int64_t g_SummaryFirstQpc = 0;
-    float        g_SummaryLastPos[3] = {};
-    double       g_SummaryDistance = 0.0;
-    bool         g_ReportedSummary = false;
 
     std::atomic<std::int64_t> g_DemoEndQpc{ 0 };
     std::atomic<bool>         g_InOwnWarp{ false };
     void**                    g_WarpSlot = nullptr;
     Warp_t                    g_OrigWarp = nullptr;
-    const char*               g_DemoEndHow = "";
     constexpr double          kDemoEndWatchMs   = 3000.0;
 
     std::int64_t QpcNow();
@@ -139,8 +129,6 @@ namespace
     alignas(16) float         g_MissionWarpPos[4] = {};
     alignas(16) float         g_MissionWarpRot[4] = {};
     std::atomic<bool>         g_MissionWarpPending{ false };
-
-    constexpr unsigned kOrderCalibrationFrames = 12;
 
     float Distance3(const float* a, const float* b);
 
@@ -160,11 +148,7 @@ namespace
             return;
         FILE* f = nullptr;
         if (fopen_s(&f, path, "r") != 0 || !f)
-        {
-            Log("[AttachInDemo] no tuning file at %s - defaults (camera fix on); keys: "
-                "camfix=0|1\n", path);
             return;
-        }
         char line[128];
         while (std::fgets(line, sizeof(line), f))
         {
@@ -178,14 +162,26 @@ namespace
                 g_TuneCamFix = value != 0.0f;
         }
         std::fclose(f);
-        Log("[AttachInDemo] tuning file %s: camfix=%d\n", path, g_TuneCamFix ? 1 : 0);
     }
 
-    constexpr std::uintptr_t kMainViewportPtr   = 0x142BE1280;
+    std::uintptr_t MainViewportGlobalAddress()
+    {
+        using GB = AddressSetRuntime::GameBuild;
+        switch (gGameBuild)
+        {
+        case GB::En_1_0_15_4:
+        case GB::En_1_0_15_4a: return 0x142BE1280ull;
+        case GB::Jp_1_0_15_4:
+        case GB::Jp_1_0_15_4a: return 0x142BE1280ull;
+        case GB::En_1_0_15_3:  return 0x142BE1260ull;
+        case GB::Jp_1_0_15_3:  return 0x142BE1260ull;
+        default:               return 0;
+        }
+    }
+
     constexpr std::size_t    kViewportCamera    = 0x570;
     constexpr std::size_t    kCameraWorldMatrix = 0x30;
 
-    constexpr std::uintptr_t kCameraCommitFn      = 0x140437B60;
     constexpr std::size_t    kCameraDaemonCount   = 0x88;
     constexpr std::size_t    kCameraDaemonCameras = 0x90;
     constexpr std::size_t    kGkCameraEnabled     = 0xE0;
@@ -199,6 +195,9 @@ namespace
     constexpr float          kAnchorMatchQuatDot  = 0.999f;
     constexpr unsigned char  kCameraCommitPrologue[] = { 0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54,
                                                          0x41, 0x55, 0x41, 0x56, 0x41, 0x57 };
+    constexpr unsigned char  kCameraCommitPrologue153[] = { 0x48, 0x89, 0xE0, 0x55, 0x41, 0x54,
+                                                            0x41, 0x55, 0x41, 0x56, 0x41, 0x57 };
+    static_assert(sizeof(kCameraCommitPrologue153) == sizeof(kCameraCommitPrologue));
 
     using CameraCommit_t = void(__fastcall*)(void* daemon, void* a2, void* a3, void* a4);
     CameraCommit_t     g_OrigCameraCommit = nullptr;
@@ -235,19 +234,7 @@ namespace
     float        g_LastPatchedQuat[4] = {};
     float        g_LastPatchedPos[3] = {};
     bool         g_PatchedOnce = false;
-    unsigned     g_CommitAfterWriteCount = 0;
-    unsigned     g_CommitBeforeWriteCount = 0;
-    unsigned     g_CommitStaticCount = 0;
-    unsigned     g_CommitSeen = 0;
-    unsigned     g_AnchorLagOne = 0;
-    unsigned     g_AnchorLagTwo = 0;
-    unsigned     g_AnchorLagNone = 0;
-    bool         g_ReportedAnchorMismatch = false;
-    bool         g_ReportedCameraStatic = false;
     bool         g_ReportedGrPatchFailed = false;
-    float        g_LastFixLen = 0.0f;
-    float        g_LastFixYawDeg = 0.0f;
-    double       g_LastCommitAfterWriteMs = 0.0;
 
     void ResetCamFixState()
     {
@@ -258,19 +245,7 @@ namespace
         g_AnchorMode = AnchorMode::Unknown;
         g_CamFixWriteCount = 0;
         g_PatchedOnce = false;
-        g_CommitAfterWriteCount = 0;
-        g_CommitBeforeWriteCount = 0;
-        g_CommitStaticCount = 0;
-        g_CommitSeen = 0;
-        g_AnchorLagOne = 0;
-        g_AnchorLagTwo = 0;
-        g_AnchorLagNone = 0;
-        g_ReportedAnchorMismatch = false;
-        g_ReportedCameraStatic = false;
         g_ReportedGrPatchFailed = false;
-        g_LastFixLen = 0.0f;
-        g_LastFixYawDeg = 0.0f;
-        g_LastCommitAfterWriteMs = 0.0;
     }
 
     void QuatMul(const float* a, const float* b, float* out)
@@ -372,9 +347,13 @@ namespace
 
     bool ApplyFixToGrCamera(const float* dq, const float* dt)
     {
+        auto** mainViewport = reinterpret_cast<std::uint8_t**>(
+            ResolveGameAddress(MainViewportGlobalAddress()));
+        if (!mainViewport)
+            return false;
         __try
         {
-            auto* viewport = *reinterpret_cast<std::uint8_t**>(kMainViewportPtr);
+            auto* viewport = *mainViewport;
             if (!viewport)
                 return false;
             auto* camera = *reinterpret_cast<std::uint8_t**>(viewport + kViewportCamera);
@@ -470,28 +449,11 @@ namespace
 
         const float* matchQ = nullptr;
         if (Distance3(ap, prevP) < kAnchorMatchMeters)
-        {
-            ++g_AnchorLagOne;
             matchQ = prevQ;
-        }
         else if (Distance3(ap, prevPrevP) < kAnchorMatchMeters)
-        {
-            ++g_AnchorLagTwo;
             matchQ = prevPrevQ;
-        }
         else
         {
-            ++g_AnchorLagNone;
-            if (!g_ReportedAnchorMismatch)
-            {
-                g_ReportedAnchorMismatch = true;
-                Log("[AttachInDemo] the playback's relative-play anchor (%.2f %.2f %.2f, scale %.2f "
-                    "%.2f %.2f) matches neither the pose written one frame earlier (%.2f %.2f %.2f) "
-                    "nor two frames earlier (%.2f %.2f %.2f), so the demo is not re-anchored to the "
-                    "player each frame and the camera fix stays idle\n",
-                    ap[0], ap[1], ap[2], ascale[0], ascale[1], ascale[2], prevP[0], prevP[1], prevP[2],
-                    prevPrevP[0], prevPrevP[1], prevPrevP[2]);
-            }
             std::lock_guard<std::mutex> lock(g_CamFixMutex);
             g_CamFix.valid = false;
             return;
@@ -537,9 +499,6 @@ namespace
                 g_CamFix.dt[i] = dt[i];
             g_CamFix.writeQpc = now;
         }
-        g_LastFixLen = Distance3(p, ap);
-        const float wAbs = std::fabs(dq[3]) > 1.0f ? 1.0f : std::fabs(dq[3]);
-        g_LastFixYawDeg = 2.0f * std::acos(wAbs) * 57.29578f;
 
         const std::int64_t tickQpc = g_PerFrameHookQpc.load(std::memory_order_relaxed);
         const std::int64_t commitQpc = g_LastCommitQpc.load(std::memory_order_relaxed);
@@ -547,16 +506,13 @@ namespace
         {
             if (ApplyFixToGrCamera(dq, dt))
             {
-                ++g_CommitBeforeWriteCount;
                 std::lock_guard<std::mutex> lock(g_CamFixMutex);
                 g_CamFix.valid = false;
             }
             else if (!g_ReportedGrPatchFailed)
             {
                 g_ReportedGrPatchFailed = true;
-                Log("[AttachInDemo] the committed viewport camera could not be patched at the "
-                    "stream write, so the camera fix has no effect on frames where the camera "
-                    "commit runs before the write\n");
+                LogWarn("AttachInDemo: viewport camera patch failed, camera fix skipped on early-commit frames");
             }
         }
     }
@@ -619,15 +575,45 @@ namespace
         }
     }
 
-    constexpr std::uintptr_t kGetControlRootFn     = 0x140421740;
-    constexpr std::uintptr_t kAnchorCaptureBegin   = 0x1404334B0;
-    constexpr std::uintptr_t kAnchorCaptureEnd     = 0x140433720;
     constexpr double         kDemoTickRecentMs     = 200.0;
     constexpr float          kGeneralFixMinMeters  = 0.002f;
     constexpr float          kRootIdMatchMeters    = 1.0f;
     constexpr unsigned       kControlRootRing      = 4;
     constexpr unsigned char  kGetControlRootPrologue[] = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57,
                                                            0x48, 0x83, 0xEC, 0x30 };
+
+    struct DemoCameraSites
+    {
+        std::uintptr_t       cameraCommit;
+        const unsigned char* cameraCommitPrologue;
+        std::uintptr_t       getControlRoot;
+        std::uintptr_t       anchorCaptureBegin;
+        std::uintptr_t       anchorCaptureEnd;
+    };
+
+    DemoCameraSites GetDemoCameraSites()
+    {
+        using GB = AddressSetRuntime::GameBuild;
+        switch (gGameBuild)
+        {
+        case GB::En_1_0_15_4:
+        case GB::En_1_0_15_4a:
+            return { 0x140437B60ull, kCameraCommitPrologue, 0x140421740ull,
+                     0x1404334B0ull, 0x140433720ull };
+        case GB::Jp_1_0_15_4:
+        case GB::Jp_1_0_15_4a:
+            return { 0x1404380E0ull, kCameraCommitPrologue, 0x140421D30ull,
+                     0x140433A90ull, 0x140433D00ull };
+        case GB::En_1_0_15_3:
+            return { 0x1444A6AD0ull, kCameraCommitPrologue153, 0x1443C9170ull,
+                     0x140433030ull, 0x1404332A0ull };
+        case GB::Jp_1_0_15_3:
+            return { 0x144465CB0ull, kCameraCommitPrologue153, 0x144416AE0ull,
+                     0x140432BA0ull, 0x140432E10ull };
+        default:
+            return { 0, kCameraCommitPrologue, 0, 0, 0 };
+        }
+    }
 
     using GetControlRoot_t = int* (__fastcall*)(int* err, float* outTransform, std::uint64_t id);
     GetControlRoot_t          g_OrigGetControlRoot = nullptr;
@@ -646,22 +632,11 @@ namespace
     unsigned          g_ControlRootRingCount = 0;
     float             g_GenPrevFresh[2][3] = {};
     bool              g_GenPrevValid[2] = { false, false };
-    std::uint64_t     g_LastRootId = 0;
-    unsigned          g_GenSeen = 0;
-    unsigned          g_GenApplied = 0;
-    float             g_GenMaxLen = 0.0f;
-    bool              g_ReportedGenEngaged = false;
-    bool              g_ReportedRootFreshness = false;
 
     void ResetGeneralFixState()
     {
         g_GenPrevValid[0] = false;
         g_GenPrevValid[1] = false;
-        g_GenSeen = 0;
-        g_GenApplied = 0;
-        g_GenMaxLen = 0.0f;
-        g_ReportedGenEngaged = false;
-        g_ReportedRootFreshness = false;
     }
 
     int* __fastcall hkGetCharacterControlRoot(int* err, float* outTransform, std::uint64_t id)
@@ -669,8 +644,10 @@ namespace
         int* result = g_OrigGetControlRoot ? g_OrigGetControlRoot(err, outTransform, id) : err;
         const std::uintptr_t caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
         const std::uintptr_t base = GetExeBase();
-        if (base && caller >= base + ToRva(kAnchorCaptureBegin)
-            && caller < base + ToRva(kAnchorCaptureEnd) && outTransform)
+        const DemoCameraSites sites = GetDemoCameraSites();
+        if (base && sites.anchorCaptureBegin && sites.anchorCaptureEnd > sites.anchorCaptureBegin
+            && caller >= base + ToRva(sites.anchorCaptureBegin)
+            && caller < base + ToRva(sites.anchorCaptureEnd) && outTransform)
         {
             ControlRootSample sample;
             sample.id = id;
@@ -721,20 +698,6 @@ namespace
         return 0;
     }
 
-    void NoteControlRootFreshness(std::uint64_t id)
-    {
-        if (g_ReportedRootFreshness || g_CamFixWriteCount < kOrderCalibrationFrames)
-            return;
-        float fq[4], fp[3];
-        if (!ReadFreshControlRoot(id, fq, fp))
-            return;
-        g_ReportedRootFreshness = true;
-        Log("[AttachInDemo] at the camera commit the player's control root sits %.3f m from the "
-            "pose written this frame (0 = the control root follows the stream write at once, one "
-            "frame of motion = it only catches up after the commit)\n",
-            Distance3(fp, g_PrevWritePos));
-    }
-
     void ApplyGeneralCameraFix(void* daemon, std::int64_t now)
     {
         void* playback = g_Playback.load(std::memory_order_relaxed);
@@ -747,12 +710,9 @@ namespace
         const std::uint64_t id = PickAnchoredRootId(ap);
         if (!id)
             return;
-        g_LastRootId = id;
         float fq[4], fp[3];
         if (!ReadFreshControlRoot(id, fq, fp))
             return;
-        if (g_GenSeen < 1000000u)
-            ++g_GenSeen;
         const bool anchored =
             (g_GenPrevValid[0] && Distance3(ap, g_GenPrevFresh[0]) < kAnchorMatchMeters)
             || (g_GenPrevValid[1] && Distance3(ap, g_GenPrevFresh[1]) < kAnchorMatchMeters);
@@ -779,31 +739,7 @@ namespace
             fix.dt[i] = fp[i] - rotatedAnchor[i];
         fix.valid = true;
         fix.writeQpc = now;
-        if (PatchActiveGkCamera(daemon, &fix) != 1)
-            return;
-        ++g_GenApplied;
-        if (len > g_GenMaxLen)
-            g_GenMaxLen = len;
-        if (!g_ReportedGenEngaged)
-        {
-            g_ReportedGenEngaged = true;
-            Log("[AttachInDemo] demo camera lag fix engaged on a frame with no stream write: this "
-                "demo re-anchors itself every frame to a character that moved %.3f m after the "
-                "anchor was captured, so the camera is re-aligned to that character's fresh pose "
-                "at every camera commit\n",
-                len);
-        }
-    }
-
-    void ReportGeneralFixAtDemoEnd()
-    {
-        if (g_GenApplied)
-        {
-            Log("[AttachInDemo] demo camera lag fix corrected %u of the %u demo frames that had no "
-                "stream write, largest correction %.3f m\n",
-                g_GenApplied, g_GenSeen, g_GenMaxLen);
-        }
-        ResetGeneralFixState();
+        PatchActiveGkCamera(daemon, &fix);
     }
 
     void __fastcall hkCameraCommit(void* daemon, void* a2, void* a3, void* a4)
@@ -822,40 +758,9 @@ namespace
                     if (fix.valid && fix.writeQpc > tickQpc)
                         g_CamFix.valid = false;
                 }
-                if (g_CommitSeen < 1000000u)
-                    ++g_CommitSeen;
-                if (fix.valid && fix.writeQpc > tickQpc)
-                {
-                    const int result = PatchActiveGkCamera(daemon, &fix);
-                    if (result == 1)
-                    {
-                        patched = true;
-                        ++g_CommitAfterWriteCount;
-                        g_LastCommitAfterWriteMs = QpcToMs(now - fix.writeQpc);
-                        float ap[3], aq[4], ascale[3];
-                        void* playback = g_Playback.load(std::memory_order_relaxed);
-                        if (playback && ReadPlaybackAnchor(playback, aq, ap, ascale))
-                        {
-                            const std::uint64_t id = PickAnchoredRootId(ap);
-                            if (id)
-                            {
-                                g_LastRootId = id;
-                                NoteControlRootFreshness(id);
-                            }
-                        }
-                    }
-                    else if (result == 0)
-                    {
-                        ++g_CommitStaticCount;
-                        if (!g_ReportedCameraStatic)
-                        {
-                            g_ReportedCameraStatic = true;
-                            Log("[AttachInDemo] the active gamekit camera still holds the transform "
-                                "patched on the previous frame, so the demo did not rewrite it this "
-                                "frame and the camera fix skipped it\n");
-                        }
-                    }
-                }
+                if (fix.valid && fix.writeQpc > tickQpc
+                    && PatchActiveGkCamera(daemon, &fix) == 1)
+                    patched = true;
                 g_LastCommitQpc.store(now, std::memory_order_relaxed);
             }
             if (g_TuneCamFix && !patched)
@@ -865,25 +770,35 @@ namespace
             g_OrigCameraCommit(daemon, a2, a3, a4);
     }
 
+    bool PrologueMatchesSeh(const void* at, const unsigned char* expect, std::size_t len)
+    {
+        __try
+        {
+            return std::memcmp(at, expect, len) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     bool InstallGetControlRootHook()
     {
         if (g_HookGetControlRoot)
             return true;
-        void* target = ResolveGameAddress(kGetControlRootFn);
+        const DemoCameraSites sites = GetDemoCameraSites();
+        void* target = ResolveGameAddress(sites.getControlRoot);
         if (!target)
             return false;
-        if (std::memcmp(target, kGetControlRootPrologue, sizeof(kGetControlRootPrologue)) != 0)
+        if (!PrologueMatchesSeh(target, kGetControlRootPrologue, sizeof(kGetControlRootPrologue)))
         {
-            Log("[AttachInDemo] the character control-root reader at %p does not start with the "
-                "expected prologue, so the demo camera lag fix only works with an attach on this "
-                "build\n", target);
+            LogError("AttachInDemo: control-root prologue mismatch, demo camera lag fix needs an attach");
             return false;
         }
         if (!CreateAndEnableHook(target, &hkGetCharacterControlRoot,
                                  reinterpret_cast<void**>(&g_OrigGetControlRoot)))
         {
-            Log("[AttachInDemo] the character control-root hook did not install, so the demo "
-                "camera lag fix only works with an attach\n");
+            LogError("AttachInDemo: control-root hook failed, demo camera lag fix needs an attach");
             return false;
         }
         g_HookGetControlRoot = target;
@@ -894,20 +809,19 @@ namespace
     {
         if (g_HookCameraCommit)
             return true;
-        void* target = ResolveGameAddress(kCameraCommitFn);
+        const DemoCameraSites sites = GetDemoCameraSites();
+        void* target = ResolveGameAddress(sites.cameraCommit);
         if (!target)
             return false;
-        if (std::memcmp(target, kCameraCommitPrologue, sizeof(kCameraCommitPrologue)) != 0)
+        if (!PrologueMatchesSeh(target, sites.cameraCommitPrologue, sizeof(kCameraCommitPrologue)))
         {
-            Log("[AttachInDemo] the camera commit routine at %p does not start with the expected "
-                "prologue, so the demo camera fix is not installed on this build\n", target);
+            LogError("AttachInDemo: camera commit prologue mismatch, demo camera fix off");
             return false;
         }
         if (!CreateAndEnableHook(target, &hkCameraCommit,
                                  reinterpret_cast<void**>(&g_OrigCameraCommit)))
         {
-            Log("[AttachInDemo] the camera commit hook did not install, so the demo camera fix "
-                "can only patch the committed viewport matrices at the stream write\n");
+            LogError("AttachInDemo: camera commit hook failed, demo camera fix limited to stream writes");
             return false;
         }
         g_HookCameraCommit = target;
@@ -943,12 +857,7 @@ namespace
     std::atomic<void*> g_PlayerImpl{ nullptr };
 
     bool g_ReportedNoMatrix = false;
-    bool g_ReportedHookLive = false;
-    bool g_ReportedAttached = false;
-    bool g_ReportedPlaced = false;
     bool g_ReportedNoPlacementKind = false;
-    bool g_ReportedHandoff = false;
-    bool g_ReportedTypePath = false;
 
     const char* KindName(OwnerKind kind)
     {
@@ -1124,61 +1033,9 @@ namespace
         }
     }
 
-    void ReleaseAttach(const char* how)
+    void ReleaseAttach()
     {
-        const bool wasActive = g_Active.exchange(false, std::memory_order_relaxed);
-        const std::uint64_t sleepReleasedAt =
-            g_SleepReleasedAtMs.exchange(0, std::memory_order_relaxed);
-        if (!wasActive && sleepReleasedAt == 0)
-            return;
-
-        std::string owner;
-        OwnerKind kind;
-        {
-            std::lock_guard<std::mutex> lock(g_Mutex);
-            owner = g_OwnerName;
-            kind  = g_OwnerKind;
-        }
-
-        char handoff[160];
-        if (HandoffStateForKind(kind) == 0)
-        {
-            std::snprintf(handoff, sizeof(handoff),
-                          "a %s owner has no boarding handoff", KindName(kind));
-        }
-        else if (g_ReportedHandoff)
-        {
-            std::snprintf(handoff, sizeof(handoff),
-                          "the boarding handoff already patched the finish payload");
-        }
-        else
-        {
-            const std::uint64_t now      = GetTickCount64();
-            const std::uint64_t deadline = g_HandoffDeadlineMs.load(std::memory_order_relaxed);
-            if (deadline > now)
-                std::snprintf(handoff, sizeof(handoff),
-                              "the boarding handoff window stays open for %llu ms in case the "
-                              "finish signal arrives late",
-                              static_cast<unsigned long long>(deadline - now));
-            else
-                std::snprintf(handoff, sizeof(handoff), "the boarding handoff never fired");
-        }
-
-        if (sleepReleasedAt != 0)
-        {
-            const std::uint64_t now = GetTickCount64();
-            Log("[AttachInDemo] %s - '%s' (%s) had already been released %llu ms earlier when "
-                "the player went unconscious with unattachOnSleep set: the per-frame placement "
-                "stopped then, the next demo will not re-apply it, and %s\n",
-                how, owner.c_str(), KindName(kind),
-                static_cast<unsigned long long>(now > sleepReleasedAt ? now - sleepReleasedAt : 0),
-                handoff);
-            return;
-        }
-
-        Log("[AttachInDemo] %s - '%s' (%s) released: the per-frame placement has stopped, the "
-            "next demo will not re-apply it, and %s\n",
-            how, owner.c_str(), KindName(kind), handoff);
+        g_Active.store(false, std::memory_order_relaxed);
     }
 
     void* GetVehicleSystem()
@@ -1291,11 +1148,6 @@ namespace
             const std::int64_t endQpc = g_DemoEndQpc.load(std::memory_order_relaxed);
             const double sinceEnd = endQpc ? QpcToMs(QpcNow() - endQpc) : -1.0;
             const bool inWindow = sinceEnd >= 0.0 && sinceEnd <= kDemoEndWatchMs;
-            if (inWindow)
-                Log("[AttachInDemo] the game or Lua warped the player to (%.2f %.2f %.2f) %.1f ms "
-                    "after the demo %s (instance %u, waitForBlock=%d)\n",
-                    havePos ? p[0] : 0.0f, havePos ? p[1] : 0.0f, havePos ? p[2] : 0.0f,
-                    sinceEnd, g_DemoEndHow, instanceIndex, waitForBlock ? 1 : 0);
 
             if (inWindow && !waitForBlock && havePos)
             {
@@ -1311,17 +1163,10 @@ namespace
                 g_MissionWarpRot[2] = r[2];
                 g_MissionWarpRot[3] = r[3];
                 g_MissionWarpPending.store(true, std::memory_order_relaxed);
-                Log("[AttachInDemo] that warp is the mission's own post-demo placement; if the demo's "
-                    "end-of-skip restore warp follows it, the restore is redirected there\n");
             }
             else if (inWindow && waitForBlock
                      && g_MissionWarpPending.exchange(false, std::memory_order_relaxed))
             {
-                Log("[AttachInDemo] the demo's restore warp to (%.2f %.2f %.2f) was redirected to the "
-                    "mission's target (%.2f %.2f %.2f), block loading kept - without this the restore "
-                    "put the player back where the demo was skipped\n",
-                    havePos ? p[0] : 0.0f, havePos ? p[1] : 0.0f, havePos ? p[2] : 0.0f,
-                    g_MissionWarpPos[0], g_MissionWarpPos[1], g_MissionWarpPos[2]);
                 if (g_OrigWarp)
                     g_OrigWarp(self, instanceIndex, g_MissionWarpPos, g_MissionWarpRot, waitForBlock);
                 return;
@@ -1337,7 +1182,7 @@ namespace
 
     void EnsurePlayerWarpHook()
     {
-        if (g_WarpSlot)
+        if (g_WarpSlot || !g_HookTarget)
             return;
         void* impl = g_PlayerImpl.load(std::memory_order_relaxed);
         if (!impl)
@@ -1356,9 +1201,6 @@ namespace
             *slot = reinterpret_cast<void*>(&hkPlayerWarp);
             VirtualProtect(slot, sizeof(void*), old, &old);
             g_WarpSlot = slot;
-            Log("[AttachInDemo] player Warp vtable slot 0x%zX hooked (orig=%p) - every warp the game "
-                "or Lua sends around a demo end is logged with its timing\n",
-                kPlayerWarpSlot, reinterpret_cast<void*>(g_OrigWarp));
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1385,13 +1227,10 @@ namespace
         g_OrigWarp = nullptr;
     }
 
-    void NoteDemoEnd(const char* how)
+    void NoteDemoEnd()
     {
-        g_DemoEndHow = how;
         g_DemoEndQpc.store(QpcNow(), std::memory_order_relaxed);
         g_MissionWarpPending.store(false, std::memory_order_relaxed);
-        Log("[AttachInDemo] demo playback %s%s\n", how,
-            g_Active.load(std::memory_order_relaxed) ? " with the attach still armed" : "");
     }
 
     bool WarpPlayerTo(const float* matrix16)
@@ -1429,7 +1268,6 @@ namespace
     struct TypeLayout
     {
         OwnerKind   kind;
-        const char* label;
         uintptr_t   typeVtable;
         std::size_t instanceCount;
         std::size_t realizedBegin;
@@ -1445,16 +1283,16 @@ namespace
     {
         const TypeLayout all[] =
         {
-            { OwnerKind::Horse, "horse", gAddr.GameObjectType_Horse2_Vtable,
+            { OwnerKind::Horse, gAddr.GameObjectType_Horse2_Vtable,
               0x40, 0x58, 0x60, 0x10, gAddr.AnimationControllerImpl_Vtable,
               kSharedConnectPointSlot, kSharedControllerBase, kSharedControllerCount },
-            { OwnerKind::Heli, "heli with its own animation controller", gAddr.GameObjectType_Heli2_Vtable,
+            { OwnerKind::Heli, gAddr.GameObjectType_Heli2_Vtable,
               0x60, 0x48, 0x50, 0x08, gAddr.HeliAnimationControllerImpl_Vtable,
               kHeliConnectPointSlot, kHeliControllerBase, kHeliControllerCount },
-            { OwnerKind::Heli, "heli with the shared animation controller", gAddr.GameObjectType_HeliAlt_Vtable,
+            { OwnerKind::Heli, gAddr.GameObjectType_HeliAlt_Vtable,
               0x68, 0x80, 0x88, 0x10, gAddr.AnimationControllerImpl_Vtable,
               kSharedConnectPointSlot, kSharedControllerBase, kSharedControllerCount },
-            { OwnerKind::WalkerGear, "walkergear", gAddr.GameObjectType_WalkerGear2_Vtable,
+            { OwnerKind::WalkerGear, gAddr.GameObjectType_WalkerGear2_Vtable,
               0x70, 0x88, 0x90, 0x10, gAddr.AnimationControllerImpl_Vtable,
               kSharedConnectPointSlot, kSharedControllerBase, kSharedControllerCount },
         };
@@ -1587,8 +1425,7 @@ namespace
             }
 
             void* controllerVtbl = ResolveGameAddress(layout->controllerVtable);
-            std::uint32_t chunk = 0;
-            for (std::uint8_t** it = begin; it != end; ++it, ++chunk)
+            for (std::uint8_t** it = begin; it != end; ++it)
             {
                 std::uint8_t* realized = *it;
                 if (!realized)
@@ -1621,15 +1458,6 @@ namespace
                     return false;
                 }
 
-                if (!g_ReportedTypePath)
-                {
-                    g_ReportedTypePath = true;
-                    Log("[AttachInDemo] '%s' resolved through the %s type object (type id 0x%02X, "
-                        "realized chunk %u of %u, controller base %d count %u) - the connect point "
-                        "query is the owner's own animation controller, not the vehicle system\n",
-                        g_OwnerName.c_str(), layout->label, typeId, chunk + 1,
-                        static_cast<unsigned>(end - begin), base, count);
-                }
                 return true;
             }
 
@@ -1671,12 +1499,6 @@ namespace
         if (MissionCodeGuard::ShouldBypassHooks())
             return;
 
-        if (!g_ReportedHookLive)
-        {
-            g_ReportedHookLive = true;
-            Log("[AttachInDemo] the demo per-frame hook is live with an attach armed\n");
-        }
-
         std::uint32_t ownerObjectId;
         std::uint32_t cnpHash;
         bool          unattachOnSleep;
@@ -1694,8 +1516,7 @@ namespace
 
         if (unattachOnSleep && PlayerIsUnconscious())
         {
-            if (g_Active.exchange(false, std::memory_order_relaxed))
-                g_SleepReleasedAtMs.store(GetTickCount64(), std::memory_order_relaxed);
+            g_Active.store(false, std::memory_order_relaxed);
             g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
             return;
         }
@@ -1705,9 +1526,8 @@ namespace
             if (!g_ReportedNoPlacementKind)
             {
                 g_ReportedNoPlacementKind = true;
-                Log("[AttachInDemo] '%s' is a %s owner and this build has no connect point path "
-                    "for that type, so this attach only arms the boarding handoff at demo end\n",
-                    g_OwnerName.c_str(), KindName(kind));
+                LogWarn("AttachInDemo '%s': no connect point path for %s owners on this build, boarding handoff only",
+                        g_OwnerName.c_str(), KindName(kind));
             }
             return;
         }
@@ -1719,9 +1539,8 @@ namespace
             if (!g_ReportedNoMatrix)
             {
                 g_ReportedNoMatrix = true;
-                Log("[AttachInDemo] '%s' (%s) has no reachable connect point this frame, so the "
-                    "player is not being attached: %s\n",
-                    g_OwnerName.c_str(), KindName(kind), reason);
+                LogWarn("AttachInDemo '%s': connect point unreachable (%s), player not attached",
+                        g_OwnerName.c_str(), reason);
             }
             return;
         }
@@ -1731,29 +1550,9 @@ namespace
         const std::uint64_t placedAt = g_StreamPlacedAtMs.load(std::memory_order_relaxed);
         const bool streamLive = placedAt && GetTickCount64() - placedAt < kStreamLiveWindowMs;
         if (streamLive)
-        {
-            if (!g_ReportedWarpRetired)
-            {
-                g_ReportedWarpRetired = true;
-                Log("[AttachInDemo] '%s' stream-motion placement is live, so the per-frame warp "
-                    "is retired - a warp is a teleport with no interpolation and it was fighting "
-                    "the stream write every frame; it only returns if the stream write stops for "
-                    "%llu ms\n",
-                    g_OwnerName.c_str(), static_cast<unsigned long long>(kStreamLiveWindowMs));
-            }
             return;
-        }
 
-        const bool warped = WarpPlayerTo(matrix);
-
-        if (warped && !g_ReportedAttached)
-        {
-            g_ReportedAttached = true;
-            Log("[AttachInDemo] '%s' connect point reached and the player was moved to it with the "
-                "full connect-point rotation - if the player only appears there when the demo "
-                "ends, the demo is re-driving the player transform after this write\n",
-                g_OwnerName.c_str());
-        }
+        WarpPlayerTo(matrix);
     }
 
     bool PlaceDemoActor(void* self, std::uint32_t index, const float* matrix16)
@@ -1822,44 +1621,6 @@ namespace
         }
     }
 
-    void ResetSummaryState()
-    {
-        g_SummaryWrites = 0;
-        g_SummaryFirstQpc = 0;
-        g_SummaryDistance = 0.0;
-        g_ReportedSummary = false;
-    }
-
-    void NoteSummarySample(std::int64_t nowQpc, const float* matrix16)
-    {
-        if (g_SummaryWrites == 0)
-            g_SummaryFirstQpc = nowQpc;
-        else
-            g_SummaryDistance += Distance3(matrix16 + 12, g_SummaryLastPos);
-        g_SummaryLastPos[0] = matrix16[12];
-        g_SummaryLastPos[1] = matrix16[13];
-        g_SummaryLastPos[2] = matrix16[14];
-        if (g_SummaryWrites < 1000000u)
-            ++g_SummaryWrites;
-        if (g_ReportedSummary || g_SummaryWrites < kSummaryWrites)
-            return;
-        g_ReportedSummary = true;
-        const double spanMs = QpcToMs(nowQpc - g_SummaryFirstQpc);
-        const double perWrite = spanMs / static_cast<double>(g_SummaryWrites - 1);
-        Log("[AttachInDemo] placement summary after %u stream writes: %.1f ms per write, connect "
-            "point %.2f m/s, demo anchor = the pose written one frame earlier on %u frame(s) / "
-            "two on %u / unmatched on %u (rotation %s), camera fix at the commit %u, at the "
-            "write %u, skipped %u, last correction %.3f m %.2f deg\n",
-            g_SummaryWrites, perWrite, spanMs > 0.0 ? g_SummaryDistance * 1000.0 / spanMs : 0.0,
-            g_AnchorLagOne, g_AnchorLagTwo, g_AnchorLagNone,
-            g_AnchorMode == AnchorMode::Full ? "matches the written pose"
-            : (g_AnchorMode == AnchorMode::YawOnly ? "matches the written yaw only"
-               : (g_AnchorMode == AnchorMode::TranslationOnly ? "differs, translation only"
-                                                               : "not verified")),
-            g_CommitAfterWriteCount, g_CommitBeforeWriteCount, g_CommitStaticCount, g_LastFixLen,
-            g_LastFixYawDeg);
-    }
-
     void __fastcall hkSequentialDemoActionExecute(void* self, std::uint32_t phase,
                                                   std::uint32_t gameObjectIndex)
     {
@@ -1895,18 +1656,7 @@ namespace
 
         NoteCamFixAtWrite(matrix);
 
-        const std::int64_t nowQpc = QpcNow();
         g_StreamPlacedAtMs.store(GetTickCount64(), std::memory_order_relaxed);
-
-        if (!g_ReportedPlaced)
-        {
-            g_ReportedPlaced = true;
-            Log("[AttachInDemo] '%s' is being placed through the demo's own stream-motion slot - "
-                "the player should now sit on the connect point during the cutscene, not only "
-                "after it\n", g_OwnerName.c_str());
-        }
-
-        NoteSummarySample(nowQpc, matrix);
     }
 
     bool IsLocalPlayerActor(void* self, std::uint32_t gameObjectIndex)
@@ -1995,15 +1745,6 @@ namespace
             return;
 
         g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
-
-        if (!g_ReportedHandoff)
-        {
-            g_ReportedHandoff = true;
-            Log("[AttachInDemo] demo finish reached the local player with '%s' armed - the "
-                "finish payload now names the %s ride state and opponent 0x%04X, so the "
-                "engine's own boarding handoff seats the player on it\n",
-                g_OwnerName.c_str(), KindName(kind), ownerObjectId);
-        }
     }
 
     void __fastcall hkSequentialDemoActionOnSignal(void* self, std::uint32_t gameObjectIndex,
@@ -2033,23 +1774,23 @@ namespace
 
     std::uint32_t __fastcall hkDoFinish(void* playback)
     {
-        NoteDemoEnd("finished");
+        NoteDemoEnd();
         OpenHandoffWindow();
         const std::uint32_t result = g_OrigDoFinish ? g_OrigDoFinish(playback) : 0;
-        ReleaseAttach("demo finished");
+        ReleaseAttach();
         g_Playback.store(nullptr, std::memory_order_relaxed);
-        ReportGeneralFixAtDemoEnd();
+        ResetGeneralFixState();
         return result;
     }
 
     std::uint32_t __fastcall hkDoInterrupt(void* playback)
     {
-        NoteDemoEnd("was interrupted");
+        NoteDemoEnd();
         OpenHandoffWindow();
         const std::uint32_t result = g_OrigDoInterrupt ? g_OrigDoInterrupt(playback) : 0;
-        ReleaseAttach("demo interrupted");
+        ReleaseAttach();
         g_Playback.store(nullptr, std::memory_order_relaxed);
-        ReportGeneralFixAtDemoEnd();
+        ResetGeneralFixState();
         return result;
     }
 
@@ -2059,10 +1800,8 @@ namespace
         if (ownerObjectId == kInvalidId || !connectPointName || !*connectPointName)
             return false;
 
-        std::string previousOwner;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
-            previousOwner     = g_OwnerName;
             g_OwnerName       = label;
             g_OwnerObjectId   = ownerObjectId;
             g_ConnectPointId  = FoxHashes::StrCode32(connectPointName);
@@ -2071,40 +1810,13 @@ namespace
         }
 
         g_ReportedNoMatrix        = false;
-        g_ReportedHookLive        = false;
-        g_ReportedAttached        = false;
-        g_ReportedPlaced          = false;
         g_ReportedNoPlacementKind = false;
-        g_ReportedHandoff         = false;
-        g_ReportedTypePath        = false;
-        g_ReportedWarpRetired     = false;
         g_StreamPlacedAtMs.store(0, std::memory_order_relaxed);
         ReadAttachTuning();
         ResetCamFixState();
-        ResetSummaryState();
         g_PerFrameHookQpc.store(0, std::memory_order_relaxed);
         g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
-        const std::uint64_t sleepReleasedAt =
-            g_SleepReleasedAtMs.exchange(0, std::memory_order_relaxed);
         g_Active.store(true, std::memory_order_relaxed);
-
-        char previous[256] = "";
-        if (sleepReleasedAt != 0)
-        {
-            const std::uint64_t now = GetTickCount64();
-            std::snprintf(previous, sizeof(previous),
-                          " - the previous attach '%s' had been released %llu ms ago when the "
-                          "player went unconscious with unattachOnSleep set and no demo end "
-                          "reported it",
-                          previousOwner.c_str(),
-                          static_cast<unsigned long long>(now > sleepReleasedAt ? now - sleepReleasedAt : 0));
-        }
-
-        Log("[AttachInDemo] armed: owner=%s kind=%s connectPoint hash=0x%08X unattachOnSleep=%d "
-            "boardingHandoff=%s placement=%s%s\n",
-            label, KindName(kind), g_ConnectPointId, unattachOnSleep ? 1 : 0,
-            HandoffStateForKind(kind) != 0 ? "yes" : "no",
-            PlacementSupported(kind) ? "yes" : "no", previous);
         EnsurePlayerWarpHook();
         return true;
     }
@@ -2125,8 +1837,7 @@ bool RequestToAttachInDemoById(std::uint32_t ownerObjectId, const char* connectP
     OwnerKind kind = OwnerKind::Other;
     if (ownerObjectId == kInvalidId || !ResolveOwnerKindById(ownerObjectId, kind))
     {
-        Log("[AttachInDemo] %s is not a live TppVehicle2, TppHorse2, TppHeli2 or TppWalkerGear2 "
-            "instance, so nothing was attached\n", label);
+        LogWarn("RequestToAttachInDemo %s: not a live vehicle, horse, heli or walkergear, not attached", label);
         return false;
     }
 
@@ -2143,9 +1854,8 @@ bool RequestToAttachInDemo(const char* ownerName, const char* connectPointName,
     OwnerKind     kind          = OwnerKind::Other;
     if (!ResolveOwnerByName(ownerName, ownerObjectId, kind))
     {
-        Log("[AttachInDemo] '%s' did not resolve as a TppVehicle2, TppHorse2, TppHeli2 or "
-            "TppWalkerGear2 game object, so nothing was attached - pass the game object id "
-            "instead if it has no locator name\n", ownerName);
+        LogWarn("RequestToAttachInDemo '%s': no vehicle, horse, heli or walkergear by that name, not attached",
+                ownerName);
         return false;
     }
 
@@ -2154,7 +1864,7 @@ bool RequestToAttachInDemo(const char* ownerName, const char* connectPointName,
 
 void ClearAttachInDemo()
 {
-    ReleaseAttach("V_Player.ClearAttachInDemo called");
+    ReleaseAttach();
     g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
 }
 
@@ -2163,20 +1873,19 @@ bool Install_PlayerAttachInDemo_Hook()
     if (g_HookTarget)
         return true;
 
-    if (!gAddr.DemoPlayback_OnPlayingAfterUpdateStream
-        || !gAddr.Vehicle_GetConnectPointWorldMatrix)
+    if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_3
+        || gGameBuild == ::AddressSetRuntime::GameBuild::Jp_1_0_15_3)
     {
-        LogDebug("[AttachInDemo] the demo and vehicle addresses are not ported for this build, so "
-                 "V_Player.RequestToAttachInDemo is accepted but the player is never attached\n");
+        LogError("AttachInDemo: not supported on 15.3, RequestToAttachInDemo has no effect");
         return true;
     }
 
-    Log("[AttachInDemo] type-object connect point path: horse=%s heli=%s walkergear=%s - those "
-        "owners can hold the player on a connect point during the demo, not only board him "
-        "after it\n",
-        TypePlacementAvailable(OwnerKind::Horse) ? "armed" : "unported",
-        TypePlacementAvailable(OwnerKind::Heli) ? "armed" : "unported",
-        TypePlacementAvailable(OwnerKind::WalkerGear) ? "armed" : "unported");
+    if (!gAddr.DemoPlayback_OnPlayingAfterUpdateStream
+        || !gAddr.Vehicle_GetConnectPointWorldMatrix)
+    {
+        LogError("AttachInDemo: demo/vehicle addresses missing for this build, RequestToAttachInDemo has no effect");
+        return true;
+    }
 
     void* target = ResolveGameAddress(gAddr.DemoPlayback_OnPlayingAfterUpdateStream);
     if (!target)
@@ -2185,8 +1894,7 @@ bool Install_PlayerAttachInDemo_Hook()
     if (!CreateAndEnableHook(target, &hkOnPlayingAfterUpdateStream,
                              reinterpret_cast<void**>(&g_OrigOnPlayingAfterUpdateStream)))
     {
-        Log("[AttachInDemo] the demo per-frame hook did not install, so "
-            "V_Player.RequestToAttachInDemo is accepted but the player is never attached\n");
+        LogError("AttachInDemo: demo per-frame hook failed, RequestToAttachInDemo has no effect");
         return false;
     }
 
@@ -2228,24 +1936,13 @@ bool Install_PlayerAttachInDemo_Hook()
     InstallGetControlRootHook();
 
     if (!g_HookDemoExecute)
-    {
-        Log("[AttachInDemo] the demo player-placement hook did not install, so the player will "
-            "only appear at the connect point once the demo ends - the cutscene's own stream "
-            "motion owns the model until then\n");
-    }
+        LogError("AttachInDemo: demo placement hook failed, player reaches the connect point only at demo end");
 
     if (!g_HookDemoOnSignal)
-    {
-        Log("[AttachInDemo] the demo finish-signal hook did not install, so a horse, heli or "
-            "walkergear owner is never boarded when its demo ends\n");
-    }
+        LogError("AttachInDemo: demo finish-signal hook failed, no boarding handoff at demo end");
 
     if (!g_HookFinish || !g_HookInterrupt)
-    {
-        Log("[AttachInDemo] the demo end hooks did not install, so an attach stays armed after "
-            "its demo ends and would re-apply on the next demo - call "
-            "V_Player.ClearAttachInDemo() yourself at demo end\n");
-    }
+        LogError("AttachInDemo: demo end hooks failed, attach stays armed; call ClearAttachInDemo at demo end");
 
     return true;
 }
@@ -2254,7 +1951,6 @@ bool Uninstall_PlayerAttachInDemo_Hook()
 {
     g_Active.store(false, std::memory_order_relaxed);
     g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
-    g_SleepReleasedAtMs.store(0, std::memory_order_relaxed);
     RestorePlayerWarpHook();
 
     if (g_HookTarget)

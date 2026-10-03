@@ -24,6 +24,9 @@ namespace
 
     constexpr std::size_t  kVtblScanSlots = 0x400;
     constexpr std::size_t  kPrologueBytes = 0x50;
+    constexpr std::size_t  kJmpRel32Bytes = 5;
+    constexpr std::uint8_t kJmpRel32      = 0xE9;
+    constexpr int          kMaxThunkHops  = 4;
 
     constexpr std::uint8_t kDisp_ListRowName = 0x28;
     constexpr std::uint8_t kDisp_DetailsHead = 0x60;
@@ -84,6 +87,48 @@ namespace
         const DWORD prot = mbi.Protect & 0xFF;
         return prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ
             || prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
+    }
+
+    bool ReadExeImageRange(std::uintptr_t* outBegin, std::uintptr_t* outEnd)
+    {
+        const std::uintptr_t base = GetExeBase();
+        if (!base) return false;
+        __try
+        {
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+                base + static_cast<std::uintptr_t>(dos->e_lfanew));
+            if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+            *outBegin = base;
+            *outEnd   = base + nt->OptionalHeader.SizeOfImage;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    void* FollowJmpThunks(void* fn, std::uintptr_t imageBegin,
+                          std::uintptr_t imageEnd)
+    {
+        void* at = fn;
+        for (int hop = 0; hop <= kMaxThunkHops; ++hop)
+        {
+            std::uint8_t head[kJmpRel32Bytes];
+            if (!SafeCopyCode(at, head, sizeof head)) return nullptr;
+            if (head[0] != kJmpRel32) return at;
+            if (hop == kMaxThunkHops || imageBegin >= imageEnd) return nullptr;
+
+            std::int32_t rel = 0;
+            std::memcpy(&rel, head + 1, sizeof rel);
+            const std::uintptr_t next = reinterpret_cast<std::uintptr_t>(at)
+                + kJmpRel32Bytes
+                + static_cast<std::uintptr_t>(static_cast<std::intptr_t>(rel));
+            if (next < imageBegin || next >= imageEnd) return nullptr;
+
+            at = reinterpret_cast<void*>(next);
+            if (!IsExecutableCode(at)) return nullptr;
+        }
+        return nullptr;
     }
 
     bool ClassifyRecordGetter(const void* fn, std::uint8_t* outDisp,
@@ -203,9 +248,12 @@ namespace outfit
                 >= kMaxScanAttempts)
             return false;
 
-        void*         found[kLabelCount] = {};
-        std::uint32_t converter          = 0;
-        bool          converterAgrees    = true;
+        void*          found[kLabelCount] = {};
+        std::uint32_t  converter          = 0;
+        bool           converterAgrees    = true;
+        std::uintptr_t imageBegin         = 0;
+        std::uintptr_t imageEnd           = 0;
+        ReadExeImageRange(&imageBegin, &imageEnd);
 
         for (std::size_t k = 0; k < kVtblScanSlots; ++k)
         {
@@ -213,14 +261,17 @@ namespace outfit
             if (!SafeReadVtblEntry(vtbl, k, &fn)) break;
             if (!IsExecutableCode(fn)) continue;
 
+            void* body = FollowJmpThunks(fn, imageBegin, imageEnd);
+            if (!body) continue;
+
             std::uint8_t  disp = 0;
             std::uint32_t conv = 0;
-            if (!ClassifyRecordGetter(fn, &disp, &conv)) continue;
+            if (!ClassifyRecordGetter(body, &disp, &conv)) continue;
 
             for (int i = 0; i < kLabelCount; ++i)
             {
                 if (g_Slots[i].disp != disp || found[i]) continue;
-                found[i] = fn;
+                found[i] = body;
                 if (converter == 0) converter = conv;
                 else if (converter != conv) converterAgrees = false;
             }
@@ -232,13 +283,10 @@ namespace outfit
         if (located != kLabelCount || !converterAgrees || converter == 0)
         {
             if (!g_GaveUpLogged.exchange(true))
-            Log("[UniqueOwnSuit] found %d of %d develop-record label accessors in "
-                "the controller vtable%s - the own-suit row keeps the borrowed "
-                "vanilla label, because overriding only some of them would leave "
-                "the list and the details panel disagreeing\n",
-                located, kLabelCount,
-                converterAgrees ? "" : " (and they disagreed on the row-index "
-                                       "accessor, so the match is not trustworthy)");
+                LogError("UniqueOwnSuit: found %d of %d develop-record label "
+                         "accessors%s, own-suit rows keep the vanilla label",
+                         located, kLabelCount,
+                         converterAgrees ? "" : " (row-index accessor mismatch)");
             return false;
         }
 
@@ -252,9 +300,8 @@ namespace outfit
                                      reinterpret_cast<void**>(&g_Slots[i].orig)))
             {
                 g_Slots[i].orig = nullptr;
-                Log("[UniqueOwnSuit] hook FAIL on the develop-record accessor at "
-                    "%p, so the %s keeps the borrowed vanilla label\n",
-                    g_Slots[i].target, g_Slots[i].what);
+                LogError("UniqueOwnSuit: %s accessor hook failed at %p, own-suit rows "
+                         "keep the vanilla label", g_Slots[i].what, g_Slots[i].target);
                 continue;
             }
             ++hooked;
@@ -265,17 +312,6 @@ namespace outfit
             Uninstall_OwnSuitRowLabel_Hooks();
             return false;
         }
-
-#ifdef _DEBUG
-        LogDebug("[UniqueOwnSuit] own-suit row label armed: listRowName=%p "
-                 "detailsHeading=%p detailsDescription=%p (row-index accessor at "
-                 "vtbl+0x%03X) - all three were identified by the record field "
-                 "each one reads, not by a hard-coded slot\n",
-                 g_Slots[kLabel_ListRowName].target,
-                 g_Slots[kLabel_DetailsHead].target,
-                 g_Slots[kLabel_DetailsBody].target,
-                 converter);
-#endif
 
         g_Installed = true;
         return true;

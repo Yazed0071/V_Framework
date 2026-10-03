@@ -60,16 +60,13 @@ namespace
     static bool g_Want[kPatchCount]    = {};
     static bool g_Applied[kPatchCount] = {};
     static bool g_GuardHolding         = false;
+    static bool g_FailLogged[kPatchCount] = {};
 
     static bool WriteBytes(void* target, const std::uint8_t* src, std::size_t len)
     {
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, len, PAGE_EXECUTE_READWRITE, &oldProtect))
-        {
-            Log("[QuietCqc] VirtualProtect failed at %p (err=%lu) - the patch is "
-                "left as it was\n", target, GetLastError());
             return false;
-        }
 
         std::memcpy(target, src, len);
 
@@ -93,37 +90,43 @@ namespace
         const std::uintptr_t rva = gAddr.*(p.addr);
         if (!rva)
         {
-            LogDebug("[QuietCqc] %s has no address for this build, so it cannot "
-                     "be turned %s\n", p.name, on ? "on" : "off");
+            if (!g_FailLogged[index])
+                LogWarn("QuietCqc: %s address missing for this build, not turned %s", p.name, on ? "on" : "off");
+            g_FailLogged[index] = true;
             return false;
         }
 
         auto* base = static_cast<std::uint8_t*>(ResolveGameAddress(rva));
         if (!base)
         {
-            LogDebug("[QuietCqc] %s could not be resolved from rva %llX, so it "
-                     "cannot be turned %s\n", p.name,
-                static_cast<unsigned long long>(rva), on ? "on" : "off");
+            if (!g_FailLogged[index])
+                LogWarn("QuietCqc: %s address resolve failed, not turned %s", p.name, on ? "on" : "off");
+            g_FailLogged[index] = true;
             return false;
         }
 
         const std::uint8_t* expect = on ? p.orig : p.patched;
         if (std::memcmp(base, expect, p.len) != 0)
         {
-            LogDebug("[QuietCqc] %s found %02X %02X %02X at %p instead of the "
-                     "expected run - refusing to write, so Quiet's CQC keeps its "
-                     "current behaviour\n",
-                p.name, base[0], base[1], base[2], base);
+            if (!g_FailLogged[index])
+                LogWarn("QuietCqc: %s bytes mismatch at %p, not turned %s",
+                    p.name, static_cast<void*>(base), on ? "on" : "off");
+            g_FailLogged[index] = true;
             return false;
         }
 
         const std::uint8_t* src = (on ? p.patched : p.orig) + p.writeOffset;
         if (!WriteBytes(base + p.writeOffset, src, p.writeLen))
+        {
+            if (!g_FailLogged[index])
+                LogWarn("QuietCqc: %s VirtualProtect failed (err=%lu), not turned %s",
+                    p.name, GetLastError(), on ? "on" : "off");
+            g_FailLogged[index] = true;
             return false;
+        }
 
         g_Applied[index] = on;
-        LogDebug("[QuietCqc] %s -> %s at %p\n",
-            p.name, on ? "ON" : "OFF", base + p.writeOffset);
+        g_FailLogged[index] = false;
         return true;
     }
 
@@ -144,9 +147,7 @@ namespace
                 ok = false;
 
         if (blocked && !g_GuardHolding && AnyWanted())
-            Log("[QuietCqc] an FOB mission is live, so every Quiet CQC patch is "
-                "reverted and held off until it ends - FOB always runs the "
-                "vanilla code\n");
+            LogWarn("QuietCqc: FOB mission live, patches reverted until it ends");
 
         g_GuardHolding = blocked;
         return ok;
@@ -157,8 +158,7 @@ namespace
     {
         if (enable && MissionCodeGuard::ShouldBypassHooks())
         {
-            Log("[QuietCqc] %s was requested during an FOB mission - refused, "
-                "because these patches never apply in FOB\n", label);
+            LogWarn("QuietCqc: %s refused during an FOB mission", label);
             return false;
         }
 
@@ -167,8 +167,7 @@ namespace
             for (int i = 0; i < count; ++i)
             {
                 if (HasAddress(group[i])) continue;
-                Log("[QuietCqc] %s needs %s, which has no address ported to this "
-                    "build - nothing was changed rather than half-applied\n",
+                LogWarn("QuietCqc: %s needs %s, address missing for this build, nothing changed",
                     label, kPatches[group[i]].name);
                 return false;
             }
@@ -187,8 +186,7 @@ namespace
             g_Want[i] = prev[i];
         Reconcile();
 
-        Log("[QuietCqc] %s could not be turned %s, so it was rolled back and "
-            "Quiet's behaviour is unchanged\n", label, enable ? "on" : "off");
+        LogWarn("QuietCqc: %s could not be turned %s, rolled back", label, enable ? "on" : "off");
         return false;
     }
 }
@@ -219,14 +217,6 @@ void QuietCqc_EnforceMissionGuard()
 
 bool Install_QuietCqcPatches()
 {
-    int available = 0;
-    for (int i = 0; i < kPatchCount; ++i)
-        if (HasAddress(i)) ++available;
-
-    if (available != kPatchCount)
-        LogDebug("[QuietCqc] only %d of %d addresses are ported to this build - "
-                 "the missing ones refuse to enable\n", available, kPatchCount);
-
     return true;
 }
 

@@ -131,7 +131,7 @@ bool Install_ShowMissionIcon_Hook()
 
     if (!gAddr.IconTitleGetLangTextCall)
     {
-        LogDebug("[ShowMissionIcon] IconTitleGetLangTextCall address is 0; title detour disabled\n");
+        LogError("ShowMissionIcon: IconTitleGetLangTextCall address missing on this build, title override off");
         return false;
     }
 
@@ -139,7 +139,7 @@ bool Install_ShowMissionIcon_Hook()
         ResolveGameAddress(gAddr.IconTitleGetLangTextCall));
     if (!callSite)
     {
-        Log("[ShowMissionIcon] call site resolve failed\n");
+        LogError("ShowMissionIcon: title call site not resolved, title override off");
         return false;
     }
 
@@ -147,7 +147,7 @@ bool Install_ShowMissionIcon_Hook()
         AllocateThunkNear(reinterpret_cast<std::uintptr_t>(callSite), 0x1000));
     if (!g_Thunk)
     {
-        Log("[ShowMissionIcon] thunk allocation failed\n");
+        LogError("ShowMissionIcon: thunk allocation failed, title override off");
         return false;
     }
 
@@ -161,8 +161,7 @@ bool Install_ShowMissionIcon_Hook()
 
     if (rel < INT32_MIN || rel > INT32_MAX)
     {
-        LogDebug("[ShowMissionIcon] thunk too far for rel32 JMP (rel=0x%llX)\n",
-            static_cast<long long>(rel));
+        LogError("ShowMissionIcon: thunk out of rel32 range, title override off");
         VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         return false;
@@ -177,7 +176,7 @@ bool Install_ShowMissionIcon_Hook()
     DWORD oldProtect = 0;
     if (!VirtualProtect(callSite, 6, PAGE_EXECUTE_READWRITE, &oldProtect))
     {
-        Log("[ShowMissionIcon] VirtualProtect on call site failed\n");
+        LogError("ShowMissionIcon: call site VirtualProtect failed, title override off");
         VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         return false;
@@ -193,12 +192,6 @@ bool Install_ShowMissionIcon_Hook()
     g_PatchedCallSite = callSite;
     g_Installed = true;
 
-#ifdef _DEBUG
-    LogDebug("[ShowMissionIcon] title detour installed: callsite=%p thunk=%p continuation=0x%llX\n",
-        static_cast<void*>(callSite),
-        static_cast<void*>(g_Thunk),
-        static_cast<unsigned long long>(continuationAddr));
-#endif
     return true;
 }
 
@@ -229,8 +222,5 @@ bool Uninstall_ShowMissionIcon_Hook()
     }
 
     g_Installed = false;
-#ifdef _DEBUG
-    LogDebug("[ShowMissionIcon] title detour uninstalled\n");
-#endif
     return true;
 }

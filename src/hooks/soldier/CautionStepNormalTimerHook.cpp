@@ -2,8 +2,6 @@
 
 #include <Windows.h>
 #include <cstdint>
-#include <cstdarg>
-#include <cstdio>
 
 #include "HookUtils.h"
 #include "log.h"
@@ -26,7 +24,6 @@ namespace
     static float g_NormalizedDrainRate = 0.0f;
 
     static bool g_EnableOverride = false;
-    static bool g_LogEveryAppliedDrain = false;
 
     static constexpr unsigned kMaxCommandPosts = 256;
     static bool  g_CpEnable[kMaxCommandPosts]          = {};
@@ -50,35 +47,6 @@ namespace
     static float g_LastObservedNormalizedTimer = -1.0f;
     static float g_LastObservedRemainingSeconds = -1.0f;
     static bool g_LastObservedUsedOverride = false;
-
-
-    static void LogCautionPhaseTimer(const char* fmt, ...)
-    {
-        char message[1024] = {};
-
-        va_list args;
-        va_start(args, fmt);
-        vsnprintf_s(message, sizeof(message), _TRUNCATE, fmt, args);
-        va_end(args);
-
-        SYSTEMTIME st = {};
-        GetLocalTime(&st);
-
-        char finalMessage[1200] = {};
-        _snprintf_s(
-            finalMessage,
-            sizeof(finalMessage),
-            _TRUNCATE,
-            "[%02u:%02u:%02u.%03u] %s",
-            static_cast<unsigned>(st.wHour),
-            static_cast<unsigned>(st.wMinute),
-            static_cast<unsigned>(st.wSecond),
-            static_cast<unsigned>(st.wMilliseconds),
-            message
-        );
-
-        Log("%s", finalMessage);
-    }
 
     static float DurationSecondsToNormalizedDrain(float seconds)
     {
@@ -185,15 +153,6 @@ namespace
     }
 
 
-    static float GetKnowledgeLocalTimer(void* knowledge)
-    {
-        if (!knowledge)
-            return -1.0f;
-
-        return *reinterpret_cast<float*>(knowledge);
-    }
-
-
     static void UpdateLastObservedSnapshot(void* self, std::uint32_t phaseIndex, void* knowledge, float currentTimer)
     {
         float remainingSeconds = -1.0f;
@@ -241,18 +200,13 @@ namespace
         const float beforeTimer = *phaseTimer;
         const std::uint32_t beforeFlags = phaseFlags ? *phaseFlags : 0u;
         const std::uint8_t knowledgeFlagsBefore = GetKnowledgeFlags(knowledge);
-        const std::uint8_t stateId = GetKnowledgeStateId(knowledge);
-        const float localKnowledgeTimer = GetKnowledgeLocalTimer(knowledge);
 
         const float deltaScale = GetCautionDeltaScale(self);
-        const float vanillaPhaseRate = GetVanillaPhaseRate(self, phaseIndex);
-        const float predictedVanillaDrain = vanillaPhaseRate * deltaScale;
 
 
         g_OrigDecrementPhaseCounter(self, phaseIndex, knowledge);
 
         const float vanillaAfterTimer = *phaseTimer;
-        const std::uint8_t knowledgeFlagsAfter = GetKnowledgeFlags(knowledge);
 
 
         const float vanillaDrain = beforeTimer - vanillaAfterTimer;
@@ -262,27 +216,6 @@ namespace
         if (overrideDrain <= 0.0f)
         {
             UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
-
-            if (g_LogEveryAppliedDrain)
-            {
-#ifdef _DEBUG
-                LogCautionPhaseTimer(
-                    "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f localTimer=%.3f override=OFF delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f\n",
-                    phaseIndex,
-                    static_cast<unsigned>(stateId),
-                    static_cast<unsigned>(knowledgeFlagsBefore),
-                    static_cast<unsigned>(knowledgeFlagsAfter),
-                    beforeTimer,
-                    vanillaAfterTimer,
-                    localKnowledgeTimer,
-                    deltaScale,
-                    vanillaPhaseRate,
-                    predictedVanillaDrain,
-                    vanillaDrain
-                );
-#endif
-            }
-
             return;
         }
 
@@ -303,29 +236,6 @@ namespace
         if (deltaScale <= 0.0f)
         {
             UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
-
-            if (g_LogEveryAppliedDrain)
-            {
-#ifdef _DEBUG
-                LogCautionPhaseTimer(
-                    "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f localTimer=%.3f seconds=%.3f normalized=%.6f delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f -> keeping vanilla\n",
-                    phaseIndex,
-                    static_cast<unsigned>(stateId),
-                    static_cast<unsigned>(knowledgeFlagsBefore),
-                    static_cast<unsigned>(knowledgeFlagsAfter),
-                    beforeTimer,
-                    vanillaAfterTimer,
-                    localKnowledgeTimer,
-                    g_DurationSeconds,
-                    g_NormalizedDrainRate,
-                    deltaScale,
-                    vanillaPhaseRate,
-                    predictedVanillaDrain,
-                    vanillaDrain
-                );
-#endif
-            }
-
             return;
         }
 
@@ -357,31 +267,6 @@ namespace
         }
 
         UpdateLastObservedSnapshot(self, phaseIndex, knowledge, customAfterTimer);
-
-        if (g_LogEveryAppliedDrain)
-        {
-#ifdef _DEBUG
-            LogCautionPhaseTimer(
-                "[CautionPhaseTimer] phase=%u state=%u flagsBefore=0x%02X flagsAfter=0x%02X timer %.3f -> vanilla %.3f -> custom %.3f localTimer=%.3f seconds=%.3f normalized=%.6f delta=%.6f phaseRate=%.6f predictedVanilla=%.6f actualVanilla=%.6f customDrain=%.6f remaining=%.3f\n",
-                phaseIndex,
-                static_cast<unsigned>(stateId),
-                static_cast<unsigned>(knowledgeFlagsBefore),
-                static_cast<unsigned>(knowledgeFlagsAfter),
-                beforeTimer,
-                vanillaAfterTimer,
-                customAfterTimer,
-                localKnowledgeTimer,
-                g_DurationSeconds,
-                g_NormalizedDrainRate,
-                deltaScale,
-                vanillaPhaseRate,
-                predictedVanillaDrain,
-                vanillaDrain,
-                customDrain,
-                g_LastObservedRemainingSeconds
-            );
-#endif
-        }
     }
 
 
@@ -446,7 +331,7 @@ bool Install_CautionStepNormalTimerHook()
     void* target = ResolveGameAddress(gAddr.DecrementPhaseCounter);
     if (!target)
     {
-        LogCautionPhaseTimer("[Hook] CautionPhaseTimer: target resolve failed\n");
+        LogError("CautionPhaseTimer: DecrementPhaseCounter address missing, caution duration override off");
         return false;
     }
 
@@ -456,16 +341,8 @@ bool Install_CautionStepNormalTimerHook()
         reinterpret_cast<void**>(&g_OrigDecrementPhaseCounter)
     );
 
-#ifdef _DEBUG
-    LogCautionPhaseTimer(
-        "[Hook] CautionPhaseTimer: %s (target=%p, seconds=%.3f, normalized=%.6f, override=%s)\n",
-        ok ? "OK" : "FAIL",
-        target,
-        g_DurationSeconds,
-        g_NormalizedDrainRate,
-        g_EnableOverride ? "ON" : "OFF"
-    );
-#endif
+    if (!ok)
+        LogError("CautionPhaseTimer: DecrementPhaseCounter hook failed, caution duration override off");
 
     g_HashSetCautionPhaseDuration = FoxHashes::StrCode32("SetCautionPhaseDuration");
     if (Addr_TppCp2LuaCommands() != 0)
@@ -477,17 +354,12 @@ bool Install_CautionStepNormalTimerHook()
             reinterpret_cast<void**>(&g_OrigTppCp2LuaCommands));
         if (!ok2)
         {
-            Log("[CautionPhaseTimer] ERROR: TppCp2LuaCommands hook failed @ %p - per-CP caution "
-                "duration and the AssignInterrogationWithVoice CP capture will not work.\n", cp2);
+            LogError("CautionPhaseTimer: TppCp2LuaCommands hook failed at %p, per-CP caution duration and CP capture off", cp2);
         }
-#ifdef _DEBUG
-        LogCautionPhaseTimer("[Hook] TppCp2LuaCommands (per-cp caution): %s @ %p\n", ok2 ? "OK" : "FAIL", cp2);
-#endif
     }
     else
     {
-        Log("[CautionPhaseTimer] ERROR: TppCp2LuaCommands address is missing for this build - "
-            "per-CP caution duration and the AssignInterrogationWithVoice CP capture are disabled.\n");
+        LogError("CautionPhaseTimer: TppCp2LuaCommands address missing, per-CP caution duration and CP capture off");
     }
 
     return ok;
@@ -503,10 +375,6 @@ bool Uninstall_CautionStepNormalTimerHook()
         DisableAndRemoveHook(ResolveGameAddress(Addr_TppCp2LuaCommands()));
         g_OrigTppCp2LuaCommands = nullptr;
     }
-
-#ifdef _DEBUG
-    LogCautionPhaseTimer("[Hook] CautionPhaseTimer: removed\n");
-#endif
     return true;
 }
 
@@ -516,14 +384,6 @@ void Set_CautionStepNormalDurationSeconds(float seconds)
     g_DurationSeconds = seconds;
     SyncCautionStepNormalDrainFromDuration();
     g_EnableOverride = true;
-
-#ifdef _DEBUG
-    LogCautionPhaseTimer(
-        "[CautionPhaseTimer] duration set to %.3f seconds -> normalized drain %.6f (override enabled)\n",
-        g_DurationSeconds,
-        g_NormalizedDrainRate
-    );
-#endif
 }
 
 
@@ -536,12 +396,6 @@ float Get_CautionStepNormalDurationSeconds()
 void Unset_CautionStepNormalDurationSeconds()
 {
     g_EnableOverride = false;
-
-#ifdef _DEBUG
-    LogCautionPhaseTimer(
-        "[CautionPhaseTimer] custom duration override disabled -> vanilla behavior restored\n"
-    );
-#endif
 }
 
 
@@ -554,13 +408,6 @@ void Set_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex, float seco
     g_CpDurationSeconds[cpIndex] = seconds;
     g_CpNormalizedDrain[cpIndex] = 1.0f / seconds;
     g_CpEnable[cpIndex] = true;
-
-#ifdef _DEBUG
-    LogCautionPhaseTimer(
-        "[CautionPhaseTimer] cp=%u duration set to %.3f seconds -> normalized drain %.6f (override enabled)\n",
-        cpIndex, seconds, g_CpNormalizedDrain[cpIndex]
-    );
-#endif
 }
 
 

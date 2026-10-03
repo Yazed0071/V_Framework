@@ -45,18 +45,12 @@ namespace
     constexpr std::size_t kShellImplNetFlag = 0xE0;
     constexpr std::size_t kShellExecVtblCreate = 0x08;
     constexpr std::size_t kShellSysPositions = 0x60;
-    constexpr std::size_t kShellSysTotalCap = 0x48;
     constexpr std::size_t kShellSysExecCount = 0x4C;
-    constexpr std::size_t kShellSysTotalShells = 0x50;
-    constexpr std::size_t kShellSysPerExec = 0x54;
-    constexpr std::size_t kShellSysCountBytes = 0x88;
-    constexpr std::uint32_t kShellSysMaxExec = 32;
     constexpr std::size_t kShellImplPoolSize = 0x30;
     constexpr std::size_t kShellImplUsedMask = 0x98;
     constexpr std::size_t kShellWorkStride = 0x2C;
     constexpr std::size_t kShellWorkAge = 0x00;
     constexpr std::size_t kShellWorkLifetime = 0x04;
-    constexpr std::size_t kShellWorkShellId = 0x14;
     constexpr std::size_t kShellWorkFlags = 0x24;
     constexpr std::size_t kShellWorkState = 0x28;
     constexpr std::uint32_t kShellWorkTerminating = 0x00040000;
@@ -81,6 +75,8 @@ namespace
     constexpr float kShellSpeedBrakeRate = 20.0f;
     constexpr float kShellSpeedDragRate = 1.0f;
     constexpr float kShellBankInvertSpeed = 29.0f;
+    constexpr std::uint16_t kShellIdRocketPunch = 0x12A;
+    constexpr std::uint16_t kShellIdRocketPunchBlast = 0x12B;
     constexpr float kEngineTriggerEpsilon = 1.0e-4f;
     constexpr std::uint32_t kShellWorkFlightModeSteer = 0x3000;
     constexpr std::uint32_t kShellWorkLocalAuthority = 0x200000;
@@ -178,9 +174,7 @@ namespace
     std::uint32_t g_SavedManualSpace = 0;
     alignas(16) float g_SavedBaseRotation[4] = {};
     std::uint64_t g_SavedLookOffset = 0;
-    std::uint32_t g_AttachModeReadback = 0;
     float g_ManualOffsetAtTakeOver[2] = {};
-    bool g_ManualOffsetStompLogged = false;
     bool g_ManualOffsetCaptured = false;
     bool g_BrakeArmed = false;
     bool g_SpeedBanded = false;
@@ -198,15 +192,12 @@ namespace
     alignas(16) std::uint8_t g_HandoffDesc[kDescBytes] = {};
     bool g_HandoffDescValid = false;
     std::uint32_t g_HandoffExecCursor = 0;
-    bool g_HandoffLogged = false;
 
     std::uint8_t* g_PlayerContext = nullptr;
     bool g_ResolveLogged = false;
-    std::uint8_t* g_ShapeLoggedFor = nullptr;
     unsigned g_IdleProbeTicks = 0;
     constexpr unsigned kIdleProbeInterval = 300;
     unsigned g_TickCount = 0;
-    bool g_FirstTickLogged = false;
 
     thread_local bool tls_ShotArmed = false;
     MissileSpec g_ArmedSpec{};
@@ -217,9 +208,7 @@ namespace
     ShellFire_t g_OrigShellFire = nullptr;
     void* g_ShellFireTarget = nullptr;
     bool g_FireHookAttempted = false;
-    bool g_ClaimLogged = false;
     std::uint32_t g_ClaimedWorkIndex = kShellNoIndex;
-    std::uint16_t g_ClaimedShellId = 0;
 
     using ShellExecute_t = void(__fastcall*)(void*);
     ShellExecute_t g_OrigExecuteSerially = nullptr;
@@ -268,47 +257,6 @@ namespace
                 if (activeIndex > kShellNoIndex)
                     continue;
 
-                if (candidate != g_ShapeLoggedFor)
-                {
-                    g_ShapeLoggedFor = candidate;
-
-                    const std::uint32_t cap =
-                        *reinterpret_cast<std::uint32_t*>(candidate + kShellSysTotalCap);
-                    const std::uint32_t execCount =
-                        *reinterpret_cast<std::uint32_t*>(candidate + kShellSysExecCount);
-                    const std::uint32_t granted =
-                        *reinterpret_cast<std::uint32_t*>(candidate + kShellSysTotalShells);
-                    const std::uint32_t perExec =
-                        *reinterpret_cast<std::uint32_t*>(candidate + kShellSysPerExec);
-                    const auto* counts = *reinterpret_cast<const std::uint8_t**>(
-                        candidate + kShellSysCountBytes);
-
-                    char slices[160];
-                    slices[0] = '\0';
-                    if (counts && execCount && execCount <= kShellSysMaxExec)
-                    {
-                        std::size_t used = 0;
-                        for (std::uint32_t e = 0; e < execCount; ++e)
-                        {
-                            const int written = _snprintf_s(
-                                slices + used, sizeof(slices) - used, _TRUNCATE,
-                                e ? " %u" : "%u",
-                                static_cast<unsigned>(counts[e]));
-                            if (written <= 0)
-                                break;
-                            used += static_cast<std::size_t>(written);
-                        }
-                    }
-
-                    Log("[RemoteMissile] shell system resolved at ApplicationSystem+0x%zX "
-                        "(object=%p vtable=%p activeShell=0x%X) - shell pool cap=%u "
-                        "executors=%u granted=%u perExecutor=%u slices=[%s] - "
-                        "FireRocketPunch always allocates in executor 0, so while its slice "
-                        "is 1 every steerable shot evicts the one before it\n",
-                        offsets[i], candidate, vtable, activeIndex,
-                        cap, execCount, granted, perExec,
-                        slices[0] ? slices : "unreadable");
-                }
                 g_ResolveLogged = true;
                 return candidate;
             }
@@ -316,9 +264,8 @@ namespace
             if (!g_ResolveLogged)
             {
                 g_ResolveLogged = true;
-                Log("[RemoteMissile] the shell system was not found at "
-                    "ApplicationSystem+0x210 or +0x208 - no steerable shell can be fired "
-                    "on this build until that offset is corrected\n");
+                LogError("RemoteMissile: shell system not found at "
+                    "ApplicationSystem+0x210/+0x208, remote missiles off");
             }
             return nullptr;
         }
@@ -451,11 +398,8 @@ namespace
             return;
         static std::atomic<bool> s_toldVoice{ false };
         if (!s_toldVoice.exchange(true))
-            Log("[RemoteMissile] fireVoiceId 0x%08X could not be played - the "
-                "player object or its chara slot could not be read when the "
-                "weapon fired, so this weapon stays silent for the rest of the "
-                "session while every other part of the missile still works\n",
-                voiceId);
+            LogWarn("RemoteMissile: fireVoiceId 0x%08X not played, player chara "
+                "slot unreadable", voiceId);
     }
 
     struct StickInput
@@ -625,15 +569,6 @@ namespace
                 g_ManualOffsetAtTakeOver[0] = *manualPitch;
                 g_ManualOffsetAtTakeOver[1] = *manualYaw;
             }
-            else if (!g_ManualOffsetStompLogged
-                     && (*manualPitch != 0.0f || *manualYaw != 0.0f))
-            {
-                g_ManualOffsetStompLogged = true;
-                Log("[RemoteMissile] the camera's manual look offset came back as "
-                    "(%.3f %.3f) after a steer tick zeroed it, so something re-applies "
-                    "it later in the frame and the view trails the shell\n",
-                    *manualPitch, *manualYaw);
-            }
             *manualPitch = 0.0f;
             *manualYaw = 0.0f;
 
@@ -660,7 +595,6 @@ namespace
             SetBaseRotation_t setRotation = *reinterpret_cast<SetBaseRotation_t*>(
                 vtable + kCameraVtblSetBaseRotation);
             setRotation(camera, playerIndex, quat, false);
-            g_AttachModeReadback = *attachMode;
             return true;
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
@@ -815,18 +749,6 @@ namespace
             g_Speed = g_SpeedHi;
     }
 
-    float ReadShellSpeedSEH(std::uint8_t* shellSystem)
-    {
-        __try
-        {
-            return *reinterpret_cast<float*>(shellSystem + kShellSpeedState);
-        }
-        __except (SehKeepAvOnly(GetExceptionCode()))
-        {
-            return 0.0f;
-        }
-    }
-
     bool ButtonLeaseHeldSEH(std::uint8_t* pad)
     {
         __try
@@ -903,6 +825,18 @@ namespace
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
         {
+        }
+    }
+
+    std::uint16_t ReadDescShellIdSEH(const std::uint8_t* desc)
+    {
+        __try
+        {
+            return *reinterpret_cast<const std::uint16_t*>(desc + kDescShellId);
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return 0;
         }
     }
 
@@ -1072,7 +1006,6 @@ namespace
     {
         float position[3];
         float velocity[3];
-        float speed;
         float lifeSeconds;
     };
 
@@ -1135,7 +1068,6 @@ namespace
             const float yaw = eulers[lane + 1];
             const float speed = speeds[lane + 0];
             const float horizontal = std::cos(pitch);
-            out->speed = speed;
             out->velocity[0] = horizontal * std::sin(yaw) * speed;
             out->velocity[1] = -std::sin(pitch) * speed;
             out->velocity[2] = horizontal * std::cos(yaw) * speed;
@@ -1265,52 +1197,47 @@ namespace
         const std::uint32_t execCount = ReadExecutorCountSEH(shellSystem);
         if (execCount < 2)
         {
-            Log("[RemoteMissile] the released missile could not be handed off: this "
-                "machine gives the shell system only %u executor(s), so there is no "
-                "pool outside the rocket-punch slot to move it into - it stays where "
-                "it is and the next steerable shot still evicts it\n", execCount);
+            static std::atomic<bool> s_toldExec{ false };
+            if (!s_toldExec.exchange(true))
+                LogWarn("RemoteMissile: handoff skipped, only %u shell executor(s), "
+                    "missile stays in rocket-punch slot", execCount);
             return;
         }
 
         HandoffSnapshot snap{};
         if (!ReadHandoffSnapshotSEH(shellSystem, idxA, &snap))
         {
-            Log("[RemoteMissile] the released missile could not be handed off: its "
-                "position and heading could not be read out of the shell pool, so "
-                "there is nothing to rebuild it from - it stays in the rocket-punch "
-                "slot\n");
+            static std::atomic<bool> s_toldSnap{ false };
+            if (!s_toldSnap.exchange(true))
+                LogWarn("RemoteMissile: handoff skipped, shell pool unreadable, "
+                    "missile stays in rocket-punch slot");
             return;
         }
 
         float position[3] = { snap.position[0], snap.position[1], snap.position[2] };
-        const char* posSource = "shell pool";
         if (g_ShellPosSamples > 0)
         {
             position[0] = g_LastShellPos[0];
             position[1] = g_LastShellPos[1];
             position[2] = g_LastShellPos[2];
-            posSource = "last steer tick";
         }
 
         float velocity[3] = { snap.velocity[0], snap.velocity[1], snap.velocity[2] };
-        const char* velSource = "engine heading";
-        float measured[3] = {};
-        float measuredSpeed = 0.0f;
         if (g_ShellPosSamples >= 2 && g_LastStepSeconds > 0.0001f)
         {
             const float inv = 1.0f / g_LastStepSeconds;
+            float measured[3] = {};
             measured[0] = (g_LastShellPos[0] - g_PrevShellPos[0]) * inv;
             measured[1] = (g_LastShellPos[1] - g_PrevShellPos[1]) * inv;
             measured[2] = (g_LastShellPos[2] - g_PrevShellPos[2]) * inv;
-            measuredSpeed = std::sqrt(measured[0] * measured[0]
-                                      + measured[1] * measured[1]
-                                      + measured[2] * measured[2]);
+            const float measuredSpeed = std::sqrt(measured[0] * measured[0]
+                                                  + measured[1] * measured[1]
+                                                  + measured[2] * measured[2]);
             if (measuredSpeed > kHandoffMinSpeed && measuredSpeed < kHandoffMaxSpeed)
             {
                 velocity[0] = measured[0];
                 velocity[1] = measured[1];
                 velocity[2] = measured[2];
-                velSource = "measured across the last two frames";
             }
         }
 
@@ -1324,35 +1251,20 @@ namespace
         const std::uint32_t idxB = SpawnHandoffShellSEH(shellSystem, exec, position);
         if (idxB == kShellNoIndex)
         {
-            Log("[RemoteMissile] the released missile could not be handed off: shell "
-                "executor %u refused the replacement (its slot is taken, or this is a "
-                "network session where a second shell would be announced to the other "
-                "player) - the missile stays in the rocket-punch slot and the next "
-                "steerable shot still evicts it\n", exec);
+            static std::atomic<bool> s_toldSpawn{ false };
+            if (!s_toldSpawn.exchange(true))
+                LogWarn("RemoteMissile: handoff refused by shell executor %u, "
+                    "missile stays in rocket-punch slot", exec);
             return;
         }
 
-        if (!RetirePunchShellSEH(shellSystem, idxA))
-            Log("[RemoteMissile] the replacement shell was created in executor %u but "
-                "the original could not be marked for release, so both are in the air "
-                "and the rocket-punch slot is still occupied\n", exec);
-
-        if (!g_HandoffLogged)
-        {
-            g_HandoffLogged = true;
-            Log("[RemoteMissile] released missile handed off: rebuilt as an ordinary "
-                "shell in executor %u slot %u and the rocket-punch slot was freed, so "
-                "the next steerable shot evicts nothing - position=(%.1f %.1f %.1f) "
-                "from the %s, velocity=(%.2f %.2f %.2f) %s, engine heading gives "
-                "(%.2f %.2f %.2f) at speed %.2f, measured gives %.2f, life=%.1fs\n",
-                exec, idxB, position[0], position[1], position[2], posSource,
-                velocity[0], velocity[1], velocity[2], velSource,
-                snap.velocity[0], snap.velocity[1], snap.velocity[2], snap.speed,
-                measuredSpeed, life);
-        }
+        static std::atomic<bool> s_toldRetire{ false };
+        if (!RetirePunchShellSEH(shellSystem, idxA) && !s_toldRetire.exchange(true))
+            LogWarn("RemoteMissile: handoff to executor %u made a copy but the "
+                "original was not retired, both in flight", exec);
     }
 
-    bool ClaimActivatedShellSEH(std::uint8_t* shellSystem, std::uint32_t* outFlags)
+    bool ClaimActivatedShellSEH(std::uint8_t* shellSystem)
     {
         g_ClaimedWorkIndex = kShellNoIndex;
         __try
@@ -1377,10 +1289,6 @@ namespace
             auto* flags = reinterpret_cast<std::uint32_t*>(
                 workBase + static_cast<std::size_t>(idx) * kShellWorkStride
                 + kShellWorkFlags);
-            *outFlags = *flags;
-            g_ClaimedShellId = *reinterpret_cast<std::uint16_t*>(
-                workBase + static_cast<std::size_t>(idx) * kShellWorkStride
-                + kShellWorkShellId);
             g_ClaimedWorkIndex = idx;
             *flags |= kShellWorkFlightModeSteer | kShellWorkLocalAuthority;
             return true;
@@ -1391,36 +1299,32 @@ namespace
         }
     }
 
-    void ReleaseControl(const char* reason)
+    void ReleaseControl()
     {
         if (!g_Flying.exchange(false))
             return;
 
         g_ClaimedWorkIndex = kShellNoIndex;
 
-        Log("[RemoteMissile] flight ended (%s) after %u steer tick(s) - 0 ticks "
-            "means the tick source never ran while the shell was alive, so the "
-            "stick and the camera were never applied\n",
-            reason, g_TickCount);
         if (g_CameraTaken)
         {
             std::uint8_t* camera = PlayerSubsystemSEH(kSubsystemCamera);
+            static std::atomic<bool> s_toldCamera{ false };
             if (!camera || ReleaseCameraSEH(camera))
                 g_CameraTaken = false;
-            else
-                Log("[RemoteMissile] the camera object is still there but refused the "
-                    "hand-back, so the pre-flight snapshot is being kept for the next "
-                    "attempt rather than overwritten with the hijacked pose\n");
+            else if (!s_toldCamera.exchange(true))
+                LogWarn("RemoteMissile: camera refused hand-back, snapshot kept "
+                    "for next attempt");
         }
         if (g_InputMasked)
         {
             std::uint8_t* pad = PlayerSubsystemSEH(kSubsystemPad);
+            static std::atomic<bool> s_toldPad{ false };
             if (!pad || SetInputMaskSEH(pad, false))
                 g_InputMasked = false;
-            else
-                Log("[RemoteMissile] the pad object is still there but refused the "
-                    "lease release, so the player may still be locked out until the "
-                    "next flight ends\n");
+            else if (!s_toldPad.exchange(true))
+                LogWarn("RemoteMissile: pad refused lease release, player input "
+                    "may stay locked");
         }
     }
 
@@ -1473,9 +1377,10 @@ namespace
 
         if (!fired)
         {
-            Log("[RemoteMissile] equipId=%d: FireRocketPunch refused the weapon's own "
-                "shell descriptor, so this shot stays an ordinary projectile\n",
-                g_ArmedEquipId);
+            static std::atomic<bool> s_toldFire{ false };
+            if (!s_toldFire.exchange(true))
+                LogWarn("RemoteMissile: equipId %d: FireRocketPunch refused, shot "
+                    "stays vanilla", g_ArmedEquipId);
             if (g_OrigShellFire)
                 g_OrigShellFire(self, desc);
             return;
@@ -1484,31 +1389,37 @@ namespace
         DisarmAreaLatchSEH(shellSystem);
         SilenceNoiseFilterSEH(shellSystem);
 
-        std::uint32_t workFlags = 0;
-        if (!ClaimActivatedShellSEH(shellSystem, &workFlags))
+        if (!ClaimActivatedShellSEH(shellSystem))
         {
             CancelSEH(shellSystem);
-            Log("[RemoteMissile] equipId=%d: the shell activated but its work entry "
-                "could not be reached, so steerable flight was never switched on - the "
-                "orphaned shell was cancelled so it cannot block later shots\n",
-                g_ArmedEquipId);
+            static std::atomic<bool> s_toldClaim{ false };
+            if (!s_toldClaim.exchange(true))
+                LogWarn("RemoteMissile: equipId %d: shell work entry unreachable, "
+                    "shell cancelled", g_ArmedEquipId);
             return;
         }
 
-        if (poolRead && poolUsed >= poolSize)
-            Log("[RemoteMissile] equipId=%d: all %u shell slots the launcher can use "
-                "were already taken when this shot went out, so the engine "
-                "deactivated the longest-lived one to make room - a missile that was "
-                "still in the air was removed\n",
-                g_ArmedEquipId, poolSize);
+        static std::atomic<bool> s_toldPoolFull{ false };
+        if (poolRead && poolUsed >= poolSize && !s_toldPoolFull.exchange(true))
+            LogWarn("RemoteMissile: equipId %d: all %u shell slots in use, "
+                "oldest shell removed", g_ArmedEquipId, poolSize);
+
+        const std::uint16_t shellId = ReadDescShellIdSEH(descBytes);
+        if ((shellId == kShellIdRocketPunch || shellId == kShellIdRocketPunchBlast)
+            && g_ArmedSpec.maxSpeed > kShellBankInvertSpeed)
+        {
+            static std::atomic<bool> s_toldBank{ false };
+            if (!s_toldBank.exchange(true))
+                LogWarn("RemoteMissile: equipId %d: rocket arm shell with maxSpeed %.1f "
+                    "above %.0f, missile banks the wrong way",
+                    g_ArmedEquipId, g_ArmedSpec.maxSpeed, kShellBankInvertSpeed);
+        }
 
         PlayFireVoice(g_ArmedSpec.fireVoiceId);
         g_ActiveSpec = g_ArmedSpec;
         g_LaunchTickMs = GetTickCount64();
         g_LastTickCounter = 0;
         g_TickCount = 0;
-        g_FirstTickLogged = false;
-        g_ManualOffsetStompLogged = false;
         g_ManualOffsetCaptured = false;
         g_BrakeArmed = false;
         ArmSpeedBand(g_ArmedSpec);
@@ -1523,33 +1434,17 @@ namespace
             SetInputMaskSEH(pad, true);
             g_InputMasked = true;
 
+            static std::atomic<bool> s_toldStick{ false };
             const std::uint32_t stickMask = ReadStickMaskSEH(pad);
-            if ((stickMask & kStickMaskMoveStick) == 0)
-                Log("[RemoteMissile] the move-stick lease was refused (pad stick mask "
-                    "reads 0x%X), so the player keeps walking around while the missile "
-                    "flies\n", stickMask);
+            if ((stickMask & kStickMaskMoveStick) == 0
+                && !s_toldStick.exchange(true))
+                LogWarn("RemoteMissile: move-stick lease refused (mask 0x%X), "
+                    "player keeps moving", stickMask);
 
-            if (!ButtonLeaseHeldSEH(pad))
-                Log("[RemoteMissile] the button lease was refused (all 8 pad slots are "
-                    "held by other owners), so the player can still aim and fire while "
-                    "the missile flies\n");
-        }
-
-        if (!g_ClaimLogged)
-        {
-            g_ClaimLogged = true;
-            Log("[RemoteMissile] equipId=%d took control of its own shell - "
-                "engine work flags 0x%X (mode %u, authority %s) then forced to "
-                "0x%X - slot %u of %u, %u in use, the shell the magazine launched "
-                "is equipAmmoId 0x%X - "
-                "pad=%s playerContext=%s parentWas=0x%X\n",
-                g_ArmedEquipId, workFlags, (workFlags >> 12) & 3,
-                (workFlags & kShellWorkLocalAuthority) ? "set" : "clear",
-                workFlags | kShellWorkFlightModeSteer | kShellWorkLocalAuthority,
-                g_ClaimedWorkIndex, poolSize, poolUsed, g_ClaimedShellId,
-                pad ? "bound" : "MISSING (no stick input, no camera)",
-                g_PlayerContext ? "captured" : "NEVER CAPTURED",
-                parentWas);
+            static std::atomic<bool> s_toldButton{ false };
+            if (!ButtonLeaseHeldSEH(pad) && !s_toldButton.exchange(true))
+                LogWarn("RemoteMissile: button lease refused, player can still "
+                    "fire during flight");
         }
     }
 
@@ -1612,8 +1507,8 @@ namespace
 
         if (!target)
         {
-            Log("[RemoteMissile] the shell system's serial execute slot could not be "
-                "read, so a launched missile would get no per-frame steering update\n");
+            LogError("RemoteMissile: shell serial execute slot unreadable, missile "
+                "steering off");
             return false;
         }
 
@@ -1625,9 +1520,6 @@ namespace
         }
 
         g_ExecuteSerialTarget = target;
-        Log("[RemoteMissile] shell serial execute hooked at %p - steering now runs once "
-            "per frame on the shell system's own thread instead of once per bullet "
-            "pool on worker threads\n", target);
         return true;
     }
 
@@ -1653,8 +1545,7 @@ namespace
 
         if (!target)
         {
-            Log("[RemoteMissile] the shell system's Fire slot could not be read, so a "
-                "registered weapon keeps firing its ordinary projectile\n");
+            LogError("RemoteMissile: shell Fire slot unreadable, remote missiles off");
             return false;
         }
 
@@ -1666,9 +1557,6 @@ namespace
         }
 
         g_ShellFireTarget = target;
-        Log("[RemoteMissile] shell Fire hooked at %p (vtable slot 0) - a registered "
-            "weapon's own shot is now redirected into steerable flight instead of "
-            "spawning a second projectile\n", target);
         return true;
     }
     void AuditReceiverKeysOnce()
@@ -1701,10 +1589,8 @@ namespace
                 }
             }
             if (!matched)
-                Log("[RemoteMissile] receiverId=%d matched no weapon: nothing "
-                    "registered through SetGunBasic declares that receiver, and "
-                    "a receiver key never reaches a stock weapon, so no shot "
-                    "will become a steerable missile\n", wantRc);
+                LogWarn("SetRemoteMissile receiverId %d: no SetGunBasic weapon "
+                    "uses it, no shot will steer", wantRc);
         }
     }
 }
@@ -1725,30 +1611,22 @@ namespace shell
     {
         if ((equipId > 0) == (receiverId > 0))
         {
-            LogDebug("[RemoteMissile] equipId=%d receiverId=%d rejected: a remote "
-                     "missile is bound to one weapon equip or to one receiver, "
-                     "never to both and never to neither - nothing was "
-                     "registered\n", equipId, receiverId);
+            LogWarn("SetRemoteMissile equipId %d receiverId %d: set exactly one, "
+                "nothing registered", equipId, receiverId);
             return;
         }
         const bool byReceiver = receiverId > 0;
         const char* const keyName = byReceiver ? "receiverId" : "equipId";
         const int keyValue = byReceiver ? receiverId : equipId;
         if (byReceiver && receiverId == kUndeclaredReceiverId)
-            LogDebug("[RemoteMissile] receiverId=%d is the id SetGunBasic "
-                     "substitutes for a weapon that declares no receiver of its "
-                     "own, so this registration also covers every under-declared "
-                     "custom weapon in every installed pack\n", receiverId);
+            LogWarn("SetRemoteMissile receiverId %d: also covers every custom "
+                "weapon with no declared receiver", receiverId);
         MissileSpec spec{};
         if (hasAttackId)
         {
             if (attackId <= 0 || attackId > kDescAttackIdMask)
-                LogDebug("[RemoteMissile] %s=%d attackId=%d rejected: a "
-                         "shell descriptor carries only 10 bits of attack id, "
-                         "so a value outside 1..1023 would land on a different "
-                         "damage row - the receiver's own attack id is used "
-                         "instead\n",
-                         keyName, keyValue, attackId);
+                LogWarn("SetRemoteMissile %s %d: attackId %d outside 1..1023, "
+                    "receiver's own used", keyName, keyValue, attackId);
             else
             {
                 spec.attackId = attackId;
@@ -1784,35 +1662,16 @@ namespace shell
         if (high > 100.0) high = 100.0;
         if (low > 0.0 && high > 0.0 && low > high)
         {
-            LogDebug("[RemoteMissile] %s=%d minSpeed=%.1f is above maxSpeed=%.1f, "
-                     "so the two would fight each frame - minSpeed was lowered to "
-                     "match\n", keyName, keyValue, low, high);
+            LogWarn("SetRemoteMissile %s %d: minSpeed %.1f above maxSpeed %.1f, "
+                "lowered to match", keyName, keyValue, low, high);
             low = high;
         }
         spec.minSpeed = static_cast<float>(low);
         spec.maxSpeed = static_cast<float>(high);
-        if (spec.maxSpeed > kShellBankInvertSpeed)
-            LogDebug("[RemoteMissile] %s=%d maxSpeed=%.1f is above %.0f, where "
-                     "the engine's own model-bank scale turns negative - the missile "
-                     "leans the wrong way and several times too far while you steer. "
-                     "Flight and steering themselves are unaffected\n",
-                     keyName, keyValue, spec.maxSpeed, kShellBankInvertSpeed);
         if (spec.maxSpeed > 0.0f && spec.maxSpeed <= kShellEffectSpeedThreshold)
-            LogDebug("[RemoteMissile] %s=%d maxSpeed=%.1f holds the shell at or "
-                     "under the engine's own %.0f effect threshold, so the shell "
-                     "system never starts the exhaust effect - raise maxSpeed above "
-                     "%.0f if you want it\n",
-                     keyName, keyValue, spec.maxSpeed, kShellEffectSpeedThreshold,
-                     kShellEffectSpeedThreshold);
-        float bandLo = kShellSpeedFloor;
-        float bandHi = kShellSpeedCeiling;
-        bool banded = false;
-        ResolveSpeedBand(spec, &bandLo, &bandHi, &banded);
-        if (banded && !(bandHi > bandLo))
-            LogDebug("[RemoteMissile] %s=%d minSpeed and maxSpeed are both %.1f, "
-                     "so the shell flies at one fixed speed and the brake and boost "
-                     "triggers have nothing to move it within\n",
-                     keyName, keyValue, bandLo);
+            LogWarn("SetRemoteMissile %s %d: maxSpeed %.1f at or under %.0f, no "
+                "exhaust effect",
+                keyName, keyValue, spec.maxSpeed, kShellEffectSpeedThreshold);
 
         {
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
@@ -1821,32 +1680,6 @@ namespace shell
             else
                 g_SpecByEquipId[equipId] = spec;
         }
-
-        Log("[RemoteMissile] %s=%d registered: "
-            "maxFlight=%.0fs range=%.0fm (0 = unlimited) camera=%.1fm behind %.1fm up "
-            "speed=%.1f..%.1f -> flies %.1f..%.1f "
-            "(0 = leave the engine's own %.0f..%.0f band) - firing this weapon now "
-            "launches a steerable shell instead of letting the vanilla one fly on its "
-            "own\n",
-            keyName, keyValue, spec.maxFlightSeconds,
-            spec.maxRange, spec.cameraDistance, spec.cameraHeight,
-            spec.minSpeed, spec.maxSpeed,
-            banded ? bandLo : kShellSpeedFloor,
-            banded ? bandHi : kShellSpeedCeiling,
-            kShellSpeedFloor, kShellSpeedCeiling);
-
-        if (spec.hasAttackId)
-            Log("[RemoteMissile] %s=%d attack id 0x%X armed - the blast "
-                "and the direct hit are charged to that damage row instead of "
-                "the one the receiver carries\n",
-                keyName, keyValue, spec.attackId);
-
-        if (spec.fireVoiceId != 0)
-            Log("[RemoteMissile] %s=%d fire voice 0x%08X armed - the player "
-                "shouts this clip when the weapon fires, the way the Rocket Arm "
-                "shouts its own. A clip the active player voice type does not "
-                "carry is queued and dropped in silence\n",
-                keyName, keyValue, spec.fireVoiceId);
     }
 
     bool RemoteMissile_IsFlying()
@@ -1859,7 +1692,7 @@ namespace shell
         std::uint8_t* shellSystem = ResolveShellSystemSEH();
         if (shellSystem && IsExistSEH(shellSystem))
             CancelSEH(shellSystem);
-        ReleaseControl("cancelled");
+        ReleaseControl();
     }
 
     void RemoteMissile_Abort()
@@ -1870,7 +1703,7 @@ namespace shell
             HandOffReleasedShell(shellSystem);
             CancelSEH(shellSystem);
         }
-        ReleaseControl("cancelled");
+        ReleaseControl();
     }
 
     void RemoteMissile_ArmShot(int playerIndex, int ownerEquipId)
@@ -1915,11 +1748,7 @@ namespace shell
             return;
         EnsureExecuteHook(shellSystem);
         if (IsExistSEH(shellSystem))
-        {
-            LogDebug("[RemoteMissile] shot left vanilla: a steerable shell is already "
-                     "in flight and the engine tracks only one\n");
             return;
-        }
 
         g_ArmedSpec = spec;
         g_ArmedPlayerIndex = playerIndex;
@@ -1948,7 +1777,7 @@ namespace shell
             return;
         if (!shellSystem || !IsExistSEH(shellSystem))
         {
-            ReleaseControl("the engine reports no rocket-punch shell in flight");
+            ReleaseControl();
             return;
         }
 
@@ -1956,9 +1785,6 @@ namespace shell
         if (elapsedMs > static_cast<unsigned long long>(
                 g_ActiveSpec.maxFlightSeconds * 1000.0f))
         {
-            Log("[RemoteMissile] flight cancelled: the watchdog reached %.1f seconds, "
-                "so control is being returned to the player\n",
-                g_ActiveSpec.maxFlightSeconds);
             RemoteMissile_Abort();
             return;
         }
@@ -1993,15 +1819,9 @@ namespace shell
             WriteShellSpeedSEH(shellSystem, g_Speed);
 
         alignas(16) float matrix[16] = {};
-        const char* cameraState = "no matrix";
         if (GetCameraMatrixSEH(shellSystem, matrix))
         {
-            if (g_TickCount == 0)
-            {
-                cameraState = "held for one frame (the shell has not written its "
-                              "own camera pose yet)";
-            }
-            else
+            if (g_TickCount != 0)
             {
                 if (g_ShellPosSamples > 0)
                 {
@@ -2031,10 +1851,6 @@ namespace shell
                         std::sqrt(dx * dx + dy * dy + dz * dz);
                     if (travelled > g_ActiveSpec.maxRange)
                     {
-                        Log("[RemoteMissile] flight cancelled: the shell reached "
-                            "%.0f m from the launch point and maxRange is "
-                            "%.0f m\n",
-                            travelled, g_ActiveSpec.maxRange);
                         RemoteMissile_Abort();
                         return;
                     }
@@ -2046,41 +1862,12 @@ namespace shell
                                       g_ActiveSpec.cameraHeight);
 
                 std::uint8_t* camera = PlayerSubsystemSEH(kSubsystemCamera);
-                if (!camera)
-                    cameraState = "NO OBJECT at player subsystem +0xB8";
-                else if (InstallCameraSEH(camera, matrix))
-                    cameraState = "installed";
-                else
-                    cameraState = "INSTALL FAULTED";
+                if (camera)
+                    InstallCameraSEH(camera, matrix);
             }
         }
 
         ++g_TickCount;
-        if (!g_FirstTickLogged)
-        {
-            g_FirstTickLogged = true;
-            Log("[RemoteMissile] first steer tick: dt=%.4f stick=(%.2f %.2f) "
-                "brake=%.2f boost=%.2f pad=%s camera=%s attachMode=%u "
-                "lookOffsetWas=(%.3f %.3f) chase=%.1fm rise=%.1fm speed=%.1f "
-                "brakeArmed=%s shellCamera=(%.1f %.1f %.1f) band=%.1f..%.1f "
-                "agilityShadow=%.1f rates=boost %+.1f brake %+.1f drag %+.1f per "
-                "second - attachMode must read 4, and a non-zero lookOffsetWas is the "
-                "player's own aim angle that was tilting the view off the shell's "
-                "axis\n",
-                dt, input.leftX, input.leftY, input.brake, input.boost,
-                pad ? "bound" : "MISSING",
-                cameraState, g_AttachModeReadback,
-                g_ManualOffsetAtTakeOver[0], g_ManualOffsetAtTakeOver[1],
-                g_ActiveSpec.cameraDistance, g_ActiveSpec.cameraHeight,
-                ReadShellSpeedSEH(shellSystem), g_BrakeArmed ? "yes" : "no",
-                matrix[12], matrix[13], matrix[14],
-                g_SpeedBanded ? g_SpeedLo : kShellSpeedFloor,
-                g_SpeedBanded ? g_SpeedHi : kShellSpeedCeiling,
-                g_SpeedBanded ? ShellSpeedShadow() : ReadShellSpeedSEH(shellSystem),
-                kShellSpeedBoostRate * SpeedBandScale(),
-                -kShellSpeedBrakeRate * SpeedBandScale(),
-                -kShellSpeedDragRate * SpeedBandScale());
-        }
     }
 
     bool Install_RemoteMissile_Hooks()
@@ -2089,8 +1876,8 @@ namespace shell
             ResolveGameAddress(gAddr.GetQuarkSystemTable));
         if (!g_GetQuarkSystemTable)
         {
-            Log("[RemoteMissile] not installed: GetQuarkSystemTable is unresolved on "
-                "this build, so the shell system cannot be reached\n");
+            LogError("RemoteMissile: GetQuarkSystemTable address missing for this "
+                "build, remote missiles off");
             return true;
         }
         return true;

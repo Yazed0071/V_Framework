@@ -341,14 +341,14 @@ bool Install_PlacedSystemImpl_Insert_Hook()
     void* ins = reinterpret_cast<void*>(PlacedSystemInsertAddr());
     if (!ins)
     {
-        Log("[Wormhole] WARNING: no placed-object insert address for %s; the near-death portal warp stays FOB-only.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Wormhole: placed-object insert address missing for %s, near-death "
+                 "portal warp off", GetGameBuildName(gGameBuild));
         return false;
     }
     if (!CreateAndEnableHook(ins, reinterpret_cast<void*>(&hk_Insert), reinterpret_cast<void**>(&g_OrigInsert)))
     {
-        Log("[Wormhole] ERROR: could not hook the placed-object insert for %s; the near-death portal warp stays FOB-only.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Wormhole: placed-object insert hook failed for %s, near-death "
+                 "portal warp off", GetGameBuildName(gGameBuild));
         return false;
     }
     g_InsertAddr = ins;
@@ -357,24 +357,24 @@ bool Install_PlacedSystemImpl_Insert_Hook()
     if (warp && CreateAndEnableHook(warp, reinterpret_cast<void*>(&hk_Warp), reinterpret_cast<void**>(&g_OrigWarp)))
         g_WarpAddr = warp;
     else
-        Log("[Wormhole] ERROR: could not hook SetWarpToPosition for %s; the rescue destination falls back to the live transform.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Wormhole: SetWarpToPosition hook failed for %s, rescue uses the "
+                 "live transform", GetGameBuildName(gGameBuild));
 
     void* famTick = reinterpret_cast<void*>(DeathFamilyTickAddr());
     if (famTick && CreateAndEnableHook(famTick, reinterpret_cast<void*>(&hk_DeathFamilyTick),
                                        reinterpret_cast<void**>(&g_OrigFamilyTick)))
         g_FamilyTickAddr = famTick;
     else
-        Log("[Wormhole] ERROR: could not hook the damage family tick for %s; players will not recover after the portal warp.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Wormhole: damage family tick hook failed for %s, no recovery after "
+                 "the portal warp", GetGameBuildName(gGameBuild));
 
     void* prePoll = reinterpret_cast<void*>(PrePollingAddr());
     if (prePoll && CreateAndEnableHook(prePoll, reinterpret_cast<void*>(&hk_PrePolling),
                                        reinterpret_cast<void**>(&g_OrigPrePolling)))
         g_PrePollingAddr = prePoll;
     else
-        Log("[Wormhole] ERROR: could not hook ExecPrePolling for %s; the player will not stand up after the portal warp.\n",
-            GetGameBuildName(gGameBuild));
+        LogError("Wormhole: ExecPrePolling hook failed for %s, player stays down "
+                 "after the portal warp", GetGameBuildName(gGameBuild));
 
     return true;
 }

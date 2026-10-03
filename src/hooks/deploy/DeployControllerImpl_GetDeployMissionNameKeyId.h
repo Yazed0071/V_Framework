@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_DeployControllerImpl_GetDeployMissionNameKeyId_Hook();
+bool Uninstall_DeployControllerImpl_GetDeployMissionNameKeyId_Hook();

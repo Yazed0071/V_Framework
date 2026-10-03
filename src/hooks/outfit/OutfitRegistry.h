@@ -94,10 +94,16 @@ namespace outfit
     constexpr std::uint32_t kDamageSeDefault = SoundSwitchHash("default");
     constexpr std::uint32_t kDamageSeNormal  = SoundSwitchHash("normal");
 
+    constexpr std::uint8_t kSprintNone   = 0;
+    constexpr std::uint8_t kSprintNinja  = 5;
+    constexpr std::uint8_t kSprintRaiden = 6;
+
     struct DeclaredAbilities
     {
         bool          declared      = false;
         bool          silentSteps   = false;
+        std::uint8_t  sprint        = kSprintNone;
+        std::uint64_t sprintSpark   = 0;
         std::uint8_t  defense       = 0;
         std::uint8_t  lifeRecovery  = 0;
         std::uint32_t rattleSuit    = kSoundSwitchUnset;
@@ -127,9 +133,11 @@ namespace outfit
         bool           hasEnableHead       = false;
         bool           enableHead          = false;
         std::uint16_t  headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t  headOptionOrder[kMaxHeadOptionsPerOutfit]    = {};
         std::uint8_t   headOptionCount     = 0;
         bool           headOptionsDeclared = false;
         std::uint64_t  pendingHeadNameHashes[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t  pendingHeadOrder[kMaxHeadOptionsPerOutfit]      = {};
         std::uint8_t   pendingHeadCount    = 0;
     };
     struct OutfitPlayerTypeData
@@ -156,15 +164,19 @@ namespace outfit
         bool           enableArm              = true;
         bool           enableHead             = false;
         bool           abilitySilentSteps     = false;
+        std::uint8_t   abilitySprint          = kSprintNone;
+        std::uint64_t  abilitySprintSpark     = 0;
         std::uint8_t   abilityDefense         = 0;
         std::uint8_t   abilityLifeRecovery    = 0;
         std::uint32_t  abilityRattleSuit      = kSoundSwitchUnset;
         std::uint32_t  abilityDamageSe        = kSoundSwitchUnset;
         std::uint8_t   suitParamKind          = 0;
         std::uint16_t  headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t  headOptionOrder[kMaxHeadOptionsPerOutfit]    = {};
         std::uint8_t   headOptionCount                              = 0;
         bool           supportsHeadOptions                          = false;
         std::uint64_t  pendingHeadNameHashes[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t  pendingHeadOrder[kMaxHeadOptionsPerOutfit]      = {};
         std::uint8_t   pendingHeadCount                             = 0;
         std::uint8_t   camoBonusType                              = kCamoBonusTypeUnset;
         std::uint8_t   camoBonusTypeDeclared                      = kCamoBonusTypeUnset;
@@ -227,6 +239,7 @@ namespace outfit
         const OutfitPlayerTypeData* GetPTData(std::uint8_t playerType) const;
         bool IsPlayerTypeSupported(std::uint8_t playerType) const;
         bool DeclaresPlayerType(std::uint8_t playerType) const;
+        bool CanBeWornBy(std::uint8_t playerType) const;
         std::uint8_t FirstSupportedPlayerType() const;
 
 
@@ -351,6 +364,10 @@ namespace outfit
                                             std::uint8_t* outDefense,
                                             std::uint8_t* outRecovery);
 
+    std::uint8_t GetSprintForVariantLockFree(std::uint8_t selectorCode,
+                                             std::uint8_t playerType,
+                                             std::uint8_t variantIdx);
+
     bool TryGetVariantAbilities(std::uint8_t partsType, std::uint8_t playerType,
                                 std::uint8_t variantIdx,
                                 DeclaredAbilities* out);
@@ -405,7 +422,16 @@ namespace outfit
 
     int ResolvePendingHeadName(std::uint64_t nameHash, std::uint16_t equipId);
 
-    int RemapHeadOptionEquipId(std::uint16_t oldEquipId, std::uint16_t newEquipId);
+    struct HeadOptionRemap
+    {
+        std::uint16_t oldEquipId = 0;
+        std::uint16_t newEquipId = 0;
+        int           patched    = 0;
+    };
+
+    void RemapHeadOptionEquipIds(HeadOptionRemap* remaps, std::size_t remapCount);
+
+    int UnresolveHeadOption(std::uint16_t equipId, std::uint64_t nameHash);
 
 
     constexpr std::uint8_t kHeadOptionAnyCamo = 0xFF;
@@ -414,9 +440,11 @@ namespace outfit
     {
         std::uint16_t headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  headOptionSourceCamo[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t headOptionOrder[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  headOptionCount = 0;
         std::uint64_t pendingHeadNameHashes[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  pendingHeadSourceCamo[kMaxHeadOptionsPerOutfit] = {};
+        std::uint16_t pendingHeadOrder[kMaxHeadOptionsPerOutfit] = {};
         std::uint8_t  pendingHeadCount = 0;
         bool          declared = false;
     };
@@ -432,6 +460,9 @@ namespace outfit
         std::uint64_t diamondFpk      = kSubAssetUseVanilla;
         std::uint64_t diamondFv2      = kSubAssetUseVanilla;
         std::uint64_t voiceFpk        = kSubAssetUseVanilla;
+        std::uint32_t voiceType       = kSoundSwitchUnset;
+        VoiceFpkByType voiceFpkByType[kMaxVoiceFpkByType] = {};
+        std::uint8_t  voiceFpkByTypeCount = 0;
         std::uint64_t displayNameHash = 0;
     };
 
@@ -481,15 +512,28 @@ namespace outfit
     bool ExtendVanillaSuitVoice(std::uint8_t vanillaPartsType,
                                 std::uint8_t playerType,
                                 std::uint8_t sourceCamo,
-                                std::uint64_t voiceFpk);
+                                std::uint64_t voiceFpk,
+                                std::uint32_t voiceType = kSoundSwitchUnset,
+                                const VoiceFpkByType* voiceFpkByType = nullptr,
+                                std::uint8_t voiceFpkByTypeCount = 0);
 
     std::uint64_t VanillaExtGetSuitVoiceFpk(std::uint8_t vanillaPartsType,
                                             std::uint8_t playerType,
                                             std::uint8_t wornCamo);
 
+    std::uint64_t VanillaExtGetSuitVoiceFpkForVoiceType(
+        std::uint8_t vanillaPartsType, std::uint8_t playerType,
+        std::uint8_t wornCamo, std::uint32_t voiceType);
+
+    std::uint32_t VanillaExtGetSuitVoiceType(std::uint8_t vanillaPartsType,
+                                             std::uint8_t playerType,
+                                             std::uint8_t wornCamo);
+
     struct VanillaSuitAbilities
     {
         bool          silentSteps   = false;
+        std::uint8_t  sprint        = kSprintNone;
+        std::uint64_t sprintSpark   = 0;
         std::uint8_t  defense       = 0;
         std::uint8_t  lifeRecovery  = 0;
         std::uint32_t rattleSuit    = kSoundSwitchUnset;
@@ -539,8 +583,10 @@ namespace outfit
                                       std::uint8_t playerType,
                                       std::uint8_t sourceCamo,
                                       const std::uint16_t* equipIds,
+                                      const std::uint16_t* idOrder,
                                       std::uint8_t idCount,
                                       const std::uint64_t* pendingHashes,
+                                      const std::uint16_t* pendingOrder,
                                       std::uint8_t pendingCount);
 
     bool VanillaExtHasAnyHeadOptions(std::uint8_t vanillaPartsType,
@@ -596,11 +642,10 @@ namespace outfit
                                        std::uint8_t* outSelector);
 
 
-    bool WriteLiveHeadSlot(std::uint8_t headSlot);
-
     bool          WriteLiveWornHeadCategory(std::uint16_t category);
     std::uint16_t ReadLiveWornHeadCategory();
-    std::uint8_t  ReadLiveHeadSlot();
+
+    bool          IsHeadOptionOfferedByLiveSuit(std::uint16_t equipId);
 
 
     void          SetActiveVariant(std::uint8_t partsType, std::uint8_t variantIndex);

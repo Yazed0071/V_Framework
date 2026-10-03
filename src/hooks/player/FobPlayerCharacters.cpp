@@ -6,7 +6,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 
 #include "AddressSet.h"
@@ -14,6 +13,7 @@
 #include "MissionCodeGuard.h"
 #include "log.h"
 #include "../outfit/OutfitRegistry.h"
+#include "../outfit/StaffControllerImpl_AddStaff.h"
 
 namespace
 {
@@ -22,7 +22,6 @@ namespace
     struct PatchSite
     {
         const char*         name;
-        const char*         explanation;
         const std::uint8_t* pattern;
         const char*         mask;
         std::size_t         patternLen;
@@ -62,16 +61,12 @@ namespace
     PatchSite g_Sites[] = {
         {
             "unique-character list gate",
-            "the character list only offers Ocelot and Quiet while the "
-            "S_IS_SORTIE_PREPARATION game status is set",
             kUniqueCharaListGatePattern, kUniqueCharaListGateMask,
             sizeof(kUniqueCharaListGatePattern), 6, 6, false,
             nullptr, {}, false
         },
         {
             "parts-status player type reset",
-            "UpdatePartsStatus rewrites player type 5 and 6 back to Snake "
-            "every tick outside FOB",
             kPartsStatusResetPattern, kPartsStatusResetMask,
             sizeof(kPartsStatusResetPattern), 37, 6, true,
             nullptr, {}, false
@@ -117,7 +112,7 @@ namespace
     }
 
     std::uint8_t* FindUniqueCode(const std::uint8_t* pattern, const char* mask,
-                                 std::size_t len, const char* what)
+                                 std::size_t len)
     {
         auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
         if (!base) return nullptr;
@@ -146,9 +141,6 @@ namespace
 
         if (hits != 1)
         {
-            LogDebug("[FobChars] %s: %s in this build - that part is skipped\n",
-                what,
-                hits == 0 ? "no matching code found" : "more than one match");
             return nullptr;
         }
         return hit;
@@ -159,7 +151,7 @@ namespace
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            LogDebug("[FobChars] VirtualProtect failed at %p (err=%lu)\n",
+            LogError("FobChars: VirtualProtect failed at %p (err %lu), byte patch skipped",
                 target, GetLastError());
             return false;
         }
@@ -176,11 +168,9 @@ namespace
         if (!s.site)
         {
             std::uint8_t* hit =
-                FindUniqueCode(s.pattern, s.mask, s.patternLen, s.name);
+                FindUniqueCode(s.pattern, s.mask, s.patternLen);
             if (!hit)
             {
-                LogDebug("[FobChars] %s not patched - Ocelot and Quiet stay FOB "
-                    "only\n", s.name);
                 return false;
             }
             s.site = hit + s.patchOffset;
@@ -209,8 +199,6 @@ namespace
             return false;
 
         s.applied = true;
-        LogDebug("[FobChars] %s neutralised at %p (%s)\n",
-            s.name, s.site, s.explanation);
         return true;
     }
 
@@ -220,7 +208,6 @@ namespace
         if (WriteBytes(s.site, s.original, s.patchLen))
         {
             s.applied = false;
-            LogDebug("[FobChars] %s restored at %p\n", s.name, s.site);
         }
     }
 }
@@ -396,13 +383,10 @@ namespace
 
         std::uint8_t* hit = FindUniqueCode(
             kSlotListRowGatePattern, kSlotListRowGateMask,
-            sizeof(kSlotListRowGatePattern),
-            "sortie-prep slot row fill");
+            sizeof(kSlotListRowGatePattern));
         if (!hit)
         {
-            LogDebug("[FobChars] the sortie-prep slot list still paints every "
-                "row with the chosen character, so the buddy and vehicle rows "
-                "keep showing Ocelot or Quiet\n");
+            LogError("FobChars: sortie-prep slot row fill not found, buddy and vehicle rows show Ocelot or Quiet");
             return false;
         }
 
@@ -422,8 +406,7 @@ namespace
             reinterpret_cast<std::uintptr_t>(hit), kSlotRowStubSize));
         if (!stub)
         {
-            LogDebug("[FobChars] no executable page could be reserved within "
-                "reach of %p - the slot rows keep the vanilla fill\n", hit);
+            LogError("FobChars: no stub page near %p, buddy and vehicle rows show Ocelot or Quiet", hit);
             return false;
         }
 
@@ -436,8 +419,7 @@ namespace
         if (deltaA > INT32_MAX || deltaA < INT32_MIN ||
             deltaB > INT32_MAX || deltaB < INT32_MIN)
         {
-            LogDebug("[FobChars] the reserved page at %p is out of branch reach "
-                "of %p - the slot rows keep the vanilla fill\n", stub, hit);
+            LogError("FobChars: stub page %p out of reach of %p, buddy and vehicle rows show Ocelot or Quiet", stub, hit);
             VirtualFree(stub, 0, MEM_RELEASE);
             return false;
         }
@@ -465,11 +447,6 @@ namespace
         g_SlotRowGate    = hit;
         g_SlotRowStub    = stub;
         g_SlotRowApplied = true;
-
-        LogDebug("[FobChars] sortie-prep slot row fill rerouted at %p via %p - as "
-                 "Ocelot or Quiet the game paints EVERY slot row with that "
-                 "character's name and photo because a FOB sortie locks them; "
-                 "outside FOB only the character row takes that fill\n", hit, stub);
         return true;
     }
 
@@ -482,8 +459,6 @@ namespace
             g_SlotRowOriginal + 4, 4);
 
         g_SlotRowApplied = false;
-        LogDebug("[FobChars] sortie-prep slot row fill restored at %p\n",
-            g_SlotRowGate);
     }
 }
 
@@ -506,16 +481,25 @@ namespace
         0x57,
         0x0F, 0xB7, 0x81, 0x6C, 0x9E, 0x00, 0x00,
         0x41, 0x0F, 0xB6, 0xD8,
-        0x48, 0x8B, 0xFA,
-        0x4C, 0x8B, 0xD1,
+        0x48, 0x00, 0x00,
+        0x00, 0x00, 0x00,
         0x66, 0x85, 0xC0
     };
-    const char kFindStaffMask[] = "xxxxxxxxxxxxxxxxxxxxxxxxxx";
+    const char kFindStaffMask[] = "xxxxxxxxxxxxxxxxxx?????xxx";
+
+    constexpr std::size_t kFindStaffArgMovesOff = 18;
+
+    const std::uint8_t kFindStaffArgMovesNative[] = {
+        0x8B, 0xFA,
+        0x4C, 0x8B, 0xD1
+    };
+    const std::uint8_t kFindStaffArgMovesArxan[] = {
+        0x89, 0xD7,
+        0x49, 0x89, 0xCA
+    };
 
     static FindStaffByUniqueTypeId_t g_FindStaffOrig   = nullptr;
     static void*                     g_FindStaffTarget = nullptr;
-    static std::atomic<int>          g_LoggedOcelot{ 0 };
-    static std::atomic<int>          g_LoggedQuiet{ 0 };
 
     static bool ReadRoster(void* sc, std::uint16_t* count,
                            const std::uint32_t** lo, const std::uint32_t** hi)
@@ -562,60 +546,6 @@ namespace
         return false;
     }
 
-    static int CollectUniqueBand(const std::uint32_t* lo,
-                                 const std::uint32_t* hi,
-                                 std::uint16_t count, char* buf,
-                                 std::size_t bufSize)
-    {
-        int used   = 0;
-        int listed = 0;
-        buf[0] = '\0';
-
-        __try
-        {
-            for (std::uint16_t i = 0; i < count && listed < 24; ++i)
-            {
-                const auto mark = static_cast<std::uint8_t>((lo[i] >> 7) & 0x3F);
-                if (mark != kStaffUniqueMark) continue;
-
-                const auto id = static_cast<std::uint8_t>(hi[i] >> 24);
-                const int n = std::snprintf(buf + used, bufSize - used,
-                    "%s%02X(row %u)", used ? ", " : "",
-                    id, static_cast<unsigned>(i));
-                if (n <= 0 || static_cast<std::size_t>(used + n) >= bufSize)
-                    break;
-                used += n;
-                ++listed;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
-        return listed;
-    }
-
-    static void LogUniqueBand(void* sc)
-    {
-        std::uint16_t        count = 0;
-        const std::uint32_t* lo    = nullptr;
-        const std::uint32_t* hi    = nullptr;
-        if (!ReadRoster(sc, &count, &lo, &hi))
-        {
-            LogDebug("[FobChars] the staff roster at %p could not be read - the "
-                "unique-character rows are built out of it, so neither Ocelot "
-                "nor Quiet can be listed\n", sc);
-            return;
-        }
-
-        char      buf[512];
-        const int listed = CollectUniqueBand(lo, hi, count, buf, sizeof(buf));
-
-        LogDebug("[FobChars] roster holds %u staff; unique-band records: %s (a "
-            "character is offered only when its id is present AND its mark "
-            "reads 3F - Ocelot is F9, Quiet is FB)\n",
-            static_cast<unsigned>(count), listed ? buf : "none");
-    }
-
     static bool __fastcall hkFindStaffByUniqueTypeId(
         void* sc, std::uint16_t* out, std::uint8_t id)
     {
@@ -626,9 +556,8 @@ namespace
         if (!isQuiet && !isOcelot) return found;
         if (MissionCodeGuard::ShouldBypassHooks()) return found;
 
-        std::uint16_t idx       = 0;
-        std::uint8_t  mark      = 0;
-        bool          recovered = false;
+        std::uint16_t idx  = 0;
+        std::uint8_t  mark = 0;
 
         if (!found && sc && out)
         {
@@ -638,35 +567,9 @@ namespace
             if (ReadRoster(sc, &count, &lo, &hi) &&
                 ScanRosterForUniqueId(lo, hi, count, id, &idx, &mark))
             {
-                *out      = idx;
-                found     = true;
-                recovered = true;
+                *out  = idx;
+                found = true;
             }
-        }
-
-        std::atomic<int>& logged = isQuiet ? g_LoggedQuiet : g_LoggedOcelot;
-        if (logged.exchange(1, std::memory_order_relaxed) == 0)
-        {
-            const char* who = isQuiet ? "Quiet" : "Ocelot";
-            if (isQuiet) LogUniqueBand(sc);
-            if (recovered)
-                LogDebug("[FobChars] the character list asked the roster for unique "
-                         "id %02X and the game's scan said no, but that character "
-                         "IS at row %u with mark %02X instead of 3F - served from "
-                         "there, since otherwise %s is never offered\n",
-                    static_cast<unsigned>(id), static_cast<unsigned>(idx),
-                    static_cast<unsigned>(mark), who);
-            else if (!found)
-            {
-                LogDebug("[FobChars] the character list asked the roster for unique "
-                         "id %02X and no record carries it, so the game skips the "
-                         "%s row before any patched gate matters\n", static_cast<unsigned>(id), who);
-                LogUniqueBand(sc);
-            }
-            else
-                LogDebug("[FobChars] the staff roster served unique id %02X for "
-                    "the %s row - the list build reached that row\n",
-                    static_cast<unsigned>(id), who);
         }
 
         return found;
@@ -677,21 +580,26 @@ namespace
         if (g_FindStaffTarget) return true;
 
         std::uint8_t* hit = FindUniqueCode(kFindStaffPattern, kFindStaffMask,
-            sizeof(kFindStaffPattern), "unique-staff roster lookup");
+            sizeof(kFindStaffPattern));
         if (!hit)
         {
-            LogDebug("[FobChars] the unique-staff roster lookup was not found - a "
-                     "character whose roster mark is not 3F still gets no row in "
-                     "the character list\n");
+            LogError("FobChars: unique-staff roster lookup not found, Ocelot or Quiet may miss their list row");
+            return false;
+        }
+
+        if (std::memcmp(hit + kFindStaffArgMovesOff, kFindStaffArgMovesNative,
+                sizeof(kFindStaffArgMovesNative)) != 0 &&
+            std::memcmp(hit + kFindStaffArgMovesOff, kFindStaffArgMovesArxan,
+                sizeof(kFindStaffArgMovesArxan)) != 0)
+        {
+            LogError("FobChars: roster lookup at %p has unknown arg encoding, Ocelot or Quiet may miss their list row", hit);
             return false;
         }
 
         if (!CreateAndEnableHook(hit, &hkFindStaffByUniqueTypeId,
                 reinterpret_cast<void**>(&g_FindStaffOrig)))
         {
-            LogDebug("[FobChars] the unique-staff roster lookup at %p could not "
-                "be hooked - Quiet keeps whatever row the roster's own scan "
-                "gives her\n", hit);
+            LogError("FobChars: roster lookup hook failed at %p, Ocelot or Quiet may miss their list row", hit);
             return false;
         }
 
@@ -772,9 +680,7 @@ namespace
 
     static int g_QuietRowDepth = 0;
 
-    static std::atomic<int> g_LoggedQuietRow{ 0 };
     static std::atomic<int> g_LoggedQuietRowFail{ 0 };
-    static std::atomic<int> g_LoggedQuietUnavailable{ 0 };
 
     static void* StaffControllerAt(void* menuThis, std::size_t off)
     {
@@ -948,11 +854,6 @@ namespace
 
         if (!QuietCanSortie())
         {
-            if (g_LoggedQuietUnavailable.exchange(1, std::memory_order_relaxed)
-                    == 0)
-                LogDebug("[FobChars] the buddy service reports Quiet cannot "
-                         "sortie on this save, so no record is built for her and "
-                         "the character list leaves her out\n");
             return;
         }
 
@@ -974,10 +875,7 @@ namespace
         if (!FindQuietScratchRow(lo, hi, count, &row, &borrowed))
         {
             if (g_LoggedQuietRowFail.exchange(1, std::memory_order_relaxed) == 0)
-                LogDebug("[FobChars] Quiet has no staff record and this roster "
-                         "carries no spare unique row (id FA, FC or FD) to build "
-                         "one in - her row stays missing from the character "
-                         "list\n");
+                LogWarn("FobChars: no spare unique roster row (FA/FC/FD), Quiet missing from character list");
             return;
         }
 
@@ -990,9 +888,7 @@ namespace
             {
                 if (g_LoggedQuietRowFail.exchange(1, std::memory_order_relaxed)
                         == 0)
-                    LogDebug("[FobChars] the staff generator refused to mint a "
-                             "record for unique id FB - Quiet's row stays "
-                             "missing from the character list\n");
+                    LogWarn("FobChars: staff generator refused unique id FB, Quiet missing from character list");
                 return;
             }
 
@@ -1005,22 +901,13 @@ namespace
                 &g_QuietRowLo, &g_QuietRowHi))
         {
             if (g_LoggedQuietRowFail.exchange(1, std::memory_order_relaxed) == 0)
-                LogDebug("[FobChars] roster row %u could not be written - Quiet's "
-                         "row stays missing from the character list\n",
+                LogWarn("FobChars: roster row %u write faulted, Quiet missing from character list",
                     static_cast<unsigned>(row));
             return;
         }
 
         g_QuietRowIndex  = row;
         g_QuietRowActive = true;
-
-        if (g_LoggedQuietRow.exchange(1, std::memory_order_relaxed) == 0)
-            LogDebug("[FobChars] Quiet has no staff record on this roster, so the "
-                     "list build skipped her; row %u (unique id %02X, which this "
-                     "build never looks up and which the deployable-staff filter "
-                     "rejects either way) carries a generated FB record for the "
-                     "length of the build and is restored the moment it ends\n",
-                static_cast<unsigned>(row), static_cast<unsigned>(borrowed));
     }
 
     static std::uint64_t __fastcall hkSetupStaffList(void* self)
@@ -1030,6 +917,7 @@ namespace
 
         void* sc = StaffControllerAt(self, kStaffControllerOff);
         if (outermost) PrepareQuietRowOn(sc);
+        void* previousPortraitContext = outfit::EnterOwnRosterPortraitContext(sc);
 
         std::uint64_t result = 0;
         __try
@@ -1038,6 +926,7 @@ namespace
         }
         __finally
         {
+            outfit::LeaveOwnRosterPortraitContext(previousPortraitContext);
             --g_QuietRowDepth;
             if (outermost) RestoreQuietRow(sc);
         }
@@ -1051,6 +940,7 @@ namespace
 
         void* sc = StaffControllerAt(self, kPrepStaffControllerOff);
         if (outermost) PrepareQuietRowOn(sc);
+        void* previousPortraitContext = outfit::EnterOwnRosterPortraitContext(sc);
 
         __try
         {
@@ -1058,6 +948,7 @@ namespace
         }
         __finally
         {
+            outfit::LeaveOwnRosterPortraitContext(previousPortraitContext);
             --g_QuietRowDepth;
             if (outermost) RestoreQuietRow(sc);
         }
@@ -1093,18 +984,16 @@ namespace
             sizeof(kSetupStaffListPrologue));
         if (!entry)
         {
-            LogDebug("[FobChars] the character list build could not be located "
-                     "around %p - a roster with no FB record keeps Quiet out of "
-                     "the list\n", g_Sites[0].site);
+            if (g_Sites[0].site)
+                LogError("FobChars: character list build not found near %p, Quiet missing without an FB record",
+                    g_Sites[0].site);
             return false;
         }
 
         if (!CreateAndEnableHook(entry, &hkSetupStaffList,
                 reinterpret_cast<void**>(&g_SetupStaffListOrig)))
         {
-            LogDebug("[FobChars] the character list build at %p could not be "
-                     "hooked - a roster with no FB record keeps Quiet out of the "
-                     "list\n", entry);
+            LogError("FobChars: character list build hook failed at %p, Quiet missing without an FB record", entry);
             return false;
         }
 
@@ -1121,18 +1010,16 @@ namespace
             sizeof(kSlotRowPainterPrologue));
         if (!entry)
         {
-            LogDebug("[FobChars] the sortie-prep row painter could not be "
-                     "located around %p - as Quiet the prep rows fall back to "
-                     "Snake's name and photo\n", g_SlotRowGate);
+            if (g_SlotRowGate)
+                LogError("FobChars: sortie-prep row painter not found near %p, Quiet prep rows show Snake",
+                    g_SlotRowGate);
             return false;
         }
 
         if (!CreateAndEnableHook(entry, &hkSetupCharacterSlotRow,
                 reinterpret_cast<void**>(&g_SlotRowPainterOrig)))
         {
-            LogDebug("[FobChars] the sortie-prep row painter at %p could not be "
-                     "hooked - as Quiet the prep rows fall back to Snake's name "
-                     "and photo\n", entry);
+            LogError("FobChars: sortie-prep row painter hook failed at %p, Quiet prep rows show Snake", entry);
             return false;
         }
 
@@ -1168,17 +1055,7 @@ namespace fobchars
             playerType == kPlayerType_Ocelot || playerType == kPlayerType_Quiet;
 
         const int want = fobOnly ? static_cast<int>(playerType) : -1;
-        const int had  = g_Selected.exchange(want, std::memory_order_relaxed);
-        if (had == want) return;
-
-        if (fobOnly)
-            LogDebug("[FobChars] character select committed player type %u - "
-                     "carried across mission loads, because single player never "
-                     "writes the choice back to the saved player vars\n", static_cast<unsigned>(playerType));
-        else if (had >= 0)
-            LogDebug("[FobChars] character select committed player type %u - the "
-                "carried FOB character (%d) was released\n",
-                static_cast<unsigned>(playerType), had);
+        g_Selected.store(want, std::memory_order_relaxed);
     }
 
     std::uint8_t GetSelectedPlayerType()
@@ -1201,14 +1078,7 @@ namespace fobchars
         if (!ReadPlayerTypeByte(state, &live)) return;
         if (live == static_cast<std::uint8_t>(want)) return;
 
-        if (!WritePlayerTypeByte(state, static_cast<std::uint8_t>(want))) return;
-
-        static std::atomic<int> s_logged{ 0 };
-        if (s_logged.fetch_add(1, std::memory_order_relaxed) < 16)
-            LogDebug("[FobChars] player type had fallen back to %u - restored the "
-                     "selected character %d (the mission-start loadout restore "
-                     "rebuilds it from the saved vars)\n",
-                static_cast<unsigned>(live), want);
+        WritePlayerTypeByte(state, static_cast<std::uint8_t>(want));
     }
 }
 
@@ -1225,28 +1095,17 @@ bool Install_FobPlayerCharacters_Patches()
 
     if (applied == 0)
     {
-        LogDebug("[FobChars] no patch site matched this build - Ocelot and Quiet "
-            "remain FOB only\n");
+        LogError("FobChars: no patch site matched, Ocelot and Quiet stay FOB only");
         return true;
     }
 
     if (!g_Sites[0].applied)
     {
-        LogDebug("[FobChars] the list gate is still in place, so Ocelot and Quiet "
-                 "are not offered outside a FOB sortie even though %d other "
-                 "patch(es) applied\n", applied);
+        LogError("FobChars: %s not patched, Ocelot and Quiet not offered outside FOB", g_Sites[0].name);
     }
     else if (!g_Sites[1].applied)
     {
-        LogDebug("[FobChars] Ocelot and Quiet are listed, but the parts-status "
-                 "reset is still in place - the engine drops the choice back to "
-                 "Snake when the mission starts\n");
-    }
-    else
-    {
-        LogDebug("[FobChars] Ocelot and Quiet are selectable outside FOB "
-            "(%d/%d patches applied)\n",
-            applied, static_cast<int>(sizeof(g_Sites) / sizeof(g_Sites[0])));
+        LogError("FobChars: %s not patched, choice reverts to Snake at mission start", g_Sites[1].name);
     }
 
     return true;

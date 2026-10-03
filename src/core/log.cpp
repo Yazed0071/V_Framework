@@ -49,37 +49,21 @@ void InitLog()
     strcpy_s(prevPath, gameDir);
     strcat_s(prevPath, "mod\\V_FrameWork\\V_FrameWork_log.prev.txt");
 
-    bool rotated      = false;
     bool rotateFailed = false;
     DWORD rotateErr   = 0;
-    if (GetFileAttributesA(logPath) != INVALID_FILE_ATTRIBUTES)
+    if (GetFileAttributesA(logPath) != INVALID_FILE_ATTRIBUTES
+        && !MoveFileExA(logPath, prevPath, MOVEFILE_REPLACE_EXISTING))
     {
-        if (MoveFileExA(logPath, prevPath, MOVEFILE_REPLACE_EXISTING))
-            rotated = true;
-        else
-        {
-            rotateFailed = true;
-            rotateErr    = GetLastError();
-        }
+        rotateFailed = true;
+        rotateErr    = GetLastError();
     }
 
     g_LogFile = _fsopen(logPath, "w", _SH_DENYWR);
-    if (g_LogFile)
-    {
-        fprintf(g_LogFile, "[LOG] V_FrameWork log initialized at %s\n", logPath);
-        if (rotated)
-            fprintf(g_LogFile,
-                "[LOG] the previous session's log was kept as %s - after a freeze "
-                "or crash the run that caused it is in that file, not this one\n",
-                prevPath);
-        else if (rotateFailed)
-            fprintf(g_LogFile,
-                "[LOG] could not roll the previous log to %s (error %lu, usually "
-                "another process still holding it) - that session's evidence is "
-                "gone, so a freeze reported from it cannot be traced\n",
-                prevPath, rotateErr);
-    }
+    if (g_LogFile && rotateFailed)
+        LogWarn("Log: previous log not kept (error %lu)", rotateErr);
 }
+
+static void WriteLog(const char* buf, int len);
 
 void Log(const char* fmt, ...)
 {
@@ -92,7 +76,33 @@ void Log(const char* fmt, ...)
         return;
     if (len >= static_cast<int>(sizeof(buf)))
         len = static_cast<int>(sizeof(buf)) - 1;
+    WriteLog(buf, len);
+}
 
+void LogLevelImpl(const char* level, const char* fmt, ...)
+{
+    char buf[4096];
+    int len = static_cast<int>(strlen(level));
+    if (len >= static_cast<int>(sizeof(buf)) - 2)
+        return;
+    memcpy(buf, level, static_cast<size_t>(len));
+    va_list args;
+    va_start(args, fmt);
+    const int body = vsnprintf(buf + len, sizeof(buf) - len - 1, fmt, args);
+    va_end(args);
+    if (body < 0)
+        return;
+    len += body;
+    if (len > static_cast<int>(sizeof(buf)) - 2)
+        len = static_cast<int>(sizeof(buf)) - 2;
+    if (buf[len - 1] != '\n')
+        buf[len++] = '\n';
+    buf[len] = '\0';
+    WriteLog(buf, len);
+}
+
+static void WriteLog(const char* buf, int len)
+{
     std::lock_guard<std::mutex> lock(g_LogMutex);
 
     g_LogIoTid.store(GetCurrentThreadId(), std::memory_order_relaxed);
@@ -199,7 +209,6 @@ void CloseLog()
     std::lock_guard<std::mutex> lock(g_LogMutex);
     if (g_LogFile)
     {
-        fprintf(g_LogFile, "[LOG] Closing log.\n");
         fclose(g_LogFile);
         g_LogFile = nullptr;
     }

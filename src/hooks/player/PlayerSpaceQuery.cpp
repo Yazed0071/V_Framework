@@ -153,9 +153,7 @@ bool PlayerSpace_IsClearAround(float minX, float maxX, float minZ, float maxZ,
         if (s_lastTick == 0 || now - s_lastTick >= 5000)
         {
             s_lastTick = now;
-            Log("[PlayerSpace] ERROR: the fox collision query object is unavailable, so "
-                "V_Player.IsThereEnoughSpaceAroundPlayer cannot test the world and answers "
-                "'not enough space' - callers gated on it will take their blocked branch.\n");
+            LogWarn("PlayerSpace: collision query unavailable, IsThereEnoughSpaceAroundPlayer answers false");
         }
         return false;
     }

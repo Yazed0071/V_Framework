@@ -12,6 +12,8 @@
 #include "V_FrameWorkState.h"
 #include "LuaApi.h"
 #include "DataBaseControllerImpl_AddDataBase.h"
+#include "EquipDevelop_AddToEquipDevelopTable.h"
+#include "MissionCodeGuard.h"
 
 extern "C" {
 #include "lua.h"
@@ -20,8 +22,13 @@ extern "C" {
 namespace
 {
     constexpr std::size_t  kQuark_AppOffset    = 0x98;
+    constexpr std::size_t  kApp_ScriptVars     = 0x10;
     constexpr std::size_t  kApp_MbmOffset      = 0x110;
     constexpr std::size_t  kMbm_DataBaseCtrl   = 0xAE8;
+    constexpr std::size_t  kCtl_DataBaseFlags  = 0x740;
+    constexpr std::size_t  kVars_DataBaseFlags = 0x11631;
+    constexpr std::uint8_t kDataBaseGotBit     = 0x02;
+    constexpr std::uint8_t kDataBaseNewBit     = 0x01;
 
     constexpr const char*  kLuaConstTable      = "TppMotherBaseManagementConst";
     constexpr const char*  kLuaLibTable        = "V_TppMotherBaseManagement";
@@ -47,6 +54,7 @@ namespace
 
     bool g_CapacityFailureLogged = false;
     bool g_ConstFailureLogged = false;
+    bool g_ReservedBitsFailureLogged = false;
 
     void* ResolveControllerSeh()
     {
@@ -77,6 +85,72 @@ namespace
     void EnsureDataBaseGuard()
     {
         bluePrintDb::EnsureAddDataBaseHook(ResolveControllerSeh());
+    }
+
+    enum class FlagsLookup
+    {
+        NotReady,
+        Ready,
+        NotSaveArray,
+        Faulted,
+    };
+
+    FlagsLookup ResolveDataBaseFlagsSeh(std::uint8_t*& out)
+    {
+        out = nullptr;
+        auto getQuark = reinterpret_cast<GetQuarkSystemTable_t>(
+            ResolveGameAddress(gAddr.GetQuarkSystemTable));
+        if (!getQuark)
+            return FlagsLookup::NotReady;
+
+        __try
+        {
+            std::uint8_t* quark = static_cast<std::uint8_t*>(getQuark());
+            if (!quark) return FlagsLookup::NotReady;
+
+            std::uint8_t* app = *reinterpret_cast<std::uint8_t**>(quark + kQuark_AppOffset);
+            if (!app) return FlagsLookup::NotReady;
+
+            std::uint8_t* vars = *reinterpret_cast<std::uint8_t**>(app + kApp_ScriptVars);
+            std::uint8_t* mbm  = *reinterpret_cast<std::uint8_t**>(app + kApp_MbmOffset);
+            if (!vars || !mbm) return FlagsLookup::NotReady;
+
+            std::uint8_t* controller = *reinterpret_cast<std::uint8_t**>(mbm + kMbm_DataBaseCtrl);
+            if (!controller) return FlagsLookup::NotReady;
+
+            std::uint8_t* flags = *reinterpret_cast<std::uint8_t**>(controller + kCtl_DataBaseFlags);
+            if (!flags) return FlagsLookup::NotReady;
+            if (flags != vars + kVars_DataBaseFlags) return FlagsLookup::NotSaveArray;
+
+            out = flags;
+            return FlagsLookup::Ready;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return FlagsLookup::Faulted;
+        }
+    }
+
+    bool WriteReservedDataBaseBitsSeh(std::uint8_t* flags)
+    {
+        __try
+        {
+            const std::uint8_t owned  = flags[bluePrint::kOwnedDataBaseId];
+            const std::uint8_t locked = flags[bluePrint::kLockedDataBaseId];
+            const std::uint8_t ownedWant = static_cast<std::uint8_t>(
+                (owned | kDataBaseGotBit) & ~kDataBaseNewBit);
+            const std::uint8_t lockedWant = static_cast<std::uint8_t>(
+                locked & ~(kDataBaseGotBit | kDataBaseNewBit));
+            if (owned != ownedWant)
+                flags[bluePrint::kOwnedDataBaseId] = ownedWant;
+            if (locked != lockedWant)
+                flags[bluePrint::kLockedDataBaseId] = lockedWant;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     void RebuildCallback(const char* name, std::int32_t value, bool)
@@ -183,9 +257,7 @@ namespace
             if (!g_ConstFailureLogged)
             {
                 g_ConstFailureLogged = true;
-                Log("[BluePrint] ERROR: the Lua API is unavailable, so no constant "
-                    "for '%s' was published - read the id back with "
-                    "V_TppMotherBaseManagement.GetBluePrintId instead\n", name);
+                LogWarn("BluePrint: Lua API unavailable, no constant for '%s', use GetBluePrintId", name);
             }
             return;
         }
@@ -197,8 +269,7 @@ namespace
         if (!constTableOk && !g_ConstFailureLogged)
         {
             g_ConstFailureLogged = true;
-            Log("[BluePrint] ERROR: global '%s' is not a writable table, so %s.%s stays "
-                "nil - use %s.%s or GetBluePrintId instead\n",
+            LogWarn("BluePrint: %s is not a table, %s.%s stays nil, use %s.%s",
                 kLuaConstTable, kLuaConstTable, name, kLuaLibTable, name);
         }
     }
@@ -206,6 +277,26 @@ namespace
 
 namespace bluePrint
 {
+    void KeepReservedDataBaseBits()
+    {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return;
+
+        std::uint8_t* flags = nullptr;
+        const FlagsLookup lookup = ResolveDataBaseFlagsSeh(flags);
+        if (lookup == FlagsLookup::NotReady)
+            return;
+
+        if (lookup == FlagsLookup::Ready && WriteReservedDataBaseBitsSeh(flags))
+            return;
+
+        if (g_ReservedBitsFailureLogged)
+            return;
+        g_ReservedBitsFailureLogged = true;
+        LogWarn("BluePrint: DataBase flag array %s, custom blueprint requirements may show the wrong met state",
+            lookup == FlagsLookup::NotSaveArray ? "not bound to the save array" : "faulted on access");
+    }
+
     std::int32_t Capacity()
     {
         return kMaxBluePrints;
@@ -277,10 +368,8 @@ namespace bluePrint
                 if (!g_EntryCapLogged)
                 {
                     g_EntryCapLogged = true;
-                    Log("[BluePrint] '%s' was refused - %d custom DATABASE entries are already "
-                        "registered, which is every row the seven listable tabs can render "
-                        "(%d rows each), so another entry could never appear\n",
-                        key, kMaxCustomEntries, kMaxRowsPerTab);
+                    LogWarn("BluePrint: '%s' rejected, DATABASE limit of %d custom entries reached",
+                        key, kMaxCustomEntries);
                 }
                 return 0;
             }
@@ -289,8 +378,7 @@ namespace bluePrint
         std::int32_t value = 0;
         if (!V_FrameWorkState::ResolveOrCreateBluePrintId(key, value) || value <= 0)
         {
-            Log("[BluePrint] ERROR: no persistent id could be allocated for '%s' - "
-                "that blueprint can never be granted or tested this session\n", key);
+            LogError("BluePrint: no persistent id for '%s', blueprint unusable", key);
             return 0;
         }
 
@@ -299,9 +387,8 @@ namespace bluePrint
             if (!g_CapacityFailureLogged)
             {
                 g_CapacityFailureLogged = true;
-                Log("[BluePrint] ERROR: '%s' allocated id %d, past the %d addressable "
-                    "blueprint ids - dataBaseId is 16-bit, so that blueprint cannot be "
-                    "dropped or granted\n", key, value, kMaxBluePrints);
+                LogError("BluePrint: '%s' id %d past the %d blueprint id limit, blueprint unusable",
+                    key, value, kMaxBluePrints);
             }
             return 0;
         }
@@ -363,6 +450,7 @@ namespace bluePrint
         if (Register(key) <= 0)
             return false;
         V_FrameWorkState::SetBluePrintOwned(key, owned);
+        EquipDevelopAdd::RequestDynamicGateRefresh();
         return true;
     }
 
@@ -381,9 +469,7 @@ namespace bluePrint
         const std::string key = KeyForSlot(id);
         if (key.empty())
         {
-            Log("[BluePrint] blueprint id %d has no registered name, so ownership could "
-                "not be stored - call RegisterDataBase before granting it\n",
-                PublicId(id));
+            LogWarn("BluePrint: id %d not registered, ownership not stored", PublicId(id));
             return false;
         }
         return SetKey(key.c_str(), owned);

@@ -3,7 +3,6 @@
 #include "SkillAndItemParameterSystemImpl_GetSuitParam.h"
 #include "OutfitRegistry.h"
 
-#include <atomic>
 #include <cstddef>
 #include <Windows.h>
 #include <cstdint>
@@ -27,8 +26,11 @@ namespace
 
     constexpr std::uint32_t kCamo_SneakingSuitTpp = 15;
     constexpr std::uint32_t kCamo_BattleDress     = 16;
+    constexpr std::uint32_t kCamo_Ninja           = 0x15;
+    constexpr std::uint32_t kCamo_Raiden          = 0x16;
     constexpr std::uint32_t kParamId_DamageRate   = 0x12;
     constexpr std::uint32_t kParamId_LifeRecovery = 0x10;
+    constexpr std::uint32_t kParamId_Sprint[]     = { 2, 3 };
     constexpr std::size_t   kMaxParamPairs        = 64;
 
     struct ParamPair
@@ -50,9 +52,6 @@ namespace
 
     static thread_local ParamPair  t_Pairs[kMaxParamPairs];
     static thread_local ParamArray t_Array;
-
-    static std::atomic<int> g_Logged{ 0 };
-    static std::atomic<int> g_NativeLogged{ 0 };
 
     static bool CopyPairs_SEH(const ParamArray* src, std::size_t* outCount)
     {
@@ -127,39 +126,30 @@ namespace
             if (useKind != suitKind && useLevel == 0
                 && (useKind == kOcelotSuitKind || useKind == kQuietSuitKind))
                 useLevel = 1;
-
-            if (useKind != suitKind
-                && g_Logged.fetch_add(1, std::memory_order_relaxed) < 4)
-            {
-                LogDebug("[SuitParam] custom suit kind 0x%02X is past the "
-                         "engine's 0x0E-0x74 table, so it resolves to no suit "
-                         "parameters at all - substituted 0x%02X level %u for "
-                         "player type %u so the suit still contributes its "
-                         "skill set\n",
-                    static_cast<unsigned>(suitKind),
-                    static_cast<unsigned>(useKind),
-                    static_cast<unsigned>(useLevel),
-                    static_cast<unsigned>(pt));
-            }
         }
 
         if (!g_OrigGetSuitParam) return false;
 
         const bool served = g_OrigGetSuitParam(self, out, useKind, useLevel);
 
+        const bool custom = suitKind >= outfit::kCustomSelectorStart
+                         && suitKind <= outfit::kCustomSelectorEnd;
         if (MissionCodeGuard::ShouldBypassHooks()
-            || suitKind < outfit::kCustomSelectorStart
-            || suitKind > outfit::kCustomSelectorEnd)
+            || (!custom && suitKind > outfit::kVanillaCamoTypeMax))
             return served;
 
         std::uint8_t defense = 0;
         std::uint8_t regen   = 0;
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
         const std::uint8_t liveVar =
             outfit::GetActiveVariantLockFree(outfit::ReadLivePartsType());
         outfit::GetAbilityLevelsForVariantLockFree(
             static_cast<std::uint8_t>(suitKind),
-            outfit::ReadLivePlayerType(), liveVar, &defense, &regen);
-        if (defense == 0 && regen == 0) return served;
+            livePT, liveVar, &defense, &regen);
+        const std::uint8_t sprint = outfit::GetSprintForVariantLockFree(
+            static_cast<std::uint8_t>(suitKind), livePT, liveVar);
+        if (defense == 0 && regen == 0 && sprint == outfit::kSprintNone)
+            return served;
 
         std::size_t count = 0;
         if (served)
@@ -174,6 +164,14 @@ namespace
             && ReadVanillaParam(self, kCamo_SneakingSuitTpp, regen,
                                 kParamId_LifeRecovery, &v))
             SetPair(&count, kParamId_LifeRecovery, v);
+        if (sprint != outfit::kSprintNone)
+        {
+            const std::uint32_t donor =
+                sprint == outfit::kSprintRaiden ? kCamo_Raiden : kCamo_Ninja;
+            for (const std::uint32_t id : kParamId_Sprint)
+                if (ReadVanillaParam(self, donor, 1, id, &v))
+                    SetPair(&count, id, v);
+        }
 
         t_Array.flags = 1;
         t_Array.pad0  = 0;
@@ -184,16 +182,6 @@ namespace
 
         if (count == 0) return served;
 
-        if (g_NativeLogged.fetch_add(1, std::memory_order_relaxed) < 6)
-            Log("[SuitParam] custom suit kind 0x%02X serves its own skill params: "
-                "defense level %u and lifeRecovery level %u, %zu pair(s) total, "
-                "vanilla base %s. Nothing is borrowed - the engine reads this "
-                "array\n",
-                static_cast<unsigned>(suitKind),
-                static_cast<unsigned>(defense),
-                static_cast<unsigned>(regen), count,
-                served ? "kept"
-                       : "REFUSED this kind, so the set is ours alone");
         return true;
     }
 }
@@ -208,9 +196,8 @@ namespace outfit
             ResolveGameAddress(gAddr.SkillAndItemParameterSystem_GetSuitParam);
         if (!target)
         {
-            LogDebug("[SuitParam] target unresolved on this build - a custom "
-                     "outfit contributes no suit skills, so Ocelot and Quiet "
-                     "lose their character abilities\n");
+            LogError("SuitParam: GetSuitParam address missing for this build, custom "
+                "outfits give no suit skills");
             return false;
         }
 
@@ -221,15 +208,11 @@ namespace outfit
 
         if (!g_Installed)
         {
-            LogDebug("[SuitParam] hook install FAILED (target=%p) - a custom "
-                     "outfit contributes no suit skills, so Ocelot and Quiet "
-                     "lose their character abilities\n", target);
+            LogError("SuitParam: GetSuitParam hook failed, custom outfits give no "
+                "suit skills");
             return false;
         }
 
-#ifdef _DEBUG
-        Log("[SuitParam] installed: OK (target=%p)\n", target);
-#endif
         return g_Installed;
     }
 

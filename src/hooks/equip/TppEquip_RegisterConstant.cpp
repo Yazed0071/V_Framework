@@ -37,7 +37,8 @@ bool Install_TppEquip_RegisterConstant_Hook()
     void* target = ResolveGameAddress(gAddr.TppEquip_RegisterConstant);
     if (!target)
     {
-        LogDebug("[TppEquipConst] address not set for this build - skipped\n");
+        LogError("TppEquipConst: TppEquip_RegisterConstant address missing for this build, "
+            "custom TppEquip constants not injected");
         return true;
     }
 
@@ -46,14 +47,9 @@ bool Install_TppEquip_RegisterConstant_Hook()
         reinterpret_cast<void**>(&g_OrigRegisterConstant));
     if (!ok)
     {
-        Log("[TppEquipConst] Install -> FAIL (target=%p)\n", target);
+        LogError("TppEquipConst: TppEquip_RegisterConstant hook failed, custom TppEquip "
+            "constants not injected");
     }
-#ifdef _DEBUG
-    else
-    {
-        LogDebug("[TppEquipConst] Install -> OK (target=%p)\n", target);
-    }
-#endif
     return ok;
 }
 

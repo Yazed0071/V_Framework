@@ -5,6 +5,7 @@
 
 bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch();
 void Uninstall_HeadMarkMarkerEvCall_SetIconSubType_Patch();
+bool HeadMarkMarkerEvCall_SetIconSubType_Installed();
 
 struct HeadMarkColourStop
 {
@@ -19,7 +20,6 @@ bool SetHeadMarkEntityColour(std::uint32_t gameObjectId, int state,
                              const HeadMarkColourStop* stops, unsigned count,
                              float speed, bool blend, float fade);
 void Clear_HeadMarkEntityColours();
-void DescribeHeadMarkOverrides(std::uint16_t systemId, char* out, std::size_t cap);
 
 bool GetHeadMarkColourForSlot(std::uint16_t systemId, unsigned slot, float outRgb[3],
                               int* outReason = nullptr);

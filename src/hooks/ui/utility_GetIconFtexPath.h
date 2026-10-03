@@ -16,6 +16,3 @@ void EquipIcon_ClearIconFtexPath(int equipId);
 
 
 void EquipIcon_ClearAllIconFtexPaths();
-
-
-void EquipIcon_DebugArmProbe(int calls);

@@ -66,8 +66,6 @@ namespace
     static std::atomic<void*> g_PopupController{ nullptr };
     static std::atomic<void*> g_LangManager{ nullptr };
 
-    static std::atomic<bool> g_DiagDumpDone{ false };
-
     struct PopupTextSource
     {
         bool          isHash = false;
@@ -567,40 +565,6 @@ namespace
         }
     }
 
-    static void SafeDiagDumpSlots(void* ctrl, const void* incomingParam)
-    {
-        if (!ctrl)
-            return;
-
-        __try
-        {
-            const auto* base = reinterpret_cast<const std::uint8_t*>(ctrl);
-
-            const std::uintptr_t vtbl = *reinterpret_cast<const std::uintptr_t*>(base);
-
-            if (incomingParam)
-            {
-                const auto* pb = reinterpret_cast<const std::uint8_t*>(incomingParam);
-            }
-
-            for (int i = 0; i < 8; ++i)
-            {
-                const auto* slot = base + 0x08 + (std::size_t)i * 0x0c;
-            }
-
-            for (int i = 0; i < 8; ++i)
-            {
-                const auto* slot = base + 0x08 + (std::size_t)i * 0x14;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-#ifdef _DEBUG
-            LogDebug("[MbDvcCustomPopup][DIAG] dump raised; aborting diag\n");
-#endif
-        }
-    }
-
     static void __fastcall hk_ReserveAnnouncePopup(void* ctrl, const void* param)
     {
         if (!ctrl || !param || !g_OrigReserveAnnouncePopup)
@@ -610,16 +574,13 @@ namespace
             return;
         }
 
-        if (!g_DiagDumpDone.exchange(true, std::memory_order_relaxed))
-        {
-            SafeDiagDumpSlots(ctrl, param);
-        }
-
         std::uint32_t incomingCv1 = 0;
         std::uint8_t  incomingReserveId = 0xFF;
         if (!SafeReadIncomingParam(param, &incomingCv1, &incomingReserveId))
         {
-            LogDebug("[MbDvcCustomPopup] Reserve hook: param read raised; passing through\n");
+            static std::atomic<bool> s_paramFaultLogged{ false };
+            if (!s_paramFaultLogged.exchange(true, std::memory_order_relaxed))
+                LogWarn("MbDvcCustomPopup: reserve param read faulted, caught, popup eviction skipped");
             g_OrigReserveAnnouncePopup(ctrl, param);
             return;
         }
@@ -647,11 +608,6 @@ namespace
                             g_PendingQueue.pop_front();
                     }
                 }
-                else
-                {
-                    LogDebug("[MbDvcCustomPopup] Reserve hook: ring full + game popup but "
-                        "no V_FrameWork slot to evict; game reservation will silently fail\n");
-                }
             }
         }
 
@@ -668,7 +624,7 @@ namespace
             void* reserveFn = SafeGetReserveFnPtr(ctrl);
             if (!reserveFn)
             {
-                LogDebug("[MbDvcCustomPopup] ReserveHook install: vtable[+8] not resolvable\n");
+                LogError("MbDvcCustomPopup: ReserveAnnouncePopup not resolvable, popup eviction off");
                 return;
             }
 
@@ -679,13 +635,10 @@ namespace
             if (ok)
             {
                 g_ReserveHookTarget = reserveFn;
-#ifdef _DEBUG
-                LogDebug("[MbDvcCustomPopup] ReserveHook install: OK (target=%p)\n", reserveFn);
-#endif
             }
             else
             {
-                Log("[MbDvcCustomPopup] ReserveHook install: MinHook FAILED (target=%p)\n", reserveFn);
+                LogError("MbDvcCustomPopup: ReserveAnnouncePopup hook failed, popup eviction off");
             }
         });
     }
@@ -707,14 +660,14 @@ namespace
             void* gateSvc = SafeReadGateSvcFromSelf(self);
             if (!gateSvc)
             {
-                LogDebug("[MbDvcCustomPopup] GateHook install: gate svc not resolvable\n");
+                LogError("MbDvcCustomPopup: popup gate service not resolvable, gate bypass off");
                 return;
             }
 
             void* fn = SafeGetGateFnPtr(gateSvc);
             if (!fn)
             {
-                LogDebug("[MbDvcCustomPopup] GateHook install: vtable[+0x610] not resolvable\n");
+                LogError("MbDvcCustomPopup: popup gate function not resolvable, gate bypass off");
                 return;
             }
 
@@ -725,13 +678,10 @@ namespace
             if (ok)
             {
                 g_GateHookTarget = fn;
-#ifdef _DEBUG
-                LogDebug("[MbDvcCustomPopup] GateHook install: OK (target=%p)\n", fn);
-#endif
             }
             else
             {
-                Log("[MbDvcCustomPopup] GateHook install: MinHook FAILED (target=%p)\n", fn);
+                LogError("MbDvcCustomPopup: popup gate hook failed, gate bypass off");
             }
         });
     }
@@ -783,8 +733,7 @@ namespace
 
             if (!ok)
             {
-                Log("[MbDvcCustomPopup] DrainUnreserved: Reserve failed (ring may be full); "
-                    "dropped one queued entry\n");
+                LogWarn("MbDvcCustomPopup: popup ring full, one queued popup dropped");
                 return;
             }
         }
@@ -894,13 +843,8 @@ namespace
                     bodyText = body.literal.c_str();
                 if (!bodyText) bodyText = "";
 
-                if (SafeWriteTitleBody(self, titleText, bodyText))
-                {
-                }
-                else
-                {
-                    Log("[MbDvcCustomPopup] override write failed (self=%p)\n", self);
-                }
+                if (!SafeWriteTitleBody(self, titleText, bodyText))
+                    LogWarn("MbDvcCustomPopup: popup text write failed, engine text shown");
             }
         }
         else if (prevState != 1 && currState == 1)
@@ -1055,20 +999,11 @@ bool Set_MbDvcEmergencyPopup(const char* title, const char* body)
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
-#ifdef _DEBUG
-        LogDebug("[MbDvcCustomPopup] Emergency popup override cleared (Set called with both fields null)\n");
-#endif
         return true;
     }
 
     g_ActiveEmergencyOverride    = std::move(entry);
     g_HasActiveEmergencyOverride = true;
-
-#ifdef _DEBUG
-    LogDebug("[MbDvcCustomPopup] Emergency popup override set title=%s body=%s\n",
-        g_ActiveEmergencyOverride.hasTitle ? "(literal)" : "(engine default)",
-        g_ActiveEmergencyOverride.hasBody  ? "(literal)" : "(engine default)");
-#endif
     return true;
 }
 
@@ -1096,22 +1031,11 @@ bool Set_MbDvcEmergencyPopupLangId(const char* titleLabel, const char* bodyLabel
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
-#ifdef _DEBUG
-        LogDebug("[MbDvcCustomPopup] Emergency popup override cleared (SetLangId called with both labels empty)\n");
-#endif
         return true;
     }
 
     g_ActiveEmergencyOverride    = std::move(entry);
     g_HasActiveEmergencyOverride = true;
-
-#ifdef _DEBUG
-    LogDebug("[MbDvcCustomPopup] Emergency popup override set titleHash=0x%016llX bodyHash=0x%016llX\n",
-        static_cast<unsigned long long>(g_ActiveEmergencyOverride.titleIsHash
-            ? g_ActiveEmergencyOverride.titleHash : 0),
-        static_cast<unsigned long long>(g_ActiveEmergencyOverride.bodyIsHash
-            ? g_ActiveEmergencyOverride.bodyHash : 0));
-#endif
     return true;
 }
 
@@ -1123,9 +1047,6 @@ void Clear_MbDvcEmergencyPopupOverride()
     {
         g_HasActiveEmergencyOverride = false;
         g_ActiveEmergencyOverride    = {};
-#ifdef _DEBUG
-        LogDebug("[MbDvcCustomPopup] Emergency popup override cleared\n");
-#endif
     }
 }
 
@@ -1136,9 +1057,7 @@ bool Install_MbDvcCustomPopup_Hook()
         gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal);
     if (!targetN)
     {
-        Log("[Hook] MbDvcCustomPopup: Normal target resolve failed (addr=%llX)\n",
-            static_cast<unsigned long long>(
-                gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceNormal));
+        LogError("MbDvcCustomPopup: UpdateAnnounceNormal address missing, custom popups off");
         return false;
     }
 
@@ -1147,11 +1066,7 @@ bool Install_MbDvcCustomPopup_Hook()
         reinterpret_cast<void*>(&hk_UpdateAnnounceNormal),
         reinterpret_cast<void**>(&g_OrigUpdateAnnounceNormal));
     if (!okN)
-        Log("[Hook] MbDvcCustomPopup Normal: FAIL (target=%p)\n", targetN);
-#ifdef _DEBUG
-    else
-        LogDebug("[Hook] MbDvcCustomPopup Normal: OK (target=%p)\n", targetN);
-#endif
+        LogError("MbDvcCustomPopup: UpdateAnnounceNormal hook failed, custom popups off");
 
     if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceServer)
     {
@@ -1164,19 +1079,9 @@ bool Install_MbDvcCustomPopup_Hook()
                 reinterpret_cast<void*>(&hk_UpdateAnnounceServer),
                 reinterpret_cast<void**>(&g_OrigUpdateAnnounceServer));
             if (!okS)
-                Log("[Hook] MbDvcCustomPopup Server: FAIL (target=%p)\n", targetS);
-#ifdef _DEBUG
-            else
-                LogDebug("[Hook] MbDvcCustomPopup Server: OK (target=%p)\n", targetS);
-#endif
+                LogError("MbDvcCustomPopup: UpdateAnnounceServer hook failed, reward popups off");
         }
     }
-#ifdef _DEBUG
-    else
-    {
-        LogDebug("[Hook] MbDvcCustomPopup Server: skipped (no address for current build)\n");
-    }
-#endif
 
     if (gAddr.MbDvcAnnouncePopupCallbackImpl_UpdateAnnounceEmergency)
     {
@@ -1190,19 +1095,9 @@ bool Install_MbDvcCustomPopup_Hook()
                 reinterpret_cast<void**>(&g_OrigUpdateAnnounceEmergency));
             if (okE) g_EmergencyHookTarget = targetE;
             if (!okE)
-                Log("[Hook] MbDvcCustomPopup Emergency: FAIL (target=%p)\n", targetE);
-#ifdef _DEBUG
-            else
-                LogDebug("[Hook] MbDvcCustomPopup Emergency: OK (target=%p)\n", targetE);
-#endif
+                LogError("MbDvcCustomPopup: UpdateAnnounceEmergency hook failed, emergency popup override off");
         }
     }
-#ifdef _DEBUG
-    else
-    {
-        LogDebug("[Hook] MbDvcCustomPopup Emergency: skipped (no address for current build)\n");
-    }
-#endif
 
     if (gAddr.MbDvcReserveAnnouncePopup)
     {
@@ -1219,11 +1114,7 @@ bool Install_MbDvcCustomPopup_Hook()
                 std::call_once(g_ReserveHookInstallFlag, []() {});
             }
             if (!okR)
-                Log("[MbDvcCustomPopup] ReserveHook install: FAIL (target=%p)\n", reserveFn);
-#ifdef _DEBUG
-            else
-                LogDebug("[MbDvcCustomPopup] ReserveHook install: OK (target=%p)\n", reserveFn);
-#endif
+                LogError("MbDvcCustomPopup: ReserveAnnouncePopup hook failed, popup eviction off");
         }
     }
 
@@ -1242,11 +1133,7 @@ bool Install_MbDvcCustomPopup_Hook()
                 std::call_once(g_GateHookInstallFlag, []() {});
             }
             if (!okG)
-                Log("[MbDvcCustomPopup] GateHook install: FAIL (target=%p)\n", gateFn);
-#ifdef _DEBUG
-            else
-                LogDebug("[MbDvcCustomPopup] GateHook install: OK (target=%p)\n", gateFn);
-#endif
+                LogError("MbDvcCustomPopup: popup gate hook failed, gate bypass off");
         }
     }
 
@@ -1304,9 +1191,6 @@ bool Uninstall_MbDvcCustomPopup_Hook()
         g_PendingQueue.clear();
     }
 
-#ifdef _DEBUG
-    LogDebug("[Hook] MbDvcCustomPopup: removed\n");
-#endif
     return true;
 }
 
@@ -1356,9 +1240,10 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         if (g_PendingQueue.size() >= 256)
         {
-            LogDebug("[MbDvcCustomPopup] Show: %zu popups already pending; rejecting "
-                "new entry (runaway-caller backstop)\n",
-                g_PendingQueue.size());
+            static std::atomic<int> s_backlogLogged{ 0 };
+            if (s_backlogLogged.fetch_add(1, std::memory_order_relaxed) < 8)
+                LogWarn("MbDvcCustomPopup: %zu popups already pending, new popup rejected",
+                    g_PendingQueue.size());
             return false;
         }
         PendingPopup p;
@@ -1381,7 +1266,7 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         if (!g_PendingQueue.empty())
             g_PendingQueue.pop_back();
-        LogDebug("[MbDvcCustomPopup] Show: SafeReserveOurSlot raised; entry rolled back\n");
+        LogWarn("MbDvcCustomPopup: popup reserve failed, popup dropped");
         return false;
     }
 
@@ -1399,8 +1284,7 @@ static bool Show_MbDvcAnnouncePopup_Impl(std::uint8_t  reserveId,
 
     if (!landed)
     {
-        LogDebug("[MbDvcCustomPopup] Show: post-reserve verification found no "
-                 "V_FrameWork slot (the ring was likely full) - entry rolled back\n");
+        LogWarn("MbDvcCustomPopup: popup ring full, popup dropped");
         return false;
     }
 

@@ -4,7 +4,6 @@
 #include "AddressSet.h"
 #include "FoxHashes.h"
 #include "HookUtils.h"
-#include "log.h"
 
 FoxLuaRegisterLibrary_t g_FoxLuaRegisterLibrary = nullptr;
 lua_tolstring_t    g_lua_tolstring    = nullptr;
@@ -248,8 +247,5 @@ bool RegisterLuaLibrary(lua_State* L, const char* libName, luaL_Reg* funcs)
     if (!ResolveLuaApi() || !L || !libName || !funcs)
         return false;
     g_FoxLuaRegisterLibrary(L, libName, funcs);
-#ifdef _DEBUG
-    LogDebug("[V_FrameWork] Registered library: %s (L=%p)\n", libName, L);
-#endif
     return true;
 }

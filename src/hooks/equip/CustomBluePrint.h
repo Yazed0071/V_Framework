@@ -7,6 +7,16 @@ struct lua_State;
 
 namespace bluePrint
 {
+    constexpr std::uint16_t kOwnedDataBaseId  = 0x1C9;
+    constexpr std::uint16_t kLockedDataBaseId = 0x1CA;
+
+    constexpr bool IsReservedDataBaseId(std::int32_t id)
+    {
+        return id == kOwnedDataBaseId || id == kLockedDataBaseId;
+    }
+
+    void KeepReservedDataBaseBits();
+
     std::int32_t Capacity();
 
     std::int32_t Register(const char* key);

@@ -71,10 +71,8 @@ namespace
             if (slot.nameHash.load(std::memory_order_relaxed) != 0
              || slot.iconHash.load(std::memory_order_relaxed) != 0) continue;
 
-            Log("[UniqueOwnSuit] neither '%s' nor '%s' hashed for %s, so their "
-                "default-outfit row keeps the borrowed vanilla suit label - override "
-                "it by giving the row a langEquipName and iconFtexPath\n",
-                d.name, d.icon, d.character, d.character);
+            LogWarn("UniqueOwnSuit: %s label '%s' not hashed, vanilla suit label kept",
+                d.character, d.name);
         }
 
         g_DefaultsReady.store(true, std::memory_order_release);
@@ -109,22 +107,8 @@ namespace uniqueownsuit
 
         static std::atomic<bool> s_iconNoticeLogged{ false };
         if (!s_iconNoticeLogged.exchange(true))
-            Log("[UniqueOwnSuit] player type %u has no default-outfit "
-                "develop row, so their Uniform row borrows a vanilla "
-                "suit row and keeps that row's icon - point it at a "
-                "real texture in the "
-                "default-outfit spec table\n",
+            LogWarn("UniqueOwnSuit: player type %u has no default-outfit row, Uniform row borrows a vanilla suit icon",
                 static_cast<unsigned>(playerType));
-
-#ifdef _DEBUG
-        LogDebug("[UniqueOwnSuit] adopted flowIndex=%u as the own-suit row for "
-                 "player type %u - their default outfit is not a developable item, "
-                 "so the Uniform list borrows the first suit row the engine already "
-                 "offers Snake; picking it hands SetSuit a vanilla pair and the pin "
-                 "restores their own suit\n",
-            static_cast<unsigned>(flowIndex),
-            static_cast<unsigned>(playerType));
-#endif
         return true;
     }
 

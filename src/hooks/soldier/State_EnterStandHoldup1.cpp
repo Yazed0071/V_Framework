@@ -169,7 +169,12 @@ static void DispatchHoldupReaction(void* holdupSelf, std::uint32_t actorId, std:
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[HoldUpReactionCowardly] DispatchHoldupReaction exception\n");
+        static bool s_warned = false;
+        if (!s_warned)
+        {
+            s_warned = true;
+            LogWarn("HoldUpReactionCowardly: reaction dispatch faulted, cowardly reaction skipped");
+        }
     }
 }
 
@@ -185,7 +190,12 @@ static void CallHoldupAddNoise(void* self, std::uint32_t actorId)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        LogDebug("[HoldUpReactionCowardly] AddNoise exception\n");
+        static bool s_warned = false;
+        if (!s_warned)
+        {
+            s_warned = true;
+            LogWarn("HoldUpReactionCowardly: AddNoise faulted, no noise raised");
+        }
     }
 }
 
@@ -296,7 +306,7 @@ bool Install_HoldUpReactionCowardlyReactions_Hook()
 
     if (!targetStandHoldup1 || !targetStandHoldupUnarmed)
     {
-        Log("[HoldUpReactionCowardly] Install: target resolve failed\n");
+        LogError("HoldUpReactionCowardly: holdup state address missing, cowardly reaction off");
         return false;
     }
 
@@ -312,12 +322,8 @@ bool Install_HoldUpReactionCowardlyReactions_Hook()
 
     const bool ok = okA && okB;
 
-#ifdef _DEBUG
-    Log("[HoldUpReactionCowardly] Install: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[HoldUpReactionCowardly] Install: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("HoldUpReactionCowardly: holdup state hook failed, cowardly reaction off");
     return ok;
 }
 
@@ -336,8 +342,5 @@ bool Uninstall_HoldUpReactionCowardlyReactions_Hook()
         g_CowardlyChoiceByActor.clear();
     }
 
-#ifdef _DEBUG
-    LogDebug("[HoldUpReactionCowardly] removed\n");
-#endif
     return true;
 }

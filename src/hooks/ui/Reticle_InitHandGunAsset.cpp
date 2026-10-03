@@ -54,8 +54,7 @@ bool Install_Reticle_InitHandGunAsset_Hook()
     void* target = ResolveGameAddress(gAddr.Reticle_InitHandGunAsset);
     if (!target)
     {
-        LogDebug("[ReticleAssetGuard] no InitHandGunAsset address for %s; handgun "
-            "reticle use-after-free guard disabled.\n",
+        LogError("ReticleAssetGuard: no InitHandGunAsset address on %s, handgun reticle guard off",
             GetGameBuildName(gGameBuild));
         return false;
     }
@@ -65,8 +64,7 @@ bool Install_Reticle_InitHandGunAsset_Hook()
         reinterpret_cast<void**>(&g_OrigInitHandGunAsset));
     if (!ok)
     {
-        Log("[ReticleAssetGuard] ERROR: failed to hook InitHandGunAsset @ %p; "
-            "handgun reticle use-after-free guard disabled.\n", target);
+        LogError("ReticleAssetGuard: InitHandGunAsset hook failed, handgun reticle guard off");
         return false;
     }
 

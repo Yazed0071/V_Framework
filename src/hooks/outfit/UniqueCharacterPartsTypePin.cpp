@@ -316,8 +316,6 @@ namespace uniquecharpin
 
         const std::uint8_t sel =
             g_Remembered[s].selectorCode.load(std::memory_order_relaxed);
-        outfit::NoteOwnSuitOverwrittenByPin(
-            live, outfit::ReadLiveSelectorCode(), pt);
         V_WriteOutfitPin(want, sel, pt);
 
         for (std::size_t i = 0; i < outfit::shadow::kMaxSlots; ++i)
@@ -332,15 +330,6 @@ namespace uniquecharpin
             ss.developId      = entry->developId;
             outfit::shadow::Set(i, ss);
         }
-
-        static std::atomic<int> s_logged{ 0 };
-        if (s_logged.fetch_add(1, std::memory_order_relaxed) < 16)
-            LogDebug("[UniqueCharPin] the suit had fallen back to the pinned "
-                     "0x%02X - restored the selected outfit 0x%02X/0x%02X for "
-                     "player type %u (the mission-start restore rebuilds the "
-                     "player as DDMale and never re-applies their suit)\n",
-                static_cast<unsigned>(live), static_cast<unsigned>(want),
-                static_cast<unsigned>(sel), static_cast<unsigned>(pt));
     }
 
     bool Install()
@@ -351,8 +340,8 @@ namespace uniquecharpin
             ResolveGameAddress(gAddr.UpdatePartsStatus));
         if (!ups)
         {
-            LogDebug("[UniqueCharPin] UpdatePartsStatus unresolved - Ocelot and Quiet "
-                     "keep the engine's pinned suit and custom outfits cannot apply\n");
+            LogError("UniqueCharPin: UpdatePartsStatus address missing, custom Ocelot "
+                     "and Quiet outfits not applied");
             return false;
         }
 
@@ -365,9 +354,8 @@ namespace uniquecharpin
         __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
         if (!ok)
         {
-            LogDebug("[UniqueCharPin] site bytes mismatch @%p - this build pins the "
-                     "unique-character suit elsewhere, so custom Ocelot and Quiet "
-                     "outfits stay unapplied\n", reinterpret_cast<void*>(site));
+            LogError("UniqueCharPin: site bytes mismatch @%p, custom Ocelot and Quiet "
+                     "outfits not applied", reinterpret_cast<void*>(site));
             return false;
         }
 
@@ -375,8 +363,8 @@ namespace uniquecharpin
             reinterpret_cast<std::uint8_t*>(AllocExecNear(site, kTrampSize));
         if (!tr)
         {
-            Log("[UniqueCharPin] trampoline alloc failed - custom Ocelot and Quiet "
-                "outfits stay unapplied\n");
+            LogError("UniqueCharPin: trampoline alloc failed, custom Ocelot and Quiet "
+                     "outfits not applied");
             return false;
         }
         std::memset(tr, 0xCC, kTrampSize);
@@ -467,8 +455,8 @@ namespace uniquecharpin
 
         if (o > kReadyOff)
         {
-            Log("[UniqueCharPin] trampoline code overruns the support table - "
-                "custom Ocelot and Quiet outfits stay unapplied\n");
+            LogError("UniqueCharPin: trampoline code overruns the support table, "
+                     "custom Ocelot and Quiet outfits not applied");
             VirtualFree(tr, 0, MEM_RELEASE);
             return false;
         }
@@ -561,8 +549,8 @@ namespace uniquecharpin
 
             if (b > kMaskOff)
             {
-                Log("[UniqueCharPin] quietMovement camo code overruns its mask "
-                    "table - quietMovement stays limited to Ocelot and Quiet\n");
+                LogError("UniqueCharPin: quietMovement camo code overruns its mask "
+                         "table, quietMovement limited to Ocelot and Quiet");
             }
             else
             {
@@ -596,10 +584,8 @@ namespace uniquecharpin
         }
         else
         {
-            LogDebug("[UniqueCharPin] the Quiet camo strip site is unresolved or does "
-                     "not match on this build - quietMovement works only for Ocelot "
-                     "and Quiet; other player types keep their own camo and get no "
-                     "borrowed abilities\n");
+            LogError("UniqueCharPin: Quiet camo strip site missing or mismatched, "
+                     "quietMovement limited to Ocelot and Quiet");
         }
 
         auto abandonInstall = [&](void* tramp)
@@ -619,9 +605,8 @@ namespace uniquecharpin
                 }
                 else
                 {
-                    Log("[UniqueCharPin] site B could not be restored, so "
-                        "the trampoline is LEAKED rather than freed - the "
-                        "patched jump still points into it\n");
+                    LogWarn("UniqueCharPin: Quiet camo strip site not restored, "
+                            "trampoline leaked");
                     g_SiteB = nullptr;
                     return;
                 }
@@ -634,8 +619,8 @@ namespace uniquecharpin
           - (static_cast<std::int64_t>(site) + 5);
         if (jrel < INT32_MIN || jrel > INT32_MAX)
         {
-            LogDebug("[UniqueCharPin] trampoline too far for rel32 - custom Ocelot "
-                     "and Quiet outfits stay unapplied\n");
+            LogError("UniqueCharPin: trampoline out of rel32 range, custom Ocelot and "
+                     "Quiet outfits not applied");
             abandonInstall(tr);
             return false;
         }
@@ -650,8 +635,8 @@ namespace uniquecharpin
         if (!VirtualProtect(reinterpret_cast<void*>(site), kSiteLength,
                             PAGE_EXECUTE_READWRITE, &oldp))
         {
-            Log("[UniqueCharPin] VirtualProtect failed - custom Ocelot and Quiet "
-                "outfits stay unapplied\n");
+            LogError("UniqueCharPin: VirtualProtect failed, custom Ocelot and Quiet "
+                     "outfits not applied");
             abandonInstall(tr);
             return false;
         }
@@ -665,17 +650,6 @@ namespace uniquecharpin
         g_Tramp  = tr;
         g_Site   = reinterpret_cast<void*>(site);
         g_Active = true;
-
-#ifdef _DEBUG
-        LogDebug("[UniqueCharPin] installed: site=%p tramp=%p table=%p - "
-                 "UpdatePartsStatus rewrites the live partsType and camo to "
-                 "0x1A/0x73 (Ocelot) or 0x1B/0x74 (Quiet) every tick; the pin now "
-                 "yields when the live partsType is a registered custom outfit for "
-                 "that character; an outfit that declares quietMovement also keeps "
-                 "the engine's own camo byte, so identity-keyed systems still read "
-                 "the character while the parts type stays custom\n",
-            reinterpret_cast<void*>(site), tr, tr + kTableOff);
-#endif
         return true;
     }
 

@@ -89,7 +89,6 @@ namespace
     };
     static DirectSlotBinding          g_DirectSlots[kMotionTableCount];
     static std::atomic<std::uint32_t> g_DirectSlotMask{ 0 };
-    static std::atomic<int>           g_CensusPending{ 0 };
 
     using MtarAdd_t    = int  (__fastcall*)(void*, void*);
     using MtarRemove_t = void (__fastcall*)(void*, void*);
@@ -168,22 +167,6 @@ namespace
                         if (firstPt != pt)
                             desired = entry->GetMotionMtarOverride(
                                 firstPt, static_cast<std::size_t>(slot), varIdx);
-#ifdef _DEBUG
-                        if (desired == 0)
-                        {
-                            static std::atomic<int> s_missCount{ 0 };
-                            if (s_missCount.fetch_add(1) < 40)
-                                LogDebug("[OutfitMotionMtar] no override: "
-                                         "parts=0x%02X pt=%u firstSupportedPt=%u "
-                                         "variant=%u slot=%d - neither that variant "
-                                         "nor either branch declares a motionMtars "
-                                         "entry for this slot\n",
-                                    static_cast<unsigned>(parts),
-                                    static_cast<unsigned>(pt),
-                                    static_cast<unsigned>(firstPt),
-                                    static_cast<unsigned>(varIdx), slot);
-                        }
-#endif
                     }
                 }
             }
@@ -209,37 +192,11 @@ namespace
         if (!r)
             return r;
 
-#ifdef _DEBUG
-        {
-            static std::atomic<int> s_probeCount{ 0 };
-            if (s_probeCount.fetch_add(1) < 200)
-            {
-                std::uint64_t seen = 0;
-                __try { seen = *r; } __except (EXCEPTION_EXECUTE_HANDLER) { seen = 0; }
-                LogDebug("[OutfitMotionMtar] probe idx=%u pathId=%016llX slot=%d "
-                         "(pathId 0 = empty entry; slot -1 = not one of the 32 "
-                         "vanilla player2 paths, so motionMtars can never match "
-                         "it)\n",
-                    index, seen, outfit::MotionMtarSlotFromVanillaHash(seen));
-            }
-        }
-#endif
-
         const std::uint64_t original = *r;
-        int slot = -1;
-        const std::uint64_t desired = ResolveDesiredHash_SEH(original, &slot);
+        const std::uint64_t desired = ResolveDesiredHash_SEH(original, nullptr);
         if (desired != 0)
         {
             *r = desired;
-#ifdef _DEBUG
-            static std::atomic<int> s_applyCount{ 0 };
-            if (s_applyCount.fetch_add(1) < 64)
-                LogDebug("[OutfitMotionMtar] REDIRECT idx=%u slot=%d %016llX -> "
-                    "%016llX (hintParts=0x%02X liveParts=0x%02X)\n",
-                    index, slot, original, desired,
-                    static_cast<unsigned>(outfit::GetMotionOutfitHintPartsType()),
-                    static_cast<unsigned>(outfit::ReadLivePartsType()));
-#endif
         }
 
         return r;
@@ -288,12 +245,11 @@ namespace
         g_OrigAddMtarAll(self, group);
     }
 
-    static int DetachLiveMtarGroups_SEH(std::uint32_t* savedMasks)
+    static void DetachLiveMtarGroups_SEH(std::uint32_t* savedMasks)
     {
         if (!g_RemoveMtarAll || !g_OrigAddMtarAll)
-            return 0;
+            return;
 
-        int detached = 0;
         for (std::size_t i = 0; i < kMaxPlayerImpls; ++i)
         {
             void* impl = g_PlayerImpls[i].load(std::memory_order_acquire);
@@ -309,7 +265,6 @@ namespace
                     if ((mask & (1u << g)) == 0)
                         continue;
                     g_RemoveMtarAll(impl, g);
-                    ++detached;
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -317,15 +272,13 @@ namespace
                 savedMasks[i] = 0;
             }
         }
-        return detached;
     }
 
-    static int ReattachLiveMtarGroups_SEH(const std::uint32_t* savedMasks)
+    static void ReattachLiveMtarGroups_SEH(const std::uint32_t* savedMasks)
     {
         if (!g_RemoveMtarAll || !g_OrigAddMtarAll)
-            return 0;
+            return;
 
-        int reattached = 0;
         for (std::size_t i = 0; i < kMaxPlayerImpls; ++i)
         {
             void* impl = g_PlayerImpls[i].load(std::memory_order_acquire);
@@ -338,24 +291,17 @@ namespace
                     if ((savedMasks[i] & (1u << g)) == 0)
                         continue;
                     g_OrigAddMtarAll(impl, g);
-                    ++reattached;
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
             }
         }
-        return reattached;
     }
 
     struct SearchHit
     {
-        int   ctlIndex   = -1;
-        int   loaderOff  = -1;
-        int   blockIndex = -1;
-        bool  fromSeen   = false;
-        void* block      = nullptr;
-        void* weak       = nullptr;
+        void* weak = nullptr;
     };
 
     static bool MtarArchiveResident(void* file)
@@ -434,13 +380,6 @@ namespace
                             continue;
                         found = TakeArchiveFromBlock(
                             blk, pathId, requireResident, &weakHit);
-                        if (found && hit)
-                        {
-                            hit->ctlIndex   = static_cast<int>(ci);
-                            hit->loaderOff  = static_cast<int>(kLoaderOffsets[li]);
-                            hit->blockIndex = static_cast<int>(i);
-                            hit->block      = blk;
-                        }
                     }
                 }
             }
@@ -465,76 +404,11 @@ namespace
                 g_SeenBlocks[i].store(nullptr, std::memory_order_release);
                 found = nullptr;
             }
-            if (found && hit)
-            {
-                hit->ctlIndex   = -1;
-                hit->loaderOff  = -1;
-                hit->blockIndex = static_cast<int>(i);
-                hit->fromSeen   = true;
-                hit->block      = blk;
-            }
         }
 
         if (hit)
             hit->weak = weakHit;
         return found;
-    }
-
-    static void LogBlockCensus_SEH()
-    {
-#ifdef _DEBUG
-        static const std::size_t kLoaderOffsets[] = {
-            kCtlMainLoaderOff, kCtlLoaderOff };
-
-        static std::atomic<int> s_censusCount{ 0 };
-        if (s_censusCount.fetch_add(1) >= 8)
-            return;
-
-        std::size_t seen = 0;
-        for (std::size_t i = 0; i < kMaxSeenBlocks; ++i)
-            if (g_SeenBlocks[i].load(std::memory_order_acquire))
-                ++seen;
-        LogDebug("[OutfitMotionMtar] harvested block registry holds %zu of %zu "
-                 "block(s) (swept after the two player controller groups)\n",
-            seen, kMaxSeenBlocks);
-
-        for (std::size_t ci = 0; ci < kMaxMotionCtls; ++ci)
-        {
-            void* ctl = g_MotionBlockCtls[ci].load(std::memory_order_acquire);
-            if (!ctl)
-                continue;
-            __try
-            {
-                unsigned mainCount = 0;
-                unsigned addCount  = 0;
-                void*    mainGroup = nullptr;
-                void*    addGroup  = nullptr;
-                for (std::size_t li = 0; li < 2; ++li)
-                {
-                    auto* loader = *reinterpret_cast<std::uint8_t**>(
-                        static_cast<std::uint8_t*>(ctl) + kLoaderOffsets[li]);
-                    if (!loader)
-                        continue;
-                    auto* group = *reinterpret_cast<std::uint8_t**>(
-                        loader + kLoaderGroupOff);
-                    if (!group)
-                        continue;
-                    const std::uint32_t n =
-                        *reinterpret_cast<std::uint32_t*>(group + kGroupCountOff);
-                    if (li == 0) { mainGroup = group; mainCount = n; }
-                    else         { addGroup  = group; addCount  = n; }
-                }
-                LogDebug("[OutfitMotionMtar] block census: ctl#%zu=%p main(+0x160) "
-                         "group=%p blocks=%u | additional(+0xB8) group=%p blocks=%u "
-                         "- if the fpk carrying the custom mtars is in none of "
-                         "these, no custom archive can resolve\n",
-                    ci, ctl, mainGroup, mainCount, addGroup, addCount);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-        }
-#endif
     }
 
     static void* __fastcall hkBlockGetFileForPathId(
@@ -550,24 +424,11 @@ namespace
         const int askedSlot = g_FallbackReady
             ? outfit::MotionMtarSlotFromVanillaHash(pathId)
             : -1;
-#ifdef _DEBUG
-        if (askedSlot >= 0)
-        {
-            static std::atomic<std::uint32_t> s_askedMask{ 0 };
-            const std::uint32_t bit = 1u << static_cast<unsigned>(askedSlot);
-            if ((s_askedMask.fetch_or(bit) & bit) == 0)
-                LogDebug("[OutfitMotionMtar] VANILLA-ASK slot=%d %016llX (first "
-                         "direct block lookup; slots that never appear here are "
-                         "bound by some path other than GetFileForPathId)\n",
-                    askedSlot, pathId);
-        }
-#endif
 
         if (askedSlot >= 0)
         {
-            int vanillaSlot = -1;
             const std::uint64_t custom =
-                ResolveDesiredHash_SEH(pathId, &vanillaSlot);
+                ResolveDesiredHash_SEH(pathId, nullptr);
             if (custom != 0 && outfit::IsMotionMtarOverrideHash(custom, nullptr))
             {
                 g_InMotionFallback = true;
@@ -577,44 +438,10 @@ namespace
                 g_InMotionFallback = false;
                 if (sub)
                 {
-#ifdef _DEBUG
-                    static std::atomic<int> s_subCount{ 0 };
-                    if (s_subCount.fetch_add(1) < 64)
-                        LogDebug("[OutfitMotionMtar] SUBSTITUTE-AT-LOOKUP slot=%d "
-                                 "%016llX -> %016llX (a consumer asked a block "
-                                 "directly, bypassing the 32-entry table - the only "
-                                 "way to reach archives the table never lists)\n",
-                            vanillaSlot, pathId, custom);
-#endif
                     NoteDirectSlotBinding(askedSlot, sub, custom);
                     return sub;
                 }
-#ifdef _DEBUG
-                static std::atomic<int> s_subMiss{ 0 };
-                if (s_subMiss.fetch_add(1) < 32)
-                    LogDebug("[OutfitMotionMtar] SUBSTITUTE-MISS slot=%d %016llX -> "
-                        "%016llX: the override resolved but the custom archive "
-                        "is in no block reachable right now\n",
-                        vanillaSlot, pathId, custom);
-#endif
             }
-#ifdef _DEBUG
-            else
-            {
-                static std::atomic<int> s_gateMiss{ 0 };
-                if (s_gateMiss.fetch_add(1) < 32)
-                    LogDebug("[OutfitMotionMtar] NO-OVERRIDE-AT-ASK slot=%d %016llX "
-                             "(liveParts=0x%02X hintParts=0x%02X) - no override "
-                             "resolved for this slot, so it binds vanilla until the "
-                             "next load; when liveParts already matches the outfit's "
-                             "partsType the cause is the preceding 'no override' "
-                             "line, not the timing\n",
-                        askedSlot, pathId,
-                        static_cast<unsigned>(outfit::ReadLivePartsType()),
-                        static_cast<unsigned>(
-                            outfit::GetMotionOutfitHintPartsType()));
-            }
-#endif
         }
 
         g_InMotionFallback = true;
@@ -645,45 +472,25 @@ namespace
 
             static std::atomic<int> s_missWarn{ 0 };
             if (s_missWarn.fetch_add(1) < 64)
-                Log("[OutfitMotionMtar] WARN: custom motion mtar %016llX (slot %d) "
-                    "is in no player block - %s. The .mtar is missing or lives in a "
-                    "package the player does not mount; put it inside a player2 "
-                    "motion fpk\n",
+                LogWarn("OutfitMotionMtar: mtar %016llX (slot %d) not in a player2 motion fpk, %s",
                     pathId, slot,
-                    found ? "serving the VANILLA archive for this slot so the "
-                            "load can finish (motion stays vanilla)"
-                          : "and the vanilla archive also failed to resolve, "
-                            "so this table entry stays empty");
+                    found ? "vanilla motion used" : "slot left empty");
         }
-#ifdef _DEBUG
-        else
-        {
-            static std::atomic<int> s_fallbackCount{ 0 };
-            if (s_fallbackCount.fetch_add(1) < 64)
-                LogDebug("[OutfitMotionMtar] FALLBACK-RESOLVE %016llX (slot %d) "
-                         "served from a sibling player block (the additional-motion "
-                         "block carries only the 32 vanilla entries)\n",
-                    pathId, slot);
-        }
-#endif
         g_InMotionFallback = false;
         return found;
     }
 
     static void DirectSwapEntryFile_SEH(
-        std::uint32_t idx, std::uint64_t* pathPtr, int* swapped, int* unresolved)
+        std::uint32_t idx, std::uint64_t* pathPtr)
     {
         __try
         {
             const std::uint64_t hash = *pathPtr;
             if (hash == 0)
                 return;
-            int slot = -1;
-            const bool custom = outfit::IsMotionMtarOverrideHash(hash, &slot);
             void** filePtr = reinterpret_cast<void**>(
                 reinterpret_cast<std::uint8_t*>(pathPtr) + 0x10);
-            SearchHit hit;
-            void* file = SearchPlayerBlocksForPathId_SEH(nullptr, hash, &hit);
+            void* file = SearchPlayerBlocksForPathId_SEH(nullptr, hash);
             if (file)
             {
                 if (*filePtr != file)
@@ -700,13 +507,10 @@ namespace
                     *filePtr = file;
                     if (idx < kMotionTableCount)
                         g_EntrySwaps[idx].written = file;
-                    ++*swapped;
                 }
             }
             else
             {
-                if (custom)
-                    ++*unresolved;
                 if (idx < kMotionTableCount
                     && g_EntrySwaps[idx].valid
                     && g_EntrySwaps[idx].original != nullptr
@@ -717,34 +521,8 @@ namespace
                     g_EntrySwaps[idx].written  = nullptr;
                     g_EntrySwaps[idx].valid    = false;
                     g_SwapsLive.fetch_sub(1, std::memory_order_relaxed);
-                    ++*swapped;
                 }
             }
-
-#ifdef _DEBUG
-            if (custom)
-            {
-                static std::atomic<int> s_provCount{ 0 };
-                if (s_provCount.fetch_add(1) < 48)
-                {
-                    if (file && hit.fromSeen)
-                        LogDebug("[OutfitMotionMtar] RESIDENT slot=%d %016llX found "
-                                 "in harvested block#%d %p (outside the player "
-                                 "controller groups)\n",
-                            slot, hash, hit.blockIndex, hit.block);
-                    else if (file)
-                        LogDebug("[OutfitMotionMtar] RESIDENT slot=%d %016llX found "
-                                 "in ctl#%d loader+0x%X block#%d - the table entry "
-                                 "now points at it\n",
-                            slot, hash, hit.ctlIndex, hit.loaderOff, hit.blockIndex);
-                    else
-                        LogDebug("[OutfitMotionMtar] NOT RESIDENT slot=%d %016llX - "
-                                 "in no block the player has mounted; the table "
-                                 "entry is unchanged\n",
-                            slot, hash);
-                }
-            }
-#endif
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -785,33 +563,13 @@ namespace
                                                  std::memory_order_release);
                 static std::atomic<int> s_dead{ 0 };
                 if (s_dead.fetch_add(1, std::memory_order_relaxed) < 8)
-                    Log("[OutfitMotionMtar] slot %u cannot be re-pointed at "
-                        "%016llX - %s, so the archive it bound at level load "
-                        "keeps playing until the next load\n",
+                    LogWarn("OutfitMotionMtar: slot %u cannot switch to mtar %016llX (%s), old motion until next load",
                         slot, want,
-                        hit.weak
-                            ? "every copy of that path found has no resident "
-                              "data, so it would answer no clip at all"
-                            : "no loaded block holds that path");
+                        hit.weak ? "not resident" : "not loaded");
                 continue;
             }
-            void* prev = g_DirectSlots[slot].desired.exchange(
+            g_DirectSlots[slot].desired.exchange(
                 file, std::memory_order_acq_rel);
-#ifdef _DEBUG
-            if (prev != file)
-            {
-                static std::atomic<int> s_retarget{ 0 };
-                if (s_retarget.fetch_add(1, std::memory_order_relaxed) < 32)
-                    LogDebug("[OutfitMotionMtar] RETARGET slot=%u %016llX -> "
-                             "%016llX file=%p (was %p) - this slot is bound once "
-                             "per level load, so its clips are re-pointed at fetch "
-                             "time; a slot reaches here only when the wanted "
-                             "archive is a different path from the one it bound\n",
-                        slot, haveHash, want, file, prev);
-            }
-#else
-            (void)prev;
-#endif
         }
     }
 
@@ -826,12 +584,11 @@ namespace
         g_DirectSlotMask.store(0, std::memory_order_release);
     }
 
-    static int RevertSwappedEntries_SEH()
+    static void RevertSwappedEntries_SEH()
     {
         if (!g_OrigGetMtarPathId)
-            return 0;
+            return;
 
-        int restored = 0;
         for (std::uint32_t idx = 0; idx < kMotionTableCount; ++idx)
         {
             if (!g_EntrySwaps[idx].valid)
@@ -845,10 +602,7 @@ namespace
                     void** filePtr = reinterpret_cast<void**>(
                         reinterpret_cast<std::uint8_t*>(r) + 0x10);
                     if (*filePtr == g_EntrySwaps[idx].written)
-                    {
                         *filePtr = g_EntrySwaps[idx].original;
-                        ++restored;
-                    }
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -859,7 +613,6 @@ namespace
             g_EntrySwaps[idx].valid    = false;
         }
         g_SwapsLive.store(0, std::memory_order_relaxed);
-        return restored;
     }
 }
 
@@ -1059,8 +812,6 @@ namespace outfit
         if (n == 0)
             return 0;
 
-        int swapped = 0;
-        int stuck   = 0;
         for (int i = 0; i < n; ++i)
         {
             const std::uint64_t want = outfit::MotionMtarVanillaHash(
@@ -1072,52 +823,27 @@ namespace outfit
                 SearchPlayerBlocksForPathId_SEH(nullptr, want, &hit, true);
             if (!vanilla || vanilla == held[i].file)
             {
-                ++stuck;
                 static std::atomic<int> s_miss{ 0 };
                 if (s_miss.fetch_add(1, std::memory_order_relaxed) < 8)
-                    Log("[OutfitMotionMtar] slot %d keeps its custom archive "
-                        "%016llX - the vanilla archive %016llX resolves in no "
-                        "loaded block with resident data, so unbinding it would "
-                        "leave that slot with no clips at all\n",
+                    LogWarn("OutfitMotionMtar: slot %d keeps custom mtar %016llX, vanilla %016llX not resident",
                         held[i].slot, held[i].hash, want);
                 continue;
             }
-            if (SwapBinding_SEH(ac, held[i].file, vanilla))
-                ++swapped;
-            else
+            if (!SwapBinding_SEH(ac, held[i].file, vanilla))
             {
-                ++stuck;
                 static std::atomic<int> s_full{ 0 };
                 if (s_full.fetch_add(1, std::memory_order_relaxed) < 4)
-                    Log("[OutfitMotionMtar] slot %d could not take the vanilla "
-                        "archive %016llX - the anim control has no free entry, so "
-                        "the custom one was put back rather than leaving the slot "
-                        "with no clips\n",
+                    LogWarn("OutfitMotionMtar: slot %d anim control full, keeps custom motion instead of %016llX",
                         held[i].slot, want);
             }
         }
-
-        if (swapped || stuck)
-            Log("[OutfitMotionMtar] mtar holder %p: %d of %d custom archive(s) "
-                "unbound and replaced with the vanilla one through the engine's "
-                "own AddMtar/RemoveMtar%s\n",
-                ac, swapped, n,
-                stuck ? " (the rest are listed above)" : "");
         return n;
     }
 
     static void RebindAnimControlsToVanilla()
     {
         if (!g_AddMtar || !g_RemoveMtar)
-        {
-            static std::atomic<int> s_noAddr{ 0 };
-            if (s_noAddr.fetch_add(1, std::memory_order_relaxed) < 1)
-                Log("[OutfitMotionMtar] the custom archives cannot be unbound on "
-                    "this build - fox::anim AddMtar/RemoveMtar resolved to nothing, "
-                    "so the anim control keeps playing them until the next level "
-                    "load\n");
             return;
-        }
 
         void*       visited[kMaxMtarHolders + kMaxAnimCtls] = {};
         std::size_t visitedCount = 0;
@@ -1147,25 +873,8 @@ namespace outfit
         {
             static std::atomic<int> s_none{ 0 };
             if (s_none.fetch_add(1, std::memory_order_relaxed) < 8)
-                Log("[OutfitMotionMtar] none of the %zu mtar holder(s) we watched "
-                    "take a custom archive still holds one, so there is nothing to "
-                    "unbind - whatever is still playing the custom clips took them "
-                    "by a route other than fox::anim AddMtar, and that motion stays "
-                    "until the next level load\n",
-                    visitedCount);
+                LogWarn("OutfitMotionMtar: no watched mtar holder has the custom motion, it stays until next load");
         }
-    }
-
-    bool ConsumeAnimControlCensusRequest()
-    {
-        int have = g_CensusPending.load(std::memory_order_acquire);
-        while (have > 0)
-        {
-            if (g_CensusPending.compare_exchange_weak(
-                    have, have - 1, std::memory_order_acq_rel))
-                return true;
-        }
-        return false;
     }
 
     void* RedirectMotionMtarForClip(void* mtar)
@@ -1177,7 +886,6 @@ namespace outfit
             return nullptr;
 
         const std::uint64_t livePath = ReadMtarPath_SEH(mtar);
-        bool armed = false;
 
         for (std::uint32_t slot = 0; slot < kMotionTableCount; ++slot)
         {
@@ -1186,7 +894,6 @@ namespace outfit
             void* want = g_DirectSlots[slot].desired.load(std::memory_order_acquire);
             if (!want || want == mtar)
                 continue;
-            armed = true;
 
             const bool byPath =
                 livePath != 0
@@ -1197,29 +904,9 @@ namespace outfit
             if (!byPath && !byPtr)
                 continue;
 
-#ifdef _DEBUG
-            {
-                static std::atomic<int> s_fired{ 0 };
-                if (s_fired.fetch_add(1, std::memory_order_relaxed) < 4)
-                    LogDebug("[OutfitMotionMtar] slot %u clip fetch on archive %016llX "
-                             "is served from %p instead, matched by %s\n",
-                        slot, livePath, want, byPath ? "path" : "pointer");
-            }
-#endif
             return want;
         }
 
-#ifdef _DEBUG
-        if (armed && livePath)
-        {
-            static std::atomic<int> s_seen{ 0 };
-            if (s_seen.fetch_add(1, std::memory_order_relaxed) < 12)
-                LogDebug("[OutfitMotionMtar] a re-point is armed but this clip fetch is "
-                         "on archive %016llX (%p), which matches no re-pointed slot - "
-                         "that is the archive the anim control actually holds\n",
-                    livePath, mtar);
-        }
-#endif
         return nullptr;
     }
 
@@ -1237,30 +924,15 @@ namespace outfit
         if (!g_Installed || live == 0)
         {
             g_SwapEpochMission.store(mission, std::memory_order_relaxed);
-            static std::atomic<int> s_idle{ 0 };
-            if (s_idle.fetch_add(1, std::memory_order_relaxed) < 16)
-                Log("[OutfitMotionMtar] mission is now %u - no archive entry to "
-                    "restore (installed=%d, %d entr%s swapped since the last "
-                    "revert)\n",
-                    mission, g_Installed ? 1 : 0, live, live == 1 ? "y" : "ies");
             return;
         }
 
-        const int restored = RevertSwappedEntries_SEH();
+        RevertSwappedEntries_SEH();
         g_SwapEpochMission.store(mission, std::memory_order_relaxed);
-
-        static std::atomic<int> s_done{ 0 };
-        if (s_done.fetch_add(1, std::memory_order_relaxed) < 16)
-            Log("[OutfitMotionMtar] mission is now %u - %d of %d swapped archive "
-                "entr%s restored to the engine's own pointer; the rest it had "
-                "already rebound. Our pointers come from blocks outside the "
-                "player's controller groups, which unload on a mission change\n",
-                mission, restored, live, live == 1 ? "y" : "ies");
     }
 
     static void RunAdditionalMotionReresolve()
     {
-        int touched = 0;
         for (std::size_t ci = 0; ci < kMaxMotionCtls; ++ci)
         {
             void* ctl = g_MotionBlockCtls[ci].load(std::memory_order_acquire);
@@ -1273,20 +945,15 @@ namespace outfit
                     continue;
                 *reinterpret_cast<std::uint32_t*>(base + kCtlWalkIndexOff) = 0;
                 *reinterpret_cast<std::uint32_t*>(base + kCtlWalkStateOff) = 0;
-                ++touched;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
             }
         }
 
-        LogBlockCensus_SEH();
-
         std::uint32_t savedMasks[kMaxPlayerImpls] = {};
-        int detached = DetachLiveMtarGroups_SEH(savedMasks);
+        DetachLiveMtarGroups_SEH(savedMasks);
 
-        int swapped    = 0;
-        int unresolved = 0;
         const bool wasInFallback = g_InMotionFallback;
         g_InMotionFallback = true;
         for (std::uint32_t idx = 0; idx < kMotionTableCount; ++idx)
@@ -1295,25 +962,12 @@ namespace outfit
             std::uint64_t* r = hkGetMtarPathId(&out, idx);
             if (!r)
                 continue;
-            DirectSwapEntryFile_SEH(idx, r, &swapped, &unresolved);
+            DirectSwapEntryFile_SEH(idx, r);
         }
         RefreshDirectSlotTargets();
         g_InMotionFallback = wasInFallback;
 
-        int reattached = ReattachLiveMtarGroups_SEH(savedMasks);
-
-#ifdef _DEBUG
-        {
-            static std::atomic<int> s_reresolveCount{ 0 };
-            if (s_reresolveCount.fetch_add(1) < 32)
-                LogDebug("[OutfitMotionMtar] re-resolve: walked the archive table "
-                         "(%d file(s) swapped, %d custom entr%s not found in any "
-                         "player block, counters reset on %d loading controller(s), "
-                         "%d mtar group(s) detached / %d re-attached)\n",
-                    swapped, unresolved, unresolved == 1 ? "y" : "ies",
-                    touched, detached, reattached);
-        }
-#endif
+        ReattachLiveMtarGroups_SEH(savedMasks);
     }
 
     void RequestAdditionalMotionReresolve()
@@ -1363,10 +1017,7 @@ namespace outfit
 
             static std::atomic<int> s_lateLogged{ 0 };
             if (s_lateLogged.fetch_add(1, std::memory_order_relaxed) < 8)
-                Log("[OutfitMotionMtar] a parts slot was still loading %d ticks "
-                    "after the suit changed, so the motion archive re-bind ran "
-                    "anyway - detaching the mtar groups under an in-flight load "
-                    "can strand that slot, which then keeps the previous suit\n",
+                LogWarn("OutfitMotionMtar: parts still loading after %d ticks, motion re-bind forced, a slot may keep the old suit",
                     kReresolveMaxDeferTicks);
         }
 
@@ -1405,21 +1056,8 @@ namespace outfit
 
         outfit::ClearMotionOutfitHint();
 
-        static std::atomic<int> s_dropped{ 0 };
-        if (s_dropped.fetch_add(1, std::memory_order_relaxed) < 12)
-            Log("[OutfitMotionMtar] the live suit settled on vanilla parts type "
-                "0x%02X, so the motion archive table is being put back - the "
-                "outfit hint (0x%02X) is dropped and the %d swapped entr%s "
-                "re-resolve to their vanilla archives; slots the engine binds "
-                "once per level load, such as 'resident', are re-pointed at clip "
-                "fetch instead\n",
-                static_cast<unsigned>(parts), static_cast<unsigned>(hint),
-                g_SwapsLive.load(std::memory_order_relaxed),
-                g_SwapsLive.load(std::memory_order_relaxed) == 1 ? "y" : "ies");
-
         RequestAdditionalMotionReresolve();
         RebindAnimControlsToVanilla();
-        g_CensusPending.store(4, std::memory_order_release);
     }
 
     bool Install_OutfitMotionMtar_Hook()
@@ -1429,8 +1067,7 @@ namespace outfit
         void* target = ResolveGameAddress(gAddr.AdditionalMotionTable_GetMtarPathId);
         if (!target)
         {
-            LogDebug("[OutfitMotionMtar] target unresolved; module disabled "
-                "(motionMtars overrides will not apply)\n");
+            LogError("OutfitMotionMtar: GetMtarPathId address missing, motionMtars off");
             return false;
         }
 
@@ -1441,8 +1078,7 @@ namespace outfit
 
         if (!g_Installed)
         {
-            Log("[OutfitMotionMtar] hook install FAILED (target=%p); motionMtars "
-                "overrides will not apply\n", target);
+            LogError("OutfitMotionMtar: GetMtarPathId hook failed, motionMtars off");
             return false;
         }
 
@@ -1453,11 +1089,7 @@ namespace outfit
 
         if (!updateTarget || !getFileTarget || !getBlockAt)
         {
-            Log("[OutfitMotionMtar] WARN: fallback resolver unresolved (update=%p "
-                "getFile=%p getBlockAt=%p) - motionMtars redirects SUPPRESSED; "
-                "without it a redirected archive leaves table entry 0 empty and the "
-                "mission load waits forever\n",
-                updateTarget, getFileTarget, getBlockAt);
+            LogError("OutfitMotionMtar: block lookup address missing, motionMtars off");
             return g_Installed;
         }
 
@@ -1474,10 +1106,7 @@ namespace outfit
 
         if (!updateOk || !getFileOk)
         {
-            Log("[OutfitMotionMtar] WARN: fallback hook install FAILED (update=%d "
-                "getFile=%d) - motionMtars redirects SUPPRESSED so mission loads "
-                "cannot hang\n",
-                updateOk ? 1 : 0, getFileOk ? 1 : 0);
+            LogError("OutfitMotionMtar: block lookup hook failed, motionMtars off");
             if (updateOk)
                 DisableAndRemoveHook(updateTarget);
             g_OrigUpdateMotionBlock = nullptr;
@@ -1493,11 +1122,7 @@ namespace outfit
 
         if (!addAllTarget || !removeAll)
         {
-            Log("[OutfitMotionMtar] WARN: Player2Impl Add/RemoveAdditionalMtarAll "
-                "unresolved (add=%p remove=%p) - a mid-session outfit change can "
-                "rewrite the archive table but not re-push it, so a swapped mtar "
-                "only applies on the next full player rebuild\n",
-                addAllTarget, removeAll);
+            LogError("OutfitMotionMtar: Add/RemoveAdditionalMtarAll address missing, motionMtars change only on player rebuild");
             return g_Installed;
         }
 
@@ -1506,9 +1131,7 @@ namespace outfit
                 reinterpret_cast<void*>(&hkAddAdditionalMtarAll),
                 reinterpret_cast<void**>(&g_OrigAddMtarAll)))
         {
-            Log("[OutfitMotionMtar] WARN: AddAdditionalMtarAll hook install FAILED "
-                "(target=%p) - the live player motion holder cannot be re-pushed "
-                "after a mid-session archive swap\n", addAllTarget);
+            LogError("OutfitMotionMtar: AddAdditionalMtarAll hook failed, motionMtars change only on player rebuild");
             g_OrigAddMtarAll = nullptr;
             return g_Installed;
         }
@@ -1526,20 +1149,12 @@ namespace outfit
                     reinterpret_cast<void**>(&g_AddMtar)))
             {
                 g_AddMtar = reinterpret_cast<MtarAdd_t>(addMtar);
-                Log("[OutfitMotionMtar] fox::anim AddMtar could not be hooked at "
-                    "%p, so the holder each custom archive is bound into is never "
-                    "recorded - a revert then reaches only the holders the clip "
-                    "reader happened to touch, and the rest keep the custom motion "
-                    "until the next level load\n", addMtar);
+                LogError("OutfitMotionMtar: AddMtar hook failed, vanilla outfit may keep custom motion until next load");
             }
         }
         else
         {
-            Log("[OutfitMotionMtar] fox::anim AddMtar/RemoveMtar are unknown on "
-                "this build, so a custom archive already bound into the anim "
-                "control cannot be unbound mid-session - switching back to a "
-                "vanilla outfit will keep the custom motion until the next "
-                "level load\n");
+            LogError("OutfitMotionMtar: AddMtar/RemoveMtar address missing, vanilla outfit keeps custom motion until next load");
         }
 
         return g_Installed;

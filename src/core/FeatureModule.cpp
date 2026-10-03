@@ -98,10 +98,8 @@ bool FeatureModuleRegistry::InstallAll(HMODULE hGame)
 
     const std::unordered_set<std::string>& disabled = DisabledModuleNames();
     if (!disabled.empty())
-        Log("[FeatureModule] disabled_modules.txt lists %zu module(s) to skip this "
-            "boot (each reported below as SKIPPED); delete the file or prefix a "
-            "line with # to restore one\n",
-            disabled.size());
+        LogWarn("FeatureModule: disabled_modules.txt lists %zu module(s) to skip",
+                disabled.size());
 
     for (IFeatureModule* module : m_Modules)
     {
@@ -111,20 +109,17 @@ bool FeatureModuleRegistry::InstallAll(HMODULE hGame)
         const char* moduleName = module->GetName();
         if (!disabled.empty() && disabled.count(NormalizeModuleName(moduleName)) != 0)
         {
-            Log("[FeatureModule] SKIPPED %s (listed in disabled_modules.txt)\n",
-                moduleName ? moduleName : "<unnamed>");
+            LogWarn("FeatureModule: %s skipped (disabled_modules.txt)",
+                    moduleName ? moduleName : "<unnamed>");
             continue;
         }
 
         const bool ok = module->Install(hGame);
         if (ok)
             m_Installed.push_back(module);
-#ifdef _DEBUG
-        Log("[FeatureModule] Install %s -> %s\n", module->GetName(), ok ? "OK" : "FAIL");
-#else
-        if (!ok)
-            Log("[FeatureModule] Install %s -> %s\n", module->GetName(), ok ? "OK" : "FAIL");
-#endif
+        else
+            LogError("FeatureModule: %s install failed",
+                     moduleName ? moduleName : "<unnamed>");
 
         if (!ok)
             allOk = false;

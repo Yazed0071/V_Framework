@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_DeployControllerImpl_GetNextRandomMissionId_Hook();
+bool Uninstall_DeployControllerImpl_GetNextRandomMissionId_Hook();

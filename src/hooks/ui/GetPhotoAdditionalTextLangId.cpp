@@ -44,9 +44,8 @@ bool Install_PhotoAdditionalText_Hook()
         reinterpret_cast<void*>(&hkGetPhotoAdditionalTextLangId),
         reinterpret_cast<void**>(&g_OrigGetPhotoAdditionalTextLangIdHook));
 
-#ifdef _DEBUG
-    LogDebug("[Hook] PhotoAdditionalText %d installed at %p\n", okTarget, target);
-#endif
+    if (!okTarget)
+        LogError("PhotoAdditionalText: GetPhotoAdditionalTextLangId hook failed, custom photo text off");
     return okTarget;
 }
 

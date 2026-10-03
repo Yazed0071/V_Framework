@@ -207,9 +207,6 @@ namespace
     static std::uint32_t        g_VanillaCount = 0;
     static VanillaSnapshot      g_Van;
     static std::vector<TailRow> g_Tail;
-    static std::uint8_t         g_MergeGroupId = 0;
-    static std::uint32_t        g_SeenMasks[8] = {};
-    static std::uint32_t        g_SeenMaskCount = 0;
     static bool g_CustomsInstalled = false;
     static bool g_CustomsBlocked = false;
     static bool g_MirrorFaultLogged = false;
@@ -424,11 +421,7 @@ namespace
             seg->count != li->count || seg->count != lc->count ||
             gi->count != sii->count || gi->count != sc->count)
         {
-            Log("[TppCollection] locator array %p has inconsistent counts (flat "
-                "%u/%u/%u seg %u/%u/%u grp %u/%u/%u) - custom collectibles disabled "
-                "here\n",
-                arr, pos->count, rot->count, inf->count, seg->count, li->count, lc->count,
-                gi->count, sii->count, sc->count);
+            LogWarn("TppCollection: locator array counts inconsistent, custom collectibles off here");
             return false;
         }
 
@@ -467,10 +460,8 @@ namespace
         {
             if (static_cast<std::uint32_t>(g_Van.locIdx[s2]) + g_Van.locCnt[s2] > n)
             {
-                Log("[TppCollection] locator array %p segment %zu spans rows %u..%u "
-                    "past the flat table (%u rows) - custom collectibles disabled "
-                    "here\n",
-                    arr, s2, g_Van.locIdx[s2], g_Van.locIdx[s2] + g_Van.locCnt[s2], n);
+                LogWarn("TppCollection: locator segment %zu runs past the %u-row table, custom collectibles off here",
+                        s2, n);
                 return false;
             }
         }
@@ -478,10 +469,8 @@ namespace
         {
             if (static_cast<std::uint32_t>(g_Van.segInfoIdx[g2]) + g_Van.segCnt[g2] > g_Van.segIdx.size())
             {
-                Log("[TppCollection] locator array %p group %zu spans segment "
-                    "entries past the segment table - custom collectibles disabled "
-                    "here\n",
-                    arr, g2);
+                LogWarn("TppCollection: locator group %zu runs past the segment table, custom collectibles off here",
+                        g2);
                 return false;
             }
         }
@@ -505,7 +494,7 @@ namespace
         auto release = reinterpret_cast<ArrayBaseFree_t>(ResolveGameAddress(gAddr.ArrayBaseFree));
         if (!alloc || !release)
         {
-            Log("[TppCollection] KernelAllocAligned/ArrayBaseFree unavailable - cannot rebuild locator arrays\n");
+            LogError("TppCollection: KernelAllocAligned/ArrayBaseFree missing, locator rebuild off");
             return false;
         }
 
@@ -540,8 +529,8 @@ namespace
             it.buf = alloc(static_cast<std::uint64_t>(it.count) * it.elem, it.align, kAllocAnnotation);
             if (!it.buf)
             {
-                Log("[TppCollection] engine allocation failed (%u bytes) - locator rebuild aborted\n",
-                    it.count * it.elem);
+                LogError("TppCollection: engine allocation of %u bytes failed, locator rebuild aborted",
+                         it.count * it.elem);
                 for (Pending& done : items)
                     if (done.buf)
                         release(done.buf, kAllocAnnotation);
@@ -603,16 +592,16 @@ namespace
             }
             if (uidClash)
             {
-                Log("[TppCollection] '%s' uniqueId 0x%06X collides with a vanilla collectible - entry skipped\n",
-                    reg.name.c_str(), reg.uid);
+                LogWarn("TppCollection '%s': uniqueId 0x%06X collides with a vanilla collectible, skipped",
+                        reg.name.c_str(), reg.uid);
                 continue;
             }
 
             std::uint16_t seg = 0;
             if (!SegmentFromXZ(reg.x, reg.z, seg))
             {
-                Log("[TppCollection] '%s' position (%.1f, %.1f) is outside the 128x128 segment grid - entry skipped\n",
-                    reg.name.c_str(), reg.x, reg.z);
+                LogWarn("TppCollection '%s': position (%.1f, %.1f) outside the segment grid, skipped",
+                        reg.name.c_str(), reg.x, reg.z);
                 continue;
             }
 
@@ -673,7 +662,6 @@ namespace
                 mergeGroup = g;
             }
         }
-        g_MergeGroupId = (mergeGroup == SIZE_MAX) ? 0 : g_Van.groupIds[mergeGroup];
 
         auto emitGroup = [&](std::uint8_t groupId, std::size_t vanillaGroupIndex, bool mergeCustoms)
         {
@@ -746,8 +734,8 @@ namespace
 
         if (outInf.size() > kMaxLocatorRows)
         {
-            Log("[TppCollection] rebuilt locator table would hold %zu rows (max %u) - customs dropped, vanilla restored\n",
-                outInf.size(), kMaxLocatorRows);
+            LogWarn("TppCollection: locator table would hold %zu rows (max %u), customs dropped",
+                    outInf.size(), kMaxLocatorRows);
             g_CustomsBlocked = true;
             return RebuildArrays(arr, false);
         }
@@ -769,29 +757,6 @@ namespace
             ct.standInLogged = 0;
             ct.standInPathId = 0;
             ct.drawPathId    = 0;
-        }
-
-        LogDebug("[TppCollection] locator array %p rebuilt: %u vanilla + %zu tail rows (%zu custom)\n",
-                 arr, g_VanillaCount, g_Tail.size(),
-                 static_cast<std::size_t>(std::count_if(g_Tail.begin(), g_Tail.end(),
-                     [](const TailRow& t) { return t.regIndex >= 0; })));
-
-        LogDebug("[TppCollection] customs merged into group id %u (%u vanilla locator(s) in it); "
-                 "the realizer only walks group N when bit N of its groupMask is set\n",
-                 g_MergeGroupId, mergeGroupRows);
-        for (std::size_t t = 0; t < g_Tail.size(); ++t)
-        {
-            if (g_Tail[t].regIndex < 0)
-                continue;
-            const CustomReg& reg = g_Regs[static_cast<std::size_t>(g_Tail[t].regIndex)];
-            std::uint16_t seg = 0;
-            SegmentFromXZ(reg.x, reg.z, seg);
-            const CustomType* ct = FindCustomType(reg.type);
-            LogDebug("[TppCollection]   '%s' type=%u uid=0x%06X row=%zu segment=%u "
-                     "pos=(%.1f, %.1f, %.1f) model=0x%016llX\n",
-                     reg.name.c_str(), reg.type, reg.uid,
-                     g_VanillaCount + t, seg, reg.x, reg.y, reg.z,
-                     static_cast<unsigned long long>(ct ? ct->modelPathId : 0));
         }
         return true;
     }
@@ -893,8 +858,7 @@ namespace
             if (!g_MirrorFaultLogged)
             {
                 g_MirrorFaultLogged = true;
-                Log("[TppCollection] collection state fault while mirroring picked "
-                    "bits - picked-state sync suspended here\n");
+                LogWarn("TppCollection: fault mirroring picked bits, picked-state sync skipped");
             }
         }
     }
@@ -924,29 +888,6 @@ namespace
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
             EnsureCustomState(self);
             MirrorHiddenBits();
-
-            if (g_CustomsInstalled && g_SeenMaskCount < 8)
-            {
-                bool known = false;
-                for (std::uint32_t i = 0; i < g_SeenMaskCount; ++i)
-                    if (g_SeenMasks[i] == groupMask)
-                    {
-                        known = true;
-                        break;
-                    }
-                if (!known)
-                {
-                    g_SeenMasks[g_SeenMaskCount++] = groupMask;
-                    LogDebug("[TppCollection] realizer groupMask=0x%08X radius=%.1f at "
-                             "(%.1f, %.1f, %.1f) - customs are in group id %u, so bit %u must be "
-                             "set for them to be enumerated: %s\n",
-                             groupMask, radius,
-                             pos ? pos[0] : 0.f, pos ? pos[1] : 0.f, pos ? pos[2] : 0.f,
-                             g_MergeGroupId, g_MergeGroupId,
-                             ((groupMask >> g_MergeGroupId) & 1u) ? "SET (customs are walked)"
-                                                                  : "CLEAR (customs are skipped)");
-                }
-            }
         }
         g_OrigSetUpLinearAccessor(self, accessor, pos, radius, groupMask);
     }
@@ -1084,8 +1025,6 @@ namespace
                 }
             }
 
-            LogDebug("[TppCollection] RepopCount %s: unknown collectible id 0x%06X - request dropped\n",
-                     opName ? opName : "?", uid);
             if (op == kOpGetAt)
             {
                 PushLuaNumber(L, 0.f);
@@ -1178,13 +1117,7 @@ namespace
             const Residency res = QueryModelResidency(t->modelPathId, &handle);
 
             if (res == Residency::Resident)
-            {
-                if (t->standInLogged)
-                    Log("[TppCollection] '%s' model 0x%016llX has finished loading - dropping the "
-                        "stand-in and drawing the real mesh from here on\n",
-                        t->name.c_str(), static_cast<unsigned long long>(t->modelPathId));
                 t->drawPathId = t->modelPathId;
-            }
             else
             {
                 if (t->standInPathId == 0)
@@ -1203,16 +1136,12 @@ namespace
                 {
                     t->standInLogged = 1;
                     if (t->standInPathId)
-                        Log("[TppCollection] '%s' model 0x%016llX is not loaded yet - drawing loaded "
-                            "stand-in 0x%016llX meanwhile; residency is re-checked every realize, so "
-                            "the real mesh takes over as soon as its fpk mounts\n",
-                            t->name.c_str(), static_cast<unsigned long long>(t->modelPathId),
-                            static_cast<unsigned long long>(t->standInPathId));
+                        LogWarn("TppCollection '%s': model 0x%016llX not loaded, drawing stand-in 0x%016llX",
+                                t->name.c_str(), static_cast<unsigned long long>(t->modelPathId),
+                                static_cast<unsigned long long>(t->standInPathId));
                     else
-                        Log("[TppCollection] '%s' model 0x%016llX is not loaded yet and no engine "
-                            "collectible model is loaded either, so no stand-in was available - it "
-                            "stays pickable with no mesh until the model loads\n",
-                            t->name.c_str(), static_cast<unsigned long long>(t->modelPathId));
+                        LogWarn("TppCollection '%s': model 0x%016llX not loaded and no stand-in, drawn with no mesh",
+                                t->name.c_str(), static_cast<unsigned long long>(t->modelPathId));
                 }
 
                 t->drawPathId = t->standInPathId;
@@ -1277,11 +1206,8 @@ namespace
             if (!g_LangResolveFaultLogged)
             {
                 g_LangResolveFaultLogged = true;
-                Log("[TppCollection] lang id 0x%012llX did not resolve to text for type %u - the "
-                    "key is missing from the .lng2, or the UixUtility chain is wrong on %s; "
-                    "the collectible falls back to its vanilla label\n",
-                    static_cast<unsigned long long>(t->nameLangId), type,
-                    GetGameBuildName(gGameBuild));
+                LogWarn("TppCollection: langId 0x%012llX for type %u has no text in the lng2, vanilla label used",
+                        static_cast<unsigned long long>(t->nameLangId), type);
             }
         }
 
@@ -1412,16 +1338,14 @@ bool TppCollection_AddCustom(const char* name, std::uint32_t typeId,
 
     if (!IsAllowedType(typeId))
     {
-        Log("[TppCollection] AddCollection '%s' rejected: type %u is not a supported collectible type\n",
-            name, typeId);
+        LogWarn("AddCollection '%s': type %u is not a collectible type, rejected", name, typeId);
         return false;
     }
 
     std::uint16_t seg = 0;
     if (!SegmentFromXZ(x, z, seg))
     {
-        Log("[TppCollection] AddCollection '%s' rejected: position (%.1f, %.1f) is outside the world segment grid\n",
-            name, x, z);
+        LogWarn("AddCollection '%s': position (%.1f, %.1f) outside the segment grid, rejected", name, x, z);
         return false;
     }
 
@@ -1484,24 +1408,20 @@ std::int32_t TppCollection_RegisterType(const char* typeName, const TppCollectio
 
     if (g_TypeHooks == InstallState::Failed)
     {
-        Log("[TppCollection] RegisterCollectionType '%s' rejected: the type hooks could not be "
-            "installed on %s - custom collection types unavailable\n",
-            typeName, GetGameBuildName(gGameBuild));
+        LogWarn("RegisterCollectionType '%s': type hooks not installed, rejected", typeName);
         return -1;
     }
 
     if (!desc.modelPath || !*desc.modelPath)
     {
-        Log("[TppCollection] RegisterCollectionType '%s' rejected: the spec table has no Model "
-            "field, so the type would have no mesh to draw\n", typeName);
+        LogWarn("RegisterCollectionType '%s': no Model field, rejected", typeName);
         return -1;
     }
 
     const std::uint64_t pathId = ResolvePathArg(desc.modelPath);
     if (!pathId)
     {
-        Log("[TppCollection] RegisterCollectionType '%s' rejected: could not hash model path '%s'\n",
-            typeName, desc.modelPath);
+        LogWarn("RegisterCollectionType '%s': cannot hash Model '%s', rejected", typeName, desc.modelPath);
         return -1;
     }
 
@@ -1511,11 +1431,9 @@ std::int32_t TppCollection_RegisterType(const char* typeName, const TppCollectio
         (desc.fovaPath && *desc.fovaPath) ? ResolvePathArg(desc.fovaPath) : 0;
 
     if (desc.rootModelPath && *desc.rootModelPath && !rootPathId)
-        Log("[TppCollection] '%s': could not hash RootModel '%s' - nothing will be left behind "
-            "when the collectible is picked\n", typeName, desc.rootModelPath);
+        LogWarn("RegisterCollectionType '%s': cannot hash RootModel '%s', ignored", typeName, desc.rootModelPath);
     if (desc.fovaPath && *desc.fovaPath && !fovaPathId)
-        Log("[TppCollection] '%s': could not hash Fova '%s' - the base mesh renders with no form "
-            "variation\n", typeName, desc.fovaPath);
+        LogWarn("RegisterCollectionType '%s': cannot hash Fova '%s', ignored", typeName, desc.fovaPath);
 
     if (CustomType* existing = FindCustomTypeByName(typeName))
     {
@@ -1544,8 +1462,8 @@ std::int32_t TppCollection_RegisterType(const char* typeName, const TppCollectio
     const std::int32_t typeId = AllocateTypeId();
     if (typeId < 0)
     {
-        Log("[TppCollection] RegisterCollectionType '%s' rejected: all %u custom type ids are "
-            "in use this mission\n", typeName, 0x63u - 0x37u + 1u + 0x81u - 0x6Eu + 1u);
+        LogWarn("RegisterCollectionType '%s': all %u custom type ids in use, rejected",
+                typeName, 0x63u - 0x37u + 1u + 0x81u - 0x6Eu + 1u);
         return -1;
     }
 
@@ -1584,8 +1502,7 @@ bool TppCollection_SetTypeIcon(const char* typeName, std::int32_t typeId, const 
     {
         char what[128];
         LogTypeArg(what, sizeof(what), typeName, typeId);
-        Log("[TppCollection] SetCollectionTypeIcon %s rejected: no custom type by that name or id "
-            "- register the type first\n", what);
+        LogWarn("SetCollectionTypeIcon %s: no such custom type, rejected", what);
         return false;
     }
 
@@ -1598,16 +1515,16 @@ bool TppCollection_SetTypeIcon(const char* typeName, std::int32_t typeId, const 
     const std::uint64_t pathId = ResolvePathArg(iconPath);
     if (!pathId)
     {
-        Log("[TppCollection] SetCollectionTypeIcon: could not hash icon path '%s' for type %u - "
-            "the type keeps the generic key-item icon\n", iconPath, t->typeId);
+        LogWarn("SetCollectionTypeIcon type %u: cannot hash '%s', generic icon kept",
+                static_cast<unsigned>(t->typeId), iconPath);
         return false;
     }
 
     t->iconPathId = pathId;
 
     if (g_TypeHooks == InstallState::Installed && !g_OrigGetIconFtexPath)
-        Log("[TppCollection] SetCollectionTypeIcon stored for type %u but the icon hook is not "
-            "installed on this build - the generic key-item icon is still drawn\n", t->typeId);
+        LogWarn("SetCollectionTypeIcon type %u: icon hook not installed, generic icon kept",
+                static_cast<unsigned>(t->typeId));
 
     return true;
 }
@@ -1621,8 +1538,7 @@ bool TppCollection_SetTypeLangId(const char* typeName, std::int32_t typeId, std:
     {
         char what[128];
         LogTypeArg(what, sizeof(what), typeName, typeId);
-        Log("[TppCollection] SetCollectionTypeLangId %s rejected: no custom type by that name or "
-            "id - register the type first\n", what);
+        LogWarn("SetCollectionTypeLangId %s: no such custom type, rejected", what);
         return false;
     }
 
@@ -1630,8 +1546,8 @@ bool TppCollection_SetTypeLangId(const char* typeName, std::int32_t typeId, std:
     g_LangResolveFaultLogged = false;
 
     if (g_TypeHooks == InstallState::Installed && !g_OrigGetNameText)
-        Log("[TppCollection] SetCollectionTypeLangId stored for type %u but the name hook is not "
-            "installed on this build - the collectible still shows no label\n", t->typeId);
+        LogWarn("SetCollectionTypeLangId type %u: name hook not installed, no label shown",
+                static_cast<unsigned>(t->typeId));
 
     return true;
 }
@@ -1663,9 +1579,7 @@ bool Install_TppCollectionHooks()
         !gAddr.CollectionSystemImpl_GetCollectionInfo)
     {
         g_TypeHooks = InstallState::Failed;
-        Log("[TppCollection] install skipped: collection addresses not ported for %s - "
-            "custom collectibles unavailable\n",
-            GetGameBuildName(gGameBuild));
+        LogError("TppCollection: collection addresses missing for this build, custom collectibles off");
         return false;
     }
 
@@ -1684,8 +1598,7 @@ bool Install_TppCollectionHooks()
                              reinterpret_cast<void**>(&g_OrigGetCollectionInfo)))
     {
         g_TypeHooks = InstallState::Failed;
-        Log("[TppCollection] install failed: could not hook the collection system - "
-            "custom collectibles unavailable\n");
+        LogError("TppCollection: collection system hooks failed, custom collectibles off");
         DisableAndRemoveHook(tAccessor);
         DisableAndRemoveHook(tPickUp);
         DisableAndRemoveHook(tRepop);
@@ -1723,8 +1636,7 @@ bool Install_TppCollectionHooks()
         else
         {
             g_TypeHooks = InstallState::Failed;
-            Log("[TppCollection] type hooks failed to install - custom collection TYPES "
-                "unavailable (custom placements of vanilla types still work)\n");
+            LogError("TppCollection: type hooks failed, custom collection types off");
             DisableAndRemoveHook(tModel);
             DisableAndRemoveHook(tCatch);
             DisableAndRemoveHook(tGround);
@@ -1739,8 +1651,7 @@ bool Install_TppCollectionHooks()
         {
             if (!gAddr.GetCollectionIconFtexPath)
             {
-                Log("[TppCollection] icon address not ported for %s - custom types keep the "
-                    "generic key-item pickup icon\n", GetGameBuildName(gGameBuild));
+                LogError("TppCollection: icon address missing for this build, custom types use the generic icon");
             }
             else
             {
@@ -1750,15 +1661,13 @@ bool Install_TppCollectionHooks()
                 {
                     DisableAndRemoveHook(tIcon);
                     g_OrigGetIconFtexPath = nullptr;
-                    Log("[TppCollection] icon hook failed to install - custom types keep the "
-                        "generic key-item pickup icon\n");
+                    LogError("TppCollection: icon hook failed, custom types use the generic icon");
                 }
             }
 
             if (!gAddr.GetCollectionNameText)
             {
-                Log("[TppCollection] name address not ported for %s - custom types show no "
-                    "collectible label\n", GetGameBuildName(gGameBuild));
+                LogError("TppCollection: name address missing for this build, custom types show no label");
             }
             else
             {
@@ -1768,8 +1677,7 @@ bool Install_TppCollectionHooks()
                 {
                     DisableAndRemoveHook(tName);
                     g_OrigGetNameText = nullptr;
-                    Log("[TppCollection] name hook failed to install - custom types show no "
-                        "collectible label\n");
+                    LogError("TppCollection: name hook failed, custom types show no label");
                 }
             }
 
@@ -1785,27 +1693,26 @@ bool Install_TppCollectionHooks()
             {
                 { gAddr.Collection_GetModelFilePathRoot, &Hook_GetModelFilePathRoot,
                   reinterpret_cast<void**>(&g_OrigGetModelFilePathRoot),
-                  "RootModel is ignored - custom types leave nothing behind when picked" },
+                  "RootModel ignored for custom types" },
                 { gAddr.Collection_GetFovaFilePath, &Hook_GetFovaFilePath,
                   reinterpret_cast<void**>(&g_OrigGetFovaFilePath),
-                  "Fova is ignored - custom types render their base mesh with no form variation" },
+                  "Fova ignored for custom types" },
                 { gAddr.Collection_IsHerbByType, &Hook_IsHerbByType,
                   reinterpret_cast<void**>(&g_OrigIsHerbByType),
-                  "IsHerb is ignored - TppCollection.IsHerbByType answers false for custom types" },
+                  "IsHerbByType false for custom types" },
                 { gAddr.Collection_IsMaterialByType, &Hook_IsMaterialByType,
                   reinterpret_cast<void**>(&g_OrigIsMaterialByType),
-                  "IsMaterial is ignored - TppCollection.IsMaterialByType answers false for custom types" },
+                  "IsMaterialByType false for custom types" },
                 { gAddr.Collection_IsDiamondByType, &Hook_IsDiamondByType,
                   reinterpret_cast<void**>(&g_OrigIsDiamondByType),
-                  "IsDiamond is ignored - TppCollection.IsDiamondByType answers false for custom types" },
+                  "IsDiamondByType false for custom types" },
             };
 
             for (const ParityHook& h : parity)
             {
                 if (!h.addr)
                 {
-                    Log("[TppCollection] address not ported for %s - %s\n",
-                        GetGameBuildName(gGameBuild), h.miss);
+                    LogError("TppCollection: address missing for this build, %s", h.miss);
                     continue;
                 }
 
@@ -1814,7 +1721,7 @@ bool Install_TppCollectionHooks()
                 {
                     DisableAndRemoveHook(target);
                     *h.orig = nullptr;
-                    Log("[TppCollection] hook failed to install - %s\n", h.miss);
+                    LogError("TppCollection: hook failed, %s", h.miss);
                 }
             }
         }
@@ -1822,17 +1729,13 @@ bool Install_TppCollectionHooks()
     else
     {
         g_TypeHooks = InstallState::Failed;
-        Log("[TppCollection] type addresses not ported for %s - custom collection TYPES "
-            "unavailable (custom placements of vanilla types still work)\n",
-            GetGameBuildName(gGameBuild));
+        LogError("TppCollection: type addresses missing for this build, custom collection types off");
     }
 
     if (g_TypeHooks == InstallState::Failed && !g_Types.empty())
-        Log("[TppCollection] %zu custom type(s) were registered before the type hooks failed to "
-            "install - those types will not render or reward\n", g_Types.size());
+        LogWarn("TppCollection: %zu custom type(s) registered before type hooks failed, they will not render",
+                g_Types.size());
 
-    LogDebug("[TppCollection] Install hooks: OK (custom types: %s)\n",
-             g_TypeHooks == InstallState::Installed ? "armed" : "unavailable");
     return true;
 }
 

@@ -3,7 +3,6 @@
 #include "CamoufParamInfoImpl_GetCamoufValue.h"
 #include "OutfitRegistry.h"
 
-#include <atomic>
 #include <cstdint>
 
 #include "AddressSet.h"
@@ -20,10 +19,6 @@ namespace
 
     static GetCamoufValue_t g_OrigGetCamoufValue = nullptr;
     static bool             g_Installed          = false;
-
-#ifdef _DEBUG
-    static std::atomic<bool> g_FirstVirtualHitLogged{ false };
-#endif
 
     static int __fastcall hkGetCamoufValue(
         void* self, std::uint32_t camoType, std::uint32_t materialType)
@@ -53,21 +48,6 @@ namespace
 
         const std::int32_t v = row[materialType];
 
-#ifdef _DEBUG
-        if (!g_FirstVirtualHitLogged.exchange(true))
-        {
-            LogDebug("[OutfitGetCamoufValue] FIRST VIRTUAL HIT: "
-                "virtualId=%u materialType=%u value=%d ownerPT=%u "
-                "(developId=%u flowIndex=%u)\n",
-                static_cast<unsigned>(camoType),
-                static_cast<unsigned>(materialType),
-                static_cast<int>(v),
-                static_cast<unsigned>(ownerPT),
-                static_cast<unsigned>(entry->developId),
-                static_cast<unsigned>(entry->flowIndex));
-        }
-#endif
-
         return v;
     }
 }
@@ -81,8 +61,8 @@ namespace outfit
         void* target = ResolveGameAddress(gAddr.CamoufParamInfo_GetCamoufValue);
         if (!target)
         {
-            LogDebug("[OutfitGetCamoufValue] target unresolved; module disabled "
-                "(camoBonusValues unique-row feature will be inactive)\n");
+            LogError("OutfitGetCamoufValue: GetCamoufValue address missing for this "
+                "build, camoBonusValues off");
             return false;
         }
 
@@ -91,10 +71,8 @@ namespace outfit
             reinterpret_cast<void*>(&hkGetCamoufValue),
             reinterpret_cast<void**>(&g_OrigGetCamoufValue));
 
-#ifdef _DEBUG
-        Log("[OutfitGetCamoufValue] installed: %s (target=%p)\n",
-            g_Installed ? "OK" : "FAIL", target);
-#endif
+        if (!g_Installed)
+            LogError("OutfitGetCamoufValue: GetCamoufValue hook failed, camoBonusValues off");
         return g_Installed;
     }
 
@@ -105,8 +83,5 @@ namespace outfit
             DisableAndRemoveHook(t);
         g_OrigGetCamoufValue = nullptr;
         g_Installed          = false;
-#ifdef _DEBUG
-        LogDebug("[OutfitGetCamoufValue] removed\n");
-#endif
     }
 }

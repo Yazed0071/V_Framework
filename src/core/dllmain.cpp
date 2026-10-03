@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "../hooks/outfit/UniqueCharacterDefaultOutfit.h"
 #include "../hooks/equip/TppEquip_ReloadEquipIdTable.h"
+#include "../hooks/equip/EquipPartParams.h"
+#include "../hooks/outfit/FaceFovaWiden.h"
+#include "../hooks/outfit/StaffControllerImpl_AddStaff.h"
 #include <Windows.h>
 #include <atomic>
 #include <cstdio>
@@ -13,6 +16,7 @@
 #include "AddressSet.h"
 #include "V_FrameWorkState.h"
 #include "HookUtils.h"
+#include "FastThreadSnapshot.h"
 
 bool g_HookBatchMode = false;
 
@@ -36,19 +40,9 @@ namespace
         const auto* dos  = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
         const auto* nt   = reinterpret_cast<const IMAGE_NT_HEADERS*>(
             base + dos->e_lfanew);
-        const DWORD stamp = nt->FileHeader.TimeDateStamp;
-
-        const __time64_t t = static_cast<__time64_t>(stamp);
-        tm utc{};
-        if (_gmtime64_s(&utc, &t) == 0)
-            Log("[DLL] V_FrameWork.dll link stamp 0x%08X "
-                "(%04d-%02d-%02d %02d:%02d:%02d UTC)\n",
-                static_cast<unsigned>(stamp),
-                utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-                utc.tm_hour, utc.tm_min, utc.tm_sec);
-        else
-            Log("[DLL] V_FrameWork.dll link stamp 0x%08X\n",
-                static_cast<unsigned>(stamp));
+        LogInfo("V_FrameWork build 0x%08X, game %s",
+                static_cast<unsigned>(nt->FileHeader.TimeDateStamp),
+                GetGameBuildName(gGameBuild));
     }
 }
 
@@ -62,8 +56,6 @@ static void SetupConsole()
     EnsureConsole();
     gConsoleReady.store(true);
 
-    printf("[DLL] Console ready\n");
-    fflush(stdout);
 }
 #endif
 
@@ -75,23 +67,22 @@ static DWORD WINAPI InitThread(LPVOID)
 
     InitLog();
 
-    LogDebug("[DLL] InitThread started.\n");
+    LogOwnBuildStamp();
     HookArena::LogSummary();
     DeployGuard::Init();
-    LogOwnBuildStamp();
 
     HMODULE hGame = GetModuleHandleW(nullptr);
 
     const MH_STATUS st = MH_Initialize();
-#ifdef _DEBUG
-    Log("[DLL] MH_Initialize -> %d\n", static_cast<int>(st));
-#endif
     if (st != MH_OK && st != MH_ERROR_ALREADY_INITIALIZED)
+    {
+        LogError("Startup: MinHook init failed (%d), V_FrameWork is off", static_cast<int>(st));
         return 0;
+    }
 
     if (!ResolveAddressSet(hGame))
     {
-        Log("[DLL] ResolveAddressSet failed.\n");
+        LogError("Startup: unsupported game exe, V_FrameWork is off");
         return 0;
     }
 
@@ -107,16 +98,18 @@ static DWORD WINAPI InitThread(LPVOID)
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
     g_HookBatchMode = false;
     const MH_STATUS applySt = MH_ApplyQueued();
-    Log("[DLL] FeatureModuleRegistry::InstallAll -> %s\n", allOk ? "OK" : "PARTIAL/FAIL");
-    V_FrameWorkState::NoteInstallOutcome(allOk && applySt == MH_OK);
+    outfit::NoteStaffHooksApplied(applySt == MH_OK);
     if (applySt == MH_OK)
-        LogDebug("[DLL] MH_ApplyQueued -> OK\n");
-    else
-        Log("[DLL] MH_ApplyQueued -> %d (FAILED)\n", static_cast<int>(applySt));
-
-#ifdef _DEBUG
-    Log("[DLL] InitThread done.\n");
-#endif
+    {
+        EquipParam_InitializeWidePartIds();
+        outfit::InstallFaceFovaWiden();
+    }
+    if (!allOk)
+        LogError("Startup: some features failed to install, see errors above");
+    V_FrameWorkState::NoteInstallOutcome(allOk && applySt == MH_OK);
+    if (applySt != MH_OK)
+        LogError("Startup: hooks not applied (MinHook %d), V_FrameWork is off",
+                 static_cast<int>(applySt));
     return 0;
 }
 
@@ -128,10 +121,6 @@ static void UninstallAll(bool processTerminating)
         V_FrameWorkState::SaveOnProcessExit();
         V_FrameWorkState::AbandonFlusherThread();
 
-#ifdef _DEBUG
-        Log("[DLL] DLL_PROCESS_DETACH: process terminating, skipping FeatureModule "
-            "uninstall (other DLLs may already be unloaded)\n");
-#endif
         fflush(stdout);
         fflush(stderr);
         CloseLog();
@@ -145,9 +134,6 @@ static void UninstallAll(bool processTerminating)
 
     FeatureModuleRegistry::Instance().UninstallAll();
     MH_Uninitialize();
-#ifdef _DEBUG
-    Log("[DLL] UninstallAll done.\n");
-#endif
 
     fflush(stdout);
     fflush(stderr);
@@ -165,15 +151,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
     case DLL_PROCESS_ATTACH:
     {
         DisableThreadLibraryCalls(hModule);
+        FastThreadSnapshot::Install();
 
         bool expected = false;
         if (!gStarted.compare_exchange_strong(expected, true))
             return TRUE;
 
-        ResolveAddressSet(GetModuleHandleW(nullptr));
-        HookArena::ReserveEarly();
+        const bool supportedGame = ResolveAddressSet(GetModuleHandleW(nullptr));
         TppEquip_ReserveInfoListMirrorEarly();
+        HookArena::ReserveEarly();
         equip::PreApplyDevelopArrayGrowPatches();
+        if (supportedGame && !FeatureIsDisabled("LuaBridge") && MH_Initialize() == MH_OK)
+            Install_SetLuaFunctions_Hook();   // the game hands out its Lua libraries once, early in boot; the install thread can miss it
 
         HANDLE hThread = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
         if (hThread)

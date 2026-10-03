@@ -142,11 +142,6 @@ namespace
             return;
         if (singleOnly)
         {
-#ifdef _DEBUG
-            LogDebug("[MultiShot] engine forces 1 round/call for this weapon state "
-                "(work+0x27c bit 0x400000) - %d of %d rounds not fired\n",
-                remaining, n);
-#endif
             return;
         }
         while (remaining > 0)
@@ -154,23 +149,27 @@ namespace
             const int mag = ReadMagSEH(work);
             if (mag == 0)
             {
-#ifdef _DEBUG
-                LogDebug("[MultiShot] mag empty - %d of %d rounds dropped\n",
-                    remaining, n);
-#endif
                 break;
             }
             if (mag < 0)
             {
-                Log("[MultiShot] work read failed mid-burst - stopping "
-                    "re-trigger (%d remaining)\n", remaining);
+                static bool s_readWarned = false;
+                if (!s_readWarned)
+                {
+                    s_readWarned = true;
+                    LogWarn("MultiShot: bullet work read faulted mid-burst, %d rounds not fired", remaining);
+                }
                 break;
             }
             chunk = remaining < 255 ? remaining : 255;
             if (!ArmCountSEH(work, chunk))
             {
-                Log("[MultiShot] counter re-arm failed - stopping re-trigger "
-                    "(%d remaining)\n", remaining);
+                static bool s_armWarned = false;
+                if (!s_armWarned)
+                {
+                    s_armWarned = true;
+                    LogWarn("MultiShot: shot counter re-arm faulted, %d rounds not fired", remaining);
+                }
                 break;
             }
             g_OrigFire(self, work, idx);
@@ -197,8 +196,6 @@ namespace equip
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
             g_SpecByBulletId[bulletId] = spec;
         }
-        LogDebug("[MultiShot] bulletId=%d ammoPerShot=%d lockAmmoPerShot=%d "
-            "registered\n", bulletId, spec.ammoPerShot, spec.lockAmmoPerShot);
     }
 
     bool Install_BulletMultiShot_Hooks()
@@ -206,14 +203,14 @@ namespace equip
         void* fn = ResolveGameAddress(gAddr.AttackAction_Fire);
         if (!fn)
         {
-            LogDebug("[MultiShot] AttackAction_Fire unresolved on this build "
-                "- SetBullet ammoPerShot inactive.\n");
+            LogError("MultiShot: AttackAction_Fire address missing, SetBullet ammoPerShot off");
             return true;
         }
         const bool ok = CreateAndEnableHook(
             fn, reinterpret_cast<void*>(&hkFire),
             reinterpret_cast<void**>(&g_OrigFire));
-        Log("[MultiShot] Fire hook Install -> %s\n", ok ? "OK" : "FAIL");
+        if (!ok)
+            LogError("MultiShot: Fire hook failed, SetBullet ammoPerShot off");
         return ok;
     }
 

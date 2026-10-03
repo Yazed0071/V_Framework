@@ -134,8 +134,7 @@ namespace
         const int n = ScanCode(anchor, len, hits, 4);
         if (n != 1)
         {
-            Log("[PartMotionRows] the %s read site was found %d times instead of once - "
-                "no custom weapon gets its own slide or bolt movement on this build\n",
+            LogError("PartMotionRows: %s read site found %d times (need 1), custom slide/bolt motion off",
                 what, n);
             return nullptr;
         }
@@ -363,8 +362,8 @@ namespace
         std::uintptr_t next = 0;
         if (!ReadPointerSEH(table + ptrOffset, &cur) || !ReadPointerSEH(table + nextOffset, &next))
         {
-            Log("[PartMotionRows] the engine part-motion table at %p is unreadable - custom "
-                "receivers keep the placeholder row, so their slides and hammers stay still\n", table);
+            LogError("PartMotionRows: part-motion table %p unreadable, custom slides/hammers stay still",
+                static_cast<void*>(table));
             return false;
         }
         if (list.buffer && cur == reinterpret_cast<std::uintptr_t>(list.buffer))
@@ -374,8 +373,7 @@ namespace
         const std::size_t slack = span % kNativeRowStride;
         if (span == 0 || slack >= kNativeSlackMax || span > kNativeRowCap * kNativeRowStride)
         {
-            Log("[PartMotionRows] the engine %s list is not laid out as expected (%016llX..%016llX) - "
-                "custom receivers keep the placeholder row, so their slides and hammers stay still\n",
+            LogError("PartMotionRows: %s list layout unexpected (%016llX..%016llX), custom slides/hammers stay still",
                 what, static_cast<unsigned long long>(cur), static_cast<unsigned long long>(next));
             return false;
         }
@@ -387,8 +385,7 @@ namespace
                 nullptr, kNativeRowCap * kNativeRowStride, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
             if (!list.buffer)
             {
-                Log("[PartMotionRows] could not reserve the %s list copy - custom receivers keep the "
-                    "placeholder row, so their slides and hammers stay still\n", what);
+                LogError("PartMotionRows: %s list copy allocation failed, custom slides/hammers stay still", what);
                 return false;
             }
         }
@@ -396,13 +393,10 @@ namespace
         if (!CopyBytesSEH(list.buffer, reinterpret_cast<const void*>(cur), span)
             || !WritePointerSEH(table + ptrOffset, reinterpret_cast<std::uintptr_t>(list.buffer)))
         {
-            Log("[PartMotionRows] the engine %s list could not be repointed - custom receivers keep "
-                "the placeholder row, so their slides and hammers stay still\n", what);
+            LogError("PartMotionRows: %s list repoint failed, custom slides/hammers stay still", what);
             return false;
         }
         list.used = span;
-        LogDebug("[PartMotionRows] engine %s list adopted with %zu vanilla rows - custom receiver "
-                 "rows append after them\n", what, span / kNativeRowStride);
         return true;
     }
 
@@ -410,8 +404,7 @@ namespace
     {
         if (list.used + kNativeRowStride > kNativeRowCap * kNativeRowStride)
         {
-            Log("[PartMotionRows] the %s list already holds %zu rows - the row for bone %s is "
-                "dropped, so that bone will not move\n",
+            LogWarn("PartMotionRows: %s list full (%zu rows), bone %s row dropped",
                 pose ? "pose" : "motion", kNativeRowCap, row.bone.c_str());
             return 0;
         }
@@ -500,8 +493,7 @@ namespace
         VirtualAlloc(nullptr, kTableBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_Table)
     {
-        Log("[PartMotionRows] could not reserve the %zu-byte per-equip row table - "
-            "custom weapons keep their donor's slide and bolt movement\n", kTableBytes);
+        LogError("PartMotionRows: %zu-byte row table allocation failed, custom slide/bolt motion off", kTableBytes);
         return false;
     }
     std::memset(g_Table, 0, kTableBytes);
@@ -512,8 +504,7 @@ namespace
     {
         VirtualFree(g_Table, 0, MEM_RELEASE);
         g_Table = nullptr;
-        Log("[PartMotionRows] no executable page within reach of 0x%llX - custom "
-            "weapons keep their donor's slide and bolt movement\n",
+        LogError("PartMotionRows: no executable page near 0x%llX, custom slide/bolt motion off",
             static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(motionSite)));
         return false;
     }
@@ -605,8 +596,7 @@ namespace
             VirtualFree(g_Table, 0, MEM_RELEASE);
             g_Tramp = nullptr;
             g_Table = nullptr;
-            Log("[PartMotionRows] the emitted code needs more than %zu bytes - custom "
-                "weapons keep their donor's slide and bolt movement\n", kTrampBytes);
+            LogError("PartMotionRows: emitted code exceeds %zu bytes, custom slide/bolt motion off", kTrampBytes);
             return false;
         }
     }
@@ -620,8 +610,7 @@ namespace
             VirtualFree(g_Table, 0, MEM_RELEASE);
             g_Tramp = nullptr;
             g_Table = nullptr;
-            Log("[PartMotionRows] the trampoline landed out of jump range of site %d - "
-                "custom weapons keep their donor's slide and bolt movement\n", i);
+            LogError("PartMotionRows: trampoline out of jump range of site %d, custom slide/bolt motion off", i);
             return false;
         }
     }
@@ -647,8 +636,7 @@ namespace
             g_Tramp = nullptr;
             g_Table = nullptr;
             g_SiteCount = 0;
-            Log("[PartMotionRows] site %d refused the code write - custom weapons keep "
-                "their donor's slide and bolt movement\n", i);
+            LogError("PartMotionRows: site %d code write failed, custom slide/bolt motion off", i);
             return false;
         }
         ++g_SiteCount;

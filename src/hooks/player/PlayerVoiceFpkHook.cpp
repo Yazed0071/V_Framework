@@ -127,26 +127,52 @@ static bool ResolveVanillaExtVoice(std::uint32_t playerType, std::uint64_t* outV
         return false;
 
     const std::uint8_t pt = static_cast<std::uint8_t>(playerType & 0xFF);
+    const bool bypass = MissionCodeGuard::ShouldBypassHooks();
+    const std::uint32_t liveVoiceType =
+        bypass ? outfit::kSoundSwitchUnset
+               : Get_EffectivePlayerVoiceType(playerType);
 
-    if (!MissionCodeGuard::ShouldBypassHooks())
+    const outfit::VanillaSuitVariantAsset* var = nullptr;
+    if (!bypass)
     {
-        const std::uint8_t v = outfit::GetActiveVariant(vpt);
-        if (v != 0)
+        if (const std::uint8_t v = outfit::GetActiveVariant(vpt); v != 0)
+            var = outfit::VanillaExtGetVariantBridged(vpt, pt, v);
+    }
+
+    const std::uint8_t wornCamo = outfit::ReadLiveSelectorCode();
+
+    if (var && liveVoiceType != outfit::kSoundSwitchUnset)
+    {
+        for (std::uint8_t i = 0; i < var->voiceFpkByTypeCount
+             && i < outfit::kMaxVoiceFpkByType; ++i)
         {
-            if (const outfit::VanillaSuitVariantAsset* var =
-                    outfit::VanillaExtGetVariantBridged(vpt, pt, v))
+            if (var->voiceFpkByType[i].voiceType != liveVoiceType)
+                continue;
+            if (var->voiceFpkByType[i].pathCode64 > outfit::kSubAssetUseVanilla)
             {
-                if (var->voiceFpk > outfit::kSubAssetUseVanilla)
-                {
-                    if (outVoiceCode) *outVoiceCode = var->voiceFpk;
-                    return true;
-                }
+                if (outVoiceCode)
+                    *outVoiceCode = var->voiceFpkByType[i].pathCode64;
+                return true;
             }
         }
     }
 
+    const std::uint64_t byType = outfit::VanillaExtGetSuitVoiceFpkForVoiceType(
+        vpt, pt, wornCamo, liveVoiceType);
+    if (byType > outfit::kSubAssetUseVanilla)
+    {
+        if (outVoiceCode) *outVoiceCode = byType;
+        return true;
+    }
+
+    if (var && var->voiceFpk > outfit::kSubAssetUseVanilla)
+    {
+        if (outVoiceCode) *outVoiceCode = var->voiceFpk;
+        return true;
+    }
+
     const std::uint64_t suit = outfit::VanillaExtGetSuitVoiceFpk(
-        vpt, pt, outfit::ReadLiveSelectorCode());
+        vpt, pt, wornCamo);
     if (suit <= outfit::kSubAssetUseVanilla)
         return false;
     if (outVoiceCode) *outVoiceCode = suit;
@@ -158,11 +184,6 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
     std::uint64_t vextVoice = 0;
     if (ResolveVanillaExtVoice(playerType, &vextVoice))
     {
-#ifdef _DEBUG
-        LogDebug("[PlayerVoiceFpk] vanilla-ext voice applied (playerType=%u code=0x%016llX bypass=%d)\n",
-            playerType, static_cast<unsigned long long>(vextVoice),
-            MissionCodeGuard::ShouldBypassHooks() ? 1 : 0);
-#endif
         WritePlayerVoicePath(fileSlotPath, vextVoice);
         return fileSlotPath;
     }
@@ -175,10 +196,6 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
     std::uint64_t outfitVoice = 0;
     if (ResolveWornOutfitVoice(playerType, &outfitVoice))
     {
-#ifdef _DEBUG
-        LogDebug("[PlayerVoiceFpk] per-outfit voice applied (playerType=%u code=0x%016llX)\n",
-            playerType, static_cast<unsigned long long>(outfitVoice));
-#endif
         WritePlayerVoicePath(fileSlotPath, outfitVoice);
         return fileSlotPath;
     }
@@ -201,7 +218,7 @@ bool Install_PlayerVoiceFpk_Hook()
     void* target = ResolveGameAddress(gAddr.LoadPlayerVoiceFpk);
     if (!target)
     {
-        Log("[Hook] PlayerVoiceFpk: target resolve failed\n");
+        LogError("PlayerVoiceFpk: LoadPlayerVoiceFpk address missing, voice overrides off");
         return false;
     }
 
@@ -211,12 +228,8 @@ bool Install_PlayerVoiceFpk_Hook()
         reinterpret_cast<void**>(&g_OrigLoadPlayerVoiceFpk)
     );
 
-#ifdef _DEBUG
-    Log("[Hook] PlayerVoiceFpk: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] PlayerVoiceFpk: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("PlayerVoiceFpk: hook failed, voice overrides off");
     return ok;
 }
 
@@ -233,9 +246,6 @@ bool Uninstall_PlayerVoiceFpk_Hook()
         g_FallbackOverride = {};
     }
 
-#ifdef _DEBUG
-    LogDebug("[Hook] PlayerVoiceFpk: removed\n");
-#endif
     return true;
 }
 
@@ -260,15 +270,6 @@ void Set_PlayerVoiceFpkPathForType(std::uint32_t playerType, const char* rawPath
         g_FallbackOverride.enabled = true;
         g_FallbackOverride.pathCode64Ext = pathCode64Ext;
     }
-
-#ifdef _DEBUG
-    Log(
-        "[PlayerVoiceFpk] Type override set: playerType=%u path=%s -> 0x%016llX\n",
-        playerType,
-        rawPath,
-        static_cast<unsigned long long>(pathCode64Ext)
-    );
-#endif
 }
 
 
@@ -284,10 +285,6 @@ void Clear_PlayerVoiceFpkPathForType(std::uint32_t playerType)
     {
         g_FallbackOverride = {};
     }
-
-#ifdef _DEBUG
-    LogDebug("[PlayerVoiceFpk] Type override cleared: playerType=%u\n", playerType);
-#endif
 }
 
 
@@ -297,8 +294,4 @@ void Clear_AllPlayerVoiceFpkOverrides()
 
     g_TypeOverrides.clear();
     g_FallbackOverride = {};
-
-#ifdef _DEBUG
-    LogDebug("[PlayerVoiceFpk] All overrides cleared\n");
-#endif
 }

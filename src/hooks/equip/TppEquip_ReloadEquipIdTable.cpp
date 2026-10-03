@@ -2,7 +2,6 @@
 #include "TppEquip_ReloadEquipIdTable.h"
 
 #include <Windows.h>
-#include <atomic>
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -17,9 +16,9 @@
 #include "FoxHashes.h"
 #include "LuaApi.h"
 #include "EquipIdCompression.h"
-#include "GunBasicInject.h"
 #include "FeatureModule.h"
 #include "DeployGuard.h"
+#include "WideMagazine.h"
 
 namespace
 {
@@ -30,15 +29,13 @@ namespace
         std::int32_t equipId = 0;
         std::int32_t equipType = 0;
         std::int32_t subId = 0;
+        std::int32_t nativeSubId = -1;
         std::int32_t block = 0;
         std::uint64_t partsHash = 0;
         std::uint64_t packHash = 0;
         bool resident = false;
         bool released = false;
     };
-
-    static void LogEquipIdBudgetOnce();
-    static uintptr_t GetEquipSubIdAddr();
 
     static bool SafeStampRow(std::uint8_t* dst, std::uint16_t* word,
                              const EquipIdRow& row)
@@ -49,7 +46,8 @@ namespace
             *reinterpret_cast<std::uint64_t*>(dst + 0x08) = row.packHash;
             dst[0x10] = static_cast<std::uint8_t>(row.block);
             *word = static_cast<std::uint16_t>(
-                (row.equipType & 0x3F) | ((row.subId & 0x3FF) << 6));
+                (row.equipType & 0x3F)
+                | (((row.nativeSubId >= 0 ? row.nativeSubId : row.subId) & 0x3FF) << 6));
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -80,14 +78,19 @@ namespace
     static std::mutex g_Mutex;
     static std::vector<EquipIdRow> g_Rows;
     static std::map<int, EquipIdRow> g_Extended;
-    static std::map<std::int32_t, std::int32_t> g_AmmoRootParams;
+    struct AmmoRootParam
+    {
+        int logical;
+        int native;
+    };
+    static std::map<std::int32_t, AmmoRootParam> g_AmmoRootParams;
 
     static std::uint8_t* g_InfoMirror = nullptr;
     static std::uint8_t* g_InfoMirrorReserved = nullptr;
     static bool g_MirrorSitesPatched = false;
     static std::size_t g_MirrorSitesSkipped = 0;
-    static constexpr std::int32_t kMirrorRows = 0x10000;
-    static constexpr std::int32_t kNativeInfoRows = 0x28D;
+    static constexpr std::int32_t kMirrorRows =
+        EquipIdCompression::kExtendedFoldedLast + 1;
 
     static bool MirrorCopyNativeSEH()
     {
@@ -152,7 +155,16 @@ namespace
         std::uint32_t  rowOffset;
     };
 
-    static const MirrorRipSite kMirrorRipSites[] = {
+    struct MirrorSiteTable
+    {
+        const MirrorRipSite*      rip;
+        std::size_t               ripCount;
+        const MirrorAbsDispSite*  abs;
+        std::size_t               absCount;
+        std::uintptr_t            nativeBase;
+    };
+
+    static const MirrorRipSite kMirrorRipSitesEn154[] = {
         { 0x140a03587ull, 0x00u }, { 0x140a03ca4ull, 0x00u },
         { 0x140a047a4ull, 0x10u }, { 0x140a04832ull, 0x10u },
         { 0x140a05487ull, 0x00u }, { 0x140a05b80ull, 0x00u },
@@ -160,28 +172,136 @@ namespace
         { 0x140a0676cull, 0x00u }, { 0x140a07556ull, 0x00u },
         { 0x140a079d8ull, 0x00u }, { 0x140a081bbull, 0x00u },
     };
-    static const MirrorAbsDispSite kMirrorAbsSites[] = {
+    static const MirrorAbsDispSite kMirrorAbsSitesEn154[] = {
         { 0x140a0588aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
         { 0x140a058beull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
     };
-    static constexpr std::uintptr_t kMirrorNativeBase = 0x142c20fd0ull;
+
+    static const MirrorRipSite kMirrorRipSitesJp154[] = {
+        { 0x140a03397ull, 0x00u }, { 0x140a03ab4ull, 0x00u },
+        { 0x140a045b4ull, 0x10u }, { 0x140a04642ull, 0x10u },
+        { 0x140a05297ull, 0x00u }, { 0x140a05990ull, 0x00u },
+        { 0x140a05be2ull, 0x00u }, { 0x140a05c25ull, 0x00u },
+        { 0x140a0657cull, 0x00u }, { 0x140a07366ull, 0x00u },
+        { 0x140a077e8ull, 0x00u }, { 0x140a07fcbull, 0x00u },
+    };
+    static const MirrorAbsDispSite kMirrorAbsSitesJp154[] = {
+        { 0x140a0569aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
+        { 0x140a056ceull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
+    };
+
+    static const MirrorRipSite kMirrorRipSitesEn153[] = {
+        { 0x140a02be7ull, 0x00u }, { 0x1463c0ec3ull, 0x00u },
+        { 0x1463c4494ull, 0x10u }, { 0x1463c47e2ull, 0x10u },
+        { 0x1463c5437ull, 0x00u }, { 0x1463c763full, 0x00u },
+        { 0x1463c7762ull, 0x00u }, { 0x1463c79a5ull, 0x00u },
+        { 0x140a0607cull, 0x00u }, { 0x1463dfde6ull, 0x00u },
+        { 0x140a07298ull, 0x00u }, { 0x140a07a7bull, 0x00u },
+    };
+    static const MirrorAbsDispSite kMirrorAbsSitesEn153[] = {
+        { 0x140a050daull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FB0u, 0x00u },
+        { 0x140a0510eull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FC0u, 0x10u },
+    };
+
+    static const MirrorRipSite kMirrorRipSitesJp153[] = {
+        { 0x140a026b7ull, 0x00u }, { 0x14801b7f3ull, 0x00u },
+        { 0x14801f744ull, 0x10u }, { 0x14801f972ull, 0x10u },
+        { 0x1480212b7ull, 0x00u }, { 0x148023cffull, 0x00u },
+        { 0x148024182ull, 0x00u }, { 0x148024995ull, 0x00u },
+        { 0x140a05b4cull, 0x00u }, { 0x14802a756ull, 0x00u },
+        { 0x140a06d68ull, 0x00u }, { 0x140a0754bull, 0x00u },
+    };
+    static const MirrorAbsDispSite kMirrorAbsSitesJp153[] = {
+        { 0x140a04baaull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FB0u, 0x00u },
+        { 0x140a04bdeull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FC0u, 0x10u },
+    };
+
+    static const MirrorSiteTable kMirrorTableEn154 = {
+        kMirrorRipSitesEn154, sizeof(kMirrorRipSitesEn154) / sizeof(kMirrorRipSitesEn154[0]),
+        kMirrorAbsSitesEn154, sizeof(kMirrorAbsSitesEn154) / sizeof(kMirrorAbsSitesEn154[0]),
+        0x142c20fd0ull,
+    };
+
+    static const MirrorSiteTable kMirrorTableJp154 = {
+        kMirrorRipSitesJp154, sizeof(kMirrorRipSitesJp154) / sizeof(kMirrorRipSitesJp154[0]),
+        kMirrorAbsSitesJp154, sizeof(kMirrorAbsSitesJp154) / sizeof(kMirrorAbsSitesJp154[0]),
+        0x142c20fd0ull,
+    };
+    static const MirrorSiteTable kMirrorTableEn153 = {
+        kMirrorRipSitesEn153, sizeof(kMirrorRipSitesEn153) / sizeof(kMirrorRipSitesEn153[0]),
+        kMirrorAbsSitesEn153, sizeof(kMirrorAbsSitesEn153) / sizeof(kMirrorAbsSitesEn153[0]),
+        0x142c20fb0ull,
+    };
+    static const MirrorSiteTable kMirrorTableJp153 = {
+        kMirrorRipSitesJp153, sizeof(kMirrorRipSitesJp153) / sizeof(kMirrorRipSitesJp153[0]),
+        kMirrorAbsSitesJp153, sizeof(kMirrorAbsSitesJp153) / sizeof(kMirrorAbsSitesJp153[0]),
+        0x142c20fb0ull,
+    };
+
+    static const MirrorSiteTable* MirrorTableForBuild()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+            return &kMirrorTableEn154;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
+            return &kMirrorTableJp154;
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
+            return &kMirrorTableEn153;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
+            return &kMirrorTableJp153;
+        default:
+            return nullptr;
+        }
+    }
     static constexpr std::uintptr_t kMirrorImageBase  = 0x140000000ull;
     static constexpr std::uintptr_t kMirrorNearBand   = 0x40000000ull;
     static constexpr std::uintptr_t kMirrorMaxRowDisp = 0x10ull;
 
+    static std::uintptr_t MirrorExeBase()
+    {
+        const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        return base ? base : kMirrorImageBase;
+    }
+
+    static bool MirrorReadSiteSEH(const void* at, std::uint8_t* out, std::size_t len)
+    {
+        __try
+        {
+            std::memcpy(out, at, len);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     static void MirrorReaderReach(std::size_t size, std::uintptr_t& lo, std::uintptr_t& hi)
     {
+        const MirrorSiteTable* table = MirrorTableForBuild();
         std::uintptr_t minNext = ~0ull;
         std::uintptr_t maxNext = 0;
-        for (const MirrorRipSite& site : kMirrorRipSites)
+        for (std::size_t i = 0; table && i < table->ripCount; ++i)
         {
-            minNext = (std::min)(minNext, site.va + 7);
-            maxNext = (std::max)(maxNext, site.va + 7);
+            const auto next = reinterpret_cast<std::uintptr_t>(
+                ResolveGameAddress(table->rip[i].va)) + 7;
+            minNext = (std::min)(minNext, next);
+            maxNext = (std::max)(maxNext, next);
         }
+        if (!table || minNext > maxNext)
+        {
+            lo = 0;
+            hi = 0;
+            return;
+        }
+        const std::uintptr_t exeBase = MirrorExeBase();
         std::uintptr_t lower = maxNext - 0x80000000ull;
         std::uintptr_t upper = minNext + 0x7FFFFFFFull - kMirrorMaxRowDisp;
-        lower = (std::max)(lower, kMirrorImageBase - 0x80000000ull);
-        upper = (std::min)(upper, kMirrorImageBase + 0x7FFFFFFFull - kMirrorMaxRowDisp);
+        lower = (std::max)(lower, exeBase - 0x80000000ull);
+        upper = (std::min)(upper, exeBase + 0x7FFFFFFFull - kMirrorMaxRowDisp);
         lo = lower;
         hi = upper > size ? upper - size : 0;
     }
@@ -272,7 +392,8 @@ namespace
             return nullptr;
 
         const std::uintptr_t imageEnd = MirrorImageEnd();
-        const std::uintptr_t farFrom  = kMirrorImageBase + kMirrorNearBand;
+        const std::uintptr_t exeBase  = MirrorExeBase();
+        const std::uintptr_t farFrom  = exeBase + kMirrorNearBand;
         if (void* p = MirrorWalkUp(farFrom, hi + size, size, gran, lo, hi, reserveOnly,
                                    stats.largestFree[0], stats))
             return p;
@@ -283,39 +404,43 @@ namespace
             return p;
         if (stats.commitFailed)
             return nullptr;
-        return MirrorWalkUp(lo, kMirrorImageBase, size, gran, lo, hi, reserveOnly,
+        return MirrorWalkUp(lo, exeBase, size, gran, lo, hi, reserveOnly,
                             stats.largestFree[2], stats);
     }
 
     static std::size_t PatchInfoListLeaSites()
     {
-        const std::uintptr_t nativeBase = kMirrorNativeBase;
-        const std::uintptr_t imageBase  = kMirrorImageBase;
+        const MirrorSiteTable* table = MirrorTableForBuild();
+        if (!table)
+            return 0;
+        const auto nativeBase =
+            reinterpret_cast<std::uintptr_t>(ResolveGameAddress(table->nativeBase));
+        const std::uintptr_t imageBase = MirrorExeBase();
         std::size_t patched = 0;
         std::size_t skipped = 0;
 
-        for (const MirrorRipSite& site : kMirrorRipSites)
+        for (std::size_t s = 0; s < table->ripCount; ++s)
         {
-            const std::uintptr_t va = site.va;
+            const MirrorRipSite& site = table->rip[s];
+            const auto va = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(site.va));
             auto* p = reinterpret_cast<std::uint8_t*>(va);
-            if ((p[0] != 0x48 && p[0] != 0x4C) || p[1] != 0x8D)
+            std::uint8_t head[7] = {};
+            if (!p || !MirrorReadSiteSEH(p, head, sizeof(head)))
             {
                 ++skipped;
-                LogDebug("[EquipIdTable] mirror site 0x%llX is not the expected LEA "
-                         "- skipped; this reader keeps the 653-row table and reads "
-                         "a garbage row for extended equipIds\n",
-                    static_cast<unsigned long long>(va));
                 continue;
             }
-            const std::int32_t disp = *reinterpret_cast<const std::int32_t*>(p + 3);
+            if ((head[0] != 0x48 && head[0] != 0x4C) || head[1] != 0x8D)
+            {
+                ++skipped;
+                continue;
+            }
+            std::int32_t disp = 0;
+            std::memcpy(&disp, head + 3, sizeof(disp));
             if (va + 7 + static_cast<std::intptr_t>(disp)
                 != nativeBase + site.rowOffset)
             {
                 ++skipped;
-                LogDebug("[EquipIdTable] mirror site 0x%llX does not point at the "
-                         "native InfoList - skipped; extended equipIds keep reading "
-                         "a garbage row\n",
-                    static_cast<unsigned long long>(va));
                 continue;
             }
             const std::intptr_t delta =
@@ -323,9 +448,7 @@ namespace
                 - static_cast<std::intptr_t>(va + 7);
             if (delta < INT32_MIN || delta > INT32_MAX)
             {
-                Log("[EquipIdTable] ERROR: the InfoList mirror landed outside rel32 "
-                    "range of the equip-data readers - extended weapons queue a "
-                    "garbage package and never finish loading\n");
+                LogError("EquipIdTable: InfoList mirror out of rel32 range of the readers, extended weapons never load");
                 break;
             }
             DWORD old = 0;
@@ -338,19 +461,22 @@ namespace
             }
         }
 
-        for (const MirrorAbsDispSite& site : kMirrorAbsSites)
+        for (std::size_t a = 0; a < table->absCount; ++a)
         {
-            auto* p = reinterpret_cast<std::uint8_t*>(site.va);
-            if (std::memcmp(p, site.prefix, site.prefixLen) != 0
-                || *reinterpret_cast<const std::uint32_t*>(p + site.dispOffset)
-                       != site.expectedDisp)
+            const MirrorAbsDispSite& site = table->abs[a];
+            auto* p = static_cast<std::uint8_t*>(ResolveGameAddress(site.va));
+            std::uint8_t head[8] = {};
+            if (!p || !MirrorReadSiteSEH(p, head, sizeof(head)))
             {
                 ++skipped;
-                LogDebug("[EquipIdTable] mirror site 0x%llX is not the expected "
-                         "image-base read of the native InfoList - skipped; the "
-                         "block-with-pack resolver keeps reading a garbage row, so "
-                         "extended weapons never realize\n",
-                    static_cast<unsigned long long>(site.va));
+                continue;
+            }
+            std::uint32_t curDisp = 0;
+            std::memcpy(&curDisp, head + site.dispOffset, sizeof(curDisp));
+            if (std::memcmp(head, site.prefix, site.prefixLen) != 0
+                || curDisp != site.expectedDisp)
+            {
+                ++skipped;
                 continue;
             }
             const std::intptr_t delta =
@@ -358,9 +484,7 @@ namespace
                 - static_cast<std::intptr_t>(imageBase);
             if (delta < INT32_MIN || delta > INT32_MAX)
             {
-                Log("[EquipIdTable] ERROR: the InfoList mirror landed outside "
-                    "disp32 range of the image base - the block-with-pack resolver "
-                    "keeps reading a garbage row for extended equipIds\n");
+                LogError("EquipIdTable: InfoList mirror out of disp32 range of the image base, extended weapons never realize");
                 break;
             }
             DWORD old = 0;
@@ -374,11 +498,6 @@ namespace
             }
         }
 
-        if (skipped)
-            Log("[EquipIdTable] WARNING: %zu of %zu InfoList reader site(s) could "
-                "not be repointed - an extended weapon reached through one resolves "
-                "no package and its loadout slot waits forever\n",
-                skipped, skipped + patched);
         g_MirrorSitesSkipped = skipped;
         return patched;
     }
@@ -395,20 +514,15 @@ namespace
                 std::lock_guard<std::mutex> lock(g_Mutex);
                 g_Extended[row.equipId] = row;
                 MirrorStampRowNoLock(row);
-                static std::size_t s_extLogged = 0;
-                if (s_extLogged < 8)
-                {
-                    ++s_extLogged;
-                    LogDebug("[EquipIdTable] equipId=%d is past the %d-slot native "
-                             "table - stored in the DLL extended table\n",
-                        row.equipId, EquipIdCompression::kCompressedSlotBound);
-                }
                 return;
             }
-            LogDebug("[EquipIdTable] REFUSED write: equipId=%d compresses to 0x%X, "
-                     "outside the 0x%X-slot native table and the "
-                     "handle-representable extended range - row dropped\n",
-                row.equipId, index, EquipIdCompression::kCompressedSlotBound);
+            static bool s_foldWarned = false;
+            if (!s_foldWarned)
+            {
+                s_foldWarned = true;
+                LogWarn("EquipIdTable: equipId %d folds to 0x%X, outside native and extended range, row dropped",
+                    row.equipId, static_cast<unsigned>(index));
+            }
             return;
         }
 
@@ -418,25 +532,36 @@ namespace
             ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
         if (!infoList || !typeWords)
         {
-            LogDebug("[EquipIdTable] native table address(es) not resolved; write skipped\n");
+            static bool s_warned = false;
+            if (!s_warned)
+            {
+                s_warned = true;
+                LogError("EquipIdTable: native InfoList address missing, custom equip rows not written");
+            }
             return;
         }
 
-        if (row.subId > 0x3FF)
+        if ((row.nativeSubId >= 0 ? row.nativeSubId : row.subId) > 0x3FF)
         {
-            LogDebug("[EquipIdTable] REFUSED write: equipId=%d subId=%d - a native "
-                     "row packs subId into 10 bits (max 1023), so it would truncate "
-                     "to %d and the loadout would resolve a different weapon; needs "
-                     "an extended equipId, row dropped\n",
-                row.equipId, row.subId, row.subId & 0x3FF);
+            static bool s_subIdWarned = false;
+            if (!s_subIdWarned)
+            {
+                s_subIdWarned = true;
+                LogWarn("EquipIdTable: equipId %d subId %d exceeds 1023, needs an extended equipId, row dropped",
+                    row.equipId, row.subId);
+            }
             return;
         }
 
         std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
         if (!SafeStampRow(dst, typeWords + index, row))
         {
-            LogDebug("[EquipIdTable] SEH writing the native row for equipId=%d - "
-                     "addresses wrong for this build; write skipped\n", row.equipId);
+            static bool s_stampWarned = false;
+            if (!s_stampWarned)
+            {
+                s_stampWarned = true;
+                LogWarn("EquipIdTable: equipId %d native row write faulted, row skipped", row.equipId);
+            }
             return;
         }
 
@@ -458,8 +583,6 @@ namespace
         const std::int32_t index = EquipIdCompression::ComputeCompressed(equipId);
         if (!EquipIdCompression::IsCompressedInBounds(index))
         {
-            LogDebug("[EquipIdTable] EraseNativeRow refused: equipId=%d out of "
-                "bounds\n", equipId);
             return false;
         }
         auto* infoList = static_cast<std::uint8_t*>(
@@ -468,21 +591,16 @@ namespace
             ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
         if (!infoList || !typeWords)
         {
-            LogDebug("[EquipIdTable] EraseNativeRow: table address(es) not resolved; "
-                "skipped\n");
+            LogError("EquipIdTable: native InfoList address missing, equipId %d row not released", equipId);
             return false;
         }
         std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
         if (!SafeZeroRow(dst, typeWords + index))
         {
-            LogDebug("[EquipIdTable] SEH erasing native row for equipId=%d - "
-                "skipped\n", equipId);
+            LogWarn("EquipIdTable: equipId %d native row erase faulted, row kept", equipId);
             return false;
         }
         EquipIdCompression::ClearCompressedSlotUsed(index);
-#ifdef _DEBUG
-        LogDebug("[EquipIdTable] native row released for equipId=%d\n", equipId);
-#endif
         return true;
     }
 
@@ -517,18 +635,10 @@ namespace
         EquipIdRow row = rowIn;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
-            if (row.subId == 0)
+            if (const auto it = g_AmmoRootParams.find(row.equipId); it != g_AmmoRootParams.end())
             {
-                auto it = g_AmmoRootParams.find(row.equipId);
-                if (it != g_AmmoRootParams.end())
-                {
-                    row.subId = it->second;
-                    LogDebug("[EquipIdTable] equipId=%d is a registered ammo item - "
-                             "subId auto-set to ammoId %d (the supply refill "
-                             "resolves its amount through this field; subId 0 "
-                             "delivers nothing)\n",
-                        row.equipId, row.subId);
-                }
+                row.subId = it->second.logical;
+                row.nativeSubId = it->second.native;
             }
             bool replaced = false;
             for (auto& existing : g_Rows)
@@ -536,11 +646,7 @@ namespace
                 if (existing.equipId == row.equipId)
                 {
                     if (existing.partsHash != row.partsHash || existing.equipType != row.equipType)
-                        Log("[EquipIdTable] WARNING: equipId=%d is registered twice with different "
-                            "content (type %d -> %d, parts %016llX -> %016llX) - the first weapon or "
-                            "item now carries the second row's model, and the id the second row was "
-                            "meant for has no row at all; firing a launcher whose ammo id has no row "
-                            "crashes inside the engine's shell code\n",
+                        LogWarn("AddToEquipIdTable: equipId %d registered twice (type %d->%d, parts %016llX->%016llX), first row overwritten",
                             row.equipId, existing.equipType, row.equipType,
                             static_cast<unsigned long long>(existing.partsHash),
                             static_cast<unsigned long long>(row.partsHash));
@@ -554,13 +660,6 @@ namespace
         }
 
         WriteNativeRow(row);
-#ifdef _DEBUG
-        LogDebug("[EquipIdTable] custom row: equipId=%d type=%d subId=%d block=%d "
-            "parts=%016llX pack=%016llX\n",
-            row.equipId, row.equipType, row.subId, row.block,
-            static_cast<unsigned long long>(row.partsHash),
-            static_cast<unsigned long long>(row.packHash));
-#endif
     }
 
     static void ReapplyAll()
@@ -570,236 +669,18 @@ namespace
             std::lock_guard<std::mutex> lock(g_Mutex);
             snapshot = g_Rows;
         }
-        std::size_t applied = 0;
         for (const auto& row : snapshot)
         {
             if (row.released)
                 continue;
             WriteNativeRow(row);
-            ++applied;
         }
-#ifdef _DEBUG
-        if (applied)
-            LogDebug("[EquipIdTable] re-applied %zu custom row(s) after reload\n",
-                applied);
-#endif
         RefreshInfoMirror();
-        LogEquipIdBudgetOnce();
-    }
-
-    static int ScanTypeWordsSEH(const std::uint16_t* words, int count,
-                                int* maxType, int* maxSub, int* typeBit5)
-    {
-        __try
-        {
-            for (int i = 0; i < count; ++i)
-            {
-                const unsigned w = words[i];
-                if (!w)
-                    continue;
-                const int t = static_cast<int>(w & 0x3F);
-                const int s = static_cast<int>((w >> 6) & 0x3FF);
-                if (t > *maxType) *maxType = t;
-                if (s > *maxSub)  *maxSub  = s;
-                if (t & 0x20)     ++(*typeBit5);
-            }
-            return 1;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return 0;
-        }
-    }
-
-    static void LogSubIdCeilingOnce()
-    {
-        static std::atomic<bool> s_logged{ false };
-        if (s_logged.exchange(true))
-            return;
-
-        const auto* words = static_cast<const std::uint16_t*>(
-            ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
-        if (!words)
-            return;
-
-        int maxType = 0, maxSub = 0, typeBit5 = 0;
-        if (!ScanTypeWordsSEH(words, kNativeInfoRows, &maxType, &maxSub, &typeBit5))
-        {
-            LogDebug("[EquipIdCeiling] SEH scanning the packed type/subId words - "
-                     "the weapon-count ceiling is unmeasurable on this build\n");
-            return;
-        }
-
-        LogDebug("[EquipIdCeiling] packed word is type:6|subId:10 - scan of %d "
-                 "rows: max equipType=%d, max subId=%d, rows using type bit5=%d. "
-                 "NATIVE rows stay capped at subId %d (the unpack sites are not "
-                 "statically enumerable). EXTENDED equipIds bypass this word via "
-                 "the GetEquipTypeId/GetEquipSubId hooks; their ceiling is the "
-                 "gunBasic shadow, currently %d\n",
-            static_cast<int>(kNativeInfoRows), maxType, maxSub, typeBit5,
-            GunBasic_PackedSubIdMax(), GunBasic_MaxWeaponId());
-    }
-
-    static void LogEquipIdBudgetOnce()
-    {
-        static std::atomic<bool> s_logged{ false };
-        if (s_logged.exchange(true))
-            return;
-
-        LogSubIdCeilingOnce();
-
-        std::vector<EquipIdRow> snapshot;
-        {
-            std::lock_guard<std::mutex> lock(g_Mutex);
-            snapshot = g_Rows;
-        }
-
-        int weaponNative = 0, weaponExt = 0, otherNative = 0, otherExt = 0;
-        for (const auto& row : snapshot)
-        {
-            if (row.released || row.equipId <= 0)
-                continue;
-            const bool ext = EquipIdCompression::IsExtendedEquipId(row.equipId);
-            if (row.subId != 0)
-                ext ? ++weaponExt : ++weaponNative;
-            else
-                ext ? ++otherExt : ++otherNative;
-        }
-
-        int freeItem = 0, freeWeapon = 0;
-        for (std::int32_t i = EquipIdCompression::kItemBandFirst;
-             i <= EquipIdCompression::kItemBandLast; ++i)
-            if (!EquipIdCompression::IsCompressedSlotUsed(i))
-                ++freeItem;
-        for (std::int32_t i = EquipIdCompression::kWeaponBandFirst;
-             i <= EquipIdCompression::kWeaponBandLastUsable; ++i)
-            if (!EquipIdCompression::IsCompressedSlotUsed(i))
-                ++freeWeapon;
-
-        const int headroom = freeItem + freeWeapon + otherNative;
-        const int stranded = (weaponExt > headroom) ? (weaponExt - headroom) : 0;
-
-        LogDebug("[EquipIdBudget] custom equip rows %d: WEAPONS %d (native %d / "
-                 "EXTENDED %d) | non-weapons %d (native %d / extended %d). Native "
-                 "free: item band %d, weapon band %d\n",
-            weaponNative + weaponExt + otherNative + otherExt,
-            weaponNative + weaponExt, weaponNative, weaponExt,
-            otherNative + otherExt, otherNative, otherExt,
-            freeItem, freeWeapon);
-
-        const bool subIdServed = GetEquipSubIdAddr() != 0;
-        const bool mirrorArmed = g_InfoMirror != nullptr;
-
-        if (weaponExt > 0 && (!subIdServed || !mirrorArmed))
-            LogDebug("[EquipIdBudget] %d weapon(s) hold EXTENDED equipIds but this "
-                     "build lacks %s%s%s - without the subId accessor the loadout "
-                     "equips a vanilla gun instead, and without the mirror the "
-                     "deploy hangs on an infinite load. Native headroom = %d free + "
-                     "%d on non-weapon rows = %d; reallocating would still strand "
-                     "%d\n",
-                weaponExt,
-                subIdServed ? "" : "the GetEquipSubId hook",
-                (!subIdServed && !mirrorArmed) ? " and " : "",
-                mirrorArmed ? "" : "the extended InfoList mirror",
-                freeItem + freeWeapon, otherNative, headroom, stranded);
-    }
-
-    static bool DiagReadHash(const std::uint8_t* p, std::uint64_t& out)
-    {
-        __try
-        {
-            out = *reinterpret_cast<const std::uint64_t*>(p);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-    static void DiagDumpEquipOccupancy()
-    {
-        static int   s_dumps = 0;
-        static DWORD s_lastTick = 0;
-        if (s_dumps >= 6)
-            return;
-        const DWORD now = GetTickCount();
-        if (s_lastTick != 0 && (now - s_lastTick) < 4000u)
-            return;
-        s_lastTick = now;
-        const int myN = ++s_dumps;
-
-        auto* infoList = g_InfoMirror
-            ? g_InfoMirror
-            : static_cast<std::uint8_t*>(
-                  ResolveGameAddress(gAddr.EquipIdTable_InfoList));
-        if (!infoList)
-        {
-            LogDebug("[ZetaDiag] #%d: EquipIdTable_InfoList unresolved for this build\n",
-                myN);
-            return;
-        }
-
-        std::vector<EquipIdRow> vfw;
-        {
-            std::lock_guard<std::mutex> lock(g_Mutex);
-            vfw = g_Rows;
-        }
-
-        LogDebug("[ZetaDiag] ===== equip-id dump #%d: %zu custom rows (%s, "
-                 "folded-indexed, after the game/Zeta push, before V_FrameWork "
-                 "re-stamps) =====\n", myN, vfw.size(),
-            g_InfoMirror ? "mirror - what the repointed readers actually resolve"
-                         : "native table");
-
-        int ours = 0, foreign = 0, empty = 0, ext = 0;
-        for (const auto& r : vfw)
-        {
-            const std::int32_t idx =
-                EquipIdCompression::ComputeCompressed(r.equipId);
-            if (idx < 0 || idx >= (g_InfoMirror
-                                       ? kMirrorRows
-                                       : EquipIdCompression::kCompressedSlotBound))
-            {
-                ++ext;
-                LogDebug("[ZetaDiag]   equipId=0x%X folds to 0x%X - past the readable "
-                    "bound\n", r.equipId, idx);
-                continue;
-            }
-            std::uint64_t cur = 0;
-            const bool ok = DiagReadHash(
-                infoList + static_cast<size_t>(idx) * kRowStride, cur);
-            const char* verdict;
-            if (!ok)                     { verdict = "SEH-unreadable"; }
-            else if (cur == 0)           { verdict = "EMPTY(push dropped it)"; ++empty; }
-            else if (cur == r.partsHash) { verdict = "OURS"; ++ours; }
-            else                         { verdict = "FOREIGN<-collision (Zeta/vanilla holds this slot)"; ++foreign; }
-            LogDebug("[ZetaDiag]   equipId=0x%X slot=0x%X ourParts=%016llX "
-                "native=%016llX %s\n",
-                r.equipId, idx,
-                static_cast<unsigned long long>(r.partsHash),
-                static_cast<unsigned long long>(cur), verdict);
-        }
-
-        int wbOcc = 0;
-        for (std::int32_t i = EquipIdCompression::kWeaponBandFirst;
-             i <= EquipIdCompression::kWeaponBandLastUsable; ++i)
-        {
-            std::uint64_t cur = 0;
-            if (DiagReadHash(infoList + static_cast<size_t>(i) * kRowStride, cur)
-                && cur != 0)
-                ++wbOcc;
-        }
-        LogDebug("[ZetaDiag] #%d summary: OURS=%d FOREIGN=%d EMPTY=%d PAST-BOUND=%d "
-                 "| weapon band 0x230-0x288 occupied=%d/89 (from the %s)\n",
-            myN, ours, foreign, empty, ext, wbOcc,
-            g_InfoMirror ? "mirror" : "native table");
     }
 
     static int __fastcall hkReloadEquipIdTable(lua_State* L)
     {
         const int ret = g_OrigReloadEquipIdTable ? g_OrigReloadEquipIdTable(L) : 0;
-        DiagDumpEquipOccupancy();
         ReapplyAll();
         return ret;
     }
@@ -823,28 +704,77 @@ namespace
 
     static uintptr_t GetEquipSubIdAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140a2a520ull;
-        default:                                           return 0;
-        }
+        return gAddr.EquipIdTable_GetRootParameterId;
+    }
+
+    static bool EquipIdAccessorHasFold(const void* fn, std::size_t span,
+                                       const std::uint8_t* fold, std::size_t foldLen)
+    {
+        std::uint8_t head[16] = {};
+        if (!fn || span > sizeof(head) || !MirrorReadSiteSEH(fn, head, span))
+            return false;
+        for (std::size_t i = 0; i + foldLen <= span; ++i)
+            if (std::memcmp(head + i, fold, foldLen) == 0)
+                return true;
+        return false;
+    }
+
+    static bool IsGetEquipSubIdBody(const void* fn)
+    {
+        static const std::uint8_t kFold[] = { 0x8D, 0x82, 0xD0, 0xFD, 0xFF, 0xFF };
+        return EquipIdAccessorHasFold(fn, 8, kFold, sizeof(kFold));
+    }
+
+    static bool IsGetEquipTypeIdBody(const void* fn)
+    {
+        static const std::uint8_t kFold[] = { 0x8D, 0x82, 0x99, 0xFC, 0xFF, 0xFF };
+        return EquipIdAccessorHasFold(fn, 12, kFold, sizeof(kFold));
     }
 
     static unsigned int __fastcall hkGetEquipSubId(void* self, unsigned int equipId)
     {
+        if (WideMagazine_IsActive())
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            const auto ammo = g_AmmoRootParams.find(static_cast<int>(equipId));
+            if (ammo != g_AmmoRootParams.end())
+            {
+                bool owned = false;
+                bool released = false;
+                const auto extended = g_Extended.find(static_cast<int>(equipId));
+                if (extended != g_Extended.end())
+                {
+                    owned = true;
+                    released = extended->second.released;
+                }
+                for (const auto& row : g_Rows)
+                    if (row.equipId == static_cast<int>(equipId))
+                    {
+                        owned = true;
+                        released = released || row.released;
+                        break;
+                    }
+                if (owned)
+                    return released ? 0u : static_cast<unsigned>(ammo->second.logical);
+            }
+        }
         if (EquipIdCompression::IsExtendedEquipId(static_cast<std::int32_t>(equipId)))
         {
             V_ExtendedEquipRow ext;
             if (TppEquip_GetExtendedEquipRow(static_cast<int>(equipId), &ext))
             {
-                if (ext.subId < 0 || ext.subId > 0x3FF)
-                    return static_cast<unsigned int>(ext.subId) & 0x3FF;
+                if (ext.subId < 0 || ext.subId > 0xFFFF)
+                    return 0;
                 return static_cast<unsigned int>(ext.subId);
             }
         }
         return g_OrigGetEquipSubId ? g_OrigGetEquipSubId(self, equipId) : 0;
     }
+}
+
+bool TppEquip_WideAmmoRootReady()
+{
+    return g_OrigGetEquipSubId != nullptr;
 }
 
 int TppEquip_GetSubIdForEquipId(int equipId)
@@ -896,7 +826,7 @@ bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out)
 
 void TppEquip_ReserveInfoListMirrorEarly()
 {
-    if (!::AddressSetRuntime::IsEn154Family(gGameBuild))
+    if (!MirrorTableForBuild())
         return;
     MirrorWalkStats stats;
     g_InfoMirrorReserved = static_cast<std::uint8_t*>(AllocateMirrorInReaderReach(
@@ -916,13 +846,10 @@ bool TppEquip_EnsureInfoListMirror()
             VirtualFree(g_InfoMirrorReserved, 0, MEM_RELEASE);
             g_InfoMirrorReserved = nullptr;
         }
-        Log("[EquipIdTable] extended InfoList mirror DISABLED by "
-            "disabled_modules.txt - the 14 reader sites keep the 653-row table, so "
-            "extended equipIds (649+) resolve nothing and are dropped from the loadout this "
-            "session to keep the deploy safe\n");
+        LogWarn("EquipIdTable: InfoList mirror disabled by disabled_modules.txt, extended equipIds (649+) dropped from loadout");
         return false;
     }
-    if (!::AddressSetRuntime::IsEn154Family(gGameBuild))
+    if (!MirrorTableForBuild())
     {
         g_MirrorSitesPatched = true;
         DeployGuard::ForceDropExtendedIds();
@@ -931,10 +858,8 @@ bool TppEquip_EnsureInfoListMirror()
             VirtualFree(g_InfoMirrorReserved, 0, MEM_RELEASE);
             g_InfoMirrorReserved = nullptr;
         }
-        Log("[EquipIdTable] WARN: InfoList mirror sites are not ported for this build "
-            "- the readers would index the 653-row table with the raw extended equipId, "
-            "so extended equipIds (649+) are dropped from the loadout this session "
-            "instead of queueing a garbage package that hangs the deploy\n");
+        LogError("EquipIdTable: no InfoList reader-site table for %s, extended equipIds (649+) dropped from loadout",
+            GetGameBuildName(gGameBuild));
         return false;
     }
     if (!g_InfoMirror)
@@ -963,18 +888,10 @@ bool TppEquip_EnsureInfoListMirror()
             g_MirrorSitesPatched = true;
             DeployGuard::ForceDropExtendedIds();
             if (stats.commitFailed)
-                Log("[EquipIdTable] ERROR: the process is out of commit charge "
-                    "(VirtualAlloc error %lu), so the %zu KB InfoList mirror cannot be "
-                    "committed - extended equipIds (649+) are dropped from the loadout this "
-                    "session so the deploy does not hang on a garbage package\n",
+                LogError("EquipIdTable: out of commit charge (error %lu) for the %zu KB InfoList mirror, extended equipIds dropped",
                     stats.lastError, bytes / 1024);
             else
-                Log("[EquipIdTable] ERROR: no free %zu KB run anywhere in the equip-data "
-                    "readers' rel32 reach (0x%llX-0x%llX) for the InfoList mirror "
-                    "(largest free run: %zu KB above +1 GB, %zu KB within 1 GB, %zu KB "
-                    "below the image; last VirtualAlloc error %lu) - extended equipIds (649+) "
-                    "are dropped from the loadout this session so the deploy does not "
-                    "hang on a garbage package\n",
+                LogError("EquipIdTable: no free %zu KB run in reader reach 0x%llX-0x%llX (largest %zu/%zu/%zu KB, error %lu), extended equipIds dropped",
                     bytes / 1024, static_cast<unsigned long long>(lo),
                     static_cast<unsigned long long>(hi + bytes),
                     stats.largestFree[0] / 1024, stats.largestFree[1] / 1024,
@@ -990,29 +907,12 @@ bool TppEquip_EnsureInfoListMirror()
         DeployGuard::ForceDropExtendedIds();
         VirtualFree(g_InfoMirror, 0, MEM_RELEASE);
         g_InfoMirror = nullptr;
-        Log("[EquipIdTable] ERROR: no InfoList reader site could be repointed - "
-            "extended weapons would resolve no model package, so extended equipIds "
-            "(649+) are dropped from the loadout this session instead of hanging the "
-            "deploy on the loading screen\n");
+        LogError("EquipIdTable: no InfoList reader site repointed, extended equipIds (649+) dropped from loadout");
         return false;
     }
     if (g_MirrorSitesSkipped != 0)
-        Log("[EquipIdTable] WARNING: %zu InfoList reader site(s) could not be "
-            "repointed - an extended weapon reached through one resolves no package "
-            "and its loadout slot waits forever\n",
+        LogWarn("EquipIdTable: %zu InfoList reader site(s) not repointed, extended weapons through them never load",
             g_MirrorSitesSkipped);
-#ifdef _DEBUG
-    LogDebug("[EquipIdTable] extended InfoList mirror armed at %p: %zu reader "
-             "site(s) repointed from the 653-row native table to a %d-row mirror "
-             "indexed by the engine's own folded row (vanilla aliasing intact); "
-             "extended equipIds %d..%d fold to rows 0x%X..0x%X, clear of every "
-             "vanilla row\n",
-        static_cast<void*>(g_InfoMirror), patched, kMirrorRows,
-        EquipIdCompression::kExtendedAllocFirst,
-        EquipIdCompression::kExtendedEquipIdLast,
-        EquipIdCompression::kExtendedFoldedFirst,
-        EquipIdCompression::kExtendedFoldedLast);
-#endif
     return true;
 }
 
@@ -1022,7 +922,7 @@ int __cdecl l_AddToEquipIdTable(lua_State* L)
         return 0;
     if (g_lua_type(L, 1) != LUA_TTABLE)
     {
-        LogDebug("[EquipIdTable] AddToEquipIdTable: argument #1 must be a table\n");
+        LogWarn("AddToEquipIdTable: argument #1 must be a table");
         return 0;
     }
 
@@ -1050,7 +950,7 @@ int __cdecl l_AddToEquipIdTable(lua_State* L)
             }
             else
             {
-                LogDebug("[EquipIdTable] AddToEquipIdTable: ignored malformed row %d\n", i);
+                LogWarn("AddToEquipIdTable: malformed row %d ignored", i);
             }
         }
         g_lua_settop(L, -2);
@@ -1064,7 +964,7 @@ bool Install_TppEquip_ReloadEquipIdTable_Hook()
     void* target = ResolveGameAddress(gAddr.EquipIdTable_ReloadEquipIdTable);
     if (!target)
     {
-        LogDebug("[EquipIdTable] ReloadEquipIdTable address not set for this build - skipped\n");
+        LogError("EquipIdTable: ReloadEquipIdTable address missing, custom equip rows lost on table reload");
         return true;
     }
 
@@ -1073,53 +973,42 @@ bool Install_TppEquip_ReloadEquipIdTable_Hook()
         reinterpret_cast<void**>(&g_OrigReloadEquipIdTable));
     if (!ok)
     {
-        Log("[EquipIdTable] Reload hook Install -> FAIL (target=%p)\n", target);
+        LogError("EquipIdTable: ReloadEquipIdTable hook failed at %p, custom equip rows lost on table reload", target);
     }
-#ifdef _DEBUG
-    else
-    {
-        LogDebug("[EquipIdTable] Reload hook Install -> OK (target=%p)\n", target);
-    }
-#endif
 
     void* typeTarget = ResolveGameAddress(gAddr.EquipIdTable_GetEquipTypeId);
+    if (typeTarget && !IsGetEquipTypeIdBody(typeTarget))
+    {
+        LogError("EquipIdTable: GetEquipTypeId %p fold missing on %s, extended equipIds get no type",
+            typeTarget, GetGameBuildName(gGameBuild));
+        typeTarget = nullptr;
+    }
     if (typeTarget)
     {
         const bool okT = CreateAndEnableHook(
             typeTarget, &hkGetEquipTypeId,
             reinterpret_cast<void**>(&g_OrigGetEquipTypeId));
         if (!okT)
-            Log("[EquipIdTable] GetEquipTypeId hook: FAIL target=%p - extended "
-                "equipIds report type 0\n", typeTarget);
-#ifdef _DEBUG
-        else
-            LogDebug("[EquipIdTable] GetEquipTypeId hook: OK target=%p (serves "
-                     "extended equip types from the DLL table)\n",
-                typeTarget);
-#endif
+            LogError("EquipIdTable: GetEquipTypeId hook failed at %p, extended equipIds report type 0", typeTarget);
     }
 
     if (const uintptr_t subAddr = GetEquipSubIdAddr())
     {
         void* subTarget = ResolveGameAddress(subAddr);
-        const bool okS = CreateAndEnableHook(
+        if (subTarget && !IsGetEquipSubIdBody(subTarget))
+        {
+            LogError("EquipIdTable: GetEquipSubId %p fold missing on %s, extended weapons build a different gun",
+                subTarget, GetGameBuildName(gGameBuild));
+            subTarget = nullptr;
+        }
+        const bool okS = subTarget && CreateAndEnableHook(
             subTarget, &hkGetEquipSubId,
             reinterpret_cast<void**>(&g_OrigGetEquipSubId));
         if (!okS)
-            Log("[EquipIdTable] GetEquipSubId hook: FAIL target=%p - the native "
-                "accessor answers extended equipIds with a weapon-band ordinal, so "
-                "the loadout builds a different gun\n", subTarget);
-#ifdef _DEBUG
-        else
-            LogDebug("[EquipIdTable] GetEquipSubId hook: OK target=%p (serves "
-                     "extended weapon subIds from the DLL table)\n",
-                subTarget);
-#endif
+            LogError("EquipIdTable: GetEquipSubId hook failed at %p, extended weapons build a different gun", subTarget);
     }
     else
-        LogDebug("[EquipIdTable] GetEquipSubId address not ported for this build - "
-                 "the native accessor answers extended equipIds with a weapon-band "
-                 "ordinal, so picking a custom weapon builds a different gun\n");
+        LogError("EquipIdTable: GetEquipSubId address missing, extended weapons build a different gun");
     return ok;
 }
 
@@ -1148,24 +1037,28 @@ bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
     return true;
 }
 
-void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId)
+void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId)
 {
-    if (eqpAmmoEquipId <= 0 || ammoId <= 0 || ammoId > 0x3FF)
+    if (eqpAmmoEquipId <= 0 || ammoId <= 0 || ammoId > 0xFFFF)
+        return;
+    if (!nativeAmmoId && ammoId <= 0x3FF)
+        nativeAmmoId = ammoId;
+    if (nativeAmmoId <= 0 || nativeAmmoId > 0x3FF
+        || (ammoId > 0x3FF && (!WideMagazine_IsActive() || !TppEquip_WideAmmoRootReady())))
         return;
     EquipIdRow updated{};
     bool restamp = false;
-    int prevSub = 0;
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
-        g_AmmoRootParams[eqpAmmoEquipId] = ammoId;
+        g_AmmoRootParams[eqpAmmoEquipId] = { ammoId, nativeAmmoId };
         for (auto& r : g_Rows)
         {
             if (r.equipId != eqpAmmoEquipId || r.released)
                 continue;
-            if (r.subId != ammoId)
+            if (r.subId != ammoId || r.nativeSubId != nativeAmmoId)
             {
-                prevSub = r.subId;
                 r.subId = ammoId;
+                r.nativeSubId = nativeAmmoId;
                 updated = r;
                 restamp = true;
             }
@@ -1173,19 +1066,16 @@ void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId)
         }
         auto it = g_Extended.find(eqpAmmoEquipId);
         if (it != g_Extended.end() && !it->second.released
-            && it->second.subId != ammoId)
+            && (it->second.subId != ammoId || it->second.nativeSubId != nativeAmmoId))
         {
             it->second.subId = ammoId;
+            it->second.nativeSubId = nativeAmmoId;
             MirrorStampRowNoLock(it->second);
         }
     }
     if (restamp)
     {
         WriteNativeRow(updated);
-        LogDebug("[EquipIdTable] ammo item equipId=%d subId %d -> %d (its ammoId; "
-                 "the row was stamped before SetMagazine assigned the ammo row, so "
-                 "supplies delivered nothing)\n",
-            eqpAmmoEquipId, prevSub, ammoId);
     }
 }
 

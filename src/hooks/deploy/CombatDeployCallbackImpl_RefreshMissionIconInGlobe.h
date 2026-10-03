@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CombatDeployCallbackImpl_RefreshMissionIconInGlobe_Hook();
+bool Uninstall_CombatDeployCallbackImpl_RefreshMissionIconInGlobe_Hook();

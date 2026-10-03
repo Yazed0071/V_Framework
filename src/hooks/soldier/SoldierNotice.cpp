@@ -10,6 +10,7 @@
 #include "AddressSet.h"
 #include "GetGameObjectIdWithIndex.h"
 #include "LuaBroadcaster.h"
+#include "SoldierFaction.h"
 
 
 using StepFn_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, int stepProc, void* knowledge);
@@ -67,9 +68,15 @@ static void __fastcall hk_CheckSightNoticeSoldier(void* self, std::uint32_t para
     if (!g_OrigCheckSight) return;
     if (MissionCodeGuard::ShouldBypassHooks()) { g_OrigCheckSight(self, param1, param2, param3); return; }
 
+    SoldierFactionHiddenSight hidden;
+    SoldierFaction_HideDownedRivals(self, param1, param3, &hidden);
+
     g_spreadFromSight = true;
     g_OrigCheckSight(self, param1, param2, param3);
     g_spreadFromSight = false;
+
+    SoldierFaction_RestoreDownedRivals(&hidden);
+    SoldierFaction_OnSightCheck(self, param1);
 }
 
 static void __fastcall hk_SpreadNotice(void* self, std::uint32_t comradeIndex, std::uint32_t sourceIndex)
@@ -77,9 +84,15 @@ static void __fastcall hk_SpreadNotice(void* self, std::uint32_t comradeIndex, s
     if (!g_OrigSpread) return;
     if (MissionCodeGuard::ShouldBypassHooks()) { g_OrigSpread(self, comradeIndex, sourceIndex); return; }
 
+    const std::uint32_t ignoredBefore = SoldierFaction_IgnoredNoticeCount();
     g_OrigSpread(self, comradeIndex, sourceIndex);
 
     if (!g_spreadFromSight)
+        return;
+    if (SoldierFaction_IgnoredNoticeCount() != ignoredBefore)
+        return;
+    if (SoldierFaction_AreHostileSoldiers(static_cast<std::uint16_t>(0x400u | comradeIndex),
+                                          static_cast<std::uint16_t>(0x400u | sourceIndex)))
         return;
 
     const std::uint64_t now = GetTickCount64();

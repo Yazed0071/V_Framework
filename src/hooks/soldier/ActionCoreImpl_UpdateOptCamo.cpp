@@ -284,7 +284,7 @@ bool Install_UpdateOptCamo_Hook()
     void* target = ResolveGameAddress(gAddr.UpdateOptCamo);
     if (!target)
     {
-        Log("[Hook] UpdateOptCamo: address resolve failed\n");
+        LogError("Hook: UpdateOptCamo: address missing, optical camo overrides off");
         return false;
     }
 
@@ -293,12 +293,8 @@ bool Install_UpdateOptCamo_Hook()
         reinterpret_cast<void*>(&hkUpdateOptCamo),
         reinterpret_cast<void**>(&g_OrigUpdateOptCamo));
 
-#ifdef _DEBUG
-    Log("[Hook] UpdateOptCamo: %s\n", ok ? "OK" : "FAIL");
-#else
     if (!ok)
-        Log("[Hook] UpdateOptCamo: %s\n", ok ? "OK" : "FAIL");
-#endif
+        LogError("Hook: UpdateOptCamo: hook failed, optical camo overrides off");
     return ok;
 }
 

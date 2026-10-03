@@ -11,6 +11,8 @@ namespace equip
 
     bool DevelopArrayGrowActive();
 
+    bool OwnsDevelopVisibilityHook(const void* target);
+
     std::uint32_t NativeFlowBound();
 
     constexpr std::uint16_t kFlowSentinel      = 0x400;
@@ -29,6 +31,8 @@ namespace equip
         return GunsmithFlowRowClaimed(v);
     }
 
+    void SetCustomBluePrintRow(std::uint32_t row, std::uint16_t developId);
+
     std::size_t DevFlagsPtrOffsetBase20();
 
     void SilenceDevelopRowAnnounce(std::int32_t developId);
@@ -38,13 +42,8 @@ namespace equip
 
     void InvalidateDevelopVisibilityCache();
     void InvalidateDevelopLookupIndex();
-    void DevelopLookupTakeCounters(unsigned long long& calls,
-                                   unsigned long long& indexed,
-                                   unsigned long long& builds,
-                                   unsigned long long& stale);
     void BeginDevelopVisibilityCache();
     void EndDevelopVisibilityCache();
-    void LogDevelopScanCounters(const char* phase);
 
     struct DevelopVisibilityScope
     {
@@ -52,9 +51,6 @@ namespace equip
         ~DevelopVisibilityScope();
         bool owned;
     };
-
-    void DevelopVisibilityTakeCounters(unsigned long long& calls,
-                                       unsigned long long& hits);
 
     inline bool IsValidFlowIndex(std::uint32_t v)
     {
@@ -73,8 +69,9 @@ namespace equip
 
     void EnsureDevelopBlockArmed(void* base20);
 
-    std::size_t CollectVanillaIdentityEquipIds(std::int32_t* out,
-                                               std::size_t capacity);
+    constexpr std::size_t kVanillaEquipIdBitWords = 0x10000 / 64;
+
+    std::size_t ScanVanillaDevelopEquipIds(std::uint64_t* bits, std::size_t words);
 
     void SyncDevelopFlagsWithSave();
 

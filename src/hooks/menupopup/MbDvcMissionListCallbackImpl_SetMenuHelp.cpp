@@ -126,8 +126,8 @@ bool Set_MissionMenuHelp(std::uint16_t missionCode, const char* langId, const ch
         key = LangKeyFromString(langId);
         if (!key)
         {
-            Log("[MissionMenuHelp] WARN: langId '%s' resolved to 0 - override for mission "
-                "%u not set.\n", langId, static_cast<unsigned>(missionCode));
+            LogWarn("SetMissionMenuHelp %u: langId '%s' resolved to 0, not set",
+                static_cast<unsigned>(missionCode), langId);
             return false;
         }
     }
@@ -158,8 +158,7 @@ bool Install_MissionMenuHelp_Hook()
     if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_SetMenuHelp),
                              reinterpret_cast<void**>(&g_orig)))
     {
-        Log("[MissionMenuHelp] ERROR: SetMenuHelp hook install failed - custom mission "
-            "help text will not appear.\n");
+        LogError("MissionMenuHelp: SetMenuHelp hook failed, custom help text off");
         return false;
     }
     return true;

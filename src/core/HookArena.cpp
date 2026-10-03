@@ -2,10 +2,8 @@
 #include "HookArena.h"
 
 #include <Windows.h>
-#include <Psapi.h>
 #include <intrin.h>
 #include <cstdint>
-#include <cstring>
 
 #include "log.h"
 
@@ -20,7 +18,6 @@ namespace HookArena
         constexpr std::size_t    kSlotSize        = 64;
         constexpr std::uintptr_t kReachNear       = 0x40000000ull;
         constexpr std::uintptr_t kReachFar        = 0x7E000000ull;
-        constexpr std::size_t    kMapEntries      = 12;
 
         enum PageKind : std::uint8_t
         {
@@ -42,31 +39,15 @@ namespace HookArena
             Page           page[kPagesPerGranule];
         };
 
-        struct MapEntry
-        {
-            std::uintptr_t base  = 0;
-            std::size_t    size  = 0;
-            DWORD          state = 0;
-            DWORD          type  = 0;
-            char           name[96] = {};
-        };
-
         Granule        g_Granules[kGranuleCap];
         std::size_t    g_Count         = 0;
         std::size_t    g_AtAttach      = 0;
-        std::size_t    g_Above         = 0;
-        std::size_t    g_Below         = 0;
-        std::size_t    g_FarAbove      = 0;
-        std::size_t    g_FarBelow      = 0;
-        std::size_t    g_Grown         = 0;
         std::size_t    g_CommittedPages = 0;
         std::uintptr_t g_Gran          = 0x10000;
         std::uintptr_t g_ImageBase     = 0;
         std::uintptr_t g_ImageEnd      = 0;
         bool           g_Reserved      = false;
         bool           g_SaidExhausted = false;
-        MapEntry       g_Map[kMapEntries];
-        std::size_t    g_MapCount      = 0;
         SRWLOCK        g_Lock          = SRWLOCK_INIT;
 
         std::uintptr_t ImageEnd(std::uintptr_t base)
@@ -169,57 +150,6 @@ namespace HookArena
             return false;
         }
 
-        void RecordOccupant(const MEMORY_BASIC_INFORMATION& mbi)
-        {
-            std::size_t slot = g_MapCount;
-            if (slot == kMapEntries)
-            {
-                slot = 0;
-                for (std::size_t i = 1; i < kMapEntries; ++i)
-                    if (g_Map[i].size < g_Map[slot].size)
-                        slot = i;
-                if (g_Map[slot].size >= mbi.RegionSize)
-                    return;
-            }
-            else
-            {
-                ++g_MapCount;
-            }
-            MapEntry& e = g_Map[slot];
-            e = MapEntry{};
-            e.base  = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
-            e.size  = mbi.RegionSize;
-            e.state = mbi.State;
-            e.type  = mbi.Type;
-            if (mbi.Type == MEM_IMAGE || mbi.Type == MEM_MAPPED)
-            {
-                char path[MAX_PATH] = {};
-                if (K32GetMappedFileNameA(GetCurrentProcess(), mbi.BaseAddress, path, MAX_PATH))
-                {
-                    const char* tail = std::strrchr(path, '\\');
-                    strncpy_s(e.name, tail ? tail + 1 : path, _TRUNCATE);
-                }
-            }
-        }
-
-        void MapBand(std::uintptr_t lo, std::uintptr_t hi)
-        {
-            std::uintptr_t a = lo;
-            while (a < hi)
-            {
-                MEMORY_BASIC_INFORMATION mbi{};
-                if (VirtualQuery(reinterpret_cast<LPCVOID>(a), &mbi, sizeof(mbi)) != sizeof(mbi))
-                    return;
-                const auto rb = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
-                const auto re = rb + mbi.RegionSize;
-                if (mbi.State != MEM_FREE && !(rb >= g_ImageBase && re <= g_ImageEnd))
-                    RecordOccupant(mbi);
-                if (re <= a)
-                    return;
-                a = re;
-            }
-        }
-
         bool Grow(std::uintptr_t origin)
         {
             const std::uintptr_t reaches[2] = { kReachNear, kReachFar };
@@ -227,17 +157,11 @@ namespace HookArena
             {
                 std::uintptr_t up = origin;
                 if (ReserveOneUpward(up, origin + reach - g_Gran))
-                {
-                    ++g_Grown;
                     return true;
-                }
                 std::uintptr_t down = origin;
                 const std::uintptr_t lo = origin > reach ? origin - reach + g_Gran : g_Gran;
                 if (ReserveOneDownward(down, lo))
-                {
-                    ++g_Grown;
                     return true;
-                }
             }
             return false;
         }
@@ -344,13 +268,6 @@ namespace HookArena
                     return &g_Granules[i];
             return nullptr;
         }
-
-        const char* TypeName(DWORD state, DWORD type)
-        {
-            if (type == MEM_IMAGE)  return "image";
-            if (type == MEM_MAPPED) return "mapped";
-            return state == MEM_RESERVE ? "private (reserved)" : "private";
-        }
     }
 
     void ReserveEarly()
@@ -379,12 +296,10 @@ namespace HookArena
         struct Pass
         {
             std::uintptr_t up, hi, down, lo;
-            std::size_t*   above;
-            std::size_t*   below;
         };
         Pass passes[2] = {
-            { g_ImageEnd, hiNear, g_ImageBase, loNear, &g_Above,    &g_Below    },
-            { hiNear,     hiFar,  loNear,      loFar,  &g_FarAbove, &g_FarBelow },
+            { g_ImageEnd, hiNear, g_ImageBase, loNear },
+            { hiNear,     hiFar,  loNear,      loFar  },
         };
         for (Pass& ps : passes)
         {
@@ -393,56 +308,29 @@ namespace HookArena
             {
                 if (!upDone)
                 {
-                    if (ReserveOneUpward(ps.up, ps.hi))
-                        ++*ps.above;
-                    else
+                    if (!ReserveOneUpward(ps.up, ps.hi))
                         upDone = true;
                 }
                 if (g_Count >= kGranuleWant)
                     break;
                 if (!downDone)
                 {
-                    if (ReserveOneDownward(ps.down, ps.lo))
-                        ++*ps.below;
-                    else
+                    if (!ReserveOneDownward(ps.down, ps.lo))
                         downDone = true;
                 }
             }
         }
         g_AtAttach = g_Count;
-        if (g_Above + g_Below < kGranuleWant)
-            MapBand(loNear, hiNear);
     }
 
     void LogSummary()
     {
         AcquireSRWLockExclusive(&g_Lock);
-        const std::size_t atAttach = g_AtAttach, above = g_Above, below = g_Below;
-        const std::size_t farAbove = g_FarAbove, farBelow = g_FarBelow;
-        const std::size_t mapCount = g_MapCount;
-        MapEntry map[kMapEntries];
-        for (std::size_t i = 0; i < mapCount; ++i)
-            map[i] = g_Map[i];
+        const std::size_t atAttach = g_AtAttach;
         ReleaseSRWLockExclusive(&g_Lock);
 
-        Log("[HookArena] %zu of %zu trampoline granules reserved at attach (within 1 GB: %zu above "
-            "the image, %zu below; within 2 GB: %zu above, %zu below; image %p-%p)\n",
-            atAttach, kGranuleWant, above, below, farAbove, farBelow,
-            reinterpret_cast<void*>(g_ImageBase), reinterpret_cast<void*>(g_ImageEnd));
-        if (above + below >= kGranuleWant)
-            return;
         if (atAttach == 0)
-            Log("[HookArena] WARNING: nothing within 2 GB of the image was free at attach - every "
-                "hook depends on finding free space at install time\n");
-
-        Log("[HookArena] the band within 1 GB of the image was %s at attach%s. Largest occupants "
-            "of that band:\n",
-            above + below == 0 ? "fully occupied" : "mostly occupied",
-            atAttach >= kGranuleWant ? " (the reserve was completed from the 2 GB band)" : "");
-        for (std::size_t i = 0; i < mapCount; ++i)
-            Log("[HookArena]   %p +0x%zX %s %s\n",
-                reinterpret_cast<void*>(map[i].base), map[i].size,
-                TypeName(map[i].state, map[i].type), map[i].name);
+            LogWarn("HookArena: no free trampoline space within 2 GB of the exe at attach, hooks may fail");
     }
 
     void NoteExhausted()
@@ -450,14 +338,10 @@ namespace HookArena
         AcquireSRWLockExclusive(&g_Lock);
         const bool first = !g_SaidExhausted;
         g_SaidExhausted = true;
-        const std::size_t count = g_Count, atAttach = g_AtAttach, grown = g_Grown;
-        const std::size_t committed = g_CommittedPages;
+        const std::size_t count = g_Count;
         ReleaseSRWLockExclusive(&g_Lock);
         if (first)
-            Log("[HookArena] the trampoline arena is exhausted (%zu granules: %zu from attach, "
-                "%zu grown at install time; %zu pages committed) and no free 64 KB block sits "
-                "within 2 GB of the target - hooks refused from here on stay vanilla\n",
-                count, atAttach, grown, committed);
+            LogError("HookArena: trampoline arena exhausted (%zu granules), further hooks refused", count);
     }
 
     void* AllocateSlot(const void* origin, std::size_t maxDistance)

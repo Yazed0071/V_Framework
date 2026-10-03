@@ -52,7 +52,7 @@ namespace
     std::uint32_t g_preparedMission = 0;
     bool g_soundSystemReported = false;
 
-    BgmEvents Resolve(std::uint32_t prepared, std::uint32_t current, const char** matchedOut)
+    BgmEvents Resolve(std::uint32_t prepared, std::uint32_t current)
     {
         std::lock_guard<std::mutex> guard(g_lock);
 
@@ -60,29 +60,19 @@ namespace
         {
             const auto it = g_perMission.find(prepared);
             if (it != g_perMission.end())
-            {
-                *matchedOut = "the mission being prepared";
                 return it->second;
-            }
         }
 
         if (current != 0)
         {
             const auto it = g_perMission.find(current);
             if (it != g_perMission.end())
-            {
-                *matchedOut = "the mission the player is standing in";
                 return it->second;
-            }
         }
 
         if (g_global.play != 0 && g_global.stop != 0)
-        {
-            *matchedOut = "the mission-independent setting";
             return g_global;
-        }
 
-        *matchedOut = "vanilla";
         return kVanilla;
     }
 
@@ -178,7 +168,7 @@ namespace
         if (!g_soundSystemReported)
         {
             g_soundSystemReported = true;
-            Log("[MissionPreparationBgm] the menu sound system did not carry the expected vtable, so the music cannot be swapped while the screen is open; the setting still takes effect the next time the screen opens\n");
+            LogWarn("MissionPreparationBgm: menu sound system vtable mismatch, music changes apply on next screen open");
         }
         return nullptr;
     }
@@ -203,25 +193,38 @@ namespace
 
     bool WriteEventOperand(uintptr_t site, std::uint32_t eventId)
     {
+        static bool s_operandReported = false;
         if (!site)
         {
-            Log("[MissionPreparationBgm] an event operand site is unset for this build; the sortie-preparation music stays vanilla\n");
+            if (!s_operandReported)
+            {
+                s_operandReported = true;
+                LogError("MissionPreparationBgm: event operand address missing for this build, prep music stays vanilla");
+            }
             return false;
         }
 
         void* target = ResolveGameAddress(site);
         if (!target)
         {
-            Log("[MissionPreparationBgm] operand site 0x%llx did not resolve; the sortie-preparation music stays vanilla\n",
-                static_cast<unsigned long long>(site));
+            if (!s_operandReported)
+            {
+                s_operandReported = true;
+                LogError("MissionPreparationBgm: operand 0x%llx unresolved, prep music stays vanilla",
+                    static_cast<unsigned long long>(site));
+            }
             return false;
         }
 
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, sizeof(eventId), PAGE_EXECUTE_READWRITE, &oldProtect))
         {
-            Log("[MissionPreparationBgm] VirtualProtect failed at 0x%llx (err=%lu); the operand was left untouched\n",
-                static_cast<unsigned long long>(site), GetLastError());
+            if (!s_operandReported)
+            {
+                s_operandReported = true;
+                LogWarn("MissionPreparationBgm: VirtualProtect failed at 0x%llx (err %lu), operand untouched",
+                    static_cast<unsigned long long>(site), GetLastError());
+            }
             return false;
         }
 
@@ -248,21 +251,19 @@ namespace
         g_preparedMission = ReadPreparedMissionCode(self, &kind, &raw);
         const std::uint32_t current = MissionCodeGuard::GetCurrentMissionCode();
 
-        const char* matched = "vanilla";
-        const BgmEvents events = Resolve(g_preparedMission, current, &matched);
+        const BgmEvents events = Resolve(g_preparedMission, current);
 
         ApplyEvents(events);
         g_applied = events;
         g_appliedEpoch = g_configEpoch.load(std::memory_order_relaxed);
         g_prepActive.store(g_updateHooked.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
-        LogDebug("[MissionPreparationBgm] sortie preparation opened: mission being prepared %u (name block kind %u, raw %u), mission the player is standing in %u, using the entry keyed to %s\n",
-            g_preparedMission, kind, raw, current, matched);
-
-        if (g_preparedMission == 0 && HasPerMissionEntries())
+        static bool s_unreadableReported = false;
+        if (g_preparedMission == 0 && HasPerMissionEntries() && !s_unreadableReported)
         {
-            Log("[MissionPreparationBgm] the mission being prepared did not read back as a mission code (name block kind %u, raw %u), so a per-mission entry can only match the mission the player is standing in (%u); key the entry to that code or set a mission-independent one\n",
-                kind, raw, current);
+            s_unreadableReported = true;
+            LogWarn("MissionPreparationBgm: prepared mission unreadable (kind %u raw %u), per-mission entries match current mission %u only",
+                static_cast<unsigned>(kind), raw, current);
         }
 
         g_OrigStart(self);
@@ -280,9 +281,8 @@ namespace
                 g_appliedEpoch = epoch;
                 g_preparedMission = prepared;
 
-                const char* matched = "vanilla";
                 const BgmEvents events =
-                    Resolve(prepared, MissionCodeGuard::GetCurrentMissionCode(), &matched);
+                    Resolve(prepared, MissionCodeGuard::GetCurrentMissionCode());
 
                 if (events.play != g_applied.play || events.stop != g_applied.stop)
                 {
@@ -290,11 +290,8 @@ namespace
                     ApplyEvents(events);
                     g_applied = events;
 
-                    if (restart && StartScenePrepMusic(events.play))
-                    {
-                        LogDebug("[MissionPreparationBgm] music swapped while the screen was open: now using the entry keyed to %s\n",
-                            matched);
-                    }
+                    if (restart)
+                        StartScenePrepMusic(events.play);
                 }
             }
         }
@@ -324,8 +321,7 @@ bool SetMissionPreparationMusic(std::uint32_t playEventHash,
     if (g_prepActive.load(std::memory_order_relaxed) && g_updateHooked.load(std::memory_order_relaxed))
         return true;
 
-    const char* matched = "vanilla";
-    return ApplyEvents(Resolve(0, MissionCodeGuard::GetCurrentMissionCode(), &matched));
+    return ApplyEvents(Resolve(0, MissionCodeGuard::GetCurrentMissionCode()));
 }
 
 bool Install_MissionPreparationCallbackImpl_Start_Hook()
@@ -333,7 +329,7 @@ bool Install_MissionPreparationCallbackImpl_Start_Hook()
     void* start = ResolveGameAddress(gAddr.MissionPreparationCallbackImpl_Start);
     if (!start)
     {
-        Log("[Hook] MissionPreparationCallbackImpl_Start: address unset for this build; per-mission sortie-preparation music is unavailable and only a mission-independent setting applies\n");
+        LogError("Hook: MissionPreparationCallbackImpl_Start address missing for this build, per-mission prep music off");
         return false;
     }
 
@@ -341,7 +337,7 @@ bool Install_MissionPreparationCallbackImpl_Start_Hook()
                              reinterpret_cast<void*>(&hkStart),
                              reinterpret_cast<void**>(&g_OrigStart)))
     {
-        Log("[Hook] MissionPreparationCallbackImpl_Start: FAIL; per-mission sortie-preparation music is unavailable and only a mission-independent setting applies\n");
+        LogError("Hook: MissionPreparationCallbackImpl_Start hook failed, per-mission prep music off");
         return false;
     }
 
@@ -354,7 +350,7 @@ bool Install_MissionPreparationCallbackImpl_Start_Hook()
     }
     else
     {
-        Log("[Hook] MissionPreparationCallbackImpl_Update: FAIL; the music can still be chosen before the screen opens but changing it while the screen is open will not take effect until the next open\n");
+        LogError("Hook: MissionPreparationCallbackImpl_Update hook failed, prep music changes apply on next screen open");
     }
 
     return true;

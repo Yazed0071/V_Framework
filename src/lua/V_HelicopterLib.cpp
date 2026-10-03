@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include <cstdint>
+#include <string>
 
 #include "LuaApi.h"
 #include "log.h"
@@ -9,6 +10,8 @@
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/heli/HeliSoundController.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
+#include "../hooks/outfit/HeadMotion.h"
+#include "../hooks/player/AccSeatIdleMotion.h"
 
 namespace
 {
@@ -20,7 +23,7 @@ namespace
 
         if (isEnable && (!voiceEvt || !*voiceEvt || !radioEvt || !*radioEvt))
         {
-            LogDebug("[HeliVoice] SetEnableHeliVoice: enable=true requires non-empty voice/radio event strings\n");
+            LogWarn("SetEnableHeliVoice: enable=true needs non-empty voice and radio events, ignored");
             PushLuaBool(L, false);
             return 1;
         }
@@ -76,16 +79,34 @@ namespace
         return 0;
     }
 
-    static int __cdecl l_SetTaxiRideLog(lua_State* L)
-    {
-        FieldTaxi_SetTaxiRideLog((GetLuaTop(L) >= 1) ? GetLuaBool(L, 1) : true);
-        return 0;
-    }
-
     static int __cdecl l_ResetTaxiState(lua_State* /*L*/)
     {
         FieldTaxi_ResetTaxiState();
         return 0;
+    }
+
+    static int __cdecl l_SetPlayerDropSeatPose(lua_State* L)
+    {
+        std::uint64_t clip = 0;
+        const char* text = (GetLuaTop(L) >= 1 && LuaIsString(L, 1)) ? GetLuaString(L, 1) : nullptr;
+        if (text && *text)
+        {
+            std::string path = text;
+            const std::size_t slash = path.find_last_of('/');
+            if (slash != std::string::npos && path.find('.', slash) == std::string::npos)
+                path += ".gani";
+            clip = outfit::headmotion::ParseClipId(path.c_str());
+            if (!clip)
+            {
+                LogWarn("SetPlayerDropSeatPose: '%s' is not a clip path or id, ignored", text);
+                PushLuaBool(L, false);
+                return 1;
+            }
+        }
+        const bool anyMission = GetLuaTop(L) < 2 || !LuaIsNumber(L, 2);
+        const std::uint32_t mission = anyMission ? 0 : static_cast<std::uint32_t>(GetLuaInt(L, 2));
+        PushLuaBool(L, AccSeatIdleMotion_SetDropSeatPose(clip, mission, anyMission));
+        return 1;
     }
 
     static luaL_Reg g_VHelicopterLib[] =
@@ -97,8 +118,9 @@ namespace
         { "SetFieldTaxiMissionEnabled",            l_SetFieldTaxiMissionEnabled },
         { "SetTaxiLandingZoneHidden",              l_SetTaxiLandingZoneHidden },
         { "SetTaxiRideState",                      l_SetTaxiRideState },
-        { "SetTaxiRideLog",                        l_SetTaxiRideLog },
         { "ResetTaxiState",                        l_ResetTaxiState },
+
+        { "SetPlayerDropSeatPose",                 l_SetPlayerDropSeatPose },
 
         { nullptr, nullptr }
     };

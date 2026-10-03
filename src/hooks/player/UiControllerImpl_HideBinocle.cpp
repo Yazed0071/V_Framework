@@ -12,7 +12,6 @@ namespace
     using HideBinocle_t = void(__fastcall*)(void* this_);
     static HideBinocle_t g_Orig = nullptr;
 
-    // tpp::gm::player::impl::UiControllerImpl::HideBinocle
     static void __fastcall hkHideBinocle(void* this_)
     {
         if (g_Orig)
@@ -29,19 +28,15 @@ bool Install_HideBinocle_Hook()
 {
     if (!gAddr.UiControllerImpl_HideBinocle)
     {
-        LogDebug("[HideBinocle] address not set for this build\n");
+        LogError("HideBinocle: address missing for this build, OffBinocularsMode message off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.UiControllerImpl_HideBinocle);
     const bool ok = CreateAndEnableHook(target, reinterpret_cast<void*>(&hkHideBinocle),
                                         reinterpret_cast<void**>(&g_Orig));
-#ifdef _DEBUG
-    Log("[HideBinocle] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
-#else
     if (!ok)
-        Log("[HideBinocle] hook: %s (target=%p)\n", ok ? "OK" : "FAIL", target);
-#endif
+        LogError("HideBinocle: hook failed, OffBinocularsMode message off");
     return ok;
 }
 

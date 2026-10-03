@@ -60,9 +60,8 @@ bool Install_CpAntiAir_Hook()
         reinterpret_cast<void*>(&hkUpdateAntiAir),
         reinterpret_cast<void**>(&g_OrigUpdateAntiAirHook));
 
-#ifdef _DEBUG
-    LogDebug("[Hook] UpdateAntiAir %d installed at %p\n", okTarget, target);
-#endif
+    if (!okTarget)
+        LogError("Hook: UpdateAntiAir hook failed, no AntiAir enable message");
 
     void* target2 = ResolveGameAddress(gAddr.ClearAntiAir);
 
@@ -71,9 +70,8 @@ bool Install_CpAntiAir_Hook()
         reinterpret_cast<void*>(&hkClearAntiAir),
         reinterpret_cast<void**>(&g_OrigClearAntiAirHook));
 
-#ifdef _DEBUG
-    LogDebug("[Hook] ClearAntiAir %d installed at %p\n", okTarget2, target2);
-#endif
+    if (!okTarget2)
+        LogError("Hook: ClearAntiAir hook failed, no AntiAir disable message");
 
     return okTarget && okTarget2;
 }

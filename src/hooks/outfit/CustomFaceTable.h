@@ -5,7 +5,8 @@
 
 namespace outfit
 {
-    constexpr std::uint16_t kFovaNone = 0x7FFF;
+    constexpr std::uint16_t kFovaNone = 0xFFFF;
+    constexpr std::uint16_t kFovaLegacyNone = 0x7FFF;
     constexpr int kHeadFovaColumnCount = 4;
 
     enum FovaColumn
@@ -30,6 +31,15 @@ namespace outfit
         std::uint8_t  race          = 0;
         std::uint8_t  eyeMeshType   = 0;
         bool          forceHairFova = false;
+        bool          mbEligible    = false;
+        bool          unique        = false;
+        std::uint16_t outsideFaceRef1 = 0;
+        std::uint16_t outsideFaceRef2 = 0;
+        std::uint16_t outsideFaceRef3 = 0;
+        std::uint8_t  outsideFaceCount = 0;
+        std::string   uiTextureName;
+        std::string   uiTexBasePath = "/Assets/tpp/ui/texture/StaffImage/";
+        std::uint8_t  uiTextureCount = 0;
     };
 
     struct FovaColumnInfo
@@ -40,60 +50,51 @@ namespace outfit
         std::uint32_t widthLimit = 0;
     };
 
-    struct FovaColumnDiagnostics
-    {
-        bool          present    = false;
-        std::uint32_t index      = 0;
-        std::uint32_t registered = 0;
-        std::uint32_t capacity   = 0;
-        std::uint64_t fv2PathId  = 0;
-        std::uint64_t fpkPathId  = 0;
-        bool          custom     = false;
-        std::string   fv2Path;
-        std::string   fpkPath;
-    };
-
     struct FaceDiagnostics
     {
         bool          rowDefined      = false;
         std::uint32_t fovaWord        = 0;
         std::uint32_t flags           = 0;
-        bool          resident        = false;
-        std::int32_t  needIndex       = -1;
-        std::uint8_t  needCounts[3]   = { 0, 0, 0 };
-        std::uint64_t needFiles[4]    = { 0, 0, 0, 0 };
-        std::uint32_t needCount       = 0;
-        std::uint32_t needCapacity    = 0;
-        bool          needBlacklisted = false;
-        bool          special         = false;
-        std::uint8_t  specialCount    = 0;
-        std::uint16_t specialIds[4]   = { 0, 0, 0, 0 };
-        bool          fovaTableReady  = false;
-        FovaColumnDiagnostics columns[kHeadFovaColumnCount];
+        std::uint8_t  uiTextureCount  = 0;
+        std::uint64_t uiTexturePaths[3] = { 0, 0, 0 };
     };
 
     std::uint8_t* FaceSystemImpl();
 
     bool IsFaceSystemReady();
 
+    bool ReadFaceTableIdentity(std::uintptr_t& implId, std::uintptr_t& rowsId);
+
     bool IsFaceRowDefined(std::int32_t faceId);
 
-    std::uint32_t GetRegisteredFovaCount(int column);
+    bool IsFaceRowDefinedByOtherMod(std::int32_t faceId);
+
+    bool HasFrameworkFaceMark(std::int32_t faceId);
 
     bool ReadFaceDiagnostics(std::int32_t faceId, FaceDiagnostics& out);
 
-    const char* WriteCustomFaceRow(std::int32_t faceId, const CustomFaceRow& row);
+    bool ValidateCustomFaceRow(const CustomFaceRow& row, std::string& reason);
+
+    bool WriteCustomFaceRow(std::int32_t faceId, const CustomFaceRow& row, std::string& reason);
+
+    bool WriteMissingCustomFaceFallback(std::int32_t faceId, std::int32_t gender,
+                                       std::int32_t race, std::int32_t preferredDonorId,
+                                       std::int32_t& outDonorId, std::string& reason);
+
+    bool IsCustomFaceFallback(std::int32_t faceId);
+
+    void RevokeMbEligibility();
+
+    std::int32_t PickVanillaDonorFaceId(std::uint32_t sourceFaceId);
+
+    std::int32_t PickCompatibleVanillaDonorFaceId(std::uint32_t sourceFaceId,
+                                                std::int32_t gender, std::int32_t race,
+                                                std::int32_t preferredDonorId = -1);
 
     const char* FovaColumnName(int column);
 
-    int ParseFovaColumnName(const char* name);
-
-    bool IsFovaFileTableReady();
-
     bool ReadFovaColumnInfo(int column, FovaColumnInfo& out);
 
-    const char* FindFovaIndexByFv2(int column, const char* fv2Path, std::uint32_t& outIndex);
-
-    const char* RegisterFovaPair(int column, const char* fv2Path, const char* fpkPath,
-                                 std::uint32_t& outIndex);
+    const char* FindFovaIndexByFv2(int column, const char* fv2Path, const char* fpkPath,
+                                   std::uint32_t& outIndex);
 }

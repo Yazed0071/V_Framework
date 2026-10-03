@@ -3,3 +3,5 @@
 struct lua_State;
 
 bool Register_V_TppSoldierFaceLibrary(lua_State* L);
+bool Install_StaffFaceLuaHook();
+void Uninstall_StaffFaceLuaHook();

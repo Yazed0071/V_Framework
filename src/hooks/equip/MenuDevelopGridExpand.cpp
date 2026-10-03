@@ -1,11 +1,9 @@
 #include "pch.h"
 
 #include <Windows.h>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
-
-#include <atomic>
-#include <cstdio>
 
 #include "AddressSet.h"
 #include "DevelopArrayGrow.h"
@@ -13,7 +11,6 @@
 
 #include <unordered_map>
 #include "HookUtils.h"
-#include "MenuPerf.h"
 #include "MissionCodeGuard.h"
 #include "EquipDevelop_AddToEquipDevelopTable.h"
 #include "EquipDevelop_SetEquipUndeveloped.h"
@@ -56,20 +53,12 @@ namespace
                                             int* developed);
     using GetQst_t     = std::uint8_t* (__fastcall*)();
 
-    using RailBuild_t  = void              (__fastcall*)(std::uintptr_t self,
-                                                         std::uint16_t cell,
-                                                         int a, int b);
-    using BaseIdFn     = std::uint16_t     (__fastcall*)(void*, std::uint16_t);
-
     FillGrid_t   g_OrigFillGrid   = nullptr;
     CopyGrid_t   g_OrigCopyGrid   = nullptr;
     CountBadge_t g_OrigCountBadge = nullptr;
     FillGrid_t   g_OrigFillFlat   = nullptr;
     CopyGrid_t   g_OrigCopyFlat   = nullptr;
     GetQst_t     g_GetQst         = nullptr;
-    RailBuild_t  g_OrigRailBuild  = nullptr;
-
-    constexpr std::uintptr_t kAddr_DevelopRailBuild_En154 = 0x141679670ull;
 
     std::uintptr_t g_FlatTabTableA = 0;
     std::uintptr_t g_FlatTabTableB = 0;
@@ -80,102 +69,37 @@ namespace
         return *reinterpret_cast<T*>(base + off);
     }
 
-    int ReadDevelopRecordByteSEH(void* base20, std::uint16_t flowIndex,
-                                 std::size_t byteOff)
-    {
-        __try
-        {
-            const std::uint8_t* rec =
-                static_cast<const std::uint8_t*>(base20) + 8
-                + static_cast<std::size_t>(flowIndex) * 0x68;
-            return rec[byteOff];
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return -1;
-        }
-    }
-
     void* VtMethod(void* obj, std::size_t off)
     {
         void** vt = *reinterpret_cast<void***>(obj);
         return vt[off / 8];
     }
 
-#ifdef _DEBUG
-    std::uint16_t g_RailSeen[64];
-    int           g_RailSeenCount = 0;
-
-    void ResetRailProbe()
+    bool IsDefinedDevelopRow(void* provider, std::uint16_t flow)
     {
-        g_RailSeenCount = 0;
-    }
-
-    bool RailGridHasRow(std::uint16_t row)
-    {
-        for (int i = 0; i < kGridLen; ++i)
-            if (g_Grid[i] == row)
-                return true;
-        return false;
-    }
-
-    void LogRailOnce(std::uintptr_t self, std::uint16_t cell, int a, int b)
-    {
-        if (cell == 0x400 || g_RailSeenCount >= 64)
-            return;
-
-        for (int i = 0; i < g_RailSeenCount; ++i)
-            if (g_RailSeen[i] == cell)
-                return;
-
-        void* prov = At<void*>(self, 0x38);
-        if (!prov)
-            return;
-
-        const std::uint16_t parent =
-            reinterpret_cast<BaseIdFn>(VtMethod(prov, 0x1a0))(prov, cell);
-        if (parent == 0x400)
-            return;
-
-        g_RailSeen[g_RailSeenCount++] = cell;
-
-        const std::uint16_t devId =
-            reinterpret_cast<BaseIdFn>(VtMethod(prov, 0x128))(prov, cell);
-        const std::uint8_t damageType =
-            static_cast<std::uint8_t>(
-                reinterpret_cast<GradeFn>(VtMethod(prov, 0x500))(prov, cell));
-
-        LogDebug("[RailProbe] row=%u developId=%u damageType=%u draws a rail "
-            "to parentRow=%u (a=%d b=%d, parent %s the tab grid) - damageType "
-            "0 or 5 hides the corner chip, 1 renders DMG\n",
-            cell, static_cast<unsigned>(devId),
-            static_cast<unsigned>(damageType), parent, a, b,
-            RailGridHasRow(parent) ? "IS on" : "is NOT on");
-    }
-#endif
-
-    void __fastcall hkRailBuild(std::uintptr_t self, std::uint16_t cell,
-                                int a, int b)
-    {
-#ifdef _DEBUG
-        LogRailOnce(self, cell, a, b);
-#endif
-        g_OrigRailBuild(self, cell, a, b);
+        if (!provider || !equip::IsValidFlowIndex(flow))
+            return false;
+        __try
+        {
+            const auto* record = static_cast<const std::uint8_t*>(provider)
+                + static_cast<std::size_t>(flow) * 0x68;
+            return *reinterpret_cast<const std::uint16_t*>(record + 0x8) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     void __fastcall hkFillGrid(std::uintptr_t self, char selectInit)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_FillGrid);
         equip::g_DevelopMenuSeen = true;
         EquipDevelop_DrainIfRestorePending();
-#ifdef _DEBUG
-        ResetRailProbe();
-#endif
         EquipDevelopAdd::NoteMenuTabHint(
             static_cast<int>(At<std::uint32_t>(self, 0x2144)));
         EquipDevelopAdd::MaybeRotateDevelopWindow(0);
-        EquipDevelopAdd::MaybeRefreshDynamicGates();
         outfit::DrainPendingHeads();
+        EquipDevelopAdd::MaybeRefreshDynamicGates();
         EquipDevelopAdd::MenuFillScope _fill;
         equip::DevelopVisibilityScope _vis;
         for (int i = 0; i < kGridLen; ++i)
@@ -191,11 +115,11 @@ namespace
             return;
 
         static std::uint16_t rootBuf[kRows];
+        std::fill_n(rootBuf, rootCount, equip::kFlowSentinel);
         reinterpret_cast<FillFn>(vt[0x148 / 8])(prov, typeId, rootCount, rootBuf);
 
         std::uint32_t rowAcc = 0;
         std::uint32_t local190 = 0;
-        int validRoots = 0, garbageRoots = 0;
 
         if (rootCount == 0)
         {
@@ -206,15 +130,11 @@ namespace
             for (int r = 0; r < static_cast<int>(rootCount); ++r)
             {
                 const std::uint16_t rootVal = rootBuf[r];
-                if (!equip::IsValidFlowIndex(rootVal))
-                {
-                    ++garbageRoots;
+                if (!IsDefinedDevelopRow(prov, rootVal))
                     continue;
-                }
-                ++validRoots;
                 const std::uint8_t col =
                     reinterpret_cast<GradeFn>(vt[0x180 / 8])(prov, rootVal);
-                if (col != 0)
+                if (col != 0 && col <= kCols)
                 {
                     const std::uint32_t rowBase = rowAcc & 0xffff;
                     const int idx = (col - 1) + static_cast<int>(rowBase) * kCols;
@@ -263,6 +183,7 @@ namespace
                         if (childCount < equip::kMaxFlowSlots)
                         {
                             static std::uint16_t childBuf[equip::kMaxFlowSlots];
+                            std::fill_n(childBuf, childCount, equip::kFlowSentinel);
                             reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
                                 prov, rootVal, childCount, childBuf, 0);
 
@@ -270,7 +191,7 @@ namespace
                             for (int k = 0; k < static_cast<int>(childCount); ++k)
                             {
                                 const std::uint16_t childVal = childBuf[k];
-                                if (!equip::IsValidFlowIndex(childVal))
+                                if (!IsDefinedDevelopRow(prov, childVal))
                                     continue;
                                 const std::uint8_t cbase =
                                     reinterpret_cast<ChildBaseFn>(vt[0x188 / 8])(
@@ -278,10 +199,12 @@ namespace
                                 const std::uint8_t ccol =
                                     reinterpret_cast<GradeFn>(vt[0x180 / 8])(
                                         prov, childVal);
+                                if (ccol == 0 || ccol > kCols)
+                                    continue;
                                 const int cidx = (static_cast<int>(cbase)
                                                   + static_cast<int>(rowBase)) * kCols
                                                  - 1 + static_cast<int>(ccol);
-                                if (cidx < kGridLen)
+                                if (cidx >= 0 && cidx < kGridLen)
                                 {
                                     g_Grid[cidx] = childVal;
                                     std::uint16_t cspan =
@@ -306,52 +229,8 @@ namespace
         }
         (void)local190;
 
-        static int s_lastLog = -1;
-        const int logKey = validRoots * 10000 + garbageRoots;
-        if (logKey != s_lastLog)
-        {
-            s_lastLog = logKey;
-            LogDebug("[MenuDevelopGrid] fill tab=%u: rootCount=%u valid=%d "
-                "garbage-skipped=%d rows=%u\n",
-                typeId, rootCount, validRoots, garbageRoots, rowAcc);
-        }
-
         At<std::int16_t>(self, 0x216c) = static_cast<std::int16_t>(rowAcc);
         std::memcpy(reinterpret_cast<void*>(self + 0xe50), g_Grid, 0x6ae * 2);
-
-#ifdef _DEBUG
-        {
-            static bool s_Dumped = false;
-            if (!s_Dumped && typeId == 20)
-            {
-                s_Dumped = true;
-                void* ctl = EquipDevelop_ResolveDevelopController();
-                if (ctl)
-                {
-                    const std::uint16_t rows[] = { 507, 512, 948, 949 };
-                    for (int r = 0; r < 4; ++r)
-                    {
-                        char hex[0x68 * 3 + 8];
-                        int p = 0;
-                        for (int i = 0; i < 0x68; ++i)
-                        {
-                            const int b = ReadDevelopRecordByteSEH(
-                                ctl, rows[r], static_cast<std::size_t>(i));
-                            p += std::snprintf(
-                                hex + p, sizeof(hex) - static_cast<size_t>(p),
-                                "%02X", b & 0xFF);
-                        }
-                        LogDebug("[MenuDevelopGrid] record flow=%u: %s\n",
-                            rows[r], hex);
-                    }
-                    LogDebug("[MenuDevelopGrid] flows 507/512 are vanilla lone "
-                             "grade-3 rows, 948/949 are custom rows with the same "
-                             "grid shape - any differing field is why one draws a "
-                             "parent rail\n");
-                }
-            }
-        }
-#endif
     }
 
     struct BadgeCacheEntry
@@ -363,53 +242,6 @@ namespace
         char  result = 0;
         bool  valid = false;
     };
-#ifdef _DEBUG
-    constexpr std::size_t kDevelopRecordArrayOffset = 0x8;
-    constexpr std::size_t kDevelopRecordStride      = 0x68;
-    constexpr int         kBadgeProbeMaxLines       = 32;
-
-    int g_BadgeProbeLines = 0;
-
-    bool SafeReadBadgeProbeRecord(void* controller, std::uint16_t idx,
-                                  std::uint8_t& latchByte, std::uint8_t& fobByte)
-    {
-        __try
-        {
-            const std::uint8_t* rec =
-                reinterpret_cast<const std::uint8_t*>(controller)
-                + kDevelopRecordArrayOffset
-                + static_cast<std::size_t>(idx) * kDevelopRecordStride;
-            latchByte = rec[0x15];
-            fobByte   = rec[0x58];
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-    }
-
-    void LogBadgeProbeRow(void* prov, std::uint32_t typeId, std::uint16_t idx,
-                          char c1, char c2, char c3)
-    {
-        if (g_BadgeProbeLines >= kBadgeProbeMaxLines)
-            return;
-        ++g_BadgeProbeLines;
-        std::uint8_t flags = 0;
-        const bool haveFlags = equip::DevFlagsTryReadByte(prov, idx, flags);
-        std::uint8_t latchByte = 0;
-        std::uint8_t fobByte   = 0;
-        const bool haveRec = SafeReadBadgeProbeRecord(prov, idx, latchByte, fobByte);
-        LogDebug("[BadgeProbe] counted typeId=%u idx=%u developed(vt1c8)=%d "
-                 "reqMet(vt1b8)=%d isNew(vt250)=%d flags=%s0x%02X rec15=%s0x%02X "
-                 "latchBit4=%d rec58=0x%02X fobBit7=%d fobSuppress=%d - this row is what the ready-to-develop badge is counting\n",
-            typeId, static_cast<unsigned>(idx),
-            c1 ? 1 : 0, c2 ? 1 : 0, c3 ? 1 : 0,
-            haveFlags ? "" : "unreadable:", static_cast<unsigned>(flags),
-            haveRec ? "" : "unreadable:", static_cast<unsigned>(latchByte),
-            haveRec ? ((latchByte >> 4) & 1) : -1,
-            static_cast<unsigned>(fobByte),
-            haveRec ? ((fobByte >> 7) & 1) : -1,
-            EquipDevelop_IsFobListSuppressActive() ? 1 : 0);
-    }
-#endif
 
     constexpr DWORD kManagedDevelopedTtlMs = 500;
 
@@ -454,7 +286,6 @@ namespace
                                  int* developable, int* newDevelopable,
                                  int* developed)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_CountBadge);
         EquipDevelopAdd::PumpDevelopMenuWork();
         if (!MissionCodeGuard::ShouldBypassHooks()
             && !EquipDevelop_IsFobListSuppressActive()
@@ -487,11 +318,12 @@ namespace
         static std::uint16_t rootBuf[equip::kMaxFlowSlots];
         if (rootCount > equip::kMaxFlowSlots)
             rootCount = equip::kMaxFlowSlots;
+        std::fill_n(rootBuf, rootCount, equip::kFlowSentinel);
         reinterpret_cast<FillFn>(vt[0x148 / 8])(prov, typeId, rootCount, rootBuf);
 
         const auto countOne = [&](std::uint16_t idx)
         {
-            if (!equip::IsValidFlowIndex(idx))
+            if (!IsDefinedDevelopRow(prov, idx))
                 return;
             char c1 = reinterpret_cast<FlagFn>(vt[0x1c8 / 8])(prov, idx);
             const char c2 = reinterpret_cast<FlagFn>(vt[0x1b8 / 8])(prov, idx);
@@ -510,24 +342,18 @@ namespace
                 {
                     ++*newDevelopable;
                     ++*developed;
-#ifdef _DEBUG
-                    LogBadgeProbeRow(prov, typeId, idx, c1, c2, c3);
-#endif
                 }
             }
             else if (c1 == 0 && c2 != 0)
             {
                 ++*developed;
-#ifdef _DEBUG
-                LogBadgeProbeRow(prov, typeId, idx, c1, c2, c3);
-#endif
             }
         };
 
         for (int r = 0; r < static_cast<int>(rootCount); ++r)
         {
             const std::uint16_t rootVal = rootBuf[r];
-            if (!equip::IsValidFlowIndex(rootVal))
+            if (!IsDefinedDevelopRow(prov, rootVal))
                 continue;
             countOne(rootVal);
 
@@ -538,6 +364,7 @@ namespace
                 childCount = equip::kMaxFlowSlots;
             if (childCount != 0)
             {
+                std::fill_n(childBuf, childCount, equip::kFlowSentinel);
                 reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
                     prov, rootVal, childCount, childBuf, 0);
                 for (int k = 0; k < static_cast<int>(childCount); ++k)
@@ -572,13 +399,12 @@ namespace
 
     void __fastcall hkFillFlat(std::uintptr_t self, char selectInit)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_FillFlat);
         equip::g_DevelopMenuSeen = true;
         EquipDevelop_DrainIfRestorePending();
         EquipDevelopAdd::NoteMenuTabHint(-1);
         EquipDevelopAdd::MaybeRotateDevelopWindow(0);
-        EquipDevelopAdd::MaybeRefreshDynamicGates();
         outfit::DrainPendingHeads();
+        EquipDevelopAdd::MaybeRefreshDynamicGates();
         EquipDevelopAdd::MenuFillScope _fill;
         equip::DevelopVisibilityScope _vis;
         for (int i = 0; i < kGridLen; ++i)
@@ -608,7 +434,7 @@ namespace
 
         const auto includes = [&](std::uint16_t idx) -> bool
         {
-            if (!equip::IsValidFlowIndex(idx))
+            if (!IsDefinedDevelopRow(prov, idx))
                 return false;
             const char c1 = reinterpret_cast<FlagFn>(vt[0x1c8 / 8])(prov, idx);
             const char c3 = reinterpret_cast<FlagFn>(vt[0x190 / 8])(prov, idx);
@@ -648,6 +474,7 @@ namespace
             static std::uint16_t rootBuf[equip::kMaxFlowSlots];
             if (count > equip::kMaxFlowSlots)
                 count = equip::kMaxFlowSlots;
+            std::fill_n(rootBuf, count, equip::kFlowSentinel);
             reinterpret_cast<FillFn>(vt[0x148 / 8])(prov, typeId, count, rootBuf);
 
             for (int r = 0; r < static_cast<int>(count); ++r)
@@ -655,7 +482,7 @@ namespace
                 if (cell > kGridLen - 1)
                     break;
                 const std::uint16_t idx = rootBuf[r];
-                if (!equip::IsValidFlowIndex(idx))
+                if (!IsDefinedDevelopRow(prov, idx))
                     continue;
                 if (includes(idx))
                 {
@@ -668,6 +495,7 @@ namespace
                 if (cc < equip::kMaxFlowSlots)
                 {
                     static std::uint16_t childBuf[equip::kMaxFlowSlots];
+                    std::fill_n(childBuf, cc, equip::kFlowSentinel);
                     reinterpret_cast<ChildFillFn>(vt[0x168 / 8])(
                         prov, idx, cc, childBuf, 0);
                     for (int k = 0; k < static_cast<int>(cc); ++k)
@@ -675,7 +503,7 @@ namespace
                         if (cell > kGridLen - 1)
                             break;
                         const std::uint16_t cidx = childBuf[k];
-                        if (!equip::IsValidFlowIndex(cidx))
+                        if (!IsDefinedDevelopRow(prov, cidx))
                             continue;
                         if (includes(cidx))
                         {
@@ -705,7 +533,6 @@ namespace
 
     void __fastcall hkCopyFlat(std::uintptr_t self)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_CopyFlat);
         std::uint16_t* pv = reinterpret_cast<std::uint16_t*>(self + 0x1bac);
         for (int i = 0; i < 0x10; ++i)
             pv[i] = 0x400;
@@ -801,7 +628,6 @@ namespace
 
     void __fastcall hkCopyGrid(std::uintptr_t self)
     {
-        equip::MenuPerfScope _perf(equip::kPerf_CopyGrid);
         std::uint16_t* pv = reinterpret_cast<std::uint16_t*>(self + 0x1bac);
         for (int i = 0; i < 0x10; ++i)
             pv[i] = 0x400;
@@ -824,33 +650,6 @@ namespace
                 out += 4;
             }
         }
-
-#ifdef _DEBUG
-        {
-            static int s_LastWindow = -1;
-            const int windowKey = topRow * 1000 + topCol;
-            if (windowKey != s_LastWindow)
-            {
-                s_LastWindow = windowKey;
-                char buf[256];
-                int p = 0;
-                for (int row = 0; row < 3; ++row)
-                    for (int col = 0; col < 3; ++col)
-                    {
-                        const int g = topCol + col
-                                      + (topRow + row) * kCols;
-                        p += std::snprintf(
-                            buf + p, sizeof(buf) - static_cast<size_t>(p),
-                            " r%dc%d=%u", topRow + row, topCol + col,
-                            GridAt(g));
-                    }
-                LogDebug("[MenuDevelopGrid] visible window tab=%u topRow=%d "
-                         "topCol=%d:%s (1024 = empty; >= 922 = custom row, < 922 = "
-                         "vanilla)\n",
-                    At<std::uint32_t>(self, 0x2144), topRow, topCol, buf);
-            }
-        }
-#endif
 
         {
             long long uRow = static_cast<long long>(topRow) - 1;
@@ -1005,71 +804,6 @@ namespace
 
 namespace equip
 {
-    namespace
-    {
-        struct MenuPerfCell
-        {
-            std::atomic<unsigned long long> calls{ 0 };
-            std::atomic<unsigned long long> ticks{ 0 };
-        };
-        MenuPerfCell g_MenuPerfCells[kPerf_SlotCount];
-        const char* const kMenuPerfNames[kPerf_SlotCount] =
-        {
-            "FillGrid", "CopyGrid", "CountBadge", "FillFlat", "CopyFlat",
-            "IsVisile", "GetSuitIdx", "IsSuit", "DrainHeads", "UpdRecords",
-            "AddListSuit"
-        };
-        std::atomic<DWORD> g_MenuPerfLastDump{ 0 };
-    }
-
-    void MenuPerfAdd(int slot, long long ticks)
-    {
-        if (slot < 0 || slot >= kPerf_SlotCount) return;
-        g_MenuPerfCells[slot].calls.fetch_add(1, std::memory_order_relaxed);
-        g_MenuPerfCells[slot].ticks.fetch_add(
-            ticks > 0 ? static_cast<unsigned long long>(ticks) : 0ull,
-            std::memory_order_relaxed);
-        const DWORD now = GetTickCount();
-        DWORD last = g_MenuPerfLastDump.load(std::memory_order_relaxed);
-        if (last != 0 && (now - last) < 5000) return;
-        if (!g_MenuPerfLastDump.compare_exchange_strong(last, now)) return;
-        if (last == 0) return;
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        char line[512];
-        int pos = 0;
-        bool any = false;
-        for (int i = 0; i < kPerf_SlotCount; ++i)
-        {
-            const unsigned long long c = g_MenuPerfCells[i].calls.exchange(0);
-            const unsigned long long t = g_MenuPerfCells[i].ticks.exchange(0);
-            if (c == 0) continue;
-            const double ms =
-                f.QuadPart ? (1000.0 * static_cast<double>(t) / f.QuadPart)
-                           : 0.0;
-            if (ms >= 0.5 || c >= 500) any = true;
-            const int w = std::snprintf(
-                line + pos, sizeof(line) - pos, "%s=%llux/%.1fms ",
-                kMenuPerfNames[i], c, ms);
-            if (w <= 0 || pos + w >= static_cast<int>(sizeof(line)) - 1)
-                break;
-            pos += w;
-        }
-        unsigned long long visCalls = 0, visHits = 0;
-        equip::DevelopVisibilityTakeCounters(visCalls, visHits);
-        unsigned long long findCalls = 0, findIndexed = 0, findBuilds = 0,
-                           findStale = 0;
-        equip::DevelopLookupTakeCounters(findCalls, findIndexed, findBuilds,
-                                         findStale);
-        if (any)
-            LogDebug("[MenuPerf] last 5s: %s| visibility predicate %llu calls, %llu "
-                     "from the per-fill cache | row lookups %llu calls, %llu from "
-                     "the developId/equipId index (%llu rebuilds, %llu stale "
-                     "re-verified); an unindexed lookup is a full %u-record scan\n",
-                line, visCalls, visHits, findCalls, findIndexed, findBuilds,
-                findStale, equip::NativeFlowBound());
-    }
-
     bool  g_MenuGridExpanded = false;
     bool  g_DevelopMenuSeen  = false;
     int   MenuGridRowCap() { return g_MenuGridExpanded ? kRows : 114; }
@@ -1077,11 +811,7 @@ namespace equip
     bool Install_MenuDevelopGridExpand()
     {
         if (!kEnableGridExpand)
-        {
-            LogDebug("[MenuDevelopGrid] grid expansion disabled in this build - "
-                "develop menu runs the native 114-row grid with window paging.\n");
             return true;
-        }
 
         void* fill     = ResolveGameAddress(gAddr.MenuDevelopGrid_FillGrid);
         void* copy     = ResolveGameAddress(gAddr.MenuDevelopGrid_CopyGrid);
@@ -1093,18 +823,36 @@ namespace equip
             || !gAddr.MenuDevelopGrid_CopyFlat
             || !fill || !copy || !badge || !fillFlat || !copyFlat)
         {
-            LogDebug("[MenuDevelopGrid] not installed (addresses unresolved on this "
-                "build) - develop grid stays at the native 114-row cap.\n");
+            LogError("MenuDevelopGrid: addresses missing for this build, develop "
+                "grid stays at 114 rows");
             return true;
         }
 
         g_GetQst = reinterpret_cast<GetQst_t>(
             ResolveGameAddress(gAddr.GetQuarkSystemTable));
 
-        const std::uintptr_t slide =
-            reinterpret_cast<std::uintptr_t>(fillFlat) - 0x141679220ull;
-        g_FlatTabTableA = slide + 0x142438780ull;
-        g_FlatTabTableB = slide + 0x1424387c0ull;
+        std::uintptr_t flatTabA = 0;
+        std::uintptr_t flatTabB = 0;
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+            flatTabA = 0x142438780ull; flatTabB = 0x1424387c0ull; break;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
+            flatTabA = 0x142438a70ull; flatTabB = 0x142438ab0ull; break;
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
+            flatTabA = 0x142438b70ull; flatTabB = 0x142438bb0ull; break;
+        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
+            flatTabA = 0x142438bc0ull; flatTabB = 0x142438c00ull; break;
+        default:
+            break;
+        }
+        g_FlatTabTableA = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(flatTabA));
+        g_FlatTabTableB = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(flatTabB));
+        if (!g_FlatTabTableA || !g_FlatTabTableB)
+            LogError("MenuDevelopGrid: flat-tab row tables missing for %s, flat "
+                "develop tab broken", GetGameBuildName(gGameBuild));
 
         const bool okFill = CreateAndEnableHook(
             fill, reinterpret_cast<void*>(&hkFillGrid),
@@ -1122,24 +870,14 @@ namespace equip
             copyFlat, reinterpret_cast<void*>(&hkCopyFlat),
             reinterpret_cast<void**>(&g_OrigCopyFlat));
 
-        if (::AddressSetRuntime::IsEn154Family(gGameBuild))
-        {
-            void* rail = ResolveGameAddress(kAddr_DevelopRailBuild_En154);
-            if (rail && !CreateAndEnableHook(
-                    rail, reinterpret_cast<void*>(&hkRailBuild),
-                    reinterpret_cast<void**>(&g_OrigRailBuild)))
-                Log("[MenuDevelopGrid] connector-rail hook FAILED - parentless rows "
-                    "draw a dangling rail through the empty cells beside them\n");
-        }
-
         g_MenuGridExpanded = okFill && okCopy && okBadge && okFillFlat
                              && okCopyFlat;
-        Log("[MenuDevelopGrid] grid expand install: fill=%s copy=%s badge=%s "
-            "fillFlat=%s copyFlat=%s (grid grown 114 -> %d rows; render-row "
-            "cap now %d)\n",
-            okFill ? "OK" : "FAIL", okCopy ? "OK" : "FAIL",
-            okBadge ? "OK" : "FAIL", okFillFlat ? "OK" : "FAIL",
-            okCopyFlat ? "OK" : "FAIL", kRows, MenuGridRowCap());
+        if (!g_MenuGridExpanded)
+            LogError("MenuDevelopGrid: hook failed (fill=%s copy=%s badge=%s "
+                "fillFlat=%s copyFlat=%s), develop grid stays at 114 rows",
+                okFill ? "ok" : "FAIL", okCopy ? "ok" : "FAIL",
+                okBadge ? "ok" : "FAIL", okFillFlat ? "ok" : "FAIL",
+                okCopyFlat ? "ok" : "FAIL");
         return g_MenuGridExpanded;
     }
 }

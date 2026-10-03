@@ -12,6 +12,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -57,6 +58,7 @@ namespace V_FrameWorkState
         static constexpr std::int32_t kEquipOrphanGraceLaunches = 2;
         static constexpr std::int32_t kConstantOrphanGraceLaunches = 2;
         static constexpr std::int32_t kBluePrintOrphanGraceLaunches = 2;
+        static constexpr std::int32_t kCallMenuOrphanGraceLaunches = 2;
         static constexpr std::int32_t kMaxCustomConstantValue = 0xFFF0;
 
         static constexpr char kUniqueStaffKeyPrefix[] = "USTAFF:";
@@ -77,10 +79,82 @@ namespace V_FrameWorkState
             return key.compare(0, kFaceIdKeyPrefixLen, kFaceIdKeyPrefix) == 0;
         }
 
+        static constexpr char kFaceMetaKeyPrefix[] = "FACEMETA:";
+        static constexpr char kStaffFaceKeyPrefix[] = "STAFFFACE:";
+        static constexpr char kStaffProxyKeyPrefix[] = "STAFFPROXY:";
+        static constexpr char kFaceReusedKeyPrefix[] = "FACEREUSED:";
+        static constexpr char kFaceRetiredKeyPrefix[] = "FACERETIRED:";
+
+        static bool HasKeyPrefix(const std::string& key, const char* prefix, std::size_t length)
+        {
+            return key.compare(0, length, prefix) == 0;
+        }
+
+        static bool IsFaceLinkConstantKey(const std::string& key)
+        {
+            return HasKeyPrefix(key, kFaceMetaKeyPrefix, sizeof(kFaceMetaKeyPrefix) - 1)
+                || HasKeyPrefix(key, kFaceReusedKeyPrefix, sizeof(kFaceReusedKeyPrefix) - 1)
+                || HasKeyPrefix(key, kStaffFaceKeyPrefix, sizeof(kStaffFaceKeyPrefix) - 1)
+                || HasKeyPrefix(key, kStaffProxyKeyPrefix, sizeof(kStaffProxyKeyPrefix) - 1);
+        }
+
         static bool IsNeverEvictConstantKey(const std::string& key)
         {
-            return IsUniqueStaffConstantKey(key) || IsFaceIdConstantKey(key);
+            return IsUniqueStaffConstantKey(key) || IsFaceLinkConstantKey(key)
+                || HasKeyPrefix(key, kFaceRetiredKeyPrefix, sizeof(kFaceRetiredKeyPrefix) - 1);
         }
+
+        static bool FaceIdOfLinkKey(const std::string& key, std::int32_t value, std::int32_t& faceId)
+        {
+            const bool meta = HasKeyPrefix(key, kFaceMetaKeyPrefix, sizeof(kFaceMetaKeyPrefix) - 1);
+            if (meta || HasKeyPrefix(key, kFaceReusedKeyPrefix, sizeof(kFaceReusedKeyPrefix) - 1))
+            {
+                const char* name = key.c_str()
+                    + (meta ? sizeof(kFaceMetaKeyPrefix) : sizeof(kFaceReusedKeyPrefix)) - 1;
+                if (name[0] != 'f' || !name[1])
+                    return false;
+                std::int32_t id = 0;
+                for (const char* digit = name + 1; *digit; ++digit)
+                {
+                    if (*digit < '0' || *digit > '9' || id > 0xFFFF)
+                        return false;
+                    id = id * 10 + (*digit - '0');
+                }
+                faceId = id;
+                return true;
+            }
+            if (HasKeyPrefix(key, kStaffFaceKeyPrefix, sizeof(kStaffFaceKeyPrefix) - 1))
+            {
+                faceId = value - 1;
+                return faceId >= 0;
+            }
+            if (!HasKeyPrefix(key, kStaffProxyKeyPrefix, sizeof(kStaffProxyKeyPrefix) - 1))
+                return false;
+            const std::string hex = key.substr(sizeof(kStaffProxyKeyPrefix) - 1);
+            if (hex.size() != 16)
+                return false;
+            std::uint64_t staffId = 0;
+            for (const char c : hex)
+            {
+                std::uint32_t digit = 0;
+                if (c >= '0' && c <= '9')
+                    digit = static_cast<std::uint32_t>(c - '0');
+                else if (c >= 'A' && c <= 'F')
+                    digit = static_cast<std::uint32_t>(c - 'A' + 10);
+                else
+                    return false;
+                staffId = (staffId << 4) | digit;
+            }
+            faceId = static_cast<std::int32_t>((staffId >> 20) & 0x3FF);
+            return true;
+        }
+
+        struct RetiredFace
+        {
+            std::string key;
+            std::int32_t faceId = 0;
+            std::int32_t launches = 0;
+        };
 
         struct EquipEntry
         {
@@ -132,7 +206,67 @@ namespace V_FrameWorkState
             std::unordered_map<std::string, std::int32_t> constants;
             std::unordered_map<std::string, std::int32_t> constantMisses;
             std::unordered_set<std::int32_t> pinnedEquipIds;
+            std::unordered_map<std::string, V_FrameWorkState::DispatchMission> dispatchMissions;
+            std::vector<V_FrameWorkState::DispatchSlotFact> dispatchSlots;
+            V_FrameWorkState::DispatchCursor dispatchCursors[2];
+            std::unordered_map<std::string, V_FrameWorkState::CallMenuItem> callMenuItems;
         };
+
+        static constexpr char kLegacyDispatchIdSpace[]      = "DEPLOYW:";
+        static constexpr char kLegacyDispatchRewardSpace[]  = "DEPLOYH:";
+        static constexpr char kLegacyDispatchPendingSpace[] = "DEPLOYHPEND:";
+        static constexpr char kLegacyDispatchReservedMark   = '~';
+
+        static constexpr std::int32_t kFirstDispatchId        = 0x100;
+        static constexpr std::int32_t kLastDispatchId         = 0xFFF0;
+        static constexpr std::int32_t kFirstDispatchRewardRow = 0x86;
+        static constexpr std::int32_t kLastDispatchRewardRow  = 0xFD;
+
+        struct DispatchRewardField
+        {
+            const char*  name;
+            std::size_t  offset;
+            std::size_t  width;
+        };
+
+        static constexpr DispatchRewardField kDispatchRewardFields[] =
+        {
+            { "keyValue2", 0x01, 1 },           { "mainRewardType", 0x02, 1 },      { "gmp", 0x04, 4 },
+            { "staffHitRate", 0x08, 1 },        { "staffDrawCount", 0x09, 1 },
+            { "staffGRate", 0x0A, 1 },          { "staffFRate", 0x0B, 1 },          { "staffERate", 0x0C, 1 },
+            { "staffDRate", 0x0D, 1 },          { "staffCRate", 0x0E, 1 },          { "staffBRate", 0x0F, 1 },
+            { "staffARate", 0x10, 1 },          { "staffSRate", 0x11, 1 },          { "staffSpRate", 0x12, 1 },
+            { "staffSppRate", 0x13, 1 },        { "staffRelativeRate", 0x14, 1 },   { "staffRelativeP1Rate", 0x15, 1 },
+            { "resourceHitRate", 0x16, 1 },     { "resourceDrawCount", 0x18, 2 },
+            { "fuelResourceRate", 0x1A, 1 },    { "bioticResourceRate", 0x1B, 1 },  { "commonMetalRate", 0x1C, 1 },
+            { "minorMetalRate", 0x1D, 1 },      { "preciousMetalRate", 0x1E, 1 },   { "goldenCrescentRate", 0x1F, 1 },
+            { "blackCarrotRate", 0x20, 1 },     { "wormwoodRate", 0x21, 1 },        { "tarragonRate", 0x22, 1 },
+            { "africanPeachRate", 0x23, 1 },    { "digitalisPRate", 0x24, 1 },      { "digitalisLRate", 0x25, 1 },
+            { "haomaRate", 0x26, 1 },           { "keyItemDataBaseId", 0x28, 2 },   { "keyItemRate", 0x2A, 1 },
+            { "rewardRate", 0x2B, 1 },
+        };
+        static constexpr std::size_t   kDispatchRewardSectionOffset = 0x01;
+        static constexpr std::size_t   kDispatchRewardKeyItemOffset = 0x28;
+        static constexpr std::size_t   kDispatchRewardFlagsOffset   = 0x2C;
+        static constexpr std::uint16_t kDispatchNoKeyItem           = 0xFFFF;
+
+        static void NormalizeDispatchReward(std::uint8_t* reward)
+        {
+            std::uint8_t clean[V_FrameWorkState::kDispatchRewardRecordSize] = {};
+            for (const DispatchRewardField& field : kDispatchRewardFields)
+                std::memcpy(clean + field.offset, reward + field.offset, field.width);
+            clean[kDispatchRewardFlagsOffset] = reward[kDispatchRewardFlagsOffset] & 1;
+            std::memcpy(reward, clean, sizeof(clean));
+        }
+
+        static bool SameDispatchMission(const V_FrameWorkState::DispatchMission& a,
+                                        const V_FrameWorkState::DispatchMission& b)
+        {
+            return a.deployMissionId == b.deployMissionId && a.rewardRow == b.rewardRow
+                && a.cleared == b.cleared && a.rewardPending == b.rewardPending
+                && a.hasReward == b.hasReward
+                && (!a.hasReward || std::memcmp(a.reward, b.reward, sizeof(a.reward)) == 0);
+        }
 
         static State g_State;
         static std::mutex g_Mutex;
@@ -147,10 +281,10 @@ namespace V_FrameWorkState
         static bool                    g_FlusherRunning = false;
         static bool                    g_FlusherStop    = false;
         static unsigned long long      g_SaveDueTick    = 0;
-        static unsigned long long      g_CoalescedCount = 0;
 
 
         static std::unordered_set<std::string> g_ConstantsTouched;
+        static std::unordered_set<std::string> g_DispatchTouched;
         static bool g_ExitSave = false;
         static bool g_LaunchHealthy = false;
 
@@ -159,32 +293,9 @@ namespace V_FrameWorkState
             if (!g_ExitSave)
                 return false;
             if (!g_LaunchHealthy)
-            {
-                static bool s_said = false;
-                if (!s_said)
-                {
-                    s_said = true;
-                    Log("[V_FrameWorkState] this launch did not install cleanly, so no "
-                        "mod could register - unreferenced-constant counters frozen; "
-                        "counting this launch would expire persisted ids that are still "
-                        "in use\n");
-                }
                 return false;
-            }
             if (FeatureAnyDisabled())
-            {
-                static bool s_said = false;
-                if (!s_said)
-                {
-                    s_said = true;
-                    Log("[V_FrameWorkState] disabled_modules.txt is active, so "
-                        "absent symbols are by request, not an uninstall - "
-                        "unreferenced-constant counters frozen this launch; two "
-                        "bisect runs would otherwise expire every persisted "
-                        "equipId\n");
-                }
                 return false;
-            }
             return true;
         }
         static std::unordered_set<std::int32_t> g_SessionPinnedIds;
@@ -446,6 +557,264 @@ namespace V_FrameWorkState
             return !outKey.empty() && outValue != 0;
         }
 
+        static bool ParseRowKey(const std::string& line, std::string& outKey, std::size_t& keyEnd)
+        {
+            const auto lb = line.find("[\"");
+            if (lb == std::string::npos) return false;
+            const auto rb = line.find("\"]", lb + 2);
+            if (rb == std::string::npos) return false;
+            outKey = line.substr(lb + 2, rb - (lb + 2));
+            keyEnd = rb;
+            return !outKey.empty();
+        }
+
+        static std::int32_t RowIntField(const std::string& line, std::size_t from, const char* name)
+        {
+            const std::string field = std::string(name) + " = ";
+            const auto pos = line.find(field, from);
+            if (pos == std::string::npos) return 0;
+            std::string numStr;
+            for (auto i = pos + field.size(); i < line.size(); ++i)
+            {
+                const char c = line[i];
+                if (c == ',' || c == '}' || c == ' ') break;
+                numStr.push_back(c);
+            }
+            return ParseStateInt(numStr);
+        }
+
+        static std::string RowStringField(const std::string& line, std::size_t from, const char* name)
+        {
+            const std::string field = std::string(name) + " = \"";
+            const auto pos = line.find(field, from);
+            if (pos == std::string::npos) return {};
+            const auto start = pos + field.size();
+            const auto end = line.find('"', start);
+            if (end == std::string::npos) return {};
+            return line.substr(start, end - start);
+        }
+
+        static bool BytesOfHex(const std::string& text, std::uint8_t* bytes, std::size_t count)
+        {
+            if (text.size() != count * 2)
+                return false;
+            auto nibble = [](char c) -> int
+            {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                return -1;
+            };
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const int high = nibble(text[i * 2]);
+                const int low = nibble(text[i * 2 + 1]);
+                if (high < 0 || low < 0)
+                    return false;
+                bytes[i] = static_cast<std::uint8_t>((high << 4) | low);
+            }
+            return true;
+        }
+
+        static bool RowHasField(const std::string& line, std::size_t from, const char* name)
+        {
+            return line.find(std::string(name) + " = ", from) != std::string::npos;
+        }
+
+        static std::string HexText(std::uint64_t value)
+        {
+            char text[24];
+            std::snprintf(text, sizeof(text), "0x%llX", static_cast<unsigned long long>(value));
+            return text;
+        }
+
+        static std::uint64_t ParseHexText(const std::string& text)
+        {
+            const std::size_t at = (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) ? 2 : 0;
+            if (text.size() <= at)
+                return 0;
+            try { return std::stoull(text.substr(at), nullptr, 16); }
+            catch (...) { return 0; }
+        }
+
+        static std::string FloatPairText(const float (&pair)[2])
+        {
+            char text[48];
+            std::snprintf(text, sizeof(text), "%.9g %.9g", pair[0], pair[1]);
+            return text;
+        }
+
+        static bool ParseFloatPair(const std::string& text, float (&pair)[2])
+        {
+            float values[2] = {};
+            if (text.empty() || sscanf_s(text.c_str(), "%f %f", &values[0], &values[1]) != 2)
+                return false;
+            pair[0] = values[0];
+            pair[1] = values[1];
+            return true;
+        }
+
+        static std::int8_t RowOverride(const std::string& line, std::size_t from, const char* name)
+        {
+            if (line.find(std::string(name) + " = true", from) != std::string::npos)
+                return 1;
+            if (line.find(std::string(name) + " = false", from) != std::string::npos)
+                return 0;
+            return V_FrameWorkState::kNoOverride;
+        }
+
+        static bool ParseCallMenuItemLine(const std::string& line, V_FrameWorkState::CallMenuItem& out)
+        {
+            std::size_t keyEnd = 0;
+            out = {};
+            if (!ParseRowKey(line, out.key, keyEnd))
+                return false;
+
+            out.label       = ParseHexText(RowStringField(line, keyEnd, "label"));
+            out.description = ParseHexText(RowStringField(line, keyEnd, "description"));
+            if (out.description == 0)
+                out.description = out.label;
+            out.column      = RowIntField(line, keyEnd, "column");
+            out.when        = RowIntField(line, keyEnd, "when");
+            out.message     = static_cast<std::uint32_t>(ParseHexText(RowStringField(line, keyEnd, "message")));
+            out.exclusive   = static_cast<std::uint32_t>(ParseHexText(RowStringField(line, keyEnd, "exclusive")));
+            out.inPlaceOf   = RowHasField(line, keyEnd, "inPlaceOf") ? RowIntField(line, keyEnd, "inPlaceOf") : -1;
+            out.icon        = RowIntField(line, keyEnd, "icon");
+            out.iconTexture = ParseHexText(RowStringField(line, keyEnd, "iconTexture"));
+            out.iconCell    = RowIntField(line, keyEnd, "iconCell");
+            out.hasIconUvShift = ParseFloatPair(RowStringField(line, keyEnd, "iconUvShift"), out.iconUvShift);
+            ParseFloatPair(RowStringField(line, keyEnd, "iconUvRepeat"), out.iconUvRepeat);
+
+            const std::string voices = RowStringField(line, keyEnd, "voices");
+            std::size_t at = 0;
+            while (at < voices.size())
+            {
+                const std::size_t end = voices.find(' ', at);
+                const std::uint64_t voice = ParseHexText(voices.substr(at, end == std::string::npos ? std::string::npos : end - at));
+                if (voice != 0)
+                    out.voices.push_back(static_cast<std::uint32_t>(voice));
+                if (end == std::string::npos)
+                    break;
+                at = end + 1;
+            }
+
+            out.enabled = RowOverride(line, keyEnd, "enabled");
+            out.visible = RowOverride(line, keyEnd, "visible");
+            out.hasInPlaceOfOverride = RowHasField(line, keyEnd, "inPlaceOfOverride");
+            out.inPlaceOfOverride    = out.hasInPlaceOfOverride ? RowIntField(line, keyEnd, "inPlaceOfOverride") : -1;
+            out.page    = RowIntField(line, keyEnd, "page");
+            out.row     = RowHasField(line, keyEnd, "row") ? RowIntField(line, keyEnd, "row") : -1;
+            out.misses  = RowIntField(line, keyEnd, "misses");
+            return out.label != 0;
+        }
+
+        static bool SameCallMenuItem(const V_FrameWorkState::CallMenuItem& a, const V_FrameWorkState::CallMenuItem& b)
+        {
+            return a.label == b.label && a.description == b.description && a.column == b.column && a.when == b.when
+                && a.message == b.message && a.exclusive == b.exclusive && a.inPlaceOf == b.inPlaceOf
+                && a.icon == b.icon && a.iconTexture == b.iconTexture && a.iconCell == b.iconCell
+                && a.hasIconUvShift == b.hasIconUvShift
+                && a.iconUvShift[0] == b.iconUvShift[0] && a.iconUvShift[1] == b.iconUvShift[1]
+                && a.iconUvRepeat[0] == b.iconUvRepeat[0] && a.iconUvRepeat[1] == b.iconUvRepeat[1]
+                && a.voices == b.voices && a.enabled == b.enabled && a.visible == b.visible
+                && a.hasInPlaceOfOverride == b.hasInPlaceOfOverride && a.inPlaceOfOverride == b.inPlaceOfOverride
+                && a.page == b.page && a.row == b.row && a.misses == b.misses;
+        }
+
+        static bool ParseDispatchMissionLine(const std::string& line,
+                                             V_FrameWorkState::DispatchMission& out)
+        {
+            std::size_t keyEnd = 0;
+            out = {};
+            if (!ParseRowKey(line, out.key, keyEnd))
+                return false;
+
+            if (RowHasField(line, keyEnd, "mission"))
+            {
+                out.hasReward = BytesOfHex(RowStringField(line, keyEnd, "reward"), out.reward,
+                                           V_FrameWorkState::kDispatchRewardRecordSize);
+                if (out.hasReward)
+                    NormalizeDispatchReward(out.reward);
+                return true;
+            }
+
+            out.deployMissionId = RowIntField(line, keyEnd, "deployMissionId");
+            out.rewardRow       = RowIntField(line, keyEnd, "rewardRow");
+            out.misses          = RowIntField(line, keyEnd, "misses");
+            out.cleared         = line.find("cleared = true", keyEnd) != std::string::npos;
+            out.rewardPending   = line.find("rewardPending = true", keyEnd) != std::string::npos;
+            out.hasReward       = RowHasField(line, keyEnd, "keyValue2");
+            if (!out.hasReward)
+                return true;
+
+            std::memcpy(out.reward + kDispatchRewardKeyItemOffset, &kDispatchNoKeyItem, sizeof(kDispatchNoKeyItem));
+            for (const DispatchRewardField& field : kDispatchRewardFields)
+            {
+                if (!RowHasField(line, keyEnd, field.name))
+                    continue;
+                const std::int32_t value = RowIntField(line, keyEnd, field.name);
+                std::memcpy(out.reward + field.offset, &value, field.width);
+            }
+            if (line.find("materialIsBeforeProcess = true", keyEnd) != std::string::npos)
+                out.reward[kDispatchRewardFlagsOffset] = 1;
+            return true;
+        }
+
+        static bool ParseDispatchSlotLine(const std::string& line,
+                                          V_FrameWorkState::DispatchSlotFact& out)
+        {
+            out = {};
+            if (line.rfind("{", 0) == 0)
+            {
+                out.slot          = RowIntField(line, 0, "slot");
+                out.placeholderId = RowIntField(line, 0, "placeholderId");
+                out.seed          = RowIntField(line, 0, "seed");
+                out.key           = RowStringField(line, 0, "mission");
+                out.misses        = RowIntField(line, 0, "misses");
+                return !out.key.empty();
+            }
+
+            std::string composite;
+            std::size_t keyEnd = 0;
+            if (!ParseRowKey(line, composite, keyEnd))
+                return false;
+
+            std::int32_t numbers[3] = {};
+            std::size_t at = 0;
+            for (std::int32_t& number : numbers)
+            {
+                const auto slash = composite.find('/', at);
+                if (slash == std::string::npos)
+                    return false;
+                number = ParseStateInt(composite.substr(at, slash - at));
+                at = slash + 1;
+            }
+            out.slot = numbers[0];
+            out.placeholderId = numbers[1];
+            out.seed = numbers[2];
+            out.key = composite.substr(at);
+            out.misses = RowIntField(line, keyEnd, "misses");
+            return !out.key.empty();
+        }
+
+        static bool ParseDispatchCursorLine(const std::string& line, bool& rareBand,
+                                            V_FrameWorkState::DispatchCursor& out)
+        {
+            std::string band;
+            std::size_t keyEnd = 0;
+            out = {};
+            if (!ParseRowKey(line, band, keyEnd))
+                return false;
+            if (band != "N" && band != "R")
+                return false;
+            rareBand = (band == "R");
+            out.key = RowStringField(line, keyEnd, "mission");
+            if (out.key.empty())
+                out.key = RowStringField(line, keyEnd, "key");
+            out.anchor = RowIntField(line, keyEnd, "anchor");
+            return !out.key.empty();
+        }
+
         static std::string CanonicalConstantKey(std::string key)
         {
             static const char kLegacyWeaponSlot[] = "WPSLOT:";
@@ -454,8 +823,178 @@ namespace V_FrameWorkState
             return key;
         }
 
+        static bool RetireFaceLinks_NoLock(const std::vector<RetiredFace>& retired)
+        {
+            std::unordered_set<std::int32_t> live;
+            for (const auto& kv : g_State.constants)
+                if (IsFaceIdConstantKey(kv.first) && kv.second != 0)
+                    live.insert(kv.second);
+
+            bool changed = false;
+            for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
+            {
+                std::int32_t faceId = -1;
+                if (!IsFaceLinkConstantKey(it->first)
+                    || !FaceIdOfLinkKey(it->first, it->second, faceId)
+                    || live.count(faceId) != 0)
+                {
+                    ++it;
+                    continue;
+                }
+                g_State.constantMisses.erase(it->first);
+                it = g_State.constants.erase(it);
+                changed = true;
+            }
+
+            for (const RetiredFace& face : retired)
+            {
+                if (live.count(face.faceId) != 0)
+                    LogInfo("CustomFace '%s': unregistered for %d launches, entry removed (faceId %d kept by another face)",
+                        face.key.c_str(), face.launches, face.faceId);
+                else
+                {
+                    g_State.constants[std::string(kFaceRetiredKeyPrefix) + "f" + std::to_string(face.faceId)] = 1;
+                    changed = true;
+                    LogInfo("CustomFace '%s': unregistered for %d launches, faceId %d retired",
+                        face.key.c_str(), face.launches, face.faceId);
+                }
+            }
+            return changed;
+        }
+
         static void SaveToDisk_NoLock();
         static void WriteToDisk_NoLock();
+
+        static V_FrameWorkState::DispatchMission& DispatchRowOf_NoLock(const std::string& key)
+        {
+            V_FrameWorkState::DispatchMission& row = g_State.dispatchMissions[key];
+            row.key = key;
+            return row;
+        }
+
+        static bool FoldLegacyDispatchConstants_NoLock()
+        {
+            const std::size_t idLength = sizeof(kLegacyDispatchIdSpace) - 1;
+            const std::size_t rowLength = sizeof(kLegacyDispatchRewardSpace) - 1;
+            const std::size_t pendingLength = sizeof(kLegacyDispatchPendingSpace) - 1;
+
+            bool changed = false;
+            for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
+            {
+                const std::string& name = it->first;
+                const auto missEntry = g_State.constantMisses.find(name);
+                const std::int32_t misses = (missEntry != g_State.constantMisses.end()) ? missEntry->second : 0;
+
+                if (HasKeyPrefix(name, kLegacyDispatchPendingSpace, pendingLength))
+                {
+                    if (it->second != 0)
+                        DispatchRowOf_NoLock(name.substr(pendingLength)).rewardPending = true;
+                }
+                else if (HasKeyPrefix(name, kLegacyDispatchIdSpace, idLength))
+                {
+                    const bool reserved = name.size() > idLength && name[idLength] == kLegacyDispatchReservedMark;
+                    V_FrameWorkState::DispatchMission& row =
+                        DispatchRowOf_NoLock(name.substr(idLength + (reserved ? 1 : 0)));
+                    if (!reserved)
+                    {
+                        row.deployMissionId = it->second;
+                        row.misses = misses;
+                    }
+                    else
+                    {
+                        row.rewardPending = true;
+                        if (row.deployMissionId == 0)
+                        {
+                            row.deployMissionId = it->second;
+                            row.misses = V_FrameWorkState::kDispatchOrphanGraceLaunches;
+                        }
+                    }
+                }
+                else if (HasKeyPrefix(name, kLegacyDispatchRewardSpace, rowLength))
+                {
+                    DispatchRowOf_NoLock(name.substr(rowLength)).rewardRow = it->second;
+                }
+                else
+                {
+                    ++it;
+                    continue;
+                }
+
+                if (missEntry != g_State.constantMisses.end())
+                    g_State.constantMisses.erase(missEntry);
+                it = g_State.constants.erase(it);
+                changed = true;
+            }
+            return changed;
+        }
+
+        static bool CollectDispatchGarbage_NoLock()
+        {
+            bool changed = false;
+
+            std::vector<std::string> keys;
+            for (const auto& kv : g_State.dispatchMissions)
+                keys.push_back(kv.first);
+            std::sort(keys.begin(), keys.end());
+
+            std::unordered_set<std::int32_t> ids;
+            std::unordered_set<std::int32_t> rows;
+            for (const std::string& key : keys)
+            {
+                V_FrameWorkState::DispatchMission& row = g_State.dispatchMissions[key];
+                row.key = key;
+                if (row.deployMissionId != 0
+                    && (row.deployMissionId < kFirstDispatchId || row.deployMissionId > kLastDispatchId
+                        || !ids.insert(row.deployMissionId).second))
+                {
+                    row.deployMissionId = 0;
+                    changed = true;
+                }
+                if (row.rewardRow != 0
+                    && (row.rewardRow < kFirstDispatchRewardRow || row.rewardRow > kLastDispatchRewardRow
+                        || !rows.insert(row.rewardRow).second))
+                {
+                    row.rewardRow = 0;
+                    changed = true;
+                }
+            }
+
+            for (auto it = g_State.dispatchMissions.begin(); it != g_State.dispatchMissions.end(); )
+            {
+                V_FrameWorkState::DispatchMission& row = it->second;
+                if (!row.rewardPending
+                    && (row.deployMissionId == 0 || row.misses >= V_FrameWorkState::kDispatchOrphanGraceLaunches))
+                {
+                    if (row.deployMissionId != 0)
+                        LogInfo("Dispatch '%s': unregistered for %d launches, deployMissionId %d freed",
+                            it->first.c_str(), row.misses, row.deployMissionId);
+                    it = g_State.dispatchMissions.erase(it);
+                    changed = true;
+                    continue;
+                }
+                if (!row.rewardPending && row.hasReward)
+                {
+                    row.hasReward = false;
+                    std::memset(row.reward, 0, sizeof(row.reward));
+                    changed = true;
+                }
+                ++it;
+            }
+
+            for (V_FrameWorkState::DispatchCursor& cursor : g_State.dispatchCursors)
+            {
+                if (cursor.key.empty())
+                    continue;
+                const auto row = g_State.dispatchMissions.find(cursor.key);
+                if (row == g_State.dispatchMissions.end()
+                    || row->second.misses >= V_FrameWorkState::kDispatchOrphanGraceLaunches)
+                {
+                    cursor = {};
+                    changed = true;
+                }
+            }
+            return changed;
+        }
 
         static void LoadFromDisk_NoLock()
         {
@@ -467,20 +1006,25 @@ namespace V_FrameWorkState
             g_State.constants.clear();
             g_State.constantMisses.clear();
             g_State.pinnedEquipIds.clear();
+            g_State.dispatchMissions.clear();
+            g_State.dispatchSlots.clear();
+            g_State.dispatchCursors[0] = {};
+            g_State.dispatchCursors[1] = {};
+            g_State.callMenuItems.clear();
             g_ConstantsTouched.clear();
+            g_DispatchTouched.clear();
             g_TapeSaveIndexInUse.clear();
 
             MigrateLegacyStateFile_NoLock();
 
             std::ifstream in(kSavePath);
             if (!in)
-            {
                 return;
-            }
 
-            enum Section { None, Equips, Weapons, Outfits, Tapes, BluePrints,
-                           Constants, ConstantMisses,
-                           PinnedIds } section = None;
+            enum Section { None, Equips, Weapons, Outfits, HeadOptions, Tapes,
+                           BluePrints, Constants, ConstantMisses,
+                           PinnedIds, DispatchMissions, DispatchSlots,
+                           DispatchCursors, CallMenuItems } section = None;
 
             std::string constantSpace;
 
@@ -527,6 +1071,13 @@ namespace V_FrameWorkState
                     continue;
                 }
 
+                if (trimmed.rfind("headOptions", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = HeadOptions;
+                    continue;
+                }
+
                 if (trimmed.rfind("tapes", 0) == 0 &&
                     trimmed.find('{') != std::string::npos)
                 {
@@ -563,6 +1114,34 @@ namespace V_FrameWorkState
                     continue;
                 }
 
+                if (trimmed.rfind("dispatchMissions", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = DispatchMissions;
+                    continue;
+                }
+
+                if (trimmed.rfind("dispatchSlots", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = DispatchSlots;
+                    continue;
+                }
+
+                if (trimmed.rfind("dispatchCursor", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = DispatchCursors;
+                    continue;
+                }
+
+                if (trimmed.rfind("callMenuItems", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = CallMenuItems;
+                    continue;
+                }
+
 
                 if (trimmed == "}," || (trimmed == "}" && section != None))
                 {
@@ -575,7 +1154,7 @@ namespace V_FrameWorkState
                 }
 
                 if (section == Equips || section == Weapons
-                    || section == Outfits)
+                    || section == Outfits || section == HeadOptions)
                 {
                     std::string key;
                     EquipEntry entry;
@@ -583,7 +1162,8 @@ namespace V_FrameWorkState
                     {
                         entry.kind = (section == Weapons) ? kRowKindWeapon
                                    : (section == Outfits) ? kRowKindOutfit
-                                                          : kRowKindUnknown;
+                                   : (section == HeadOptions) ? kRowKindHeadOption
+                                                              : kRowKindUnknown;
                         const auto colon = key.rfind(':');
                         if (colon != std::string::npos && entry.equipId != 0)
                         {
@@ -605,7 +1185,7 @@ namespace V_FrameWorkState
                     {
                         g_State.tapes[key] = entry;
                         g_TapeSaveIndexInUse.insert(entry.saveIndex);
-                        LogDebug("[CustomTapes] tape loaded: '%s' (saveIndex %d)\n", key.c_str(), static_cast<int>(entry.saveIndex));
+                        LogInfo("CustomTapes: '%s' loaded, saveIndex %d", key.c_str(), static_cast<int>(entry.saveIndex));
                     }
                 }
                 else if (section == BluePrints)
@@ -644,6 +1224,40 @@ namespace V_FrameWorkState
                     if (ParseConstantLine(trimmed, key, value))
                         g_State.pinnedEquipIds.insert(value);
                 }
+                else if (section == DispatchMissions)
+                {
+                    V_FrameWorkState::DispatchMission mission;
+                    if (ParseDispatchMissionLine(trimmed, mission))
+                    {
+                        V_FrameWorkState::DispatchMission& row = g_State.dispatchMissions[mission.key];
+                        const std::int32_t legacyId = row.deployMissionId;
+                        const std::int32_t legacyRow = row.rewardRow;
+                        row = mission;
+                        if (row.deployMissionId == 0)
+                            row.deployMissionId = legacyId;
+                        if (row.rewardRow == 0)
+                            row.rewardRow = legacyRow;
+                    }
+                }
+                else if (section == DispatchSlots)
+                {
+                    V_FrameWorkState::DispatchSlotFact fact;
+                    if (ParseDispatchSlotLine(trimmed, fact))
+                        g_State.dispatchSlots.push_back(fact);
+                }
+                else if (section == DispatchCursors)
+                {
+                    bool rareBand = false;
+                    V_FrameWorkState::DispatchCursor cursor;
+                    if (ParseDispatchCursorLine(trimmed, rareBand, cursor))
+                        g_State.dispatchCursors[rareBand ? 1 : 0] = cursor;
+                }
+                else if (section == CallMenuItems)
+                {
+                    V_FrameWorkState::CallMenuItem item;
+                    if (ParseCallMenuItemLine(trimmed, item))
+                        g_State.callMenuItems[item.key] = item;
+                }
             }
 
             in.close();
@@ -678,9 +1292,7 @@ namespace V_FrameWorkState
                 {
                     if (it->second.misses >= kBluePrintOrphanGraceLaunches)
                     {
-                        Log("[V_FrameWorkState] blueprint \"%s\" (id %d) has not registered for "
-                            "%d launches - entry removed, its id returns to the pool and any "
-                            "ownership of it is lost\n",
+                        LogWarn("State: blueprint '%s' (id %d) unregistered for %d launches, removed with its ownership",
                             it->first.c_str(), it->second.id, it->second.misses);
                         it = g_State.bluePrints.erase(it);
                         continue;
@@ -699,7 +1311,7 @@ namespace V_FrameWorkState
             {
                 if (it->second.misses >= kTapeOrphanGraceLaunches)
                 {
-                    LogDebug("[CustomTapes] tape deleted: '%s' (saveIndex %d) - mod uninstalled; freeing the save slot.\n", it->first.c_str(), static_cast<int>(it->second.saveIndex));
+                    LogInfo("CustomTapes: '%s' deleted, saveIndex %d freed (mod uninstalled)", it->first.c_str(), static_cast<int>(it->second.saveIndex));
                     it = g_State.tapes.erase(it);
                     gcChanged = true;
                 }
@@ -711,6 +1323,27 @@ namespace V_FrameWorkState
                 }
             }
 
+            for (auto it = g_State.callMenuItems.begin(); it != g_State.callMenuItems.end(); )
+            {
+                if (it->second.misses >= kCallMenuOrphanGraceLaunches)
+                {
+                    LogInfo("CallMenu: '%s' not added for %d launches, removed", it->first.c_str(), it->second.misses);
+                    it = g_State.callMenuItems.erase(it);
+                }
+                else
+                {
+                    ++it->second.misses;
+                    ++it;
+                }
+                gcChanged = true;
+            }
+
+            if (FoldLegacyDispatchConstants_NoLock())
+                gcChanged = true;
+            if (CollectDispatchGarbage_NoLock())
+                gcChanged = true;
+
+            std::vector<RetiredFace> retiredFaces;
             for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
             {
                 if (IsNeverEvictConstantKey(it->first))
@@ -724,14 +1357,13 @@ namespace V_FrameWorkState
                     (mit != g_State.constantMisses.end()) ? mit->second : 0;
                 if (misses >= kConstantOrphanGraceLaunches)
                 {
-                    LogDebug("[Constants] \"%s\" (value %d) unreferenced for %d "
-                             "launches - entry removed, value returned to the free "
-                             "pool\n",
-                        it->first.c_str(), it->second, misses);
                     if (mit != g_State.constantMisses.end())
                         g_State.constantMisses.erase(mit);
-                    if (it->first.compare(0, kRewardLangKeyPrefixLen,
-                                          kRewardLangKeyPrefix) != 0)
+                    if (IsFaceIdConstantKey(it->first))
+                        retiredFaces.push_back({ it->first.substr(kFaceIdKeyPrefixLen),
+                                                 it->second, misses });
+                    else if (it->first.compare(0, kRewardLangKeyPrefixLen,
+                                               kRewardLangKeyPrefix) != 0)
                         ++evicted;
                     it = g_State.constants.erase(it);
                     gcChanged = true;
@@ -739,11 +1371,11 @@ namespace V_FrameWorkState
                 }
                 ++it;
             }
+            if (RetireFaceLinks_NoLock(retiredFaces))
+                gcChanged = true;
+
             if (evicted != 0)
-                Log("[V_FrameWorkState] WARNING: %zu persisted equip constant(s) "
-                    "expired and returned their equipIds to the pool - every id "
-                    "allocated this boot shifts, so saved loadout and R&D rows now "
-                    "name different weapons; re-pick affected slots once\n",
+                LogWarn("State: %zu equip constant(s) expired, new equipIds shift; re-pick affected loadout slots",
                     evicted);
 
             for (auto it = g_State.equips.begin(); it != g_State.equips.end(); )
@@ -762,22 +1394,12 @@ namespace V_FrameWorkState
                         }
                     if (pinned)
                     {
-                        LogDebug("[V_FrameWorkState] '%s' is orphaned but its "
-                                 "equipId 0x%X is still referenced by a saved "
-                                 "loadout - id kept reserved\n",
-                            it->first.c_str(), it->second.equipId);
                         ++it;
                         continue;
                     }
                 }
                 if (it->second.misses >= kEquipOrphanGraceLaunches)
                 {
-                    LogDebug("[V_FrameWorkState] \"%s\" (developId %d, equipId "
-                             "0x%X, partsType 0x%02X, selector 0x%02X) has not "
-                             "registered for %d launches - entry removed, ids "
-                             "returned to the pool\n",
-                        it->first.c_str(), it->second.developId, it->second.equipId,
-                        it->second.partsType, it->second.selector, it->second.misses);
                     it = g_State.equips.erase(it);
                     gcChanged = true;
                     continue;
@@ -833,15 +1455,8 @@ namespace V_FrameWorkState
                 }
 
                 g_SaveDueTick = 0;
-                const unsigned long long coalesced = g_CoalescedCount;
-                g_CoalescedCount = 0;
 
                 WriteToDisk_NoLock();
-
-                if (coalesced > 1)
-                    LogDebug("[V_FrameWorkState] coalesced %llu state writes into 1 "
-                        "(%llu forced disk commits avoided)\n",
-                        coalesced, coalesced - 1);
             }
         }
 
@@ -856,7 +1471,6 @@ namespace V_FrameWorkState
                 return;
             }
 
-            ++g_CoalescedCount;
             g_SaveDueTick = GetTickCount64() + kCoalesceMs;
 
             if (!g_FlusherRunning)
@@ -982,6 +1596,238 @@ namespace V_FrameWorkState
                 out << "        },\n";
         }
 
+        static std::int32_t DispatchMissesToWrite(const V_FrameWorkState::DispatchMission& mission)
+        {
+            if (g_DispatchTouched.count(mission.key) != 0)
+                return 0;
+            if (mission.misses >= V_FrameWorkState::kDispatchOrphanGraceLaunches)
+                return V_FrameWorkState::kDispatchOrphanGraceLaunches;
+            return CanCountConstantMisses() ? mission.misses + 1 : mission.misses;
+        }
+
+        static std::string DispatchRewardCells(const std::uint8_t* reward)
+        {
+            std::string text;
+            for (const DispatchRewardField& field : kDispatchRewardFields)
+            {
+                std::int32_t value = 0;
+                std::memcpy(&value, reward + field.offset, field.width);
+                const bool keyItem = field.offset == kDispatchRewardKeyItemOffset;
+                const bool empty = keyItem ? value == kDispatchNoKeyItem : value == 0;
+                if (empty && field.offset != kDispatchRewardSectionOffset)
+                    continue;
+                text += std::string(field.name) + " = " + std::to_string(value) + ", ";
+            }
+            if (reward[kDispatchRewardFlagsOffset] & 1)
+                text += "materialIsBeforeProcess = true, ";
+            while (!text.empty() && text.back() == ' ')
+                text.pop_back();
+            return text;
+        }
+
+        static const char* DispatchSlotNote(std::int32_t slot)
+        {
+            if (slot >= 1 && slot <= 20)  return "story";
+            if (slot == 21)               return "tutorial";
+            if (slot >= 31 && slot <= 35) return "R/SR";
+            if (slot >= 36 && slot <= 40) return "N";
+            if (slot >= 41 && slot <= 54) return "revenge";
+            if (slot >= 55 && slot <= 60) return "script";
+            if (slot >= 61 && slot <= 70) return "result log";
+            return nullptr;
+        }
+
+        static void EmitKeylessRows(std::ostream& out,
+                                    const std::vector<std::vector<std::string>>& rows,
+                                    const std::vector<const char*>& notes)
+        {
+            std::vector<std::size_t> colWidth;
+            for (const auto& row : rows)
+            {
+                if (colWidth.size() < row.size())
+                    colWidth.resize(row.size(), 0);
+                for (std::size_t c = 0; c < row.size(); ++c)
+                    colWidth[c] = (std::max)(colWidth[c], row[c].size());
+            }
+
+            std::vector<std::string> lines;
+            std::size_t lineWidth = 0;
+            for (const auto& row : rows)
+            {
+                std::string body;
+                for (std::size_t c = 0; c < row.size(); ++c)
+                {
+                    if (colWidth[c] == 0) continue;
+                    body.append(row[c]);
+                    body.append(colWidth[c] - row[c].size(), ' ');
+                    body.push_back(' ');
+                }
+                while (!body.empty() && body.back() == ' ')
+                    body.pop_back();
+                lines.push_back("{ " + body + " },");
+                lineWidth = (std::max)(lineWidth, lines.back().size());
+            }
+
+            for (std::size_t r = 0; r < lines.size(); ++r)
+            {
+                std::string line = lines[r];
+                if (notes[r])
+                {
+                    line.append(lineWidth - line.size(), ' ');
+                    line += "   -- ";
+                    line += notes[r];
+                }
+                out << "        " << line << "\n";
+            }
+        }
+
+        static void WriteDispatchSections_NoLock(std::ostream& out)
+        {
+            {
+                std::vector<const V_FrameWorkState::DispatchMission*> sorted;
+                for (const auto& kv : g_State.dispatchMissions)
+                    sorted.push_back(&kv.second);
+                std::sort(sorted.begin(), sorted.end(),
+                    [](const auto* a, const auto* b) { return a->key < b->key; });
+
+                std::vector<std::string> keys;
+                std::vector<std::vector<std::string>> rows;
+                for (const V_FrameWorkState::DispatchMission* mission : sorted)
+                {
+                    std::vector<std::string> row(6);
+                    row[0] = "deployMissionId = " + std::to_string(mission->deployMissionId) + ",";
+                    if (mission->rewardRow != 0)
+                        row[1] = "rewardRow = " + std::to_string(mission->rewardRow) + ",";
+                    if (mission->cleared)
+                        row[2] = "cleared = true,";
+                    if (mission->rewardPending)
+                        row[3] = "rewardPending = true,";
+                    const std::int32_t misses = DispatchMissesToWrite(*mission);
+                    if (misses != 0)
+                        row[4] = "misses = " + std::to_string(misses) + ",";
+                    if (mission->rewardPending && mission->hasReward)
+                        row[5] = DispatchRewardCells(mission->reward);
+                    keys.push_back("[\"" + mission->key + "\"]");
+                    rows.push_back(std::move(row));
+                }
+
+                out << "    dispatchMissions = {\n";
+                EmitAlignedRows(out, keys, rows);
+                out << "    },\n\n";
+            }
+
+            {
+                std::vector<V_FrameWorkState::DispatchSlotFact> facts = g_State.dispatchSlots;
+                std::stable_sort(facts.begin(), facts.end(),
+                    [](const auto& a, const auto& b) { return a.slot < b.slot; });
+
+                std::vector<std::vector<std::string>> rows;
+                std::vector<const char*> notes;
+                for (const V_FrameWorkState::DispatchSlotFact& fact : facts)
+                {
+                    std::vector<std::string> row(5);
+                    row[0] = "slot = " + std::to_string(fact.slot) + ",";
+                    row[1] = "mission = \"" + fact.key + "\",";
+                    row[2] = "placeholderId = " + std::to_string(fact.placeholderId) + ",";
+                    row[3] = "seed = " + std::to_string(fact.seed) + ",";
+                    if (fact.misses != 0)
+                        row[4] = "misses = " + std::to_string(fact.misses) + ",";
+                    rows.push_back(std::move(row));
+                    notes.push_back(DispatchSlotNote(fact.slot));
+                }
+
+                out << "    dispatchSlots = {\n";
+                EmitKeylessRows(out, rows, notes);
+                out << "    },\n\n";
+            }
+
+            {
+                std::vector<std::string> keys;
+                std::vector<std::vector<std::string>> rows;
+                static const char* const kBandName[2] = { "N", "R" };
+                for (int band = 0; band < 2; ++band)
+                {
+                    const V_FrameWorkState::DispatchCursor& cursor = g_State.dispatchCursors[band];
+                    if (cursor.key.empty())
+                        continue;
+                    keys.push_back(std::string("[\"") + kBandName[band] + "\"]");
+                    rows.push_back({ "mission = \"" + cursor.key + "\",",
+                                     "anchor = " + std::to_string(cursor.anchor) + "," });
+                }
+
+                if (!keys.empty())
+                {
+                    out << "    dispatchCursor = {\n";
+                    EmitAlignedRows(out, keys, rows);
+                    out << "    },\n\n";
+                }
+            }
+        }
+
+        static void WriteCallMenuSection_NoLock(std::ostream& out)
+        {
+            std::vector<const V_FrameWorkState::CallMenuItem*> sorted;
+            for (const auto& kv : g_State.callMenuItems)
+                sorted.push_back(&kv.second);
+            std::sort(sorted.begin(), sorted.end(),
+                [](const auto* a, const auto* b) { return a->key < b->key; });
+
+            std::vector<std::string> keys;
+            std::vector<std::vector<std::string>> rows;
+            for (const V_FrameWorkState::CallMenuItem* item : sorted)
+            {
+                std::vector<std::string> row(19);
+                if (item->hasInPlaceOfOverride)
+                    row[15] = "inPlaceOfOverride = " + std::to_string(item->inPlaceOfOverride) + ",";
+                if (item->page > 0)
+                {
+                    row[16] = "page = " + std::to_string(item->page) + ",";
+                    row[17] = "row = " + std::to_string(item->row) + ",";
+                }
+                if (item->misses != 0)
+                    row[18] = "misses = " + std::to_string(item->misses) + ",";
+                row[0] = "label = \"" + HexText(item->label) + "\",";
+                if (item->description != item->label)
+                    row[1] = "description = \"" + HexText(item->description) + "\",";
+                row[2] = "column = " + std::to_string(item->column) + ",";
+                if (item->when != 0)
+                    row[3] = "when = " + std::to_string(item->when) + ",";
+                if (item->message != 0)
+                    row[4] = "message = \"" + HexText(item->message) + "\",";
+                if (item->exclusive != 0)
+                    row[5] = "exclusive = \"" + HexText(item->exclusive) + "\",";
+                if (item->inPlaceOf >= 0)
+                    row[6] = "inPlaceOf = " + std::to_string(item->inPlaceOf) + ",";
+                if (item->icon != 0)
+                    row[7] = "icon = " + std::to_string(item->icon) + ",";
+                if (item->iconTexture != 0)
+                    row[8] = "iconTexture = \"" + HexText(item->iconTexture) + "\",";
+                if (item->iconCell != 0)
+                    row[9] = "iconCell = " + std::to_string(item->iconCell) + ",";
+                if (item->hasIconUvShift)
+                    row[10] = "iconUvShift = \"" + FloatPairText(item->iconUvShift) + "\",";
+                if (item->iconUvRepeat[0] != 0.5f || item->iconUvRepeat[1] != 0.5f)
+                    row[11] = "iconUvRepeat = \"" + FloatPairText(item->iconUvRepeat) + "\",";
+                if (!item->voices.empty())
+                {
+                    std::string voices;
+                    for (const std::uint32_t voice : item->voices)
+                        voices += (voices.empty() ? "" : " ") + HexText(voice);
+                    row[12] = "voices = \"" + voices + "\",";
+                }
+                if (item->enabled != V_FrameWorkState::kNoOverride)
+                    row[13] = item->enabled ? "enabled = true," : "enabled = false,";
+                if (item->visible != V_FrameWorkState::kNoOverride)
+                    row[14] = item->visible ? "visible = true," : "visible = false,";
+                keys.push_back("[\"" + item->key + "\"]");
+                rows.push_back(std::move(row));
+            }
+
+            out << "    callMenuItems = {\n";
+            EmitAlignedRows(out, keys, rows);
+            out << "    },\n\n";
+        }
+
         static void WriteToDisk_NoLock()
         {
             EnsureSaveDirectory();
@@ -991,8 +1837,7 @@ namespace V_FrameWorkState
             std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
             if (!out)
             {
-                Log("[V_FrameWorkState] ERROR: could not write '%s' - custom-tape "
-                    "ownership and save-index state will not persist\n", tmpPath.c_str());
+                LogError("State: cannot write '%s', state not saved", tmpPath.c_str());
                 return;
             }
 
@@ -1030,8 +1875,8 @@ namespace V_FrameWorkState
                 std::sort(sorted.begin(), sorted.end(),
                     [](const auto& a, const auto& b) { return a.first < b.first; });
 
-                std::vector<std::string> keys[4];
-                std::vector<std::vector<std::string>> rows[4];
+                std::vector<std::string> keys[5];
+                std::vector<std::vector<std::string>> rows[5];
                 for (const auto& kv : sorted)
                 {
                     if (kv.second.developId == 0 && kv.second.flowIndex == 0 &&
@@ -1089,8 +1934,10 @@ namespace V_FrameWorkState
                         }
                     }
 
-                    int group = 3;
-                    if (kv.second.kind == kRowKindOutfit
+                    int group = 4;
+                    if (kv.second.kind == kRowKindHeadOption)
+                        group = 3;
+                    else if (kv.second.kind == kRowKindOutfit
                         || kv.second.partsType != 0 || kv.second.selector != 0)
                         group = 2;
                     else if (kv.second.kind == kRowKindWeapon)
@@ -1110,21 +1957,24 @@ namespace V_FrameWorkState
 "-- V_FrameWork state file - written by V_FrameWork.dll.\n";
                 out << "--   equips " << keys[0].size()
                     << "   weapons " << keys[1].size()
-                    << "   outfits " << keys[2].size();
-                if (!keys[3].empty())
-                    out << "   unclassified " << keys[3].size();
+                    << "   outfits " << keys[2].size()
+                    << "   headOptions " << keys[3].size();
+                if (!keys[4].empty())
+                    out << "   unclassified " << keys[4].size();
                 out << "   tapes " << g_State.tapes.size()
                     << "   database " << g_State.bluePrints.size()
+                    << "   dispatch " << g_State.dispatchMissions.size()
+                    << "   callMenu " << g_State.callMenuItems.size()
                     << "   constants " << liveConstants
                     << "   pinned " << g_State.pinnedEquipIds.size() << "\n\n";
 
                 out << "return {\n\n";
 
-                static const char* const kEquipTable[4] =
-                    { "equips", "weapons", "outfits", "develop" };
-                for (int g = 0; g < 4; ++g)
+                static const char* const kEquipTable[5] =
+                    { "equips", "weapons", "outfits", "headOptions", "develop" };
+                for (int g = 0; g < 5; ++g)
                 {
-                    if (g == 3 && keys[g].empty())
+                    if (g == 4 && keys[g].empty())
                         continue;
                     out << "    " << kEquipTable[g] << " = {\n";
                     EmitAlignedRows(out, keys[g], rows[g]);
@@ -1194,6 +2044,9 @@ namespace V_FrameWorkState
                 EmitAlignedRows(out, keys, rows);
                 out << "    },\n\n";
             }
+
+            WriteDispatchSections_NoLock(out);
+            WriteCallMenuSection_NoLock(out);
 
             {
                 std::vector<std::pair<std::string, std::int32_t>> sorted;
@@ -1267,7 +2120,7 @@ namespace V_FrameWorkState
             out.close();
             if (!out)
             {
-                Log("[V_FrameWorkState] ERROR: write to '%s' failed mid-stream - previous state file left untouched.\n", tmpPath.c_str());
+                LogError("State: write to '%s' failed, previous state kept", tmpPath.c_str());
                 DeleteFileA(tmpPath.c_str());
                 return;
             }
@@ -1289,7 +2142,7 @@ namespace V_FrameWorkState
             }
             if (!replaced)
             {
-                Log("[V_FrameWorkState] ERROR: could not replace '%s' (err %lu) - state kept in '%s'.\n",
+                LogError("State: cannot replace '%s' (err %lu), state left in '%s'",
                     kSavePath, lastErr, tmpPath.c_str());
                 return;
             }
@@ -1349,10 +2202,7 @@ namespace V_FrameWorkState
                 { bad = true; break; }
             if (!bad)
                 return true;
-            Log("[V_FrameWorkState] ERROR: %s rejected key '%s' - a line break, a "
-                "quote or a backslash inside a key splits the key on reload and "
-                "stops the state file parsing as Lua; nothing keyed on it "
-                "persists\n",
+            LogWarn("State: %s rejected key '%s' (line break, quote or backslash), not saved",
                 who, key);
             return false;
         }
@@ -1361,51 +2211,63 @@ namespace V_FrameWorkState
 
 
         static bool g_NativeTableSynced = false;
+        static bool g_DevelopOwnershipScanned = false;
 
-        static constexpr std::int32_t kItemCategoryRowFirst = 0x1F2;
-        static constexpr std::int32_t kItemCategoryRowLast  = 0x1FC;
+        static constexpr std::size_t kNativeOccupancyFloor = 256;
 
-        static bool IsItemCategoryRow(std::int32_t equipId)
+        static bool EnsureNativeSnapshot_NoLock()
         {
-            return equipId >= kItemCategoryRowFirst
-                && equipId <= kItemCategoryRowLast;
-        }
-
-        static void BuildVanillaIdentitySet_NoLock()
-        {
-            static bool s_built = false;
-            static int s_warned = 0;
-            if (s_built)
-                return;
-
-            std::vector<std::int32_t> ids(4096);
-            const std::size_t n =
-                equip::CollectVanillaIdentityEquipIds(ids.data(), ids.size());
-            if (n < 64)
+            if (g_NativeTableSynced)
+                return true;
+            const std::size_t occupied = EquipIdCompression::SyncFromNativeTable();
+            if (occupied >= kNativeOccupancyFloor)
             {
-                if (s_warned++ < 4)
-                Log("[V_FrameWorkState] WARNING: the vanilla equip-identity set is "
-                    "still empty at first allocation (develop lookup returned %zu "
-                    "id(s), below the %d-id floor) - custom ids can land on rows "
-                    "the game's own tables own\n",
-                    n, 64);
-                return;
+                g_NativeTableSynced = true;
+                return true;
             }
-            s_built = true;
-            for (std::size_t i = 0; i < n; ++i)
-                if (ids[i] > 0)
-                    g_VanillaIdentityIds.insert(ids[i]);
+            static bool s_logged = false;
+            if (!s_logged)
+            {
+                s_logged = true;
+                LogError("State: native equip table has %zu rows (need %zu), new equipIds use the extended band",
+                    occupied, kNativeOccupancyFloor);
+            }
+            return false;
         }
 
-        static void NoteIdentitySetLive_NoLock()
+        static void ScanDevelopOwnership_NoLock()
         {
-            static bool s_said = false;
-            if (s_said || g_VanillaIdentityIds.empty())
+            if (g_DevelopOwnershipScanned)
                 return;
-            s_said = true;
-            Log("[V_FrameWorkState] vanilla equip-identity set LIVE: %zu id(s) - "
-                "collision checks against vanilla rows are in effect\n",
-                g_VanillaIdentityIds.size());
+            static std::uint64_t s_bits[equip::kVanillaEquipIdBitWords];
+            if (equip::ScanVanillaDevelopEquipIds(s_bits, equip::kVanillaEquipIdBitWords) == 0)
+                return;
+            g_DevelopOwnershipScanned = true;
+            for (std::size_t w = 0; w < equip::kVanillaEquipIdBitWords; ++w)
+            {
+                if (s_bits[w] == 0)
+                    continue;
+                for (std::uint32_t b = 0; b < 64; ++b)
+                    if (s_bits[w] & (1ull << b))
+                        g_VanillaIdentityIds.insert(static_cast<std::int32_t>(w * 64 + b));
+            }
+        }
+
+        static const char* NativeOwner_NoLock(std::int32_t equipId)
+        {
+            if (!EquipIdCompression::IsLegalNativeCustomId(equipId))
+                return "the engine's item and hand window or lies outside the item band";
+            if (EquipIdCompression::IsCompressedSlotUsed(equipId))
+                return "a native EquipIdTable row";
+            if (g_VanillaIdentityIds.count(equipId) != 0)
+                return "a vanilla develop row";
+            return nullptr;
+        }
+
+        static bool IsPinnedEquipId_NoLock(std::int32_t equipId)
+        {
+            return g_State.pinnedEquipIds.count(equipId) != 0
+                || g_SessionPinnedIds.count(equipId) != 0;
         }
 
         static bool IsEquipIdHeldByAnotherKey_NoLock(std::int32_t equipId,
@@ -1420,47 +2282,24 @@ namespace V_FrameWorkState
 
 
         static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum,
-                                                           bool isWeapon,
                                                            const char* key)
         {
-            if (!g_NativeTableSynced)
-            {
-                EquipIdCompression::SyncFromNativeTable();
-                g_NativeTableSynced = true;
-            }
-
             const std::int32_t floor =
                 (minimum > kFirstCustomEquipIdMinimum)
                     ? minimum
                     : kFirstCustomEquipIdMinimum;
 
-            if (g_VanillaIdentityIds.empty())
-                BuildVanillaIdentitySet_NoLock();
-            NoteIdentitySetLive_NoLock();
-
-            const auto inUse = [isWeapon](std::int32_t equipId) {
-                if (isWeapon && IsItemCategoryRow(equipId))
-                    return true;
-                return IsEquipIdInUse_NoLock(equipId)
-                    || g_VanillaIdentityIds.count(equipId) != 0;
-            };
-
             std::int32_t result = -1;
-            if (isWeapon)
+            if (EnsureNativeSnapshot_NoLock())
             {
-                const std::int32_t wFloor =
-                    floor > EquipIdCompression::kWeaponBandFirst
-                        ? floor : EquipIdCompression::kWeaponBandFirst;
+                ScanDevelopOwnership_NoLock();
+                const auto taken = [](std::int32_t equipId) {
+                    return NativeOwner_NoLock(equipId) != nullptr
+                        || IsEquipIdInUse_NoLock(equipId)
+                        || IsPinnedEquipId_NoLock(equipId);
+                };
                 result = EquipIdCompression::FindLowestFreeEquipIdInRange(
-                    inUse, wFloor, EquipIdCompression::kWeaponBandLastUsable);
-                if (result < 0)
-                    result = EquipIdCompression::FindLowestFreeEquipIdInRange(
-                        inUse, floor, EquipIdCompression::kItemBandLast);
-            }
-            else
-            {
-                result = EquipIdCompression::FindLowestFreeEquipIdInRange(
-                    inUse, floor, EquipIdCompression::kItemBandLast);
+                    taken, floor, EquipIdCompression::kItemBandLast);
             }
             if (result < 0)
             {
@@ -1468,16 +2307,9 @@ namespace V_FrameWorkState
                     [key](std::int32_t id) {
                         return IsEquipIdHeldByAnotherKey_NoLock(id, key);
                     });
-                if (result >= 0)
-                    LogDebug("[V_FrameWorkState] AllocateNextFreeEquipId: native "
-                             "bands full above floor=0x%X - allocated EXTENDED "
-                             "equipId 0x%X (DLL table, served via hooked "
-                             "accessors)\n",
-                        floor, result);
-                else
-                    LogDebug("[V_FrameWorkState] AllocateNextFreeEquipId: native "
-                             "bands and the extended 0x289-0x3FF range are "
-                             "exhausted above floor=0x%X - allocation failed\n", floor);
+                if (result < 0)
+                    LogError("State: '%s' got no equipId, native and extended bands full above 0x%X",
+                        key ? key : "?", static_cast<unsigned>(floor));
             }
             return result;
         }
@@ -1518,7 +2350,6 @@ namespace V_FrameWorkState
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_SaveDueTick = 0;
-        g_CoalescedCount = 0;
         if (g_State.dirty)
             WriteToDisk_NoLock();
     }
@@ -1528,15 +2359,12 @@ namespace V_FrameWorkState
         std::unique_lock<std::mutex> lock(g_Mutex, std::try_to_lock);
         if (!lock.owns_lock())
         {
-            Log("[V_FrameWorkState] WARNING: the state file was locked at process "
-                "exit, so this launch could not be recorded - a constant whose mod "
-                "is gone keeps its id for another launch\n");
+            LogWarn("State: file locked at exit, this launch not recorded");
             return;
         }
 
         g_ExitSave = true;
         g_SaveDueTick = 0;
-        g_CoalescedCount = 0;
         WriteToDisk_NoLock();
     }
 
@@ -1544,6 +2372,18 @@ namespace V_FrameWorkState
     {
         if (g_FlusherThread.joinable())
             g_FlusherThread.detach();
+    }
+
+    bool PersistNow()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        if (g_State.dirty)
+        {
+            g_SaveDueTick = 0;
+            WriteToDisk_NoLock();
+        }
+        return !g_State.dirty;
     }
 
     void FlushPendingSaves()
@@ -1554,7 +2394,6 @@ namespace V_FrameWorkState
             if (g_SaveDueTick != 0 || g_State.dirty)
             {
                 g_SaveDueTick = 0;
-                g_CoalescedCount = 0;
                 WriteToDisk_NoLock();
             }
             if (g_FlusherRunning)
@@ -1607,60 +2446,30 @@ namespace V_FrameWorkState
             return true;
         }
 
+        std::int32_t movedFrom = 0;
+        const char* movedBecause = nullptr;
         auto pit = g_State.equips.find(key);
         if (pit != g_State.equips.end() && pit->second.equipId != 0)
         {
-            if (!g_NativeTableSynced)
-            {
-                EquipIdCompression::SyncFromNativeTable();
-                g_NativeTableSynced = true;
-            }
             const std::int32_t persisted = pit->second.equipId;
             bool sessionTaken = false;
             for (const auto& kv : g_SessionEquipIds)
                 if (kv.second == persisted) { sessionTaken = true; break; }
             const bool isExtended = EquipIdCompression::IsExtendedEquipId(persisted);
-            const std::int32_t slot = EquipIdCompression::ComputeCompressed(persisted);
-            const bool bandOk = isExtended || isWeapon
-                || slot < EquipIdCompression::kWeaponBandFirst;
-            if (!bandOk)
-                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is in "
-                         "the weapon band but the item is not a weapon - native "
-                         "GetEquipType would return 0; reallocating into the item "
-                         "band\n", persisted, key);
-            if (g_VanillaIdentityIds.empty())
-                BuildVanillaIdentitySet_NoLock();
-            NoteIdentitySetLive_NoLock();
-            const bool identityClash =
-                g_VanillaIdentityIds.count(persisted) != 0;
-            if (identityClash)
-                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is a "
-                         "vanilla equip identity the game still owns - keeping it "
-                         "overwrites that row and the prep list renders the vanilla "
-                         "entry with this item's damage tag; reallocating\n",
-                    persisted, key);
-            const bool itemListClash = isWeapon && IsItemCategoryRow(persisted);
-            if (itemListClash)
-                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is a "
-                         "weapon in the vanilla item-category span 0x%X-0x%X, which "
-                         "the list enumerates without filtering on type - it would "
-                         "render as a supply item; reallocating\n",
-                    persisted, key, kItemCategoryRowFirst, kItemCategoryRowLast);
-            const bool legacyBand = isExtended
-                && persisted < EquipIdCompression::kExtendedAllocFirst;
-            if (legacyBand)
-                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is in "
-                         "the retired extended band 0x%X-0x%X, whose fold can alias "
-                         "a vanilla row in the InfoList mirror - reallocating into "
-                         "the 0x%X+ band\n",
-                    persisted, key, EquipIdCompression::kExtendedEquipIdFirst,
-                    EquipIdCompression::kExtendedAllocFirst - 1,
-                    EquipIdCompression::kExtendedAllocFirst);
-            const bool slotFree = isExtended
-                ? !EquipIdCompression::IsExtendedEquipIdUsed(persisted)
-                : !EquipIdCompression::IsCompressedSlotUsed(slot);
-            if (!sessionTaken && bandOk && !identityClash && !itemListClash
-                && !legacyBand && slotFree)
+            const char* reason = nullptr;
+            if (isExtended)
+            {
+                if (persisted < EquipIdCompression::kExtendedAllocFirst)
+                    reason = "the retired extended band 0x289-0x6FF, whose fold can alias a vanilla row";
+                else if (EquipIdCompression::IsExtendedEquipIdUsed(persisted))
+                    reason = "an extended id another key already claimed";
+            }
+            else if (EnsureNativeSnapshot_NoLock())
+            {
+                ScanDevelopOwnership_NoLock();
+                reason = NativeOwner_NoLock(persisted);
+            }
+            if (!sessionTaken && !reason)
             {
                 g_SessionEquipIds[key] = persisted;
                 NoteClaimedEquipId_NoLock(persisted);
@@ -1675,21 +2484,33 @@ namespace V_FrameWorkState
                 outEquipId = persisted;
                 return true;
             }
-            if (bandOk && !legacyBand)
-                LogDebug("[V_FrameWorkState] persisted equipId 0x%X for '%s' is no "
-                         "longer free (vanilla layout change or conflict) - "
-                         "reallocating; old loadout references are healed or "
-                         "blanked\n", persisted, key);
+            if (!sessionTaken)
+            {
+                movedFrom = persisted;
+                movedBecause = reason;
+            }
         }
 
-        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId, isWeapon, key);
+        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId, key);
         if (newId < 0)
         {
-
-
-            outEquipId = 0;
-            return false;
+            if (movedFrom == 0 || EquipIdCompression::IsExtendedEquipId(movedFrom)
+                || EquipIdCompression::IsCompressedSlotUsed(movedFrom))
+            {
+                outEquipId = 0;
+                return false;
+            }
+            LogError("State: '%s' keeps equipId 0x%X on %s, no free equipId to move to",
+                key, static_cast<unsigned>(movedFrom), movedBecause);
+            g_SessionEquipIds[key] = movedFrom;
+            NoteClaimedEquipId_NoLock(movedFrom);
+            outEquipId = movedFrom;
+            return true;
         }
+
+        if (movedFrom != 0)
+            LogWarn("State: '%s' equipId moved 0x%X -> 0x%X (old id on %s), saved loadout cells blanked",
+                key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId), movedBecause);
 
         g_SessionEquipIds[key] = newId;
         NoteClaimedEquipId_NoLock(newId);
@@ -1714,45 +2535,21 @@ namespace V_FrameWorkState
                                     std::size_t count)
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
-        LoadFromDisk_NoLock();
 
-        std::unordered_set<std::int32_t> fresh;
         for (std::size_t i = 0; i < count; ++i)
             if (equipIds[i] > 0)
-                fresh.insert(equipIds[i]);
-        if (fresh.empty() || fresh == g_VanillaIdentityIds)
-            return;
+                g_VanillaIdentityIds.insert(equipIds[i]);
 
-        g_VanillaIdentityIds.swap(fresh);
-
-        int cleared = 0;
-        std::int32_t firstId = 0;
-        std::string  firstKey;
-        for (auto& kv : g_State.equips)
+        static std::unordered_set<std::string> s_reported;
+        for (const auto& kv : g_SessionEquipIds)
         {
-            if (kv.second.equipId == 0
-                || g_VanillaIdentityIds.count(kv.second.equipId) == 0)
+            if (kv.second == 0 || g_VanillaIdentityIds.count(kv.second) == 0)
                 continue;
-            if (cleared == 0)
-            {
-                firstId  = kv.second.equipId;
-                firstKey = kv.first;
-            }
-            kv.second.equipId = 0;
-            ++cleared;
+            if (!s_reported.insert(kv.first).second)
+                continue;
+            LogWarn("State: '%s' equipId 0x%X collides with a vanilla develop row this launch, moves next launch",
+                kv.first.c_str(), static_cast<unsigned>(kv.second));
         }
-
-        if (cleared == 0)
-            return;
-
-        Log("[V_FrameWorkState] %d persisted equipId(s) sit on rows the game's own "
-            "develop tree still owns (first: '%s' = 0x%X) - the vanilla row renders "
-            "with this item's damage tag, so those ids were dropped and are "
-            "reallocated on the next launch\n",
-            cleared, firstKey.c_str(), firstId);
-
-        g_State.dirty = true;
-        SaveToDisk_NoLock();
     }
 
     static bool IsOwnedEquipId_NoLock(std::int32_t equipId)
@@ -2110,10 +2907,7 @@ namespace V_FrameWorkState
                 outFlowIndex = sit->second;
                 return true;
             }
-            Log("[V_FrameWorkState] WARNING: '%s' held develop flow index %d, which "
-                "the loadout commit reads as a gunsmith slot (0x3FD-0x3FF resolve "
-                "to equip 871/873/875) - picking it would equip a pseudo-weapon; "
-                "reallocating outside the reserved range\n",
+            LogWarn("State: '%s' flow index %d is a gunsmith slot, reallocating",
                 key, sit->second);
             g_SessionFlowIndices.erase(sit);
         }
@@ -2143,13 +2937,8 @@ namespace V_FrameWorkState
         }
         if (newIdx == 0)
         {
-            LogDebug("[V_FrameWorkState] ResolveOrCreateFlowIndex REFUSED '%s': the "
-                     "native flow array holds %d rows and indices %d..%d are all "
-                     "allocated - registering would corrupt memory past the array; "
-                     "the item stays out of R&D until develop-row paging frees "
-                     "space\n",
-                key, flowBound, kFirstCustomFlowIndex,
-                flowBound - 1);
+            LogWarn("State: '%s' refused, develop flow indices %d..%d full, item stays out of R&D",
+                key, kFirstCustomFlowIndex, flowBound - 1);
             return false;
         }
 
@@ -2255,7 +3044,7 @@ namespace V_FrameWorkState
         if (!spaceTag || !spaceTag[0] || !name || !name[0]) return false;
         if (!IsSafeConstantNamePart(spaceTag) || !IsSafeConstantNamePart(name))
         {
-            Log("[Constants] ERROR: unsafe characters in constant name '%s' (space '%s'); rejected.\n", name, spaceTag);
+            LogWarn("Constants: '%s' (space '%s') rejected, unsafe characters", name, spaceTag);
             return false;
         }
 
@@ -2278,7 +3067,7 @@ namespace V_FrameWorkState
             ++value;
         if (value > kMaxCustomConstantValue)
         {
-            Log("[Constants] ERROR: no free value for '%s' - space '%s' pool [%d..%d] is full.\n",
+            LogError("Constants: no free value for '%s', space '%s' pool %d..%d full",
                 name, spaceTag, minimumValue, kMaxCustomConstantValue);
             return false;
         }
@@ -2290,9 +3079,6 @@ namespace V_FrameWorkState
 
         SaveToDisk_NoLock();
 
-#ifdef _DEBUG
-        LogDebug("[Constants] allocated %s = %d\n", key.c_str(), value);
-#endif
         return true;
     }
 
@@ -2530,9 +3316,7 @@ namespace V_FrameWorkState
         const std::int16_t newIdx = AllocateNextFreeTapeSaveIndex_NoLock(minimumIndex);
         if (newIdx < 0)
         {
-            Log("[CustomTapes] ERROR: the custom-tape save-index pool [300-32000] "
-                "is full - uninstall unused tape mods; no more custom tapes can "
-                "register\n");
+            LogError("CustomTapes: '%s' not registered, save-index pool 300-32000 full", key);
             return false;
         }
 
@@ -2540,9 +3324,7 @@ namespace V_FrameWorkState
         g_TapeSaveIndexInUse.insert(newIdx);
         g_State.dirty = true;
         outSaveIndex = newIdx;
-#ifdef _DEBUG
-        LogDebug("[CustomTapes] tape added: '%s' (saveIndex %d) - first time; saved to V_FrameWork_State.lua.\n", key, static_cast<int>(newIdx));
-#endif
+        LogInfo("CustomTapes: '%s' added, saveIndex %d", key, static_cast<int>(newIdx));
 
         SaveToDisk_NoLock();
 
@@ -2735,6 +3517,115 @@ namespace V_FrameWorkState
             callback(kv.first, kv.second.saveIndex, kv.second.owned, kv.second.isNew);
     }
 
+    void SetDispatchMission(const DispatchMission& mission)
+    {
+        if (mission.key.empty()) return;
+        if (!GuardStateKey(mission.key.c_str(), "SetDispatchMission")) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        DispatchMission updated = mission;
+        if (updated.hasReward)
+            NormalizeDispatchReward(updated.reward);
+        else
+            std::memset(updated.reward, 0, sizeof(updated.reward));
+
+        auto it = g_State.dispatchMissions.find(mission.key);
+        updated.misses = (it != g_State.dispatchMissions.end()) ? it->second.misses : 0;
+        if (it != g_State.dispatchMissions.end() && SameDispatchMission(it->second, updated))
+            return;
+
+        g_State.dispatchMissions[mission.key] = updated;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    void MarkDispatchMissionRegistered(const char* key)
+    {
+        if (!key || !key[0]) return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        g_DispatchTouched.insert(key);
+    }
+
+    std::vector<DispatchMission> GetDispatchMissions()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        std::vector<DispatchMission> missions;
+        missions.reserve(g_State.dispatchMissions.size());
+        for (const auto& kv : g_State.dispatchMissions)
+            missions.push_back(kv.second);
+        return missions;
+    }
+
+    std::vector<DispatchSlotFact> GetDispatchSlotFacts()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        return g_State.dispatchSlots;
+    }
+
+    void SetDispatchSlotFacts(const std::vector<DispatchSlotFact>& facts)
+    {
+        for (const DispatchSlotFact& fact : facts)
+            if (!GuardStateKey(fact.key.c_str(), "SetDispatchSlotFacts"))
+                return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        g_State.dispatchSlots = facts;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    DispatchCursor GetDispatchCursor(bool rareBand)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        return g_State.dispatchCursors[rareBand ? 1 : 0];
+    }
+
+    void SetDispatchCursor(bool rareBand, const DispatchCursor& cursor)
+    {
+        if (!cursor.key.empty() && !GuardStateKey(cursor.key.c_str(), "SetDispatchCursor"))
+            return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        DispatchCursor& stored = g_State.dispatchCursors[rareBand ? 1 : 0];
+        if (stored.key == cursor.key && stored.anchor == cursor.anchor)
+            return;
+        stored = cursor;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    void SetCallMenuItem(const CallMenuItem& item)
+    {
+        if (item.key.empty() || !GuardStateKey(item.key.c_str(), "SetCallMenuItem"))
+            return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+
+        auto it = g_State.callMenuItems.find(item.key);
+        if (it != g_State.callMenuItems.end() && SameCallMenuItem(it->second, item))
+            return;
+
+        g_State.callMenuItems[item.key] = item;
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    std::vector<CallMenuItem> GetCallMenuItems()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        std::vector<CallMenuItem> items;
+        items.reserve(g_State.callMenuItems.size());
+        for (const auto& kv : g_State.callMenuItems)
+            items.push_back(kv.second);
+        return items;
+    }
+
     void Reset()
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
@@ -2746,7 +3637,13 @@ namespace V_FrameWorkState
         g_State.constants.clear();
         g_State.constantMisses.clear();
         g_State.pinnedEquipIds.clear();
+        g_State.dispatchMissions.clear();
+        g_State.dispatchSlots.clear();
+        g_State.dispatchCursors[0] = {};
+        g_State.dispatchCursors[1] = {};
+        g_State.callMenuItems.clear();
         g_ConstantsTouched.clear();
+        g_DispatchTouched.clear();
         g_ExitSave = false;
         g_SessionPinnedIds.clear();
         g_StickyPinnedIds.clear();

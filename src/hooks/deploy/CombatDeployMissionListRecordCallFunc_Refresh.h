@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CombatDeployMissionListRecordCallFunc_Refresh_Hook();
+bool Uninstall_CombatDeployMissionListRecordCallFunc_Refresh_Hook();

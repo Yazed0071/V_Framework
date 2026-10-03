@@ -99,9 +99,7 @@ namespace dataBaseNewFlag
             if (g_SwapFailureLogged)
                 return;
             g_SwapFailureLogged = true;
-            Log("[DataBaseNew] %s could not reach the DataBase flag array, so a custom entry "
-                "falls through to the vanilla path and reads past the %u-entry array into "
-                "unrelated save data\n", site, static_cast<unsigned>(kFlagByteCount));
+            LogWarn("DataBaseNew: %s: flag array unreachable, custom badge skipped", site);
         }
 
         void __fastcall hkRefreshNewIcon(void* self, std::uint16_t id)
@@ -214,8 +212,7 @@ namespace dataBaseNewFlag
             || !gAddr.UiMbmDataBase_SetPutCursorFlag
             || !gAddr.UiMbmDataBase_OnStop)
         {
-            LogDebug("[DataBaseNew] not ported for this build - a custom DATABASE row keeps "
-                     "the vanilla badge path, which reads past the flag array\n");
+            LogError("DataBaseNew: no address for this build, custom NEW badges off");
             return true;
         }
 
@@ -238,9 +235,7 @@ namespace dataBaseNewFlag
 
         if (!ok)
         {
-            Log("[DataBaseNew] the DATABASE badge hooks did not all install - a custom entry's "
-                "NEW badge is read from, and cleared into, save data past the %u-entry flag "
-                "array\n", static_cast<unsigned>(kFlagByteCount));
+            LogError("DataBaseNew: badge hooks failed, custom NEW badges read past flag array");
         }
 
         if (gAddr.MbmImpl_CalcDocumentationUnreadCount
@@ -258,9 +253,7 @@ namespace dataBaseNewFlag
 
             if (!docOk || !encOk)
             {
-                Log("[DataBaseNew] the unread counters were not hooked, so the DOCUMENTATION "
-                    "and ENCYCLOPEDIA menu badges count vanilla entries only - a custom entry "
-                    "shows NEW on its row but never on the menu above it\n");
+                LogError("DataBaseNew: unread counter hooks failed, menu badges count vanilla only");
             }
         }
         return ok;

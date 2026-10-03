@@ -15,6 +15,7 @@
 #include "MissionCodeGuard.h"
 #include "LostHostageHook.h"
 #include "NoticeControllerImpl_CheckSightNoticePlayer.h"
+#include "SoldierFaction.h"
 #include "SoldierVehicleAvoid.h"
 #include "StepRadioDiscovery.h"
 #include "AddressSet.h"
@@ -318,6 +319,9 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
     if (SoldierVehicleAvoid_ShouldDropNotice(soldierIndex, noticeType, noticeBlob))
         return false;
 
+    if (SoldierFaction_ShouldDropNotice(self, soldierIndex, noticeType, noticeBlob))
+        return false;
+
     const bool accepted = g_OrigAddNoticeInfo(self, soldierIndex, noticeBlob);
     if (!accepted) return false;
 
@@ -455,7 +459,7 @@ void Add_LostHostageTrap(std::uint32_t gameObjectId, int hostageType,
 {
     if (hostageType < HOSTAGE_MALE || hostageType > HOSTAGE_CHILD)
     {
-        LogDebug("[LostHostage] Add_LostHostage: invalid type=%d for objectId=0x%08X\n", hostageType, gameObjectId);
+        LogWarn("SetLostHostage 0x%08X: hostageType %d invalid (0-2), ignored", gameObjectId, hostageType);
         return;
     }
 
@@ -525,13 +529,9 @@ bool Install_LostHostage_Hooks()
     void* addrNotice = ResolveGameAddress(gAddr.AddNoticeInfo);
     void* addrRadio = ResolveGameAddress(gAddr.StateRadioRequest);
 
-    #ifdef _DEBUG
-    Log("======== LOSTHOSTAGE BUILD MARKER ========\n");
-    #endif
-
     if (!addrConvert || !addrNotice || !addrRadio)
     {
-        Log("[LostHostage] Install failed: convert=%p notice=%p radio=%p\n",
+        LogError("LostHostage: address missing (convert=%p notice=%p radio=%p), lost hostage radio off",
             addrConvert, addrNotice, addrRadio);
         return false;
     }
@@ -544,20 +544,12 @@ bool Install_LostHostage_Hooks()
 
     const bool okRadio = CreateAndEnableHook(addrRadio, reinterpret_cast<void*>(&hkStateRadioRequest), reinterpret_cast<void**>(&g_OrigRadioRequest));
 
-    #ifdef _DEBUG
-    Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
-    Log("[LostHostage] Hook AddNoticeInfo:  %s\n", okNotice ? "OK" : "FAIL");
-    Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
-        okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
-    #else
     if (!okConvert)
-        Log("[LostHostage] Hook ConvertLabel:   %s\n", okConvert ? "OK" : "FAIL");
+        LogError("LostHostage: ConvertRadioTypeToLabel hook failed, lost hostage labels off");
     if (!okNotice)
-        Log("[LostHostage] Hook AddNoticeInfo:  %s\n", okNotice ? "OK" : "FAIL");
+        LogError("LostHostage: AddNoticeInfo hook failed, lost hostage notices off");
     if (!okRadio)
-        Log("[LostHostage] Hook RadioRequest:   %s target=%p orig=%p\n",
-            okRadio ? "OK" : "FAIL", addrRadio, reinterpret_cast<void*>(g_OrigRadioRequest));
-    #endif
+        LogError("LostHostage: StateRadioRequest hook failed at %p, lost hostage radio off", addrRadio);
 
     return okConvert && okNotice && okRadio;
 }
@@ -577,9 +569,5 @@ bool Uninstall_LostHostage_Hooks()
     g_HostagesByNameId.clear();
     g_PendingBySoldier.clear();
     g_SelectedReport = {};
-
-    #ifdef _DEBUG
-    LogDebug("[LostHostage] Uninstall_LostHostage_Hooks\n");
-    #endif
     return true;
 }

@@ -6,7 +6,6 @@ extern "C" {
 }
 
 #include <Windows.h>
-#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -24,6 +23,7 @@ extern "C" {
 #include "../../soldier/LostHostageHook.h"
 #include "../../soldier/StepRadioDiscovery.h"
 #include "../../soldier/HostageGender.h"
+#include "../../soldier/CoreAiImpl_SetSpecialActionParam.h"
 #include "../../soldier/VIPSleepFaintHook.h"
 #include "../../soldier/VIPHoldupHook.h"
 #include "../../soldier/VIPRadioHook.h"
@@ -34,9 +34,14 @@ extern "C" {
 #include "../../soldier/SoldierObjectRtpc.h"
 #include "../../soldier/NoticeControllerImpl_CheckSightNoticePlayer.h"
 #include "../../soldier/SoldierVehicleAvoid.h"
+#include "../../soldier/Soldier2Impl_UpdateMarkers.h"
+#include "../../soldier/SoldierFaction.h"
+#include "../../soldier/NoticeControllerImpl_CheckForceNotice.h"
 #include "GetGameObjectIdWithIndex.h"
 #include "../../soldier/InterrogationVoiceEvent.h"
+#include "../../soldier/RadioControllerImpl_StepRadioWaitResponse.h"
 #include "../../soldier/SoldierAkObjIdMap.h"
+#include "../../outfit/StaffControllerImpl_AddStaff.h"
 #include "../../bullet/Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
 #include "../../../core/FoxHashes.h"
 #include "../../../lua/LuaApi.h"
@@ -148,6 +153,29 @@ namespace
         return v;
     }
 
+    static void SetTableString(lua_State* L, const char* key, const char* value)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_pushstring(L, const_cast<char*>(value));
+        g_lua_settable(L, -3);
+    }
+
+    struct HostageStruggleDisarm
+    {
+        ~HostageStruggleDisarm() { ::Disarm_HostageStruggle(); }
+    };
+
+    static void SendStruggleSpecialAction(lua_State* L)
+    {
+        HostageStruggleDisarm disarm; // a Lua error is a C++ throw, so the armed swap must not outlive this call
+        g_lua_settop(L, 1);
+        g_lua_createtable(L, 0, 3);
+        SetTableString(L, "id", "SpecialAction");
+        SetTableString(L, "action", "PlayState");
+        SetTableString(L, "state", "vfw_struggle"); // any name works, the param hook swaps in the real tag
+        g_OrigSendCommand(L);
+    }
+
     static std::uint32_t ReadCommandTargetId(lua_State* L)
     {
         if (g_lua_type(L, 1) == LUA_TNUMBER)
@@ -194,9 +222,6 @@ namespace
         g_lua_pushnil(L);
         while (g_lua_next(L, tblIdx) != 0)
         {
-            const char* keyStr = (g_lua_type(L, -2) == LUA_TSTRING)
-                                     ? g_lua_tolstring(L, -2, nullptr)
-                                     : nullptr;
             const int vt = g_lua_type(L, -1);
             if (vt == LUA_TSTRING)
             {
@@ -207,9 +232,6 @@ namespace
                     out[n++] = sc;
                 if (fv && fv != sc && n < cap)
                     out[n++] = fv;
-                LogDebug("[InterrogationVoice] cmd[%d] field '%s' = \"%s\" strcode32=0x%X "
-                         "fnv=0x%X\n",
-                         depth, keyStr ? keyStr : "#", s ? s : "", sc, fv);
             }
             else if (vt == LUA_TNUMBER)
             {
@@ -217,23 +239,33 @@ namespace
                     static_cast<std::uint32_t>(static_cast<long long>(g_lua_tonumber(L, -1)));
                 if (num >= 0x10000u && n < cap)
                     out[n++] = num;
-                LogDebug("[InterrogationVoice] cmd[%d] field '%s' = 0x%X (%u)\n",
-                         depth, keyStr ? keyStr : "#", num, num);
             }
             else if (vt == LUA_TTABLE)
             {
-                LogDebug("[InterrogationVoice] cmd[%d] field '%s' = table\n",
-                         depth, keyStr ? keyStr : "#");
                 n = GatherLabelBases(L, g_lua_gettop(L), out, cap, n, depth + 1);
-            }
-            else
-            {
-                LogDebug("[InterrogationVoice] cmd[%d] field '%s' type=%d\n",
-                         depth, keyStr ? keyStr : "#", vt);
             }
             g_lua_settop(L, g_lua_gettop(L) - 1);
         }
         return n;
+    }
+
+    static bool ReadCommandPosition(lua_State* L, int cmdStackIdx, const char* key, float* out)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_gettable(L, cmdStackIdx);
+        if (g_lua_type(L, -1) != LUA_TTABLE || !g_lua_rawgeti)
+            return false;
+
+        const int tbl = g_lua_gettop(L);
+        for (int i = 0; i < 3; ++i)
+        {
+            g_lua_rawgeti(L, tbl, i + 1);
+            if (g_lua_type(L, -1) != LUA_TNUMBER)
+                return false;
+            out[i] = static_cast<float>(g_lua_tonumber(L, -1));
+            g_lua_settop(L, tbl);
+        }
+        return true;
     }
 
     static float SmartScaleA(float a)
@@ -403,245 +435,14 @@ namespace
         return isPerCp;
     }
 
-    static std::atomic<DWORD> g_GameTid{ 0 };
-    static std::atomic<DWORD> g_LastTickMs{ 0 };
-    static std::atomic<bool>  g_StallWatchStarted{ false };
-
-    static void DescribeAddr(std::uint64_t addr, char* out, std::size_t outLen)
-    {
-        out[0] = 0;
-        HMODULE mod = nullptr;
-        if (!GetModuleHandleExA(
-                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                reinterpret_cast<LPCSTR>(addr), &mod) || !mod)
-        {
-            sprintf_s(out, outLen, "<unmapped>");
-            return;
-        }
-        char path[MAX_PATH]{};
-        if (!GetModuleFileNameA(mod, path, MAX_PATH))
-        {
-            sprintf_s(out, outLen, "<module?>");
-            return;
-        }
-        const char* base = strrchr(path, '\\');
-        base = base ? base + 1 : path;
-        sprintf_s(out, outLen, "%s+0x%llX", base,
-            static_cast<unsigned long long>(addr - reinterpret_cast<std::uint64_t>(mod)));
-    }
-
-    static bool SampleThread(DWORD tid, DWORD64* rip, DWORD64* rsp)
-    {
-        HANDLE h = OpenThread(
-            THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
-            FALSE, tid);
-        if (!h) return false;
-        bool ok = false;
-        SuspendThread(h);
-        CONTEXT ctx;
-        std::memset(&ctx, 0, sizeof(ctx));
-        ctx.ContextFlags = CONTEXT_CONTROL;
-        if (GetThreadContext(h, &ctx))
-        {
-            *rip = ctx.Rip;
-            *rsp = ctx.Rsp;
-            ok = true;
-        }
-        ResumeThread(h);
-        CloseHandle(h);
-        return ok;
-    }
-
-    static void DumpFrozenThread(DWORD tid, const char* kind, DWORD64 rip, DWORD64 rsp,
-                                 unsigned heldMs, int shot)
-    {
-        std::uint64_t stackbuf[192] = {};
-        std::size_t   stackn = 0;
-
-        HANDLE h = OpenThread(
-            THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
-            FALSE, tid);
-        if (h)
-        {
-            SuspendThread(h);
-            __try
-            {
-                auto* sp = reinterpret_cast<std::uint64_t*>(rsp);
-                for (std::size_t i = 0; i < 192; ++i)
-                {
-                    stackbuf[i] = sp[i];
-                    ++stackn;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {}
-            ResumeThread(h);
-            CloseHandle(h);
-        }
-
-        const unsigned long logStall = LogIoStalledMs();
-        const unsigned long logOwner = LogIoOwnerThreadId();
-
-        char ripDesc[MAX_PATH + 32];
-        DescribeAddr(rip, ripDesc, sizeof(ripDesc));
-
-        Log("[StallWatchdog] %s (report %d): the game thread has been parked at one "
-            "instruction for %ums. rip=0x%llX = %s, rsp=0x%llX. ntdll/KERNELBASE "
-            "there means a blocking wait; the frames below name what it was doing\n",
-            kind, shot, heldMs,
-            static_cast<unsigned long long>(rip), ripDesc,
-            static_cast<unsigned long long>(rsp));
-
-        if (logStall)
-            Log("[StallWatchdog]   the framework logger was already inside a "
-                "console/disk write for %lums on thread %lu (game thread %lu) - if "
-                "those match, this DLL's logging is the freeze\n",
-                logStall, logOwner, static_cast<unsigned long>(tid));
-        else
-            Log("[StallWatchdog]   the framework logger was not mid-write when "
-                "sampled, so the stall is elsewhere\n");
-
-        int shown = 0;
-        for (std::size_t i = 0; i < stackn && shown < 20; ++i)
-        {
-            const std::uint64_t v = stackbuf[i];
-            if (v < 0x10000ull) continue;
-            char desc[MAX_PATH + 32];
-            DescribeAddr(v, desc, sizeof(desc));
-            if (desc[0] == '<') continue;
-            Log("[StallWatchdog]   stack[rsp+0x%03zX] = 0x%llX = %s\n",
-                i * 8, static_cast<unsigned long long>(v), desc);
-            ++shown;
-        }
-        if (!shown)
-            Log("[StallWatchdog]   no game-code addresses in the first 1.5KB of "
-                "stack - parked deep inside a system DLL (a wait or I/O)\n");
-    }
-
-    static void ReportQuietWindow(DWORD tid, DWORD64 rip, DWORD64 rsp,
-                                  unsigned quietMs, int shot, DWORD64 prevRsp)
-    {
-        char ripName[192];
-        ripName[0] = 0;
-        DescribeAddr(static_cast<std::uint64_t>(rip), ripName, sizeof(ripName));
-
-        unsigned mission = 0xFFFFu;
-        __try
-        {
-            mission = static_cast<unsigned>(MissionCodeGuard::GetCurrentMissionCode());
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            mission = 0xFFFFu;
-        }
-
-        Log("[LoadStall] #%d quiet=%u.%us mission=%u thread=%s rip=0x%llX = %s rsp=0x%llX\n",
-            shot, quietMs / 1000u, (quietMs % 1000u) / 100u, mission,
-            (prevRsp && rsp == prevRsp) ? "PARKED" : "RUNNING",
-            static_cast<unsigned long long>(rip), ripName,
-            static_cast<unsigned long long>(rsp));
-
-        if (shot == 3 || shot == 8 || shot == 15)
-            DumpFrozenThread(tid, "LOAD-STALL", rip, rsp, quietMs, shot);
-    }
-
-    static DWORD WINAPI StallWatchProc(LPVOID)
-    {
-        const DWORD kPeriodMs = 250;
-        const int   kPinnedToFire = 80;
-
-        DWORD64 lastRip = 0, lastRsp = 0;
-        int samePair = 0;
-        int sameRsp = 0;
-        int shots = 0;
-        bool haveLast = false;
-
-        unsigned long lastSerial = LogLineSerial();
-        DWORD quietSinceTick = GetTickCount();
-        DWORD lastQuietReportTick = 0;
-        int quietReports = 0;
-        DWORD64 prevReportRsp = 0;
-
-        for (;;)
-        {
-            Sleep(kPeriodMs);
-            const DWORD tid = g_GameTid.load(std::memory_order_relaxed);
-            if (!tid) continue;
-
-            DWORD64 rip = 0, rsp = 0;
-            if (!SampleThread(tid, &rip, &rsp)) continue;
-
-            if (haveLast && rip == lastRip && rsp == lastRsp) ++samePair; else samePair = 0;
-            if (haveLast && rsp == lastRsp)                   ++sameRsp;  else sameRsp  = 0;
-            lastRip = rip;
-            lastRsp = rsp;
-            haveLast = true;
-
-            const DWORD nowTick = GetTickCount();
-            const unsigned long serial = LogLineSerial();
-            if (serial != lastSerial)
-            {
-                lastSerial = serial;
-                quietSinceTick = nowTick;
-                lastQuietReportTick = 0;
-                quietReports = 0;
-                prevReportRsp = 0;
-            }
-            else
-            {
-                const DWORD quietMs = nowTick - quietSinceTick;
-                if (quietMs >= 6000u && quietReports < 60 &&
-                    (lastQuietReportTick == 0 || nowTick - lastQuietReportTick >= 2000u))
-                {
-                    lastQuietReportTick = nowTick;
-                    ++quietReports;
-                    ReportQuietWindow(tid, rip, rsp, quietMs, quietReports, prevReportRsp);
-                    prevReportRsp = rsp;
-                    lastSerial = LogLineSerial();
-                }
-            }
-
-            if (samePair == 0 && sameRsp == 0)
-            {
-                shots = 0;
-                continue;
-            }
-            if (shots >= 6) continue;
-
-            if (samePair >= kPinnedToFire)
-            {
-                ++shots;
-                DumpFrozenThread(tid, "BLOCKED", rip, rsp,
-                                 static_cast<unsigned>(samePair) * kPeriodMs, shots);
-                samePair = 0;
-                sameRsp = 0;
-            }
-            else if (sameRsp >= kPinnedToFire)
-            {
-                ++shots;
-                DumpFrozenThread(tid, "SPINNING", rip, rsp,
-                                 static_cast<unsigned>(sameRsp) * kPeriodMs, shots);
-                samePair = 0;
-                sameRsp = 0;
-            }
-        }
-    }
-
-    static void NoteGameThreadTick()
-    {
-        g_GameTid.store(GetCurrentThreadId(), std::memory_order_relaxed);
-        g_LastTickMs.store(GetTickCount(), std::memory_order_relaxed);
-        (void)&StallWatchProc;
-    }
-
     static int __fastcall hk_SendCommand(lua_State* L)
     {
         if (!g_OrigSendCommand) return 0;
-        NoteGameThreadTick();
 
         MISSION_GUARD_ORIGINAL_RET(g_OrigSendCommand, L);
 
         MissionStateReset::PollMissionChange();
+        outfit::PollStaffFaceHeal(MissionCodeGuard::GetCurrentMissionCode());
 
         if (!ResolveLuaApi()) return g_OrigSendCommand(L);
 
@@ -805,8 +606,77 @@ namespace
             if ((id >> 9) == TppGameObjectType::kSoldier2)
                 ::Set_SoldierIgnoreVehicle(id, enabled);
             else
-                Log("[SoldierIgnoreVehicle] SetIgnoreVehicle ignored: target 0x%08X is not a "
-                    "TppSoldier2 game object id (pass GameObject.GetGameObjectId(name))\n", id);
+                LogWarn("SetIgnoreVehicle: target 0x%08X is not a soldier, ignored", id);
+            return 0;
+        }
+        if (idStr == "AddNotice")
+        {
+            const std::uint32_t id   = ReadCommandTargetId(L);
+            const int           kind = static_cast<int>(ReadCommandNumberOr(L, 2, "kind", -1.0));
+            g_lua_settop(L, top);
+
+            g_lua_pushstring(L, const_cast<char*>("targetId"));
+            g_lua_gettable(L, 2);
+            const bool hasTarget = g_lua_type(L, -1) == LUA_TNUMBER;
+            const std::uint16_t targetId = hasTarget
+                ? static_cast<std::uint16_t>(static_cast<long long>(g_lua_tonumber(L, -1)) & 0xFFFF)
+                : SoldierNotice::kNoTarget;
+            g_lua_settop(L, top);
+
+            float position[3] = {};
+            const bool hasPosition = ReadCommandPosition(L, 2, "pos", position);
+            g_lua_settop(L, top);
+
+            if ((id >> 9) != TppGameObjectType::kSoldier2)
+                LogWarn("AddNotice: target 0x%08X is not a soldier, ignored", id);
+            else if (kind < 0 || kind > SoldierNotice::kLastKind)
+                LogWarn("AddNotice: kind %d doesn't exist, use a V_NoticeKind value, ignored", kind);
+            else if (!hasTarget && !hasPosition)
+                LogWarn("AddNotice: needs targetId or pos {x, y, z}, ignored");
+            else if (!SoldierNotice::Add(id & 0x1FFu, kind, targetId, hasPosition ? position : nullptr))
+                LogWarn("AddNotice: soldier 0x%08X can't take notices, ignored", id);
+            return 0;
+        }
+        if (idStr == "LieToRadio")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            CpRadioResponse::MemberRadio radio;
+            radio.label = ReadCommandStrCode32(L, 2, "label");
+            radio.reply = ReadCommandStrCode32(L, 2, "reply");
+            g_lua_settop(L, top);
+
+            bool queued = false;
+            if ((id >> 9) != TppGameObjectType::kSoldier2)
+                LogWarn("LieToRadio: target 0x%08X is not a soldier, ignored", id);
+            else if (radio.label == 0)
+                LogWarn("LieToRadio: needs a label, ignored");
+            else
+            {
+                queued = CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(id), radio);
+                if (!queued)
+                    LogWarn("LieToRadio: soldier 0x%08X can't radio now, ignored", id);
+            }
+            g_lua_pushboolean(L, queued ? 1 : 0);
+            return 1;
+        }
+        if (idStr == "SetFaction")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+
+            std::string factionName;
+            g_lua_pushstring(L, const_cast<char*>("name"));
+            g_lua_gettable(L, 2);
+            if (g_lua_type(L, -1) == LUA_TSTRING)
+            {
+                const char* s = g_lua_tolstring(L, -1, nullptr);
+                if (s) factionName = s;
+            }
+            g_lua_settop(L, top);
+
+            if ((id >> 9) == TppGameObjectType::kSoldier2)
+                ::Set_SoldierFaction(id, factionName.c_str());
+            else
+                LogWarn("SetFaction: target 0x%08X is not a soldier, ignored", id);
             return 0;
         }
         if (idStr == "SetHeadMarkColor")
@@ -823,13 +693,36 @@ namespace
 
             if (state == -2)
             {
-                Log("[HeadMarkDying] SetHeadMarkColor was given an unusable state for game object "
-                    "0x%X - pass neutral/alive/friendly/powerless/dying, so that marker keeps its "
-                    "vanilla colour\n", id);
+                LogWarn("SetHeadMarkColor: bad state for 0x%X, marker keeps vanilla colour", id);
                 return 0;
             }
 
             ::SetHeadMarkEntityColour(id, state, stops, count, speed, blend, fade);
+            return 0;
+        }
+        if (idStr == "ShowStaffName")
+        {
+            const std::uint32_t id                  = ReadCommandTargetId(L);
+            const bool          enable              = ReadCommandBool(L, 2, "enable");
+            const bool          showOnNeutralized = ReadCommandBool(L, 2, "showOnNeutralized");
+
+            std::string langId;
+            g_lua_pushstring(L, const_cast<char*>("langId"));
+            g_lua_gettable(L, 2);
+            const int langIdType = g_lua_type(L, -1);
+            if (langIdType == LUA_TSTRING)
+            {
+                const char* s = g_lua_tolstring(L, -1, nullptr);
+                if (s) langId = s;
+            }
+            else if (langIdType != LUA_TNIL)
+                LogWarn("ShowStaffName: langId for 0x%08X is not a string, the head-mark keeps the real staff name", id);
+            g_lua_settop(L, top);
+
+            if ((id >> 9) == TppGameObjectType::kSoldier2)
+                ::Set_HeadMarkStaffName(id, enable, showOnNeutralized, langId.c_str());
+            else
+                LogWarn("ShowStaffName: target 0x%08X is not a soldier, ignored", id);
             return 0;
         }
         if (idStr == "SetVoicePitch")
@@ -848,15 +741,8 @@ namespace
 
             if (targetType != TppGameObjectType::kSoldier2)
             {
-                Log("[SoldierVoicePitch] ERROR: SetVoicePitch was aimed at game object "
-                    "0x%X, whose type is %u - only a soldier (%u) or a command post (%u) "
-                    "owns a voice this can bias, so the pitch %.2f was applied to "
-                    "nothing. A type of 0 means the target name resolved to no game "
-                    "object at all\n",
-                    id, targetType,
-                    static_cast<std::uint32_t>(TppGameObjectType::kSoldier2),
-                    static_cast<std::uint32_t>(TppGameObjectType::kCommandPost),
-                    cents);
+                LogWarn("SetVoicePitch: target 0x%X type %u is not a soldier or command post, ignored",
+                    id, targetType);
                 return 0;
             }
 
@@ -998,6 +884,16 @@ namespace
                 g_lua_pushnumber(L, static_cast<double>(gender));
             return 1;
         }
+        if (idStr == "SetForceStruggle")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            const bool struggle = ReadCommandBool(L, 2, "struggle");
+            const bool ever = ReadCommandBool(L, 2, "ever");
+            g_lua_settop(L, top);
+            if (::Arm_HostageStruggle(id, struggle, ever))
+                SendStruggleSpecialAction(L);
+            return 0;
+        }
         if (idStr == "IsFriendlyFire")
         {
             g_lua_settop(L, top);
@@ -1025,18 +921,12 @@ namespace
             if (hasEvent || hasMarkerEvent)
             {
                 if (cp == 0xFFFFFFFFu)
-                    Log("[InterrogationVoice] ERROR: AssignInterrogationWithVoice "
-                        "never reached the CP dispatcher, so its CP index was not "
-                        "captured - soundDialogueEvent 0x%X / marker 0x%X not "
-                        "registered; this CP keeps the vanilla voice\n",
+                    LogWarn("AssignInterrogationWithVoice: CP not captured, events 0x%X/0x%X not registered, CP keeps vanilla voice",
                         ev, evMarker);
                 else
                 {
                     ::Register_InterrogationVoiceEvent(cp, ev, evMarker, labelBases,
                                                        labelBaseCount);
-                    LogDebug("[InterrogationVoice] registered cp=%u main=0x%X marker=0x%X "
-                             "labelBases=%u\n",
-                             cp, ev, evMarker, labelBaseCount);
                 }
             }
             return r;
@@ -1052,20 +942,20 @@ bool Install_GameObjectSendCommand_Hook()
 
     if (!gAddr.GameObject_SendCommand)
     {
-        LogDebug("[GameObjectSendCommand] address is 0 (unsupported build)\n");
+        LogError("GameObjectSendCommand: address missing for this build, custom SendCommand ids off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.GameObject_SendCommand);
     if (!target)
     {
-        Log("[GameObjectSendCommand] resolve failed\n");
+        LogError("GameObjectSendCommand: address resolve failed, custom SendCommand ids off");
         return false;
     }
 
     if (!ResolveLuaApi())
     {
-        Log("[GameObjectSendCommand] lua API resolve failed; aborting install\n");
+        LogError("GameObjectSendCommand: Lua API resolve failed, custom SendCommand ids off");
         return false;
     }
 
@@ -1077,14 +967,10 @@ bool Install_GameObjectSendCommand_Hook()
     if (ok)
     {
         g_Installed = true;
-#ifdef _DEBUG
-        LogDebug("[GameObjectSendCommand] hook installed @ %p (orig=%p)\n",
-            target, reinterpret_cast<void*>(g_OrigSendCommand));
-#endif
     }
     else
     {
-        Log("[GameObjectSendCommand] hook install FAILED @ %p\n", target);
+        LogError("GameObjectSendCommand: hook failed, custom SendCommand ids off");
     }
     return ok;
 }

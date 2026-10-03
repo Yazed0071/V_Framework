@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_DeployControllerImpl_GetDeployMissionCaptionMessageId_Hook();
+bool Uninstall_DeployControllerImpl_GetDeployMissionCaptionMessageId_Hook();

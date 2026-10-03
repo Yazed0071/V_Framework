@@ -7,7 +7,6 @@
 
 #include "AddressSet.h"
 #include "HookUtils.h"
-#include "log.h"
 #include "SetEyeLampColorHook.h"
 
 namespace
@@ -55,8 +54,6 @@ namespace
     static std::atomic<float> g_HeartDiscoSpeed{ 2.0f };
     static std::atomic<float> g_HeartDiscoA{ 1.0f };
 
-    static std::atomic<bool> g_LoggingEnabled{ false };
-
     static float NowSeconds()
     {
         const ULONGLONG ms = GetTickCount64();
@@ -88,25 +85,7 @@ namespace
                                            std::uint32_t slot,
                                            std::int32_t mode)
     {
-        const int prev = g_LastMode.exchange(mode, std::memory_order_relaxed);
-
-        if (prev != mode && g_LoggingEnabled.load(std::memory_order_relaxed))
-        {
-            if (g_DiscoEnabled.load(std::memory_order_relaxed))
-            {
-            }
-            else if (mode >= 0 && mode < kMaxModes)
-            {
-                const bool active =
-                    g_PerModeEnabled[mode].load(std::memory_order_relaxed);
-            }
-            else
-            {
-#ifdef _DEBUG
-                LogDebug("[EyeLamp] engine mode=%d (out of range - no override)\n", mode);
-#endif
-            }
-        }
+        g_LastMode.store(mode, std::memory_order_relaxed);
         (void)self; (void)slot;
 
         if (g_OrigPushEyeColor)
@@ -301,27 +280,7 @@ void Set_EyeLampColor(int mode, float r, float g, float b, float a)
         g_PerModeEnabled[m].store(true, std::memory_order_relaxed);
     }
 
-    const bool wasDisco = g_DiscoEnabled.exchange(false, std::memory_order_relaxed);
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-        if (allModes)
-        {
-#ifdef _DEBUG
-            LogDebug("[EyeLamp] SetEyeLampColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
-                r, g, b, a,
-                wasDisco ? "  (disco auto-disabled)" : "");
-#endif
-        }
-        else
-        {
-#ifdef _DEBUG
-            LogDebug("[EyeLamp] SetEyeLampColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
-                mode, r, g, b, a,
-                wasDisco ? "  (disco auto-disabled)" : "");
-#endif
-        }
-    }
+    g_DiscoEnabled.store(false, std::memory_order_relaxed);
 }
 
 
@@ -329,15 +288,7 @@ void Clear_EyeLampColor()
 {
     for (int i = 0; i < kMaxModes; ++i)
         g_PerModeEnabled[i].store(false, std::memory_order_relaxed);
-    const bool wasDisco = g_DiscoEnabled.exchange(false, std::memory_order_relaxed);
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-#ifdef _DEBUG
-        LogDebug("[EyeLamp] ClearEyeLampColor: cleared all overrides%s\n",
-            wasDisco ? " (incl. disco)" : "");
-#endif
-    }
+    g_DiscoEnabled.store(false, std::memory_order_relaxed);
 }
 
 
@@ -357,27 +308,7 @@ void Set_HeartLightColor(int mode, float r, float g, float b, float a)
         g_HeartPerModeEnabled[m].store(true, std::memory_order_relaxed);
     }
 
-    const bool wasHeartDisco = g_HeartDiscoEnabled.exchange(false, std::memory_order_relaxed);
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-        if (allModes)
-        {
-#ifdef _DEBUG
-            LogDebug("[EyeLamp] SetHeartLightColor: mode=ALL  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
-                r, g, b, a,
-                wasHeartDisco ? "  (heart disco auto-disabled)" : "");
-#endif
-        }
-        else
-        {
-#ifdef _DEBUG
-            LogDebug("[EyeLamp] SetHeartLightColor: mode=%d  R=%.3f  G=%.3f  B=%.3f  A=%.3f%s\n",
-                mode, r, g, b, a,
-                wasHeartDisco ? "  (heart disco auto-disabled)" : "");
-#endif
-        }
-    }
+    g_HeartDiscoEnabled.store(false, std::memory_order_relaxed);
 }
 
 
@@ -385,15 +316,7 @@ void Clear_HeartLightColor()
 {
     for (int m = 0; m < kMaxModes; ++m)
         g_HeartPerModeEnabled[m].store(false, std::memory_order_relaxed);
-    const bool wasHeartDisco = g_HeartDiscoEnabled.exchange(false, std::memory_order_relaxed);
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-#ifdef _DEBUG
-        LogDebug("[EyeLamp] ClearHeartLightColor: HP-driven heart color resumed%s\n",
-            wasHeartDisco ? " (incl. heart disco)" : "");
-#endif
-    }
+    g_HeartDiscoEnabled.store(false, std::memory_order_relaxed);
 }
 
 
@@ -404,23 +327,10 @@ void Set_EyeLampDisco(bool enabled, float speed, float a)
     g_DiscoA.store(a, std::memory_order_relaxed);
     g_DiscoEnabled.store(enabled, std::memory_order_relaxed);
 
-    bool clearedPerMode = false;
     if (enabled)
     {
         for (int i = 0; i < kMaxModes; ++i)
-        {
-            if (g_PerModeEnabled[i].exchange(false, std::memory_order_relaxed))
-                clearedPerMode = true;
-        }
-    }
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-#ifdef _DEBUG
-        LogDebug("[EyeLamp] Disco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
-            enabled ? "ENABLED" : "DISABLED", speed, a,
-            clearedPerMode ? " (per-mode overrides cleared)" : "");
-#endif
+            g_PerModeEnabled[i].store(false, std::memory_order_relaxed);
     }
 }
 
@@ -432,35 +342,14 @@ void Set_HeartLightDisco(bool enabled, float speed, float a)
     g_HeartDiscoA.store(a, std::memory_order_relaxed);
     g_HeartDiscoEnabled.store(enabled, std::memory_order_relaxed);
 
-    bool clearedFixed = false;
     if (enabled)
     {
         for (int m = 0; m < kMaxModes; ++m)
-            if (g_HeartPerModeEnabled[m].exchange(false, std::memory_order_relaxed))
-                clearedFixed = true;
-    }
-
-    if (g_LoggingEnabled.load(std::memory_order_relaxed))
-    {
-#ifdef _DEBUG
-        LogDebug("[EyeLamp] HeartDisco %s (speed=%.2f hue cycles/sec  A=%.3f)%s\n",
-            enabled ? "ENABLED" : "DISABLED", speed, a,
-            clearedFixed ? " (fixed heart color cleared)" : "");
-#endif
+            g_HeartPerModeEnabled[m].store(false, std::memory_order_relaxed);
     }
 }
 
 
-void Set_EyeLampColorLogging(bool enabled)
-{
-    g_LoggingEnabled.store(enabled, std::memory_order_relaxed);
-}
-
-
-bool Is_EyeLampColorLogging()
-{
-    return g_LoggingEnabled.load(std::memory_order_relaxed);
-}
 
 
 bool Install_SetEyeLampColor_Hook()
@@ -538,6 +427,5 @@ bool Uninstall_SetEyeLampColor_Hook()
     g_LastMode.store(-1, std::memory_order_relaxed);
     g_DiscoEnabled.store(false, std::memory_order_relaxed);
     g_HeartDiscoEnabled.store(false, std::memory_order_relaxed);
-    g_LoggingEnabled.store(false, std::memory_order_relaxed);
     return true;
 }

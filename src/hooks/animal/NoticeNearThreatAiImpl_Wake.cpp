@@ -140,19 +140,6 @@ namespace
         if (!AllowNotice(animalIndex))
             return;
 
-#ifdef _DEBUG
-        {
-            static int s_probe = 0;
-            if (s_probe < 32)
-            {
-                ++s_probe;
-                LogDebug("[AnimalNotice] probe: kind=%u animalIndex=%u -> objId=0x%08X "
-                         "(typeIndex=0x%02X)\n",
-                         kind, animalIndex, objId, (objId >> 9) & 0x7F);
-            }
-        }
-#endif
-
         V_FrameWork::EmitMessage("GameObject", kAnimalNoticeMessage, objId, kind);
     }
 
@@ -238,8 +225,8 @@ bool Install_AnimalNotice_Hooks()
                   reinterpret_cast<void**>(&g_OrigBearNoiseWake));
 
     if (!ok)
-        Log("[AnimalNotice] ERROR: hook install failed - GameObject.AnimalNotice will not be "
-            "emitted for some or all species.\n");
+        LogError("AnimalNotice: hook install failed, GameObject.AnimalNotice missing "
+                 "for some species");
 
     return ok;
 }

@@ -232,7 +232,7 @@ bool Install_BasicActionImpl_StateCrawlSideRoll_Hook()
 
     if (!target)
     {
-        Log("[Hook] BasicActionImpl::StateCrawlSideRoll: address resolve failed\n");
+        LogError("Hook: StateCrawlSideRoll: address missing, CrawlSideRoll message off");
         return false;
     }
 
@@ -241,10 +241,8 @@ bool Install_BasicActionImpl_StateCrawlSideRoll_Hook()
         reinterpret_cast<void*>(&hkStateCrawlSideRoll),
         reinterpret_cast<void**>(&g_OrigStateCrawlSideRoll));
 
-#ifdef _DEBUG
-    Log("[Hook] BasicActionImpl::StateCrawlSideRoll: %s\n",
-        ok ? "OK" : "FAIL");
-#endif
+    if (!ok)
+        LogError("Hook: StateCrawlSideRoll: hook failed, CrawlSideRoll message off");
 
     return ok;
 }

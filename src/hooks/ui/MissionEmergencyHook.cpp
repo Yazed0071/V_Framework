@@ -50,11 +50,11 @@ void MissionEmergency_SetEnabled(std::uint16_t missionCode, bool enabled)
 
     if (enabled)
     {
-        const auto inserted = g_EmergencyMissionAllowlist.insert(missionCode);
+        g_EmergencyMissionAllowlist.insert(missionCode);
     }
     else
     {
-        const auto erased = g_EmergencyMissionAllowlist.erase(missionCode);
+        g_EmergencyMissionAllowlist.erase(missionCode);
     }
 }
 
@@ -85,14 +85,14 @@ bool Install_MissionEmergency_Hook()
 
     if (!gAddr.GetMissionCodeCategory)
     {
-        LogDebug("[MissionEmergency] GetMissionCodeCategory address is 0 for this build; skipping\n");
+        LogError("MissionEmergency: GetMissionCodeCategory address missing, emergency missions off");
         return false;
     }
 
     void* target = ResolveGameAddress(gAddr.GetMissionCodeCategory);
     if (!target)
     {
-        Log("[MissionEmergency] target resolve failed\n");
+        LogError("MissionEmergency: GetMissionCodeCategory address unresolved, emergency missions off");
         return false;
     }
 
@@ -101,15 +101,11 @@ bool Install_MissionEmergency_Hook()
         reinterpret_cast<void*>(&hkGetMissionCodeCategory),
         reinterpret_cast<void**>(&g_OrigGetMissionCodeCategory)))
     {
-        Log("[MissionEmergency] hook install failed\n");
+        LogError("MissionEmergency: GetMissionCodeCategory hook failed, emergency missions off");
         return false;
     }
 
     g_MissionEmergencyHookInstalled = true;
-#ifdef _DEBUG
-    LogDebug("[MissionEmergency] hook installed at 0x%llX\n",
-        static_cast<unsigned long long>(gAddr.GetMissionCodeCategory));
-#endif
     return true;
 }
 
@@ -131,8 +127,5 @@ bool Uninstall_MissionEmergency_Hook()
 
     MissionEmergency_ClearAll();
 
-#ifdef _DEBUG
-    LogDebug("[MissionEmergency] hook removed\n");
-#endif
     return true;
 }

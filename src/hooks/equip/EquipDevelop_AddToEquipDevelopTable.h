@@ -33,6 +33,10 @@ namespace EquipDevelopAdd
 
     bool IsDevelopIdParked(std::uint32_t developId);
 
+    bool IsDevelopKeyParked(const char* key);
+
+    bool HasDevelopRequest(const char* key);
+
     void MaybeRotateDevelopWindow(std::uint16_t predicateIdx);
 
     void PumpDevelopMenuWork();
@@ -63,6 +67,12 @@ namespace EquipDevelopAdd
     bool IsManagedFlowIndex(std::uint16_t flowIndex);
 
     void MaybeRefreshDynamicGates();
+
+    bool IsGatedFlowIndex(std::uint16_t flowIndex);
+
+    std::int32_t BluePrintIdForFlowIndex(std::uint16_t flowIndex, std::uint16_t developId);
+
+    void RequestDynamicGateRefresh();
 
     bool GetDevelopNameLangId(std::int32_t developId,
                               bool& outHasHash,

@@ -103,6 +103,11 @@ namespace V_FrameWork
         const LuaBroadcastArg* args,
         int argCount);
 
+    void QueueMessageValues(const char* category,
+        const char* msg,
+        const LuaBroadcastArg* args,
+        int argCount);
+
     void EnterLuaPcall();
     void ExitLuaPcall();
     void DrainDeferredBroadcasts();

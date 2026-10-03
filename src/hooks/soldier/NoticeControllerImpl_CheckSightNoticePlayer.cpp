@@ -55,8 +55,7 @@ namespace
         void* target = ResolveGameAddress(addr);
         if (!target || !CreateAndEnableHook(target, detour, orig))
         {
-            Log("[SoldierNoticeIgnore] ERROR: %s hook failed - the matching SetRestrictNotice "
-                "ignore field will be accepted but do nothing for every soldier.\n", what);
+            LogError("SoldierNoticeIgnore: %s hook failed, its SetRestrictNotice field has no effect", what);
             return false;
         }
 
@@ -101,9 +100,7 @@ bool Install_CheckSightNoticePlayer_Hook()
 {
     if (!Addr_Player())
     {
-        Log("[SoldierNoticeIgnore] ERROR: CheckSightNoticePlayer is not ported for this "
-            "build - SetRestrictNotice ignorePlayer is accepted but does nothing, so "
-            "those soldiers still spot the player\n");
+        LogError("SoldierNoticeIgnore: CheckSightNoticePlayer address missing, SetRestrictNotice ignorePlayer has no effect");
     }
 
     InstallOne(Addr_Player(), reinterpret_cast<void*>(&hk_Player),

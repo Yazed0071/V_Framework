@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <cstring>
@@ -9,6 +10,7 @@
 #include <string>
 
 #include "AddressSet.h"
+#include "HookUtils.h"
 #include "log.h"
 
 static const char* const kAddrFieldNames[] = {
@@ -268,7 +270,6 @@ static const char* const kAddrFieldNames[] = {
     "PluginFacial_ApplyMotion",
     "EquipDevCtrl_IsEquipVisile",
     "EquipDevCtrl_GetHeadBadgeCategory",
-    "MissionPrep_GetWornHeadCategory",
     "MissionPrep_SetInitialSelectRecord",
     "TppEquip_RegisterConstant",
     "PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType",
@@ -393,8 +394,8 @@ static const char* const kAddrFieldNames[] = {
     "MotionLoaderImpl_GetBarrelType",
     "MotionLoaderImpl_MagazineTypeTable",
     "MotionLoaderImpl_GetMagazineType",
-    "MotionLoaderImpl_SightTypeTable",
-    "MotionLoaderImpl_GetSightType",
+    "MotionLoaderImpl_StockTypeTable",
+    "MotionLoaderImpl_GetStockType",
     "TppPickable_ItemWindowBoundSite",
     "UiUtility_GetWeaponItemNameLangId",
     "SoundPlayerAnimEvent_StepNoiseQuietCmp",
@@ -487,6 +488,7 @@ static const char* const kAddrFieldNames[] = {
     "AttackAction_GetHandgunOneHandMotionId",
     "AttackAction_GetSubMachinegunOneHandMotionId",
     "AttackAction_GetStepReloadHandgunOneHandMotionId",
+    "AttackAction_GetStepReloadHandgunMotionId",
     "AttackAction_ResetMissionPrepareGripMotion",
     "AttackAction_GetNormalMotionIdByCategory",
     "AttackAction_GetAssaultMotionIdTable",
@@ -506,8 +508,134 @@ static const char* const kAddrFieldNames[] = {
     "MissionPreparationCallbackImpl_Start",
     "MissionPreparationCallbackImpl_Update",
     "Soldier2FaceSystem_Instance",
+    "StaffControllerImpl_AddStaffShort",
+    "StaffControllerImpl_AddStaffFull",
+    "StaffIdToFaceIdLua",
+    "StaffControllerImpl_StaffSeedToFaceTexturePathId",
+    "StaffListCallbackImpl_RefreshFaceRecord",
+    "WindowFactoryCollector_FindWindowFactory",
+    "WindowFunction_CreateWindow",
+    "CommonDataManager_SetSubjectiveWindowHandle",
+    "WindowFactoryCollector_FindWindowFactory_Implementation",
+    "CommonDataManager_SetSubjectiveWindowHandle_Implementation",
+    "FaceFovaRead_Calc",
+    "FaceFovaRead_ConvertExtend",
+    "FaceFovaRead_Convert",
+    "FaceFovaRead_GetFpkArray",
+    "FaceFovaRead_GetFpk",
+    "FaceFovaRead_GetPathArray",
+    "FaceFovaRead_GetPath",
+    "FaceFovaRead_GetFpkList",
+    "FaceFovaRead_GetSpecialFpkList",
+    "FaceFovaRead_GetHairPath",
+    "FaceFovaRead_PushFpk",
+    "FaceFova_SetDefinitionTableImpl",
+    "FaceFova_SetFileTableImpl",
+    "EquipParameterTablesImpl_GetAmmoParameterBlock",
+    "WalkerGearSystemImpl_GetSubWeaponLoadAmmoMax",
+    "BuddyQuietEquipControllerImpl_SetupCurrentSlot",
+    "HostageEquipControllerImpl_SetupCurrentSlot",
+    "SoldierEquipControllerImpl_SetupCurrentSlot",
+    "BossQuietEquipControllerImpl_SetupCurrentSlot",
+    "EquipDevelopControllerImpl_GetBulletCountMagazine",
+    "EquipDevelopControllerImpl_GetBulletCountMax",
+    "EquipDevelopControllerImpl_GetBulletType",
+    "GunPartsDescWide_receiver",
+    "GunPartsDescWide_barrel",
+    "GunPartsDescWide_magazine",
+    "GunPartsDescWide_stock",
+    "GunPartsDescWide_muzzleOption",
+    "GunPartsDescWide_sight",
+    "GunPartsDescWide_sight2",
+    "GunPartsDescWide_laserFlash1",
+    "GunPartsDescWide_laserFlash2",
+    "GunPartsDescWide_underBarrel",
+    "GunPartsDescWide_underBarrelCmp",
+    "InventoryImpl_CalcAmmoAndStockIfPickUp",
+    "EquipIdTable_GetRootParameterId",
+    "DeployControllerImpl_GenerateDeployMission",
+    "DeployControllerImpl_AddLogMission",
+    "DeployControllerImpl_GenerateDeployMissionInfoOffline",
+    "DeployControllerImpl_CreateDeployMissionSeedParam",
+    "DeployControllerImpl_GetDeployMissionNameMessageId",
+    "DeployControllerImpl_GetDeployMissionCaptionMessageId",
+    "DeployControllerImpl_GetDeployMissionNameKeyId",
+    "DeployControllerImpl_RefreshMissionList",
+    "DeployControllerImpl_GetNextRandomMissionId",
+    "DeployControllerImpl_CompletedDeployMissionOffline",
+    "MotherBaseManagementSystemImpl_SetupAfterRestoreFromSVars",
+    "PoolRewardControllerImpl_GeneratePoolRewardsInfo",
+    "CombatDeployCallbackImpl_RefreshMissionIconInGlobe",
+    "NoticeAntiBuddyWalkerGearAiImpl_ShouldSleep",
+    "CombatAntiBuddyWalkerGearAiImpl_UpdatePrimaryTarget",
+    "AttackActionImpl_HasOtherSoldierOnVec",
+    "Bullet3Impl_OnOffenseHit",
+    "DamageHandlerImpl_ProcessDamages",
+    "Soldier2Impl_UpdateMarkers",
+    "CombatDeployMissionListRecordCallFunc_Refresh",
+    "SetRevengeIcon",
+    "CombatAntiBuddyWalkerGearAiImpl_StepSurprise",
+    "AkMemoryMgr_Malloc",
+    "AkMemoryMgr_Malign",
+    "AkMemoryMgr_Free",
+    "AkMemoryMgr_s_pMemPools",
+    "Ak_g_DefaultPoolId",
+    "Ak_g_PrepareEventMemoryPoolID",
+    "Soldier2Util_SearchActiveMember",
+    "CombatAntiBuddyWalkerGearAiImpl_UpdateSnipeTarget",
+    "WalkerGearActionImpl_HasOtherSoldierOnVec",
+    "CombatDeployCallbackImpl_RefreshMissionList",
+    "MbTopMenuSelectorEv_UpdateMenuNotice",
+    "NoticeControllerImpl_CheckNoiseNoticeSoldier",
+    "NoticeDownComradeAiImpl_ShouldSleep",
+    "VehicleNoticeDownComradeAiImpl_ShouldSleep",
+    "RideVehicleActionImpl_HasOtherSoldierOnVec",
+    "LifeControllerImpl_SendStatusMessage",
+    "CombatAntiBuddyWalkerGearAiImpl_CheckGrenade",
+    "IDroidActionPluginImpl_CloseState",
+    "IDroidActionPluginImpl_Deactivate",
+    "EquipSystemImpl_SetItemVisible",
+    "IDroidActionPluginImpl_IsPutAwayInterrupted",
+    "IDroidActionPluginImpl_IsOtherAvatar",
+    "MotionGraphBlendNodeTraverser_LeafClipRead",
+    "AnimControl_GetAnimFileFromGaniPath",
+    "ActionPluginImpl_GetStance",
+    "CureActionPluginImpl_StateCureStart_StanceCallBody",
+    "CureActionPluginImpl_StateCureStart_StanceCallArm",
+    "CureActionPluginImpl_StateCure_StanceCall",
+    "CureActionPluginImpl_StateCureEnd_StanceCall",
+    "BasicActionImpl_SelectWakeupState",
+    "CureActionPluginImpl_FinishCureSprayEffect",
+    "CureActionPluginImpl_StateCure",
+    "CallMenuManagerImpl_UpdateCommandSetInterrogation",
+    "Soldier2Impl_ProcessSignal",
+    "NoticeNoiseAiImpl_SearchSpecificComrade",
+    "NoticeControllerImpl_CheckForceNotice",
+    "CallMenuManagerImpl_UpdateInShowing",
+    "CallMenuCommandSet_UpdateState",
+    "CallMenuManagerImpl_UpdateCommandSetRescueBoy",
+    "ActionController_SetCommand",
+    "NoticeNoiseAiImpl_StepMovePause",
+    "HostageCoreAiImpl_SetSpecialActionParam",
+    "HostageSpecialActionImpl_State_SpecialIdle",
+    "CallMenuImpl_UpdateOption",
+    "CallMenuImpl_UpdateSelectDoc",
+    "CallMenuManagerImpl_ShowCallMenu",
+    "GrMaterialManagerInstance",
+    "GrShaderTechniqueManagerInstance",
+    "RadioControllerImpl_StepRadioNoResponse",
+    "RadioControllerImpl_StepRadioWaitResponse",
+    "CommandPost2Impl_Controller_RequestRadioByMember",
+    "CommandPost2Impl_Controller_SetRadioMemberReady",
+    "CommandPost2Impl_Controller_ReleaseRadioByMember",
+    "CommandPost2Impl_FinishRadio",
+    "RadioControllerImpl_StepRadio",
+    "CommandPost2Impl_Controller_UpdateRadio",
+    "CommandPost2Impl_RequestRadioByCp",
+    "RadioControllerImpl_StepIdle",
+    "CpRadioService_ConvertSpeechLabelToRadioType",
 };
-static const int kAddrFieldCount = 494;
+static const int kAddrFieldCount = 620;
 static_assert(sizeof(AddressSetRuntime::AddressSet) / sizeof(uintptr_t) == kAddrFieldCount,
               "kAddrFieldNames must stay in lockstep with the AddressSet layout");
 static_assert(sizeof(kAddrFieldNames) / sizeof(kAddrFieldNames[0]) == kAddrFieldCount,
@@ -814,7 +942,6 @@ namespace AddressSetRuntime
             0x141E01FA0ull, // PluginFacial_ApplyMotion
             0x140f6d150ull, // EquipDevCtrl_IsEquipVisile
             0x140F697D0ull, // EquipDevCtrl_GetHeadBadgeCategory
-            0x140956610ull, // MissionPrep_GetWornHeadCategory
             0x1416a6b70ull, // MissionPrep_SetInitialSelectRecord
             0x140A2B3C0ull, // TppEquip_RegisterConstant
             0x141E02BA0ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
@@ -939,8 +1066,8 @@ namespace AddressSetRuntime
             0x140DB69D0ull, // MotionLoaderImpl_GetBarrelType
             0x142349C00ull, // MotionLoaderImpl_MagazineTypeTable
             0x140DB6A20ull, // MotionLoaderImpl_GetMagazineType
-            0x142349CC0ull, // MotionLoaderImpl_SightTypeTable
-            0x140DB6CC0ull, // MotionLoaderImpl_GetSightType
+            0x142349CC0ull, // MotionLoaderImpl_StockTypeTable
+            0x140DB6CC0ull, // MotionLoaderImpl_GetStockType
             0x14120A4F5ull, // TppPickable_ItemWindowBoundSite
             0x140915130ull, // UiUtility_GetWeaponItemNameLangId
             0x1409849B5ull,           // SoundPlayerAnimEvent_StepNoiseQuietCmp
@@ -1033,6 +1160,7 @@ namespace AddressSetRuntime
             0x141049460ull, // AttackAction_GetHandgunOneHandMotionId
             0x141050790ull, // AttackAction_GetSubMachinegunOneHandMotionId
             0x14104FE00ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x14104FC90ull, // AttackAction_GetStepReloadHandgunMotionId
             0x141055FA0ull, // AttackAction_ResetMissionPrepareGripMotion
             0x14104BC10ull, // AttackAction_GetNormalMotionIdByCategory
             0x1410436F0ull, // AttackAction_GetAssaultMotionIdTable
@@ -1052,6 +1180,132 @@ namespace AddressSetRuntime
             0x1416C2410ull, // MissionPreparationCallbackImpl_Start
             0x1416C2F80ull, // MissionPreparationCallbackImpl_Update
             0x142c1d9b0ull, // Soldier2FaceSystem_Instance
+            0x140F80B70ull, // StaffControllerImpl_AddStaffShort
+            0x140F80EB0ull, // StaffControllerImpl_AddStaffFull
+            0x140AB0EA0ull, // tpp::mbm::impl::StaffIdToFaceId
+            0x140F976D0ull, // tpp::mbm::impl::StaffControllerImpl::StaffSeedToFaceTexturePathId
+            0x1416DFB40ull, // tpp::ui::menu::mbm::impl::StaffListCallbackImpl::RefreshFaceRecord
+            0x141DEF780ull, // fox::ui::WindowFactoryCollector::FindWindowFactory
+            0x141DABD50ull, // fox::ui::WindowFunction::CreateWindow
+            0x140868820ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle
+            0x141DEF780ull, // fox::ui::WindowFactoryCollector::FindWindowFactory (implementation)
+            0x140868820ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle (implementation)
+            0x1409ED7ADull, // CalcFv2ResourceManagerInfoForFace
+            0x1409EE041ull, // ConvertExtendFaceFova2PathToFovaFile
+            0x1409EE655ull, // ConvertFova2PathToFovaFileForProg
+            0x1409F0817ull, // GetFaceFovaFpkPathIdArrayAtFaceId
+            0x1409F0889ull, // GetFaceFovaFpkPathIdAtFaceId
+            0x1409F0987ull, // GetFaceFovaPathIdArrayAtFaceId
+            0x1409F09F9ull, // GetFaceFovaPathIdAtFaceId
+            0x1409F0C95ull, // GetFaceFpkFileCodeListImpl
+            0x1409F0E84ull, // GetFaceFpkFileCodeListImpl
+            0x1409F137Eull, // GetHairFovaPathIdAtFaceId
+            0x1409F38A3ull, // PushFaceFovaFpk
+            0x1409F4900ull, // SetFaceFovaDefinitionTableImpl
+            0x1409F5130ull, // SetFovaFileTable
+            0x140A3BA20ull, // EquipParameterTablesImpl::GetAmmoParameterBlock
+            0x140A84300ull, // WalkerGearSystemImpl::GetSubWeaponLoadAmmoMax
+            0x140D18710ull, // BuddyQuietEquipControllerImpl::SetupCurrentSlot
+            0x140EBAA10ull, // HostageEquipControllerImpl::SetupCurrentSlot
+            0x14146FE40ull, // SoldierEquipControllerImpl::SetupCurrentSlot
+            0x1417E01A0ull, // BossQuietEquipControllerImpl::SetupCurrentSlot
+            0x140F65E50ull, // EquipDevelopControllerImpl::GetBulletCountMagazine
+            0x140F65F80ull, // EquipDevelopControllerImpl::GetBulletCountMax
+            0x140F660B0ull, // EquipDevelopControllerImpl::GetBulletType
+            0x140DC38FFull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (receiver)
+            0x140DC3AF4ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (barrel)
+            0x140DC3CCAull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (magazine)
+            0x140DC3C71ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (stock)
+            0x140DC3D0Full, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (muzzleOption)
+            0x140DC3E6Cull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight)
+            0x140DC3EF0ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight2)
+            0x140DC3D81ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash1)
+            0x140DC3DDFull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash2)
+            0x140DC3F40ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrel)
+            0x140DC3FC6ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrelCmp)
+            0x140EE8DF0ull, // InventoryImpl::CalcAmmoAndStockIfPickUp
+            0x140A2A520ull, // EquipIdTableImpl::GetRootParameterId
+            0x140F61CE0ull, // DeployControllerImpl::GenerateDeployMission
+            0x140F5F370ull, // DeployControllerImpl::AddLogMission
+            0x140F61D90ull, // DeployControllerImpl::GenerateDeployMissionInfoOffline
+            0x140F61460ull, // DeployControllerImpl::CreateDeployMissionSeedParam
+            0x140F62890ull, // DeployControllerImpl::GetDeployMissionNameMessageId
+            0x140F62310ull, // DeployControllerImpl::GetDeployMissionCaptionMessageId
+            0x140F62740ull, // DeployControllerImpl::GetDeployMissionNameKeyId
+            0x140F638A0ull, // DeployControllerImpl::RefreshMissionList
+            0x140F61C80ull, // DeployControllerImpl::GetNextRandomMissionId
+            0x140F60990ull, // DeployControllerImpl::CompletedDeployMissionOffline
+            0x140AB0CD0ull, // MotherBaseManagementSystemImpl::SetupAfterRestoreFromSVars
+            0x140F76F30ull, // PoolRewardControllerImpl::GeneratePoolRewardsInfo
+            0x141645DB0ull, // CombatDeployCallbackImpl::RefreshMissionIconInGlobe
+            0x1413DBCA0ull, // NoticeAntiBuddyWalkerGearAiImpl::ShouldSleep
+            0x1413E03A0ull, // CombatAntiBuddyWalkerGearAiImpl::UpdatePrimaryTarget
+            0x14138DB90ull, // AttackActionImpl::HasOtherSoldierOnVec
+            0x140D313B0ull, // Bullet3Impl::OnOffenseHit
+            0x14145E460ull, // soldier DamageHandlerImpl::ProcessDamages
+            0x14136CEE0ull, // Soldier2Impl::UpdateMarkers
+            0x141643740ull, // CombatDeployMissionListRecordCallFunc::Refresh
+            0x141649930ull, // SetRevengeIcon
+            0x1413DF080ull, // CombatAntiBuddyWalkerGearAiImpl::StepSurprise
+            0x140340D40ull, // AK::MemoryMgr::Malloc
+            0x140340CB0ull, // AK::MemoryMgr::Malign
+            0x140340A70ull, // AK::MemoryMgr::Free
+            0x142B9EC18ull, // AK::MemoryMgr::s_pMemPools
+            0x142A0223Cull, // g_DefaultPoolId
+            0x142B9EB1Cull, // g_PrepareEventMemoryPoolID
+            0x141391EE0ull, // Soldier2Util::SearchActiveMember
+            0x1413E0410ull, // CombatAntiBuddyWalkerGearAiImpl::UpdateSnipeTarget
+            0x1415A66D0ull, // WalkerGearActionImpl::HasOtherSoldierOnVec
+            0x141646030ull, // CombatDeployCallbackImpl::RefreshMissionList
+            0x14086F160ull, // MbTopMenuSelectorEv::UpdateMenuNotice
+            0x1414DE310ull, // NoticeControllerImpl::CheckNoiseNoticeSoldier
+            0x1414FCA20ull, // NoticeDownComradeAiImpl::ShouldSleep
+            0x1415B4860ull, // VehicleNoticeDownComradeAiImpl::ShouldSleep
+            0x14155B580ull, // RideVehicleActionImpl::HasOtherSoldierOnVec
+            0x1414A99D0ull, // LifeControllerImpl::SendStatusMessage
+            0x1413DB760ull, // CombatAntiBuddyWalkerGearAiImpl::CheckGrenade
+            0x1411FBB10ull, // IDroidActionPluginImpl::CloseState
+            0x1411FB2B0ull, // IDroidActionPluginImpl::Deactivate
+            0x140DC4430ull, // EquipSystemImpl::SetItemVisible
+            0x1411F9DC0ull, // IDroidActionPluginImpl::IsPutAwayInterrupted
+            0x14121E7D0ull, // IDroidActionPluginImpl::IsOtherAvatar
+            0x141C75C3Full, // MotionGraphBlendNodeTraverser leaf clip-id read
+            0x141A6C300ull, // AnimControl::GetAnimFileFromGaniPath
+            0x141002350ull, // player action plugin GetStance (1 stand, 2 squat, 3 crawl, 4 supine)
+            0x141181673ull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x14118172Dull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x141180F89ull, // CureActionPluginImpl::StateCure GetStance call
+            0x1411812A9ull, // CureActionPluginImpl::StateCureEnd body GetStance call
+            0x1410A1710ull, // BasicActionImpl::SelectWakeupState
+            0x141180670ull, // CureActionPluginImpl::FinishCureSprayEffect
+            0x141180E10ull, // CureActionPluginImpl::StateCure
+            0x14110F580ull, // CallMenuManagerImpl::UpdateCommandSetInterrogation
+            0x141360F90ull, // Soldier2Impl::ProcessSignal
+            0x14151EFC0ull, // NoticeNoiseAiImpl::SearchSpecificComrade
+            0x1414DCF00ull, // NoticeControllerImpl::CheckForceNotice
+            0x14110FDF0ull, // CallMenuManagerImpl::UpdateInShowing
+            0x141110140ull, // CallMenuCommandSet::UpdateState
+            0x14110FA30ull, // CallMenuManagerImpl::UpdateCommandSetRescueBoy
+            0x141368980ull, // soldier::ActionController::SetCommand
+            0x141520320ull, // NoticeNoiseAiImpl::StepMovePause
+            0x140EB07B0ull, // hostage CoreAiImpl::SetSpecialActionParam
+            0x140EDB220ull, // hostage SpecialActionImpl::State_SpecialIdle
+            0x14179C240ull, // ui::hud::CallMenuImpl::UpdateOption
+            0x14179CCD0ull, // ui::hud::CallMenuImpl::UpdateSelectDoc
+            0x14110E750ull, // CallMenuManagerImpl::ShowCallMenu
+            0x142B743B0ull, // fox::gr::dg::MaterialManager::s_Instance (data)
+            0x142B743A8ull, // fox::gr::dg::ShaderTechniqueManager::s_Instance (data)
+            0x140DA20D0ull, // cp::RadioControllerImpl::StepRadioNoResponse
+            0x140DA2380ull, // cp::RadioControllerImpl::StepRadioWaitResponse
+            0x140D58220ull, // cp::CommandPost2Impl::Controller_RequestRadioByMember_
+            0x140D58A20ull, // cp::CommandPost2Impl::Controller_SetRadioMemberReady_
+            0x140D577A0ull, // cp::CommandPost2Impl::Controller_ReleaseRadioByMember_
+            0x140D5B0E0ull, // cp::CommandPost2Impl::FinishRadio
+            0x140DA1CE0ull, // cp::RadioControllerImpl::StepRadio
+            0x140D58A60ull, // cp::CommandPost2Impl::Controller_UpdateRadio_
+            0x140D62660ull, // cp::CommandPost2Impl::RequestRadioByCp
+            0x140DA1C70ull, // cp::RadioControllerImpl::StepIdle
+            0x140D58BD0ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
         };
 
         return value;
@@ -1317,7 +1571,6 @@ namespace AddressSetRuntime
             0x141e01f70ull, // PluginFacial_ApplyMotion
             0x140f6d1b0ull, // EquipDevCtrl_IsEquipVisile
             0x140f69830ull, // EquipDevCtrl_GetHeadBadgeCategory
-            0x140956540ull, // MissionPrep_GetWornHeadCategory
             0x1416a6b40ull, // MissionPrep_SetInitialSelectRecord
             0x140a2b200ull, // TppEquip_RegisterConstant
             0x141e02b70ull, // PlayerInfoInterfaceImpl_GetPartsTypeAtCamoType
@@ -1383,7 +1636,7 @@ namespace AddressSetRuntime
             0x141dabe30ull, // UiWindowFunction_GetLayout
             0x141041190ull, // AttackAction_Fire
             0x141302f70ull, // EquipObject_DoFire
-            0ull, // Shell_ActivateShellAtEmptyWork
+            0x14132AF40ull, // Shell_ActivateShellAtEmptyWork
             0x141156ef0ull, // CorePlugin_UpdateLoadoutRequest
             0x140dc0360ull, // WeaponSystem_DefineWeaponFireSound
             0x142C934A0ull, // EquipSystem_ChimeraPartsSetWork
@@ -1442,8 +1695,8 @@ namespace AddressSetRuntime
             0x140DB6990ull, // MotionLoaderImpl_GetBarrelType
             0x142349CB0ull, // MotionLoaderImpl_MagazineTypeTable
             0x140DB69E0ull, // MotionLoaderImpl_GetMagazineType
-            0x142349D70ull, // MotionLoaderImpl_SightTypeTable
-            0x140DB6C80ull, // MotionLoaderImpl_GetSightType
+            0x142349D70ull, // MotionLoaderImpl_StockTypeTable
+            0x140DB6C80ull, // MotionLoaderImpl_GetStockType
             0x14120A535ull, // TppPickable_ItemWindowBoundSite
             0x140915010ull, // UiUtility_GetWeaponItemNameLangId
             0x1409848F5ull, // SoundPlayerAnimEvent_StepNoiseQuietCmp
@@ -1536,6 +1789,7 @@ namespace AddressSetRuntime
             0x1410494E0ull, // AttackAction_GetHandgunOneHandMotionId
             0x141050810ull, // AttackAction_GetSubMachinegunOneHandMotionId
             0x14104FE80ull, // AttackAction_GetStepReloadHandgunOneHandMotionId
+            0x14104FD10ull, // AttackAction_GetStepReloadHandgunMotionId
             0x141056010ull, // AttackAction_ResetMissionPrepareGripMotion
             0x14104BC90ull, // AttackAction_GetNormalMotionIdByCategory
             0x141043770ull, // AttackAction_GetAssaultMotionIdTable
@@ -1555,6 +1809,132 @@ namespace AddressSetRuntime
             0x1416C23F0ull, // MissionPreparationCallbackImpl_Start
             0x1416C2F60ull, // MissionPreparationCallbackImpl_Update
             0x142c1d9b0ull, // Soldier2FaceSystem_Instance
+            0x140F80BD0ull, // StaffControllerImpl_AddStaffShort
+            0x140F80F10ull, // StaffControllerImpl_AddStaffFull
+            0x140AB0E40ull, // tpp::mbm::impl::StaffIdToFaceId
+            0x140F97730ull, // tpp::mbm::impl::StaffControllerImpl::StaffSeedToFaceTexturePathId
+            0x1416DFB20ull, // tpp::ui::menu::mbm::impl::StaffListCallbackImpl::RefreshFaceRecord
+            0x141DEF770ull, // fox::ui::WindowFactoryCollector::FindWindowFactory
+            0x141DABC30ull, // fox::ui::WindowFunction::CreateWindow
+            0x1408688D0ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle
+            0x141DEF770ull, // fox::ui::WindowFactoryCollector::FindWindowFactory (implementation)
+            0x1408688D0ull, // tpp::ui::hud::CommonDataManager::SetSubjectiveWindowHandle (implementation)
+            0x1409ED5DDull, // CalcFv2ResourceManagerInfoForFace
+            0x1409EDE71ull, // ConvertExtendFaceFova2PathToFovaFile
+            0x1409EE485ull, // ConvertFova2PathToFovaFileForProg
+            0x1409F0637ull, // GetFaceFovaFpkPathIdArrayAtFaceId
+            0x1409F06A9ull, // GetFaceFovaFpkPathIdAtFaceId
+            0x1409F07A7ull, // GetFaceFovaPathIdArrayAtFaceId
+            0x1409F0819ull, // GetFaceFovaPathIdAtFaceId
+            0x1409F0AB5ull, // GetFaceFpkFileCodeListImpl
+            0x1409F0CA4ull, // GetFaceFpkFileCodeListImpl
+            0x1409F119Eull, // GetHairFovaPathIdAtFaceId
+            0x1409F36B3ull, // PushFaceFovaFpk
+            0x1409F4710ull, // SetFaceFovaDefinitionTableImpl
+            0x1409F4F40ull, // SetFovaFileTable
+            0x140A3B860ull, // EquipParameterTablesImpl::GetAmmoParameterBlock
+            0x140A84290ull, // WalkerGearSystemImpl::GetSubWeaponLoadAmmoMax
+            0x140D186D0ull, // BuddyQuietEquipControllerImpl::SetupCurrentSlot
+            0x140EBAA40ull, // HostageEquipControllerImpl::SetupCurrentSlot
+            0x14146FE60ull, // SoldierEquipControllerImpl::SetupCurrentSlot
+            0x1417E0090ull, // BossQuietEquipControllerImpl::SetupCurrentSlot
+            0x140F65EB0ull, // EquipDevelopControllerImpl::GetBulletCountMagazine
+            0x140F65FE0ull, // EquipDevelopControllerImpl::GetBulletCountMax
+            0x140F66110ull, // EquipDevelopControllerImpl::GetBulletType
+            0x140DC38CFull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (receiver)
+            0x140DC3AC4ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (barrel)
+            0x140DC3C9Aull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (magazine)
+            0x140DC3C41ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (stock)
+            0x140DC3CDFull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (muzzleOption)
+            0x140DC3E3Cull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight)
+            0x140DC3EC0ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (sight2)
+            0x140DC3D51ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash1)
+            0x140DC3DAFull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (laserFlash2)
+            0x140DC3F10ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrel)
+            0x140DC3F96ull, // EquipSystemImpl::SetUpGunInfoFromGunPartsDesc (underBarrelCmp)
+            0x140EE8E20ull, // InventoryImpl::CalcAmmoAndStockIfPickUp
+            0x140A2A350ull, // EquipIdTableImpl::GetRootParameterId
+            0x140F61D40ull, // DeployControllerImpl::GenerateDeployMission
+            0x140F5F3D0ull, // DeployControllerImpl::AddLogMission
+            0x140F61DF0ull, // DeployControllerImpl::GenerateDeployMissionInfoOffline
+            0x140F614C0ull, // DeployControllerImpl::CreateDeployMissionSeedParam
+            0x140F62900ull, // DeployControllerImpl::GetDeployMissionNameMessageId
+            0x140F62380ull, // DeployControllerImpl::GetDeployMissionCaptionMessageId
+            0x140F627B0ull, // DeployControllerImpl::GetDeployMissionNameKeyId
+            0x140F63900ull, // DeployControllerImpl::RefreshMissionList
+            0x140F61CE0ull, // DeployControllerImpl::GetNextRandomMissionId
+            0x140F609F0ull, // DeployControllerImpl::CompletedDeployMissionOffline
+            0x140AB0C70ull, // MotherBaseManagementSystemImpl::SetupAfterRestoreFromSVars
+            0x140F76F90ull, // PoolRewardControllerImpl::GeneratePoolRewardsInfo
+            0x141645D90ull, // CombatDeployCallbackImpl::RefreshMissionIconInGlobe
+            0x1413dbcc0ull, // NoticeAntiBuddyWalkerGearAiImpl::ShouldSleep
+            0x1413e03c0ull, // CombatAntiBuddyWalkerGearAiImpl::UpdatePrimaryTarget
+            0x14138dba0ull, // AttackActionImpl::HasOtherSoldierOnVec
+            0x140d31360ull, // Bullet3Impl::OnOffenseHit
+            0x14145e480ull, // soldier DamageHandlerImpl::ProcessDamages
+            0x14136CEF0ull, // Soldier2Impl::UpdateMarkers
+            0x141643720ull, // CombatDeployMissionListRecordCallFunc::Refresh
+            0x141649910ull, // SetRevengeIcon
+            0x1413df0a0ull, // CombatAntiBuddyWalkerGearAiImpl::StepSurprise
+            0x140341330ull, // AK::MemoryMgr::Malloc
+            0x1403412A0ull, // AK::MemoryMgr::Malign
+            0x140341060ull, // AK::MemoryMgr::Free
+            0x142B9EC18ull, // AK::MemoryMgr::s_pMemPools
+            0x142A0223Cull, // g_DefaultPoolId
+            0x142B9EB1Cull, // g_PrepareEventMemoryPoolID
+            0x141391ef0ull, // Soldier2Util::SearchActiveMember
+            0x1413e0430ull, // CombatAntiBuddyWalkerGearAiImpl::UpdateSnipeTarget
+            0x1415a66e0ull, // WalkerGearActionImpl::HasOtherSoldierOnVec
+            0x141646010ull, // CombatDeployCallbackImpl::RefreshMissionList
+            0x14086F0B0ull, // MbTopMenuSelectorEv::UpdateMenuNotice
+            0x1414de320ull, // NoticeControllerImpl::CheckNoiseNoticeSoldier
+            0x1414fca30ull, // NoticeDownComradeAiImpl::ShouldSleep
+            0x1415b4870ull, // VehicleNoticeDownComradeAiImpl::ShouldSleep
+            0x14155B590ull, // RideVehicleActionImpl::HasOtherSoldierOnVec
+            0x1414A99E0ull, // LifeControllerImpl::SendStatusMessage
+            0x1413DB780ull, // CombatAntiBuddyWalkerGearAiImpl::CheckGrenade
+            0x1411FBB50ull, // IDroidActionPluginImpl::CloseState
+            0x1411FB2F0ull, // IDroidActionPluginImpl::Deactivate
+            0x140DC4400ull, // EquipSystemImpl::SetItemVisible
+            0x1411F9DF0ull, // IDroidActionPluginImpl::IsPutAwayInterrupted
+            0x14121E800ull, // IDroidActionPluginImpl::IsOtherAvatar
+            0x141C75AFFull, // MotionGraphBlendNodeTraverser leaf clip-id read
+            0x141A6C270ull, // AnimControl::GetAnimFileFromGaniPath
+            0x1410023E0ull, // player action plugin GetStance (1 stand, 2 squat, 3 crawl, 4 supine)
+            0x1411816F3ull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x1411817ADull, // CureActionPluginImpl::StateCureStart GetStance call
+            0x141181009ull, // CureActionPluginImpl::StateCure GetStance call
+            0x141181329ull, // CureActionPluginImpl::StateCureEnd body GetStance call
+            0x1410A1780ull, // BasicActionImpl::SelectWakeupState
+            0x141180700ull, // CureActionPluginImpl::FinishCureSprayEffect
+            0x141180E90ull, // CureActionPluginImpl::StateCure
+            0x14110F600ull, // CallMenuManagerImpl::UpdateCommandSetInterrogation
+            0x141360FA0ull, // Soldier2Impl::ProcessSignal
+            0x141512AA0ull, // NoticeNoiseAiImpl::SearchSpecificComrade
+            0x1414DCF10ull, // NoticeControllerImpl::CheckForceNotice
+            0x14110FE70ull, // CallMenuManagerImpl::UpdateInShowing
+            0x1411101C0ull, // CallMenuCommandSet::UpdateState
+            0x14110FAB0ull, // CallMenuManagerImpl::UpdateCommandSetRescueBoy
+            0x141368990ull, // soldier::ActionController::SetCommand
+            0x141520330ull, // NoticeNoiseAiImpl::StepMovePause
+            0x140EB07E0ull, // hostage CoreAiImpl::SetSpecialActionParam
+            0x140EDB250ull, // hostage SpecialActionImpl::State_SpecialIdle
+            0x14179C130ull, // ui::hud::CallMenuImpl::UpdateOption
+            0x14179CBC0ull, // ui::hud::CallMenuImpl::UpdateSelectDoc
+            0x14110E7D0ull, // CallMenuManagerImpl::ShowCallMenu
+            0x142B743B0ull, // fox::gr::dg::MaterialManager::s_Instance (data)
+            0x142B743A8ull, // fox::gr::dg::ShaderTechniqueManager::s_Instance (data)
+            0x140DA2090ull, // cp::RadioControllerImpl::StepRadioNoResponse
+            0x140DA2340ull, // cp::RadioControllerImpl::StepRadioWaitResponse
+            0x140D581D0ull, // cp::CommandPost2Impl::Controller_RequestRadioByMember_
+            0x140D589D0ull, // cp::CommandPost2Impl::Controller_SetRadioMemberReady_
+            0x140D57750ull, // cp::CommandPost2Impl::Controller_ReleaseRadioByMember_
+            0x140D5B090ull, // cp::CommandPost2Impl::FinishRadio
+            0x140DA1CA0ull, // cp::RadioControllerImpl::StepRadio
+            0x140D58A10ull, // cp::CommandPost2Impl::Controller_UpdateRadio_
+            0x140D62610ull, // cp::CommandPost2Impl::RequestRadioByCp
+            0x140DA1C30ull, // cp::RadioControllerImpl::StepIdle
+            0x140D58B80ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
         };
         return value;
     }
@@ -1569,14 +1949,11 @@ namespace AddressSetRuntime
         std::string text = ReadWholeFileUtf8OrAnsi(versionInfoPath);
         if (text.empty())
         {
-            Log("[AddressSet] Failed to read version_info.txt, defaulting to EN 1.0.15.4.\n");
+            LogWarn("AddressSet: version_info.txt unreadable, using EN 1.0.15.4");
             return GameBuild::En_1_0_15_4;
         }
 
         text = ToLowerAscii(text);
-#ifdef _DEBUG
-        Log("[AddressSet] version_info.txt = %s\n", text.c_str());
-#endif
 
         const bool jp   = text.find("mst_jp") != std::string::npos;
         const bool prev = text.find("day1820") != std::string::npos;   // 1.0.15.3
@@ -1605,15 +1982,18 @@ namespace AddressSetRuntime
         case GameBuild::Jp_1_0_15_4a:  GetAddressSet() = Get_mst_jp_day3900_AddressSet();  break;
         default:                     GetAddressSet() = Get_mst_en_day3800_AddressSet();        break;
         }
-#ifdef _DEBUG
-        Log("[AddressSet] Selected %s address set.\n", GetGameBuildName(GetGameBuild()));
-#endif
         return true;
     }
 
     namespace
     {
-        LPTOP_LEVEL_EXCEPTION_FILTER g_PrevCrashFilter = nullptr;
+        using SetUnhandledExceptionFilter_t = LPTOP_LEVEL_EXCEPTION_FILTER(WINAPI*)(LPTOP_LEVEL_EXCEPTION_FILTER);
+
+        std::atomic<LPTOP_LEVEL_EXCEPTION_FILTER> g_PrevCrashFilter{ nullptr };
+        SetUnhandledExceptionFilter_t g_OrigSetUnhandledExceptionFilter = nullptr;
+        std::atomic<std::uintptr_t> g_ReportedFault{ 0 };
+        std::atomic<int>            g_EarlyReports{ 0 };
+        constexpr int               kMostEarlyReports = 3;
 
         void GetGameModuleRange(uintptr_t& base, uintptr_t& size)
         {
@@ -1648,7 +2028,7 @@ namespace AddressSetRuntime
             return "<unknown-module>";
         }
 
-        LONG WINAPI VfwCrashFilter(EXCEPTION_POINTERS* ep)
+        void WriteCrashReport(EXCEPTION_POINTERS* ep, const char* title)
         {
             __try
             {
@@ -1662,7 +2042,7 @@ namespace AddressSetRuntime
                 uintptr_t modBase = 0;
                 const char* modName = ModuleNameFromAddr(er->ExceptionAddress, modBase);
 
-                CrashLogf("\n==================== V_FrameWork CRASH ====================\n");
+                CrashLogf("\n==================== V_FrameWork %s ====================\n", title);
                 CrashLogf("[CRASH] build=%s  exceptionCode=0x%08lX\n",
                           GetGameBuildName(GetGameBuild()),
                           static_cast<unsigned long>(er->ExceptionCode));
@@ -1679,20 +2059,26 @@ namespace AddressSetRuntime
                               op, static_cast<unsigned long long>(er->ExceptionInformation[1]));
                 }
 
-                const uintptr_t* vals = reinterpret_cast<const uintptr_t*>(&GetAddressSet());
-                const int n = static_cast<int>(sizeof(AddressSet) / sizeof(uintptr_t));
-                const char* bestName = nullptr; uintptr_t bestAddr = 0;
-                for (int i = 0; i < n && i < kAddrFieldCount; ++i)
+                if (gameSize && fault >= gameBase && fault < gameBase + gameSize)
                 {
-                    const uintptr_t a = vals[i];
-                    if (a && a <= fault && a > bestAddr) { bestAddr = a; bestName = kAddrFieldNames[i]; }
+                    const uintptr_t* vals = reinterpret_cast<const uintptr_t*>(&GetAddressSet());
+                    const int n = static_cast<int>(sizeof(AddressSet) / sizeof(uintptr_t));
+                    const char* bestName = nullptr; uintptr_t bestAddr = 0;
+                    for (int i = 0; i < n && i < kAddrFieldCount; ++i)
+                    {
+                        const uintptr_t a = vals[i];
+                        if (a && a <= fault && a > bestAddr) { bestAddr = a; bestName = kAddrFieldNames[i]; }
+                    }
+                    if (bestName)
+                        CrashLogf("[CRASH] nearest hooked address at/below the fault: %s @ 0x%llX  (fault = %s + 0x%llX)\n",
+                                  bestName, static_cast<unsigned long long>(bestAddr),
+                                  bestName, static_cast<unsigned long long>(fault - bestAddr));
+                    else
+                        CrashLogf("[CRASH] the fault is below every resolved hooked address.\n");
                 }
-                if (bestName)
-                    CrashLogf("[CRASH] nearest hooked address at/below the fault: %s @ 0x%llX  (fault = %s + 0x%llX)\n",
-                              bestName, static_cast<unsigned long long>(bestAddr),
-                              bestName, static_cast<unsigned long long>(fault - bestAddr));
                 else
-                    CrashLogf("[CRASH] the fault is below every resolved hooked address.\n");
+                    CrashLogf("[CRASH] the fault is outside the game module, in %s - the frames below "
+                              "show which game code called into it\n", modName);
 
                 CrashLogf("[CRASH] RIP=%016llX RSP=%016llX RBP=%016llX\n",
                           (unsigned long long)cx->Rip, (unsigned long long)cx->Rsp, (unsigned long long)cx->Rbp);
@@ -1708,12 +2094,13 @@ namespace AddressSetRuntime
                 CrashLogf("[CRASH] R14=%016llX R15=%016llX\n",
                           (unsigned long long)cx->R14, (unsigned long long)cx->R15);
 
-                CrashLogf("[CRASH] stack return-address trail (game-module addrs == disassembly-dump addrs, no ASLR):\n");
+                CrashLogf("[CRASH] stack return-address trail (game-module addrs == disassembly-dump addrs, no ASLR; "
+                          "other modules as name+offset):\n");
                 if (gameSize)
                 {
                     const uintptr_t* sp = reinterpret_cast<const uintptr_t*>(cx->Rsp);
                     int shown = 0;
-                    for (int i = 0; i < 256 && shown < 12; ++i)
+                    for (int i = 0; i < 256 && shown < 16; ++i)
                     {
                         const uintptr_t v = sp[i];
                         if (v >= gameBase && v < gameBase + gameSize)
@@ -1723,9 +2110,21 @@ namespace AddressSetRuntime
                                       (unsigned long long)(v - gameBase));
                             ++shown;
                         }
+                        else if (v > 0x10000 && v < 0x800000000000ull)
+                        {
+                            uintptr_t otherBase = 0;
+                            const char* other = ModuleNameFromAddr(reinterpret_cast<const void*>(v), otherBase);
+                            if (otherBase)
+                            {
+                                CrashLogf("[CRASH]   [rsp+0x%03X] 0x%llX  (%s+0x%llX)\n",
+                                          i * 8, (unsigned long long)v, other,
+                                          (unsigned long long)(v - otherBase));
+                                ++shown;
+                            }
+                        }
                     }
                     if (shown == 0)
-                        CrashLogf("[CRASH]   (no game-module return addresses in the first 2KB of stack)\n");
+                        CrashLogf("[CRASH]   (no module return addresses in the first 2KB of stack)\n");
                 }
                 CrashLogf("[CRASH] Look up the faulting address / game+offset in this build's disassembly dump.\n");
                 CrashLogf("===========================================================\n");
@@ -1734,16 +2133,75 @@ namespace AddressSetRuntime
             {
                 CrashLogf("[CRASH] (the crash logger itself faulted while writing the report)\n");
             }
+        }
 
-            return g_PrevCrashFilter ? g_PrevCrashFilter(ep) : EXCEPTION_CONTINUE_SEARCH;
+        LONG WINAPI VfwCrashFilter(EXCEPTION_POINTERS* ep)
+        {
+            const std::uintptr_t fault = reinterpret_cast<std::uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
+            if (g_ReportedFault.load() == fault)
+                CrashLogf("[CRASH] nothing handled the fault above, the game is closing\n");
+            else
+                WriteCrashReport(ep, "CRASH");
+
+            const LPTOP_LEVEL_EXCEPTION_FILTER previous = g_PrevCrashFilter.load();
+            return previous ? previous(ep) : EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        bool IsFatalCode(DWORD code)
+        {
+            switch (code)
+            {
+            case EXCEPTION_ACCESS_VIOLATION:
+            case EXCEPTION_ILLEGAL_INSTRUCTION:
+            case EXCEPTION_PRIV_INSTRUCTION:
+            case EXCEPTION_INT_DIVIDE_BY_ZERO:
+            case EXCEPTION_STACK_OVERFLOW:
+            case EXCEPTION_IN_PAGE_ERROR:
+            case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+            case EXCEPTION_NONCONTINUABLE_EXCEPTION:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        // Sees a fault before anything else, for crashes another handler ends the game on before our filter runs.
+        LONG CALLBACK VfwFaultWatch(EXCEPTION_POINTERS* ep)
+        {
+            const EXCEPTION_RECORD* er = ep->ExceptionRecord;
+            if (!IsFatalCode(er->ExceptionCode))
+                return EXCEPTION_CONTINUE_SEARCH;
+
+            const std::uintptr_t fault = reinterpret_cast<std::uintptr_t>(er->ExceptionAddress);
+            uintptr_t gameBase = 0, gameSize = 0;
+            GetGameModuleRange(gameBase, gameSize);
+            if (fault < gameBase || fault >= gameBase + gameSize)
+                return EXCEPTION_CONTINUE_SEARCH;   // other DLLs (ours included) fault on purpose in guarded reads; their real crashes still reach the filter
+
+            if (g_EarlyReports.fetch_add(1) >= kMostEarlyReports)
+                return EXCEPTION_CONTINUE_SEARCH;
+            g_ReportedFault.store(fault);
+            WriteCrashReport(ep, "FAULT (if the game kept running, it recovered from it)");
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        LPTOP_LEVEL_EXCEPTION_FILTER WINAPI hk_SetUnhandledExceptionFilter(LPTOP_LEVEL_EXCEPTION_FILTER filter)
+        {
+            if (filter == &VfwCrashFilter)
+                return g_OrigSetUnhandledExceptionFilter(filter);
+            return g_PrevCrashFilter.exchange(filter);   // ours stays first and hands the crash to theirs after logging it
         }
     }
 
     void InstallCrashHandler()
     {
-        g_PrevCrashFilter = SetUnhandledExceptionFilter(VfwCrashFilter);
-#ifdef _DEBUG
-        Log("[CRASH] Unhandled-exception crash logger installed (faults are written to V_FrameWork_log.txt).\n");
-#endif
+        g_PrevCrashFilter.store(SetUnhandledExceptionFilter(VfwCrashFilter));
+        AddVectoredExceptionHandler(1, &VfwFaultWatch);
+
+        HMODULE kernelBase = GetModuleHandleW(L"kernelbase.dll");
+        void* setFilter = kernelBase ? reinterpret_cast<void*>(GetProcAddress(kernelBase, "SetUnhandledExceptionFilter")) : nullptr;
+        if (!setFilter || !CreateAndEnableHook(setFilter, reinterpret_cast<void*>(&hk_SetUnhandledExceptionFilter),
+                                               reinterpret_cast<void**>(&g_OrigSetUnhandledExceptionFilter)))
+            LogWarn("Startup: can't keep the crash logger first, a crash another mod catches may not be logged");
     }
 }

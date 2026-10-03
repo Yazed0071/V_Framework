@@ -47,7 +47,7 @@ namespace EquipIdCompression
         const ExtendedReservedFn& isReservedElsewhere)
     {
         std::lock_guard<std::mutex> lock(g_ExtendedMutex);
-        for (std::int32_t id = kExtendedAllocFirst; id <= kExtendedEquipIdLast; ++id)
+        for (std::int32_t id = kExtendedAllocFirst; id <= kExtendedAllocLast; ++id)
         {
             if (g_ExtendedUsed.test(static_cast<std::size_t>(id)))
                 continue;
@@ -58,14 +58,10 @@ namespace EquipIdCompression
         }
         static std::atomic<int> s_exhaustedLogged{ 0 };
         if (s_exhaustedLogged.fetch_add(1) < 2)
-            Log("[EquipIdCompression] ERROR: the extended equipId range 0x%X-0x%X "
-                "is exhausted (%d ids). Allocation starts at 0x%X so the engine's "
-                "inline fold maps it to rows 0x%X and up, clear of vanilla and the "
-                "chimera band. Items past this get no equipId and appear in no "
-                "menu\n",
-                kExtendedAllocFirst, kExtendedEquipIdLast,
-                kExtendedEquipIdLast - kExtendedAllocFirst + 1,
-                kExtendedAllocFirst, kExtendedFoldedFirst);
+            LogError("EquipIdCompression: extended equipId range 0x%X-0x%X exhausted, "
+                "item gets no equipId and appears in no menu",
+                static_cast<unsigned>(kExtendedAllocFirst),
+                static_cast<unsigned>(kExtendedAllocLast));
         return -1;
     }
 
@@ -124,9 +120,10 @@ namespace EquipIdCompression
                 ResolveGameAddress(gAddr.EquipIdTable_InfoList));
         if (!tableBase)
         {
-            LogDebug("[EquipIdCompression] SyncFromNativeTable: "
-                     "EquipIdTable_InfoList unresolved - vanilla occupancy "
-                     "unscanned, custom equipIds may collide\n");
+            static std::atomic<bool> s_unresolvedLogged{ false };
+            if (!s_unresolvedLogged.exchange(true))
+                LogError("EquipIdCompression: EquipIdTable_InfoList address missing "
+                    "for this build, custom equipIds may collide");
             return 0;
         }
 
@@ -136,40 +133,24 @@ namespace EquipIdCompression
 
         if (!readOk)
         {
-            LogDebug("[EquipIdCompression] SyncFromNativeTable: SEH reading the "
-                     "native table at 0x%p - wrong address or unmapped page; scan "
-                     "skipped\n", tableBase);
+            static std::atomic<bool> s_unreadableLogged{ false };
+            if (!s_unreadableLogged.exchange(true))
+                LogWarn("EquipIdCompression: native equip table at %p unreadable, "
+                    "occupancy scan skipped", static_cast<const void*>(tableBase));
             return 0;
         }
 
-        std::size_t marked = 0;
-        int freeItemBand = 0, freeWeaponBand = 0;
+        std::size_t occupiedRows = 0;
         {
             std::lock_guard<std::mutex> lock(g_UsedSlotsMutex);
             for (std::int32_t i = 0; i < kCompressedSlotBound; ++i)
             {
-                if (occupied[i] != 0
-                    && !g_UsedSlots.test(static_cast<std::size_t>(i)))
-                {
-                    g_UsedSlots.set(static_cast<std::size_t>(i));
-                    ++marked;
-                }
+                if (occupied[i] == 0)
+                    continue;
+                ++occupiedRows;
+                g_UsedSlots.set(static_cast<std::size_t>(i));
             }
-            for (std::int32_t i = kItemBandFirst; i <= kItemBandLast; ++i)
-                if (!g_UsedSlots.test(static_cast<std::size_t>(i)))
-                    ++freeItemBand;
-            for (std::int32_t i = kWeaponBandFirst; i <= kWeaponBandLastUsable; ++i)
-                if (!g_UsedSlots.test(static_cast<std::size_t>(i)))
-                    ++freeWeaponBand;
         }
-        LogDebug("[EquipIdCompression] native occupancy: item band %d free of 559, "
-            "weapon band %d free of 89\n", freeItemBand, freeWeaponBand);
-
-#ifdef _DEBUG
-        LogDebug("[EquipIdCompression] SyncFromNativeTable: scanned 0x%X slots, "
-            "newly-marked %zu (others were already marked or empty)\n",
-            kCompressedSlotBound, marked);
-#endif
-        return marked;
+        return occupiedRows;
     }
 }

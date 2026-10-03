@@ -15,5 +15,3 @@ void Set_HeartLightColor(int mode, float r, float g, float b, float a);
 void Clear_HeartLightColor();
 void Set_HeartLightDisco(bool enabled, float speed, float a);
 
-void Set_EyeLampColorLogging(bool enabled);
-bool Is_EyeLampColorLogging();

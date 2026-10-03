@@ -1,12 +1,12 @@
 #include "pch.h"
 #include "V_TppEquipLib.h"
 
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
-#include <set>
 #include <string>
 
 #include "LuaApi.h"
@@ -42,7 +42,7 @@ namespace
         if (g_lua_pcall(L, nargs, 0, 0) != 0)
         {
             const char* err = LuaIsString(L, -1) ? GetLuaString(L, -1) : "?";
-            Log("%s original failed: %s\n", what, err ? err : "?");
+            LogWarn("%s: original failed: %s", what, err ? err : "?");
             LuaPop(L, 1);
         }
         return 0;
@@ -52,8 +52,7 @@ namespace
     {
         if (LuaType(L, 1) != LUA_TTABLE)
         {
-            LogDebug("[WeaponKey] SetWeaponHandling: argument #1 must be a table "
-                "{ equipId=, familyFrom= }\n");
+            LogWarn("SetWeaponHandling: argument #1 must be a table, ignored");
             return 0;
         }
         unsigned int equipId = 0, familyFrom = 0;
@@ -65,14 +64,12 @@ namespace
         LuaPop(L, 1);
         if (equipId == 0)
         {
-            LogDebug("[WeaponKey] SetWeaponHandling: missing/invalid equipId (use your "
-                "TppEquip.EQP_WP_* constant)\n");
+            LogWarn("SetWeaponHandling: missing/invalid equipId, ignored");
             return 0;
         }
         if (familyFrom == 0)
         {
-            LogDebug("[WeaponKey] SetWeaponHandling: missing/invalid familyFrom (a VANILLA "
-                "weapon equipId whose animation family this weapon should use)\n");
+            LogWarn("SetWeaponHandling equipId %u: missing/invalid familyFrom, ignored", equipId);
             return 0;
         }
         EquipParam_SetWeaponHandling(equipId, familyFrom);
@@ -83,7 +80,7 @@ namespace
     {
         LuaGetField(L, idx, name);
         bool have = false;
-        if (LuaIsString(L, -1) && !LuaIsNumber(L, -1))
+        if (LuaType(L, -1) == LUA_TSTRING)
         {
             const char* s = GetLuaString(L, -1);
             if (s && *s)
@@ -96,14 +93,21 @@ namespace
         return have;
     }
 
+    constexpr std::uint64_t kGaniExtCode = 0x1F8Aull << 51;
+
     static bool ParseRawPathId(const std::string& text, std::uint64_t& out)
     {
-        if (text.size() != 18 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X'))
+        std::size_t start = 0;
+        if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+            start = 2;
+        const std::size_t digits = text.size() - start;
+        if (digits != 16 && (digits < 8 || digits > 13))
             return false;
-        for (std::size_t i = 2; i < text.size(); ++i)
+        for (std::size_t i = start; i < text.size(); ++i)
             if (!std::isxdigit(static_cast<unsigned char>(text[i])))
                 return false;
-        out = std::strtoull(text.c_str() + 2, nullptr, 16);
+        const std::uint64_t value = std::strtoull(text.c_str() + start, nullptr, 16);
+        out = (digits == 16) ? value : (kGaniExtCode | value);
         return true;
     }
 
@@ -114,6 +118,43 @@ namespace
             return 0;
         std::uint64_t raw = 0;
         return ParseRawPathId(path, raw) ? raw : FoxHashes::PathCode64Ext(path);
+    }
+
+    static std::uint64_t PathAtTop(lua_State* L)
+    {
+        if (LuaType(L, -1) != LUA_TSTRING)
+            return 0;
+        const char* s = GetLuaString(L, -1);
+        if (!s || !*s)
+            return 0;
+        const std::string path = s;
+        std::uint64_t raw = 0;
+        return ParseRawPathId(path, raw) ? raw : FoxHashes::PathCode64Ext(path);
+    }
+
+    static void ReadStepPhases(lua_State* L, int idx, const char* name,
+                               std::array<std::uint64_t, 4>& phases)
+    {
+        LuaGetField(L, idx, name);
+        if (LuaType(L, -1) == LUA_TTABLE)
+        {
+            const int listAbs = GetLuaTop(L);
+            const std::size_t count = LuaObjLen(L, listAbs);
+            if (count > phases.size())
+                LogWarn("SetReceiverMotion: %s lists %u phases, only %u used",
+                    name, static_cast<unsigned>(count), static_cast<unsigned>(phases.size()));
+            for (std::size_t i = 0; i < phases.size(); ++i)
+            {
+                LuaRawGetI(L, listAbs, static_cast<int>(i + 1));
+                phases[i] = PathAtTop(L);
+                LuaPop(L, 1);
+            }
+        }
+        else if (const std::uint64_t clip = PathAtTop(L))
+        {
+            phases.fill(clip);
+        }
+        LuaPop(L, 1);
     }
 
     static bool HasField(lua_State* L, int idx, const char* name)
@@ -196,7 +237,8 @@ namespace
             clips.magazineGrip     = ReadPathField(L, -1, "magazineGrip");
             clips.magazineGripDual = ReadPathField(L, -1, "magazineGripDual");
             clips.underBarrelGrip  = ReadPathField(L, -1, "underBarrelGrip");
-            clips.stepReload       = ReadPathField(L, -1, "stepReload");
+            ReadStepPhases(L, -1, "stepReload", clips.stepReload);
+            ReadStepPhases(L, -1, "stepReloadEmpty", clips.stepReloadEmpty);
         }
         LuaPop(L, 1);
     }
@@ -212,8 +254,7 @@ namespace
             return 0;
         if (LuaType(L, 1) != LUA_TTABLE)
         {
-            Log("[ReceiverMotion] ERROR: SetReceiverMotion argument #1 must be a table - "
-                "nothing registered\n");
+            LogWarn("SetReceiverMotion: argument #1 must be a table, nothing registered");
             return 0;
         }
 
@@ -230,7 +271,9 @@ namespace
             ReadClipsField(L, -1, desc.playerClips);
             ReadClipsTable(L, -1, "oneHand", desc.oneHandClips);
             ReadClipsTable(L, -1, "oneHandCqc", desc.oneHandCqcClips);
+            ReadClipsTable(L, -1, "oneHandCrouch", desc.oneHandCrouchClips);
             ReadClipsTable(L, -1, "horse", desc.horseClips);
+            ReadClipsTable(L, -1, "crouch", desc.crouchClips);
         }
         LuaPop(L, 1);
 
@@ -260,7 +303,20 @@ namespace
         }
         LuaPop(L, 1);
 
-        ReceiverMotion_Register(desc);
+        const bool registered = ReceiverMotion_Register(desc);
+
+        LuaGetField(L, 1, "receiverType");
+        const int receiverTypeLuaType = LuaType(L, -1);
+        const int receiverType = LuaIsNumber(L, -1) ? GetLuaInt(L, -1) : 0;
+        LuaPop(L, 1);
+        if (registered && receiverTypeLuaType != LUA_TNIL)
+        {
+            if (receiverTypeLuaType != LUA_TNUMBER)
+                LogWarn("SetReceiverMotion receiverId %d: receiverType not an integer, ignored",
+                    desc.receiverId);
+            else
+                EquipParam_SetReceiverMotionType(desc.receiverId, receiverType);
+        }
         return 0;
     }
 
@@ -269,8 +325,7 @@ namespace
         const int index = static_cast<int>(LuaObjLen(L, listAbs)) + 1;
         if (index > 65535)
         {
-            Log("[ReceiverMotion] ERROR: the %s list already holds 65535 rows - row for "
-                "bone %s dropped, that bone will not move\n",
+            LogWarn("ReceiverMotion: %s list full at 65535 rows, bone %s row dropped",
                 pose ? "poses" : "motions", row.bone.c_str());
             return 0;
         }
@@ -311,14 +366,12 @@ namespace
         const int posesAbs = GetLuaTop(L);
         if (LuaType(L, motionsAbs) != LUA_TTABLE || LuaType(L, posesAbs) != LUA_TTABLE)
         {
-            Log("[ReceiverMotion] ERROR: ReloadEquipMotionData2 table lacks motions/poses/"
-                "assignments - custom part-motion rows not merged, those guns' bones stay "
-                "still\n");
+            LogWarn("ReceiverMotion: ReloadEquipMotionData2 table lacks motions/poses, "
+                "part-motion rows not merged");
             g_lua_settop(L, nargs);
             return;
         }
 
-        int merged = 0;
         for (const ReceiverPartMotionSnapshot& f : families)
         {
             ReceiverPartRowIndices existing;
@@ -346,15 +399,11 @@ namespace
                         AppendPartRow(L, posesAbs, *poseRows[i], true));
             }
             ReceiverMotion_SetPartRowIndices(f.receiverId, idx);
-            ++merged;
         }
         PushLuaString(L, "V_PartMotionRowsMerged");
         PushLuaBool(L, true);
         g_lua_settable(L, 1);
         g_lua_settop(L, nargs);
-        if (merged)
-            LogDebug("[ReceiverMotion] ReloadEquipMotionData2: part-motion rows published for "
-                     "%d receiver famil%s\n", merged, merged == 1 ? "y" : "ies");
     }
 
     struct ChimeraMotionEntry
@@ -406,8 +455,7 @@ namespace
         const int nargs = GetLuaTop(L);
         if (nargs < 1 || LuaType(L, 1) != LUA_TTABLE)
         {
-            LogDebug("[ChimeraMotion] ReloadEquipMotionData2: argument #1 must be a "
-                "table - call refused (the native parser would crash on it)\n");
+            LogWarn("ReloadEquipMotionData2: argument #1 must be a table, call refused");
             return 0;
         }
         {
@@ -416,8 +464,7 @@ namespace
             LuaPop(L, 1);
             if (!ok)
             {
-                LogDebug("[ChimeraMotion] ReloadEquipMotionData2: the table has no "
-                    "'assignments' field (typo in the mod?) - call refused\n");
+                LogWarn("ReloadEquipMotionData2: table has no 'assignments', call refused");
                 return 0;
             }
         }
@@ -434,24 +481,10 @@ namespace
                 snapshot = g_ChimeraEntries;
             }
 
-            int oobCount = 0;
-            int oobFirst = 0;
-            int oobLast = 0;
-
             for (const auto& kv : snapshot)
             {
                 if (kv.first > kMotionTableRows)
-                {
-                    static std::set<int> s_oobLogged;
-                    if (s_oobLogged.insert(kv.first).second)
-                    {
-                        ++oobCount;
-                        if (!oobFirst)
-                            oobFirst = kv.first;
-                        oobLast = kv.first;
-                    }
                     continue;
-                }
                 if (FindAssignmentRowByRc(L, asgAbs, vanillaCount, kv.first))
                     continue;
                 int srcIdx = 0;
@@ -470,8 +503,7 @@ namespace
                 }
                 if (srcIdx == 0)
                 {
-                    LogDebug("[ChimeraMotion] receiverId=%d: copyFrom=%d not found "
-                        "in the game's assignment table - entry skipped\n",
+                    LogWarn("ChimeraMotion receiverId %d: copyFrom %d not in assignment table, skipped",
                         kv.first, kv.second.copyFrom);
                     continue;
                 }
@@ -493,19 +525,11 @@ namespace
                 g_lua_settop(L, asgAbs);
                 ++n;
             }
-            if (oobCount > 0)
-                LogDebug("[ChimeraMotion] %d custom receiver(s) (%d..%d) get no "
-                         "per-receiver part-motion row: the engine's table holds "
-                         "only %d and its parser indexes it as row-1 with no bounds "
-                         "check, so writing one would corrupt the neighbouring "
-                         "array. Each still animates from its motionFrom donor's "
-                         "row\n",
-                    oobCount, oobFirst, oobLast, (int)kMotionTableRows);
             g_lua_settop(L, nargs);
         }
         MergePartMotionRows(L, nargs);
 
-        return CallReloadOriginal(L, nargs, "[ChimeraMotion] ReloadEquipMotionData2");
+        return CallReloadOriginal(L, nargs, "ChimeraMotion: ReloadEquipMotionData2");
     }
 
     static int __fastcall hkReloadEquipMotionData2(lua_State* L)
@@ -518,26 +542,13 @@ namespace
         return results;
     }
 
-    static void InstallChimeraMotionWrap(lua_State* L, bool quiet)
+    static void InstallChimeraMotionWrap(lua_State* L)
     {
         g_lua_getfield(L, LUA_GLOBALSINDEX_51,
                        const_cast<char*>("TppEquip"));
         if (LuaType(L, -1) != LUA_TTABLE)
         {
             LuaPop(L, 1);
-            if (!quiet)
-            {
-                static bool logged = false;
-                if (!logged)
-                {
-                    logged = true;
-                    LogDebug("[ChimeraMotion] the global TppEquip table does not "
-                             "exist yet - ReloadEquipMotionData2 NOT wrapped this "
-                             "attempt; until it is, custom receiver part-motion "
-                             "rows cannot reach the engine and bolts/slides will "
-                             "not move\n");
-                }
-            }
             return;
         }
         LuaGetField(L, -1, "V_ChimeraMotionWrapped");
@@ -550,10 +561,8 @@ namespace
             if (!said && !g_ChimeraWrapOwned)
             {
                 said = true;
-                Log("[ChimeraMotion] TppEquip.ReloadEquipMotionData2 already carries the V_ wrapper "
-                    "flag but this DLL never wrapped it - another V_FrameWork build in this process "
-                    "owns that wrap and its merge runs instead of this one; the native hook covers "
-                    "the part-motion rows once it installs\n");
+                LogWarn("ChimeraMotion: ReloadEquipMotionData2 wrapped by another V_FrameWork, "
+                        "its merge runs instead");
             }
             return;
         }
@@ -561,17 +570,6 @@ namespace
         if (LuaType(L, -1) != LUA_TFUNCTION)
         {
             LuaPop(L, 2);
-            if (!quiet)
-            {
-                static bool logged = false;
-                if (!logged)
-                {
-                    logged = true;
-                    LogDebug("[ChimeraMotion] TppEquip exists but ReloadEquipMotionData2 "
-                        "is not a function - NOT wrapped. Custom receiver part-motion "
-                        "rows cannot reach the engine.\n");
-                }
-            }
             return;
         }
         g_lua_pushcclosure(L, l_ReloadEquipMotionData2Wrapped, 1);
@@ -584,8 +582,6 @@ namespace
         g_lua_settable(L, -3);
         LuaPop(L, 1);
         g_ChimeraWrapOwned = true;
-        LogDebug("[ChimeraMotion] TppEquip.ReloadEquipMotionData2 wrapped - custom "
-            "receiver part-motion assignments merge into every reload\n");
     }
 
     static bool ReadLangField(lua_State* L, const char* field, std::uint64_t& outId)
@@ -615,7 +611,7 @@ namespace
     {
         if (LuaType(L, 1) != LUA_TTABLE)
         {
-            LogDebug("[EquipLangInfo] SetEquipLangInfo: argument #1 must be a table\n");
+            LogWarn("SetEquipLangInfo: argument #1 must be a table, ignored");
             return 0;
         }
 
@@ -625,8 +621,7 @@ namespace
         LuaPop(L, 1);
         if (equipId <= 0)
         {
-            LogDebug("[EquipLangInfo] SetEquipLangInfo: missing/invalid equipId - no lang "
-                "override registered, this equip keeps showing a blank name\n");
+            LogWarn("SetEquipLangInfo: missing/invalid equipId, nothing registered");
             return 0;
         }
 
@@ -637,8 +632,7 @@ namespace
 
         if (!hasName && !hasInfo && !hasRealName)
         {
-            LogDebug("[EquipLangInfo] SetEquipLangInfo: equipId=%d given none of "
-                "langEquipName/langEquipInfo/langEquipRealName - nothing registered\n",
+            LogWarn("SetEquipLangInfo equipId %d: no langEquipName/Info/RealName, nothing registered",
                 equipId);
             return 0;
         }
@@ -702,19 +696,14 @@ namespace
 
 void ChimeraMotion_InheritFromMotionFrom(int receiverId, int motionFromRc)
 {
-    if (!RegisterChimeraDefault(receiverId, motionFromRc))
-        return;
-
-    LogDebug("[ChimeraMotion] receiverId=%d part-motion inherited from "
-             "motionFrom=%d - the donor's bolt/slide animation drives this weapon\n",
-        receiverId, motionFromRc);
+    RegisterChimeraDefault(receiverId, motionFromRc);
 }
 
 void ChimeraMotion_EnsureWrapInstalled(lua_State* L)
 {
     if (!L || !ResolveLuaApi())
         return;
-    InstallChimeraMotionWrap(L, false);
+    InstallChimeraMotionWrap(L);
 }
 
 bool ChimeraMotion_InstallNativeHooks()
@@ -728,9 +717,8 @@ bool ChimeraMotion_InstallNativeHooks()
             g_ReloadEquipMotionData2Addr = target;
         else
         {
-            Log("[ChimeraMotion] ERROR: native ReloadEquipMotionData2 hook failed at %p - custom "
-                "receiver part-motion rows merge only if the Lua-side wrap took, so their slides "
-                "and hammers can stay still\n", target);
+            LogError("ChimeraMotion: ReloadEquipMotionData2 hook failed @ %p, only Lua wrap merges rows",
+                target);
             ok = false;
         }
     }
@@ -748,7 +736,7 @@ void ChimeraMotion_UninstallNativeHooks()
 bool Register_V_TppEquipLibrary(lua_State* L)
 {
     const bool ok = RegisterLuaLibrary(L, "V_TppEquip", g_VTppEquipLib);
-    InstallChimeraMotionWrap(L, true);
+    InstallChimeraMotionWrap(L);
     return ok;
 }
 

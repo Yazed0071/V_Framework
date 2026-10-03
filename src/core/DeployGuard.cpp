@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace DeployGuard
 {
@@ -58,13 +59,6 @@ namespace DeployGuard
                         g_Loadout[s][0], g_Loadout[s][1], g_Loadout[s][2]);
             }
             fclose(f);
-
-            static std::atomic<bool> s_said{ false };
-            if (!s_said.exchange(true))
-                Log("[DeployGuard] armed: %s tracks the live mission code and "
-                    "loadout; it is deleted once the player's weapon is set up and "
-                    "again on a clean exit, so a leftover copy at boot means the "
-                    "game died mid-load\n", path);
         }
 
         void DeleteMarker()
@@ -85,10 +79,7 @@ namespace DeployGuard
         if (fopen_s(&f, path, "r") != 0 || !f)
             return;
 
-        Log("[DeployGuard] the previous session left a deploy marker - that run "
-            "entered a mission load and never reached the player's weapon setup. "
-            "The loadout it hung on:\n");
-
+        std::string hungOn;
         char line[256];
         while (fgets(line, sizeof(line), f))
         {
@@ -99,16 +90,16 @@ namespace DeployGuard
             if (sscanf_s(line, "mission=%u", &hung) == 1)
                 g_HungCode.store(static_cast<std::uint32_t>(hung),
                                  std::memory_order_relaxed);
-            Log("[DeployGuard]   %s\n", line);
+            if (!hungOn.empty())
+                hungOn += ' ';
+            hungOn += line;
         }
         fclose(f);
         DeleteFileA(path);
 
         g_DropExtended.store(true, std::memory_order_relaxed);
-        Log("[DeployGuard] extended equipIds are hidden from the loadout the engine "
-            "builds so the deploy can complete - those slots stay empty until a "
-            "load finishes; the SAVED loadout keeps them and the hide lifts once a "
-            "load passes the point the last run died at\n");
+        LogWarn("DeployGuard: previous session died mid-load (%s), extended equipIds hidden until a load completes",
+            hungOn.c_str());
     }
 
     void NoteLoadoutSlot(std::uint32_t slot, const std::int32_t* ids)
@@ -182,19 +173,7 @@ namespace DeployGuard
         if (!clearedTheHang && !inFieldMission)
             return;
 
-        if (!g_DropExtended.exchange(false, std::memory_order_relaxed))
-            return;
-
-        if (g_DropPermanent.load(std::memory_order_relaxed))
-            Log("[DeployGuard] mission %u reached the player's weapon setup, so the "
-                "crash-recovery hide is cleared - the extended equipIds stay hidden "
-                "this session because the InfoList mirror is unavailable (the "
-                "[EquipIdTable] line at boot says why)\n", code);
-        else
-            Log("[DeployGuard] mission %u reached the player's weapon setup - the "
-                "point the previous run died at - so the extended equipId hide is "
-                "lifted for this session. It stays armed on the title screen and "
-                "Mother Base, where the deploy it covers has not happened yet\n", code);
+        g_DropExtended.store(false, std::memory_order_relaxed);
     }
 
     void OnCleanExit()

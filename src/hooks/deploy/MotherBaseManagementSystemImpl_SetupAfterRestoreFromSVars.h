@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MotherBaseManagementSystemImpl_SetupAfterRestoreFromSVars_Hook();
+bool Uninstall_MotherBaseManagementSystemImpl_SetupAfterRestoreFromSVars_Hook();
