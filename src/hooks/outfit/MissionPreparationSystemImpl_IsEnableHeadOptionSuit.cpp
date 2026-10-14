@@ -16,7 +16,9 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
+#include "V_FrameWorkState.h"
 #include "../equip/DevelopArrayGrow.h"
+#include "../equip/EquipAliasLease.h"
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 #include "../equip/EquipPartParams.h"
@@ -358,6 +360,8 @@ namespace
     }
 
     static std::atomic<std::uint16_t> g_LastFobBlockedEquip{ 0 };
+    constexpr std::uint32_t kEquipTypeThrowing = 12;
+    constexpr std::uint32_t kEquipTypePlaced   = 13;
 
     static bool FobLoadoutHasBannedManagedEquip(void* self)
     {
@@ -398,6 +402,7 @@ namespace
                 std::uint16_t equipId;
                 std::uint16_t devIdx;
                 std::uint8_t  tainted;
+                std::uint8_t  customWeapon;
             };
             ScanEntry entries[19] = {};
             int       entryCount = 0;
@@ -414,19 +419,27 @@ namespace
                     if (equipId == 0 || equipId == 0xEEEE)
                         continue;
                     const std::uint16_t idx = mapIdx(ctrl, equipId, 0);
-                    const bool managed = equip::IsValidFlowIndex(idx)
+                    const bool weaponSlot = r.slot == kVtblSlot_LoadoutGetWeaponEquipId;
+                    const bool supportSlot = r.slot == kVtblSlot_LoadoutGetSupportEquipId;
+                    const bool managedRow = equip::IsValidFlowIndex(idx)
                         && EquipDevelopAdd::IsManagedFlowIndex(idx);
+                    const std::int32_t realId = equip::ResolveReal(equipId);
+                    const bool claimed = V_FrameWorkState::IsClaimedEquipId(realId);
+                    const std::uint32_t equipType = EquipParam_GetEquipType(static_cast<std::uint32_t>(realId));
+                    const bool supportType = equipType == kEquipTypeThrowing || equipType == kEquipTypePlaced;
+                    const bool customWeapon = ((weaponSlot || supportSlot) && (managedRow || claimed))
+                        || (!weaponSlot && !supportSlot && claimed && supportType);
+                    const bool managed = managedRow || customWeapon;
                     const bool tainted = !managed
-                        && EquipParam_IsEquipIdFobTainted(
-                               equipId,
-                               (r.slot == kVtblSlot_LoadoutGetWeaponEquipId) ? 1 : 0);
-                    const bool fobOk = !tainted
+                        && EquipParam_IsEquipIdFobTainted(equipId, weaponSlot ? 1 : 0);
+                    const bool fobOk = !tainted && !customWeapon
                         && (!managed || fobBit(ctrl, idx) != 0);
                     if (entryCount < 19)
                     {
                         entries[entryCount].equipId = equipId;
                         entries[entryCount].devIdx  = idx;
                         entries[entryCount].tainted = tainted ? 1 : 0;
+                        entries[entryCount].customWeapon = customWeapon ? 1 : 0;
                         if ((managed || tainted) && !fobOk && bannedAt < 0)
                             bannedAt = entryCount;
                         ++entryCount;
@@ -445,7 +458,10 @@ namespace
                     if (g_LastFobBlockedEquip.exchange(
                             bannedEquipId, std::memory_order_relaxed) != bannedEquipId)
                     {
-                        if (entries[bannedAt].tainted)
+                        if (entries[bannedAt].customWeapon)
+                            LogWarn("FobGuard: deploy blocked, equipId %u is a custom weapon or support weapon",
+                                static_cast<unsigned>(bannedEquipId));
+                        else if (entries[bannedAt].tainted)
                             LogWarn("FobGuard: deploy blocked, equipId %u uses parts or damage rows a mod changed",
                                 static_cast<unsigned>(bannedEquipId));
                         else

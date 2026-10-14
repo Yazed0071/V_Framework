@@ -24,3 +24,6 @@ void Clear_HeadMarkEntityColours();
 bool GetHeadMarkColourForSlot(std::uint16_t systemId, unsigned slot, float outRgb[3],
                               int* outReason = nullptr);
 std::uint32_t ResolveHeadMarkColourId(const char* name);
+
+// true when this soldier's head marker shows the dying colour right now (the hook is on and the soldier bleeds out)
+bool HeadMarkShowsDying(std::uint16_t systemId);

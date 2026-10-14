@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdint>
 
 #include "HookUtils.h"
@@ -12,7 +13,7 @@
 
 namespace
 {
-    using DecrementPhaseCounter_t = void(__fastcall*)(void* self, std::uint32_t phaseIndex, void* knowledge);
+    using DecrementPhaseCounter_t = void(__fastcall*)(void* self, std::uint32_t cpIndex, void* knowledge);
 
 
     static DecrementPhaseCounter_t g_OrigDecrementPhaseCounter = nullptr;
@@ -29,7 +30,29 @@ namespace
     static bool  g_CpEnable[kMaxCommandPosts]          = {};
     static float g_CpDurationSeconds[kMaxCommandPosts] = {};
     static float g_CpNormalizedDrain[kMaxCommandPosts] = {};
-    static float g_CpRemainingSeconds[kMaxCommandPosts] = {};
+
+    static constexpr std::size_t  kCautionAiOperator   = 0x70;
+    static constexpr std::size_t  kLuaCommandsOperator = 0x10;   // the CP Lua command interface sits 0x10 past the Cp2Operator
+    static constexpr std::size_t  kOperatorCpParams    = 0x28;   // 0x14 per CP
+    static constexpr std::size_t  kCpParamSize         = 0x14;
+    static constexpr std::size_t  kCpParamCautionRate  = 0x04;   // timer drained per second, the timer starting at 1.0
+    static constexpr std::size_t  kOperatorCpStates    = 0x30;   // 0x60 per CP
+    static constexpr std::size_t  kCpStateSize         = 0x60;
+    static constexpr std::size_t  kCpStatePhase        = 0x48;
+    static constexpr std::size_t  kCpStateTimer        = 0x50;
+    static constexpr std::size_t  kCpStateFlags        = 0x54;
+    static constexpr std::size_t  kOperatorFrameTime   = 0x158;
+    static constexpr std::size_t  kOperatorCpCount     = 0x160;
+    static constexpr std::int32_t kPhaseCaution        = 1;
+    static constexpr float        kNoValue             = -1.0f;
+
+    static std::atomic<std::uint8_t*> g_Operator{ nullptr };   // Cp2Operator, re-read every tick and every CP command
+
+    template <typename T>
+    static T& At(std::uint8_t* base, std::size_t offset)
+    {
+        return *reinterpret_cast<T*>(base + offset);
+    }
 
     static float EffectiveNormalizedDrain(std::uint32_t cpIndex)
     {
@@ -39,14 +62,6 @@ namespace
             return g_NormalizedDrainRate;
         return 0.0f;
     }
-
-
-    static bool g_HaveLastObservedSnapshot = false;
-    static std::uint32_t g_LastObservedPhaseIndex = 0xFFFFFFFFu;
-    static std::uint8_t g_LastObservedStateId = 0xFFu;
-    static float g_LastObservedNormalizedTimer = -1.0f;
-    static float g_LastObservedRemainingSeconds = -1.0f;
-    static bool g_LastObservedUsedOverride = false;
 
     static float DurationSecondsToNormalizedDrain(float seconds)
     {
@@ -64,81 +79,24 @@ namespace
         g_NormalizedDrainRate = DurationSecondsToNormalizedDrain(g_DurationSeconds);
     }
 
-    static std::uintptr_t* GetCautionManager(void* self)
+    static std::uint8_t* OperatorWithCp(std::uint32_t cpIndex)
     {
-        if (!self)
+        std::uint8_t* op = g_Operator.load(std::memory_order_acquire);
+        if (!op || cpIndex >= At<std::uint32_t>(op, kOperatorCpCount))
             return nullptr;
-
-        return *reinterpret_cast<std::uintptr_t**>(
-            reinterpret_cast<std::uintptr_t>(self) + 0x70ull
-            );
+        return op;
     }
 
-    static float GetCautionDeltaScale(void* self)
+    static float VanillaCautionRate(std::uint8_t* op, std::uint32_t cpIndex)
     {
-        std::uintptr_t* manager = GetCautionManager(self);
-        if (!manager)
-            return 0.0f;
-
-        return *reinterpret_cast<float*>(
-            reinterpret_cast<std::uintptr_t>(manager) + 0x158ull
-            );
+        std::uint8_t* params = At<std::uint8_t*>(op, kOperatorCpParams);
+        return params ? At<float>(params, cpIndex * kCpParamSize + kCpParamCautionRate) : 0.0f;
     }
 
-    static float GetVanillaPhaseRate(void* self, std::uint32_t phaseIndex)
+    static std::uint8_t* CpState(std::uint8_t* op, std::uint32_t cpIndex)
     {
-        std::uintptr_t* manager = GetCautionManager(self);
-        if (!manager)
-            return 0.0f;
-
-        const std::uintptr_t phaseConfigBase = manager[5];
-        if (!phaseConfigBase)
-            return 0.0f;
-
-        return *reinterpret_cast<float*>(
-            phaseConfigBase + 4ull + static_cast<std::uintptr_t>(phaseIndex) * 0x14ull
-            );
-    }
-
-
-    static float* GetPhaseTimerPtr(void* self, std::uint32_t phaseIndex)
-    {
-        std::uintptr_t* manager = GetCautionManager(self);
-        if (!manager)
-            return nullptr;
-
-        const std::uintptr_t phaseBase = manager[6];
-        if (!phaseBase)
-            return nullptr;
-
-        const std::uintptr_t phaseOffset = static_cast<std::uintptr_t>(phaseIndex) * 0x60ull;
-        return reinterpret_cast<float*>(phaseBase + 0x50ull + phaseOffset);
-    }
-
-
-    static std::uint32_t* GetPhaseFlagsPtr(void* self, std::uint32_t phaseIndex)
-    {
-        std::uintptr_t* manager = GetCautionManager(self);
-        if (!manager)
-            return nullptr;
-
-        const std::uintptr_t phaseBase = manager[6];
-        if (!phaseBase)
-            return nullptr;
-
-        const std::uintptr_t phaseOffset = static_cast<std::uintptr_t>(phaseIndex) * 0x60ull;
-        return reinterpret_cast<std::uint32_t*>(phaseBase + 0x54ull + phaseOffset);
-    }
-
-
-    static std::uint8_t GetKnowledgeStateId(void* knowledge)
-    {
-        if (!knowledge)
-            return 0xFFu;
-
-        return *reinterpret_cast<std::uint8_t*>(
-            reinterpret_cast<std::uintptr_t>(knowledge) + 6ull
-            );
+        std::uint8_t* states = At<std::uint8_t*>(op, kOperatorCpStates);
+        return states ? states + cpIndex * kCpStateSize : nullptr;
     }
 
 
@@ -153,120 +111,65 @@ namespace
     }
 
 
-    static void UpdateLastObservedSnapshot(void* self, std::uint32_t phaseIndex, void* knowledge, float currentTimer)
+    static void ReplaceVanillaDrainIfNeeded(void* self, std::uint32_t cpIndex, void* knowledge)
     {
-        float remainingSeconds = -1.0f;
-        const float vanillaPhaseRate = GetVanillaPhaseRate(self, phaseIndex);
+        std::uint8_t* op = self ? At<std::uint8_t*>(static_cast<std::uint8_t*>(self), kCautionAiOperator) : nullptr;
+        if (op)
+            g_Operator.store(op, std::memory_order_release);
 
-        if (currentTimer <= 0.0f)
+        std::uint8_t* state = op ? CpState(op, cpIndex) : nullptr;
+        if (!state || !knowledge)
         {
-            remainingSeconds = 0.0f;
-        }
-        else if (EffectiveNormalizedDrain(phaseIndex) > 0.0f)
-        {
-            remainingSeconds = currentTimer / EffectiveNormalizedDrain(phaseIndex);
-        }
-        else if (vanillaPhaseRate > 0.0f)
-        {
-
-            remainingSeconds = currentTimer / vanillaPhaseRate;
-        }
-
-        g_HaveLastObservedSnapshot = true;
-        g_LastObservedPhaseIndex = phaseIndex;
-        g_LastObservedStateId = GetKnowledgeStateId(knowledge);
-        g_LastObservedNormalizedTimer = currentTimer;
-        g_LastObservedRemainingSeconds = remainingSeconds;
-        g_LastObservedUsedOverride = g_EnableOverride;
-
-        if (phaseIndex < kMaxCommandPosts)
-            g_CpRemainingSeconds[phaseIndex] = remainingSeconds;
-    }
-
-
-    static void ReplaceVanillaDrainIfNeeded(void* self, std::uint32_t phaseIndex, void* knowledge)
-    {
-        float* const phaseTimer = GetPhaseTimerPtr(self, phaseIndex);
-        std::uint32_t* const phaseFlags = GetPhaseFlagsPtr(self, phaseIndex);
-
-        if (!phaseTimer || !knowledge)
-        {
-            g_OrigDecrementPhaseCounter(self, phaseIndex, knowledge);
-            if (phaseTimer)
-                UpdateLastObservedSnapshot(self, phaseIndex, knowledge, *phaseTimer);
+            g_OrigDecrementPhaseCounter(self, cpIndex, knowledge);
             return;
         }
 
-        const float beforeTimer = *phaseTimer;
-        const std::uint32_t beforeFlags = phaseFlags ? *phaseFlags : 0u;
+        float& timer = At<float>(state, kCpStateTimer);
+        std::uint32_t& flags = At<std::uint32_t>(state, kCpStateFlags);
+        const float beforeTimer = timer;
+        const std::uint32_t beforeFlags = flags;
         const std::uint8_t knowledgeFlagsBefore = GetKnowledgeFlags(knowledge);
-
-        const float deltaScale = GetCautionDeltaScale(self);
-
-
-        g_OrigDecrementPhaseCounter(self, phaseIndex, knowledge);
-
-        const float vanillaAfterTimer = *phaseTimer;
+        const float deltaScale = At<float>(op, kOperatorFrameTime);
 
 
-        const float vanillaDrain = beforeTimer - vanillaAfterTimer;
+        g_OrigDecrementPhaseCounter(self, cpIndex, knowledge);
+
+        const float vanillaDrain = beforeTimer - timer;
 
 
-        const float overrideDrain = EffectiveNormalizedDrain(phaseIndex);
+        const float overrideDrain = EffectiveNormalizedDrain(cpIndex);
         if (overrideDrain <= 0.0f)
-        {
-            UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
             return;
-        }
 
 
-        if ((knowledgeFlagsBefore & 0x80u) == 0u)
-        {
-            UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
+        if ((knowledgeFlagsBefore & 0x80u) == 0u)   // vanilla only drains on this flag, else it ends caution outright
             return;
-        }
 
 
-        if (beforeTimer <= 0.0f || vanillaDrain <= 0.000001f)
-        {
-            UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
+        if (beforeTimer <= 0.0f || vanillaDrain <= 0.000001f || deltaScale <= 0.0f)   // kept in caution, or paused
             return;
-        }
 
-        if (deltaScale <= 0.0f)
-        {
-            UpdateLastObservedSnapshot(self, phaseIndex, knowledge, vanillaAfterTimer);
-            return;
-        }
-
-        const float customDrain = deltaScale * overrideDrain;
-
-        float customAfterTimer = beforeTimer - customDrain;
+        float customAfterTimer = beforeTimer - deltaScale * overrideDrain;
         if (customAfterTimer < 0.0f)
             customAfterTimer = 0.0f;
 
 
-        *phaseTimer = customAfterTimer;
+        timer = customAfterTimer;
 
 
-        if (phaseFlags)
+        constexpr std::uint32_t kBit22 = (1u << 22);   // vanilla clears it once the timer is under 0.95
+
+        if (customAfterTimer < 0.95f)
         {
-            constexpr std::uint32_t kBit22 = (1u << 22);
-
-            if (customAfterTimer < 0.95f)
-            {
-                *phaseFlags &= ~kBit22;
-            }
-            else
-            {
-                if ((beforeFlags & kBit22) != 0u)
-                    *phaseFlags |= kBit22;
-                else
-                    *phaseFlags &= ~kBit22;
-            }
+            flags &= ~kBit22;
         }
-
-        UpdateLastObservedSnapshot(self, phaseIndex, knowledge, customAfterTimer);
+        else
+        {
+            if ((beforeFlags & kBit22) != 0u)
+                flags |= kBit22;
+            else
+                flags &= ~kBit22;
+        }
     }
 
 
@@ -297,6 +200,9 @@ namespace
     static void __fastcall hkTppCp2LuaCommands(unsigned long long p1, unsigned long long p2,
                                                unsigned int p3, unsigned int cmdHash)
     {
+        if (p1)
+            g_Operator.store(reinterpret_cast<std::uint8_t*>(p1) + kLuaCommandsOperator, std::memory_order_release);
+
         if (g_OrigTppCp2LuaCommands)
             g_OrigTppCp2LuaCommands(p1, p2, p3, cmdHash);
 
@@ -313,10 +219,10 @@ namespace
         }
     }
 
-    static void __fastcall hkDecrementPhaseCounter(void* self, std::uint32_t phaseIndex, void* knowledge)
+    static void __fastcall hkDecrementPhaseCounter(void* self, std::uint32_t cpIndex, void* knowledge)
     {
-        MISSION_GUARD_ORIGINAL_VOID(g_OrigDecrementPhaseCounter, self, phaseIndex, knowledge);
-        ReplaceVanillaDrainIfNeeded(self, phaseIndex, knowledge);
+        MISSION_GUARD_ORIGINAL_VOID(g_OrigDecrementPhaseCounter, self, cpIndex, knowledge);
+        ReplaceVanillaDrainIfNeeded(self, cpIndex, knowledge);
     }
 }
 
@@ -324,9 +230,6 @@ namespace
 bool Install_CautionStepNormalTimerHook()
 {
     SyncCautionStepNormalDrainFromDuration();
-
-    for (unsigned i = 0; i < kMaxCommandPosts; ++i)
-        g_CpRemainingSeconds[i] = -1.0f;
 
     void* target = ResolveGameAddress(gAddr.DecrementPhaseCounter);
     if (!target)
@@ -375,6 +278,7 @@ bool Uninstall_CautionStepNormalTimerHook()
         DisableAndRemoveHook(ResolveGameAddress(Addr_TppCp2LuaCommands()));
         g_OrigTppCp2LuaCommands = nullptr;
     }
+    g_Operator.store(nullptr, std::memory_order_release);
     return true;
 }
 
@@ -389,7 +293,20 @@ void Set_CautionStepNormalDurationSeconds(float seconds)
 
 float Get_CautionStepNormalDurationSeconds()
 {
-    return g_DurationSeconds;
+    if (g_EnableOverride)
+        return g_DurationSeconds;
+
+    std::uint8_t* op = g_Operator.load(std::memory_order_acquire);
+    const std::uint32_t count = op ? At<std::uint32_t>(op, kOperatorCpCount) : 0;
+    if (count == 0)
+        return kNoValue;
+    const float rate = VanillaCautionRate(op, 0);
+    for (std::uint32_t cp = 1; cp < count; ++cp)
+    {
+        if (VanillaCautionRate(op, cp) != rate)
+            return kNoValue;   // the CPs differ: only one CP has a length
+    }
+    return rate > 0.0f ? 1.0f / rate : kNoValue;
 }
 
 
@@ -423,6 +340,9 @@ void Clear_AllCautionStepNormalDurationOverrides()
     g_EnableOverride = false;
     for (unsigned i = 0; i < kMaxCommandPosts; ++i)
         g_CpEnable[i] = false;
+    g_PendingCpActive  = false;
+    g_PendingCpCapture = false;
+    g_Operator.store(nullptr, std::memory_order_release);   // the next mission builds its own
 }
 
 
@@ -435,10 +355,7 @@ void Set_PendingCautionDurationForCp(float seconds)
 
 float Get_CautionStepNormalRemainingSeconds()
 {
-    if (!g_HaveLastObservedSnapshot)
-        return -1.0f;
-
-    return g_LastObservedRemainingSeconds;
+    return kNoValue;   // only a single CP has a remaining time
 }
 
 
@@ -460,13 +377,28 @@ float Get_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex)
 {
     if (cpIndex < kMaxCommandPosts && g_CpEnable[cpIndex])
         return g_CpDurationSeconds[cpIndex];
-    return g_DurationSeconds;
+    if (g_EnableOverride)
+        return g_DurationSeconds;
+
+    std::uint8_t* op = OperatorWithCp(cpIndex);
+    const float rate = op ? VanillaCautionRate(op, cpIndex) : 0.0f;
+    return rate > 0.0f ? 1.0f / rate : kNoValue;
 }
 
 
 float Get_CautionStepNormalRemainingSecondsForCp(std::uint32_t cpIndex)
 {
-    if (cpIndex < kMaxCommandPosts)
-        return g_CpRemainingSeconds[cpIndex];
-    return g_LastObservedRemainingSeconds;
+    std::uint8_t* op = OperatorWithCp(cpIndex);
+    std::uint8_t* state = op ? CpState(op, cpIndex) : nullptr;
+    if (!state || At<std::int32_t>(state, kCpStatePhase) != kPhaseCaution)
+        return kNoValue;
+
+    float rate = EffectiveNormalizedDrain(cpIndex);
+    if (rate <= 0.0f)
+        rate = VanillaCautionRate(op, cpIndex);
+    if (rate <= 0.0f)
+        return kNoValue;
+
+    const float timer = At<float>(state, kCpStateTimer);
+    return timer > 0.0f ? timer / rate : 0.0f;
 }

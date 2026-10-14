@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex_Hooks();
+bool Uninstall_EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex_Hooks();

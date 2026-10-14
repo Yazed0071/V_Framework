@@ -83,6 +83,14 @@ namespace uniqueStaff
         return total;
     }
 
+    bool IsNonVanillaTypeId(std::int32_t typeId)
+    {
+        for (const FreeInterval& interval : kFreeIntervals)
+            if (typeId >= interval.first && typeId <= interval.last)
+                return true;
+        return false;
+    }
+
     bool IsValidKey(const char* key)
     {
         if (!key || !key[0])

@@ -5,6 +5,7 @@
 
 #include "AddressSet.h"
 #include "ComradeTurn.h"
+#include "FakeSurrender.h"
 #include "HookUtils.h"
 #include "log.h"
 
@@ -18,6 +19,7 @@ namespace
     void __fastcall hk_SetCommand(std::uint8_t* actionController, std::uint32_t soldierIndex, std::uint8_t* command)
     {
         CallComrade::OnSetCommand(soldierIndex, command);
+        FakeSurrender::OnSetCommand(soldierIndex, command);
         g_Orig(actionController, soldierIndex, command);
     }
 }
@@ -49,6 +51,7 @@ bool Install_ActionController_SetCommand_Hook()
 void Uninstall_ActionController_SetCommand_Hook()
 {
     CallComrade::StopTurn();
+    FakeSurrender::Clear();
     if (g_HookTarget)
     {
         DisableAndRemoveHook(g_HookTarget);

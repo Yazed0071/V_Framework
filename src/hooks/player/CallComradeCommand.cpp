@@ -7,6 +7,7 @@
 #include <iterator>
 
 #include "AddressSet.h"
+#include "GameClock.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "Soldier2Impl_ProcessSignal.h"
@@ -43,6 +44,7 @@ namespace
     constexpr std::uint8_t kBlockFinished = 3;
 
     constexpr std::uint64_t kOrderDelayAfterVoiceMs = 500;
+    constexpr std::uint64_t kLineStartTimeoutMs     = 1000;    // GZ drops the order if Snake's line hasn't started by then
     constexpr std::uint64_t kLockoutAfterOrderMs    = 2000;
     constexpr std::uint64_t kAbandonedOrderMs       = 15000;
 
@@ -60,7 +62,10 @@ namespace
 
     GetQuarkSystemTable_t g_GetQuarkSystemTable = nullptr;
     std::uint64_t         g_OrderLockedUntil    = 0;
-    std::uint64_t         g_OrderDueTick        = 0;
+    std::uint64_t         g_OrderDueTick        = 0;   // game time
+    std::uint64_t         g_LineDeadline        = 0;   // game time
+    bool                  g_LineStarted         = false;
+    std::uint32_t         g_OrderRequest        = CallComrade::kCallComradeRequest;
 
     bool IsOrderInFlight()
     {
@@ -105,22 +110,6 @@ namespace
         return state;
     }
 
-    void TellHeldSoldierToCallComrade(std::uint8_t* block)
-    {
-        if (!g_GetQuarkSystemTable)
-            return;
-
-        InterrogationSignal signal{};
-        signal.id          = CallComrade::kInterrogationSignal;
-        signal.playerIndex = static_cast<std::uint16_t>(At<std::uint32_t>(block, kBlockPlayerIndex) & kPlayerIndexMask);
-        signal.request     = CallComrade::kCallComradeRequest;
-
-        void* signalSystem = At<void*>(g_GetQuarkSystemTable(), kQuarkSignalSystem);
-        std::uint64_t error = 0;
-        VirtualAt<SendSignal_t>(signalSystem, kSendSignalVtblIndex)(signalSystem, &error,
-                                                                    At<std::uint16_t>(block, kBlockHeldSoldierId), &signal);
-    }
-
     void __fastcall UpdateCommandFollowCall(std::uint8_t* block)
     {
         CallComrade::UpdatePendingCall();
@@ -129,15 +118,20 @@ namespace
 
     void __fastcall UpdateCommandAwaitOrderDelay(std::uint8_t* block)
     {
-        const std::uint64_t now = GetTickCount64();
-        if (now < g_OrderDueTick)
+        if (GameClock::NowMs() < g_OrderDueTick)
         {
             At<std::uint8_t>(block, kBlockState) = kBlockWaiting;
             return;
         }
 
-        TellHeldSoldierToCallComrade(block);
-        g_OrderLockedUntil = now + kLockoutAfterOrderMs;
+        CallComradeCommand::SendHeldSoldierRequest(At<std::uint16_t>(block, kBlockHeldSoldierId),
+                                                   At<std::uint32_t>(block, kBlockPlayerIndex), g_OrderRequest);
+        g_OrderLockedUntil = GetTickCount64() + kLockoutAfterOrderMs;
+        if (g_OrderRequest != CallComrade::kCallComradeRequest)
+        {
+            At<std::uint8_t>(block, kBlockState) = kBlockFinished;   // he only says why he won't
+            return;
+        }
 
         At<void*>(block, kBlockUpdate) = reinterpret_cast<void*>(&UpdateCommandFollowCall);
         UpdateCommandFollowCall(block);
@@ -153,11 +147,23 @@ namespace
 
         if (CallComradeCommand::IsPlayerLinePlaying(block))
         {
+            g_LineStarted = true;
             At<std::uint8_t>(block, kBlockState) = kBlockWaiting;
             return;
         }
+        if (!g_LineStarted)
+        {
+            if (GameClock::NowMs() < g_LineDeadline)
+            {
+                At<std::uint8_t>(block, kBlockState) = kBlockWaiting;
+                return;
+            }
+            g_OrderLockedUntil = 0;   // his line never played: nothing is sent, as in GZ
+            At<std::uint8_t>(block, kBlockState) = kBlockFinished;
+            return;
+        }
 
-        g_OrderDueTick = GetTickCount64() + kOrderDelayAfterVoiceMs;
+        g_OrderDueTick = GameClock::NowMs() + kOrderDelayAfterVoiceMs;
         At<void*>(block, kBlockUpdate) = reinterpret_cast<void*>(&UpdateCommandAwaitOrderDelay);
         At<std::uint8_t>(block, kBlockState) = kBlockWaiting;
     }
@@ -183,6 +189,32 @@ void CallComradeCommand::PlayRandomPlayerLine(std::uint8_t* execParam, const std
         VirtualAt<PlayVoice_t>(voice.sound, kPlayVoiceVtblIndex)(voice.sound, voice.playerId, voiceId, kVoicePriority);
 }
 
+void CallComradeCommand::SendHeldSoldierRequest(std::uint16_t soldierId, std::uint32_t playerIndex, std::uint32_t request)
+{
+    if (!g_GetQuarkSystemTable)
+        return;
+
+    InterrogationSignal signal{};
+    signal.id          = CallComrade::kInterrogationSignal;
+    signal.playerIndex = static_cast<std::uint16_t>(playerIndex & kPlayerIndexMask);
+    signal.request     = request;
+
+    void* signalSystem = At<void*>(g_GetQuarkSystemTable(), kQuarkSignalSystem);
+    std::uint64_t error = 0;
+    VirtualAt<SendSignal_t>(signalSystem, kSendSignalVtblIndex)(signalSystem, &error, soldierId, &signal);
+}
+
+std::uint32_t CallComradeCommand::ExcuseOf(std::uint16_t soldierId, std::uint32_t playerIndex)
+{
+    SendHeldSoldierRequest(soldierId, playerIndex, CallComrade::kWillComplyRequest);
+    switch (CallComrade::TakeAnswer())
+    {
+    case CallComrade::HeldAnswer::NotUnderstood: return CallComrade::kSayNotUnderstoodRequest;
+    case CallComrade::HeldAnswer::Refuses:       return CallComrade::kSayRefusalRequest;
+    default:                                     return 0;
+    }
+}
+
 bool CallComradeCommand::IsPlayerLinePlaying(std::uint8_t* block)
 {
     const PlayerVoice voice = FindPlayerVoice(At<std::uint8_t*>(block, kBlockPlayerObject),
@@ -198,11 +230,17 @@ bool CallComradeCommand::Exec(std::uint8_t* execParam, std::uint8_t* block)
         return true;
     }
 
+    const std::uint16_t held = At<std::uint16_t>(execParam, kExecHeldSoldierId);
+    const std::uint32_t excuse = ExcuseOf(held, At<std::uint32_t>(execParam, kExecPlayerIndex));   // asked now: a fake surrender may end before Snake is done talking
+    g_OrderRequest = excuse ? excuse : CallComrade::kCallComradeRequest;
+
     g_OrderLockedUntil = GetTickCount64() + kAbandonedOrderMs;
+    g_LineStarted      = false;
+    g_LineDeadline     = GameClock::NowMs() + kLineStartTimeoutMs;
     PlayRandomPlayerLine(execParam, kCallComradeVoices, std::size(kCallComradeVoices));
 
     At<void*>(block, kBlockUpdate) = reinterpret_cast<void*>(&UpdateCommandCallComrade);
-    At<std::uint16_t>(block, kBlockHeldSoldierId) = At<std::uint16_t>(execParam, kExecHeldSoldierId);
+    At<std::uint16_t>(block, kBlockHeldSoldierId) = held;
     return true;
 }
 

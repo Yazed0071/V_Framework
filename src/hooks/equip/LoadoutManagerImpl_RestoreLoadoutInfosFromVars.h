@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_LoadoutManagerImpl_RestoreLoadoutInfosFromVars_Hooks();
+void Uninstall_LoadoutManagerImpl_RestoreLoadoutInfosFromVars_Hooks();

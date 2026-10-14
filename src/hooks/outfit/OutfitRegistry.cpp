@@ -1,7 +1,6 @@
 #include "pch.h"
 
 #include "OutfitRegistry.h"
-#include "ShadowState.h"
 #include "FoxHashes.h"
 #include "AdditionalMotionTable_GetMtarPathId.h"
 
@@ -46,7 +45,6 @@ namespace
     static std::uint32_t g_PendingDevelopIdStamp       = 0;
     static std::uint16_t g_PendingHeadOptionEquipId    = 0;
     static std::uint8_t  g_WornCustomHeadSlot          = 0;
-    static bool          g_SupplyDropClickLatch        = false;
     static std::uint16_t g_PendingSupplyDropDevelopId  = 0;
     static std::uint8_t  g_PendingSupplyDropVariantIdx = 0;
     static std::uint16_t g_CrateDeliveredDevelopId     = 0;
@@ -89,7 +87,7 @@ namespace
         bool          suitAbilityOverride[kPlayerTypeMax]  = {};
         std::uint8_t  suitAbilityCamo[kPlayerTypeMax]      = {};
         bool          suitAbilitySilent[kPlayerTypeMax]    = {};
-        std::uint8_t  suitAbilitySprint[kPlayerTypeMax]    = {};
+        std::uint32_t suitAbilitySprint[kPlayerTypeMax]    = {};
         std::uint64_t suitAbilitySpark[kPlayerTypeMax]     = {};
         std::uint8_t  suitAbilityDefense[kPlayerTypeMax]   = {};
         std::uint8_t  suitAbilityRegen[kPlayerTypeMax]     = {};
@@ -549,7 +547,7 @@ namespace
         g_AbilityDefense[256][kPlayerTypeMax] = {};
     static std::atomic<std::uint8_t>
         g_AbilityRegen[256][kPlayerTypeMax] = {};
-    static std::atomic<std::uint8_t>
+    static std::atomic<std::uint32_t>
         g_AbilitySprint[256][kPlayerTypeMax] = {};
 
     static constexpr std::size_t kAbilityVariantSlots = 8;
@@ -557,7 +555,7 @@ namespace
         g_VarDefense[256][kPlayerTypeMax][kAbilityVariantSlots] = {};
     static std::atomic<std::uint8_t>
         g_VarRegen[256][kPlayerTypeMax][kAbilityVariantSlots] = {};
-    static std::atomic<std::uint8_t>
+    static std::atomic<std::uint32_t>
         g_VarSprint[256][kPlayerTypeMax][kAbilityVariantSlots] = {};
 
     static void PublishSuitParamDonors_NoLock(const OutfitEntry& e)
@@ -569,7 +567,7 @@ namespace
 
             const std::uint8_t def = pd ? pd->abilityDefense      : std::uint8_t{ 0 };
             const std::uint8_t reg = pd ? pd->abilityLifeRecovery : std::uint8_t{ 0 };
-            const std::uint8_t spr = pd ? pd->abilitySprint : outfit::kSprintNone;
+            const std::uint32_t spr = pd ? pd->abilitySprint : outfit::kSprintNone;
 
             if (e.selectorCode != 0)
             {
@@ -606,9 +604,8 @@ namespace
                 const std::uint8_t r =
                     own ? static_cast<std::uint8_t>(v->abilities.lifeRecovery + 1)
                         : std::uint8_t{ 0 };
-                const std::uint8_t s =
-                    own ? static_cast<std::uint8_t>(v->abilities.sprint + 1)
-                        : std::uint8_t{ 0 };
+                const std::uint32_t s =
+                    own ? (v->abilities.sprint | outfit::kSprintOwn) : 0u;
                 if (e.selectorCode != 0)
                 {
                     g_VarDefense[e.selectorCode][pt][vi].store(
@@ -627,7 +624,11 @@ namespace
                 }
             }
 
-            if (branchVars > kAbilityVariantSlots)
+            bool dropsAbilities = false;
+            for (std::uint8_t vi = static_cast<std::uint8_t>(kAbilityVariantSlots); vi < branchVars; ++vi)
+                if (const outfit::OutfitVariant* v = pd->Var(vi); v && v->abilities.declared)
+                    dropsAbilities = true;
+            if (dropsAbilities)
             {
                 static std::atomic<int> s_varCap{ 0 };
                 if (s_varCap.fetch_add(1, std::memory_order_relaxed) < 4)
@@ -1120,6 +1121,23 @@ namespace outfit
         return d->enableHead;
     }
 
+    bool OutfitEntry::GetEyeColor(std::uint8_t playerType, std::uint64_t& fv2, std::uint8_t& color) const
+    {
+        const auto* d = GetPTData(playerType);
+        if (!d) return false;
+        fv2 = d->eyeFv2;
+        color = d->eyeColor;
+        const std::uint8_t vi = GetActiveVariant(partsType);
+        if (const auto* v = (vi >= 1) ? d->Var(vi) : nullptr; v && v->used)
+        {
+            if (v->hasEyeFv2)
+                fv2 = v->eyeFv2;
+            if (v->hasEyeColor)
+                color = v->eyeColor;
+        }
+        return fv2 != 0 && color != kEyeColorOff;
+    }
+
     bool OutfitEntry::IsCamoCustom(std::uint8_t playerType) const
     {
         const auto* d = GetPTData(playerType);
@@ -1512,24 +1530,6 @@ namespace outfit
         return d ? d->variantCount : std::uint8_t{0};
     }
 
-    static std::unordered_map<std::uint16_t, std::uint8_t> g_VariantWindowStart;
-
-    std::uint8_t GetVariantWindowStart(std::uint16_t developId)
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        auto it = g_VariantWindowStart.find(developId);
-        return it != g_VariantWindowStart.end() ? it->second : std::uint8_t{0};
-    }
-
-    void SetVariantWindowStart(std::uint16_t developId, std::uint8_t start)
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        if (start == 0)
-            g_VariantWindowStart.erase(developId);
-        else
-            g_VariantWindowStart[developId] = start;
-    }
-
     std::uint8_t OutfitEntry::GetVariantSelectorCode(std::uint8_t variantIdx) const
     {
         if (variantIdx < kMaxVariantsPerOutfit)
@@ -1558,6 +1558,166 @@ namespace outfit
     {
         const auto* d = GetPTData(playerType);
         return (d && d->hasCamoBonusValues) ? d->camoBonusValues : nullptr;
+    }
+
+    const OutfitColorList* OutfitEntry::GetColors(std::uint8_t playerType,
+                                                  std::uint8_t variantIdx,
+                                                  std::size_t channel) const
+    {
+        if (channel >= kColorChannelCount) return nullptr;
+        const auto* d = GetPTData(playerType);
+        if (!d) return nullptr;
+        const auto* v = (variantIdx != 0 && variantIdx < d->variantCount)
+            ? d->Var(variantIdx) : nullptr;
+        if (v && v->used && v->colorsDeclared)
+            return &v->colors[channel];
+        return &d->colors[channel];
+    }
+
+    bool OutfitEntry::HasColors(std::uint8_t playerType, std::uint8_t variantIdx) const
+    {
+        for (std::size_t ch = 0; ch < kColorChannelCount; ++ch)
+            if (const auto* list = GetColors(playerType, variantIdx, ch); list && !list->empty())
+                return true;
+        return false;
+    }
+
+    static std::string SavedColorName(const char* key, std::uint8_t playerType,
+                                      std::size_t channel)
+    {
+        return std::string(key) + "/" + std::to_string(playerType) + "/"
+             + std::to_string(channel);
+    }
+
+    std::uint32_t GetSavedColor(const char* key, std::uint8_t playerType,
+                                std::size_t channel)
+    {
+        if (!key || !key[0] || channel >= kColorChannelCount) return 0;
+        const std::int32_t stored = V_FrameWorkState::GetPersistedConstant(
+            "OUTFITCOLOR", SavedColorName(key, playerType, channel).c_str());
+        return stored > 0 ? static_cast<std::uint32_t>(stored - 1) : 0u;   // stored one higher so an unset colour reads 0
+    }
+
+    static std::mutex g_PreviewColorLock;
+    static std::unordered_map<std::string, std::uint32_t> g_PreviewColors;
+
+    void SetSavedColor(const char* key, std::uint8_t playerType, std::size_t channel,
+                       std::uint32_t index)
+    {
+        if (!key || !key[0] || channel >= kColorChannelCount) return;
+        const std::string name = SavedColorName(key, playerType, channel);
+        {
+            std::lock_guard<std::mutex> lock(g_PreviewColorLock);
+            g_PreviewColors.erase(name);
+        }
+        V_FrameWorkState::SetPersistedConstant(
+            "OUTFITCOLOR", name.c_str(), static_cast<std::int32_t>(index + 1));
+    }
+
+    void SetPreviewColor(const char* key, std::uint8_t playerType, std::size_t channel,
+                         std::uint32_t index)
+    {
+        if (!key || !key[0] || channel >= kColorChannelCount) return;
+        std::lock_guard<std::mutex> lock(g_PreviewColorLock);
+        g_PreviewColors[SavedColorName(key, playerType, channel)] = index;
+    }
+
+    void ClearPreviewColors()
+    {
+        std::lock_guard<std::mutex> lock(g_PreviewColorLock);
+        g_PreviewColors.clear();
+    }
+
+    std::uint32_t GetEffectiveColor(const char* key, std::uint8_t playerType,
+                                    std::size_t channel)
+    {
+        if (!key || !key[0] || channel >= kColorChannelCount) return 0;
+        {
+            std::lock_guard<std::mutex> lock(g_PreviewColorLock);
+            if (!g_PreviewColors.empty())
+            {
+                const auto it = g_PreviewColors.find(SavedColorName(key, playerType, channel));
+                if (it != g_PreviewColors.end())
+                    return it->second;
+            }
+        }
+        return GetSavedColor(key, playerType, channel);
+    }
+
+    const OutfitColor* GetPackColor(const OutfitEntry& entry, std::uint8_t playerType,
+                                    std::uint8_t variantIdx)
+    {
+        for (std::size_t ch = 0; ch < kColorChannelCount; ++ch)
+        {
+            const OutfitColorList* list = entry.GetColors(playerType, variantIdx, ch);
+            if (!list || list->empty())
+                continue;
+            std::uint32_t index = GetEffectiveColor(entry.key, playerType, ch);
+            if (index >= list->size())
+                index = 0;
+            if ((*list)[index].fpkCode != 0)
+                return &(*list)[index];
+        }
+        return nullptr;
+    }
+
+    static std::atomic<bool> g_ColorReapplyArmed{ false };
+    static std::atomic<bool> g_ColorReapplyWaitLoad{ false };
+    static std::atomic<int>  g_ColorReapplyWaitTicks{ 0 };
+    static std::atomic<bool> g_ColorReapplyReady{ false };
+    static std::atomic<std::uint32_t> g_ColorReapplyGeneration{ 0 };
+
+    static void ArmColorReapply(bool afterLoad)
+    {
+        g_ColorReapplyWaitLoad.store(afterLoad, std::memory_order_relaxed);
+        g_ColorReapplyWaitTicks.store(0, std::memory_order_relaxed);
+        g_ColorReapplyArmed.store(true, std::memory_order_release);
+    }
+
+    void RequestColorReapply(bool afterLoad)
+    {
+        g_ColorReapplyGeneration.fetch_add(1, std::memory_order_relaxed);
+        ArmColorReapply(afterLoad);
+    }
+
+    void RequestColorRetry()
+    {
+        ArmColorReapply(false);
+    }
+
+    std::uint32_t GetColorReapplyGeneration()
+    {
+        return g_ColorReapplyGeneration.load(std::memory_order_relaxed);
+    }
+
+    void NoteColorPipeline(bool busy, bool settled)
+    {
+        constexpr int kLoadStartTicks = 30;
+        if (!g_ColorReapplyArmed.load(std::memory_order_acquire))
+            return;
+        if (g_ColorReapplyWaitLoad.load(std::memory_order_relaxed))
+        {
+            if (!busy
+                && g_ColorReapplyWaitTicks.fetch_add(1, std::memory_order_relaxed) + 1
+                       < kLoadStartTicks)   // a load that never starts means the parts were already loaded
+                return;
+            g_ColorReapplyWaitLoad.store(false, std::memory_order_relaxed);
+            return;
+        }
+        if (!settled)
+            return;
+        g_ColorReapplyArmed.store(false, std::memory_order_relaxed);
+        g_ColorReapplyReady.store(true, std::memory_order_release);
+    }
+
+    bool IsColorReapplyReady()
+    {
+        return g_ColorReapplyReady.load(std::memory_order_acquire);
+    }
+
+    bool ConsumeColorReapply()
+    {
+        return g_ColorReapplyReady.exchange(false, std::memory_order_acq_rel);
     }
 
 
@@ -1953,30 +2113,6 @@ namespace outfit
         return true;
     }
 
-    void ClearAllOutfits()
-    {
-        {
-            std::lock_guard<std::mutex> lock(g_Mutex);
-            g_Entries.clear();
-            for (auto& v : g_ActiveVariant)  v = 0;
-            g_VanillaExts.clear();
-            g_PendingSummaryDisplay.clear();
-            g_PendingDevelopId            = 0;
-            g_PendingHeadOptionEquipId    = 0;
-            g_WornCustomHeadSlot          = 0;
-            g_SupplyDropClickLatch        = false;
-            g_PendingSupplyDropDevelopId  = 0;
-            g_PendingSupplyDropVariantIdx = 0;
-            g_CrateDeliveredDevelopId     = 0;
-            g_CrateDeliveredVariantIdx    = 0;
-            g_AppliedThisSession.clear();
-            g_OrderedThisSession.clear();
-            g_MenuStampSet.clear();
-        }
-        outfit::shadow::ResetAll("ClearAllOutfits");
-        outfit::shadow::ResetArmTierCache();
-    }
-
     bool TryGetOutfitByKey(const char* key, const OutfitEntry** outEntry)
     {
         if (!key || !key[0]) return false;
@@ -2123,17 +2259,17 @@ namespace outfit
         if (r != 0 && outRecovery) *outRecovery = static_cast<std::uint8_t>(r - 1);
     }
 
-    std::uint8_t GetSprintForVariantLockFree(std::uint8_t selectorCode,
-                                             std::uint8_t playerType,
-                                             std::uint8_t variantIdx)
+    std::uint32_t GetSprintForVariantLockFree(std::uint8_t selectorCode,
+                                              std::uint8_t playerType,
+                                              std::uint8_t variantIdx)
     {
         if (playerType >= kPlayerTypeMax) return kSprintNone;
         if (variantIdx < kAbilityVariantSlots)
         {
-            const std::uint8_t s =
+            const std::uint32_t s =
                 g_VarSprint[selectorCode][playerType][variantIdx].load(
                     std::memory_order_relaxed);
-            if (s != 0) return static_cast<std::uint8_t>(s - 1);
+            if (s != 0) return s & ~kSprintOwn;
         }
         return g_AbilitySprint[selectorCode][playerType].load(
             std::memory_order_relaxed);
@@ -2257,29 +2393,6 @@ namespace outfit
         return false;
     }
 
-    bool ReleaseOutfitLiveBytesIfIdle(std::uint16_t developId)
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        std::vector<bool> pinned;
-        bool scanAvailable = false;
-        ComputePins_NoLock(pinned, scanAvailable, kPinCore);
-
-        std::size_t idx = 0;
-        for (auto& e : g_Entries)
-        {
-            if (e.used && e.developId == developId)
-            {
-                if (!e.bound) return false;
-                if (scanAvailable && idx < pinned.size() && pinned[idx])
-                    return false;
-                UnbindOutfit_NoLock(e);
-                return true;
-            }
-            ++idx;
-        }
-        return false;
-    }
-
     bool IsOutfitBound(std::uint16_t developId)
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
@@ -2287,30 +2400,6 @@ namespace outfit
             if (e.used && e.developId == developId)
                 return e.bound;
         return false;
-    }
-
-    bool CollectOutfitResidencyPins(
-        std::unordered_set<std::uint32_t>& allDevelopIds,
-        std::unordered_set<std::uint32_t>& livePinnedDevelopIds)
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        std::vector<bool> pinned;
-        bool scanAvailable = false;
-        ComputePins_NoLock(pinned, scanAvailable, kPinAppliedOrdered);
-
-        std::size_t idx = 0;
-        for (const auto& e : g_Entries)
-        {
-            if (e.used && e.developId != 0)
-            {
-                allDevelopIds.insert(e.developId);
-                if (!scanAvailable
-                    || (idx < pinned.size() && pinned[idx]))
-                    livePinnedDevelopIds.insert(e.developId);
-            }
-            ++idx;
-        }
-        return scanAvailable;
     }
 
     void NoteOutfitApplied(std::uint16_t developId)
@@ -2530,22 +2619,6 @@ namespace outfit
             if (e.used) outEntries[count++] = &e;
         }
         return count;
-    }
-
-    namespace
-    {
-        std::atomic<bool> g_BootRestoreScrubArmed{ true };
-    }
-
-    bool BootRestoreScrubActive()
-    {
-        return g_BootRestoreScrubArmed.load(std::memory_order_relaxed);
-    }
-
-    void EndBootRestoreScrub(const char* reason)
-    {
-        bool expected = true;
-        g_BootRestoreScrubArmed.compare_exchange_strong(expected, false);
     }
 
     std::uint8_t ReadLivePartsType()
@@ -3522,7 +3595,7 @@ namespace outfit
                 branch ? x->suitAbilityDefense[pt] : std::uint8_t{0};
             const std::uint8_t reg  =
                 branch ? x->suitAbilityRegen[pt] : std::uint8_t{0};
-            const std::uint8_t spr  =
+            const std::uint32_t spr =
                 branch ? x->suitAbilitySprint[pt] : kSprintNone;
             for (std::uint8_t s = 0; s < x->variantSelectorCount
                  && s < kMaxVanillaExtVariants; ++s)
@@ -3787,20 +3860,6 @@ namespace outfit
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_WornCustomHeadSlot = 0;
-    }
-
-    void SetSupplyDropClickLatch()
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        g_SupplyDropClickLatch = true;
-    }
-
-    bool ConsumeSupplyDropClickLatch()
-    {
-        std::lock_guard<std::mutex> lock(g_Mutex);
-        const bool was = g_SupplyDropClickLatch;
-        g_SupplyDropClickLatch = false;
-        return was;
     }
 
     void SetPendingSupplyDropDevelopId(std::uint16_t developId)

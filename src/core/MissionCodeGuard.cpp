@@ -12,7 +12,7 @@ namespace
     using GetCurrentMissionCode_t = std::uint16_t(__fastcall*)();
     using GetQuarkSystemTable_t   = std::uint8_t*(__fastcall*)();
 
-    constexpr std::size_t kQuarkTableScriptVars = 0x98;   // the game's getter reads table+0x98 -> +0x10 -> vars.missionCode
+    constexpr std::size_t kQuarkTableScriptVars = 0x98;   // table+0x98 -> +0x10 -> vars.missionCode
     constexpr std::size_t kScriptVarsPtr        = 0x10;
 
     static GetCurrentMissionCode_t g_GetCurrentMissionCode = nullptr;

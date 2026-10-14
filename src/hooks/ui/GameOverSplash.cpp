@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "GameOverSplash.h"
 
+#include <atomic>
 #include <cstdint>
 
 #include "HookUtils.h"
@@ -17,7 +18,11 @@ namespace
     constexpr uint64_t SLOT_MAIN_TEXTURE = 0x3bbf9889ull;
     constexpr uint64_t SLOT_BLUR_LAYER   = 0x8d982b8eull;
 
+    constexpr uintptr_t EVENT_MAIN_LAYOUT = 0x238;   // MainLayout::SetVisible gets GameOverEvCall + 0x238
+
     GameOverSetVisible_t g_OrigGameOverSetVisible = nullptr;
+    std::atomic<void*>   g_GameOverEvent{ nullptr };   // read by V_TppUiCommand.GetGameOverInfo on the Lua thread
+    std::atomic<void*>   g_GameOverEventVtable{ nullptr };   // its vtable when seen: the event is made anew each mission
     SetTextureName_t     g_SetTextureName = nullptr;
 
     MissionTextureTable g_MainTextures;
@@ -34,6 +39,12 @@ namespace
 
     void __fastcall hkGameOverSetVisible(uint64_t* layout, char visible)
     {
+        if (layout)
+        {
+            char* event = reinterpret_cast<char*>(layout) - EVENT_MAIN_LAYOUT;
+            g_GameOverEventVtable.store(*reinterpret_cast<void**>(event), std::memory_order_release);
+            g_GameOverEvent.store(event, std::memory_order_release);
+        }
         if (MissionCodeGuard::ShouldBypassHooks())
         {
             g_OrigGameOverSetVisible(layout, visible);
@@ -97,6 +108,14 @@ void GameOverSplash_ClearTextures(uint32_t missionCode)
 {
     g_MainTextures.Clear(missionCode);
     g_BlurTextures.Clear(missionCode);
+}
+
+void* GameOverSplash_GameOverEvent(void** vtable)
+{
+    void* event = g_GameOverEvent.load(std::memory_order_acquire);
+    if (vtable)
+        *vtable = g_GameOverEventVtable.load(std::memory_order_acquire);
+    return event;
 }
 
 

@@ -537,7 +537,7 @@ namespace
     {
         bool         ok      = false;
         bool         silent  = false;
-        std::uint8_t sprint  = outfit::kSprintNone;
+        std::uint32_t sprint = outfit::kSprintNone;
         std::uint64_t spark  = 0;
         std::uint8_t defense = 0;
         std::uint8_t regen   = 0;
@@ -1355,13 +1355,13 @@ namespace
         g_QuietStepPatched.store(on, std::memory_order_relaxed);
     }
 
-    static std::atomic<std::uint8_t>  g_SprintLive{ outfit::kSprintNone };
+    static std::atomic<std::uint32_t> g_SprintLive{ outfit::kSprintNone };
     static std::atomic<std::uint64_t> g_SprintSparkLive{ 0 };
 
     static void SyncQuietStepPatch()
     {
         bool          want   = false;
-        std::uint8_t  sprint = outfit::kSprintNone;
+        std::uint32_t sprint = outfit::kSprintNone;
         std::uint64_t spark  = 0;
         if (!MissionCodeGuard::ShouldBypassHooks())
         {
@@ -1437,7 +1437,7 @@ namespace outfit
         g_AwaitingSettle.store(false, std::memory_order_relaxed);
     }
 
-    std::uint8_t SprintLive()
+    std::uint32_t SprintLive()
     {
         return g_SprintLive.load(std::memory_order_relaxed);
     }

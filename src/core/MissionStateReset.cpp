@@ -9,6 +9,7 @@
 #include "../hooks/player/QuietCqcPatches.h"
 #include "../hooks/player/Player2Impl_UpdateVoiceType.h"
 #include "../hooks/player/AccSeatIdleMotion.h"
+#include "../hooks/player/AttackActionImpl_SetEquipMotion.h"
 #include "../hooks/outfit/UniqueCharacterSuitSlot.h"
 #include "log.h"
 #include "DeployGuard.h"
@@ -16,16 +17,23 @@
 #include "../lua/LuaApi.h"
 
 #include "../hooks/bullet/Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
+#include "../hooks/heli/FieldTaxiMenu.h"
 #include "../hooks/outfit/AdditionalMotionTable_GetMtarPathId.h"
+#include "../hooks/outfit/OutfitRegistry.h"
+#include "../hooks/outfit/OutfitPalette.h"
+#include "../hooks/ui/UiPadLock.h"
 #include "../hooks/menupopup/MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter.h"
 #include "../hooks/outfit/OutfitAbilities.h"
 #include "../hooks/player/CallMenuCommandSet_UpdateState.h"
+#include "../hooks/equip/RankLimitedItems.h"
 #include "../hooks/soldier/NoticeControllerImpl_CheckForceNotice.h"
 #include "../hooks/player/CqcActionPluginImpl_StateHoldMove.h"
 #include "../hooks/sahelan/RealizedSahelanFovaHook.h"
 #include "../hooks/sahelan/SetEyeLampColorHook.h"
 #include "../hooks/soldier/ActionCoreImpl_UpdateOptCamo.h"
 #include "../hooks/soldier/CautionStepNormalTimerHook.h"
+#include "../hooks/soldier/FakeSurrender.h"
+#include "../hooks/soldier/Soldier2Impl_ProcessSignal.h"
 #include "../hooks/soldier/GetVoiceParamWithCallSign.h"
 #include "../hooks/soldier/InterrogationVoiceEvent.h"
 #include "../hooks/soldier/LostHostageHook.h"
@@ -69,8 +77,11 @@ namespace
         Clear_HeartLightColor();
         Clear_InterrogationVoiceEvents();
         CallMenuItems::ClearForNewMission();
+        RankLimitedItems::ClearForNewMission();
         CpRadioResponse::Clear();
         SoldierNotice::ClearPending();
+        FakeSurrender::Clear();
+        CallComrade::ClearForNewMission();
         ClearOccasionalChatListOverride();
         Clear_VIPSleepFaintImportantGameObjectIds();
         Clear_VIPHoldupImportantGameObjectIds();
@@ -85,8 +96,13 @@ namespace
         Clear_AllMissionDeployWarnings();
         Set_FriendlyFire(false);
         outfit::RevertAdditionalMotionSwaps();
+        outfit::ClearPreviewColors();
+        outfit::ResetOutfitPaletteForMission();
+        uipad::ReleaseOwnDisableRequests();
         RestoreAllGani();
         Reset_PlayerVoiceLiveSlot();
+        FieldTaxi_ResetTaxiState();
+        PlayerAttackAction_Forget();
 
         V_FrameWork::EmitMessage("Mission", "MissionStateReset", code);
     }

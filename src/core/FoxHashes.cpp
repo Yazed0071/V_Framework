@@ -5,7 +5,9 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -164,5 +166,21 @@ namespace FoxHashes
         std::string temp(text);
         std::replace(temp.begin(), temp.end(), '\\', '/');
         return g_PathHashCode(&temp[0]);
+    }
+
+    uint64_t ClipPathId(const std::string& text)
+    {
+        constexpr uint64_t kGaniExtCode = 0x1F8Aull << 51;
+
+        const std::size_t start = (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) ? 2 : 0;
+        const std::size_t digits = text.size() - start;
+        const bool idLength = digits == 16 || (digits >= 8 && digits <= 13);
+        const bool allHex = std::all_of(text.begin() + start, text.end(),
+            [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
+        if (!idLength || !allHex)
+            return PathCode64Ext(text);
+
+        const uint64_t value = std::strtoull(text.c_str() + start, nullptr, 16);
+        return digits == 16 ? value : (kGaniExtCode | value);
     }
 }

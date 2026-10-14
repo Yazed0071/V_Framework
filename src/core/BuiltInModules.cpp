@@ -15,6 +15,46 @@
 #include "../hooks/equip/PartIdWiden.h"
 #include "../hooks/collection/TppCollectionRuntime.h"
 #include "../hooks/deploy/DeployMissionHooks.h"
+#include "../hooks/buddy/Buddy2BlockControllerImpl_GetPathAtBuddyType.h"
+#include "../hooks/buddy/Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock.h"
+#include "../hooks/buddy/Buddy2BlockControllerImpl_GetBuddyQuietFovaFile.h"
+#include "../hooks/buddy/EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex.h"
+#include "../hooks/buddy/BuddyServiceImpl_ChangeQuietCostume.h"
+#include "../hooks/buddy/BuddyServiceImpl_ChangeQuietWeaponType.h"
+#include "../hooks/buddy/BuddyServiceImpl_ChangeHorseSettings.h"
+#include "../hooks/buddy/BuddyServiceImpl_ChangeDogSettings.h"
+#include "../hooks/buddy/BuddyServiceImpl_GetQuietEquipIdByWeaponType.h"
+#include "../hooks/buddy/BuddyQuiet2Impl_SetBruise.h"
+#include "../hooks/buddy/DamageAiImpl_StepBitDamage.h"
+#include "../hooks/buddy/ItemSelectorCallbackImpl_SetupPrefabListElement.h"
+#include "../hooks/buddy/CombatAiImpl_SendFireSignal.h"
+#include "../hooks/buddy/EquipControllerImpl_InitCurrentSlot.h"
+#include "../hooks/buddy/ActionCoreImpl_ExecDefenseCallback.h"
+#include "../hooks/buddy/BasicAction2Impl_Execute.h"
+#include "../hooks/buddy/BuddyDogDamageHandlerImpl_ProcessDamages.h"
+#include "../hooks/buddy/BuddyServiceImpl_InitBuddyCommandForStatus.h"
+#include "../hooks/buddy/BuddyDog2Impl_Initialize.h"
+#include "../hooks/equip/SimplePartsEffectControllerImpl_CreateEffectImpl.h"
+#include "../hooks/equip/EquipIdTableImpl_GetSupportWeaponTypeId.h"
+#include "../hooks/equip/EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.h"
+#include "../hooks/equip/ThrowingImpl_GetBlastParamByEquipId.h"
+#include "../hooks/equip/ThrowingImpl_UpdateAction.h"
+#include "../hooks/equip/ThrowingImpl_UpdateStatus.h"
+#include "../hooks/equip/ThrowingImpl_AddReboundNoise.h"
+#include "../hooks/equip/ThrowingImpl_ActivateThrowingAtEmptyWork.h"
+#include "../hooks/equip/ThrowingImpl_UpdateDeactivation.h"
+#include "../hooks/equip/ThrowingSystemImpl_ExecuteSerially.h"
+#include "../hooks/equip/EquipDevelopControllerImpl_GetDamageType.h"
+#include "../hooks/equip/EquipControllerImpl_InitializePlayerAtIndex.h"
+#include "../hooks/equip/LoadoutManagerImpl_RestoreLoadoutInfosFromVars.h"
+#include "../hooks/equip/PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon.h"
+#include "../hooks/equip/PlacedSystemImpl_CreateByLocators.h"
+#include "../hooks/equip/PlacedSystemImpl_RestorationPlace.h"
+#include "../hooks/equip/SupplyCboxGameObjectImpl_RestoreRequestFromSVars.h"
+#include "../hooks/equip/Player2UtilityImpl_GetPickableInfosOfAmmoBox.h"
+#include "../hooks/equip/EquipParameterTablesImpl_GetSupportWeaponParameterBlock.h"
+#include "../hooks/equip/EquipDevelopControllerImpl_GetDamageAmountRatio.h"
+#include "../hooks/equip/SupportStockLease.h"
 #include "FeatureModule.h"
 #include "HookUtils.h"
 #include "log.h"
@@ -136,6 +176,13 @@ bool Uninstall_SetLuaFunctions_Hook();
 bool Install_EquipBgTexture_Hook();
 bool Uninstall_EquipBgTexture_Hook();
 
+bool Install_UixUtilityControl_Hook();
+bool Uninstall_UixUtilityControl_Hook();
+bool Install_FontData_SearchGlyphData_Hook();
+void Uninstall_FontData_SearchGlyphData_Hook();
+bool Install_GameObjectLife_Hooks();
+bool Uninstall_GameObjectLife_Hooks();
+
 bool Install_MissionTelopBgTexture_Hook();
 bool Uninstall_MissionTelopBgTexture_Hook();
 
@@ -255,6 +302,11 @@ bool Uninstall_SoldierVoiceTypeQuery_Hook();
 bool Install_VoicePitchOverride_Hook();
 bool Uninstall_VoicePitchOverride_Hook();
 
+bool Install_CAkParameterNodeBase_SetInitialRTPC_Hook();
+bool Uninstall_CAkParameterNodeBase_SetInitialRTPC_Hook();
+bool Install_KeySettingEvCall_SetKeySettingMenu_Hooks();
+bool Uninstall_KeySettingEvCall_SetKeySettingMenu_Hooks();
+
 bool Install_SetEyeLampColor_Hook();
 bool Uninstall_SetEyeLampColor_Hook();
 
@@ -300,6 +352,16 @@ bool Uninstall_OccasionalChatList_Hook();
 
 bool Install_SoldierNotice_Hooks();
 bool Uninstall_SoldierNotice_Hooks();
+bool Install_IdleActingActionImpl_CallVoice_Hook();
+bool Uninstall_IdleActingActionImpl_CallVoice_Hook();
+bool Install_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook();
+bool Uninstall_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook();
+bool Install_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook();
+bool Uninstall_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook();
+bool Install_RadioActionImpl_State_RadioChaffEnd_Hook();
+bool Uninstall_RadioActionImpl_State_RadioChaffEnd_Hook();
+bool Install_CpRadioVariants_Hooks();
+bool Uninstall_CpRadioVariants_Hooks();
 bool Install_AnimalNotice_Hooks();
 bool Uninstall_AnimalNotice_Hooks();
 
@@ -308,6 +370,18 @@ bool AccSeatIdleMotion_Install();
 void AccSeatIdleMotion_Uninstall();
 bool Install_CureActionPluginImpl_StateCure_Hook();
 void Uninstall_CureActionPluginImpl_StateCure_Hook();
+bool Install_AnimControl_GetAnimFileFromGaniPath_Hook();
+bool Uninstall_AnimControl_GetAnimFileFromGaniPath_Hook();
+bool Install_AnimFile_GetEventData_Hook();
+bool Uninstall_AnimFile_GetEventData_Hook();
+bool Install_EventCallback_ExecCallback_Hook();
+bool Uninstall_EventCallback_ExecCallback_Hook();
+bool Install_AttackActionImpl_SetEquipMotion_Hook();
+bool Uninstall_AttackActionImpl_SetEquipMotion_Hook();
+bool Install_RealizedEquipObjectImpl_MotionEventCallbackImpl_Hook();
+bool Uninstall_RealizedEquipObjectImpl_MotionEventCallbackImpl_Hook();
+bool Install_AttackActionImpl_MotionEventCallback_Hook();
+bool Uninstall_AttackActionImpl_MotionEventCallback_Hook();
 bool Install_CoreAiImpl_SetSpecialActionParam_Hook();
 bool Uninstall_CoreAiImpl_SetSpecialActionParam_Hook();
 bool Install_SpecialActionImpl_State_SpecialIdle_Hook();
@@ -349,10 +423,16 @@ bool Install_ActionController_SetCommand_Hook();
 void Uninstall_ActionController_SetCommand_Hook();
 bool Install_NoticeNoiseAiImpl_StepMovePause_Hook();
 void Uninstall_NoticeNoiseAiImpl_StepMovePause_Hook();
+bool Install_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();
+void Uninstall_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();
+bool Install_NoticeNoiseAiImpl_StepWaitReach_Hook();
+void Uninstall_NoticeNoiseAiImpl_StepWaitReach_Hook();
 bool Install_CallMenuImpl_UpdateOption_Hook();
 void Uninstall_CallMenuImpl_UpdateOption_Hook();
 bool Install_CallMenuImpl_UpdateSelectDoc_Hook();
 void Uninstall_CallMenuImpl_UpdateSelectDoc_Hook();
+bool Install_CallMenuImpl_UpdateCallMenu_Hook();
+void Uninstall_CallMenuImpl_UpdateCallMenu_Hook();
 bool Install_CallMenuManagerImpl_ShowCallMenu_Hook();
 void Uninstall_CallMenuManagerImpl_ShowCallMenu_Hook();
 bool Install_RadioControllerImpl_StepRadioWaitResponse_Hooks();
@@ -382,6 +462,28 @@ bool LaserSight_UpdatePrim_Install();
 void LaserSight_UpdatePrim_Uninstall();
 bool Install_Loadout_SynchronizeLoadout();
 void Uninstall_Loadout_SynchronizeLoadout();
+bool Install_EquipSystemImpl_SetUpEquip();
+void Uninstall_EquipSystemImpl_SetUpEquip();
+bool Install_EquipControllerImpl_SetEquipState();
+void Uninstall_EquipControllerImpl_SetEquipState();
+bool Install_EquipControllerImpl_ChangeEquip();
+void Uninstall_EquipControllerImpl_ChangeEquip();
+bool Install_PickableSystemImpl_CreateInstanceFromVars();
+void Uninstall_PickableSystemImpl_CreateInstanceFromVars();
+bool Install_PickUpActionPluginImpl_DoPickUpWithPickableInfo();
+void Uninstall_PickUpActionPluginImpl_DoPickUpWithPickableInfo();
+bool Install_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex();
+void Uninstall_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex();
+bool Install_CmdSyncMotherBaseOption_Pack();
+void Uninstall_CmdSyncMotherBaseOption_Pack();
+bool Install_CmdSyncSoldierBinOption_Pack();
+void Uninstall_CmdSyncSoldierBinOption_Pack();
+bool Install_CmdSyncSoldierDiffOption_Pack();
+void Uninstall_CmdSyncSoldierDiffOption_Pack();
+bool Install_CmdCheckServerItemCorrect_Pack();
+void Uninstall_CmdCheckServerItemCorrect_Pack();
+bool Install_SyncSoldierBinReceive_Success();
+void Uninstall_SyncSoldierBinReceive_Success();
 bool Install_LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars();
 void Uninstall_LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars();
 bool PartMotionRows_Install();
@@ -459,6 +561,8 @@ namespace outfit
     void Uninstall_OutfitListInject_Hook();
     bool Install_DevelopWeaponList_Hook();
     void Uninstall_DevelopWeaponList_Hook();
+    bool Install_OutfitPalette();
+    void Uninstall_OutfitPalette();
     bool Install_OutfitHeadOption_Hook();
     void Uninstall_OutfitHeadOption_Hook();
     bool Install_OutfitCamoBonus_Hook();
@@ -486,6 +590,7 @@ namespace EquipDevelopAdd
     bool Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
 }
 void EquipDevelop_InstallDevelopSyncHooks();
+void EquipDevelop_ReleaseDevelopTimerHook();
 void EquipDevelop_ReleaseSetEquipNewGuard();
 namespace equip
 {
@@ -591,6 +696,102 @@ namespace
         }
     };
 
+    class WideEquipAliasGatesModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "WideEquipAliasGates";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            const bool setUpEquip    = Install_EquipSystemImpl_SetUpEquip();
+            const bool equipState    = Install_EquipControllerImpl_SetEquipState();
+            const bool droppedFromVars = Install_PickableSystemImpl_CreateInstanceFromVars();
+            const bool pickUp        = Install_PickUpActionPluginImpl_DoPickUpWithPickableInfo();
+            const bool developRows   = Install_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex();
+            const bool changeEquip   = Install_EquipControllerImpl_ChangeEquip();
+            return setUpEquip && equipState && droppedFromVars && pickUp && developRows && changeEquip;
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_EquipControllerImpl_ChangeEquip();
+            Uninstall_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex();
+            Uninstall_PickUpActionPluginImpl_DoPickUpWithPickableInfo();
+            Uninstall_PickableSystemImpl_CreateInstanceFromVars();
+            Uninstall_EquipControllerImpl_SetEquipState();
+            Uninstall_EquipSystemImpl_SetUpEquip();
+        }
+    };
+
+    class MotherBaseSyncGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "MotherBaseSyncGuard";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CmdSyncMotherBaseOption_Pack();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CmdSyncMotherBaseOption_Pack();
+        }
+    };
+
+    class StaffSyncGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "StaffSyncGuard";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            const bool echo = Install_SyncSoldierBinReceive_Success();
+            const bool bin = echo && Install_CmdSyncSoldierBinOption_Pack();   // without the echo fix the reply would delete custom staff
+            const bool diff = Install_CmdSyncSoldierDiffOption_Pack();
+            return echo && bin && diff;
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CmdSyncSoldierBinOption_Pack();
+            Uninstall_CmdSyncSoldierDiffOption_Pack();
+            Uninstall_SyncSoldierBinReceive_Success();
+        }
+    };
+
+    class ItemCheckGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ItemCheckGuard";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_CmdCheckServerItemCorrect_Pack();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_CmdCheckServerItemCorrect_Pack();
+        }
+    };
+
     class LoadoutItemLevelGuardModule final : public IFeatureModule
     {
     public:
@@ -651,6 +852,65 @@ namespace
         }
     };
 
+    class SupportWeaponModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "SupportWeapon";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            bool ok = Install_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl_Hook();
+            ok = Install_EquipIdTableImpl_GetSupportWeaponTypeId_Hook() && ok;
+            ok = Install_ThrowingImpl_GetBlastParamByEquipId_Hook() && ok;
+            ok = Install_ThrowingImpl_UpdateAction_Hooks() && ok;
+            ok = Install_ThrowingImpl_UpdateStatus_Hook() && ok;
+            ok = Install_ThrowingImpl_AddReboundNoise_Hook() && ok;
+            ok = Install_ThrowingImpl_ActivateThrowingAtEmptyWork_Hook() && ok;
+            ok = Install_ThrowingImpl_UpdateDeactivation_Hook() && ok;
+            ok = Install_ThrowingSystemImpl_ExecuteSerially_Hook() && ok;
+            ok = Install_EquipDevelopControllerImpl_GetDamageType_Hook() && ok;
+            ok = Install_EquipControllerImpl_InitializePlayerAtIndex_Hook() && ok;
+            ok = Install_LoadoutManagerImpl_RestoreLoadoutInfosFromVars_Hooks() && ok;
+            ok = Install_PlacedSystemImpl_RestorationPlace_Hook() && ok;
+            ok = Install_PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon_Hook() && ok;
+            ok = Install_PlacedSystemImpl_CreateByLocators_Hook() && ok;
+            ok = Install_SupplyCboxGameObjectImpl_RestoreRequestFromSVars_Hook() && ok;
+            ok = Install_Player2UtilityImpl_GetPickableInfosOfAmmoBox_Hook() && ok;
+            ok = Install_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook() && ok;
+            ok = Install_EquipDevelopControllerImpl_GetDamageAmountRatio_Hook() && ok;
+            ok = SupportStockLease::Install() && ok;
+            return ok;
+        }
+
+        void Uninstall() override
+        {
+            SupportStockLease::Uninstall();
+            Uninstall_EquipDevelopControllerImpl_GetDamageAmountRatio_Hook();
+            Uninstall_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+            Uninstall_Player2UtilityImpl_GetPickableInfosOfAmmoBox_Hook();
+            Uninstall_SupplyCboxGameObjectImpl_RestoreRequestFromSVars_Hook();
+            Uninstall_PlacedSystemImpl_CreateByLocators_Hook();
+            Uninstall_PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon_Hook();
+            Uninstall_PlacedSystemImpl_RestorationPlace_Hook();
+            Uninstall_LoadoutManagerImpl_RestoreLoadoutInfosFromVars_Hooks();
+            Uninstall_EquipControllerImpl_InitializePlayerAtIndex_Hook();
+            Uninstall_EquipDevelopControllerImpl_GetDamageType_Hook();
+            Uninstall_ThrowingSystemImpl_ExecuteSerially_Hook();
+            Uninstall_ThrowingImpl_UpdateDeactivation_Hook();
+            Uninstall_ThrowingImpl_ActivateThrowingAtEmptyWork_Hook();
+            Uninstall_ThrowingImpl_AddReboundNoise_Hook();
+            Uninstall_ThrowingImpl_UpdateStatus_Hook();
+            Uninstall_ThrowingImpl_UpdateAction_Hooks();
+            Uninstall_ThrowingImpl_GetBlastParamByEquipId_Hook();
+            Uninstall_EquipIdTableImpl_GetSupportWeaponTypeId_Hook();
+            Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl_Hook();
+        }
+    };
+
     class ShellActivateGuardModule final : public IFeatureModule
     {
     public:
@@ -708,6 +968,66 @@ namespace
         void Uninstall() override
         {
             Uninstall_EquipBgTexture_Hook();
+        }
+    };
+
+    class UixUtilityControlModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "UixUtilityControl";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_UixUtilityControl_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_UixUtilityControl_Hook();
+        }
+    };
+
+    class FontGlyphGuardModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "FontGlyphGuard";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_FontData_SearchGlyphData_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_FontData_SearchGlyphData_Hook();
+        }
+    };
+
+    class GameObjectLifeModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "GameObjectLife";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_GameObjectLife_Hooks();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_GameObjectLife_Hooks();
         }
     };
 
@@ -907,6 +1227,55 @@ namespace
         void Uninstall() override
         {
             Uninstall_CureActionPluginImpl_StateCure_Hook();
+        }
+    };
+
+    class FrameWorkMotionArchiveModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "FrameWorkMotionArchive";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            return Install_AnimControl_GetAnimFileFromGaniPath_Hook();
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_AnimControl_GetAnimFileFromGaniPath_Hook();
+        }
+    };
+
+    class ClipEventsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "ClipEvents";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            Install_AnimFile_GetEventData_Hook();
+            Install_EventCallback_ExecCallback_Hook();
+            Install_AttackActionImpl_SetEquipMotion_Hook();
+            Install_RealizedEquipObjectImpl_MotionEventCallbackImpl_Hook();
+            Install_AttackActionImpl_MotionEventCallback_Hook();
+            return true;
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_AttackActionImpl_MotionEventCallback_Hook();
+            Uninstall_RealizedEquipObjectImpl_MotionEventCallbackImpl_Hook();
+            Uninstall_AttackActionImpl_SetEquipMotion_Hook();
+            Uninstall_EventCallback_ExecCallback_Hook();
+            Uninstall_AnimFile_GetEventData_Hook();
         }
     };
 
@@ -1542,6 +1911,32 @@ namespace
         }
     };
 
+    class AudioVolumeOptionsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override
+        {
+            return "AudioVolumeOptions";
+        }
+
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            if (!Install_CAkParameterNodeBase_SetInitialRTPC_Hook())
+                return false;
+            if (Install_KeySettingEvCall_SetKeySettingMenu_Hooks())
+                return true;
+            Uninstall_CAkParameterNodeBase_SetInitialRTPC_Hook();
+            return false;
+        }
+
+        void Uninstall() override
+        {
+            Uninstall_KeySettingEvCall_SetKeySettingMenu_Hooks();
+            Uninstall_CAkParameterNodeBase_SetInitialRTPC_Hook();
+        }
+    };
+
     class SoldierAkObjIdMapModule final : public IFeatureModule
     {
     public:
@@ -1997,12 +2392,106 @@ namespace
         void Uninstall() override { Uninstall_SoldierNotice_Hooks(); }
     };
 
+    class IdleActingVoiceModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "IdleActingVoice"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_IdleActingActionImpl_CallVoice_Hook(); }
+        void Uninstall() override { Uninstall_IdleActingActionImpl_CallVoice_Hook(); }
+    };
+
+    class SoldierVoiceSwapModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "SoldierVoiceSwap"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook(); }
+        void Uninstall() override { Uninstall_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook(); }
+    };
+
+    class SoldierCombatVoiceModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "SoldierCombatVoice"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook(); }
+        void Uninstall() override { Uninstall_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook(); }
+    };
+
+    class ChaffRadioVoiceModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "ChaffRadioVoice"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_RadioActionImpl_State_RadioChaffEnd_Hook(); }
+        void Uninstall() override { Uninstall_RadioActionImpl_State_RadioChaffEnd_Hook(); }
+    };
+
+    class CpRadioVariantsModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "CpRadioVariants"; }
+        bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_CpRadioVariants_Hooks(); }
+        void Uninstall() override { Uninstall_CpRadioVariants_Hooks(); }
+    };
+
     class AnimalNoticeModule final : public IFeatureModule
     {
     public:
         const char* GetName() const override { return "AnimalNotice"; }
         bool Install(HMODULE hGame) override { UNREFERENCED_PARAMETER(hGame); return Install_AnimalNotice_Hooks(); }
         void Uninstall() override { Uninstall_AnimalNotice_Hooks(); }
+    };
+
+    class BuddyOutfitModule final : public IFeatureModule
+    {
+    public:
+        const char* GetName() const override { return "BuddyOutfit"; }
+        bool Install(HMODULE hGame) override
+        {
+            UNREFERENCED_PARAMETER(hGame);
+            bool ok = Install_EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex_Hooks();
+            ok &= Install_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook();
+            ok &= Install_Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock_Hook();
+            ok &= Install_Buddy2BlockControllerImpl_GetBuddyQuietFovaFile_Hooks();
+            ok &= Install_BuddyServiceImpl_GetQuietEquipIdByWeaponType_Hooks();
+            ok &= Install_BuddyServiceImpl_ChangeQuietCostume_Patch();
+            ok &= Install_BuddyServiceImpl_ChangeQuietWeaponType_Patch();
+            ok &= Install_BuddyServiceImpl_ChangeHorseSettings_Patch();
+            ok &= Install_BuddyServiceImpl_ChangeDogSettings_Patch();
+            ok &= Install_BuddyQuiet2Impl_SetBruise_Patch();
+            ok &= Install_DamageAiImpl_StepBitDamage_Patch();
+            ok &= Install_ItemSelectorCallbackImpl_SetupPrefabListElement_BuddyPatches();
+            ok &= Install_CombatAiImpl_SendFireSignal_Hook();
+            ok &= Install_EquipControllerImpl_InitCurrentSlot_Hooks();
+            ok &= Install_ActionCoreImpl_ExecDefenseCallback_Patches();
+            ok &= Install_BasicAction2Impl_Execute_Hook();
+            ok &= Install_BuddyDogDamageHandlerImpl_ProcessDamages_Patches();
+            ok &= Install_BuddyServiceImpl_InitBuddyCommandForStatus_Patches();
+            ok &= Install_BuddyDog2Impl_Initialize_Patch();
+            ok &= Install_SimplePartsEffectControllerImpl_CreateEffectImpl_Hooks();
+            return ok;
+        }
+        void Uninstall() override
+        {
+            Uninstall_SimplePartsEffectControllerImpl_CreateEffectImpl_Hooks();
+            Uninstall_BuddyDog2Impl_Initialize_Patch();
+            Uninstall_BuddyServiceImpl_InitBuddyCommandForStatus_Patches();
+            Uninstall_BuddyDogDamageHandlerImpl_ProcessDamages_Patches();
+            Uninstall_BasicAction2Impl_Execute_Hook();
+            Uninstall_ActionCoreImpl_ExecDefenseCallback_Patches();
+            Uninstall_EquipControllerImpl_InitCurrentSlot_Hooks();
+            Uninstall_CombatAiImpl_SendFireSignal_Hook();
+            Uninstall_ItemSelectorCallbackImpl_SetupPrefabListElement_BuddyPatches();
+            Uninstall_DamageAiImpl_StepBitDamage_Patch();
+            Uninstall_BuddyQuiet2Impl_SetBruise_Patch();
+            Uninstall_BuddyServiceImpl_ChangeDogSettings_Patch();
+            Uninstall_BuddyServiceImpl_ChangeHorseSettings_Patch();
+            Uninstall_BuddyServiceImpl_ChangeQuietWeaponType_Patch();
+            Uninstall_BuddyServiceImpl_ChangeQuietCostume_Patch();
+            Uninstall_BuddyServiceImpl_GetQuietEquipIdByWeaponType_Hooks();
+            Uninstall_Buddy2BlockControllerImpl_GetBuddyQuietFovaFile_Hooks();
+            Uninstall_Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock_Hook();
+            Uninstall_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook();
+            Uninstall_EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex_Hooks();
+        }
     };
 
     class FieldTaxiMenuModule final : public IFeatureModule
@@ -2134,15 +2623,21 @@ namespace
             const bool waveReady    = Install_NoticeNoiseAiImpl_StepMovePause_Hook();
             const bool guideReady   = Install_CallMenuImpl_UpdateOption_Hook();
             const bool panelReady   = Install_CallMenuImpl_UpdateSelectDoc_Hook();
+            const bool numberReady  = Install_CallMenuImpl_UpdateCallMenu_Hook();
             const bool openReady    = Install_CallMenuManagerImpl_ShowCallMenu_Hook();
             const bool radioReady   = Install_RadioControllerImpl_StepRadioWaitResponse_Hooks();
+            const bool spotReady    = Install_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();
+            const bool arriveReady  = Install_NoticeNoiseAiImpl_StepWaitReach_Hook();
             return menuReady && soldierReady && noticeReady && pagingReady && turnReady && waveReady && guideReady && panelReady && openReady
-                && radioReady;
+                && radioReady && numberReady && spotReady && arriveReady;
         }
         void Uninstall() override
         {
+            Uninstall_NoticeNoiseAiImpl_StepWaitReach_Hook();
+            Uninstall_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();
             Uninstall_RadioControllerImpl_StepRadioWaitResponse_Hooks();
             Uninstall_CallMenuManagerImpl_ShowCallMenu_Hook();
+            Uninstall_CallMenuImpl_UpdateCallMenu_Hook();
             Uninstall_CallMenuImpl_UpdateSelectDoc_Hook();
             Uninstall_CallMenuImpl_UpdateOption_Hook();
             Uninstall_NoticeNoiseAiImpl_StepMovePause_Hook();
@@ -2277,6 +2772,7 @@ namespace
         void Uninstall() override
         {
             outfit::Uninstall_OutfitRuntimeParts_Hooks();
+            EquipDevelop_ReleaseDevelopTimerHook();
             EquipDevelop_ReleaseSetEquipNewGuard();
             EquipDevelopAdd::Uninstall_TppMotherBaseManagement_EquipDevelopHooks();
             outfit::Uninstall_OutfitEquippedState_Hooks();
@@ -2294,11 +2790,13 @@ namespace
             const bool select = outfit::Install_OutfitItemSelector_Hook();
             const bool list   = outfit::Install_OutfitListInject_Hook();
             const bool roots  = outfit::Install_DevelopWeaponList_Hook();
-            (void)apply; (void)select; (void)list; (void)roots;
+            const bool colors = outfit::Install_OutfitPalette();
+            (void)apply; (void)select; (void)list; (void)roots; (void)colors;
             return true;
         }
         void Uninstall() override
         {
+            outfit::Uninstall_OutfitPalette();
             outfit::Uninstall_DevelopWeaponList_Hook();
             outfit::Uninstall_OutfitListInject_Hook();
             outfit::Uninstall_OutfitItemSelector_Hook();
@@ -2435,11 +2933,19 @@ void RegisterBuiltInFeatureModules()
     static AudioBankMemoryModule s_AudioBankMemoryModule;
     static LaserSightColorModule s_LaserSightColorModule;
     static FobLoadoutSyncGuardModule s_FobLoadoutSyncGuardModule;
+    static WideEquipAliasGatesModule s_WideEquipAliasGatesModule;
+    static MotherBaseSyncGuardModule s_MotherBaseSyncGuardModule;
+    static StaffSyncGuardModule s_StaffSyncGuardModule;
+    static ItemCheckGuardModule s_ItemCheckGuardModule;
     static LoadoutItemLevelGuardModule s_LoadoutItemLevelGuardModule;
     static PartMotionRowsModule s_PartMotionRowsModule;
     static ShellActivateGuardModule s_ShellActivateGuardModule;
+    static SupportWeaponModule s_SupportWeaponModule;
     static LuaBridgeModule s_LuaBridgeModule;
     static EquipBgTextureModule s_EquipBgTextureModule;
+    static UixUtilityControlModule s_UixUtilityControlModule;
+    static FontGlyphGuardModule s_FontGlyphGuardModule;
+    static GameObjectLifeModule s_GameObjectLifeModule;
     static MissionTelopBgTextureModule s_MissionTelopBgTextureModule;
     static LoadingSplashModule s_LoadingSplashModule;
     static GameOverSplashModule s_GameOverSplashModule;
@@ -2452,6 +2958,8 @@ void RegisterBuiltInFeatureModules()
     static AccSeatIdleMotionModule s_AccSeatIdleMotionModule;
     static SupineCureMotionModule s_SupineCureMotionModule;
     static HostageStruggleModule s_HostageStruggleModule;
+    static FrameWorkMotionArchiveModule s_FrameWorkMotionArchiveModule;
+    static ClipEventsModule s_ClipEventsModule;
     static PhotoAdditionalTextModule s_PhotoAdditionalTextModule;
     static RealizedSahelanFovaModule s_RealizedSahelanFovaModule;
     static SoldierHairFovaModule s_SoldierHairFovaModule;
@@ -2483,6 +2991,7 @@ void RegisterBuiltInFeatureModules()
     static MissionMenuHelpModule s_MissionMenuHelpModule;
     static SoldierVoiceTypeQueryModule s_SoldierVoiceTypeQueryModule;
     static VoicePitchOverrideModule s_VoicePitchOverrideModule;
+    static AudioVolumeOptionsModule s_AudioVolumeOptionsModule;
     static SoldierAkObjIdMapModule s_SoldierAkObjIdMapModule;
     static TargetCqcStanceModule s_TargetCqcStanceModule;
     static QuietCqcPatchesModule s_QuietCqcPatchesModule;
@@ -2509,7 +3018,13 @@ void RegisterBuiltInFeatureModules()
     static InitEquipHudDataModule s_InitEquipHudDataModule;
     static OccasionalChatListModule s_OccasionalChatListModule;
     static SoldierNoticeModule s_SoldierNoticeModule;
+    static IdleActingVoiceModule s_IdleActingVoiceModule;
+    static SoldierVoiceSwapModule s_SoldierVoiceSwapModule;
+    static SoldierCombatVoiceModule s_SoldierCombatVoiceModule;
+    static ChaffRadioVoiceModule s_ChaffRadioVoiceModule;
+    static CpRadioVariantsModule s_CpRadioVariantsModule;
     static AnimalNoticeModule s_AnimalNoticeModule;
+    static BuddyOutfitModule s_BuddyOutfitModule;
     static FieldTaxiMenuModule s_FieldTaxiMenuModule;
     static TimeCigaretteUiModule s_TimeCigaretteUiModule;
     static HeadMarkDyingColourModule s_HeadMarkDyingColourModule;
@@ -2546,6 +3061,9 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_AudioBankMemoryModule);
             FeatureModuleRegistry::Instance().Register(&s_LuaBridgeModule);
             FeatureModuleRegistry::Instance().Register(&s_EquipBgTextureModule);
+            FeatureModuleRegistry::Instance().Register(&s_UixUtilityControlModule);
+            FeatureModuleRegistry::Instance().Register(&s_FontGlyphGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_GameObjectLifeModule);
             FeatureModuleRegistry::Instance().Register(&s_MissionTelopBgTextureModule);
             FeatureModuleRegistry::Instance().Register(&s_LoadingSplashModule);
             FeatureModuleRegistry::Instance().Register(&s_GameOverSplashModule);
@@ -2558,6 +3076,8 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_AccSeatIdleMotionModule);
             FeatureModuleRegistry::Instance().Register(&s_SupineCureMotionModule);
             FeatureModuleRegistry::Instance().Register(&s_HostageStruggleModule);
+            FeatureModuleRegistry::Instance().Register(&s_FrameWorkMotionArchiveModule);
+            FeatureModuleRegistry::Instance().Register(&s_ClipEventsModule);
             FeatureModuleRegistry::Instance().Register(&s_PhotoAdditionalTextModule);
             FeatureModuleRegistry::Instance().Register(&s_RealizedSahelanFovaModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierHairFovaModule);
@@ -2601,6 +3121,7 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_InterrogationVoiceEventModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierVoiceTypeQueryModule);
             FeatureModuleRegistry::Instance().Register(&s_VoicePitchOverrideModule);
+            FeatureModuleRegistry::Instance().Register(&s_AudioVolumeOptionsModule);
             FeatureModuleRegistry::Instance().Register(&s_SetEyeLampColorModule);
             FeatureModuleRegistry::Instance().Register(&s_GetGameObjectIdWithIndex);
             FeatureModuleRegistry::Instance().Register(&s_EnemyLangIdOverrideModule);
@@ -2615,7 +3136,13 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_InitEquipHudDataModule);
             FeatureModuleRegistry::Instance().Register(&s_OccasionalChatListModule);
             FeatureModuleRegistry::Instance().Register(&s_SoldierNoticeModule);
+            FeatureModuleRegistry::Instance().Register(&s_IdleActingVoiceModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierVoiceSwapModule);
+            FeatureModuleRegistry::Instance().Register(&s_SoldierCombatVoiceModule);
+            FeatureModuleRegistry::Instance().Register(&s_ChaffRadioVoiceModule);
+            FeatureModuleRegistry::Instance().Register(&s_CpRadioVariantsModule);
             FeatureModuleRegistry::Instance().Register(&s_AnimalNoticeModule);
+            FeatureModuleRegistry::Instance().Register(&s_BuddyOutfitModule);
             FeatureModuleRegistry::Instance().Register(&s_FieldTaxiMenuModule);
             FeatureModuleRegistry::Instance().Register(&s_TimeCigaretteUiModule);
             FeatureModuleRegistry::Instance().Register(&s_HeadMarkDyingColourModule);
@@ -2647,8 +3174,13 @@ void RegisterBuiltInFeatureModules()
             FeatureModuleRegistry::Instance().Register(&s_DispatchMissionModule);
             FeatureModuleRegistry::Instance().Register(&s_LaserSightColorModule);
             FeatureModuleRegistry::Instance().Register(&s_FobLoadoutSyncGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_WideEquipAliasGatesModule);
+            FeatureModuleRegistry::Instance().Register(&s_MotherBaseSyncGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_StaffSyncGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_ItemCheckGuardModule);
             FeatureModuleRegistry::Instance().Register(&s_LoadoutItemLevelGuardModule);
             FeatureModuleRegistry::Instance().Register(&s_PartMotionRowsModule);
             FeatureModuleRegistry::Instance().Register(&s_ShellActivateGuardModule);
+            FeatureModuleRegistry::Instance().Register(&s_SupportWeaponModule);
         });
 }

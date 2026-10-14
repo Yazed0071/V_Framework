@@ -2,6 +2,7 @@
 #include "GunBasicInject.h"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -13,6 +14,8 @@
 #include "AddressSet.h"
 #include "EquipPartParams.h"
 #include "MotionLoaderImpl_GetMtarIds.h"
+#include "TppEquip_ReloadEquipIdTable.h"
+#include "EquipAliasLease.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaApi.h"
@@ -48,6 +51,12 @@ namespace
 
     static std::vector<std::uint8_t> g_GunBasicShadow;
     static bool g_GunBasicShadowActive = false;
+
+    static constexpr int kNoRowCacheSize = 0x10000;
+    static std::atomic<std::uint32_t> g_RowEpoch{ 1 };
+    static std::atomic<std::uint64_t> g_NoRowCacheEpoch{ 0 };
+    static std::atomic<std::uint8_t>  g_NoRowCache[kNoRowCacheSize];   // 0 unknown, 1 has a row or not a gun, 2 no row
+    static std::atomic<std::uint64_t> g_NoRowLogged[kNoRowCacheSize / 64];
 
     static void** GunBasicPtrLoc()
     {
@@ -331,6 +340,41 @@ bool GunBasic_ReadRowBytes(int weaponId, unsigned char* out12)
     return CopyRowBytesSEH(buf + static_cast<size_t>(weaponId - 1) * 12, out12) == 1;
 }
 
+bool GunBasic_WeaponHasNoRow(int equipId)
+{
+    equipId = equip::FromEngine(equipId);
+    if (equipId <= 0 || equipId >= kNoRowCacheSize)
+        return false;
+
+    const std::uint64_t epoch =
+        (static_cast<std::uint64_t>(TppEquip_EquipTableEpoch()) << 32)
+        | g_RowEpoch.load(std::memory_order_acquire);
+    if (g_NoRowCacheEpoch.load(std::memory_order_acquire) != epoch)
+    {
+        for (auto& c : g_NoRowCache)
+            c.store(0, std::memory_order_relaxed);
+        g_NoRowCacheEpoch.store(epoch, std::memory_order_release);
+    }
+
+    const std::uint8_t cached = g_NoRowCache[equipId].load(std::memory_order_relaxed);
+    if (cached)
+        return cached == 2;
+
+    const int weaponId = TppEquip_GetSubIdForEquipId(equipId);
+    unsigned char row[12] = {};
+    const bool noRow = weaponId > 0 && GunBasic_ReadRowBytes(weaponId, row) && row[0] == 0;
+    g_NoRowCache[equipId].store(noRow ? 2 : 1, std::memory_order_relaxed);
+
+    if (noRow)
+    {
+        const std::uint64_t bit = 1ull << (equipId & 63);
+        if ((g_NoRowLogged[equipId >> 6].fetch_or(bit) & bit) == 0)
+            LogWarn("SetGunBasic: equipId=%d (weaponId=%d) has no gunBasic row, kept out of R&D",
+                equipId, weaponId);
+    }
+    return noRow;
+}
+
 bool GunBasic_WeaponNeedsLaneBind(int weaponId)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
@@ -559,6 +603,7 @@ static void CommitGunBasicRow(GunBasicRow& row)
         if (vanillaRow)
             EquipParam_VanillaPostWrite(kVanillaSpace_Weapon, weaponId,
                                         rowPtr, 12);
+        g_RowEpoch.fetch_add(1, std::memory_order_release);
     }
     else
     {
@@ -828,5 +873,6 @@ bool Uninstall_TppEquip_ReloadEquipParameterTables2_Hook()
     g_ClaimedIds.clear();
     g_ReservedIds.clear();
     g_PersistedReserved = false;
+    g_RowEpoch.fetch_add(1, std::memory_order_release);
     return true;
 }

@@ -15,3 +15,4 @@ bool Soldier_IgnoresNotice(std::uint32_t soldierIndex, std::uint8_t flag);
 bool SoldierNotice_ShouldDropNotice(std::uint32_t soldierIndex, std::uint8_t noticeType,
                                     const void* returnAddress);
 void Clear_AllSoldierIgnorePlayer();
+void* SoldierNotice_LiveController();

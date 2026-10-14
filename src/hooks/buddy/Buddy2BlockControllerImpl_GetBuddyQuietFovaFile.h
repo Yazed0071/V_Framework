@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Buddy2BlockControllerImpl_GetBuddyQuietFovaFile_Hooks();
+bool Uninstall_Buddy2BlockControllerImpl_GetBuddyQuietFovaFile_Hooks();

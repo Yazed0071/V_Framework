@@ -10,6 +10,7 @@ extern "C" {
 #include "V_PickableLib.h"
 #include <TppPickableRuntime.h>
 #include "LuaApi.h"
+#include "EquipAliasLease.h"
 
 namespace
 {
@@ -116,7 +117,7 @@ namespace
         };
 
         pushField("locatorIndex",   static_cast<float>(locatorIndex));
-        pushField("equipId",        static_cast<float>(words[0] & 0x7FF));
+        pushField("equipId",        static_cast<float>(equip::FromEngine(words[0] & 0x7FF)));
         pushField("countRaw",       static_cast<float>(words[2]));
         pushField("secondCountRaw", static_cast<float>(words[3]));
         pushField("countMax",       static_cast<float>(words[4]));
@@ -234,7 +235,7 @@ namespace
             return 1;
         }
 
-        PushLuaNumber(L, static_cast<float>(words[0] & 0x7FF));
+        PushLuaNumber(L, static_cast<float>(equip::FromEngine(words[0] & 0x7FF)));
         return 1;
     }
 
@@ -252,7 +253,7 @@ namespace
             return 1;
         }
 
-        PushLuaNumber(L, static_cast<float>(words[0] & 0x7FF));
+        PushLuaNumber(L, static_cast<float>(equip::FromEngine(words[0] & 0x7FF)));
         return 1;
     }
 

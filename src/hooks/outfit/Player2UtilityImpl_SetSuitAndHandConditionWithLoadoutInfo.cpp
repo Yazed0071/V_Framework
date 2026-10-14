@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -49,12 +48,6 @@ namespace
     static SetInitialConditionWithLoadoutInfo_t g_OrigSetInitial    = nullptr;
     static bool                                 g_InstalledSetInitial = false;
 
-    static bool                                 g_HaveCapturedSuit   = false;
-    static void*                                g_CapturedSuitSelf   = nullptr;
-    alignas(8) static std::uint8_t              g_CapturedSuitInfo[256] = {};
-    static bool                                 g_InForcedReload     = false;
-    static bool                                 g_HaveCapturedApply  = false;
-    static void*                                g_CapturedApplySelf  = nullptr;
     constexpr std::size_t kApplyOff_RealizeFlag = 0x190;
     constexpr std::uint32_t kApplyRealizeBit    = 0x8u;
 
@@ -887,22 +880,6 @@ namespace
 
         UpdateMotionOutfitHint(info);
 
-        if (!g_InForcedReload && info)
-        {
-            __try
-            {
-                const std::uint8_t pt =
-                    reinterpret_cast<std::uint8_t*>(info)[kInfoOff_PartsType];
-                if (pt >= outfit::kCustomPartsTypeStart
-                 && pt <= outfit::kCustomPartsTypeEnd)
-                {
-                    std::memcpy(g_CapturedSuitInfo, info, sizeof(g_CapturedSuitInfo));
-                    g_HaveCapturedSuit = true;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {}
-        }
-
         g_Orig(self, info);
 
         if (info)
@@ -999,12 +976,6 @@ namespace
 
         if (shouldSuppressSlotApply)
         {
-            if (!g_InForcedReload && self)
-            {
-                g_CapturedApplySelf = self;
-                g_HaveCapturedApply = true;
-            }
-
             if (g_Orig)
                 g_Orig(self, info);
 
@@ -1014,7 +985,8 @@ namespace
                 auto* p1 = reinterpret_cast<std::uint8_t*>(self);
                 if (p1)
                 {
-                    *reinterpret_cast<std::uint32_t*>(p1 + 0x190) |= 8u;
+                    *reinterpret_cast<std::uint32_t*>(p1 + kApplyOff_RealizeFlag)
+                        |= kApplyRealizeBit;
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1070,9 +1042,6 @@ namespace
             return;
         }
 
-        if (isCustomOutfitEquip && !g_InForcedReload && self)
-            g_CapturedSuitSelf = self;
-
         if (isCustomOutfitEquip && preserve == 0)
         {
             g_OrigSetInitial(self, info, 1);
@@ -1086,29 +1055,6 @@ namespace
 
 namespace outfit
 {
-
-    bool ReplayCapturedSuitEquip()
-    {
-        if (g_InForcedReload) return false;
-        if (!g_HaveCapturedSuit || !g_Orig || !g_CapturedSuitSelf)
-            return false;
-
-        g_InForcedReload = true;
-        bool ok = false;
-        __try
-        {
-            g_Orig(g_CapturedSuitSelf, g_CapturedSuitInfo);
-            ok = true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            LogWarn("OutfitSuitConditionApply: arm reload replay faulted, replay dropped");
-            g_HaveCapturedSuit = false;
-            g_CapturedSuitSelf = nullptr;
-        }
-        g_InForcedReload = false;
-        return ok;
-    }
 
     bool Install_OutfitSuitConditionApply_Hook()
     {

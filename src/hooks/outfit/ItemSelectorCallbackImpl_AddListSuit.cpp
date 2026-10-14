@@ -11,13 +11,18 @@
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 #include "../../core/V_FrameWorkState.h"
+#include "../ui/UiPadLock.h"
+#include "../ui/UixUtilityControl.h"
+#include "OutfitPalette.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <intrin.h>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "AddressSet.h"
@@ -89,6 +94,11 @@ namespace
     static bool g_HeadEquipDecideActive = false;
 
     static bool       g_Installed       = false;
+
+    static std::atomic<std::uint8_t*> g_SuitPanel{ nullptr };
+    static std::atomic<std::uint8_t*> g_HeadPanel{ nullptr };
+    constexpr std::uint32_t kEquipKindPrepSuit = 0x80u;
+    constexpr std::uint32_t kEquipKindPrepHead = 0x201u;
 
 
     thread_local bool t_InsideSetupPrefab = false;
@@ -175,25 +185,54 @@ namespace
     static bool g_VariantInjectEnabled    = true;
     static bool g_HeadOptionInjectEnabled = true;
 
-    static void StampVariantRowCells(std::uint8_t* base, std::uint32_t row,
-                                     const outfit::OutfitEntry* entry,
-                                     std::uint16_t flowIndex,
-                                     std::uint8_t variantsForPT,
-                                     std::uint8_t rowEnable)
-    {
-        if (variantsForPT > 15)
-        {
-            static std::atomic<int> s_varClamped{ 0 };
-            if (s_varClamped.fetch_add(1, std::memory_order_relaxed) < 4)
-                LogWarn("OutfitListInject: outfit has %u variants, row clamped to 15",
-                    static_cast<unsigned>(variantsForPT));
-            variantsForPT = 15;
-        }
+    constexpr std::uint8_t kRowCells =
+        static_cast<std::uint8_t>(outfit::kNativeVariantCells);
 
-        for (std::uint8_t var = 0; var < variantsForPT; ++var)
+    static std::unordered_map<std::uint16_t, std::uint8_t> g_VariantWindowStart;
+
+    static std::uint8_t VariantWindowStart(std::uint16_t developId)
+    {
+        const auto it = g_VariantWindowStart.find(developId);
+        return it != g_VariantWindowStart.end() ? it->second : std::uint8_t{ 0 };
+    }
+
+    static bool VariantFitsWindow(int start, int total, int variant)
+    {
+        const int first = start > 0 ? start + 1 : start;
+        const int last  = start + kRowCells < total ? start + kRowCells - 2
+                                                    : start + kRowCells - 1;
+        return variant >= first && variant <= last;
+    }
+
+    static std::uint8_t PlaceVariantWindow(std::uint16_t developId,
+                                           std::uint8_t total,
+                                           std::uint8_t variant)
+    {
+        if (total <= kRowCells)
         {
+            g_VariantWindowStart.erase(developId);
+            return 0;
+        }
+        int start = VariantWindowStart(developId);
+        if (start + kRowCells > total || !VariantFitsWindow(start, total, variant))
+            start = std::clamp(variant - kRowCells / 2, 0, total - kRowCells);
+        g_VariantWindowStart[developId] = static_cast<std::uint8_t>(start);
+        return static_cast<std::uint8_t>(start);
+    }
+
+    static void WriteVariantWindow(std::uint8_t* base, std::uint32_t row,
+                                   const outfit::OutfitEntry* entry,
+                                   std::uint16_t flowIndex,
+                                   std::uint8_t total, std::uint8_t start,
+                                   std::uint8_t shownCell, std::uint8_t rowEnable,
+                                   std::uint8_t wornVariant)
+    {
+        const std::uint8_t cells = total < kRowCells ? total : kRowCells;
+        for (std::uint8_t c = 0; c < cells; ++c)
+        {
+            const std::uint8_t var = static_cast<std::uint8_t>(start + c);
             const std::size_t cellIndex =
-                static_cast<std::size_t>(row) * 15 + var;
+                static_cast<std::size_t>(row) * 15 + c;
 
             *reinterpret_cast<std::uint16_t*>(
                 base + 0x4440 + cellIndex * 2) = flowIndex;
@@ -206,12 +245,23 @@ namespace
                 (var == 0) ? 7u : 0u;
             *(cell + 8) = 0;
 
-            *(base + 0x548   + cellIndex) = rowEnable;
-            *(base + 0x425a4 + cellIndex) = 0;
+            const bool worn = (var == wornVariant);
+            const std::uint8_t enable = worn ? std::uint8_t{ 0 }
+                : (wornVariant != 0xFF ? std::uint8_t{ 1 } : rowEnable);
+            *(base + 0x548   + cellIndex) = enable;
+            *(base + 0x425a4 + cellIndex) = worn ? std::uint8_t{ 1 } : std::uint8_t{ 0 };
         }
 
-        *(base + 0xBC40 + row) = variantsForPT;
+        *(base + 0xBC40 + row) = cells;
+        *(base + 0xC040 + row) = shownCell;
+    }
 
+    static void StampVariantRowCells(std::uint8_t* base, std::uint32_t row,
+                                     const outfit::OutfitEntry* entry,
+                                     std::uint16_t flowIndex,
+                                     std::uint8_t variantsForPT,
+                                     std::uint8_t rowEnable)
+    {
         std::uint8_t wornPT = 0, wornSel = 0;
         const bool equipped =
             entry->bound
@@ -236,9 +286,55 @@ namespace
         }
         if (displayVar >= variantsForPT)
             displayVar = static_cast<std::uint8_t>(variantsForPT - 1);
-        *(base + 0xC040 + row) = displayVar;
-        *(base + 0x425a4 + static_cast<std::size_t>(row) * 15 + displayVar) =
-            equipped ? std::uint8_t{1} : std::uint8_t{0};
+
+        const std::uint8_t start =
+            PlaceVariantWindow(entry->developId, variantsForPT, displayVar);
+        WriteVariantWindow(base, row, entry, flowIndex, variantsForPT, start,
+                           static_cast<std::uint8_t>(displayVar - start), rowEnable,
+                           equipped ? displayVar : std::uint8_t{ 0xFF });
+    }
+
+    static bool IsWornCustomOutfit(const outfit::OutfitEntry* entry);
+
+    static void ScrollVariantWindowAtEdge(std::uint8_t* base, std::uint32_t row,
+                                          std::uint8_t* record,
+                                          const outfit::OutfitEntry* entry,
+                                          std::uint16_t flowIndex,
+                                          std::uint8_t variantsForPT,
+                                          std::uint8_t rowEnable)
+    {
+        if (variantsForPT <= kRowCells)
+            return;
+
+        const std::uint8_t start = VariantWindowStart(entry->developId);
+        const std::uint8_t shown = *(base + 0xC040 + row);
+        int newStart = start;
+        if (shown == kRowCells - 1 && start + kRowCells < variantsForPT)
+            ++newStart;
+        else if (shown == 0 && start > 0)
+            --newStart;
+        else
+            return;
+
+        const int variant = start + shown;
+        const std::uint8_t newShown = static_cast<std::uint8_t>(variant - newStart);
+        const std::uint8_t worn = IsWornCustomOutfit(entry)
+            ? outfit::GetActiveVariant(entry->partsType) : std::uint8_t{ 0xFF };
+
+        g_VariantWindowStart[entry->developId] = static_cast<std::uint8_t>(newStart);
+        WriteVariantWindow(base, row, entry, flowIndex, variantsForPT,
+                           static_cast<std::uint8_t>(newStart), newShown, rowEnable, worn);
+
+        *(base + 0x148 + row) =
+            *(base + 0x548 + static_cast<std::size_t>(row) * 15 + newShown);
+
+        const std::uint32_t cursor = *reinterpret_cast<std::uint32_t*>(base + 0x110);
+        if (record && cursor < 7
+            && *reinterpret_cast<std::uint8_t**>(base + 0x4148 + cursor * 8) == record)
+        {
+            record[0x18A] = newShown != 0 ? 1 : 0;
+            record[0x18B] = newShown != kRowCells - 1 ? 1 : 0;
+        }
     }
 
     static bool IsWornCustomOutfit(const outfit::OutfitEntry* entry)
@@ -468,7 +564,8 @@ namespace
     using WriteTextField_t = void  (__fastcall*)(void* manager,
                                                   void* dst1,
                                                   void* dst2,
-                                                  void* text);
+                                                  void* text,
+                                                  std::uint8_t langFont);
 
     using SetNodeTexture_t = void (__fastcall*)(void* manager,
                                                 void* node,
@@ -540,7 +637,8 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
     }
 
-    static void JitRefreshCustomRow(std::uint8_t* base, std::uint32_t row)
+    static void JitRefreshCustomRow(std::uint8_t* base, std::uint32_t row,
+                                    std::uint8_t* record)
     {
         if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
                 != 0xb8a0bf169f98ull)
@@ -626,26 +724,58 @@ namespace
                 return;
         }
 
-        const std::uint8_t count = *(base + 0xBC40 + row);
-        bool current = (count == variantsForPT);
-        for (std::uint8_t v = 0; current && v < variantsForPT; ++v)
-            current = static_cast<std::uint8_t>(
-                          *reinterpret_cast<std::uint32_t*>(
-                              base + 0xCC40 + (c0 + v) * 12))
-                      == entry->variantSelectorCodes[v];
-        if (current)
-            return;
-
         const NativeRowCell0& snap = g_NativeRowCell0[rowFlow];
         const std::uint8_t rowEnable = snap.used
             ? snap.enable
             : (row <= 0x3F ? *(base + 0x548 + c0) : std::uint8_t{ 1 });
+
+        const std::uint8_t count = *(base + 0xBC40 + row);
+        const std::uint8_t cells =
+            variantsForPT < kRowCells ? variantsForPT : kRowCells;
+        const std::uint8_t start = VariantWindowStart(entry->developId);
+        bool current = (count == cells) && (start + cells <= variantsForPT);
+        for (std::uint8_t c = 0; current && c < cells; ++c)
+            current = static_cast<std::uint8_t>(
+                          *reinterpret_cast<std::uint32_t*>(
+                              base + 0xCC40 + (c0 + c) * 12))
+                      == entry->variantSelectorCodes[start + c];
+        if (current)
+        {
+            ScrollVariantWindowAtEdge(base, row, record, entry, rowFlow,
+                                      variantsForPT, rowEnable);
+            return;
+        }
+
         StampVariantRowCells(base, row, entry, rowFlow, variantsForPT,
                              rowEnable);
     }
 
+    constexpr std::uint32_t kUiDetail32 = 0x3168415Au;   // UI_DETAIL
+
+    static bool ColourRowOwnsButton(std::uint32_t name)
+    {
+        if (name != kUiDetail32 || !outfit::IsOutfitPaletteReady())
+            return false;
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
+        outfit::SortieListCursor cursor;
+        if (outfit::GetSortieListCursor(cursor))
+        {
+            if (!cursor.entry)
+                return false;
+            const std::uint8_t pt = livePT < outfit::kPlayerTypeMax
+                ? livePT : cursor.entry->FirstSupportedPlayerType();
+            return cursor.entry->HasColors(pt, cursor.variant);
+        }
+        outfit::SortieHeadCursor head;
+        return outfit::GetSortieHeadCursor(head) && head.head
+            && outfit::GetCustomHeadColors(head.head->name, livePT) != nullptr;
+    }
+
     static void __fastcall hkUpdateRecords(void* thisPtr)
     {
+        static bool s_colourRowFilter = false;
+        if (!s_colourRowFilter && UixUtilityControl::IsSupportedOnThisBuild())
+            s_colourRowFilter = uipad::SetGameButtonFilter(&ColourRowOwnsButton);
         if (thisPtr && !MissionCodeGuard::ShouldBypassHooks())
         {
             std::uint8_t seedSel[128];
@@ -666,7 +796,15 @@ namespace
                 {
                     auto* panel = reinterpret_cast<std::uint8_t*>(
                         reinterpret_cast<std::uintptr_t>(flowTable) - 0x4440);
-                    JitRefreshCustomRow(panel, row);
+                    if (*reinterpret_cast<std::uint64_t*>(panel + 0x461b8) == 0xb8a0bf169f98ull)
+                    {
+                        const std::uint32_t kind = *reinterpret_cast<std::uint32_t*>(panel + 0x4434);
+                        if (kind == kEquipKindPrepSuit)
+                            g_SuitPanel.store(panel, std::memory_order_release);
+                        else if (kind == kEquipKindPrepHead)
+                            g_HeadPanel.store(panel, std::memory_order_release);
+                    }
+                    JitRefreshCustomRow(panel, row, rb);
                     {
                         const std::uint8_t ownPT = outfit::ReadLivePlayerType();
                         if (outfit::IsUniqueCharacterPlayerType(ownPT)
@@ -799,7 +937,9 @@ namespace
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitByFlowIndex(selectedId, &entry) && entry)
             {
-                if (variantIdx >= outfit::kMaxVariantsPerOutfit)
+                const int variant =
+                    VariantWindowStart(entry->developId) + variantIdx;
+                if (variant >= static_cast<int>(outfit::kMaxVariantsPerOutfit))
                     return;
 
                 const std::uint8_t livePT = outfit::ReadLivePlayerType();
@@ -807,9 +947,10 @@ namespace
                     (livePT != 0xFF && entry->IsPlayerTypeSupported(livePT))
                         ? livePT
                         : outfit::kPlayerType_Snake;
-                variantHash =
-                    entry->GetVariantDisplayNameHash(labelPT, variantIdx);
-                iconHash = entry->GetVariantIconPathHash(labelPT, variantIdx);
+                variantHash = entry->GetVariantDisplayNameHash(
+                    labelPT, static_cast<std::uint8_t>(variant));
+                iconHash = entry->GetVariantIconPathHash(
+                    labelPT, static_cast<std::uint8_t>(variant));
             }
             else
             {
@@ -867,7 +1008,7 @@ namespace
             void* text = getText(manager, variantHash);
             if (!text) return;
 
-            writeFn(manager, writeTarget1, writeTarget2, text);
+            writeFn(manager, writeTarget1, writeTarget2, text, 1);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1244,6 +1385,7 @@ namespace
             ResetAddedFlowIxBits();
             outfit::ClearOutfitMenuStamps();
             ResetNativeRowCell0();
+            g_VariantWindowStart.clear();
         }
         t_InsideSetupPrefab = true;
         equip::BeginDevelopVisibilityCache();
@@ -1258,8 +1400,15 @@ namespace
                 auto* base = reinterpret_cast<std::uint8_t*>(thisPtr);
                 const std::uint32_t rowCount =
                     *reinterpret_cast<std::uint32_t*>(base + 0x442c);
+                const std::uint32_t equipKind =
+                    *reinterpret_cast<std::uint32_t*>(base + 0x4434);
                 if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
                         == 0xb8a0bf169f98ull
+                    && equipKind == kEquipKindPrepSuit)
+                    g_SuitPanel.store(base, std::memory_order_release);
+                if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
+                        == 0xb8a0bf169f98ull
+                    && (equipKind == 0x80u || equipKind == 0x100u)
                     && rowCount != 0 && rowCount <= 0x40)
                 {
                     const std::uint8_t livePT = outfit::ReadLivePlayerType();
@@ -1375,6 +1524,8 @@ namespace
             if (!IsPanelFobSortie(reinterpret_cast<std::uint8_t*>(thisPtr)))
                 headRowsChanged = TryInjectHeadOptionList(thisPtr);
         }
+        if (!prev && IsHeadOptionList(thisPtr))
+            g_HeadPanel.store(static_cast<std::uint8_t*>(thisPtr), std::memory_order_release);
 
         if (!prev && g_HeadBadgeBuildActive)
         {
@@ -1466,15 +1617,16 @@ namespace
                     {
                         const std::uint8_t worn =
                             outfit::GetActiveVariant(entry->partsType);
+                        const int start = VariantWindowStart(entry->developId);
                         if (row >= 0)
                         {
-                            for (std::uint8_t v = 0; v < vcount && v < 15; ++v)
+                            for (std::uint8_t c = 0; c < vcount && c < kRowCells; ++c)
                             {
-                                const std::size_t c =
-                                    static_cast<std::size_t>(row) * 15 + v;
-                                const bool on = (v == worn);
-                                *(base + 0x425a4 + c) = on ? 1 : 0;
-                                *(base + 0x548   + c) = on ? 0 : 1;
+                                const std::size_t cell =
+                                    static_cast<std::size_t>(row) * 15 + c;
+                                const bool on = (start + c == worn);
+                                *(base + 0x425a4 + cell) = on ? 1 : 0;
+                                *(base + 0x548   + cell) = on ? 0 : 1;
                             }
                         }
                     }
@@ -1503,6 +1655,217 @@ namespace
         if (!prev)
             ApplyFobAvailabilityToCustomRows(thisPtr);
     }
+
+    struct CursorCell
+    {
+        std::uint16_t flowIndex = 0;
+        std::uint8_t  shownCell = 0;
+        std::uint8_t  selector  = 0;      // the cell's selector code: which variant it shows
+        bool          enabled   = false;  // the row and the cell can be chosen (a greyed cell refuses the decide)
+    };
+
+    static bool ReadSortieCursorSEH(std::uint8_t* base, CursorCell& out)
+    {
+        __try
+        {
+            if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8) != 0xb8a0bf169f98ull)
+                return false;
+            if (*reinterpret_cast<std::int32_t*>(base + 0x461b0) == 1)          // the online item list
+                return false;
+            if (*reinterpret_cast<std::uint32_t*>(base + 0x4434) != kEquipKindPrepSuit)
+                return false;
+            if (*(base + kPanel_SelectorState) != 4)                            // open and waiting for input
+                return false;
+            const std::uint32_t rows = *reinterpret_cast<std::uint32_t*>(base + 0x104);
+            if (rows == 0 || rows > outfit::kPanelRowMax + 1)
+                return false;
+            const std::uint32_t row = (*reinterpret_cast<std::uint32_t*>(base + 0x10C)
+                + *reinterpret_cast<std::uint32_t*>(base + 0x110)) % rows;
+            const std::uint8_t shown = *(base + 0xC040 + row);
+            if (shown >= 15)
+                return false;
+            const std::size_t cell = static_cast<std::size_t>(row) * 15 + shown;
+            out.flowIndex = *reinterpret_cast<std::uint16_t*>(base + 0x4440 + cell * 2);
+            out.shownCell = shown;
+            out.selector  = *(base + 0xCC40 + cell * 12);
+            out.enabled   = *(base + 0x148 + row) != 0 && *(base + 0x548 + cell) != 0;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    constexpr std::size_t kPanel_TopRow       = 0x10C;
+    constexpr std::size_t kPanel_CursorRow    = 0x110;
+    constexpr std::size_t kPanel_RowCount     = 0x104;
+    constexpr std::size_t kPanel_ActFlags     = 0xE8;     // bit 0 makes the list refresh its records
+    constexpr std::size_t kPanel_PopupMode    = 0x461B0;  // 1 when it's the supply drop / online confirmation
+    constexpr std::size_t kPanel_Magic        = 0x461B8;
+    constexpr std::size_t kPanel_EquipKind    = 0x4434;
+    constexpr std::size_t kPanel_EquippedMark = 0x425A4;  // one byte per cell, the EQUIPPED tag
+    constexpr std::size_t kPanel_Choosable    = 0x548;    // one byte per cell, 0 on the worn cell
+    constexpr std::size_t kPanel_RowEnable    = 0x148;    // one byte per row, its shown cell's 0x548
+    constexpr std::size_t kPanel_ShownCell    = 0xC040;
+    constexpr std::uint32_t kActRefreshEnables = 0xB13;   // what the list sets after it rebuilds 0x148
+    constexpr std::uint32_t kEquipKindSuit    = 0x80;
+    constexpr std::uint64_t kPanelMagic       = 0xB8A0BF169F98ull;
+
+    using ListUpdate_t = void (__fastcall*)(void* self);
+    using ListDecideAct_t = void* (__fastcall*)(void* panel, void* err, void* p3, void* p4);
+
+    ListUpdate_t g_OrigListUpdate = nullptr;
+    void* g_ListUpdateTarget = nullptr;
+
+    struct ListEquipRequest
+    {
+        std::uint8_t* panel = nullptr;
+        std::uint32_t kind = 0;
+        std::uint16_t flowIndex = 0;
+    };
+    std::mutex g_ListEquipLock;
+    ListEquipRequest g_ListEquip;
+    bool g_ListEquipQueued = false;
+    std::atomic<bool> g_ListEquipAny{ false };
+    std::atomic<int> g_ListEquipResult{ 0 };   // 1 when it equipped, -1 when it got dropped
+
+    struct NativeCursor
+    {
+        std::uint32_t row = 0, rows = 0;
+        std::uint8_t shown = 0;
+        std::size_t cell = 0;
+        std::uint16_t flowIndex = 0;
+        bool tagged = false;
+    };
+
+    static bool ReadNativeCursorSEH(std::uint8_t* panel, NativeCursor& out, std::uint32_t kind, bool needChoosable = true)
+    {
+        __try
+        {
+            if (*(panel + kPanel_SelectorState) != 4
+                || *reinterpret_cast<std::uint64_t*>(panel + kPanel_Magic) != kPanelMagic
+                || *reinterpret_cast<std::uint32_t*>(panel + kPanel_PopupMode) == 1
+                || *reinterpret_cast<std::uint32_t*>(panel + kPanel_EquipKind) != kind)
+                return false;
+            out.rows = *reinterpret_cast<std::uint32_t*>(panel + kPanel_RowCount);
+            out.row = *reinterpret_cast<std::uint32_t*>(panel + kPanel_TopRow)
+                + *reinterpret_cast<std::uint32_t*>(panel + kPanel_CursorRow);
+            if (!needChoosable && out.rows != 0)
+                out.row %= out.rows;
+            if (out.row >= out.rows || out.row > outfit::kPanelRowMax)
+                return false;
+            out.shown = *(panel + 0xC040 + out.row);
+            if (out.shown >= 15)
+                return false;
+            out.cell = static_cast<std::size_t>(out.row) * 15 + out.shown;
+            out.flowIndex = *reinterpret_cast<std::uint16_t*>(panel + 0x4440 + out.cell * 2);
+            out.tagged = *(panel + kPanel_EquippedMark + out.cell) != 0;
+            return !needChoosable || (*(panel + 0x148 + out.row) != 0 && *(panel + 0x548 + out.cell) != 0);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool CallDecideActSEH(void* fn, std::uint8_t* panel)
+    {
+        __try
+        {
+            int err = 0;
+            reinterpret_cast<ListDecideAct_t>(fn)(panel, &err, nullptr, nullptr);
+            return err != -1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void MarkEquippedSEH(std::uint8_t* panel, const NativeCursor& c)
+    {
+        __try
+        {
+            const std::uint32_t rows = c.rows <= outfit::kPanelRowMax + 1 ? c.rows : outfit::kPanelRowMax + 1;
+            const std::size_t cells = static_cast<std::size_t>(rows) * 15;
+            for (std::size_t i = 0; i < cells; ++i)
+            {
+                if (*(panel + kPanel_EquippedMark + i) == 0)
+                    continue;
+                *(panel + kPanel_EquippedMark + i) = 0;
+                *(panel + kPanel_Choosable + i) = 1;
+            }
+            *(panel + kPanel_EquippedMark + c.cell) = 1;
+            *(panel + kPanel_Choosable + c.cell) = 0;
+            for (std::uint32_t r = 0; r < rows; ++r)
+            {
+                const std::uint8_t shown = *(panel + kPanel_ShownCell + r);
+                if (shown < 15)
+                    *(panel + kPanel_RowEnable + r) = *(panel + kPanel_Choosable + static_cast<std::size_t>(r) * 15 + shown);
+            }
+            *reinterpret_cast<std::uint32_t*>(panel + kPanel_ActFlags) |= kActRefreshEnables;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    static void MarkHeadEquippedSEH(std::uint8_t* panel, const NativeCursor& c)
+    {
+        __try
+        {
+            const std::uint32_t rows = c.rows <= outfit::kPanelRowMax + 1 ? c.rows : outfit::kPanelRowMax + 1;
+            for (std::uint32_t r = 0; r < rows; ++r)
+                *(panel + kPanel_EquippedMark + static_cast<std::size_t>(r) * 15) = 0;
+            if (c.flowIndex != outfit::kHeadOption_None)
+                *(panel + kPanel_EquippedMark + c.cell) = 1;
+            *reinterpret_cast<std::uint32_t*>(panel + kPanel_ActFlags) |= 1u;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    static void RunListEquip(std::uint8_t* panel)
+    {
+        ListEquipRequest req;
+        {
+            std::lock_guard<std::mutex> lock(g_ListEquipLock);
+            if (!g_ListEquipQueued || g_ListEquip.panel != panel)
+                return;
+            req = g_ListEquip;
+            g_ListEquipQueued = false;
+            g_ListEquipAny.store(false, std::memory_order_release);
+        }
+        NativeCursor c;
+        void* decide = ResolveGameAddress(gAddr.ItemSelectorCallbackImpl_DecideActMotherBaseCustomize);
+        const bool ok = decide && ReadNativeCursorSEH(panel, c, req.kind) && !IsPanelFobSortie(panel)
+            && c.flowIndex == req.flowIndex && CallDecideActSEH(decide, panel);
+        if (ok && req.kind == kEquipKindPrepHead)
+            MarkHeadEquippedSEH(panel, c);
+        else if (ok)
+            MarkEquippedSEH(panel, c);
+        g_ListEquipResult.store(ok ? 1 : -1, std::memory_order_release);
+        if (!ok)
+            LogWarn("OutfitListInject: equip for the colour palette dropped (the list moved on or left input)");
+    }
+
+    void __fastcall hkListUpdate(void* self)
+    {
+        if (self && g_ListEquipAny.load(std::memory_order_acquire) && !MissionCodeGuard::ShouldBypassHooks())
+            RunListEquip(static_cast<std::uint8_t*>(self) - 0x20);
+        g_OrigListUpdate(self);
+    }
+
+    static bool WriteDecideStateSEH(std::uint8_t* base)
+    {
+        __try
+        {
+            auto* state = reinterpret_cast<volatile char*>(base + kPanel_SelectorState);
+            return _InterlockedCompareExchange8(state, 6, 4) == 4;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 }
 
 namespace outfit
@@ -1519,6 +1882,111 @@ namespace outfit
         if (flowIndex >= equip::kMaxFlowSlots || cellPos >= 15) return 0;
         const VextCellInfo& e = g_VextCellMap[flowIndex][cellPos];
         return e.used ? e.selector : 0;
+    }
+
+    bool GetSortieListCursor(SortieListCursor& out)
+    {
+        out = SortieListCursor{};
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        std::uint8_t* base = g_SuitPanel.load(std::memory_order_acquire);
+        CursorCell cell{};
+        if (!base || !ReadSortieCursorSEH(base, cell) || IsPanelFobSortie(base))
+            return false;
+
+        const OutfitEntry* entry = nullptr;
+        if (!TryGetOutfitByFlowIndex(cell.flowIndex, &entry) || !entry)
+            return true;
+        out.entry = entry;
+
+        const std::uint8_t livePT = ReadLivePlayerType();
+        const std::uint8_t variants = livePT != 0xFF
+            ? entry->GetVariantCountFor(livePT) : entry->variantCount;
+        int variant = variants >= 2 && !entry->bound ? entry->defaultVariant : 0;
+        if (variants >= 2 && entry->bound)
+            for (int v = 0; v < variants && v < static_cast<int>(kMaxVariantsPerOutfit); ++v)
+                if (entry->variantSelectorCodes[v] == cell.selector)
+                {
+                    variant = v;
+                    break;
+                }
+        if (variant >= variants)
+            variant = variants > 0 ? variants - 1 : 0;
+        out.variant = static_cast<std::uint8_t>(variant);
+        out.worn = IsWornCustomOutfit(entry)
+            && (variants < 2 || GetActiveVariant(entry->partsType) == out.variant);
+        return true;
+    }
+
+    bool DecideSortieListCursor()
+    {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        std::uint8_t* base = g_SuitPanel.load(std::memory_order_acquire);
+        CursorCell cell{};
+        if (!base || !ReadSortieCursorSEH(base, cell) || !cell.enabled || IsPanelFobSortie(base))
+            return false;
+        return WriteDecideStateSEH(base);
+    }
+
+    static bool QueueListEquip(std::uint8_t* panel, std::uint32_t kind)
+    {
+        if (!g_ListUpdateTarget || MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        NativeCursor c;
+        if (!panel || !ReadNativeCursorSEH(panel, c, kind) || IsPanelFobSortie(panel))
+            return false;
+        std::lock_guard<std::mutex> lock(g_ListEquipLock);
+        g_ListEquip.panel = panel;
+        g_ListEquip.kind = kind;
+        g_ListEquip.flowIndex = c.flowIndex;
+        g_ListEquipQueued = true;
+        g_ListEquipResult.store(0, std::memory_order_release);
+        g_ListEquipAny.store(true, std::memory_order_release);
+        return true;
+    }
+
+    bool RequestSortieListEquip()
+    {
+        return QueueListEquip(g_SuitPanel.load(std::memory_order_acquire), kEquipKindSuit);
+    }
+
+    bool GetSortieHeadCursor(SortieHeadCursor& out)
+    {
+        out = SortieHeadCursor{};
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        std::uint8_t* panel = g_HeadPanel.load(std::memory_order_acquire);
+        NativeCursor c;
+        if (!panel || !ReadNativeCursorSEH(panel, c, kEquipKindPrepHead, false) || IsPanelFobSortie(panel))
+            return false;
+        out.head = TryGetCustomHeadByEquipId(c.flowIndex);
+        out.worn = out.head && c.tagged;
+        return true;
+    }
+
+    bool RequestSortieHeadEquip()
+    {
+        return QueueListEquip(g_HeadPanel.load(std::memory_order_acquire), kEquipKindPrepHead);
+    }
+
+    void ForgetSortieListPanels()
+    {
+        g_SuitPanel.store(nullptr, std::memory_order_release);
+        g_HeadPanel.store(nullptr, std::memory_order_release);
+    }
+
+    int TakeSortieListEquipResult()
+    {
+        return g_ListEquipResult.exchange(0, std::memory_order_acq_rel);
+    }
+
+    void CancelSortieListEquip()
+    {
+        std::lock_guard<std::mutex> lock(g_ListEquipLock);
+        g_ListEquipQueued = false;
+        g_ListEquipAny.store(false, std::memory_order_release);
+        g_ListEquipResult.store(0, std::memory_order_release);
     }
 
 
@@ -1551,6 +2019,15 @@ namespace outfit
             reinterpret_cast<void*>(&hkSetupPrefabListElement),
             reinterpret_cast<void**>(&g_OrigSetupPrefab));
         g_Installed = setupHooked;
+
+        if (void* update = ResolveGameAddress(gAddr.ItemSelectorCallbackImpl_Update))
+        {
+            if (CreateAndEnableHook(update, reinterpret_cast<void*>(&hkListUpdate),
+                                    reinterpret_cast<void**>(&g_OrigListUpdate)))
+                g_ListUpdateTarget = update;
+            else
+                LogWarn("OutfitListInject: ItemSelectorCallbackImpl::Update hook failed, the colour palette equips through the list's decide (the list closes)");
+        }
 
 
         if (void* addBandanaAddr = ResolveGameAddress(
@@ -1623,6 +2100,14 @@ namespace outfit
         if (g_AddListSuitAddr) DisableAndRemoveHook(g_AddListSuitAddr);
         g_AddListSuitAddr = nullptr;
         g_OrigAddListSuit = nullptr;
+
+        if (g_ListUpdateTarget)
+        {
+            DisableAndRemoveHook(g_ListUpdateTarget);
+            g_ListUpdateTarget = nullptr;
+            g_OrigListUpdate = nullptr;
+        }
+        CancelSortieListEquip();
 
         if (g_InstalledUpdateRecords)
         {

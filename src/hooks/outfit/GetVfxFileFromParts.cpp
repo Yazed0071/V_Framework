@@ -65,8 +65,7 @@ namespace
 
     static void* OutfitSpark(std::uint32_t playerIndex)
     {
-        if (playerIndex != outfit::GetLocalPartsSlot()
-            || outfit::SprintLive() == outfit::kSprintNone)
+        if (playerIndex != outfit::GetLocalPartsSlot())
             return nullptr;
         const std::uint64_t spark = outfit::SprintSparkLive();
         if (spark == 0 || MissionCodeGuard::ShouldBypassHooks())

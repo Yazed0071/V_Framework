@@ -26,8 +26,6 @@ namespace
 
     constexpr std::uint32_t kCamo_SneakingSuitTpp = 15;
     constexpr std::uint32_t kCamo_BattleDress     = 16;
-    constexpr std::uint32_t kCamo_Ninja           = 0x15;
-    constexpr std::uint32_t kCamo_Raiden          = 0x16;
     constexpr std::uint32_t kParamId_DamageRate   = 0x12;
     constexpr std::uint32_t kParamId_LifeRecovery = 0x10;
     constexpr std::uint32_t kParamId_Sprint[]     = { 2, 3 };
@@ -146,9 +144,9 @@ namespace
         outfit::GetAbilityLevelsForVariantLockFree(
             static_cast<std::uint8_t>(suitKind),
             livePT, liveVar, &defense, &regen);
-        const std::uint8_t sprint = outfit::GetSprintForVariantLockFree(
-            static_cast<std::uint8_t>(suitKind), livePT, liveVar);
-        if (defense == 0 && regen == 0 && sprint == outfit::kSprintNone)
+        const std::uint32_t speed = outfit::GetSprintForVariantLockFree(
+            static_cast<std::uint8_t>(suitKind), livePT, liveVar) & outfit::kSprintSpeedMask;
+        if (defense == 0 && regen == 0 && speed == 0)
             return served;
 
         std::size_t count = 0;
@@ -164,14 +162,9 @@ namespace
             && ReadVanillaParam(self, kCamo_SneakingSuitTpp, regen,
                                 kParamId_LifeRecovery, &v))
             SetPair(&count, kParamId_LifeRecovery, v);
-        if (sprint != outfit::kSprintNone)
-        {
-            const std::uint32_t donor =
-                sprint == outfit::kSprintRaiden ? kCamo_Raiden : kCamo_Ninja;
+        if (speed != 0)
             for (const std::uint32_t id : kParamId_Sprint)
-                if (ReadVanillaParam(self, donor, 1, id, &v))
-                    SetPair(&count, id, v);
-        }
+                SetPair(&count, id, static_cast<float>(speed) / 100.0f);
 
         t_Array.flags = 1;
         t_Array.pad0  = 0;

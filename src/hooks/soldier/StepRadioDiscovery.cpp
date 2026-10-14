@@ -17,23 +17,36 @@
 
 namespace
 {
-    using CheckSightNoticeHostage_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, std::uint64_t param3, void* tracker);
     using StepRadioDiscovery_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, int step, void* info);
 
     static constexpr std::uint16_t LHD_INVALID_TARGET_ID = 0xFFFFu;
-    static constexpr std::uint32_t LHD_INVALID_SOLDIER_ID = 0xFFFFFFFFu;
-    static constexpr std::size_t   LHD_TRACKED_SLOT_COUNT = 3u;
+    static constexpr std::uint32_t LHD_INVALID_MEMBER = 0xFFFFFFFFu;
 
     static constexpr std::uint8_t LHD_RADIO_TYPE_HOSTAGE_FOUND_A = 0x12u;
     static constexpr std::uint8_t LHD_RADIO_TYPE_HOSTAGE_FOUND_B = 0x0Bu;
     static constexpr std::uint8_t LHD_RADIO_TYPE_HOSTAGE_FOUND_C = 0x25u;
     static constexpr std::uint8_t LHD_RADIO_TYPE_HOSTAGE_FOUND_D = 0x0Cu;
 
-    static constexpr std::uint32_t LHD_LABEL_MALE = 0x247b3defu;
-    static constexpr std::uint32_t LHD_LABEL_FEMALE = 0xa2c4a6ecu;
-    static constexpr std::uint32_t LHD_LABEL_CHILD = 0x100eb512u;
+    static constexpr std::uint32_t LHD_LABEL_MALE = 0x247b3defu;     // CPR0281
+    static constexpr std::uint32_t LHD_LABEL_FEMALE = 0xa2c4a6ecu;   // CPR0282
+    static constexpr std::uint32_t LHD_LABEL_CHILD = 0x100eb512u;    // CPR0283
+    static constexpr std::uint32_t LHD_LABEL_DEAD = 0xc944e305u;     // V_CPR0231 "Found the body of a prisoner." (V_CpRadioSeqCommonGz2)
 
-    static CheckSightNoticeHostage_t g_LHD_OrigCheckSightNoticeHostage = nullptr;
+    static constexpr std::int32_t  LHD_STEP_ENTER = 0;
+    static constexpr std::int32_t  LHD_STEP_EXIT = 1;
+    static constexpr std::int32_t  LHD_STEP_REENTER = 4;
+    static constexpr std::size_t   LHD_KNOWLEDGE_TARGET = 0x26;      // NoticeHostageAiKnowledge: the hostage's gameObjectId
+    static constexpr std::size_t   LHD_KNOWLEDGE_STATUS = 0x32;      // CheckHostageStatus: 4 normal, 8 dead, 0x10 flag 0x10000
+    static constexpr std::uint8_t  LHD_STATUS_DEAD = 0x08u;
+    static constexpr std::size_t   LHD_AI_SOLDIERS = 0x70;           // NoticeHostageAiImpl: shared soldier context
+    static constexpr std::size_t   LHD_SOLDIERS_COMMAND_POST = 0xD0;
+    static constexpr std::size_t   LHD_COMMAND_POST_CONTROLLER = 0x08;   // the CP controller StepRadioDiscovery requests the call from
+    static constexpr std::size_t   LHD_COMMAND_POST_CLIENT = 0x30;
+    static constexpr std::size_t   LHD_CONTROLLER_CLIENTS = 0x1F0;   // soldiers, helis... each with its own run of members
+    static constexpr std::size_t   LHD_CLIENT_SIZE = 0x48;
+    static constexpr std::size_t   LHD_CLIENT_FIRST_MEMBER = 0x40;
+    static constexpr std::uint64_t LHD_REPORT_FRESH_MS = 60000;      // a busy CP can keep his call queued a while
+
     static StepRadioDiscovery_t      g_LHD_OrigStepRadioDiscovery = nullptr;
 
     struct LostHostageDiscoveryInfo
@@ -43,73 +56,18 @@ namespace
         std::uint32_t speechLabel = 0u;
     };
 
-    struct LostHostageDiscoveryRadioRequestEntryView
+    struct LostHostageDiscoveryReport   // the call StepRadioDiscovery just requested for this CP member, and the label it gets
     {
-        std::uintptr_t objectPtr = 0;
-        std::uint32_t  speakerSoldierIndex = LHD_INVALID_SOLDIER_ID;
-        std::uint16_t  word0C = 0xFFFFu;
-        std::uint16_t  word0E = 0xFFFFu;
-        std::uint8_t   byte10 = 0xFFu;
-        std::uint8_t   byte12 = 0xFFu;
-        std::uint8_t   byte13 = 0xFFu;
-        std::uint8_t   byte15 = 0xFFu;
-    };
-
-    struct LostHostageDiscoverySelectedRadio
-    {
-        bool           active = false;
-        std::uint32_t  soldierIndex = LHD_INVALID_SOLDIER_ID;
-        std::uint16_t  targetId = LHD_INVALID_TARGET_ID;
-        int            hostageType = -1;
-        std::uint8_t   radioType = 0xFFu;
-        std::uint32_t  overrideLabel = 0u;
+        std::uint32_t soldierIndex = 0xFFFFFFFFu;
+        std::uint16_t targetId = LHD_INVALID_TARGET_ID;
+        bool          dead = false;
+        std::uint32_t label = 0u;
+        std::uint64_t startedMs = 0;
     };
 
     static std::unordered_map<std::uint16_t, LostHostageDiscoveryInfo> g_LHD_TrackedHostagesByRawId;
-    std::unordered_map<std::uint32_t, std::uint16_t> g_LHD_LastCandidateTargetBySoldier;
-    std::unordered_map<std::uint32_t, std::uint16_t> g_LHD_LastConfirmedTargetBySoldier;
+    static std::unordered_map<std::uint32_t, LostHostageDiscoveryReport> g_LHD_ReportByMember;
     static std::mutex g_LHD_Mutex;
-    static std::unordered_map<std::uint32_t, LostHostageDiscoverySelectedRadio> g_LHD_PendingBySoldier;
-    static LostHostageDiscoverySelectedRadio g_LHD_NextConvertOverride{};
-}
-
-static const char* LostHostageDiscovery_HostageTypeName(int hostageType)
-{
-    switch (hostageType)
-    {
-    case 0:  return "MALE";
-    case 1:  return "FEMALE";
-    case 2:  return "CHILD";
-    default: return "UNKNOWN";
-    }
-}
-
-static bool LostHostageDiscovery_SafeReadQword(std::uintptr_t addr, std::uint64_t& outValue)
-{
-    if (!addr) return false;
-    __try
-    {
-        outValue = *reinterpret_cast<const std::uint64_t*>(addr);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-static bool LostHostageDiscovery_SafeReadInt(std::uintptr_t addr, int& outValue)
-{
-    if (!addr) return false;
-    __try
-    {
-        outValue = *reinterpret_cast<const int*>(addr);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
 }
 
 static bool LostHostageDiscovery_SafeReadU16(std::uintptr_t addr, std::uint16_t& outValue)
@@ -140,6 +98,23 @@ static bool LostHostageDiscovery_SafeReadU8(std::uintptr_t addr, std::uint8_t& o
     }
 }
 
+static std::uint32_t LostHostageDiscovery_MemberOf(void* self, std::uint32_t soldierIndex)   // as RequestRadioByMember(client, soldier) numbers him
+{
+    __try
+    {
+        const std::uint8_t* soldiers = *reinterpret_cast<std::uint8_t* const*>(static_cast<std::uint8_t*>(self) + LHD_AI_SOLDIERS);
+        const std::uint8_t* commandPost = *reinterpret_cast<std::uint8_t* const*>(soldiers + LHD_SOLDIERS_COMMAND_POST);
+        const std::uint8_t* controller = *reinterpret_cast<std::uint8_t* const*>(commandPost + LHD_COMMAND_POST_CONTROLLER);
+        const std::uint32_t client = *reinterpret_cast<const std::uint32_t*>(commandPost + LHD_COMMAND_POST_CLIENT);
+        const std::uint8_t* clients = *reinterpret_cast<std::uint8_t* const*>(controller + LHD_CONTROLLER_CLIENTS);
+        return *reinterpret_cast<const std::uint16_t*>(clients + client * LHD_CLIENT_SIZE + LHD_CLIENT_FIRST_MEMBER) + soldierIndex;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return LHD_INVALID_MEMBER;
+    }
+}
+
 static std::uint32_t LostHostageDiscovery_GetLabelForHostageType(int hostageType)
 {
     switch (hostageType)
@@ -161,183 +136,49 @@ static bool LostHostageDiscovery_IsHostageDiscoveryRadioType(std::uint8_t radioT
 
 static void LostHostageDiscovery_ResetRuntimeState_NoLock()
 {
-    g_LHD_LastCandidateTargetBySoldier.clear();
-    g_LHD_LastConfirmedTargetBySoldier.clear();
-    g_LHD_PendingBySoldier.clear();
-    g_LHD_NextConvertOverride = {};
+    g_LHD_ReportByMember.clear();
 }
 
-static bool LostHostageDiscovery_TryReadTrackedTargetIds(
-    void* tracker,
-    std::uint16_t(&outIds)[LHD_TRACKED_SLOT_COUNT])
+static void LostHostageDiscovery_NoteReport(void* self, std::uint32_t soldierIndex, void* info)
 {
-    if (!tracker) return false;
-
-    for (std::size_t i = 0; i < LHD_TRACKED_SLOT_COUNT; ++i)
-    {
-        if (!LostHostageDiscovery_SafeReadU16(
-            reinterpret_cast<std::uintptr_t>(tracker) + 0x88ull + (i * 2ull),
-            outIds[i]))
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static std::uint16_t LostHostageDiscovery_ChooseCandidateIdFromTracker(
-    const std::uint16_t(&beforeIds)[LHD_TRACKED_SLOT_COUNT],
-    const std::uint16_t(&afterIds)[LHD_TRACKED_SLOT_COUNT])
-{
-    for (std::size_t i = 0; i < LHD_TRACKED_SLOT_COUNT; ++i)
-    {
-        const std::uint16_t afterId = afterIds[i];
-        if (afterId == LHD_INVALID_TARGET_ID) continue;
-
-        bool existedBefore = false;
-        for (std::size_t j = 0; j < LHD_TRACKED_SLOT_COUNT; ++j)
-        {
-            if (beforeIds[j] == afterId)
-            {
-                existedBefore = true;
-                break;
-            }
-        }
-
-        if (!existedBefore)
-            return afterId;
-    }
-
-    for (std::size_t i = 0; i < LHD_TRACKED_SLOT_COUNT; ++i)
-    {
-        if (afterIds[i] != LHD_INVALID_TARGET_ID)
-            return afterIds[i];
-    }
-
-    return LHD_INVALID_TARGET_ID;
-}
-
-static std::uint16_t LostHostageDiscovery_GetCurrentTargetForSoldier_NoLock(std::uint32_t soldierIndex)
-{
-    const auto itConfirmed = g_LHD_LastConfirmedTargetBySoldier.find(soldierIndex);
-    if (itConfirmed != g_LHD_LastConfirmedTargetBySoldier.end() &&
-        itConfirmed->second != LHD_INVALID_TARGET_ID)
-    {
-        return itConfirmed->second;
-    }
-
-    const auto itCandidate = g_LHD_LastCandidateTargetBySoldier.find(soldierIndex);
-    if (itCandidate != g_LHD_LastCandidateTargetBySoldier.end() &&
-        itCandidate->second != LHD_INVALID_TARGET_ID)
-    {
-        return itCandidate->second;
-    }
-
-    return LHD_INVALID_TARGET_ID;
-}
-
-static bool LostHostageDiscovery_TryGetTrackedHostageInfo_NoLock(
-    std::uint16_t targetId,
-    LostHostageDiscoveryInfo& outInfo)
-{
-    const auto it = g_LHD_TrackedHostagesByRawId.find(targetId);
-    if (it == g_LHD_TrackedHostagesByRawId.end())
-        return false;
-
-    outInfo = it->second;
-    return true;
-}
-
-static bool LostHostageDiscovery_TryReadRadioRequestEntry(
-    void* self,
-    int actionIndex,
-    LostHostageDiscoveryRadioRequestEntryView& outView)
-{
-    outView = {};
-    if (!self) return false;
-
-    const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(self);
-
-    std::uint64_t listBase = 0;
-    int baseActionIndex = 0;
-
-    if (!LostHostageDiscovery_SafeReadQword(base + 0x88ull, listBase) || listBase == 0)
-        return false;
-
-    if (!LostHostageDiscovery_SafeReadInt(base + 0x90ull, baseActionIndex))
-        return false;
-
-    const int relativeIndex = actionIndex - baseActionIndex;
-    if (relativeIndex < 0)
-        return false;
-
-    const std::uintptr_t entry =
-        static_cast<std::uintptr_t>(listBase) +
-        (static_cast<std::uintptr_t>(relativeIndex) * 0x18ull);
-
-    std::uint64_t objectPtr = 0;
-    int speakerSoldierIndex = -1;
-
-    LostHostageDiscovery_SafeReadQword(entry + 0x0ull, objectPtr);
-    LostHostageDiscovery_SafeReadInt(entry + 0x8ull, speakerSoldierIndex);
-    LostHostageDiscovery_SafeReadU16(entry + 0xCull, outView.word0C);
-    LostHostageDiscovery_SafeReadU16(entry + 0xEull, outView.word0E);
-    LostHostageDiscovery_SafeReadU8(entry + 0x10ull, outView.byte10);
-    LostHostageDiscovery_SafeReadU8(entry + 0x12ull, outView.byte12);
-    LostHostageDiscovery_SafeReadU8(entry + 0x13ull, outView.byte13);
-    LostHostageDiscovery_SafeReadU8(entry + 0x15ull, outView.byte15);
-
-    outView.objectPtr = static_cast<std::uintptr_t>(objectPtr);
-    outView.speakerSoldierIndex =
-        (speakerSoldierIndex < 0)
-        ? LHD_INVALID_SOLDIER_ID
-        : static_cast<std::uint32_t>(speakerSoldierIndex);
-
-    return true;
-}
-
-static void __fastcall hkLostHostageDiscovery_CheckSightNoticeHostage(
-    void* self,
-    std::uint32_t soldierIndex,
-    std::uint64_t param3,
-    void* tracker)
-{
-    if (!g_LHD_OrigCheckSightNoticeHostage)
+    LostHostageDiscoveryReport report{};
+    std::uint8_t status = 0u;
+    LostHostageDiscovery_SafeReadU16(reinterpret_cast<std::uintptr_t>(info) + LHD_KNOWLEDGE_TARGET, report.targetId);
+    LostHostageDiscovery_SafeReadU8(reinterpret_cast<std::uintptr_t>(info) + LHD_KNOWLEDGE_STATUS, status);
+    if (report.targetId == LHD_INVALID_TARGET_ID)
         return;
 
-    if (MissionCodeGuard::ShouldBypassHooks())
-    {
-        g_LHD_OrigCheckSightNoticeHostage(self, soldierIndex, param3, tracker);
-        return;
-    }
-
-    std::uint16_t beforeIds[LHD_TRACKED_SLOT_COUNT] =
-    {
-        LHD_INVALID_TARGET_ID, LHD_INVALID_TARGET_ID, LHD_INVALID_TARGET_ID
-    };
-
-    std::uint16_t afterIds[LHD_TRACKED_SLOT_COUNT] =
-    {
-        LHD_INVALID_TARGET_ID, LHD_INVALID_TARGET_ID, LHD_INVALID_TARGET_ID
-    };
-
-    LostHostageDiscovery_TryReadTrackedTargetIds(tracker, beforeIds);
-
-    g_LHD_OrigCheckSightNoticeHostage(self, soldierIndex, param3, tracker);
-
-    if (!LostHostageDiscovery_TryReadTrackedTargetIds(tracker, afterIds))
+    const std::uint32_t member = LostHostageDiscovery_MemberOf(self, soldierIndex);
+    if (member == LHD_INVALID_MEMBER)
         return;
 
-    const std::uint16_t chosenCandidate =
-        LostHostageDiscovery_ChooseCandidateIdFromTracker(beforeIds, afterIds);
-
-    if (chosenCandidate == LHD_INVALID_TARGET_ID)
-        return;
+    report.soldierIndex = soldierIndex;
+    report.dead = (status & LHD_STATUS_DEAD) != 0u;   // the step itself picks the caution report (0x0B) for a body
+    report.startedMs = GetTickCount64();
 
     std::lock_guard<std::mutex> lock(g_LHD_Mutex);
+    if (report.dead)
+        report.label = LHD_LABEL_DEAD;
+    else
+    {
+        const auto tracked = g_LHD_TrackedHostagesByRawId.find(report.targetId);
+        report.label = tracked != g_LHD_TrackedHostagesByRawId.end() ? tracked->second.speechLabel : 0u;
+    }
+    if (report.label != 0u)
+        g_LHD_ReportByMember[member] = report;
+    else
+        g_LHD_ReportByMember.erase(member);
+}
 
-    g_LHD_LastCandidateTargetBySoldier[soldierIndex] = chosenCandidate;
+static void LostHostageDiscovery_ForgetReport(void* self, std::uint32_t soldierIndex)   // the step ended: his call aired or was dropped
+{
+    const std::uint32_t member = LostHostageDiscovery_MemberOf(self, soldierIndex);
+    if (member == LHD_INVALID_MEMBER)
+        return;
+    std::lock_guard<std::mutex> lock(g_LHD_Mutex);
+    const auto it = g_LHD_ReportByMember.find(member);
+    if (it != g_LHD_ReportByMember.end() && it->second.soldierIndex == soldierIndex)
+        g_LHD_ReportByMember.erase(it);
 }
 
 static void __fastcall hkLostHostageDiscovery_StepRadioDiscovery(
@@ -355,97 +196,19 @@ static void __fastcall hkLostHostageDiscovery_StepRadioDiscovery(
         return;
     }
 
-    if ((step == 0 || step == 4) && info != nullptr)
-    {
-        std::uint16_t targetId = LHD_INVALID_TARGET_ID;
-
-        LostHostageDiscovery_SafeReadU16(reinterpret_cast<std::uintptr_t>(info) + 0x26ull, targetId);
-
-        if (targetId != LHD_INVALID_TARGET_ID)
-        {
-            std::lock_guard<std::mutex> lock(g_LHD_Mutex);
-
-            g_LHD_LastConfirmedTargetBySoldier[soldierIndex] = targetId;
-        }
-    }
+    if ((step == LHD_STEP_ENTER || step == LHD_STEP_REENTER) && info != nullptr)
+        LostHostageDiscovery_NoteReport(self, soldierIndex, info);   // before the step asks the CP for his call
 
     g_LHD_OrigStepRadioDiscovery(self, soldierIndex, step, info);
+
+    if (step == LHD_STEP_EXIT)
+        LostHostageDiscovery_ForgetReport(self, soldierIndex);
 }
 
-void LostHostageDiscovery_OnRadioRequest(void* self, int actionIndex, int stateProc)
-{
-    if (stateProc != 0)
-        return;
-
-    LostHostageDiscoveryRadioRequestEntryView after{};
-
-    if (!LostHostageDiscovery_TryReadRadioRequestEntry(self, actionIndex, after))
-        return;
-
-    if (!LostHostageDiscovery_IsHostageDiscoveryRadioType(after.byte10))
-        return;
-
-    if (after.speakerSoldierIndex == LHD_INVALID_SOLDIER_ID)
-        return;
-
-    std::lock_guard<std::mutex> lock(g_LHD_Mutex);
-
-    const std::uint16_t targetId =
-        LostHostageDiscovery_GetCurrentTargetForSoldier_NoLock(after.speakerSoldierIndex);
-
-    LostHostageDiscoveryInfo hostageInfo{};
-    if (!LostHostageDiscovery_TryGetTrackedHostageInfo_NoLock(targetId, hostageInfo))
-    {
-        return;
-    }
-
-    if (hostageInfo.speechLabel == 0u)
-        return;
-
-    LostHostageDiscoverySelectedRadio pending{};
-    pending.active = true;
-    pending.soldierIndex = after.speakerSoldierIndex;
-    pending.targetId = targetId;
-    pending.hostageType = hostageInfo.hostageType;
-    pending.radioType = after.byte10;
-    pending.overrideLabel = hostageInfo.speechLabel;
-
-    g_LHD_PendingBySoldier[pending.soldierIndex] = pending;
-    g_LHD_NextConvertOverride = pending;
-}
-
-bool LostHostageDiscovery_TryConsumeConvertOverride(
-    std::uint8_t radioType,
-    std::uint32_t& outOverrideLabel)
-{
-    outOverrideLabel = 0u;
-
-    if (!LostHostageDiscovery_IsHostageDiscoveryRadioType(radioType))
-        return false;
-
-    std::lock_guard<std::mutex> lock(g_LHD_Mutex);
-
-    if (!g_LHD_NextConvertOverride.active)
-        return false;
-
-    if (g_LHD_NextConvertOverride.radioType != radioType)
-        return false;
-
-    if (g_LHD_NextConvertOverride.overrideLabel == 0u)
-    {
-        g_LHD_NextConvertOverride = {};
-        return false;
-    }
-
-    outOverrideLabel = g_LHD_NextConvertOverride.overrideLabel;
-
-    g_LHD_PendingBySoldier.erase(g_LHD_NextConvertOverride.soldierIndex);
-    g_LHD_NextConvertOverride = {};
-    return true;
-}
 bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
     std::uint32_t ownerIndex,
     std::uint8_t radioType,
+    std::uint16_t member,
     std::uint32_t& outOverrideLabel)
 {
     outOverrideLabel = 0u;
@@ -453,19 +216,25 @@ bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
     if (!LostHostageDiscovery_IsHostageDiscoveryRadioType(radioType))
         return false;
 
-    std::lock_guard<std::mutex> lock(g_LHD_Mutex);
+    LostHostageDiscoveryReport report{};
+    {
+        std::lock_guard<std::mutex> lock(g_LHD_Mutex);
 
-    const auto it = g_LHD_PendingBySoldier.find(ownerIndex);
-    if (it == g_LHD_PendingBySoldier.end())
+        const auto it = g_LHD_ReportByMember.find(member);
+        if (it == g_LHD_ReportByMember.end())
+            return false;
+
+        report = it->second;
+        g_LHD_ReportByMember.erase(it);
+    }
+
+    if (report.label == 0u || GetTickCount64() - report.startedMs > LHD_REPORT_FRESH_MS)
         return false;
 
-    const LostHostageDiscoverySelectedRadio selected = it->second;
-    g_LHD_PendingBySoldier.erase(it);
-
-    if (!selected.active || selected.overrideLabel == 0u)
-        return false;
-
-    outOverrideLabel = selected.overrideLabel;
+    outOverrideLabel = report.label;
+    if (report.dead)
+        LogInfo("LostHostageDiscovery: soldier %u found prisoner 0x%04X dead, CP %u hears V_CPR0231 (radio 0x%02X)",
+            report.soldierIndex, static_cast<unsigned>(report.targetId), ownerIndex, static_cast<unsigned>(radioType));
     return true;
 }
 
@@ -507,11 +276,11 @@ void Remove_LostHostageDiscovery(std::uint32_t gameObjectId)
         std::lock_guard<std::mutex> lock(g_LHD_Mutex);
         g_LHD_TrackedHostagesByRawId.erase(rawGameObjectId);
 
-        for (auto it = g_LHD_PendingBySoldier.begin();
-            it != g_LHD_PendingBySoldier.end();)
+        for (auto it = g_LHD_ReportByMember.begin();
+            it != g_LHD_ReportByMember.end();)
         {
-            if (it->second.targetId == rawGameObjectId)
-                it = g_LHD_PendingBySoldier.erase(it);
+            if (it->second.targetId == rawGameObjectId && !it->second.dead)
+                it = g_LHD_ReportByMember.erase(it);
             else
                 ++it;
         }
@@ -539,13 +308,12 @@ void Dump_LostHostageDiscovery()
 
 bool Install_LostHostageDiscovery_Hooks()
 {
-    void* checkSightTarget = ResolveGameAddress(gAddr.CheckSightNoticeHostage);
     void* stepTarget = ResolveGameAddress(gAddr.StepRadioDiscovery);
 
-    if (!checkSightTarget || !stepTarget)
+    if (!stepTarget)
     {
-        LogError("LostHostageDiscovery: hook addresses missing (checkSight=%p step=%p), "
-                 "hostage-type radio off", checkSightTarget, stepTarget);
+        LogError("LostHostageDiscovery: hook address missing (step=%p), "
+                 "hostage-type radio off", stepTarget);
         return false;
     }
 
@@ -554,32 +322,22 @@ bool Install_LostHostageDiscovery_Hooks()
         LostHostageDiscovery_ResetRuntimeState_NoLock();
     }
 
-    const bool okCheckSight = CreateAndEnableHook(
-        checkSightTarget,
-        reinterpret_cast<void*>(&hkLostHostageDiscovery_CheckSightNoticeHostage),
-        reinterpret_cast<void**>(&g_LHD_OrigCheckSightNoticeHostage));
-
     const bool okStep = CreateAndEnableHook(
         stepTarget,
         reinterpret_cast<void*>(&hkLostHostageDiscovery_StepRadioDiscovery),
         reinterpret_cast<void**>(&g_LHD_OrigStepRadioDiscovery));
 
-    if (!okCheckSight)
-        LogError("LostHostageDiscovery: CheckSightNoticeHostage hook failed, "
-                 "hostage-type radio off");
     if (!okStep)
         LogError("LostHostageDiscovery: StepRadioDiscovery hook failed, "
                  "hostage-type radio off");
 
-    return okCheckSight && okStep;
+    return okStep;
 }
 
 bool Uninstall_LostHostageDiscovery_Hooks()
 {
-    DisableAndRemoveHook(ResolveGameAddress(gAddr.CheckSightNoticeHostage));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.StepRadioDiscovery));
 
-    g_LHD_OrigCheckSightNoticeHostage = nullptr;
     g_LHD_OrigStepRadioDiscovery = nullptr;
 
     {

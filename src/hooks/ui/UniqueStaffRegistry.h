@@ -10,4 +10,5 @@ namespace uniqueStaff
     const char*  KeyHoldingId(std::int32_t typeId);
     std::int32_t FreeSlotCount();
     std::int32_t PoolSize();
+    bool         IsNonVanillaTypeId(std::int32_t typeId);
 }

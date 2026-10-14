@@ -11,6 +11,9 @@
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "EquipPartParams.h"
+#include "EquipIdCompression.h"
+#include "TppEquip_ReloadEquipIdTable.h"
+#include "../equip/EquipAliasLease.h"
 
 namespace
 {
@@ -110,7 +113,7 @@ static std::uint16_t ClampPickableFieldValue(std::uint32_t fieldId, std::uint32_
     switch (fieldId)
     {
     case kTppPickableFieldEquipId:
-        return static_cast<std::uint16_t>(value & 0x7FFu);
+        return static_cast<std::uint16_t>(value & 0xFFFFu);
     case kTppPickableFieldCountRaw:
     case kTppPickableFieldSecondCountRaw:
     case kTppPickableFieldCountMax:
@@ -204,6 +207,14 @@ static bool GuardedReadCountRaw(const std::uint16_t* info, std::uint16_t& outCou
 }
 
 
+static std::uint16_t EngineFieldValue(std::uint32_t fieldId, std::uint16_t value)
+{
+    if (fieldId != kTppPickableFieldEquipId)
+        return value;
+    return static_cast<std::uint16_t>(equip::ToEngine(value));
+}
+
+
 static void ApplyOverrideToInfo(std::uint16_t* info, const PickableOverride& override_)
 {
     static const std::uint32_t kApplyOrder[kTppPickableFieldCount] =
@@ -220,23 +231,49 @@ static void ApplyOverrideToInfo(std::uint16_t* info, const PickableOverride& ove
     for (std::uint32_t fieldId : kApplyOrder)
     {
         if (override_.mask & (1u << fieldId))
-            ApplyFieldToInfo(info, fieldId, override_.values[fieldId]);
+            ApplyFieldToInfo(info, fieldId, EngineFieldValue(fieldId, override_.values[fieldId]));
     }
 }
 
 
-static int ReadLocatorEquipId(const std::uint8_t* locator)
+static constexpr std::size_t kLocatorEquipId = 0x26;
+
+static bool ReadLocatorWordSEH(const std::uint8_t* locator, std::uint16_t& out)
 {
+    out = 0;
     if (!locator)
-        return 0;
+        return false;
     __try
     {
-        return *reinterpret_cast<const std::uint16_t*>(locator + 0x26) & 0x7FF;
+        out = *reinterpret_cast<const std::uint16_t*>(locator + kLocatorEquipId);
+        return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        return 0;
+        return false;
     }
+}
+
+static void WriteLocatorWordSEH(std::uint8_t* locator, std::uint16_t value)
+{
+    __try
+    {
+        *reinterpret_cast<std::uint16_t*>(locator + kLocatorEquipId) = value;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+static bool IsRegisteredWideEquipId(std::uint16_t value)
+{
+    V_ExtendedEquipRow row{};
+    return EquipIdCompression::IsWideEquipId(value) && TppEquip_GetExtendedEquipRow(value, &row);
+}
+
+static int LocatorEquipId(std::uint16_t locatorWord)
+{
+    return IsRegisteredWideEquipId(locatorWord) ? locatorWord : (locatorWord & 0x7FF);
 }
 
 static void ApplyMagazineCounts(std::uint16_t* info, const MagazineParameters& primary,
@@ -265,8 +302,18 @@ static void ApplyMagazineCounts(std::uint16_t* info, const MagazineParameters& p
 static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo, void* statusPtr, std::uint8_t* locatorParam)
 {
     g_LastPickableSystem = thisPtr;
+    equip::NotePickableSystem(thisPtr);
+
+    std::uint16_t locatorWord = 0;
+    ReadLocatorWordSEH(locatorParam, locatorWord);
+    const bool wideLocator = IsRegisteredWideEquipId(locatorWord);
+    if (wideLocator)
+        WriteLocatorWordSEH(locatorParam, static_cast<std::uint16_t>(equip::ToEngine(locatorWord)));
 
     g_OrigCopyAndAdjustInfo(thisPtr, outInfo, statusPtr, locatorParam);
+
+    if (wideLocator)
+        WriteLocatorWordSEH(locatorParam, locatorWord);
 
     std::uint16_t locatorIndex = 0;
     PickableOverride override_{};
@@ -279,7 +326,7 @@ static void __fastcall hkCopyAndAdjustInfo(void* thisPtr, std::uint16_t* outInfo
             override_ = it->second;
     }
     const int equipId = (override_.mask & (1u << kTppPickableFieldEquipId))
-        ? override_.values[kTppPickableFieldEquipId] : ReadLocatorEquipId(locatorParam);
+        ? override_.values[kTppPickableFieldEquipId] : LocatorEquipId(locatorWord);
     MagazineParameters primary{}, underbarrel{};
     if (EquipParam_GetWeaponMagazines(equipId, primary, underbarrel))
         ApplyMagazineCounts(outInfo, primary, underbarrel);
@@ -308,7 +355,7 @@ bool Set_TppPickableFieldByIndex(std::uint32_t locatorIndex, std::uint32_t field
         std::uint16_t* liveInfo = nullptr;
         if (TryGetLivePickableInfoByIndex(g_LastPickableSystem, locatorIndex, liveInfo))
         {
-            GuardedApplyFieldToInfo(liveInfo, fieldId, value16);
+            GuardedApplyFieldToInfo(liveInfo, fieldId, EngineFieldValue(fieldId, value16));
         }
     }
 
@@ -512,6 +559,7 @@ bool Install_TppPickableHooks()
     }
 
     g_TppPickableHooksInstalled = true;
+    equip::NoteGateInstalled(equip::AliasGate::CopyAndAdjustInfo, true);
     return true;
 }
 
@@ -521,6 +569,7 @@ bool Uninstall_TppPickableHooks()
     if (!g_TppPickableHooksInstalled)
         return true;
 
+    equip::NoteGateInstalled(equip::AliasGate::CopyAndAdjustInfo, false);
     void* target = ResolveGameAddress(gAddr.CopyAndAdjustInfo);
 
     MH_DisableHook(target);

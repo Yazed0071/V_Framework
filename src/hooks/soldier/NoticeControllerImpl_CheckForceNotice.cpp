@@ -134,6 +134,11 @@ void CallComrade::DeliverComradeCallRelaxed(std::uint32_t comradeIndex, std::uin
     SoldierNotice::Add(comradeIndex, SoldierNotice::kCalledOver, callerId, nullptr);
 }
 
+void CallComrade::DeliverComradeCallOnGuard(std::uint32_t comradeIndex, std::uint16_t callerId)
+{
+    SoldierNotice::Add(comradeIndex, SoldierNotice::kCalledForHelp, callerId, nullptr);
+}
+
 bool Install_NoticeControllerImpl_CheckForceNotice_Hook()
 {
     if (g_HookTarget)

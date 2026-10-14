@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BuddyDogDamageHandlerImpl_ProcessDamages_Patches();
+bool Uninstall_BuddyDogDamageHandlerImpl_ProcessDamages_Patches();

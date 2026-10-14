@@ -1,8 +1,10 @@
 #include "pch.h"
 
 #include "../outfit/AdditionalMotionTable_GetMtarPathId.h"
+#include "../player/AnimControl_GetAnimFileFromGaniPath.h"
 #include "../shell/RemoteMissile.h"
 #include "DeployGuard.h"
+#include "EquipAliasLease.h"
 #include "EquipPartParams.h"
 #include "CustomScopeUi.h"
 #include "LaserSight_UpdatePrim.h"
@@ -38,11 +40,12 @@
 #include "BulletLockOn.h"
 #include "../../lua/V_TppEquipLib.h"
 #include "BulletMultiShot.h"
+#include "SupportWeaponRegistry.h"
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "TppEquipConstRegistry.h"
 #include "../../core/V_FrameWorkState.h"
-
-namespace outfit { void EndBootRestoreScrub(const char* reason); }
+#include "../buddy/EquipControllerImpl_InitCurrentSlot.h"
+#include "SupportStockLease.h"
 
 namespace
 {
@@ -108,6 +111,7 @@ namespace
     static PartBuffer g_UnderBarrel = { "underBarrel", 0x48, 3, 22, 255, {}, false, 23, {}, kVanillaSpace_UnderBarrel };
     static std::map<int, int> g_UnderBarrelMagazine;
     static std::set<int> g_SharedMagazineLanes;
+    static std::set<int> g_LooseMagazineLanes;
     static PartBuffer g_Option   = { "option",   0x30, 1, 9,  255, {}, false, 10,  {}, kVanillaSpace_Option };
     static PartBuffer g_Bullet   = { "bullet",   0x50, 14, 112, 255, {}, false, 113, {}, -1 };
 
@@ -284,6 +288,7 @@ namespace
         int motionFrom = 0;
         int motionType = -1;
         int magazineDonor = 0;
+        bool looseDonor = false;
     };
     static const int kWideIdBase = 0x100;
     static const int kAliasReserve = 16;
@@ -395,7 +400,8 @@ namespace
                 continue;
             }
             if (pb.persistReserved.count(pb.nextId) != 0
-                || PartIdTakenThisSession(pb, pb.nextId))
+                || PartIdTakenThisSession(pb, pb.nextId)
+                || (&pb == &g_Bullet && SupportStockLease::IsReservedStockByte(pb.nextId)))
             {
                 ++pb.nextId;
                 continue;
@@ -2634,7 +2640,7 @@ int __cdecl l_SetMagazine(lua_State* L)
         const WidePartState* existing = WideStateFor(kVanillaSpace_Magazine, ammoId);
         if (existing->rowSet && existing->row.size() == 8
             && (existing->magazineDonor > 0 || g_SharedMagazineLanes.count(existing->alias))
-            && (existing->row[6] != static_cast<std::uint8_t>(bulletId & 0xFF)
+            && ((!existing->looseDonor && existing->row[6] != static_cast<std::uint8_t>(bulletId & 0xFF))
                 || (magazineType > 0 && magazineType != existing->motionType)))
         {
             LogWarn("SetMagazine ammoId=%d: bullet/motion already bound, rejected until restart", ammoId);
@@ -2654,8 +2660,10 @@ int __cdecl l_SetMagazine(lua_State* L)
     if (!buf)
         return 0;
 
-    if (!wideRow && g_SharedMagazineLanes.count(ammoId)
-        && (buf[static_cast<size_t>(ammoId - 1) * 8 + 6] != static_cast<std::uint8_t>(bulletId & 0xFF)
+    const bool bulletLockedLane = g_SharedMagazineLanes.count(ammoId) != 0;
+    if (!wideRow && (bulletLockedLane || g_LooseMagazineLanes.count(ammoId))
+        && ((bulletLockedLane
+             && buf[static_cast<size_t>(ammoId - 1) * 8 + 6] != static_cast<std::uint8_t>(bulletId & 0xFF))
             || (magazineType > 0 && g_MagazineTypeExt[ammoId] != magazineType)))
     {
         LogWarn("SetMagazine ammoId=%d: bullet/motion shared by wide magazines, rejected until restart", ammoId);
@@ -3581,6 +3589,62 @@ namespace
         return 0;
     }
 
+    static void CollectMagazineDonorLanesLocked(bool (&lanes)[256])
+    {
+        for (int donor = 1; donor <= g_Magazine.stockCount; ++donor)
+            lanes[donor] = true;
+        for (const auto& named : g_Magazine.nameToId)
+            if (named.second > g_Magazine.stockCount && named.second < 256)
+                lanes[named.second] = true;
+        for (const auto& entry : g_WideParts[kVanillaSpace_Magazine])
+            if (entry.second.alias > 0 && entry.second.alias < 256)
+                lanes[entry.second.alias] = true;
+    }
+
+    static int BindLooseMagazineLaneLocked(WidePartState& w, int id)
+    {
+        if (!WideMagazinesPlanned() || !w.rowSet || w.row.size() != 8)
+            return 0;
+        EnsurePartTypeExt(g_MagazineTypeExt, g_MagazineTypeExtReady,
+                          gAddr.MotionLoaderImpl_MagazineTypeTable,
+                          kMagazineTypeVanillaRows);
+        const auto* rows = (EnsurePartShadow(g_Magazine) && g_MagazineTypeExtReady)
+            ? PartCurrentBuf(g_Magazine) : nullptr;
+        if (!rows)
+            return 0;
+        bool lanes[256]{};
+        CollectMagazineDonorLanesLocked(lanes);
+        int sameType = 0;
+        int anyType = 0;
+        for (int donor = 1; donor <= 255; ++donor)
+        {
+            if (!lanes[donor] || rows[static_cast<size_t>(donor - 1) * 8 + 6] == 0)
+                continue;
+            const int laneType = g_MagazineTypeExt[donor];
+            if (laneType == (w.motionType > 0 ? w.motionType : 0))
+            {
+                sameType = donor;
+                break;
+            }
+            if (w.motionType <= 0 && !anyType)
+                anyType = donor;
+        }
+        const int donor = sameType ? sameType : anyType;
+        if (!donor)
+            return 0;
+        if (!sameType)
+        {
+            w.motionType = g_MagazineTypeExt[donor];
+            LogWarn("EquipParam: magazine id %d reloads with magazine type %d (lane %d); set magazineType to pick one",
+                id, w.motionType, donor);
+        }
+        w.magazineDonor = donor;
+        w.looseDonor = true;
+        g_LooseMagazineLanes.insert(donor);
+        LogInfo("EquipParam: magazine id %d shares lane %d (no lane with its bullet left)", id, donor);
+        return donor;
+    }
+
     static int ResolvePartByteLocked(int space, int id)
     {
         if (id < kWideIdBase)
@@ -3603,6 +3667,8 @@ namespace
         }
         if (w->alias)
             return w->alias;
+        if (w->looseDonor && w->magazineDonor > 0)
+            return w->magazineDonor;
 
         if (space == kVanillaSpace_Magazine && WideMagazinesPlanned()
             && w->rowSet && w->row.size() == 8)
@@ -3613,14 +3679,7 @@ namespace
             const auto* rows = (EnsurePartShadow(g_Magazine) && g_MagazineTypeExtReady)
                 ? PartCurrentBuf(g_Magazine) : nullptr;
             bool compatibleLanes[256]{};
-            for (int donor = 1; donor <= g_Magazine.stockCount; ++donor)
-                compatibleLanes[donor] = true;
-            for (const auto& named : g_Magazine.nameToId)
-                if (named.second > g_Magazine.stockCount && named.second < 256)
-                    compatibleLanes[named.second] = true;
-            for (const auto& entry : g_WideParts[kVanillaSpace_Magazine])
-                if (entry.second.alias > 0 && entry.second.alias < 256)
-                    compatibleLanes[entry.second.alias] = true;
+            CollectMagazineDonorLanesLocked(compatibleLanes);
             int typed = 0;
             int untyped = 0;
             for (int donor = 1; rows && donor <= 255; ++donor)
@@ -3658,6 +3717,12 @@ namespace
             alias = AllocateReceiverLaneSlot();
         else if (pb && EnsurePartShadow(*pb))
             alias = AllocateAliasByteLocked(*pb);
+        if (!alias && space == kVanillaSpace_Magazine)
+        {
+            const int loose = BindLooseMagazineLaneLocked(*w, id);
+            if (loose)
+                return loose;
+        }
         if (!alias)
         {
             static std::set<long long> noLaneLogged;
@@ -4024,9 +4089,21 @@ namespace
 
     static unsigned short __fastcall hkGetAttackIdByEquipId(void* self, int equipId)
     {
+        const std::uint32_t supportWeapon = SupportWeapon::RunningItem(static_cast<std::uint32_t>(equipId));
+        const std::uint32_t familyFrom    = SupportWeapon::FamilyFrom(supportWeapon);
+        if (familyFrom != 0)
+        {
+            const int attackId = SupportWeapon::AttackId(supportWeapon);
+            if (attackId > 0)
+                return static_cast<unsigned short>(attackId);
+            equipId = static_cast<int>(familyFrom);
+        }
+
         const int declared = EquipParam_GetDeclaredWeaponAttackId(equipId);
         if (declared > 0)
             return static_cast<unsigned short>(declared & 0xFFFF);
+        if (GunBasic_WeaponHasNoRow(equipId))
+            return 0;   // the original reads receiver 0 as a null pointer
 
         __try
         {
@@ -4039,7 +4116,7 @@ namespace
             if (now - lastMs > 2000)
             {
                 lastMs = now;
-                LogWarn("EquipParam: GetAttackIdByEquipId fault caught, equipId=%d has no gunBasic row, attackId 0",
+                LogWarn("EquipParam: GetAttackIdByEquipId fault caught for equipId=%d, attackId 0",
                     equipId);
             }
             return 0;
@@ -4395,6 +4472,42 @@ namespace
         }
     }
 
+    static bool ReadOutIdSEH(const std::uint32_t* out, std::uint32_t& value)
+    {
+        __try
+        {
+            value = *out;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void WriteOutIdSEH(std::uint32_t* out, std::uint32_t value)
+    {
+        __try
+        {
+            *out = value;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void HandAmmoAliasToEngine(std::uint32_t* equipAmmoOut, unsigned int gunEngineId)
+    {
+        std::uint32_t ammoId = 0;
+        if (!equipAmmoOut || !ReadOutIdSEH(equipAmmoOut, ammoId) || ammoId == 0)
+            return;
+        const std::int32_t engineId = equip::ToEngine(static_cast<std::int32_t>(ammoId));
+        if (engineId == static_cast<std::int32_t>(ammoId))
+            return;
+        WriteOutIdSEH(equipAmmoOut, static_cast<std::uint32_t>(engineId));
+        equip::NoteAmmoAliasFor(static_cast<std::int32_t>(gunEngineId), engineId);
+    }
+
     static void __fastcall hkSetUpGunInfo(void* self, void* desc,
                                           unsigned int equipId, void* gunInfo,
                                           void* a5, void* a6, void* a7,
@@ -4467,6 +4580,11 @@ namespace
         const int ok = CallOrigGunInfoSEH(self, passDesc, equipId, gunInfo,
                                           a5, a6, a7, a8, a9);
         RestoreGunInfoSwap(st);
+        if (ok == 1)
+        {
+            HandAmmoAliasToEngine(static_cast<std::uint32_t*>(a8), equipId);
+            HandAmmoAliasToEngine(static_cast<std::uint32_t*>(a9), equipId);
+        }
 
         if (ok == 1 && gunInfo && EquipParam_WideMagazinesReady())
         {
@@ -4682,7 +4800,8 @@ namespace
         if (!g_HasSwaps.load(std::memory_order_relaxed))
             return equipId;
         std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
-        const auto it = g_FamilyFrom.find(equipId);
+        const auto it = g_FamilyFrom.find(
+            static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(equipId))));
         return it != g_FamilyFrom.end() ? it->second : equipId;
     }
 
@@ -4732,8 +4851,10 @@ namespace
         return w & 0x3F;
     }
 
-    static bool GetGbForEquipId(std::uint32_t equipId, FamilyGb& out)
+    static bool GetGbForEquipId(std::uint32_t engineOrRealId, FamilyGb& out)
     {
+        const auto equipId =
+            static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(engineOrRealId)));
         {
             std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
             const auto it = g_GbByEquipId.find(equipId);
@@ -4778,6 +4899,12 @@ namespace
         return f.ok && f.gb[0] != 0;
     }
 
+}
+
+int EquipParam_VanillaPartCount(int space)
+{
+    const PartBuffer* pb = SpaceBuffer(space);
+    return pb ? pb->stockCount : 0;
 }
 
 int EquipParam_GetWideAlias(int space, int wideId)
@@ -4950,8 +5077,6 @@ namespace
  
     static int ReadU32AtSEH(const void* base, size_t off, std::uint32_t& out);
 
-    using GetAnimFromGani_t = void*(__fastcall*)(void*, unsigned long long);
-    static GetAnimFromGani_t g_OrigGetAnimFromGani = nullptr;
     static void* g_GetAnimFromGaniAddr = nullptr;
 
     static uintptr_t GetAnimFileFromGaniPathAddr()
@@ -5803,6 +5928,8 @@ namespace
         int   idx   = 0;
         if (!MotionEntrySlot(equipId, &table, &idx))
             return false;
+        if (const std::int32_t alias = equip::CurrentAliasOf(static_cast<std::int32_t>(equipId)))
+            WriteMotionEntry(static_cast<std::uint32_t>(alias), entry);
         return WritePtrAtSEH(table, 8 + static_cast<size_t>(idx) * 8, entry);
     }
 
@@ -5989,6 +6116,8 @@ namespace
     static void* __fastcall hkGetAnimFile(void* mtar, unsigned long long clip)
     {
         NoteLiveMtar(mtar);
+        if (void* quiet = QuietWeaponMotion_GetAnimFile(mtar, clip, reinterpret_cast<void*>(g_OrigGetAnimFile)))
+            return quiet;
         void* swap = outfit::RedirectMotionMtarForClip(mtar);
         NoteLiveMtar(swap);
         void* r = g_OrigGetAnimFile(swap ? swap : mtar, clip);
@@ -7225,10 +7354,13 @@ namespace
         }
     }
 
-    static void __fastcall hkAddMtarBlockPackagePaths(void* arr, std::uint32_t equipId)
+    static void __fastcall hkAddMtarBlockPackagePaths(void* arr, std::uint32_t engineOrRealId)
     {
-        g_OrigAddMtarBlockPackagePaths(arr, equipId);
-        if (!arr || equipId == 0 || equipId >= 0x800)
+        g_OrigAddMtarBlockPackagePaths(arr, engineOrRealId);
+        const auto equipId =
+            static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(engineOrRealId)));
+        if (!arr || equipId == 0
+            || equipId > static_cast<std::uint32_t>(EquipIdCompression::kWideEquipIdLast))
             return;
         if (TppEquip_GetSubIdForEquipId(static_cast<int>(equipId)) == 0)
             return;
@@ -7256,7 +7388,7 @@ namespace
             if (mlv)
             {
                 std::uint8_t ids[16] = {};
-                std::uint32_t eqIn = equipId;
+                std::uint32_t eqIn = engineOrRealId;
                 const std::uint32_t n =
                     CallMtarIdsSEH(ReadPtrAtSEH(mlv, 0x18), ml, ids, &eqIn);
                 std::set<std::string> seenRoots;
@@ -8021,13 +8153,6 @@ namespace
         return r;
     }
 
-    static void* __fastcall hkGetAnimFromGani(void* self, unsigned long long pathId)
-    {
-        void* r = g_OrigGetAnimFromGani(self, pathId);
-        outfit::NoteAnimControl(self);
-        return r;
-    }
-
     static void ApplyKeyTypeSwaps(void* self, int slot, KeyTypeSwap& st)
     {
         st.n = 0;
@@ -8486,7 +8611,6 @@ namespace
 
     static void __fastcall hkSetupWeaponInfo(void* self, void* work, int slot)
     {
-        outfit::EndBootRestoreScrub("first SetupWeaponInfo - player is live");
         DeployGuard::OnPlayerLive();
 
         if (self)
@@ -8567,6 +8691,12 @@ namespace
     }
 }
 
+void EquipParam_BindAliasMotion(int aliasId, int wideId)
+{
+    if (void* entry = ReadMotionEntry(static_cast<std::uint32_t>(wideId)))
+        WriteMotionEntry(static_cast<std::uint32_t>(aliasId), entry);
+}
+
 void EquipParam_SetWeaponHandling(std::uint32_t equipId, std::uint32_t familyFrom)
 {
     if (equipId == 0)
@@ -8604,7 +8734,8 @@ void EquipParam_SetWeaponHandling(std::uint32_t equipId, std::uint32_t familyFro
 unsigned int EquipParam_GetWeaponHandlingDonor(unsigned int equipId)
 {
     std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
-    const auto it = g_FamilyFrom.find(equipId);
+    const auto it = g_FamilyFrom.find(
+        static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(equipId))));
     return it == g_FamilyFrom.end() ? 0 : it->second;
 }
 
@@ -8670,9 +8801,7 @@ bool Install_WeaponKeyLog()
         else
         {
             g_GetAnimFromGaniAddr = ganiTarget;
-            const bool ganiOk = CreateAndEnableHook(
-                g_GetAnimFromGaniAddr, &hkGetAnimFromGani,
-                reinterpret_cast<void**>(&g_OrigGetAnimFromGani));
+            const bool ganiOk = AnimControl_GetAnimFileFromGaniPath_Watch(&outfit::NoteAnimControl);   // shares FrameWorkMotionArchive's hook: one MinHook per target
             if (!ganiOk)
             {
                 LogError("WeaponKey: GetAnimFileFromGaniPath hook failed, outfit revert may miss anim controls");
@@ -8772,10 +8901,9 @@ void Uninstall_WeaponKeyLog()
 
     if (g_GetAnimFromGaniAddr)
     {
-        DisableAndRemoveHook(g_GetAnimFromGaniAddr);
+        AnimControl_GetAnimFileFromGaniPath_Watch(nullptr);
         g_GetAnimFromGaniAddr = nullptr;
     }
-    g_OrigGetAnimFromGani = nullptr;
 
     if (g_RealizeAddr)
     {
@@ -9340,6 +9468,15 @@ namespace
                 std::int32_t* srcW =
                     reinterpret_cast<std::int32_t*>(sourceReq + static_cast<std::size_t>(i) * 0x18);
                 const std::int32_t id = *srcW;
+                const std::int32_t movedTo = equip::IsLeasedAlias(id) ? id : equip::ResolveReal(id);
+                if (movedTo != id && !WeaponEquipIdIsPhantom(movedTo))
+                {
+                    *srcW = movedTo;
+                    if (workingReq)
+                        *reinterpret_cast<std::int32_t*>(
+                            workingReq + 0x10 + static_cast<std::size_t>(i) * 0x18) = movedTo;
+                    continue;
+                }
                 if (!WeaponEquipIdIsPhantom(id))
                 {
                     if (id > 0 && id < 0x289 && *outPinnedCount < 3)
@@ -9413,6 +9550,113 @@ namespace
         {
             return nullptr;
         }
+    }
+
+    static std::int32_t* LoadoutWorkingCellSEH(void* self, std::uint32_t slot, int sub)
+    {
+        __try
+        {
+            std::uint8_t* self8 = static_cast<std::uint8_t*>(self);
+            std::uint8_t* loadoutSubsys = *reinterpret_cast<std::uint8_t**>(self8 + 0x1a0);
+            std::uint8_t* workingBase = *reinterpret_cast<std::uint8_t**>(self8 + 0x1e0);
+            if (!loadoutSubsys || !workingBase) return nullptr;
+            const std::int32_t bias = *reinterpret_cast<std::int32_t*>(loadoutSubsys + 0xc);
+            std::uint8_t* workingReq = workingBase
+                + static_cast<std::size_t>(static_cast<std::int32_t>(slot) - bias) * 0xb0;
+            return reinterpret_cast<std::int32_t*>(
+                workingReq + 0x10 + static_cast<std::size_t>(sub) * 0x18);
+        }
+        __except (SehAvOnly(GetExceptionCode()))
+        {
+            return nullptr;
+        }
+    }
+
+    struct EngineIdSwap
+    {
+        std::int32_t* cell = nullptr;
+        std::int32_t  realId = 0;
+        std::int32_t  engineId = 0;
+    };
+
+    static bool ReadCellSEH(const std::int32_t* cell, std::int32_t& out)
+    {
+        __try
+        {
+            out = *cell;
+            return true;
+        }
+        __except (SehAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+
+    static void WriteCellIfSEH(std::int32_t* cell, std::int32_t expect, std::int32_t value)
+    {
+        __try
+        {
+            if (*cell == expect)
+                *cell = value;
+        }
+        __except (SehAvOnly(GetExceptionCode()))
+        {
+        }
+    }
+
+    static int SwapLoadoutWeaponsToEngineIds(void* self, std::uint32_t slot, EngineIdSwap* swaps)
+    {
+        int count = 0;
+        for (int sub = 0; sub < 3; ++sub)
+        {
+            std::int32_t* cells[2] = { LoadoutSourceCellSEH(self, slot, sub),
+                                       LoadoutWorkingCellSEH(self, slot, sub) };
+            for (std::int32_t* cell : cells)
+            {
+                std::int32_t value = 0;
+                if (!cell || !ReadCellSEH(cell, value) || value <= 0)
+                    continue;
+                const std::int32_t realId = equip::ResolveReal(value);
+                const std::int32_t engineId = equip::ToEngine(realId);
+                if (engineId == value)
+                    continue;
+                WriteCellIfSEH(cell, value, engineId);
+                swaps[count++] = { cell, realId, engineId };
+            }
+        }
+        return count;
+    }
+
+    static constexpr std::size_t kLoadoutListOffsets[] = { 0x48, 0x68 };   // LoadoutRequest: support u32 x8, items u32 x8
+    static constexpr int         kLoadoutListCells     = 8;
+
+    static int SwapLoadoutSupportItemsToEngineIds(void* self, std::uint32_t slot, EngineIdSwap* swaps, int count)
+    {
+        std::uint8_t* requests[2] = {
+            reinterpret_cast<std::uint8_t*>(LoadoutSourceCellSEH(self, slot, 0)),
+            reinterpret_cast<std::uint8_t*>(LoadoutWorkingCellSEH(self, slot, 0)) };
+        for (std::uint8_t* request : requests)
+        {
+            if (!request)
+                continue;
+            for (const std::size_t list : kLoadoutListOffsets)
+                for (int i = 0; i < kLoadoutListCells; ++i)
+                {
+                    auto* cell = reinterpret_cast<std::int32_t*>(request + list + i * sizeof(std::int32_t));
+                    std::int32_t value = 0;
+                    if (!ReadCellSEH(cell, value) || value <= 0)
+                        continue;
+                    const std::int32_t realId = equip::ResolveReal(value);
+                    std::int32_t engineId = equip::ToEngine(realId);
+                    if (engineId == EquipIdCompression::kNoEquipId)
+                        engineId = 0;
+                    if (engineId == value)
+                        continue;
+                    WriteCellIfSEH(cell, value, engineId);
+                    swaps[count++] = { cell, realId, engineId };
+                }
+        }
+        return count;
     }
 
     static std::uint16_t* LoadoutSourceMaskSEH(void* self, std::uint32_t slot)
@@ -9543,10 +9787,17 @@ namespace
         int suppressedCount = 0;
         if (okBefore >= 1)
         {
-            DeployGuard::NoteLoadoutSlot(slot, sBefore);
+            std::int32_t realBefore[3] = {};
+            for (int i = 0; i < 3; ++i)
+                realBefore[i] = equip::FromEngine(sBefore[i]);
+            DeployGuard::NoteLoadoutSlot(slot, realBefore);
             if (DeployGuard::ShouldDropExtendedIds())
                 suppressedCount = SuppressExtendedLoadoutIdsSEH(self, slot, suppressed);
         }
+
+        EngineIdSwap swaps[48];
+        int swapCount = SwapLoadoutWeaponsToEngineIds(self, slot, swaps);
+        swapCount = SwapLoadoutSupportItemsToEngineIds(self, slot, swaps, swapCount);
 
         t_LoadoutBuildActive = true;
         __try
@@ -9564,6 +9815,9 @@ namespace
             }
         }
         t_LoadoutBuildActive = false;
+
+        for (int i = 0; i < swapCount; ++i)
+            WriteCellIfSEH(swaps[i].cell, swaps[i].engineId, swaps[i].realId);
 
         if (suppressedCount > 0)
             RestoreExtendedLoadoutIdsSEH(self, slot, suppressed);
@@ -9727,10 +9981,11 @@ namespace
     struct DamageRow
     {
         int damageId;
-        int lethalDamage, staminaDamage, impactForce, lethalDamageUI;
-        int unk3, unk4, unk5, unk6, unk7, unk8;
+        int lethalDamage, staminaDamage, impactForce;
+        int oldLethalDamageVsSoldier, oldLethalDamageVsPlayer, oldLethalDamageVsVehicle;
+        int oldStaminaDamageVsSoldier, oldStaminaDamageVsPlayer, blowPower, shieldDamage;
         int flags;
-        int damageSource, injureType, injurePart, unk11, unk12;
+        int damageSource, injureType, injurePart, injureMaxDistance, injureRate;
     };
 
     static std::vector<DamageRow> g_DamageRows;
@@ -9795,18 +10050,18 @@ namespace
             *reinterpret_cast<std::uint16_t*>(p + 0x00) = static_cast<std::uint16_t>(r.lethalDamage & 0xFFFF);
             *reinterpret_cast<std::uint16_t*>(p + 0x02) = static_cast<std::uint16_t>(r.staminaDamage & 0xFFFF);
             *reinterpret_cast<std::uint16_t*>(p + 0x04) = static_cast<std::uint16_t>(r.impactForce & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x06) = static_cast<std::uint16_t>(r.lethalDamageUI & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x08) = static_cast<std::uint16_t>(r.unk3 & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x0a) = static_cast<std::uint16_t>(r.unk4 & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x0c) = static_cast<std::uint16_t>(r.unk5 & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x0e) = static_cast<std::uint16_t>(r.unk6 & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x10) = static_cast<std::uint16_t>(r.unk7 & 0xFFFF);
-            *reinterpret_cast<std::uint16_t*>(p + 0x12) = static_cast<std::uint16_t>(r.unk8 & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x06) = static_cast<std::uint16_t>(r.oldLethalDamageVsSoldier & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x08) = static_cast<std::uint16_t>(r.oldLethalDamageVsPlayer & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x0a) = static_cast<std::uint16_t>(r.oldLethalDamageVsVehicle & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x0c) = static_cast<std::uint16_t>(r.oldStaminaDamageVsSoldier & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x0e) = static_cast<std::uint16_t>(r.oldStaminaDamageVsPlayer & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x10) = static_cast<std::uint16_t>(r.blowPower & 0xFFFF);
+            *reinterpret_cast<std::uint16_t*>(p + 0x12) = static_cast<std::uint16_t>(r.shieldDamage & 0xFFFF);
             *reinterpret_cast<std::uint16_t*>(p + 0x14) = static_cast<std::uint16_t>(r.flags & 0xFFFF);
             p[0x16] = static_cast<std::uint8_t>(r.damageSource & 0xFF);
             p[0x17] = static_cast<std::uint8_t>((r.injureType & 0xF) | ((r.injurePart & 0xF) << 4));
-            p[0x18] = static_cast<std::uint8_t>(r.unk11 & 0xFF);
-            p[0x19] = static_cast<std::uint8_t>(r.unk12 & 0xFF);
+            p[0x18] = static_cast<std::uint8_t>(r.injureMaxDistance & 0xFF);
+            p[0x19] = static_cast<std::uint8_t>(r.injureRate & 0xFF);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -9908,18 +10163,32 @@ int __cdecl l_SetDamage(lua_State* L)
     ReadNamedInt(L, 1, "lethalDamage",   r.lethalDamage);
     ReadNamedInt(L, 1, "staminaDamage",  r.staminaDamage);
     ReadNamedInt(L, 1, "impactForce",    r.impactForce);
-    ReadNamedInt(L, 1, "lethalDamageUI", r.lethalDamageUI);
-    ReadNamedInt(L, 1, "unk3", r.unk3);
-    ReadNamedInt(L, 1, "unk4", r.unk4);
-    ReadNamedInt(L, 1, "unk5", r.unk5);
-    ReadNamedInt(L, 1, "unk6", r.unk6);
-    ReadNamedInt(L, 1, "unk7", r.unk7);
-    ReadNamedInt(L, 1, "unk8", r.unk8);
+    ReadNamedInt(L, 1, "lethalDamageUI", r.oldLethalDamageVsSoldier);   // old names keep the stored value as given
+    ReadNamedInt(L, 1, "unk3", r.oldLethalDamageVsPlayer);
+    ReadNamedInt(L, 1, "unk4", r.oldLethalDamageVsVehicle);
+    ReadNamedInt(L, 1, "unk12", r.injureRate);
+
+    auto readVanillaLethal = [&](const char* name, int& out)   // DamageParameterTables.lua units: the game's loader keeps a tenth
+    {
+        double value = 0.0;
+        if (ReadNamedFloat(L, 1, name, value))
+            out = static_cast<int>(static_cast<long long>(static_cast<float>(value) * 0.1f));
+    };
+    readVanillaLethal("oldLethalDamageVsSoldier", r.oldLethalDamageVsSoldier);
+    readVanillaLethal("oldLethalDamageVsPlayer",  r.oldLethalDamageVsPlayer);
+    readVanillaLethal("oldLethalDamageVsVehicle", r.oldLethalDamageVsVehicle);
+    double injureRatePercent = 0.0;
+    if (ReadNamedFloat(L, 1, "injureRate", injureRatePercent))
+        r.injureRate = static_cast<int>(static_cast<long long>(static_cast<float>(injureRatePercent) * 0.01f * 200.0f));   // percent, stored doubled like the game's loader
+
+    ReadNamedIntAlias(L, 1, "oldStaminaDamageVsSoldier", "unk5", r.oldStaminaDamageVsSoldier);
+    ReadNamedIntAlias(L, 1, "oldStaminaDamageVsPlayer",  "unk6", r.oldStaminaDamageVsPlayer);
+    ReadNamedIntAlias(L, 1, "blowPower",                 "unk7", r.blowPower);
+    ReadNamedIntAlias(L, 1, "shieldDamage",              "unk8", r.shieldDamage);
+    ReadNamedIntAlias(L, 1, "injureMaxDistance",         "unk11", r.injureMaxDistance);
     ReadNamedInt(L, 1, "damageSource", r.damageSource);
     ReadNamedInt(L, 1, "injureType",   r.injureType);
     ReadNamedInt(L, 1, "injurePart",   r.injurePart);
-    ReadNamedInt(L, 1, "unk11", r.unk11);
-    ReadNamedInt(L, 1, "unk12", r.unk12);
 
     auto warnWidth = [&](const char* name, int v, int maxV)
     {
@@ -9930,18 +10199,18 @@ int __cdecl l_SetDamage(lua_State* L)
     warnWidth("lethalDamage",   r.lethalDamage,   0xFFFF);
     warnWidth("staminaDamage",  r.staminaDamage,  0xFFFF);
     warnWidth("impactForce",    r.impactForce,    0xFFFF);
-    warnWidth("lethalDamageUI", r.lethalDamageUI, 0xFFFF);
-    warnWidth("unk3", r.unk3, 0xFFFF);
-    warnWidth("unk4", r.unk4, 0xFFFF);
-    warnWidth("unk5", r.unk5, 0xFFFF);
-    warnWidth("unk6", r.unk6, 0xFFFF);
-    warnWidth("unk7", r.unk7, 0xFFFF);
-    warnWidth("unk8", r.unk8, 0xFFFF);
+    warnWidth("oldLethalDamageVsSoldier (stored)",  r.oldLethalDamageVsSoldier,  0xFFFF);
+    warnWidth("oldLethalDamageVsPlayer (stored)",   r.oldLethalDamageVsPlayer,   0xFFFF);
+    warnWidth("oldLethalDamageVsVehicle (stored)",  r.oldLethalDamageVsVehicle,  0xFFFF);
+    warnWidth("oldStaminaDamageVsSoldier", r.oldStaminaDamageVsSoldier, 0xFFFF);
+    warnWidth("oldStaminaDamageVsPlayer",  r.oldStaminaDamageVsPlayer,  0xFFFF);
+    warnWidth("blowPower",                 r.blowPower,                 0xFFFF);
+    warnWidth("shieldDamage",              r.shieldDamage,              0xFFFF);
     warnWidth("damageSource", r.damageSource, 0xFF);
     warnWidth("injureType",   r.injureType,   0xF);
     warnWidth("injurePart",   r.injurePart,   0xF);
-    warnWidth("unk11", r.unk11, 0xFF);
-    warnWidth("unk12", r.unk12, 0xFF);
+    warnWidth("injureMaxDistance",   r.injureMaxDistance, 0xFF);
+    warnWidth("injureRate (stored)", r.injureRate,        0xFF);
 
     auto readFlag = [&](const char* name, const char* legacy) -> int
     {
@@ -9952,7 +10221,7 @@ int __cdecl l_SetDamage(lua_State* L)
             return 1;
         return 0;
     };
-    const int hitNPC       = readFlag("hitNPC", nullptr);
+    const int isBullet     = readFlag("isBullet", "hitNPC");
     const int isSniper     = readFlag("isSniper", "unk14");
     const int isShotgun    = readFlag("isShotgun", "unk15");
     const int isTranq      = readFlag("isTranq", nullptr);
@@ -9968,7 +10237,7 @@ int __cdecl l_SetDamage(lua_State* L)
     const int isVehicleHit = readFlag("isVehicleHit", "unk24");
     const int unk25        = readFlag("unk25", nullptr);
     const int isPenetrating = readFlag("isPenetrating", "unk28");
-    r.flags = (hitNPC ? 0x1 : 0)   | (isSniper ? 0x2 : 0)        | (isShotgun ? 0x4 : 0)    | (isTranq ? 0x8 : 0)
+    r.flags = (isBullet ? 0x1 : 0) | (isSniper ? 0x2 : 0)        | (isShotgun ? 0x4 : 0)    | (isTranq ? 0x8 : 0)
             | (isStun ? 0x10 : 0)  | (isExplosive ? 0x20 : 0)    | (isMelee ? 0x40 : 0)     | (isBlade ? 0x80 : 0)
             | (isFire ? 0x100 : 0) | (isWater ? 0x200 : 0)       | (isElectric ? 0x400 : 0) | (isParasite ? 0x800 : 0)
             | (isGas ? 0x1000 : 0) | (isVehicleHit ? 0x2000 : 0) | (unk25 ? 0x4000 : 0)     | (isPenetrating ? 0x8000 : 0);
@@ -10231,6 +10500,8 @@ namespace
 
     static unsigned short SafeGetAttackIdSEH(void* self, int equipId)
     {
+        if (GunBasic_WeaponHasNoRow(equipId))
+            return 0;
         __try
         {
             return g_OrigGetAttackId(self, equipId);
@@ -10474,6 +10745,20 @@ bool EquipParam_WideMagazinesReady()
         && g_OrigSetUpGunInfo && TppEquip_WideAmmoRootReady();
 }
 
+std::uint32_t EquipParam_GetEquipType(std::uint32_t equipId)
+{
+    return GetEquipTypeForEquipId(equipId);
+}
+
+bool EquipParam_IsBulletIdTaken(int bulletId)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    EnsurePartPersistLoaded(g_Bullet);
+    return bulletId <= g_Bullet.stockCount
+        || g_Bullet.persistReserved.count(bulletId) != 0
+        || PartIdTakenThisSession(g_Bullet, bulletId);
+}
+
 bool EquipParam_GetMagazineParameters(int ammoId, MagazineParameters& parameters)
 {
     parameters = {};
@@ -10526,6 +10811,40 @@ int EquipParam_GetMagazineBulletId(int ammoId)
         return 0;
     const int b = ReadByteAtSEH(row, 6);
     return b < 0 ? 0 : b;
+}
+
+int EquipParam_GetBulletType(int bulletId)
+{
+    if (bulletId <= 0)
+        return -1;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const int rows = g_Bullet.active ? g_Bullet.maxId : g_Bullet.stockCount;
+    if (bulletId > rows)
+        return -1;
+    std::uint8_t* buf = PartCurrentBuf(g_Bullet);
+    if (!buf)
+        return -1;
+    return ReadByteAtSEH(buf + static_cast<size_t>(bulletId - 1) * 14, 0x0A); // bullet row byte 0x0A is the bullet type
+}
+
+bool EquipParam_IsSuppressorMuzzleOption(int muzzleOptionId)
+{
+    if (muzzleOptionId <= 0)
+        return false;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (muzzleOptionId >= kWideIdBase)
+    {
+        const WidePartState* w = WideStateFor(kVanillaSpace_MuzzleOption, muzzleOptionId);
+        return w && w->rowSet && w->row.size() >= 3 && (w->row[2] & 1) != 0;
+    }
+    const int rows = g_Muzzle.active ? g_Muzzle.maxId : g_Muzzle.stockCount;
+    if (muzzleOptionId > rows)
+        return false;
+    std::uint8_t* buf = PartCurrentBuf(g_Muzzle);
+    if (!buf)
+        return false;
+    const int b = ReadByteAtSEH(buf + static_cast<size_t>(muzzleOptionId - 1) * 3, 2); // muzzle option row: grouping, durability, suppressor
+    return b > 0 && (b & 1) != 0;
 }
 
 int EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId)

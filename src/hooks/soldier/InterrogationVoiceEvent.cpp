@@ -6,9 +6,11 @@
 #include <unordered_map>
 
 #include "AddressSet.h"
+#include "CpRadioVariants.h"
 #include "HookUtils.h"
 #include "InterrogationVoiceEvent.h"
 #include "MissionStateReset.h"
+#include "SoldierCommandPost.h"
 #include "SoldierVoiceTypeQuery.h"
 #include "log.h"
 
@@ -61,16 +63,14 @@ namespace
     void* g_MarkerTarget    = nullptr;
     void* g_CallVoiceTarget = nullptr;
 
-    bool TryReadCpId(void* soldier2, std::uint32_t& out)
+    bool TryReadCpId(void* soldier2, std::uint32_t index, std::uint32_t& out)
     {
         __try
         {
-            const auto base = reinterpret_cast<const std::uint8_t*>(soldier2);
-            void* p = *reinterpret_cast<void* const*>(base + 0xD0);
-            if (!p)
+            const std::uint8_t cp = SoldierCommandPost::IndexOf(reinterpret_cast<const std::uint8_t*>(soldier2), index & 0x1FFu);
+            if (cp == SoldierCommandPost::kNone)
                 return false;
-            out = *reinterpret_cast<const std::uint32_t*>(
-                reinterpret_cast<const std::uint8_t*>(p) + 0x30);
+            out = cp;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
@@ -138,7 +138,7 @@ namespace
             return;
         std::uint32_t cp = 0;
         CpVoiceEvents ev{ 0u, 0u };
-        if (TryReadCpId(soldier2, cp))
+        if (TryReadCpId(soldier2, index, cp))
             ev = LookupEvents(cp);
         RunUpdateGuarded(g_OrigUpdate, soldier2, index, knowledge, hung, ev);
     }
@@ -150,7 +150,7 @@ namespace
             return;
         std::uint32_t cp = 0;
         CpVoiceEvents ev{ 0u, 0u };
-        if (TryReadCpId(soldier2, cp))
+        if (TryReadCpId(soldier2, index, cp))
             ev = LookupEvents(cp);
         RunUpdateGuarded(g_OrigUpdateMarker, soldier2, index, knowledge, hung, ev);
     }
@@ -222,6 +222,10 @@ namespace
                                  std::uint32_t event, std::uint64_t a5,
                                  std::uint64_t a6, std::uint64_t a7)
     {
+        CpRadioVariants_OnCpChannelVoice(self, slot, static_cast<std::uint32_t>(a5), static_cast<std::uint32_t>(a6));
+        if (CpRadioVariants_SpeakSoldierHalf(voiceType, event, static_cast<std::uint32_t>(a5), static_cast<std::uint32_t>(a6)))   // args: priority, event, voice type, line
+            return 1;
+
         std::uint32_t ev = event;
         const bool generic = (event == kDdVoxEne || event == kDdVoxEneState);
         if (generic)

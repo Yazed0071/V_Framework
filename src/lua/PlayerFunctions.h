@@ -11,6 +11,11 @@ int __cdecl l_ClearPlayerVoiceTypeForType(lua_State* L);
 int __cdecl l_ClearAllPlayerVoiceTypeOverrides(lua_State* L);
 
 int __cdecl l_IsBarrierActive(lua_State* L);
+int __cdecl l_GetPlayerHealth(lua_State* L);
+int __cdecl l_SetPlayerHealth(lua_State* L);
+int __cdecl l_GetFultonCount(lua_State* L);
+int __cdecl l_SetFultonCount(lua_State* L);
+int __cdecl l_ResupplyFulton(lua_State* L);
 int __cdecl l_RequestToSetTargetCqcStance(lua_State* L);
 int __cdecl l_IsThereEnoughSpaceAroundPlayer(lua_State* L);
 int __cdecl l_RequestToAttachInDemo(lua_State* L);

@@ -110,6 +110,7 @@ namespace V_FrameWork
 
     void EnterLuaPcall();
     void ExitLuaPcall();
+    bool LuaStackHasRoom(lua_State* L, int slots);   // true when unknown; false when fewer free slots are left
     void DrainDeferredBroadcasts();
 
     inline void EmitMessage(const char* category, const char* msg)
@@ -132,6 +133,26 @@ namespace V_FrameWork
         };
 
         EmitMessageValues(category,
+            msg,
+            values,
+            static_cast<int>(1 + sizeof...(Rest)));
+    }
+
+    template <typename First, typename... Rest>
+    inline void QueueMessage(const char* category,
+        const char* msg,
+        First&& first,
+        Rest&&... rest)
+    {
+        static_assert(1 + sizeof...(Rest) <= kMaxBroadcastArgs,
+            "V_FrameWork::QueueMessage supports a maximum of 8 optional arguments.");
+
+        const LuaBroadcastArg values[] = {
+            LuaBroadcastArg(std::forward<First>(first)),
+            LuaBroadcastArg(std::forward<Rest>(rest))...
+        };
+
+        QueueMessageValues(category,
             msg,
             values,
             static_cast<int>(1 + sizeof...(Rest)));

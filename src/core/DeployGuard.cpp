@@ -19,7 +19,7 @@ namespace DeployGuard
         std::int32_t      g_Loadout[kSlots][3] = {};
         constexpr std::uint32_t kNoCode      = 0xFFFFFFFFu;
         constexpr std::uint32_t kTitleCode   = 1u;
-        constexpr std::uint32_t kMotherBase  = 40010u;
+        constexpr std::uint32_t kHeliSpaceBand = 4u; // every ACC, vanilla or addon, is 4xxxx
 
         std::atomic<bool> g_AwaitingPlayer{ false };
         std::atomic<bool> g_DropExtended{ false };
@@ -169,7 +169,7 @@ namespace DeployGuard
             return;
 
         const bool clearedTheHang = (hung != kNoCode && code == hung);
-        const bool inFieldMission = (code != kTitleCode && code != kMotherBase);
+        const bool inFieldMission = (code != kTitleCode && code / 10000 != kHeliSpaceBand);
         if (!clearedTheHang && !inFieldMission)
             return;
 

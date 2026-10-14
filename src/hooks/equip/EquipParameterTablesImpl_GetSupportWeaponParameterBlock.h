@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();
+void Uninstall_EquipParameterTablesImpl_GetSupportWeaponParameterBlock_Hook();

@@ -151,6 +151,16 @@ namespace
         { nullptr, 0.0 }
     };
 
+    static const ConstEntry V_DogCommandType[] = {   // D-Dog's "Do it" order, valued as the vanilla gear that carries it
+        {"KEEP_BUSY",         0},
+        {"FULTON",            1},
+        {"KNOCK_OUT",         2},
+        {"WOUND",             3},
+        {"KILL",              4},
+        {"KEEP_BUSY_NO_HOLD", 5},
+        { nullptr, 0.0 }
+    };
+
     luaL_Reg g_NoFunctions[] = { { nullptr, nullptr } };
 
     void RegisterConstantTable(lua_State* L, const char* tableName, const ConstEntry* entries)
@@ -234,4 +244,9 @@ void Register_V_CallMenuConstants(lua_State* L)
 void Register_V_NoticeConstants(lua_State* L)
 {
     RegisterConstantTable(L, "V_NoticeKind", V_NoticeKind);
+}
+
+void Register_V_DogCommandConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_DogCommandType", V_DogCommandType);
 }

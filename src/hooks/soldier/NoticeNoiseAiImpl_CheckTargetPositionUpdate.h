@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();
+void Uninstall_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook();

@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -18,11 +19,14 @@
 #include "EquipIdCompression.h"
 #include "FeatureModule.h"
 #include "DeployGuard.h"
+#include "EquipAliasLease.h"
 #include "WideMagazine.h"
 
 namespace
 {
     static constexpr size_t kRowStride = 0x18;
+
+    static std::atomic<std::uint32_t> g_TableEpoch{ 1 };
 
     struct EquipIdRow
     {
@@ -78,6 +82,7 @@ namespace
     static std::mutex g_Mutex;
     static std::vector<EquipIdRow> g_Rows;
     static std::map<int, EquipIdRow> g_Extended;
+    static std::map<int, int> g_WideOfAliasRow;
     struct AmmoRootParam
     {
         int logical;
@@ -90,7 +95,7 @@ namespace
     static bool g_MirrorSitesPatched = false;
     static std::size_t g_MirrorSitesSkipped = 0;
     static constexpr std::int32_t kMirrorRows =
-        EquipIdCompression::kExtendedFoldedLast + 1;
+        EquipIdCompression::kWideFoldedLast + 1;
 
     static bool MirrorCopyNativeSEH()
     {
@@ -126,6 +131,20 @@ namespace
                      &dummy, row);
     }
 
+    static void MirrorStampAliasRowNoLock(int aliasId, const EquipIdRow& wideRow)
+    {
+        EquipIdRow aliasRow = wideRow;
+        aliasRow.equipId = aliasId;
+        MirrorStampRowNoLock(aliasRow);
+    }
+
+    static void RestampAliasesOfNoLock(const EquipIdRow& wideRow)
+    {
+        for (const auto& kv : g_WideOfAliasRow)
+            if (kv.second == wideRow.equipId)
+                MirrorStampAliasRowNoLock(kv.first, wideRow);
+    }
+
     static void RefreshInfoMirror()
     {
         if (!MirrorCopyNativeSEH())
@@ -136,6 +155,12 @@ namespace
             if (kv.second.released)
                 continue;
             MirrorStampRowNoLock(kv.second);
+        }
+        for (const auto& kv : g_WideOfAliasRow)
+        {
+            const auto wide = g_Extended.find(kv.second);
+            if (wide != g_Extended.end() && !wide->second.released)
+                MirrorStampAliasRowNoLock(kv.first, wide->second);
         }
     }
 
@@ -507,9 +532,23 @@ namespace
         const std::int32_t index = EquipIdCompression::ComputeCompressed(row.equipId);
         if (!EquipIdCompression::IsCompressedInBounds(index))
         {
+            if (EquipIdCompression::IsWideEquipId(row.equipId))
+            {
+                TppEquip_EnsureInfoListMirror();
+                std::lock_guard<std::mutex> lock(g_Mutex);
+                g_Extended[row.equipId] = row;
+                MirrorStampRowNoLock(row);
+                RestampAliasesOfNoLock(row);
+                return;
+            }
             if (EquipIdCompression::IsExtendedEquipId(row.equipId))
             {
-                EquipIdCompression::MarkExtendedEquipIdUsed(row.equipId);
+                if (!EquipIdCompression::MarkExtendedEquipIdUsed(row.equipId))
+                {
+                    LogError("EquipIdTable: equipId %d shares InfoList row 0x%X with another custom equipId, row dropped",
+                        row.equipId, static_cast<unsigned>(index));
+                    return;
+                }
                 TppEquip_EnsureInfoListMirror();
                 std::lock_guard<std::mutex> lock(g_Mutex);
                 g_Extended[row.equipId] = row;
@@ -660,6 +699,7 @@ namespace
         }
 
         WriteNativeRow(row);
+        g_TableEpoch.fetch_add(1, std::memory_order_release);
     }
 
     static void ReapplyAll()
@@ -688,13 +728,22 @@ namespace
     using GetEquipTypeId_t = unsigned int(__fastcall*)(void* self, unsigned int equipId);
     static GetEquipTypeId_t g_OrigGetEquipTypeId = nullptr;
 
+    static bool IsCustomBandEquipId(std::int32_t equipId)
+    {
+        return EquipIdCompression::IsExtendedEquipId(equipId)
+            || EquipIdCompression::IsWideEquipId(equipId);
+    }
+
     static unsigned int __fastcall hkGetEquipTypeId(void* self, unsigned int equipId)
     {
-        if (EquipIdCompression::IsExtendedEquipId(static_cast<std::int32_t>(equipId)))
+        const std::int32_t realId = equip::FromEngine(static_cast<std::int32_t>(equipId));
+        if (IsCustomBandEquipId(realId))
         {
             V_ExtendedEquipRow ext;
-            if (TppEquip_GetExtendedEquipRow(static_cast<int>(equipId), &ext))
+            if (TppEquip_GetExtendedEquipRow(realId, &ext))
                 return static_cast<unsigned int>(ext.equipType & 0x3F);
+            if (EquipIdCompression::IsWideEquipId(realId))
+                return 0;
         }
         return g_OrigGetEquipTypeId ? g_OrigGetEquipTypeId(self, equipId) : 0;
     }
@@ -731,8 +780,10 @@ namespace
         return EquipIdAccessorHasFold(fn, 12, kFold, sizeof(kFold));
     }
 
-    static unsigned int __fastcall hkGetEquipSubId(void* self, unsigned int equipId)
+    static unsigned int __fastcall hkGetEquipSubId(void* self, unsigned int engineEquipId)
     {
+        const unsigned int equipId =
+            static_cast<unsigned int>(equip::FromEngine(static_cast<std::int32_t>(engineEquipId)));
         if (WideMagazine_IsActive())
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
@@ -758,7 +809,7 @@ namespace
                     return released ? 0u : static_cast<unsigned>(ammo->second.logical);
             }
         }
-        if (EquipIdCompression::IsExtendedEquipId(static_cast<std::int32_t>(equipId)))
+        if (IsCustomBandEquipId(static_cast<std::int32_t>(equipId)))
         {
             V_ExtendedEquipRow ext;
             if (TppEquip_GetExtendedEquipRow(static_cast<int>(equipId), &ext))
@@ -767,8 +818,10 @@ namespace
                     return 0;
                 return static_cast<unsigned int>(ext.subId);
             }
+            if (EquipIdCompression::IsWideEquipId(static_cast<std::int32_t>(equipId)))
+                return 0;
         }
-        return g_OrigGetEquipSubId ? g_OrigGetEquipSubId(self, equipId) : 0;
+        return g_OrigGetEquipSubId ? g_OrigGetEquipSubId(self, engineEquipId) : 0;
     }
 }
 
@@ -777,8 +830,14 @@ bool TppEquip_WideAmmoRootReady()
     return g_OrigGetEquipSubId != nullptr;
 }
 
+std::uint32_t TppEquip_EquipTableEpoch()
+{
+    return g_TableEpoch.load(std::memory_order_acquire);
+}
+
 int TppEquip_GetSubIdForEquipId(int equipId)
 {
+    equipId = equip::FromEngine(equipId);
     std::lock_guard<std::mutex> lock(g_Mutex);
     for (const auto& r : g_Rows)
         if (r.equipId == equipId)
@@ -788,6 +847,24 @@ int TppEquip_GetSubIdForEquipId(int equipId)
         return (it->second.equipType >= 1 && it->second.equipType <= 8)
                    ? it->second.subId : 0;
     return 0;
+}
+
+int TppEquip_GetSupportWeaponIdForEquipId(int equipId)
+{
+    constexpr int kEquipTypeThrowing = 12;
+    constexpr int kEquipTypePlaced   = 13;
+    const auto isSupportWeapon = [](int equipType) {
+        return equipType == kEquipTypeThrowing || equipType == kEquipTypePlaced;
+    };
+    equipId = equip::FromEngine(equipId);
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    for (const auto& r : g_Rows)
+        if (r.equipId == equipId)
+            return isSupportWeapon(r.equipType) ? r.subId : -1;
+    auto it = g_Extended.find(equipId);
+    if (it != g_Extended.end() && !it->second.released)
+        return isSupportWeapon(it->second.equipType) ? it->second.subId : -1;
+    return -1;
 }
 
 void TppEquip_GetCustomWeaponEquipIds(std::vector<int>& out)
@@ -812,6 +889,7 @@ bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out)
 {
     if (!out)
         return false;
+    equipId = equip::FromEngine(equipId);
     std::lock_guard<std::mutex> lock(g_Mutex);
     auto it = g_Extended.find(equipId);
     if (it == g_Extended.end() || it->second.released)
@@ -821,6 +899,41 @@ bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out)
     out->block     = it->second.block;
     out->partsHash = it->second.partsHash;
     out->packHash  = it->second.packHash;
+    return true;
+}
+
+bool TppEquip_GetCustomEquipPack(int equipId, std::uint64_t* outPack)
+{
+    if (!outPack)
+        return false;
+    *outPack = 0;
+    equipId = equip::FromEngine(equipId);
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    for (const auto& r : g_Rows)
+    {
+        if (r.equipId == equipId && !r.released)
+        {
+            *outPack = r.packHash;
+            return r.packHash != 0;
+        }
+    }
+    auto it = g_Extended.find(equipId);
+    if (it == g_Extended.end() || it->second.released)
+        return false;
+    *outPack = it->second.packHash;
+    return it->second.packHash != 0;
+}
+
+bool TppEquip_BindAliasRow(int aliasId, int wideId)
+{
+    if (!TppEquip_EnsureInfoListMirror())
+        return false;
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    const auto wide = g_Extended.find(wideId);
+    if (wide == g_Extended.end() || wide->second.released || !g_InfoMirror)
+        return false;
+    g_WideOfAliasRow[aliasId] = wideId;
+    MirrorStampAliasRowNoLock(aliasId, wide->second);
     return true;
 }
 
@@ -1032,6 +1145,7 @@ bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
                 resident.push_back(row.equipId);
         g_Rows.clear();
     }
+    g_TableEpoch.fetch_add(1, std::memory_order_release);
     for (const std::int32_t id : resident)
         EraseNativeRow(id);
     return true;
@@ -1071,6 +1185,7 @@ void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId
             it->second.subId = ammoId;
             it->second.nativeSubId = nativeAmmoId;
             MirrorStampRowNoLock(it->second);
+            RestampAliasesOfNoLock(it->second);
         }
     }
     if (restamp)
@@ -1095,5 +1210,6 @@ int TppEquip_ReleaseEquipRow(int equipId)
     }
     if (!found)
         return 0;
+    g_TableEpoch.fetch_add(1, std::memory_order_release);
     return EraseNativeRow(equipId) ? 1 : 0;
 }

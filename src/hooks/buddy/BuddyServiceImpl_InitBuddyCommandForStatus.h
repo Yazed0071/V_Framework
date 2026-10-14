@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BuddyServiceImpl_InitBuddyCommandForStatus_Patches();
+bool Uninstall_BuddyServiceImpl_InitBuddyCommandForStatus_Patches();

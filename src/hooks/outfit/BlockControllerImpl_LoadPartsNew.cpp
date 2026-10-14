@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <intrin.h>
 
@@ -697,6 +698,56 @@ namespace
         return 0;
     }
 
+    static std::atomic<std::uint64_t> g_ServedColorFpk{ 0 };
+    static std::atomic<std::uint64_t> g_ServedColorFv2{ 0 };
+    static std::atomic<bool> g_ColorReloadPending{ false };
+    static std::atomic<bool> g_RestreamRequested{ false };
+    static std::atomic<std::uint32_t> g_ColorReloadSlots{ 0 };
+
+    static bool FovaModelReadySEH(std::uint8_t* system)
+    {
+        __try
+        {
+            auto* impl = *reinterpret_cast<std::uint8_t**>(system + 0x8);
+            if (!impl)
+                return false;
+            const std::uint32_t index = *reinterpret_cast<std::uint32_t*>(impl + 0x218);
+            void* owner = *reinterpret_cast<void**>(impl + 0x58);
+            if (!owner)
+                return false;
+            using GetFova2Controller_t = std::uint8_t* (__fastcall*)(void*);
+            auto* controller = reinterpret_cast<GetFova2Controller_t>(
+                (*reinterpret_cast<void***>(owner))[0x178 / sizeof(void*)])(owner);
+            if (!controller)
+                return false;
+            const std::uint8_t first = *(controller + 0x68);
+            auto* works = *reinterpret_cast<std::uint8_t**>(controller + 0x30);
+            if (!works || index < first)
+                return false;
+            auto* work = works + static_cast<std::size_t>(index - first) * 0x160;
+            auto* models = *reinterpret_cast<std::uint8_t**>(work + 0xC8);
+            if (!models || *(models + 0x59) == 0)
+                return false;
+            auto** list = *reinterpret_cast<std::uint8_t***>(models + 0x48);
+            std::uint8_t* model = list ? list[*(models + 0x6A)] : nullptr;
+            return model && *reinterpret_cast<void**>(model + 0x10) != nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static const outfit::OutfitColor* PackColorToServe(const outfit::OutfitEntry* entry,
+                                                       std::uint8_t playerType, std::uint8_t variant)
+    {
+        const outfit::OutfitColor* color = outfit::GetPackColor(*entry, playerType, variant);
+        if (!color || ShouldFallBackOnMissingAsset(color->fpkCode)
+            || !fox::detail::PathExistsByCode(color->fpkCode))
+            return nullptr;
+        return color;
+    }
+
     static std::uint64_t* __fastcall hkLoadPlayerCamoFpk(
         std::uint64_t* outPath, std::uint32_t playerType,
         std::uint32_t playerPartsType, std::uint32_t playerCamoType)
@@ -710,6 +761,15 @@ namespace
 
             const std::uint8_t v = entry->HasVariants()
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
+            if (const outfit::OutfitColor* color = PackColorToServe(entry, pt, v))
+            {
+                g_ServedColorFv2.store(color->fv2Code, std::memory_order_relaxed);
+                if (g_ServedColorFpk.exchange(color->fpkCode, std::memory_order_acq_rel) != color->fpkCode)
+                    LogInfo("OutfitColor: camo slot loads '%s'", color->fv2.c_str());
+                return WriteFoxPath(outPath, color->fpkCode);
+            }
+            g_ServedColorFpk.store(0, std::memory_order_release);
+            g_ServedColorFv2.store(0, std::memory_order_relaxed);
             const std::uint64_t camo = entry->GetVariantCamoFpk(pt, v);
             if (camo > outfit::kSubAssetUseVanilla)
             {
@@ -816,6 +876,11 @@ namespace
 
             const std::uint8_t v = entry->HasVariants()
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
+            if (g_ServedColorFpk.load(std::memory_order_acquire) != 0)   // this load's camo slot holds a colour package
+            {
+                if (const std::uint64_t fv2 = g_ServedColorFv2.load(std::memory_order_relaxed))
+                    return WriteFoxPath(outPath, fv2);
+            }
             const std::uint64_t camo = entry->GetVariantCamoFv2(pt, v);
             if (camo > outfit::kSubAssetUseVanilla)
             {
@@ -1458,6 +1523,9 @@ namespace
             __except (EXCEPTION_EXECUTE_HANDLER) {}
             outfit::shadow::ClearCurrentSlot();
         }
+
+        if (slot == g_LocalPartsSlot.load(std::memory_order_relaxed))
+            outfit::RequestColorReapply(true);   // the refresh put the outfit's own fv2 textures back
     }
 
 
@@ -1801,6 +1869,8 @@ namespace
     {
         PartsPipeline pp;
         ReadPartsPipeline(self, &pp);
+        if (pp.valid)
+            outfit::NoteColorPipeline(pp.busy, pp.settled);
 
         static std::atomic<int> s_partsIdleTicks { kPartsSettleTicks };
         static std::atomic<int> s_partsStallTicks{ 0 };
@@ -1970,6 +2040,42 @@ namespace
                         }
 
                         outfit::NotePartsPipelineBusy(anyBusy);
+
+                        static int s_colorWaitTicks = 0;
+                        if (g_RestreamRequested.load(std::memory_order_acquire))
+                        {
+                            if (!anyBusy || ++s_colorWaitTicks >= kRestreamMaxDeferTicks)
+                            {
+                                g_RestreamRequested.store(false, std::memory_order_release);
+                                std::uint32_t mask = 0;
+                                for (std::size_t i = 0; i < outfit::shadow::kMaxSlots; ++i)
+                                    if (stateMachineArr[i] == 3)
+                                        mask |= (1u << i);
+                                const std::uint32_t local = g_LocalPartsSlot.load(std::memory_order_relaxed);
+                                if (local < outfit::shadow::kMaxSlots)
+                                    mask |= (1u << local);
+                                vextRestream |= mask;
+                                g_ColorReloadSlots.fetch_or(mask, std::memory_order_acq_rel);
+                                LogInfo("OutfitColor: colour package changed, parts slots 0x%X reload%s", mask,
+                                    anyBusy ? " (a slot was still loading)" : "");
+                                s_colorWaitTicks = 0;
+                            }
+                        }
+                        static int s_colorStaleTicks = 0;
+                        if (g_ColorReloadSlots.load(std::memory_order_relaxed) != 0 && !anyBusy)
+                        {
+                            if (++s_colorStaleTicks >= 180)
+                            {
+                                LogWarn("OutfitColor: parts slots 0x%X did not load again, colour applies go on",
+                                    g_ColorReloadSlots.exchange(0, std::memory_order_acq_rel));
+                                g_ColorReloadPending.store(false, std::memory_order_relaxed);
+                                s_colorStaleTicks = 0;
+                            }
+                        }
+                        else
+                        {
+                            s_colorStaleTicks = 0;
+                        }
 
                         int pending =
                             g_RestreamPendingTicks.load(std::memory_order_relaxed);
@@ -2709,10 +2815,24 @@ namespace
                 staffLoadSlot = implSlot;
                 if (BuildLocalStaffFaceInfo(*info, implSlot, staffVisualInfo))
                     loadInfo = &staffVisualInfo;
+                const std::uint32_t slotBit = playerIndex < 32 ? (1u << playerIndex) : 0u;
+                if (slotBit
+                    && (g_ColorReloadSlots.fetch_and(~slotBit, std::memory_order_acq_rel) & slotBit))
+                {
+                    const bool forgot = outfit::ddheadlayers::ForgetShellTypeInfo(
+                        implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
+                    if (playerIndex == g_LocalPartsSlot.load(std::memory_order_relaxed))
+                        g_ColorReloadPending.store(false, std::memory_order_relaxed);
+                    LogInfo("OutfitColor: parts slot %u loads again for the colour package (shell %u%s)",
+                        playerIndex, implSlot, forgot ? "" : ", stored type info not reached");
+                }
                 layerProbe = outfit::ddheadlayers::BeginPartsLoad(
                     implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
             }
         }
+
+        if (playerIndex == g_LocalPartsSlot.load(std::memory_order_relaxed))
+            outfit::RequestColorReapply(true);
 
         __try
         {
@@ -3213,6 +3333,458 @@ namespace
 
 namespace outfit
 {
+    void RequestPartsRestream()
+    {
+        g_ColorReloadPending.store(true, std::memory_order_relaxed);
+        g_RestreamRequested.store(true, std::memory_order_release);
+    }
+
+    const OutfitColor* GetServablePackColor(const OutfitEntry& entry, std::uint8_t playerType, std::uint8_t variant)
+    {
+        return PackColorToServe(&entry, playerType, variant);
+    }
+
+    std::uint64_t GetServedColorFpk()
+    {
+        return g_ServedColorFpk.load(std::memory_order_relaxed);
+    }
+
+    namespace fv2ontop
+    {
+        using GetFile_t = void* (__fastcall*)(void* blockCtrl, std::uint32_t index, std::uint64_t path);
+        using Apply_t = void (__fastcall*)(void* file, void* builder, void* director, void* p4, void* p5, void* p6,
+                                           std::uint32_t p7, bool reset, bool p9);
+        using WorkExtra_t = void (__fastcall*)(void* work);
+        using PathFromText_t = void* (__fastcall*)(std::uint64_t* path, const char* text);
+        using PathDtor_t = void (__fastcall*)(std::uint64_t* path);
+        using GetController_t = std::uint8_t* (__fastcall*)(void*);
+
+        constexpr std::uint8_t kGetFileCode[] = { 0x40, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE,
+                                                  0xFF, 0xFF, 0xFF, 0x48, 0x89, 0x5C, 0x24, 0x48, 0x49, 0x8B, 0xF8 };
+        constexpr std::uint8_t kApplyCode[] = { 0x48, 0x83, 0xEC, 0x58, 0x48, 0x8B, 0x42, 0x10, 0x4C, 0x8B, 0x52, 0x28,
+                                                0x4D, 0x8B, 0xD8, 0x48, 0x8B, 0x90, 0xB0, 0x00, 0x00, 0x00 };
+        constexpr std::uint8_t kWorkExtraCode[] = { 0x40, 0x55, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x38, 0x48, 0x8B, 0x69, 0x58,
+                                                    0x4C, 0x8B, 0xF1, 0x48, 0x85, 0xED, 0x0F, 0x84 };
+        constexpr std::uint8_t kWorkTypeExtra = 0x11;
+
+        struct Fns
+        {
+            GetFile_t getFile = nullptr;
+            void* blockCtrlSlot = nullptr;
+            Apply_t apply = nullptr;
+            WorkExtra_t extra = nullptr;
+            PathFromText_t pathFromText = nullptr;
+            PathDtor_t pathDtor = nullptr;
+        };
+
+        bool CodeIsSEH(const void* code, const std::uint8_t* expect, std::size_t size)
+        {
+            __try { return code && std::memcmp(code, expect, size) == 0; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+        }
+
+        const Fns* Resolve()
+        {
+            static Fns s_fns;
+            static std::atomic<int> s_state{ 0 };   // 0 not tried, 1 ready, -1 off
+            const int state = s_state.load(std::memory_order_acquire);
+            if (state != 0)
+                return state > 0 ? &s_fns : nullptr;
+            Fns f;
+            f.getFile = reinterpret_cast<GetFile_t>(ResolveGameAddress(gAddr.Fv2_GetFileFromPartsBlock));
+            f.blockCtrlSlot = ResolveGameAddress(gAddr.Fv2_PartsBlockController);
+            f.apply = reinterpret_cast<Apply_t>(ResolveGameAddress(gAddr.Fv2_ApplyFormVariation));
+            f.extra = reinterpret_cast<WorkExtra_t>(ResolveGameAddress(gAddr.Fv2_WorkApplyExtra));
+            f.pathFromText = reinterpret_cast<PathFromText_t>(ResolveGameAddress(gAddr.FoxPath_FromCString));
+            f.pathDtor = reinterpret_cast<PathDtor_t>(ResolveGameAddress(gAddr.Fox_Path_Dtor));
+            const bool ok = f.getFile && f.blockCtrlSlot && f.apply && f.extra && f.pathFromText && f.pathDtor
+                && CodeIsSEH(reinterpret_cast<void*>(f.getFile), kGetFileCode, sizeof(kGetFileCode))
+                && CodeIsSEH(reinterpret_cast<void*>(f.apply), kApplyCode, sizeof(kApplyCode))
+                && CodeIsSEH(reinterpret_cast<void*>(f.extra), kWorkExtraCode, sizeof(kWorkExtraCode));
+            if (ok)
+                s_fns = f;
+            else
+                LogWarn("OutfitColor: the fv2 apply without reset is not ported or not the known code, colour channels "
+                        "cannot stack: only one shows (the last applied)");
+            s_state.store(ok ? 1 : -1, std::memory_order_release);
+            return ok ? &s_fns : nullptr;
+        }
+
+        struct Local
+        {
+            std::uint8_t* controller = nullptr;
+            std::uint8_t* work = nullptr;
+            std::uint32_t index = 0;
+        };
+
+        bool LocalWorkSEH(std::uint8_t* system, Local& out)
+        {
+            __try
+            {
+                auto* impl = *reinterpret_cast<std::uint8_t**>(system + 0x8);
+                if (!impl)
+                    return false;
+                out.index = *reinterpret_cast<std::uint32_t*>(impl + 0x218);
+                void* owner = *reinterpret_cast<void**>(impl + 0x58);
+                if (!owner)
+                    return false;
+                out.controller = reinterpret_cast<GetController_t>(
+                    (*reinterpret_cast<void***>(owner))[0x178 / sizeof(void*)])(owner);   // ask the owner for its Fova2 controller
+                if (!out.controller)
+                    return false;
+                const std::uint8_t first = *(out.controller + 0x68);   // index of the controller's first work
+                auto* works = *reinterpret_cast<std::uint8_t**>(out.controller + 0x30);
+                if (!works || out.index < first)
+                    return false;
+                out.work = works + static_cast<std::size_t>(out.index - first) * 0x160;   // every work is 0x160 bytes
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool ApplySEH(const Fns& f, const Local& l, std::uint64_t path)
+        {
+            __try
+            {
+                void* blockCtrl = *reinterpret_cast<void**>(f.blockCtrlSlot);
+                if (!blockCtrl)
+                    return false;
+                void* file = f.getFile(blockCtrl, l.index, path);
+                if (!file)
+                    return false;
+                auto* director = *reinterpret_cast<std::uint8_t**>(l.work + 0xC8);
+                if (!director || *(director + 0x59) == 0)   // zero when the director has no builder
+                    return false;
+                auto** builders = *reinterpret_cast<void***>(director + 0x48);
+                void* builder = builders ? builders[*(director + 0x6A)] : nullptr;   // the director's main builder
+                if (!builder)
+                    return false;
+                f.apply(file, builder, director, nullptr, nullptr, nullptr, 0, false, false);
+
+                auto* tbl = *reinterpret_cast<std::uint8_t**>(
+                    *reinterpret_cast<std::uint8_t**>(*reinterpret_cast<std::uint8_t**>(l.work + 0xC0) + 0x78) + 0x240);
+                const std::uint32_t slot = static_cast<std::uint32_t>(*(l.work + 0x120))
+                    - *reinterpret_cast<std::uint32_t*>(tbl + 0x14);
+                auto* entry = *reinterpret_cast<std::uint8_t**>(tbl + 0x8) + (static_cast<std::size_t>(slot) << 7);
+                *(entry + 0x79) |= 2;   // flag the work for a redraw
+
+                auto* types = *reinterpret_cast<std::uint8_t**>(*reinterpret_cast<std::uint8_t**>(
+                    *reinterpret_cast<std::uint8_t**>(*reinterpret_cast<std::uint8_t**>(l.controller + 0x38) + 0x138) + 0x60) + 0x50);
+                if (types && types[l.index] == kWorkTypeExtra)
+                    f.extra(l.work);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool MakePathSEH(const Fns& f, std::uint64_t& path, const char* text)
+        {
+            __try { f.pathFromText(&path, text); return true; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+        }
+
+        void FreePathSEH(const Fns& f, std::uint64_t& path)
+        {
+            __try { f.pathDtor(&path); }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+    }
+
+    namespace fv2onhead
+    {
+        using ApplyOnly_t = void (__fastcall*)(void* file, void* model, const std::uint32_t* groups, const int* methods,
+                                               std::uint32_t count, bool reset, bool resetSim);
+        using ModelAt_t = void* (__fastcall*)(void* container, std::uint32_t index);
+
+        constexpr std::uint8_t kApplyOnlyCode[] = { 0x48, 0x83, 0xEC, 0x58, 0x0F, 0xB6, 0x84, 0x24 };
+        constexpr std::size_t kHornSlot = 5;
+        constexpr std::size_t kFaceSlot = 1;
+        constexpr std::size_t kFaceDecoSlot = 2;
+        constexpr std::uint32_t kMaxModels = 64;
+
+        struct Fns
+        {
+            ApplyOnly_t apply = nullptr;
+            ModelAt_t modelAt = nullptr;
+        };
+
+        const Fns* Resolve()
+        {
+            static Fns s_fns;
+            static std::atomic<int> s_state{ 0 };   // 0 not tried, 1 ready, -1 off
+            const int state = s_state.load(std::memory_order_acquire);
+            if (state != 0)
+                return state > 0 ? &s_fns : nullptr;
+            Fns f;
+            f.apply = reinterpret_cast<ApplyOnly_t>(
+                ResolveGameAddress(gAddr.FormVariationFile2_ApplyOnlyMeshAndTextureVariation));
+            f.modelAt = reinterpret_cast<ModelAt_t>(ResolveGameAddress(gAddr.Fox_ModelFromHandle));
+            const bool ok = f.apply && f.modelAt
+                && fv2ontop::CodeIsSEH(reinterpret_cast<void*>(f.apply), kApplyOnlyCode, sizeof(kApplyOnlyCode));
+            if (ok)
+                s_fns = f;
+            else
+                LogWarn("OutfitColor: the head model apply is not ported or not the known code, head colours are off");
+            s_state.store(ok ? 1 : -1, std::memory_order_release);
+            return ok ? &s_fns : nullptr;
+        }
+
+        bool IsLoadedFile(const std::uint8_t* file)
+        {
+            return file && file[0x40] == 2 && *reinterpret_cast<void* const*>(file + 0x60) != nullptr;   // state 2 = loaded, +0x60 its data
+        }
+
+        bool IsHeadFile(const std::uint8_t* file, const std::uint64_t* codes, std::size_t count)
+        {
+            const std::uint64_t path = *reinterpret_cast<const std::uint64_t*>(file + 0x30);
+            for (std::size_t i = 0; i < count; ++i)
+                if (codes[i] && codes[i] == path)
+                    return true;
+            return false;
+        }
+
+        HeadFv2 ApplySEH(const Fns& f, std::uint8_t* work, void* file, const std::uint64_t* codes, std::size_t count,
+                         bool resetHead)
+        {
+            __try
+            {
+                if ((work[0x152] & 1) == 0)   // bit 0: the work's apply is done
+                    return HeadFv2::NotReady;
+                for (const std::size_t slot : { kHornSlot, kFaceSlot })
+                {
+                    const auto* headFile = *reinterpret_cast<const std::uint8_t**>(work + slot * 8);
+                    auto* container = *reinterpret_cast<std::uint8_t**>(work + 0x58 + slot * 8);
+                    if (!headFile || !container || !IsHeadFile(headFile, codes, count))
+                        continue;
+                    std::uint32_t models = *reinterpret_cast<const std::uint32_t*>(container + 0x20);
+                    if (models > kMaxModels)
+                        models = kMaxModels;
+                    const std::uint64_t active = *reinterpret_cast<const std::uint64_t*>(container);
+                    const std::uint32_t subOffset = *reinterpret_cast<const std::uint32_t*>(container + 0x58);   // per-model fv2 table
+                    auto* const* subs = subOffset ? reinterpret_cast<std::uint8_t* const*>(container + subOffset) : nullptr;
+                    auto* deco = slot == kFaceSlot ? *reinterpret_cast<std::uint8_t**>(work + kFaceDecoSlot * 8) : nullptr;
+                    bool applied = false;
+                    for (std::uint32_t i = 0; i < models; ++i)
+                    {
+                        if (((active >> i) & 1) == 0)
+                            continue;
+                        void* model = f.modelAt(container, i);
+                        if (!model)
+                            continue;
+                        bool reset = false;
+                        if (resetHead)
+                        {
+                            std::uint8_t* own = i == 0 && IsLoadedFile(deco) ? deco : (subs ? subs[i] : nullptr);
+                            if (IsLoadedFile(own))
+                                f.apply(own, model, nullptr, nullptr, 0, true, true);
+                            else
+                                reset = true;
+                        }
+                        f.apply(file, model, nullptr, nullptr, 0, reset, false);
+                        applied = true;
+                    }
+                    return applied ? HeadFv2::Applied : HeadFv2::NoHeadModel;
+                }
+                return HeadFv2::NoHeadModel;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return HeadFv2::Failed;
+            }
+        }
+    }
+
+    namespace fv2iris
+    {
+        using ApplyByGroup_t = bool (__fastcall*)(void* file, void* builder, void* director, void* resMgr,
+                                                  const std::uint64_t* settings, std::uint32_t count, void* out,
+                                                  std::uint32_t outCapacity, bool reset, bool resetSim);
+
+        constexpr std::uintptr_t kApplyByGroup_En154 = 0x1404E1ED0ull;
+        constexpr std::uint8_t kApplyByGroupCode[] = { 0x48, 0x83, 0xEC, 0x68, 0x48, 0x8B, 0x42, 0x10, 0x4C, 0x8B, 0x52,
+                                                       0x28, 0x4D, 0x8B, 0xD8, 0x48, 0x8B, 0x90, 0xB0, 0x00, 0x00, 0x00 };
+        constexpr std::uint8_t  kIrisGroup     = 110;
+        constexpr std::uint8_t  kSkinGroup     = 100;
+        constexpr std::uint64_t kMethodUseMask = 1ull << 16;
+        constexpr std::uint32_t kNoUnit        = 0x7FFF;
+
+        ApplyByGroup_t Resolve()
+        {
+            static ApplyByGroup_t s_fn = nullptr;
+            static std::atomic<int> s_state{ 0 };   // 0 not tried, 1 ready, -1 off
+            const int state = s_state.load(std::memory_order_acquire);
+            if (state != 0)
+                return state > 0 ? s_fn : nullptr;
+            ApplyByGroup_t fn = nullptr;
+            if (IsEn154Family(gGameBuild))
+                fn = reinterpret_cast<ApplyByGroup_t>(ResolveGameAddress(kApplyByGroup_En154));
+            const bool ok = fn && fv2ontop::CodeIsSEH(reinterpret_cast<void*>(fn), kApplyByGroupCode,
+                                                      sizeof(kApplyByGroupCode));
+            if (ok)
+                s_fn = fn;
+            else
+                LogWarn("OutfitIris: the fv2 group apply is not ported or not the known code, eyeFv2 is off");
+            s_state.store(ok ? 1 : -1, std::memory_order_release);
+            return ok ? s_fn : nullptr;
+        }
+
+        struct Groups
+        {
+            std::uint32_t irisUnits = 0;
+            std::uint32_t skinUnits = 0;
+            bool other = false;
+        };
+
+        bool ScanGroupsSEH(const std::uint8_t* file, Groups& out)
+        {
+            __try
+            {
+                const auto* data = *reinterpret_cast<const std::uint8_t* const*>(file + 0x60);
+                const std::uint16_t tableOffset = *reinterpret_cast<const std::uint16_t*>(data + 0x8);
+                const std::uint16_t groups = *reinterpret_cast<const std::uint16_t*>(data + 0xC);
+                for (std::uint16_t i = 0; i < groups; ++i)
+                {
+                    const std::uint8_t* group = data + tableOffset + static_cast<std::size_t>(i) * 0x10;
+                    const std::uint8_t units = group[2];   // +0 id, +1 type, +2 unit count
+                    if (group[0] == kIrisGroup && units && !out.irisUnits)
+                        out.irisUnits = units;
+                    else if (group[0] == kSkinGroup && units && !out.skinUnits)
+                        out.skinUnits = units;
+                    else
+                        out.other = true;
+                }
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        IrisFv2 ApplySEH(ApplyByGroup_t apply, std::uint8_t* work, void* file, std::uint8_t eyeColor)
+        {
+            __try
+            {
+                if ((work[0x152] & 1) == 0)   // bit 0: the work's apply is done
+                    return IrisFv2::NotReady;
+                auto* director = *reinterpret_cast<std::uint8_t**>(work + 0xC8);
+                if (!director || director[0x59] == 0)
+                    return IrisFv2::NotReady;
+                auto** builders = *reinterpret_cast<void***>(director + 0x48);
+                auto* builder = builders ? static_cast<std::uint8_t*>(builders[director[0x6A]]) : nullptr;
+                if (!builder || !*reinterpret_cast<void**>(builder + 0x10) || !*reinterpret_cast<void**>(builder + 0x28))
+                    return IrisFv2::NotReady;
+
+                Groups groups;
+                if (!ScanGroupsSEH(static_cast<const std::uint8_t*>(file), groups) || !groups.irisUnits)
+                    return IrisFv2::NoIrisGroup;
+                if (groups.other)
+                    return IrisFv2::OtherGroups;
+
+                const bool staff = IsDdPlayerType(work[0x123]) && *reinterpret_cast<void**>(work + 0x8);   // the DD face branch filled +0xB0..+0xB8
+                const std::uint32_t unit = eyeColor == kEyeColorStaff
+                    ? *reinterpret_cast<const std::uint32_t*>(work + 0xB0)   // the staff face's iris unit
+                    : static_cast<std::uint32_t>(eyeColor) - 1;
+                if ((eyeColor == kEyeColorStaff && !staff) || unit >= groups.irisUnits || unit >= 32)
+                    return IrisFv2::NoStaffIris;
+
+                std::uint64_t settings[2] = { ((1ull << unit) << 32) | kMethodUseMask | kIrisGroup };
+                std::uint32_t count = 1;
+                if (groups.skinUnits)
+                {
+                    const std::uint32_t skin = *reinterpret_cast<const std::uint32_t*>(work + 0xB4);   // the staff face's skin unit
+                    if (!staff || skin >= groups.skinUnits || skin >= 32)
+                        return IrisFv2::OtherGroups;
+                    settings[count++] = ((1ull << skin) << 32) | kMethodUseMask | kSkinGroup;
+                }
+                apply(file, builder, director, nullptr, settings, count, nullptr, 0, false, false);
+                return IrisFv2::Applied;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return IrisFv2::Failed;
+            }
+        }
+    }
+
+    IrisFv2 ApplyIrisFv2(std::uint64_t fv2Code, std::uint8_t eyeColor)
+    {
+        if (!fv2Code || eyeColor == kEyeColorOff || MissionCodeGuard::ShouldBypassHooks())
+            return IrisFv2::Failed;
+        const fv2iris::ApplyByGroup_t apply = fv2iris::Resolve();
+        if (!apply)
+            return IrisFv2::Failed;
+        if (!IsLocalFovaModelReady())
+            return IrisFv2::NotReady;
+        void* file = ddheadlayers::FindLocalHeadFile(fv2Code);
+        if (!file)
+            return IrisFv2::NotLoaded;
+        auto* system = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        fv2ontop::Local local;
+        if (!system || !fv2ontop::LocalWorkSEH(system, local))
+            return IrisFv2::NotReady;
+        return fv2iris::ApplySEH(apply, local.work, file, eyeColor);
+    }
+
+    bool CanApplyFv2OnTop()
+    {
+        return fv2ontop::Resolve() != nullptr;
+    }
+
+    HeadFv2 ApplyFv2OnHead(std::uint64_t fv2Code, const std::uint64_t* headFv2Codes, std::size_t headFv2Count,
+                           bool resetHead)
+    {
+        if (!fv2Code || !headFv2Codes || !headFv2Count || MissionCodeGuard::ShouldBypassHooks())
+            return HeadFv2::Failed;
+        const fv2onhead::Fns* f = fv2onhead::Resolve();
+        if (!f)
+            return HeadFv2::Failed;
+        if (!IsLocalFovaModelReady())
+            return HeadFv2::NotReady;
+        void* file = ddheadlayers::FindLocalHeadFile(fv2Code);
+        if (!file)
+            return HeadFv2::NotLoaded;
+        auto* system = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        fv2ontop::Local local;
+        if (!system || !fv2ontop::LocalWorkSEH(system, local))
+            return HeadFv2::NotReady;
+        return fv2onhead::ApplySEH(*f, local.work, file, headFv2Codes, headFv2Count, resetHead);
+    }
+
+    bool ApplyFv2OnTop(const char* fv2Path)
+    {
+        if (!fv2Path || !*fv2Path || MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        const fv2ontop::Fns* f = fv2ontop::Resolve();
+        auto* system = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        fv2ontop::Local local;
+        if (!f || !system || !fv2ontop::LocalWorkSEH(system, local))
+            return false;
+        std::uint64_t path = 0;
+        if (!fv2ontop::MakePathSEH(*f, path, fv2Path))
+            return false;
+        const bool ok = fv2ontop::ApplySEH(*f, local, path);
+        fv2ontop::FreePathSEH(*f, path);
+        return ok;
+    }
+
+    bool IsLocalFovaModelReady()
+    {
+        if (g_ColorReloadPending.load(std::memory_order_relaxed)
+            || g_RestreamRequested.load(std::memory_order_relaxed)
+            || g_ColorReloadSlots.load(std::memory_order_relaxed) != 0
+            || g_RestreamPendingTicks.load(std::memory_order_relaxed) > 0)
+            return false;   // a reload is on its way: whatever is applied now is thrown away, or lands mid-teardown
+        auto* system = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        return system && FovaModelReadySEH(system);
+    }
+
     std::uint8_t ResolveVanillaPartsTypeForCamo(std::uint8_t camoType)
     {
         if (camoType > kVanillaCamoTypeMax) return 0xFF;

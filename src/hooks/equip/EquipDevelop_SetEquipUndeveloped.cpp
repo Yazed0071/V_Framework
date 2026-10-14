@@ -37,6 +37,7 @@ namespace
 
     constexpr std::size_t kApp_SvarsOffset     = 0x10;
     constexpr std::size_t kSvars_DevTimerSlots = 0xf6e2;
+    constexpr std::size_t kSvars_DevTimerEnds  = 0xf6f8;
     constexpr int         kDevTimerSlotCount   = 10;
     constexpr std::int32_t kFirstCustomFlowIndex = 922;
 
@@ -793,12 +794,140 @@ namespace
         }
     }
 
+    using SetEquipDevelopVars_t = void(__fastcall*)(void* callback, std::uint16_t flowIndex);   // starts an R&D timer: slot = row+1, end = develop time + now
+
+    const std::uint8_t kSetEquipDevelopVarsPrologue[] = {
+        0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57,
+        0x48, 0x83, 0xEC, 0x20, 0x0F, 0xB7, 0xF2, 0x48, 0x8B, 0xE9
+    };
+
+    SetEquipDevelopVars_t g_OrigSetEquipDevelopVars   = nullptr;
+    void*                 g_SetEquipDevelopVarsTarget = nullptr;
+    bool                  g_TimerStartHooked          = false;
+
+    std::mutex                       g_SettledTimersMutex;
+    std::unordered_set<std::uint64_t> g_SettledTimers;   // (row+1, end time) already on the right row this launch
+
+    static std::uint64_t TimerKey(std::int16_t slotValue, std::int32_t endTime)
+    {
+        return (static_cast<std::uint64_t>(static_cast<std::uint16_t>(slotValue)) << 32)
+             | static_cast<std::uint32_t>(endTime);
+    }
+
+    static bool IsTimerSettled(std::int16_t slotValue, std::int32_t endTime)
+    {
+        std::lock_guard<std::mutex> lock(g_SettledTimersMutex);
+        return g_SettledTimers.count(TimerKey(slotValue, endTime)) != 0;
+    }
+
+    static void SettleTimer(std::int16_t slotValue, std::int32_t endTime)
+    {
+        std::lock_guard<std::mutex> lock(g_SettledTimersMutex);
+        g_SettledTimers.insert(TimerKey(slotValue, endTime));
+    }
+
+    std::uintptr_t SetEquipDevelopVarsAddr()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1416740B0ull;
+        default:                                           return 0;
+        }
+    }
+
+    static bool SetEquipDevelopVarsPrologueMatches(const void* fn)
+    {
+        __try
+        {
+            return std::memcmp(fn, kSetEquipDevelopVarsPrologue,
+                               sizeof(kSetEquipDevelopVarsPrologue)) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool ReadTimerEnd(std::uint16_t flowIndex, std::int32_t& endTime)
+    {
+        std::uint8_t* svars = ResolveDevelopSaveVars();
+        if (!svars)
+            return false;
+        __try
+        {
+            const std::int16_t want = static_cast<std::int16_t>(flowIndex + 1);
+            const std::int16_t* slots =
+                reinterpret_cast<const std::int16_t*>(svars + kSvars_DevTimerSlots);
+            const std::int32_t* ends =
+                reinterpret_cast<const std::int32_t*>(svars + kSvars_DevTimerEnds);
+            for (int i = 0; i < kDevTimerSlotCount; ++i)
+                if (slots[i] == want)
+                {
+                    endTime = ends[i];
+                    return true;
+                }
+            return false;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void __fastcall hkSetEquipDevelopVars(void* callback, std::uint16_t flowIndex)
+    {
+        g_OrigSetEquipDevelopVars(callback, flowIndex);
+        if (flowIndex < kFirstCustomFlowIndex)
+            return;
+
+        std::int32_t endTime = 0;
+        if (!ReadTimerEnd(flowIndex, endTime))
+            return;
+
+        std::uint32_t developId = 0;
+        if (!equip::TryReadRowDevelopId(flowIndex, developId) || developId == 0)
+            developId = static_cast<std::uint32_t>(
+                ManagedDevelopIdAtIndex(ResolveControllerRaw(), flowIndex));
+        if (!V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
+            return;
+
+        V_FrameWorkState::NoteDevelopTimer(static_cast<std::int32_t>(developId),
+                                           flowIndex, endTime);
+        SettleTimer(static_cast<std::int16_t>(flowIndex + 1), endTime);
+    }
+
+    static void InstallDevelopTimerStartHook()
+    {
+        const std::uintptr_t addr = SetEquipDevelopVarsAddr();
+        if (addr == 0 || g_SetEquipDevelopVarsTarget)
+            return;
+
+        void* fn = ResolveGameAddress(addr);
+        if (!fn || !SetEquipDevelopVarsPrologueMatches(fn))
+        {
+            LogError("EquipDevelop: SetEquipDevelopVars prologue mismatch on %s, custom R&D "
+                     "timers can land on the wrong row when rows move", GetGameBuildName(gGameBuild));
+            return;
+        }
+        if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkSetEquipDevelopVars),
+                                 reinterpret_cast<void**>(&g_OrigSetEquipDevelopVars)))
+        {
+            g_OrigSetEquipDevelopVars = nullptr;
+            LogError("EquipDevelop: SetEquipDevelopVars hook failed on %s, custom R&D "
+                     "timers can land on the wrong row when rows move", GetGameBuildName(gGameBuild));
+            return;
+        }
+        g_SetEquipDevelopVarsTarget = fn;
+        g_TimerStartHooked = true;
+    }
+
     static bool g_InFlightTimersReconciled = false;
 
     static void ReconcileInFlightDevelopTimers(
         void* controller, GetEquipDevelopIndex_t getIndex)
     {
-        if (g_InFlightTimersReconciled)
+        if (!g_TimerStartHooked && g_InFlightTimersReconciled)   // without the start hook a timer started this launch looks like a saved one
             return;
         if (!controller || !getIndex)
             return;
@@ -813,6 +942,8 @@ namespace
         {
             std::int16_t* slots =
                 reinterpret_cast<std::int16_t*>(svars + kSvars_DevTimerSlots);
+            const std::int32_t* ends =
+                reinterpret_cast<const std::int32_t*>(svars + kSvars_DevTimerEnds);
 
             for (int i = 0; i < kDevTimerSlotCount; ++i)
             {
@@ -824,32 +955,46 @@ namespace
                     !equip::IsValidFlowIndex(static_cast<std::uint32_t>(storedIndex)))
                     continue;
 
-                const std::int32_t developId =
-                    V_FrameWorkState::GetDevelopIdAtOldFlowIndex(storedIndex);
+                const std::int32_t endTime = ends[i];
+                if (IsTimerSettled(raw, endTime))
+                    continue;
+
+                std::int32_t developId =
+                    V_FrameWorkState::GetDevelopTimerOwner(storedIndex, endTime);
                 if (developId <= 0)
+                    developId = V_FrameWorkState::GetDevelopIdAtOldFlowIndex(storedIndex);   // started before owners were kept: last launch's rows
+                if (developId <= 0 || !V_FrameWorkState::IsManagedDevelopId(developId))
+                {
+                    SettleTimer(raw, endTime);
                     continue;
-                if (!V_FrameWorkState::IsManagedDevelopId(developId))
-                    continue;
+                }
 
                 const std::uint16_t currentIndex =
                     getIndex(controller, static_cast<std::uint32_t>(developId));
                 if (!equip::IsValidFlowIndex(currentIndex))
                     continue;
-                if (static_cast<std::int32_t>(currentIndex) == storedIndex)
-                    continue;
 
                 const std::int16_t want = static_cast<std::int16_t>(currentIndex + 1);
-                bool clash = false;
-                for (int j = 0; j < kDevTimerSlotCount; ++j)
-                    if (j != i && slots[j] == want) { clash = true; break; }
-                if (clash)
+                if (want != raw)
                 {
-                    LogWarn("EquipDevelop: developId %d R&D timer cannot move to row %u (slot taken), left at %d",
-                            developId, static_cast<unsigned>(currentIndex), storedIndex);
-                    continue;
+                    bool clash = false;
+                    for (int j = 0; j < kDevTimerSlotCount; ++j)
+                        if (j != i && slots[j] == want) { clash = true; break; }
+                    if (clash)
+                    {
+                        LogWarn("EquipDevelop: developId %d R&D timer cannot move to row %u (slot taken), left at %d",
+                                developId, static_cast<unsigned>(currentIndex), storedIndex);
+                        SettleTimer(raw, endTime);
+                        continue;
+                    }
+
+                    slots[i] = want;
+                    LogInfo("EquipDevelop: developId %d R&D timer moved from row %d to row %u",
+                            developId, storedIndex, static_cast<unsigned>(currentIndex));
                 }
 
-                slots[i] = want;
+                V_FrameWorkState::NoteDevelopTimer(developId, currentIndex, endTime);
+                SettleTimer(want, endTime);
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1043,6 +1188,20 @@ void EquipDevelop_SetDevelopParent(std::uint32_t developId, std::uint32_t baseDe
         g_DevelopParent[developId] = baseDevelopId;
 }
 
+bool EquipDevelop_IsParentDeveloped(void* controller, std::uint32_t developId)
+{
+    std::uint32_t parent = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_DevelopParentMutex);
+        const auto it = g_DevelopParent.find(developId);
+        if (it != g_DevelopParent.end())
+            parent = it->second;
+    }
+    if (parent == 0)
+        return true;
+    return IsDevelopIdDeveloped(controller, NativeGetIndex(), parent);
+}
+
 bool EquipDevelop_IsDevelopInitiallyAvailable(std::uint32_t developId)
 {
     if (developId == 0)
@@ -1089,6 +1248,8 @@ void EquipDevelop_NotifyNativeDevelopChanged(void* controller, std::uint16_t ind
 
 void EquipDevelop_InstallDevelopSyncHooks()
 {
+    InstallDevelopTimerStartHook();
+
     if (equip::DevelopArrayGrowActive())
         return;
 
@@ -1108,6 +1269,15 @@ void EquipDevelop_InstallDevelopSyncHooks()
     if (!okDev || !okUndev)
         LogError("EquipDevelop: develop-sync hooks failed (SetEquipDeveloped %s, SetEquipUndeveloped %s), develops not saved",
                  okDev ? "ok" : "failed", okUndev ? "ok" : "failed");
+}
+
+void EquipDevelop_ReleaseDevelopTimerHook()
+{
+    if (g_SetEquipDevelopVarsTarget)
+        DisableAndRemoveHook(g_SetEquipDevelopVarsTarget);
+    g_SetEquipDevelopVarsTarget = nullptr;
+    g_OrigSetEquipDevelopVars   = nullptr;
+    g_TimerStartHooked          = false;
 }
 
 bool EquipDevelop_IsDevelopedByDevelopId(std::uint32_t developId)

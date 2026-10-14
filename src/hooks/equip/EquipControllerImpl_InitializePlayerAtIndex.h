@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipControllerImpl_InitializePlayerAtIndex_Hook();
+void Uninstall_EquipControllerImpl_InitializePlayerAtIndex_Hook();

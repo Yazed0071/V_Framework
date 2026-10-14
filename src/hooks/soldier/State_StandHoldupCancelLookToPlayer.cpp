@@ -67,11 +67,19 @@ static uintptr_t GetHoldupSlot(void* holdupThis, uint32_t id32)
     return slotsBase + (static_cast<uintptr_t>(idx) * 0x40);
 }
 
+static constexpr uint32_t kDareLine     = 0x17CD9886u; // EVR071 "Go on - do it"
+static constexpr uint32_t kOutburstLine = 0x17CD9887u; // EVR070 "Rrgh!/Hahh!"
+static std::atomic<uint32_t> gLineRoll{ 0x2545F491u };
+
 static uint32_t ComputeLineIdFromSlot(uintptr_t slot)
 {
-    uint32_t lineId = 0x17CD9886u;
+    uint32_t roll = gLineRoll.load(std::memory_order_relaxed);
+    roll ^= roll << 13;
+    roll ^= roll >> 7;
+    roll ^= roll << 5;
+    gLineRoll.store(roll, std::memory_order_relaxed);
 
-    return lineId;
+    return (roll & 1) ? kOutburstLine : kDareLine;
 }
 
 

@@ -216,6 +216,28 @@ namespace
         return okay;
     }
 
+    static void DescribeChangedSite(char* out, size_t cap)
+    {
+        out[0] = '\0';
+        const WidenSite* sites = SitesForBuild();
+        if (!sites)
+            return;
+        for (int i = 0; i < kWidenSiteCount; ++i)
+        {
+            const auto& patch = g_Patches[i];
+            std::uint8_t current[6]{};
+            if (!patch.target || !ReadSiteBytes(patch.target, current, patch.size)
+                || std::memcmp(current, patch.expected, patch.size) == 0)
+                continue;
+            if (std::memcmp(current, patch.replacement, patch.size) == 0)
+                sprintf_s(out, cap, " at site %s, already widened by other code", sites[i].slot);
+            else
+                sprintf_s(out, cap, " at site %s, now %02X %02X %02X %02X", sites[i].slot,
+                    current[0], current[1], current[2], current[3]);
+            return;
+        }
+    }
+
     static bool OperateWithRetry(bool install)
     {
         DWORD error = ERROR_SUCCESS;
@@ -227,8 +249,11 @@ namespace
                 break;
             Sleep(kInstallRetryMs);
         }
-        LogError("PartIdWiden: %s failed: %s (%lu), %s",
-            install ? "install" : "remove", NativePatchErrorName(error), error,
+        char where[96] = "";
+        if (error == ERROR_INVALID_DATA)
+            DescribeChangedSite(where, sizeof(where));
+        LogError("PartIdWiden: %s failed: %s (%lu)%s, %s",
+            install ? "install" : "remove", NativePatchErrorName(error), error, where,
             install ? "part ids above 255 use byte aliases" : "wide reads stay patched");
         return false;
     }

@@ -17,6 +17,7 @@ void EquipDevelop_RequestDevelopRestore();
 bool EquipDevelop_DrainIfRestorePending();
 
 void EquipDevelop_InstallDevelopSyncHooks();
+void EquipDevelop_ReleaseDevelopTimerHook();
 
 bool EquipDevelop_ShouldSuppressNativeDevelop(void* controller, std::uint16_t index);
 void EquipDevelop_NotifyNativeDevelopChanged(void* controller, std::uint16_t index,
@@ -43,6 +44,7 @@ bool EquipDevelop_IsDevelopableByDevelopId(std::uint32_t developId);
 int __cdecl l_IsEquipDevelopable(lua_State* L);
 
 void EquipDevelop_SetDevelopParent(std::uint32_t developId, std::uint32_t baseDevelopId);
+bool EquipDevelop_IsParentDeveloped(void* controller, std::uint32_t developId);
 
 bool EquipDevelop_IsDevelopInitiallyAvailable(std::uint32_t developId);
 

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_SupplyCboxGameObjectImpl_RestoreRequestFromSVars_Hook();
+void Uninstall_SupplyCboxGameObjectImpl_RestoreRequestFromSVars_Hook();

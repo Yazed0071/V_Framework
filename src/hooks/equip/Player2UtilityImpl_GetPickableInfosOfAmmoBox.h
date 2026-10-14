@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Player2UtilityImpl_GetPickableInfosOfAmmoBox_Hook();
+void Uninstall_Player2UtilityImpl_GetPickableInfosOfAmmoBox_Hook();

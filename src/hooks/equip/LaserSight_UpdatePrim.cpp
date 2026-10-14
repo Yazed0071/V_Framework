@@ -13,6 +13,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "EquipAliasLease.h"
 
 namespace
 {
@@ -252,7 +253,7 @@ namespace
 
     int OptionForDrawnWeapon(int* equipIdOut)
     {
-        const int equipId = CurrentDrawnEquipIdSEH();
+        const int equipId = equip::FromEngine(CurrentDrawnEquipIdSEH());
         if (equipIdOut)
             *equipIdOut = equipId;
         if (equipId <= 0)
@@ -439,8 +440,9 @@ bool LaserColor_AnyRegistered()
     return g_Any.load(std::memory_order_acquire);
 }
 
-void LaserColor_NoteWeaponOption(int equipId, int optionId)
+void LaserColor_NoteWeaponOption(int engineEquipId, int optionId)
 {
+    const int equipId = equip::FromEngine(engineEquipId);
     if (equipId <= 0)
         return;
     std::lock_guard<std::mutex> lock(g_OptionMutex);

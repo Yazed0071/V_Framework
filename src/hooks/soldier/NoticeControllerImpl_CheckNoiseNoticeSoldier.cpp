@@ -6,6 +6,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "Soldier2Impl_ProcessSignal.h"
 #include "SoldierFaction.h"
 
 namespace
@@ -20,6 +21,8 @@ namespace
     {
         MISSION_GUARD_ORIGINAL_VOID(g_OrigCheckNoiseNoticeSoldier, noticeController, soldierIndex, unused, noise);
 
+        if (CallComrade::IsDeafToNoise(noticeController, soldierIndex, noise))
+            return;
         if (SoldierFaction_ShouldIgnoreNoise(noticeController, soldierIndex, noise))
             return;
         g_OrigCheckNoiseNoticeSoldier(noticeController, soldierIndex, unused, noise);

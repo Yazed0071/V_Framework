@@ -9,7 +9,9 @@
 #include "V_FrameWorkState.h"
 #include "LuaApi.h"
 #include "GunBasicInject.h"
+#include "EquipIdCompression.h"
 #include "EquipPartParams.h"
+#include "SupportStockLease.h"
 
 namespace
 {
@@ -44,7 +46,9 @@ namespace
     };
 
     static constexpr std::int32_t kSpaceEqp            = 0;
+    static constexpr std::int32_t kSpaceSwp            = 4;
     static constexpr std::int32_t kSpaceBl             = 5;
+    static constexpr std::int32_t kSpaceBla            = 6;
     static constexpr std::int32_t kSpaceLtls           = 9;
     static constexpr std::int32_t kSpaceWp             = 10;
     static constexpr std::int32_t kSpaceMo             = 11;
@@ -55,6 +59,11 @@ namespace
     static constexpr std::int32_t kSpaceBa             = 16;
     static constexpr std::int32_t kSpaceSk             = 17;
     static constexpr std::int32_t kDefaultConstantBase = 0x4000;
+    static constexpr std::int32_t kFirstCustomSwpId    = 91;     // the engine's SupportWeaponParameter rows end at 90
+    static constexpr std::int32_t kLastCustomSwpId     = 1023;   // EquipIdTable keeps the subId in 10 bits
+    static constexpr std::int32_t kFirstCustomBlastId  = 49;     // vanilla BlastParameter rows are 0..48
+    static constexpr std::int32_t kLastCustomBlastId   = 255;    // bullets carry the blast id in a byte
+    static constexpr std::int32_t kFirstSupportWeaponEquipId = 0x15A;
     static bool IsValidConstantName(const char* name)
     {
         if (!name || !name[0])
@@ -73,6 +82,25 @@ namespace
 
     static std::mutex g_Mutex;
     static std::map<std::string, std::int32_t> g_Constants;
+
+    static bool TakesWideEquipId(const char* name)
+    {
+        return std::strncmp(name, "EQP_WP_", 7) == 0
+            || std::strncmp(name, "EQP_AM_", 7) == 0
+            || std::strncmp(name, "EQP_BL_", 7) == 0
+            || std::strncmp(name, "EQP_SWP_", 8) == 0;
+    }
+
+    static bool IsSupportWeaponName(const char* name)
+    {
+        return std::strncmp(name, "EQP_SWP_", 8) == 0;
+    }
+
+    static bool HasCleanAmmoStockId(std::int32_t equipId)
+    {
+        return equipId == 0x15A || equipId == 0x15B || equipId == 0x15C
+            || equipId == 0x1A8 || equipId == 0x1AC;
+    }
 
     static void WriteConstantTo(lua_State* L, const char* table, const char* name, std::int32_t value)
     {
@@ -114,12 +142,29 @@ bool TppEquipConst_Declare(
     std::int32_t value = 0;
     if (spaceIndex == kSpaceEqp)
     {
-        if (!V_FrameWorkState::ResolveOrCreateEquipId(
-                name, 0, value, std::strncmp(name, "EQP_WP_", 7) == 0))
+        const bool supportWeapon = IsSupportWeaponName(name);
+        const std::int32_t minimumId = supportWeapon ? kFirstSupportWeaponEquipId : 0;
+        if (!V_FrameWorkState::ResolveOrCreateEquipId(name, minimumId, value, TakesWideEquipId(name)))
         {
             LogError("RegisterConstantEquipId '%s': no free equipId, rejected", name);
             return false;
         }
+        if (supportWeapon && !SupportStockLease::Live()
+            && (EquipIdCompression::IsWideEquipId(value) || !HasCleanAmmoStockId(value)))
+            LogWarn("RegisterConstantEquipId %s: equipId 0x%X shares an ammo stock id, ammo boxes and supply drops may not refill it",
+                name, static_cast<unsigned>(value));
+    }
+    else if (spaceIndex == kSpaceSwp)
+    {
+        if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                kSpaceTags[spaceIndex], name, kFirstCustomSwpId, value, kLastCustomSwpId))
+            return false;
+    }
+    else if (spaceIndex == kSpaceBla)
+    {
+        if (!V_FrameWorkState::ResolveOrCreateConstantValue(
+                kSpaceTags[spaceIndex], name, kFirstCustomBlastId, value, kLastCustomBlastId))
+            return false;
     }
     else if (spaceIndex == kSpaceWp)
     {

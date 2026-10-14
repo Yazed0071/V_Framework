@@ -19,17 +19,17 @@ namespace
     using SetItemVisible_t = std::uint64_t(__fastcall*)(void* items, std::uint32_t handle, std::uint64_t visible, std::uint64_t a4);
     using PluginQuery_t = bool(__fastcall*)(void* plugin, std::uint32_t index);
 
-    constexpr std::uint64_t kTagMask = 0xFFFFFFFFFFFFull; // motion tags are 48 bits
+    constexpr std::uint64_t kTagMask = 0xFFFFFFFFFFFFull;
     constexpr std::uint32_t kUpperBodyLayer = 2;
-    constexpr std::uint64_t kIDroidAction = 0x8D647EA01654ull; // hash of the motion graph state that brings the iDroid up (real name unknown)
-    constexpr std::uint64_t kIDroidHold = 0xCEB5EBCD6662ull; // hash of the state that holds the iDroid open (real name unknown)
-    constexpr std::uint64_t kUpperBodyEmpty = 0xC1A2050D3802ull; // hash of the empty upper body state, what the vanilla close asks for (real name unknown)
-    constexpr std::uint64_t kIDroidPutAway = 0x7B19F8D7B13Eull; // hash of the state that plays snaputh_q_idroid_ed, the unused put-away (real name unknown)
+    constexpr std::uint64_t kIDroidAction = 0x8D647EA01654ull;
+    constexpr std::uint64_t kIDroidHold = 0xCEB5EBCD6662ull;
+    constexpr std::uint64_t kUpperBodyEmpty = 0xC1A2050D3802ull;
+    constexpr std::uint64_t kIDroidPutAway = 0x7B19F8D7B13Eull;
     constexpr float kPutAwayBlend = 0.0f;
     constexpr float kReleaseBlend = 30.0f;
     constexpr float kIdleRestartBlend = 8.0f;
     constexpr std::uint32_t kBodyLayer = 0;
-    constexpr ULONGLONG kPutAwayMs = 147 * 1000 / 60 - 250; // the clip is 147 frames at 60fps, let go a little early so it blends out
+    constexpr ULONGLONG kPutAwayMs = 147 * 1000 / 60 - 250;
     constexpr ULONGLONG kEndGraceMs = 500;
     constexpr std::uint32_t kMaxEndSkips = 1500;
     constexpr std::uint32_t kTrackedIndices = 2;
@@ -37,10 +37,10 @@ namespace
     constexpr std::uint32_t kEvTick = 1;
     constexpr std::uint32_t kEvEnter = 2;
     constexpr std::uint32_t kEvEndCheck = 4;
-    constexpr std::uint32_t kWorkStride = 0x60; // the iDroid plugin keeps 0x60 bytes per avatar
-    constexpr std::uint32_t kSeatFlag = 0x100; // set when the close started while seated
+    constexpr std::uint32_t kWorkStride = 0x60;
+    constexpr std::uint32_t kSeatFlag = 0x100;
     constexpr std::uint32_t kIDroidItem = 0x1F3; // TppEquip.EQP_IT_IDroid
-    constexpr std::uint32_t kItemType = 0x11; // item handle type for equip items
+    constexpr std::uint32_t kItemType = 0x11;
 
     Request_t g_Orig160 = nullptr;
     Request_t g_Orig170 = nullptr;
@@ -69,8 +69,7 @@ namespace
 
     bool InHeliSpace()
     {
-        const std::uint16_t code = MissionCodeGuard::GetCurrentMissionCode();
-        return code == 40010 || code == 40020 || code == 40050;
+        return MissionCodeGuard::GetCurrentMissionCode() / 10000 == 4; // the game's own heli space test, so addon ACCs like 40011 count too
     }
 
     bool Tracked(std::uint32_t index, std::uint32_t layer)
@@ -121,30 +120,30 @@ namespace
     {
         if (!list || !info)
             return 0;
-        const std::uint32_t base = ReadU32(info + 0x24); // index of the first avatar
+        const std::uint32_t base = ReadU32(info + 0x24);
         return list + static_cast<std::uintptr_t>(index - base) * kWorkStride;
     }
 
     std::uintptr_t PluginWork(std::uintptr_t plugin, std::uint32_t index)
     {
-        return WorkOf(ReadPtr(plugin + 0x78), ReadPtr(plugin + 0x38), index); // per-avatar work list, plugin info
+        return WorkOf(ReadPtr(plugin + 0x78), ReadPtr(plugin + 0x38), index);
     }
 
     bool HoldsIDroid(std::uintptr_t work)
     {
-        const std::uint32_t handle = ReadU32(work + 0x18); // the item in his hand
-        return work && (handle & 0x1F) == kItemType && ((handle >> 5) & 0x7FF) == kIDroidItem; // handle: low 5 bits type, next 11 bits equip id
+        const std::uint32_t handle = ReadU32(work + 0x18);
+        return work && (handle & 0x1F) == kItemType && ((handle >> 5) & 0x7FF) == kIDroidItem;
     }
 
     bool ForcedEnd(std::uintptr_t plugin, std::uint32_t index)
     {
-        const std::uintptr_t holder = ReadPtr(ReadPtr(plugin + 8) + 0x78); // the player's per-avatar data
-        const std::uintptr_t flags = ReadPtr(holder + 0x280); // action flag sets, 0x20 bytes per avatar
+        const std::uintptr_t holder = ReadPtr(ReadPtr(plugin + 8) + 0x78);
+        const std::uintptr_t flags = ReadPtr(holder + 0x280);
         if (!flags)
             return true;
-        const std::uint32_t base = ReadU32(holder + 8); // index of the first avatar
+        const std::uint32_t base = ReadU32(holder + 8);
         const std::uint32_t bits = ReadU32(flags + static_cast<std::uintptr_t>(index - base) * 0x20 + 0x18);
-        return ((bits >> 4) & 1) != 0; // the game is forcing the iDroid shut
+        return ((bits >> 4) & 1) != 0;
     }
 
     bool IsOtherAvatar(void* plugin, std::uint32_t index)
@@ -165,7 +164,7 @@ namespace
 
     std::uintptr_t MotionOf(std::uintptr_t seatPlugin)
     {
-        return ReadPtr(ReadPtr(ReadPtr(seatPlugin + 8) + 0x78) + 0x238); // player, then its data holder, then the motion controller
+        return ReadPtr(ReadPtr(ReadPtr(seatPlugin + 8) + 0x78) + 0x238);
     }
 
     void RestartSeatIdle(std::uint32_t index, void* motion)

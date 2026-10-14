@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook();
+bool Uninstall_Soldier2SoundControllerImpl_CallVoiceWithSync_Hook();

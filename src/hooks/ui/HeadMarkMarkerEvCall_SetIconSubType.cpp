@@ -1110,6 +1110,16 @@ bool GetHeadMarkColourForSlot(std::uint16_t systemId, unsigned slot, float outRg
 }
 
 
+bool HeadMarkShowsDying(std::uint16_t systemId)
+{
+    if (!g_Installed || systemId == kInvalidMarkerId || IsOnlineSession())
+        return false;
+    const bool dyingWanted = g_GlobalState[kSubType_Dying].count != 0 ||
+                             EntityWantsState(systemId, kSubType_Dying);
+    return dyingWanted && SoldierIndexFromSystemId(systemId) != kNoSoldierIndex && IsSoldierDying(systemId);
+}
+
+
 bool SetHeadMarkEntityColour(std::uint32_t gameObjectId, int state,
                              const HeadMarkColourStop* stops, unsigned count,
                              float speed, bool blend, float fade)

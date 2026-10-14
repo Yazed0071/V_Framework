@@ -11,14 +11,8 @@ void Clear_LostHostageDiscovery();
 void Dump_LostHostageDiscovery();
 
 
-void LostHostageDiscovery_OnRadioRequest(void* self, int actionIndex, int stateProc);
-
-
-bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
+bool LostHostageDiscovery_TryOverrideForCallWithRadioType(   // the label for the call StepRadioDiscovery requested for that CP member
     std::uint32_t ownerIndex,
     std::uint8_t radioType,
-    std::uint32_t& outOverrideLabel);
-
-bool LostHostageDiscovery_TryConsumeConvertOverride(
-    std::uint8_t radioType,
+    std::uint16_t member,
     std::uint32_t& outOverrideLabel);

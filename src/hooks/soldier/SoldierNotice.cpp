@@ -11,6 +11,7 @@
 #include "GetGameObjectIdWithIndex.h"
 #include "LuaBroadcaster.h"
 #include "SoldierFaction.h"
+#include "SoldierRealizedSlot.h"
 
 
 using StepFn_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, int stepProc, void* knowledge);
@@ -40,9 +41,11 @@ static __forceinline std::uintptr_t ReadQwordNoThrow(std::uintptr_t addr)
     __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
-static void MakeSoldierSpeakViaOwner(std::uintptr_t owner, std::uint32_t soldierId, std::uint32_t lineId)
+static void MakeSoldierSpeakViaOwner(std::uintptr_t owner, std::uint32_t soldierIndex, std::uint32_t lineId)
 {
     if (!owner) return;
+    const std::uint32_t slot = SoldierRealizedSlot::Of(reinterpret_cast<const std::uint8_t*>(owner), soldierIndex);
+    if (slot == SoldierRealizedSlot::kNotRealized) return;
     const std::uintptr_t obj = ReadQwordNoThrow(owner + 0xA8);
     if (!obj) return;
     const std::uintptr_t vtbl = ReadQwordNoThrow(obj);
@@ -51,7 +54,7 @@ static void MakeSoldierSpeakViaOwner(std::uintptr_t owner, std::uint32_t soldier
     if (!fnp) return;
 
     auto fn = reinterpret_cast<SpeakVfunc20_t>(fnp);
-    __try { fn(reinterpret_cast<void*>(obj), soldierId, 0x95EA16B0u, 4, lineId, 0.0f); }
+    __try { fn(reinterpret_cast<void*>(obj), slot, 0x95EA16B0u, 4, lineId, 0.0f); }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 

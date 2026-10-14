@@ -15,6 +15,8 @@ bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
                                    MagazineParameters& underbarrel);
 bool EquipParam_GetMagazineParameters(int ammoId, MagazineParameters& parameters);
 bool EquipParam_WideMagazinesReady();
+std::uint32_t EquipParam_GetEquipType(std::uint32_t equipId);
+bool EquipParam_IsBulletIdTaken(int bulletId);
 bool EquipParam_InitializeWidePartIds();
 
 struct lua_State;
@@ -105,16 +107,20 @@ enum EquipVanillaSpace
 };
 
 int  EquipParam_GetWideAlias(int space, int wideId);
+int  EquipParam_VanillaPartCount(int space);
 int  EquipParam_WidePartRowState(int space, int wideId);
 int  EquipParam_GetWideReceiverDonor(int wideId);
 bool EquipParam_SetReceiverMotionType(int receiverId, int receiverType);
 void EquipParam_RefillMotionEntries();
 int  EquipParam_GetReceiverForEquipId(int equipId);
+void EquipParam_BindAliasMotion(int aliasId, int wideId);
 int  EquipParam_GetDeclaredWeaponAttackId(int equipId);
 void EquipParam_EnableWidePartIds(int newMaxId);
 int  EquipParam_ResolvePartByte(int space, int id);
 int  EquipParam_GetMagazineEquipAmmoId(int ammoId);
 int  EquipParam_GetMagazineBulletId(int ammoId);
+bool EquipParam_IsSuppressorMuzzleOption(int muzzleOptionId);
+int  EquipParam_GetBulletType(int bulletId);
 int  EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId);
 void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride);
 void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, int stride);

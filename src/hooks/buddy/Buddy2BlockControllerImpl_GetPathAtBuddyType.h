@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook();
+bool Uninstall_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook();

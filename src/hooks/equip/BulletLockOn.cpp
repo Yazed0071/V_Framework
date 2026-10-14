@@ -13,10 +13,13 @@
 #include "BulletLockOn.h"
 #include "EquipPartParams.h"
 #include "SoldierSuppressedShot.h"
+#include "SimplePartsEffectControllerImpl_CreateEffectImpl.h"
 #include "HookUtils.h"
+#include "MissionCodeGuard.h"
 #include "log.h"
 #include "../shell/RemoteMissile.h"
 #include "../soldier/SoldierFaction.h"
+#include "../soldier/SoldierIncomingVoice.h"
 
 namespace
 {
@@ -848,6 +851,53 @@ namespace
         }
     }
 
+    constexpr std::uint16_t kOwnerTypeBuddyQuiet = 0x12;
+    constexpr std::uint8_t  kBulletTypeShell     = 3;
+    constexpr std::uint32_t kFireSecondary       = 0x02;
+    constexpr std::uint32_t kFireSpawnShot       = 0x04;
+    constexpr std::uint32_t kFireNoFx            = 0x08;
+    constexpr std::uint32_t kFireNoProjectile    = 0x10;
+
+    bool IsQuietShotSEH(void* req)
+    {
+        __try
+        {
+            const std::uint16_t owner = *reinterpret_cast<std::uint16_t*>(static_cast<std::uint8_t*>(req) + 0x2A); // shooter GameObjectId, type in the top 7 bits
+            return (owner >> 9) == kOwnerTypeBuddyQuiet;
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+
+    std::uint32_t ReadFireFlagsSEH(void* req)
+    {
+        __try
+        {
+            return *reinterpret_cast<std::uint32_t*>(static_cast<std::uint8_t*>(req) + 0x54);
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return 0;
+        }
+    }
+
+    void FireQuietShellFromMuzzleSEH(void* req, const std::uint8_t* rec)
+    {
+        __try
+        {
+            auto* flags = reinterpret_cast<std::uint32_t*>(static_cast<std::uint8_t*>(req) + 0x54);
+            const std::uint8_t bulletType = (*flags & kFireSecondary) ? rec[0x7F] : rec[0x7E];
+            if (bulletType != kBulletTypeShell || (*flags & kFireNoFx))
+                return;
+            *flags = (*flags & ~kFireNoProjectile) | kFireSpawnShot; // her aimed shot is only flash and sound, the hit comes later at the target, so a shell never leaves the muzzle
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+        }
+    }
+
     void __fastcall hkDoFire(void* self, std::uint32_t p2, std::uint32_t p3,
                              void* req)
     {
@@ -866,13 +916,23 @@ namespace
             if (desired >= 0)
                 WriteRecTypeSEH(rec, desired);
         }
+        const bool quietShot = req && IsQuietShotSEH(req);
+        if (quietShot && rec && !MissionCodeGuard::ShouldBypassHooks())
+        {
+            const std::uint32_t flagsIn = ReadFireFlagsSEH(req);
+            FireQuietShellFromMuzzleSEH(req, rec);
+            ShellFxDiag_NoteQuietShot(self, p3, flagsIn, ReadFireFlagsSEH(req), rec);
+        }
         {
             int firedEquipId = 0;
             float muzzlePos[3] = { 0.0f, 0.0f, 0.0f };
             float muzzleDir[3] = { 0.0f, 0.0f, 0.0f };
-            if (ReadFiredEquipAndMuzzleSEH(self, p2, req, &firedEquipId,
-                                           muzzlePos, muzzleDir))
+            if (!quietShot && ReadFiredEquipAndMuzzleSEH(self, p2, req, &firedEquipId,
+                                                         muzzlePos, muzzleDir))
+            {
                 shell::RemoteMissile_ArmShot(0, firedEquipId);
+                SoldierIncomingVoice_OnShot(req, rec, firedEquipId, muzzlePos);
+            }
         }
 
         SoldierShot_MarkSuppressed(self, p2, req);

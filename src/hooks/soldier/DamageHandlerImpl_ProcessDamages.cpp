@@ -4,9 +4,12 @@
 #include <cstdint>
 
 #include "AddressSet.h"
+#include "CpRadioVariants.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "SoldierFaction.h"
+#include "Soldier2SoundControllerImpl_CallVoiceWithoutSync.h"
+#include "SoldierCombatVoice.h"
 
 namespace
 {
@@ -19,6 +22,9 @@ namespace
         MISSION_GUARD_ORIGINAL_VOID(g_OrigProcessDamages, self, soldierIndex, damages, count);
 
         SoldierFaction_OnSoldierDamages(self, soldierIndex, damages, count);
+        SoldierVoiceSwap_OnSoldierDamages(self, soldierIndex, damages, count);
+        SoldierCombatVoice_OnSoldierDamaged(soldierIndex);
+        CpRadioVariants_OnSoldierDamages(soldierIndex, damages, count);
         g_OrigProcessDamages(self, soldierIndex, damages, count);
     }
 }

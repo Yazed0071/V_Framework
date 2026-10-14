@@ -36,8 +36,11 @@ extern "C" {
 #include "../../soldier/SoldierVehicleAvoid.h"
 #include "../../soldier/Soldier2Impl_UpdateMarkers.h"
 #include "../../soldier/SoldierFaction.h"
+#include "../../soldier/GameObjectLife.h"
 #include "../../soldier/NoticeControllerImpl_CheckForceNotice.h"
 #include "GetGameObjectIdWithIndex.h"
+#include "GameObjectPosition.h"
+#include "../../animal/AnimalInstance.h"
 #include "../../soldier/InterrogationVoiceEvent.h"
 #include "../../soldier/RadioControllerImpl_StepRadioWaitResponse.h"
 #include "../../soldier/SoldierAkObjIdMap.h"
@@ -45,6 +48,7 @@ extern "C" {
 #include "../../bullet/Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
 #include "../../../core/FoxHashes.h"
 #include "../../../lua/LuaApi.h"
+#include "../../equip/RankLimitedItems.h"
 
 namespace
 {
@@ -167,12 +171,12 @@ namespace
 
     static void SendStruggleSpecialAction(lua_State* L)
     {
-        HostageStruggleDisarm disarm; // a Lua error is a C++ throw, so the armed swap must not outlive this call
+        HostageStruggleDisarm disarm;
         g_lua_settop(L, 1);
         g_lua_createtable(L, 0, 3);
         SetTableString(L, "id", "SpecialAction");
         SetTableString(L, "action", "PlayState");
-        SetTableString(L, "state", "vfw_struggle"); // any name works, the param hook swaps in the real tag
+        SetTableString(L, "state", "vfw_struggle");
         g_OrigSendCommand(L);
     }
 
@@ -266,6 +270,19 @@ namespace
             g_lua_settop(L, tbl);
         }
         return true;
+    }
+
+    static bool PushVector3(lua_State* L, const float* position)
+    {
+        const int top = g_lua_gettop(L);
+        g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("Vector3"));
+        g_lua_pushnumber(L, static_cast<double>(position[0]));
+        g_lua_pushnumber(L, static_cast<double>(position[1]));
+        g_lua_pushnumber(L, static_cast<double>(position[2]));
+        if (g_lua_pcall(L, 3, 1, 0) == 0)
+            return true;
+        g_lua_settop(L, top);
+        return false;
     }
 
     static float SmartScaleA(float a)
@@ -447,6 +464,7 @@ namespace
         if (!ResolveLuaApi()) return g_OrigSendCommand(L);
 
         MissionStateReset::EnsureFinalizerRegistered(L);
+        RankLimitedItems::EnsureResultHookInstalled(L);
 
         const int top = g_lua_gettop(L);
         if (top < 2 || g_lua_type(L, 2) != LUA_TTABLE)
@@ -538,6 +556,10 @@ namespace
                 g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSecondsForCp(cp)));
                 return 1;
             }
+            ::Arm_CautionCpCapture();
+            g_OrigSendCommand(L);   // through the CP dispatcher, so the vanilla length can be read
+            ::Take_CautionCpIndex();
+            g_lua_settop(L, top);
             g_lua_pushnumber(L, static_cast<double>(::Get_CautionStepNormalDurationSeconds()));
             return 1;
         }
@@ -679,6 +701,99 @@ namespace
                 LogWarn("SetFaction: target 0x%08X is not a soldier, ignored", id);
             return 0;
         }
+        if (idStr == "GetLife")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            g_lua_settop(L, top);
+
+            GameObjectLife::Values life;
+            if (!GameObjectLife::Read(id, life))
+            {
+                g_lua_pushnil(L);
+                g_lua_pushnil(L);
+                g_lua_pushnil(L);
+                g_lua_pushnil(L);
+                return 4;
+            }
+            g_lua_pushnumber(L, static_cast<double>(life.life));
+            g_lua_pushnumber(L, static_cast<double>(life.maxLife));
+            if (life.maxStamina == 0)
+            {
+                g_lua_pushnil(L);
+                g_lua_pushnil(L);
+            }
+            else
+            {
+                g_lua_pushnumber(L, static_cast<double>(life.stamina));
+                g_lua_pushnumber(L, static_cast<double>(life.maxStamina));
+            }
+            return 4;
+        }
+        if (idStr == "SetLife")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            const double life = ReadCommandNumberOr(L, 2, "life", -1.0);
+            const double stamina = ReadCommandNumberOr(L, 2, "stamina", -1.0);
+            const bool sleep = ReadCommandBool(L, 2, "sleep");
+            g_lua_settop(L, top);
+
+            const auto toValue = [](double v) { return static_cast<std::uint32_t>(v > 65535.0 ? 65535.0 : v); };
+            const bool hasLife = life >= 0.0;        // false for NaN too
+            const bool hasStamina = stamina >= 0.0;
+            const char* reason = nullptr;
+            if (!hasLife && !hasStamina)
+                LogWarn("SetLife: needs life or stamina (0 or more), ignored");
+            if (hasLife && !GameObjectLife::SetLife(id, toValue(life), &reason))
+                LogWarn("SetLife: life of 0x%08X not set, %s", id, reason);
+            if (hasStamina && !GameObjectLife::SetStamina(id, toValue(stamina), sleep, &reason))
+                LogWarn("SetLife: stamina of 0x%08X not set, %s", id, reason);
+            return 0;
+        }
+        if (idStr == "GetPosition")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            if (!AnimalInstance::IsAnimal(id))
+                return g_OrigSendCommand(L);
+
+            float position[3] = {};
+            if (!GameObjectPosition::Read(id, position))
+                return g_OrigSendCommand(L);
+            if (AnimalInstance::Check(id, position) == AnimalInstance::Presence::Gone)
+            {
+                g_lua_pushnil(L);
+                return 1;
+            }
+            if (PushVector3(L, position))
+                return 1;
+
+            static bool s_logged = false;
+            if (!s_logged)
+            {
+                s_logged = true;
+                LogWarn("GetPosition: Vector3 could not be made, animal positions return nothing");
+            }
+            return g_OrigSendCommand(L);
+        }
+        if (idStr == "AddDamage")
+        {
+            const std::uint32_t id = ReadCommandTargetId(L);
+            if (!AnimalInstance::IsAnimal(id))
+                return g_OrigSendCommand(L);
+
+            const double attackId = ReadCommandNumberOr(L, 2, "attackId", 0.0);
+            const double attackerId = ReadCommandNumberOr(L, 2, "ownerGameObjectId", 65535.0);
+            AnimalInstance::DamageRequest request;
+            request.attackId = static_cast<std::uint16_t>(attackId >= 0.0 && attackId <= 65535.0 ? attackId : 0.0);
+            request.attackerId = static_cast<std::uint16_t>(attackerId >= 0.0 && attackerId <= 65535.0 ? attackerId : 65535.0);
+            request.oneHitKill = ReadCommandBool(L, 2, "isOneHitKill");
+            request.headShot = ReadCommandBool(L, 2, "isHeadShot");
+            g_lua_settop(L, top);
+
+            const char* reason = nullptr;
+            if (!AnimalInstance::AddDamage(id, request, &reason))
+                LogWarn("AddDamage: animal 0x%04X not damaged, %s", id, reason);
+            return 0;
+        }
         if (idStr == "SetHeadMarkColor")
         {
             const std::uint32_t id    = ReadCommandTargetId(L);
@@ -778,13 +893,6 @@ namespace
                 ::Remove_SoldierCallSign(id);
             else
                 ::Set_SoldierCallSign(id, static_cast<std::uint8_t>(callSign > 255 ? 255 : callSign));
-            return 0;
-        }
-        if (idStr == "ClearLostHostages")
-        {
-            g_lua_settop(L, top);
-            ::Clear_LostHostagesTrap();
-            ::Clear_LostHostageDiscovery();
             return 0;
         }
         if (idStr == "SetLostHostage")

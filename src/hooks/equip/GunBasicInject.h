@@ -9,6 +9,7 @@ int __cdecl l_SetGunBasic(lua_State* L);
 int GunBasic_AllocateWeaponIdForName(const char* name);
 
 bool GunBasic_ReadRowBytes(int weaponId, unsigned char* out12);
+bool GunBasic_WeaponHasNoRow(int equipId);
 
 int GunBasic_MaxWeaponId();
 int GunBasic_PackedSubIdMax();

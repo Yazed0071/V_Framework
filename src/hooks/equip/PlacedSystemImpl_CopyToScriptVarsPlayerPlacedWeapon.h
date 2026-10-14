@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon_Hook();
+void Uninstall_PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon_Hook();

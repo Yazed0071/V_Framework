@@ -4,9 +4,11 @@
 #include <Windows.h>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
+#include "MissionCodeGuard.h"
 #include "log.h"
 
 namespace
@@ -15,6 +17,7 @@ namespace
     using WarpFn            = void (__fastcall*)(void* playerSub, std::uint32_t id, float* pos, float* quat, std::uint8_t controlFlag);
     using DeathFamilyTickFn = void (__fastcall*)(void* outer, std::uint32_t id);
     using PrePollingFn      = void (__fastcall*)(void* core, std::uint32_t idx);
+    using DamageReactionFn  = std::uint8_t (__fastcall*)(void* damageController, std::uint32_t idx, void* damage);
 
     static InsertFn g_OrigInsert = nullptr;
     static void*    g_InsertAddr = nullptr;
@@ -27,6 +30,17 @@ namespace
 
     static PrePollingFn g_OrigPrePolling = nullptr;
     static void*        g_PrePollingAddr = nullptr;
+
+    static DamageReactionFn g_OrigDamageReaction = nullptr;
+    static void*            g_DamageReactionAddr = nullptr;
+
+    constexpr std::size_t   kDamageFlags       = 0x22;
+    constexpr std::uint16_t kInjuryDamageFlags = 0x00E0; // cut 0x20, dislocation 0x40, bullet 0x80
+
+    static const std::uint8_t kDamageReactionPrologue[] = {
+        0x48, 0x89, 0x5C, 0x24, 0x10, 0x4C, 0x89, 0x44, 0x24, 0x18, 0x55, 0x56, 0x57,
+        0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x40
+    };
 
     static void*                 g_System   = nullptr;
     static std::uint32_t         g_Slots[8] = {};
@@ -107,9 +121,35 @@ namespace
         }
     }
 
+    static uintptr_t GetBasicDamageReactionAddr()
+    {
+        switch (gGameBuild)
+        {
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141194A80ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141194B00ull;
+            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1411952B0ull;
+            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141195360ull;
+            default: return 0;
+        }
+    }
+
+    static bool DamageReactionPrologueMatchesSEH(const void* fn)
+    {
+        __try
+        {
+            return std::memcmp(fn, kDamageReactionPrologue, sizeof(kDamageReactionPrologue)) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     static bool IsPortalEquipId(std::uint16_t id)
     {
-        return id == 0x186u || id == 0x16Au || id == 0x16Bu || id == 0x19Cu || id == 0x192u;
+        return id == 0x186u || id == 0x16Au || id == 0x16Bu || id == 0x19Cu;
     }
 
     static bool ReadPortalDesc(void* self, void* desc)
@@ -172,6 +212,14 @@ namespace
 
     static void __fastcall hk_PrePolling(void* core, std::uint32_t idx)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            g_TeleportArmed    = false;
+            g_SleepWokeEpisode = false;
+            g_OrigPrePolling(core, idx);
+            return;
+        }
+
         __try
         {
             std::uint8_t* pc      = reinterpret_cast<std::uint8_t*>(core);
@@ -279,6 +327,12 @@ namespace
     static void __fastcall hk_DeathFamilyTick(void* outer, std::uint32_t id)
     {
         g_OrigFamilyTick(outer, id);
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            g_DeathHang = false;
+            return;
+        }
+
         __try
         {
             std::uint8_t* o     = reinterpret_cast<std::uint8_t*>(outer);
@@ -334,6 +388,22 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
+
+    static std::uint8_t __fastcall hk_GetBasicDamageReaction(void* damageController, std::uint32_t idx, void* damage)
+    {
+        std::uint16_t* flags  = nullptr;
+        std::uint16_t  injury = 0;
+        if (damage && !MissionCodeGuard::ShouldBypassHooks() && WormholePortal_AnyDeployed())
+        {
+            flags  = reinterpret_cast<std::uint16_t*>(static_cast<std::uint8_t*>(damage) + kDamageFlags);
+            injury = *flags & kInjuryDamageFlags;
+            *flags &= ~kInjuryDamageFlags; // without these the hit picks a normal reaction, never the wound that needs the Cure spray
+        }
+        const std::uint8_t reaction = g_OrigDamageReaction(damageController, idx, damage);
+        if (flags)
+            *flags |= injury;
+        return reaction;
+    }
 }
 
 bool Install_PlacedSystemImpl_Insert_Hook()
@@ -376,6 +446,17 @@ bool Install_PlacedSystemImpl_Insert_Hook()
         LogError("Wormhole: ExecPrePolling hook failed for %s, player stays down "
                  "after the portal warp", GetGameBuildName(gGameBuild));
 
+    void* reaction = reinterpret_cast<void*>(GetBasicDamageReactionAddr());
+    if (!reaction || !DamageReactionPrologueMatchesSEH(reaction))
+        LogError("Wormhole: damage reaction address missing or changed for %s, the player "
+                 "can still be wounded while a portal is placed", GetGameBuildName(gGameBuild));
+    else if (CreateAndEnableHook(reaction, reinterpret_cast<void*>(&hk_GetBasicDamageReaction),
+                                 reinterpret_cast<void**>(&g_OrigDamageReaction)))
+        g_DamageReactionAddr = reaction;
+    else
+        LogError("Wormhole: damage reaction hook failed for %s, the player can still be "
+                 "wounded while a portal is placed", GetGameBuildName(gGameBuild));
+
     return true;
 }
 
@@ -385,6 +466,7 @@ void Uninstall_PlacedSystemImpl_Insert_Hook()
     if (g_WarpAddr)       DisableAndRemoveHook(g_WarpAddr);
     if (g_FamilyTickAddr) DisableAndRemoveHook(g_FamilyTickAddr);
     if (g_PrePollingAddr) DisableAndRemoveHook(g_PrePollingAddr);
+    if (g_DamageReactionAddr) DisableAndRemoveHook(g_DamageReactionAddr);
     g_InsertAddr     = nullptr;
     g_OrigInsert     = nullptr;
     g_WarpAddr       = nullptr;
@@ -393,6 +475,8 @@ void Uninstall_PlacedSystemImpl_Insert_Hook()
     g_OrigFamilyTick = nullptr;
     g_PrePollingAddr = nullptr;
     g_OrigPrePolling = nullptr;
+    g_DamageReactionAddr = nullptr;
+    g_OrigDamageReaction = nullptr;
     g_System         = nullptr;
     g_SleepWokeEpisode = false;
     g_TeleportArmed    = false;

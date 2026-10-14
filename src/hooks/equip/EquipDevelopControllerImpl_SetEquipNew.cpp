@@ -187,8 +187,10 @@ namespace
         if (!ResolveManagedRow(index, developId))
             return answer;
 
-        return EquipDevelop_IsDevelopedByDevelopId(
-                   static_cast<std::uint32_t>(developId)) ? 0 : answer;
+        if (EquipDevelop_IsDevelopedByDevelopId(static_cast<std::uint32_t>(developId)))
+            return 0;
+        return EquipDevelop_IsParentDeveloped(controller, static_cast<std::uint32_t>(developId))
+               ? answer : 0;   // a grade stays shut until the one before it has finished developing
     }
 
     void InstallDevelopAvailableGate(void* controller)

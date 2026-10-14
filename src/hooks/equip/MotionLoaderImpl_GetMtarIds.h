@@ -55,11 +55,18 @@ struct ReceiverPartMotion
     bool casingLast  = true;
 };
 
+struct ReceiverMotionArchive
+{
+    std::uint64_t mtar = 0;
+    std::uint64_t pack = 0;
+};
+
 struct ReceiverMotionDesc
 {
     int                 receiverId  = 0;
     std::uint64_t       playerMtar  = 0;
     std::uint64_t       playerPack  = 0;
+    std::vector<ReceiverMotionArchive> extraArchives;
     ReceiverMotionClips playerClips;
     ReceiverMotionClips oneHandClips;
     ReceiverMotionClips oneHandCqcClips;

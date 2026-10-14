@@ -13,6 +13,7 @@ namespace
 {
     constexpr std::size_t kMaximumWalkedFrames = 256;
     constexpr int kFreezeRounds = 16;
+    constexpr std::size_t kSpareThreads = 256;
     SRWLOCK g_PatchLock = SRWLOCK_INIT;
 
     struct PreparedPatch
@@ -125,7 +126,11 @@ namespace
             currentId = GetCurrentThreadId();
             processId = GetCurrentProcessId();
             std::size_t added = 0;
-            return Collect(added);
+            if (!Collect(added))
+                return false;
+            threads.reserve(threads.size() + kSpareThreads);
+            growable = false;
+            return true;
         }
 
         bool Suspend(const std::vector<PreparedPatch>& patches,
@@ -187,6 +192,12 @@ namespace
                     if (entry.th32OwnerProcessID == processId
                         && entry.th32ThreadID != currentId && !Known(entry.th32ThreadID))
                     {
+                        if (!growable && threads.size() == threads.capacity())
+                        {
+                            error = ERROR_NOT_READY;   // growing the list takes the heap lock, which a stopped thread may hold
+                            okay = false;
+                            break;
+                        }
                         const HANDLE handle = OpenThread(THREAD_SUSPEND_RESUME
                             | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION,
                             FALSE, entry.th32ThreadID);
@@ -281,6 +292,7 @@ namespace
         std::vector<Thread> threads;
         DWORD currentId = 0;
         DWORD processId = 0;
+        bool growable = true;
     };
 
     bool ReadBytes(const void* address, unsigned char* bytes, std::size_t count)

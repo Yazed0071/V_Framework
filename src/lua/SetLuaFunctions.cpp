@@ -19,6 +19,7 @@ extern "C" {
 #include <vector>
 
 #include "HookUtils.h"
+#include "FeatureModule.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "UiUtility_GetWeaponItemNameLangId.h"
@@ -34,6 +35,7 @@ extern "C" {
 #include "LostHostageHook.h"
 #include "../core/V_FrameWorkState.h"
 #include "../core/LuaBroadcaster.h"
+#include "FrameCallbacks.h"
 #include "StepRadioDiscovery.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "HeadMarkMarkerEvCall_SetIconSubType.h"
@@ -69,6 +71,7 @@ extern "C" {
 #include "../hooks/ui/MissionEmergencyHook.h"
 #include "../hooks/ui/ShowMissionIcon.h"
 #include "../hooks/ui/BarrierEffectSpawn.h"
+#include "MissionCodeGuard.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
 #include "../hooks/player/TimeCigaretteUiHook.h"
 #include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
@@ -90,6 +93,10 @@ extern "C" {
 #include "V_HelicopterLib.h"
 #include "V_TitleSequenceLib.h"
 #include "V_TppMotherBaseManagementLib.h"
+#include "V_TppBuddyServiceLib.h"
+#include "V_UixUtilityLib.h"
+#include "V_TppMotionLib.h"
+#include "V_ThrowingSystemLib.h"
 #include "FoxFunctions.h"
 
 
@@ -397,6 +404,35 @@ static void LuaPushValue(lua_State* L, int idx)
 }
 
 
+static std::uint64_t EquipBgTextureHash(const char* rawPath)
+{
+    std::string path(rawPath);
+    const std::size_t slash = path.find_last_of("/\\");
+    if (path.find('.', slash == std::string::npos ? 0 : slash + 1) == std::string::npos)
+        path += ".ftex";
+    return FoxHashes::PathCode64Ext(path);
+}
+
+
+static bool GetEquipBgEquipId(lua_State* L, const char* function, int& equipId)
+{
+    if (LuaType(L, 1) != LUA_TNUMBER)
+    {
+        LogWarn("%s: equipId must be a number, call ignored", function);
+        return false;
+    }
+    equipId = GetLuaInt(L, 1);
+    return true;
+}
+
+
+static float EquipBgNumber(lua_State* L, int index, float fallback)
+{
+    const int type = LuaType(L, index);
+    return (type != LUA_TNONE && type != LUA_TNIL) ? GetLuaNumber(L, index) : fallback;
+}
+
+
 int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -407,7 +443,7 @@ int __cdecl l_SetDefaultEquipBgTexturePath(lua_State* L)
     const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 2) != 0;
     const int opacityType = LuaType(L, 3);
     const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 3) : 1.0f;
-    EquipBg_SetDefaultTexture(FoxHashes::PathCode64Ext(rawPath), colored, opacity);
+    EquipBg_SetDefaultTexture(EquipBgTextureHash(rawPath), colored, opacity, EquipBgNumber(L, 4, 1.0f), EquipBgNumber(L, 5, 1.0f));
     return 0;
 }
 
@@ -422,7 +458,9 @@ int __cdecl l_ClearDefaultEquipBgTexture(lua_State* L)
 
 int __cdecl l_SetEquipBgTexturePath(lua_State* L)
 {
-    const int equipId = GetLuaInt(L, 1);
+    int equipId = 0;
+    if (!GetEquipBgEquipId(L, "SetEquipBgTexturePath", equipId))
+        return 0;
     const char* rawPath = GetLuaString(L, 2);
 
     if (!rawPath || !*rawPath)
@@ -432,14 +470,16 @@ int __cdecl l_SetEquipBgTexturePath(lua_State* L)
     const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 3) != 0;
     const int opacityType = LuaType(L, 4);
     const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 4) : 1.0f;
-    EquipBg_SetEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath), colored, opacity);
+    EquipBg_SetEquipTexture(equipId, EquipBgTextureHash(rawPath), colored, opacity, EquipBgNumber(L, 5, 1.0f), EquipBgNumber(L, 6, 1.0f));
     return 0;
 }
 
 
 int __cdecl l_ClearEquipBgTexture(lua_State* L)
 {
-    const int equipId = GetLuaInt(L, 1);
+    int equipId = 0;
+    if (!GetEquipBgEquipId(L, "ClearEquipBgTexture", equipId))
+        return 0;
     EquipBg_ClearEquipTexture(equipId);
     return 0;
 }
@@ -455,7 +495,7 @@ int __cdecl l_SetEnemyWeaponBgTexturePath(lua_State* L)
     const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 2) != 0;
     const int opacityType = LuaType(L, 3);
     const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 3) : 1.0f;
-    EquipBg_SetEnemyWeaponTexture(FoxHashes::PathCode64Ext(rawPath), colored, opacity);
+    EquipBg_SetEnemyWeaponTexture(EquipBgTextureHash(rawPath), colored, opacity, EquipBgNumber(L, 4, 1.0f), EquipBgNumber(L, 5, 1.0f));
     return 0;
 }
 
@@ -470,7 +510,9 @@ int __cdecl l_ClearEnemyWeaponBgTexture(lua_State* L)
 
 int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
 {
-    const int equipId = GetLuaInt(L, 1);
+    int equipId = 0;
+    if (!GetEquipBgEquipId(L, "SetEnemyEquipBgTexturePath", equipId))
+        return 0;
     const char* rawPath = GetLuaString(L, 2);
 
     if (!rawPath || !*rawPath)
@@ -480,14 +522,16 @@ int __cdecl l_SetEnemyEquipBgTexturePath(lua_State* L)
     const bool colored = (coloredType != LUA_TNONE && coloredType != LUA_TNIL) && GetLuaBool(L, 3) != 0;
     const int opacityType = LuaType(L, 4);
     const float opacity = (opacityType != LUA_TNONE && opacityType != LUA_TNIL) ? GetLuaNumber(L, 4) : 1.0f;
-    EquipBg_SetEnemyEquipTexture(equipId, FoxHashes::PathCode64Ext(rawPath), colored, opacity);
+    EquipBg_SetEnemyEquipTexture(equipId, EquipBgTextureHash(rawPath), colored, opacity, EquipBgNumber(L, 5, 1.0f), EquipBgNumber(L, 6, 1.0f));
     return 0;
 }
 
 
 int __cdecl l_ClearEnemyEquipBgTexture(lua_State* L)
 {
-    const int equipId = GetLuaInt(L, 1);
+    int equipId = 0;
+    if (!GetEquipBgEquipId(L, "ClearEnemyEquipBgTexture", equipId))
+        return 0;
     EquipBg_ClearEnemyEquipTexture(equipId);
     return 0;
 }
@@ -801,6 +845,215 @@ int __cdecl l_IsBarrierActive(lua_State* L)
 
 
 
+
+namespace
+{
+    // record of the local player in the player LifeControllerImpl: float life, float max life
+    float* GetLocalPlayerLifeRecord()
+    {
+        auto* sys = reinterpret_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        if (!sys)
+            return nullptr;
+        __try
+        {
+            auto* impl = *reinterpret_cast<std::uint8_t**>(sys + 0x8);
+            if (!impl)
+                return nullptr;
+            auto* ctrl = *reinterpret_cast<std::uint8_t**>(impl + 0xC0);
+            if (!ctrl)
+                return nullptr;
+            const std::uint32_t index = *reinterpret_cast<std::uint32_t*>(impl + 0x214);
+            auto* records = *reinterpret_cast<std::uint8_t**>(*reinterpret_cast<std::uint8_t**>(impl + 0x60) + 0x8);
+            if (!records)
+                return nullptr;
+            return reinterpret_cast<float*>(records + static_cast<std::size_t>(index) * 0x4C);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+}
+
+int __cdecl l_GetPlayerHealth(lua_State* L)
+{
+    float* rec = GetLocalPlayerLifeRecord();
+    if (!rec)
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, rec[0]);
+    return 1;
+}
+
+int __cdecl l_SetPlayerHealth(lua_State* L)
+{
+    if (!Barrier_InSinglePlayer())
+        return 0;
+
+    float* rec = GetLocalPlayerLifeRecord();
+    if (!rec)
+    {
+        LogWarn("SetPlayerHealth: player life unreachable on %s", GetGameBuildName(gGameBuild));
+        return 0;
+    }
+
+    float life = GetLuaNumber(L, 1);
+    if (life < 0.0f)   life = 0.0f;
+    if (life > rec[1]) life = rec[1];
+    rec[0] = life;
+    return 0;
+}
+
+namespace
+{
+    constexpr int           kFultonAmmoStock        = 0x16;   // AmmoStockIndex.FULTON
+    constexpr std::uint32_t kFultonBulletId         = 0xFF;   // what the game itself passes for the fulton stock
+    constexpr std::uint32_t kUnlimitedAmmoStock     = 0xFFFF; // the max Player.SetFultonCountInfinity(true) puts in
+    constexpr std::size_t   kSlot_GetAmmoStockCount = 0x88 / sizeof(void*);
+    constexpr std::size_t   kSlot_GetAmmoStockMax   = 0xA0 / sizeof(void*);
+    constexpr std::size_t   kSlot_SetAmmoStockCount = 0xC0 / sizeof(void*);
+
+    using GetAmmoStock_t      = std::uint32_t(__fastcall*)(void* inventory, int stockIndex);
+    using SetAmmoStockCount_t = void(__fastcall*)(void* equipController, int stockIndex, std::uint32_t bulletId, std::uint32_t count);
+
+    template <typename Fn>
+    Fn VirtualAt(void* object, std::size_t slot)
+    {
+        return reinterpret_cast<Fn>((*reinterpret_cast<void***>(object))[slot]);
+    }
+
+    void* GetLocalPlayerEquipController()
+    {
+        auto* sys = reinterpret_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        if (!sys)
+            return nullptr;
+        __try
+        {
+            auto* impl = *reinterpret_cast<std::uint8_t**>(sys + 0x8);
+            if (!impl)
+                return nullptr;
+            return *reinterpret_cast<void**>(impl + 0xC8); // the player's EquipControllerImpl
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    bool ReadFultonStock(std::uint32_t& count, std::uint32_t& max)
+    {
+        void* controller = GetLocalPlayerEquipController();
+        if (!controller)
+            return false;
+        __try
+        {
+            void* inventory = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(controller) + 0x8);
+            if (!inventory)
+                return false;
+            count = VirtualAt<GetAmmoStock_t>(inventory, kSlot_GetAmmoStockCount)(inventory, kFultonAmmoStock);
+            max   = VirtualAt<GetAmmoStock_t>(inventory, kSlot_GetAmmoStockMax)(inventory, kFultonAmmoStock);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool WriteFultonCount(std::uint32_t count)
+    {
+        void* controller = GetLocalPlayerEquipController();
+        if (!controller)
+            return false;
+        __try
+        {
+            VirtualAt<SetAmmoStockCount_t>(controller, kSlot_SetAmmoStockCount)(controller, kFultonAmmoStock, kFultonBulletId, count);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool CanChangePlayerStock()
+    {
+        return !MissionCodeGuard::ShouldBypassHooks() && Barrier_InSinglePlayer();
+    }
+
+    int SetFultonCountClamped(lua_State* L, const char* caller, int requested)
+    {
+        std::uint32_t count = 0;
+        std::uint32_t max   = 0;
+        if (!ReadFultonStock(count, max))
+        {
+            LogWarn("%s: player inventory unreachable, fulton count unchanged", caller);
+            PushLuaNil(L);
+            return 1;
+        }
+
+        if (max == kUnlimitedAmmoStock)
+        {
+            PushLuaNumber(L, static_cast<float>(count));
+            return 1;
+        }
+
+        std::uint32_t wanted = requested < 0 ? 0u : static_cast<std::uint32_t>(requested);
+        if (wanted > max)
+            wanted = max;
+
+        if (wanted != count && !WriteFultonCount(wanted))
+        {
+            LogWarn("%s: fulton stock write faulted, fulton count unchanged", caller);
+            PushLuaNil(L);
+            return 1;
+        }
+        PushLuaNumber(L, static_cast<float>(wanted));
+        return 1;
+    }
+}
+
+int __cdecl l_GetFultonCount(lua_State* L)
+{
+    std::uint32_t count = 0;
+    std::uint32_t max   = 0;
+    if (!ReadFultonStock(count, max))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, static_cast<float>(count));
+    PushLuaNumber(L, static_cast<float>(max));
+    return 2;
+}
+
+int __cdecl l_SetFultonCount(lua_State* L)
+{
+    if (!CanChangePlayerStock())
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    if (!LuaIsNumber(L, 1))
+    {
+        LogWarn("SetFultonCount: count must be a number, fulton count unchanged");
+        PushLuaNil(L);
+        return 1;
+    }
+    return SetFultonCountClamped(L, "SetFultonCount", GetLuaInt(L, 1));
+}
+
+int __cdecl l_ResupplyFulton(lua_State* L)
+{
+    if (!CanChangePlayerStock())
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    return SetFultonCountClamped(L, "ResupplyFulton", static_cast<int>(kUnlimitedAmmoStock));
+}
 
 int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
 {
@@ -1706,6 +1959,22 @@ static int __cdecl l_Log(lua_State* L)
     return 0;
 }
 
+// SetFrameCallback(name, fn): fn(seconds) runs once per frame on the Lua thread, also while a mission loads (when
+// Infinite Heaven's Update does not run); seconds = real time since the game started. A new fn under the same name
+// replaces the old one, nil removes it. Returns true when stored.
+static int __cdecl l_SetFrameCallback(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    const int type = LuaType(L, 2);
+    if (!name || !*name || (type != LUA_TFUNCTION && type != LUA_TNIL && type != LUA_TNONE))
+    {
+        LogWarn("V_FrameWork.SetFrameCallback: needs (name, function or nil)");
+        return 0;
+    }
+    g_lua_pushboolean(L, FrameCallbacks::Set(L, name, 2) ? 1 : 0);
+    return 1;
+}
+
 static std::uint64_t ParseSahelanFovaArg(const char* text)
 {
     if (!text || !*text)
@@ -2032,6 +2301,7 @@ int __cdecl l_SetNewFlagCassetteTape(lua_State* L)
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
+    { "SetFrameCallback",                       l_SetFrameCallback },
     { nullptr, nullptr }
 };
 
@@ -2059,17 +2329,21 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_MagazineTypeConstants(L);
         Register_V_CallMenuConstants(L);
         Register_V_NoticeConstants(L);
+        Register_V_DogCommandConstants(L);
         Register_V_TppCassetteLibrary(L);
         Register_V_TppPlayerLibrary(L);
         Register_V_FoxLibrary(L);
         Register_V_PickableLibrary(L);
         Register_V_TppCollectionLibrary(L);
         Register_V_HelicopterLibrary(L);
-    Register_V_TitleSequenceLibrary(L);
         Register_V_TitleSequenceLibrary(L);
         Register_V_TppMotherBaseManagementLibrary(L);
         Register_V_TppEquipLibrary(L);
         Register_V_TppSoldierFaceLibrary(L);
+        Register_V_TppBuddyServiceLibrary(L);
+        Register_V_UixUtilityLibrary(L);
+        Register_V_TppMotionLibrary(L);
+        Register_V_ThrowingSystemLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -2086,6 +2360,31 @@ static void __fastcall hkSetLuaFunctions(lua_State* L)
 }
 
 
+bool StartupLetsLuaIn();
+HMODULE V_FrameWork_FirstCopyIfSecond();
+void V_FrameWork_NoteSecondCopy();
+
+// V_FrameWork_Core.lua loads the DLL itself when no DLL loader (IHHook) did at boot.
+extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
+{
+    if (const HMODULE first = V_FrameWork_FirstCopyIfSecond())
+    {
+        const auto open = reinterpret_cast<int(__cdecl*)(lua_State*)>(
+            GetProcAddress(first, "luaopen_V_FrameWork"));
+        return open ? open(L) : 0;
+    }
+    V_FrameWork_NoteSecondCopy();
+    if (!L || FeatureIsDisabled("LuaBridge") || !StartupLetsLuaIn() || !ResolveLuaApi() || IsLuaStateRegistered(L))
+        return 0;
+
+    LogInfo("Startup: loaded by V_FrameWork_Core.lua, later in boot than a DLL loader would");
+    const int top = g_lua_gettop(L);
+    RegisterAllUiLuaLibraries(L);
+    g_lua_settop(L, top);
+    return 0;
+}
+
+
 static int __fastcall hkLuaPcallPump(lua_State* L, int nargs, int nresults,
                                      int errfunc)
 {
@@ -2097,6 +2396,7 @@ static int __fastcall hkLuaPcallPump(lua_State* L, int nargs, int nresults,
     V_FrameWork_NoteLiveLuaState(L);
     V_FrameWork::ExitLuaPcall();
     uniquedefaultoutfit::EnsureRegistered(L);
+    OutfitLua_ApplyPendingColors(L);
     return r;
 }
 

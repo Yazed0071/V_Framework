@@ -8,6 +8,7 @@
 #include "UiUtility_GetWeaponItemNameLangId.h"
 #include "AddressSet.h"
 #include "HookUtils.h"
+#include "EquipAliasLease.h"
 
 namespace
 {
@@ -44,7 +45,7 @@ namespace
         bool have = false;
         {
             std::lock_guard<std::mutex> lock(g_EquipLangMutex);
-            auto it = g_EquipLang.find(equipId);
+            auto it = g_EquipLang.find(equip::FromEngine(equipId));
             if (it != g_EquipLang.end())
             {
                 const EquipLangEntry& e = it->second;

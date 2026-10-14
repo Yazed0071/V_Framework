@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "LoadingSplash.h"
 
+#include <atomic>
 #include <cstdint>
 
 #include "HookUtils.h"
@@ -22,6 +23,8 @@ namespace
 
     MissionTextureTable g_MainTextures;
     MissionTextureTable g_BlurTextures;
+
+    std::atomic<void*> g_TipsEvent{ nullptr };   // read by V_TppUiCommand.GetLoadingTipsInfo on the Lua thread
 
     void*    g_AppliedSelf = nullptr;
     uint64_t g_AppliedMain = 0;
@@ -65,6 +68,7 @@ namespace
 
     void __fastcall hkSplash(void* self)
     {
+        g_TipsEvent.store(self, std::memory_order_release);
         g_OrigSplash(self);
         Apply(self, true);
     }
@@ -106,6 +110,11 @@ void LoadingSplash_ClearTextures(uint32_t missionCode)
 {
     g_MainTextures.Clear(missionCode);
     g_BlurTextures.Clear(missionCode);
+}
+
+void* LoadingSplash_TipsEvent()
+{
+    return g_TipsEvent.load(std::memory_order_acquire);
 }
 
 

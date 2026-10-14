@@ -47,6 +47,13 @@ this.DEBUG_strCode32List={
   "partsTypeChange",
   "FinishHeadMotion",
   "ItemSelected",
+  "ClipEvent",
+  "Throwing",
+  "OnThrow",
+  "OnActivateThrowing",
+  "OnBounceThrowing",
+  "OnStopThrowing",
+  "OnRemoveThrowing",
 }
 
 this.CassettePlay={
@@ -269,6 +276,18 @@ this.signatureTypes={
     {argName="item",argType="number"},
     {argName="heldSoldierId",argType="gameId"},
   },
+
+  ClipEvent={
+    {argName="event",argType="str32"},
+    {argName="clip",argType="string"},
+    {argName="ownerId",argType="gameId"},
+  },
+
+  Throwing={
+    {argName="handle",argType="number"},
+    {argName="equipId",argType="equipId"},
+    {argName="owner",argType="gameId"},
+  },
 }
 
 this.messageSignatures={
@@ -279,6 +298,7 @@ this.messageSignatures={
     AnimalNotice=this.signatureTypes.AnimalNotice,
     RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi,
     AntiAir=this.signatureTypes.AntiAir,
+    ClipEvent=this.signatureTypes.ClipEvent,
   },
 
   Player={
@@ -320,6 +340,14 @@ this.messageSignatures={
 
   Mission={
     MissionStateReset=this.signatureTypes.MissionStateReset,
+  },
+
+  Throwing={
+    OnThrow=this.signatureTypes.Throwing,
+    OnActivateThrowing=this.signatureTypes.Throwing,
+    OnBounceThrowing=this.signatureTypes.Throwing,
+    OnStopThrowing=this.signatureTypes.Throwing,
+    OnRemoveThrowing=this.signatureTypes.Throwing,
   },
 }
 
@@ -547,6 +575,8 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
   InfLookup.signatureTypes.FinishHeadMotion=this.signatureTypes.FinishHeadMotion
   InfLookup.signatureTypes.ItemSelected=this.signatureTypes.ItemSelected
+  InfLookup.signatureTypes.ClipEvent=this.signatureTypes.ClipEvent
+  InfLookup.signatureTypes.Throwing=this.signatureTypes.Throwing
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -555,6 +585,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.HUD=InfLookup.messageSignatures.HUD or {}
   InfLookup.messageSignatures.Subtitles=InfLookup.messageSignatures.Subtitles or {}
   InfLookup.messageSignatures.UI=InfLookup.messageSignatures.UI or {}
+  InfLookup.messageSignatures.Throwing=InfLookup.messageSignatures.Throwing or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
@@ -562,6 +593,7 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.GameObject.AnimalNotice=this.signatureTypes.AnimalNotice
   InfLookup.messageSignatures.GameObject.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
   InfLookup.messageSignatures.GameObject.AntiAir=this.signatureTypes.AntiAir
+  InfLookup.messageSignatures.GameObject.ClipEvent=this.signatureTypes.ClipEvent
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.messageSignatures.Player.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
   InfLookup.messageSignatures.Player.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
@@ -581,6 +613,11 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliStart
   InfLookup.messageSignatures.HUD.AnnounceLog=this.signatureTypes.AnnounceLog
   InfLookup.messageSignatures.Subtitles.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
+  InfLookup.messageSignatures.Throwing.OnThrow=this.signatureTypes.Throwing
+  InfLookup.messageSignatures.Throwing.OnActivateThrowing=this.signatureTypes.Throwing
+  InfLookup.messageSignatures.Throwing.OnBounceThrowing=this.signatureTypes.Throwing
+  InfLookup.messageSignatures.Throwing.OnStopThrowing=this.signatureTypes.Throwing
+  InfLookup.messageSignatures.Throwing.OnRemoveThrowing=this.signatureTypes.Throwing
 end
 
 function this.GetMessageSignature(sender,messageId)

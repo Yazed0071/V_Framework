@@ -13,11 +13,25 @@ extern "C" {
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaBroadcaster.h"
+#include "../lua/FrameCallbacks.h"
 
 namespace EquipDevelopAdd
 {
     void PumpDevelopMenuWork();
 }
+
+namespace RankLimitedItems
+{
+    void Pump();
+}
+
+namespace SupportStockLease
+{
+    void Pump();
+}
+
+void AudioVolume_Pump();
+void FieldTaxi_PumpUi();
 
 namespace
 {
@@ -308,6 +322,75 @@ namespace
 
 }
 
+// swaps the game's message resend counter; false when it cannot be read
+static bool ExchangeCounterSEH(volatile std::uint32_t* counter, std::uint32_t value, std::uint32_t& old)
+{
+    __try
+    {
+        old = *counter;
+        *counter = value;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+// pushes TppMain.OnMessage and its 7 arguments; false when there is no OnMessage or a push faults (the caller puts
+// the stack back)
+static bool PushBroadcastSEH(lua_State* L, const LuaApi& lua, int top, const char* category, const char* msg,
+    const V_FrameWork::LuaBroadcastArg* args, int argCount)
+{
+    DWORD  sehCode     = 0;
+    PVOID  sehAddr     = nullptr;
+    ULONG_PTR sehFault = 0;
+    int    sehKind     = 0;
+
+    __try
+    {
+        if (!PushTppMainOnMessage(L, lua, top))
+            return false;
+
+        const std::uint32_t senderHash = FoxHashes::StrCode32(category);
+        const std::uint32_t msgHash    = FoxHashes::StrCode32(msg);
+
+        lua.pushnil(L);
+        lua.pushnumber(L, static_cast<lua_Number>(senderHash));
+        lua.pushnumber(L, static_cast<lua_Number>(msgHash));
+
+        for (int i = 0; i < 4; ++i)
+        {
+            if (args && i < argCount)
+                PushOneOptionalArg(L, lua, args[i]);
+            else
+                lua.pushnil(L);
+        }
+        return true;
+    }
+    __except ((sehCode = GetExceptionCode(),
+               sehAddr = GetExceptionInformation()->ExceptionRecord->ExceptionAddress,
+               sehKind = (GetExceptionInformation()->ExceptionRecord->NumberParameters >= 2 ? 1 : 0),
+               sehFault = (sehKind ? GetExceptionInformation()->ExceptionRecord->ExceptionInformation[1] : 0),
+               EXCEPTION_EXECUTE_HANDLER))
+    {
+        static int s_faultLines = 0;
+        if (s_faultLines < kMaxHazardLogLines)
+        {
+            ++s_faultLines;
+            if (sehKind)
+            {
+                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p, address 0x%llX), "
+                    "dispatch aborted", category, msg, static_cast<unsigned>(sehCode),
+                    sehAddr, static_cast<unsigned long long>(sehFault));
+            }
+            else
+            {
+                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p), dispatch aborted",
+                    category, msg, static_cast<unsigned>(sehCode), sehAddr);
+            }
+        }
+        return false;
+    }
+}
+
 static void EmitInline(const char* category,
     const char* msg,
     const V_FrameWork::LuaBroadcastArg* args,
@@ -341,76 +424,32 @@ static void EmitInline(const char* category,
     }
     ++s_dispatchDepth;
 
-    DWORD  sehCode     = 0;
-    PVOID  sehAddr     = nullptr;
-    ULONG_PTR sehFault = 0;
-    int    sehKind     = 0;
+    const int savedTop = lua.gettop(L);
+    volatile std::uint32_t* counter = GetMessageResendCounter();
+    std::uint32_t savedCounter = 0;
+    const bool counterSet = counter && ExchangeCounterSEH(counter, 0xFFFFu, savedCounter);
 
-    __try
+    // the call itself is outside any __try: a fault unwound through the hooked lua_pcall would skip ExitLuaPcall and
+    // Lua's own state restore, so it has to reach the game's crash handler instead
+    if (PushBroadcastSEH(L, lua, savedTop, category, msg, args, argCount) && lua.pcall(L, 7, 0, 0) != 0)
     {
-        const int savedTop = lua.gettop(L);
-
-        volatile std::uint32_t* counter = GetMessageResendCounter();
-        const std::uint32_t     savedCounter = counter ? *counter : 0;
-        if (counter) *counter = 0xFFFFu;
-
-        if (PushTppMainOnMessage(L, lua, savedTop))
+        static int s_errLines = 0;
+        if (s_errLines < kMaxHazardLogLines)
         {
-            const std::uint32_t senderHash = FoxHashes::StrCode32(category);
-            const std::uint32_t msgHash    = FoxHashes::StrCode32(msg);
-
-            lua.pushnil(L);
-            lua.pushnumber(L, static_cast<lua_Number>(senderHash));
-            lua.pushnumber(L, static_cast<lua_Number>(msgHash));
-
-            for (int i = 0; i < 4; ++i)
-            {
-                if (args && i < argCount)
-                    PushOneOptionalArg(L, lua, args[i]);
-                else
-                    lua.pushnil(L);
-            }
-
-            if (lua.pcall(L, 7, 0, 0) != 0)
-            {
-                static int s_errLines = 0;
-                if (s_errLines < kMaxHazardLogLines)
-                {
-                    ++s_errLines;
-                    const char* errMsg =
-                        lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
-                    LogWarn("LuaBroadcast: %s.%s: TppMain.OnMessage error: %s",
-                        category, msg, errMsg ? errMsg : "(no message)");
-                }
-            }
-        }
-
-        if (counter) *counter = savedCounter;
-        lua.settop(L, savedTop);
-    }
-    __except ((sehCode = GetExceptionCode(),
-               sehAddr = GetExceptionInformation()->ExceptionRecord->ExceptionAddress,
-               sehKind = (GetExceptionInformation()->ExceptionRecord->NumberParameters >= 2 ? 1 : 0),
-               sehFault = (sehKind ? GetExceptionInformation()->ExceptionRecord->ExceptionInformation[1] : 0),
-               EXCEPTION_EXECUTE_HANDLER))
-    {
-        static int s_faultLines = 0;
-        if (s_faultLines < kMaxHazardLogLines)
-        {
-            ++s_faultLines;
-            if (sehKind)
-            {
-                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p, address 0x%llX), "
-                    "dispatch aborted", category, msg, static_cast<unsigned>(sehCode),
-                    sehAddr, static_cast<unsigned long long>(sehFault));
-            }
-            else
-            {
-                LogWarn("LuaBroadcast: %s.%s faulted (0x%08X at %p), dispatch aborted",
-                    category, msg, static_cast<unsigned>(sehCode), sehAddr);
-            }
+            ++s_errLines;
+            const char* errMsg =
+                lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
+            LogWarn("LuaBroadcast: %s.%s: TppMain.OnMessage error: %s",
+                category, msg, errMsg ? errMsg : "(no message)");
         }
     }
+
+    if (counterSet)
+    {
+        std::uint32_t ignored = 0;
+        ExchangeCounterSEH(counter, savedCounter, ignored);
+    }
+    lua.settop(L, savedTop);
 
     --s_dispatchDepth;
 }
@@ -467,6 +506,14 @@ void V_FrameWork::EnterLuaPcall()
     ++g_luaPcallDepth;
 }
 
+bool V_FrameWork::LuaStackHasRoom(lua_State* L, int slots)
+{
+    LuaStackHeadroom room{};
+    if (!LuaStackHeadroomOf(L, room))
+        return true;
+    return room.frameFree >= slots && room.physicalFree >= slots;
+}
+
 void V_FrameWork::ExitLuaPcall()
 {
     if (--g_luaPcallDepth <= 0)
@@ -474,5 +521,10 @@ void V_FrameWork::ExitLuaPcall()
         g_luaPcallDepth = 0;
         DrainDeferredBroadcasts();
         EquipDevelopAdd::PumpDevelopMenuWork();
+        RankLimitedItems::Pump();
+        SupportStockLease::Pump();
+        AudioVolume_Pump();
+        FieldTaxi_PumpUi();
+        FrameCallbacks::Run();
     }
 }

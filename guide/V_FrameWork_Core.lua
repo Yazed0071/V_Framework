@@ -6,7 +6,19 @@ end
 
 local VFW = rawget(_G, "V_FrameWork")
 if not VFW then
-    error("V_FrameWork_Core: V_FrameWork.dll isn't loaded. It goes in MGS_TPP\\plugins\\ and needs IHHook r25 or newer with enable_dll_loader=true in ihhook_config.lua")
+    local loadlib = type(package) == "table" and package.loadlib
+    local open, why = nil, "this Lua can't load DLLs"
+    if loadlib then
+        open, why = loadlib("plugins\\V_FrameWork.dll", "luaopen_V_FrameWork")
+    end
+    if open then
+        open()
+        VFW = rawget(_G, "V_FrameWork")
+        why = "it's off, see V_FrameWork's log"
+    end
+    if not VFW then
+        error("V_FrameWork_Core: V_FrameWork.dll isn't loaded (" .. tostring(why) .. "). It goes in MGS_TPP\\plugins\\")
+    end
 end
 local V_FrameWork = VFW
 
@@ -32,7 +44,6 @@ this.registerIvars = {
 this.V_FrameWork = {
     parentRefs = {"InfMenuDefs.safeSpaceMenu", "InfMenuDefs.inMissionMenu"},
     options = {
-        "Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose",
         "Ivars.V_FrameWork_V_Quiet_QuietHoldCQC",
         "Ivars.V_FrameWork_V_Quiet_QuietInterr",
         "Ivars.V_FrameWork_V_ACC_iDroidClose",
@@ -42,7 +53,6 @@ this.V_FrameWork = {
 this.langStrings = {
     eng = {
         V_FrameWork = "V_FrameWork",
-        V_FrameWork_V_TppHelicopter_SetTaxiRidePose = "Set Taxi Ride Pose",
         V_FrameWork_V_Quiet_QuietHoldCQC = "Enables Quiet to hold with CQC",
         V_FrameWork_V_Quiet_QuietInterr = "Enables Quiet to Interrogate",
         V_FrameWork_V_ACC_iDroidClose = "Play close iDroid animation while in the ACC.",
@@ -50,16 +60,16 @@ this.langStrings = {
     help = {
         eng = {
             V_FrameWork = "Toggle individual options for V_FrameWork mod.",
-            V_FrameWork_V_TppHelicopter_SetTaxiRidePose = "Set Taxi Ride Pose",
             V_FrameWork_V_Quiet_QuietHoldCQC = "Enables Quiet to hold with CQC.",
             V_FrameWork_V_Quiet_QuietInterr = "Enables Quiet to Interrogate enemies",
         },
     },
 }
 
+-- not in the IH menu: the Taxi pose call menu options set it, and the save keeps the last pick
 this.V_FrameWork_V_TppHelicopter_SetTaxiRidePose = {
     save = IvarProc.CATEGORY_EXTERNAL,
-    settings = { "Heli Edge", "Inside", "BackSeat" },
+    settings = { "Heli Edge", "Inside", "BackSeat", "Inside (Door Open)" },
     OnChange = function(self, setting)
         this.SetTaxiRidePose(setting + 1)
     end,
@@ -95,19 +105,58 @@ this.V_FrameWork_V_ACC_iDroidClose = {
     end
 }
 
-local TAXI_RIDE_POSE_STATES = { 0x03, 0x08, 0x0A }   -- 1 = StateAtk, 2 = StateInside, 3 = StateInsideBackSeatStart
+local TAXI_RIDE_POSE_STATES = { 0x03, 0x08, 0x0A, 0x06 }   -- 1 = StateAtk, 2 = StateInside, 3 = StateInsideBackSeatStart, 4 = StateInsideStart (inside, door left open)
+local TAXI_POSE_CLIP = nil   -- any clip from player2_heli.mtar or player2_resident.mtar, replaces the menu pose's clip on taxi rides; SetPlayerDropSeatPose still wins on the back seat
 
 function this.SetTaxiRidePose(option)
     local state = TAXI_RIDE_POSE_STATES[option]
-    
+
     if not state then
-        V_FrameWork.Log("V_TppHelicopter.SetTaxiRidePose: option must be 1 (edge), 2 (in front of door) or 3 (chair, third person).")
+        V_FrameWork.Log("V_TppHelicopter.SetTaxiRidePose: option must be 1 (edge), 2 (in front of door), 3 (chair, third person) or 4 (in front of door, door open).")
         return
     end
-    
+
+    this.taxiPoseState = state
+    this.taxiPoseClip = TAXI_POSE_CLIP
+    if this.taxiPoseSwapped then
+        this._RestoreTaxiPoseClip()
+        this._SwapTaxiPoseClip()
+    end
+    if this.taxiPoseMenuReady then
+        this._GreyCurrentTaxiPose()
+    end
+
     if V_Helicopter then
         return V_Helicopter.SetTaxiRideState(state)
     end
+end
+
+function this._SwapTaxiPoseClip()
+    if not this.taxiPoseClip then
+        return
+    end
+
+    if this.taxiPoseState == 0x03 then
+        V_Fox.SwapGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_idl", this.taxiPoseClip)
+    elseif this.taxiPoseState == 0x08 or this.taxiPoseState == 0x06 then
+        V_Fox.SwapGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_to_in_r_idl", this.taxiPoseClip)
+        V_Fox.SwapGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_to_in_idl", this.taxiPoseClip)
+    else
+        V_Fox.SwapGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_seat_idl_b_lp", this.taxiPoseClip)
+    end
+    this.taxiPoseSwapped = this.taxiPoseClip
+end
+
+function this._RestoreTaxiPoseClip()
+    if not this.taxiPoseSwapped then
+        return
+    end
+
+    V_Fox.RestoreGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_idl", this.taxiPoseSwapped)
+    V_Fox.RestoreGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_to_in_r_idl", this.taxiPoseSwapped)
+    V_Fox.RestoreGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_pos_to_in_idl", this.taxiPoseSwapped)
+    V_Fox.RestoreGani("/Assets/tpp/motion/SI_game/fani/bodies/snap/snaputh/snaputh_q_seat_idl_b_lp", this.taxiPoseSwapped)
+    this.taxiPoseSwapped = nil
 end
 
 function this._SetQuietHoldCqc(enable)
@@ -161,6 +210,144 @@ function this.OnAllocate(missionTable)
 
     -- IDROID END
     this._SetPlayIDroidEndMotion(Ivars.V_FrameWork_V_ACC_iDroidClose:Get())
+end
+
+function this.Messages()
+    return Tpp.StrCode32Table {
+        GameObject = {
+            {
+                msg = "RequestedHeliTaxi",
+                func = function()
+                    this._RestoreTaxiPoseClip()
+                    this._SwapTaxiPoseClip()
+                    this._ShowTaxiPoseCallMenu()
+                end,
+            },
+        },
+        Player = {
+            {
+                msg = "PlayerHeliGetOff",
+                func = function()
+                    this._RestoreTaxiPoseClip()
+                    this._HideTaxiPoseCallMenu()
+                end,
+            },
+            {
+                msg = "ItemSelected",
+                sender = "V_TaxiPoseEdge",
+                func = function()
+                    Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose:Set(0)
+                end,
+            },
+            {
+                msg = "ItemSelected",
+                sender = "V_TaxiPoseInside",
+                func = function()
+                    Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose:Set(1)
+                end,
+            },
+            {
+                msg = "ItemSelected",
+                sender = "V_TaxiPoseBackSeat",
+                func = function()
+                    Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose:Set(2)
+                end,
+            },
+            {
+                msg = "ItemSelected",
+                sender = "V_TaxiPoseInsideOpen",
+                func = function()
+                    Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose:Set(3)
+                end,
+            },
+        },
+    }
+end
+
+function this._ShowTaxiPoseCallMenu()
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseEdge", V_CallMenuItem.REQUEST_INFO)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseInside", V_CallMenuItem.SELL_OUT_COMRADE)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseBackSeat", V_CallMenuItem.REQUEST_CRAWL)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseInsideOpen", V_CallMenuItem.KNOCK)
+    V_Player.ShowCallMenuItem("V_FrameWork_TaxiPoseEdge")
+    V_Player.ShowCallMenuItem("V_FrameWork_TaxiPoseInside")
+    V_Player.ShowCallMenuItem("V_FrameWork_TaxiPoseBackSeat")
+    V_Player.ShowCallMenuItem("V_FrameWork_TaxiPoseInsideOpen")
+    this._GreyCurrentTaxiPose()
+end
+
+function this._GreyCurrentTaxiPose()
+    V_Player.EnableCallMenuItem("V_FrameWork_TaxiPoseEdge")
+    V_Player.EnableCallMenuItem("V_FrameWork_TaxiPoseInside")
+    V_Player.EnableCallMenuItem("V_FrameWork_TaxiPoseBackSeat")
+    V_Player.EnableCallMenuItem("V_FrameWork_TaxiPoseInsideOpen")
+    if this.taxiPoseState == 0x03 then
+        V_Player.DisableCallMenuItem("V_FrameWork_TaxiPoseEdge")
+    elseif this.taxiPoseState == 0x08 then
+        V_Player.DisableCallMenuItem("V_FrameWork_TaxiPoseInside")
+    elseif this.taxiPoseState == 0x0A then
+        V_Player.DisableCallMenuItem("V_FrameWork_TaxiPoseBackSeat")
+    elseif this.taxiPoseState == 0x06 then
+        V_Player.DisableCallMenuItem("V_FrameWork_TaxiPoseInsideOpen")
+    end
+end
+
+function this._HideTaxiPoseCallMenu()
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseEdge", nil)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseInside", nil)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseBackSeat", nil)
+    V_Player.SetCallMenuItemInPlaceOf("V_FrameWork_TaxiPoseInsideOpen", nil)
+    V_Player.HideCallMenuItem("V_FrameWork_TaxiPoseEdge")
+    V_Player.HideCallMenuItem("V_FrameWork_TaxiPoseInside")
+    V_Player.HideCallMenuItem("V_FrameWork_TaxiPoseBackSeat")
+    V_Player.HideCallMenuItem("V_FrameWork_TaxiPoseInsideOpen")
+end
+
+function this.Init(missionTable)
+    this.taxiPoseSwapped = nil
+    if TppMission.IsFOBMission(vars.missionCode) then return end
+    this.messageExecTable = Tpp.MakeMessageExecTable(this.Messages())
+
+    V_Player.AddCallMenuItem{
+        key         = "V_FrameWork_TaxiPoseEdge",
+        label       = "V_taxi_pose_edge",
+        description = "V_taxi_pose_edge_help",
+        message     = "V_TaxiPoseEdge",
+        column      = V_CallMenuColumn.INTERROGATION,
+        exclusive   = "V_FrameWork_TaxiPose",
+    }
+    V_Player.AddCallMenuItem{
+        key         = "V_FrameWork_TaxiPoseInside",
+        label       = "V_taxi_pose_inside",
+        description = "V_taxi_pose_inside_help",
+        message     = "V_TaxiPoseInside",
+        column      = V_CallMenuColumn.INTERROGATION,
+        exclusive   = "V_FrameWork_TaxiPose",
+    }
+    V_Player.AddCallMenuItem{
+        key         = "V_FrameWork_TaxiPoseBackSeat",
+        label       = "V_taxi_pose_backseat",
+        description = "V_taxi_pose_backseat_help",
+        message     = "V_TaxiPoseBackSeat",
+        column      = V_CallMenuColumn.INTERROGATION,
+        exclusive   = "V_FrameWork_TaxiPose",
+    }
+    V_Player.AddCallMenuItem{
+        key         = "V_FrameWork_TaxiPoseInsideOpen",
+        label       = "V_taxi_pose_inside_open",
+        description = "V_taxi_pose_inside_open_help",
+        message     = "V_TaxiPoseInsideOpen",
+        column      = V_CallMenuColumn.KNOCK,
+        exclusive   = "V_FrameWork_TaxiPose",
+    }
+    this.taxiPoseMenuReady = true
+    this._HideTaxiPoseCallMenu()
+    this._GreyCurrentTaxiPose()
+end
+
+function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
+    if TppMission.IsFOBMission(vars.missionCode) then return end
+    Tpp.DoMessage(this.messageExecTable, TppMission.CheckMessageOption, sender, messageId, arg0, arg1, arg2, arg3, strLogText)
 end
 
 function this.AddMissionPacks(missionCode, packPaths)

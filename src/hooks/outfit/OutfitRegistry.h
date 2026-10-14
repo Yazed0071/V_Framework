@@ -3,7 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <unordered_set>
+#include <string>
+#include <vector>
 
 namespace outfit
 {
@@ -94,15 +95,38 @@ namespace outfit
     constexpr std::uint32_t kDamageSeDefault = SoundSwitchHash("default");
     constexpr std::uint32_t kDamageSeNormal  = SoundSwitchHash("normal");
 
-    constexpr std::uint8_t kSprintNone   = 0;
-    constexpr std::uint8_t kSprintNinja  = 5;
-    constexpr std::uint8_t kSprintRaiden = 6;
+    constexpr std::uint32_t kSprintNone       = 0;
+    constexpr std::uint32_t kSprintSpeedMask  = 0xFFFFu;   // speed in percent, 0 = the suit's own
+    constexpr std::uint32_t kSprintRaidenRun  = 1u << 16;
+    constexpr std::uint32_t kSprintDashAttack = 1u << 17;
+    constexpr std::uint32_t kSprintDashSound  = 1u << 18;
+    constexpr std::uint32_t kSprintAttackShift = 19;
+    constexpr std::uint32_t kSprintAttackMask  = 0x7FFu << kSprintAttackShift;   // dashAttack's ATK_ id, 0 = the suits' own
+    constexpr std::uint32_t kSprintAttackLast  = 0x1BC;   // TppDamage's last ATK_ id
+    constexpr std::uint32_t kSprintOwn        = 1u << 31;
+
+    constexpr std::uint8_t kEyeColorOff   = 0;
+    constexpr std::uint8_t kEyeColorStaff = 0xFF;   // the staff's own iris; 1 + n is iris unit n
+    constexpr std::uint8_t kEyeColorUnits = 32;
+
+    constexpr std::size_t kColorChannelCount = 2;
+    constexpr std::size_t kMaxColorsPerChannel = 1024;
+
+    struct OutfitColor
+    {
+        std::string   fv2;
+        std::uint64_t fv2Code = 0;
+        std::uint64_t fpkCode = 0;   // the colour's own package, loaded in the player's camo slot; 0 = the fv2 is in the outfit's packages
+        std::string   icon;
+    };
+
+    using OutfitColorList = std::vector<OutfitColor>;
 
     struct DeclaredAbilities
     {
         bool          declared      = false;
         bool          silentSteps   = false;
-        std::uint8_t  sprint        = kSprintNone;
+        std::uint32_t sprint        = kSprintNone;
         std::uint64_t sprintSpark   = 0;
         std::uint8_t  defense       = 0;
         std::uint8_t  lifeRecovery  = 0;
@@ -132,6 +156,10 @@ namespace outfit
         bool           enableArm           = true;
         bool           hasEnableHead       = false;
         bool           enableHead          = false;
+        bool           hasEyeFv2           = false;
+        std::uint64_t  eyeFv2              = 0;
+        bool           hasEyeColor         = false;
+        std::uint8_t   eyeColor            = kEyeColorStaff;
         std::uint16_t  headOptionEquipIds[kMaxHeadOptionsPerOutfit] = {};
         std::uint16_t  headOptionOrder[kMaxHeadOptionsPerOutfit]    = {};
         std::uint8_t   headOptionCount     = 0;
@@ -139,6 +167,8 @@ namespace outfit
         std::uint64_t  pendingHeadNameHashes[kMaxHeadOptionsPerOutfit] = {};
         std::uint16_t  pendingHeadOrder[kMaxHeadOptionsPerOutfit]      = {};
         std::uint8_t   pendingHeadCount    = 0;
+        bool           colorsDeclared      = false;
+        OutfitColorList colors[kColorChannelCount];
     };
     struct OutfitPlayerTypeData
     {
@@ -163,8 +193,10 @@ namespace outfit
         std::uint8_t   defaultVariant                  = 0;
         bool           enableArm              = true;
         bool           enableHead             = false;
+        std::uint64_t  eyeFv2                 = 0;
+        std::uint8_t   eyeColor               = kEyeColorStaff;
         bool           abilitySilentSteps     = false;
-        std::uint8_t   abilitySprint          = kSprintNone;
+        std::uint32_t  abilitySprint          = kSprintNone;
         std::uint64_t  abilitySprintSpark     = 0;
         std::uint8_t   abilityDefense         = 0;
         std::uint8_t   abilityLifeRecovery    = 0;
@@ -182,6 +214,7 @@ namespace outfit
         std::uint8_t   camoBonusTypeDeclared                      = kCamoBonusTypeUnset;
         std::int32_t   camoBonusValues[kCamoMaterialCount]        = {};
         bool           hasCamoBonusValues                         = false;
+        OutfitColorList colors[kColorChannelCount];
 
         const OutfitVariant* Var(std::size_t i) const
         {
@@ -246,6 +279,7 @@ namespace outfit
         bool HasVariants()       const { return variantCount > 0; }
         bool IsArmEnabled(std::uint8_t playerType)        const;
         bool IsHeadEnabled(std::uint8_t playerType)       const;
+        bool GetEyeColor(std::uint8_t playerType, std::uint64_t& fv2, std::uint8_t& color) const;
         bool IsCamoCustom(std::uint8_t playerType)        const;
         bool IsCamoFv2Custom(std::uint8_t playerType)     const;
         bool IsFaceEnabled(std::uint8_t playerType)       const;
@@ -298,6 +332,10 @@ namespace outfit
         std::uint8_t  GetCamoBonusType(std::uint8_t playerType) const;
         bool          HasCamoBonusValuesFor(std::uint8_t playerType) const;
         const std::int32_t* GetCamoBonusValuesFor(std::uint8_t playerType) const;
+
+        const OutfitColorList* GetColors(std::uint8_t playerType, std::uint8_t variantIdx,
+                                         std::size_t channel) const;
+        bool HasColors(std::uint8_t playerType, std::uint8_t variantIdx) const;
     };
 
     constexpr std::uint8_t PlayerPartsGroup(std::uint8_t playerType)
@@ -321,16 +359,10 @@ namespace outfit
     bool RegisterOutfit(const OutfitDefinition& def,
                         std::uint8_t* outAllocatedPartsType);
 
-    void ClearAllOutfits();
-
 
     bool BindOutfit(std::uint16_t developId, bool allowEvict, const char* reason);
     bool UnbindOutfit(std::uint16_t developId);
     bool IsOutfitBound(std::uint16_t developId);
-
-    bool CollectOutfitResidencyPins(
-        std::unordered_set<std::uint32_t>& allDevelopIds,
-        std::unordered_set<std::uint32_t>& livePinnedDevelopIds);
 
     void NoteOutfitApplied(std::uint16_t developId);
     void NoteOutfitOrdered(std::uint16_t developId);
@@ -344,8 +376,6 @@ namespace outfit
 
     bool TryGetOutfitByPartsType(std::uint8_t partsType,
                                  const OutfitEntry** outEntry);
-
-    bool ReleaseOutfitLiveBytesIfIdle(std::uint16_t developId);
 
     bool TryGetOutfitBySelectorCode(std::uint8_t selectorCode,
                                     const OutfitEntry** outEntry);
@@ -364,9 +394,9 @@ namespace outfit
                                             std::uint8_t* outDefense,
                                             std::uint8_t* outRecovery);
 
-    std::uint8_t GetSprintForVariantLockFree(std::uint8_t selectorCode,
-                                             std::uint8_t playerType,
-                                             std::uint8_t variantIdx);
+    std::uint32_t GetSprintForVariantLockFree(std::uint8_t selectorCode,
+                                              std::uint8_t playerType,
+                                              std::uint8_t variantIdx);
 
     bool TryGetVariantAbilities(std::uint8_t partsType, std::uint8_t playerType,
                                 std::uint8_t variantIdx,
@@ -532,7 +562,7 @@ namespace outfit
     struct VanillaSuitAbilities
     {
         bool          silentSteps   = false;
-        std::uint8_t  sprint        = kSprintNone;
+        std::uint32_t sprint        = kSprintNone;
         std::uint64_t sprintSpark   = 0;
         std::uint8_t  defense       = 0;
         std::uint8_t  lifeRecovery  = 0;
@@ -617,9 +647,6 @@ namespace outfit
     bool          IsMotionMtarOverrideHash(std::uint64_t pathHash, int* outSlot);
     bool          AnyMotionMtarOverridesRegistered();
 
-    bool BootRestoreScrubActive();
-    void EndBootRestoreScrub(const char* reason);
-
 
     enum class OutfitWriteSource : std::uint8_t
     {
@@ -650,8 +677,6 @@ namespace outfit
 
     void          SetActiveVariant(std::uint8_t partsType, std::uint8_t variantIndex);
     std::uint8_t  GetActiveVariant(std::uint8_t partsType);
-    std::uint8_t  GetVariantWindowStart(std::uint16_t developId);
-    void          SetVariantWindowStart(std::uint16_t developId, std::uint8_t start);
     void          ClearActiveVariant(std::uint8_t partsType);
 
 
@@ -661,6 +686,25 @@ namespace outfit
     void          ClearPendingOutfitDevelopId();
 
 
+    std::uint32_t GetSavedColor(const char* key, std::uint8_t playerType, std::size_t channel);
+    void          SetSavedColor(const char* key, std::uint8_t playerType, std::size_t channel,
+                                std::uint32_t index);   // also drops that channel's preview
+
+    void          SetPreviewColor(const char* key, std::uint8_t playerType, std::size_t channel,
+                                  std::uint32_t index);
+    std::uint32_t GetEffectiveColor(const char* key, std::uint8_t playerType, std::size_t channel);
+    void          ClearPreviewColors();   // mission change: an unsaved preview never outlives its palette
+
+    const OutfitColor* GetPackColor(const OutfitEntry& entry, std::uint8_t playerType, std::uint8_t variantIdx);
+
+    void          RequestColorReapply(bool afterLoad);
+    void          RequestColorRetry();
+    std::uint32_t GetColorReapplyGeneration();
+    void          NoteColorPipeline(bool busy, bool settled);
+    bool          IsColorReapplyReady();
+    bool          ConsumeColorReapply();
+
+
     void          SetPendingHeadOptionEquipId(std::uint16_t equipId);
     std::uint16_t GetPendingHeadOptionEquipId();
     void          ClearPendingHeadOptionEquipId();
@@ -668,10 +712,6 @@ namespace outfit
     void          SetWornCustomHeadSlot(std::uint8_t slot);
     std::uint8_t  GetWornCustomHeadSlot();
     void          ClearWornCustomHeadSlot();
-
-
-    void  SetSupplyDropClickLatch();
-    bool  ConsumeSupplyDropClickLatch();
 
 
     void          SetPendingSupplyDropDevelopId(std::uint16_t developId);

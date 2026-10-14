@@ -32,6 +32,7 @@ namespace
     {
         int                 receiverId   = 0;
         int                 mtarId       = 0;
+        std::vector<int>    extraMtarIds;
         std::uint64_t       playerMtar   = 0;
         std::uint64_t       playerPack   = 0;
         std::uint64_t       weaponMtar   = 0;
@@ -49,6 +50,7 @@ namespace
     std::mutex                 g_Mutex;
     std::map<int, MotionFamily> g_FamilyByReceiver;
     std::map<int, int>         g_ReceiverByMtarId;
+    std::map<int, ReceiverMotionArchive> g_ExtraArchiveByMtarId;
     std::unordered_map<std::uint16_t, int> g_ReceiverByRow;
     int  g_NextMtarId  = kFirstOwnedMtarId;
 
@@ -194,24 +196,28 @@ namespace
         std::uint32_t n = g_OrigGetMtarIds(self, out, equipId);
         if (!out || eq == 0)
             return n;
-        int ownedId = 0;
+        int owned[kMtarIdSlots] = {};
+        std::uint32_t ownedCount = 0;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
             const MotionFamily* f = FamilyForEquipLocked(eq);
+            if (f && f->mtarId != 0)
+                owned[ownedCount++] = f->mtarId;
             if (f)
-                ownedId = f->mtarId;
+                for (const int id : f->extraMtarIds)
+                    if (ownedCount < kMtarIdSlots)
+                        owned[ownedCount++] = id;
         }
-        if (ownedId == 0)
-            return n;
-        if (n >= kMtarIdSlots)
+        std::uint32_t added = 0;
+        while (added < ownedCount && n < kMtarIdSlots)
+            out[n++] = static_cast<std::uint8_t>(owned[added++]);
+        if (added < ownedCount)
         {
             static std::atomic<std::uint32_t> s_lastFullEquip{ 0 };
             if (s_lastFullEquip.exchange(eq, std::memory_order_relaxed) != eq)
-                LogWarn("ReceiverMotion: equipId %u already has %u player archives, custom archive not added", eq, n);
-            return n;
+                LogWarn("ReceiverMotion: equipId %u has no room for %u custom player archives", eq, ownedCount - added);
         }
-        out[n] = static_cast<std::uint8_t>(ownedId);
-        return n + 1;
+        return n;
     }
 
     bool OwnedPathFor(std::uint32_t mtarId, bool pack, std::uint64_t* outPath)
@@ -219,6 +225,12 @@ namespace
         if (mtarId < static_cast<std::uint32_t>(kFirstOwnedMtarId))
             return false;
         std::lock_guard<std::mutex> lock(g_Mutex);
+        const auto extra = g_ExtraArchiveByMtarId.find(static_cast<int>(mtarId));
+        if (extra != g_ExtraArchiveByMtarId.end())
+        {
+            *outPath = pack ? extra->second.pack : extra->second.mtar;
+            return *outPath != 0;
+        }
         const auto it = g_ReceiverByMtarId.find(static_cast<int>(mtarId));
         if (it == g_ReceiverByMtarId.end())
             return false;
@@ -292,6 +304,32 @@ bool ReceiverMotion_Register(const ReceiverMotionDesc& desc)
     }
     if (desc.playerMtar != 0 && desc.playerPack == 0)
         LogWarn("SetReceiverMotion: receiverId %d playerMotion.mtar has no pack, no custom hand clips", desc.receiverId);
+    std::vector<int> extraIds;
+    for (const ReceiverMotionArchive& archive : desc.extraArchives)
+    {
+        if (archive.mtar == 0 || archive.pack == 0)
+        {
+            LogWarn("SetReceiverMotion: receiverId %d extraArchives entry needs mtar and pack, skipped", desc.receiverId);
+            continue;
+        }
+        int id = 0;
+        for (const int previous : f.extraMtarIds)
+            if (g_ExtraArchiveByMtarId[previous].mtar == archive.mtar)
+                id = previous;
+        if (id == 0)
+        {
+            if (g_NextMtarId > kLastOwnedMtarId)
+            {
+                LogError("SetReceiverMotion: receiverId %d, player archive ids 128-255 exhausted, extra archive skipped",
+                    desc.receiverId);
+                continue;
+            }
+            id = g_NextMtarId++;
+        }
+        g_ExtraArchiveByMtarId[id] = archive;
+        extraIds.push_back(id);
+    }
+    f.extraMtarIds = extraIds;
     f.playerMtar  = desc.playerMtar;
     f.playerPack  = desc.playerPack;
     f.playerClips = desc.playerClips;

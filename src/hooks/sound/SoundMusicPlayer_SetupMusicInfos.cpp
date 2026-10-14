@@ -173,12 +173,36 @@ static void GameFree(void* data)
 }
 
 
+// SubtitlesManager::GetInstance is exactly "mov rax,[rip+disp32]; ret"; anything else is a wrong table entry
+static bool IsSubtitleManagerGetterSEH(const void* fn)
+{
+    __try
+    {
+        const auto* b = static_cast<const std::uint8_t*>(fn);
+        return b[0] == 0x48 && b[1] == 0x8B && b[2] == 0x05 && b[7] == 0xC3;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 static bool IsJapaneseVoiceLanguage()
 {
     void* getMgrAddr = ResolveGameAddress(gAddr.SubtitleManager_Get);
     void* getLangAddr = ResolveGameAddress(gAddr.GetVoiceLanguage);
     if (!getMgrAddr || !getLangAddr)
         return false;
+    if (!IsSubtitleManagerGetterSEH(getMgrAddr))
+    {
+        static bool s_warned = false;
+        if (!s_warned)
+        {
+            s_warned = true;
+            LogWarn("CustomTapes: SubtitleManager_Get for this build is not the subtitles getter, tape lengths use the English voice");
+        }
+        return false;
+    }
 
     SubtitleManagerGet_t subtitleManagerGet =
         reinterpret_cast<SubtitleManagerGet_t>(getMgrAddr);

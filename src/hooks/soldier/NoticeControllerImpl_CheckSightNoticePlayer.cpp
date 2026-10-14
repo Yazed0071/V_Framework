@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 
@@ -9,12 +10,16 @@
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "NoticeControllerImpl_CheckSightNoticePlayer.h"
+#include "SoldierCombatVoice.h"
+#include "SoldierIncomingVoice.h"
+#include "SoldierStinkVoice.h"
 #include "log.h"
 
 namespace
 {
     constexpr std::uint32_t kSoldierIndexMask = 0x1FFu;
     constexpr std::size_t   kSoldierSlotCount = 0x200u;
+    constexpr std::uint64_t kLiveControllerFreshMs = 1000;
 
     using SightNotice4_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex,
                                              void* a3, void* a4);
@@ -30,10 +35,19 @@ namespace
 
     thread_local int t_suppressPlayerSight = 0;
 
+    std::atomic<void*>         g_LiveController{ nullptr };
+    std::atomic<std::uint64_t> g_LiveControllerStampMs{ 0 };
+
     void __fastcall hk_Player(void* self, std::uint32_t soldierIndex, void* a3, void* a4)
     {
         if (!g_OrigPlayer)
             return;
+
+        g_LiveController.store(self, std::memory_order_relaxed);
+        g_LiveControllerStampMs.store(GetTickCount64(), std::memory_order_relaxed);
+        SoldierStinkVoice_OnSightCheck(self, soldierIndex);
+        SoldierIncomingVoice_OnSightCheck(self, soldierIndex);
+        SoldierCombatVoice_OnSightCheck(self, soldierIndex);
 
         if (!Soldier_IgnoresNotice(soldierIndex, SoldierNoticeIgnore::kPlayer))
         {
@@ -94,6 +108,13 @@ void Clear_AllSoldierIgnorePlayer()
 {
     std::lock_guard<std::mutex> lk(g_mtx);
     g_ignoreMask.fill(0);
+}
+
+void* SoldierNotice_LiveController()
+{
+    if (GetTickCount64() - g_LiveControllerStampMs.load(std::memory_order_relaxed) > kLiveControllerFreshMs)
+        return nullptr;
+    return g_LiveController.load(std::memory_order_relaxed);
 }
 
 bool Install_CheckSightNoticePlayer_Hook()

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_PickUpActionPluginImpl_DoPickUpWithPickableInfo();
+void Uninstall_PickUpActionPluginImpl_DoPickUpWithPickableInfo();

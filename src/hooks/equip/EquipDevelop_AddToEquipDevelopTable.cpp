@@ -4,6 +4,8 @@
 
 #include <Windows.h>
 #include <algorithm>
+#include <cstring>
+#include <iterator>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -28,6 +30,10 @@
 #include "../outfit/ShadowState.h"
 #include "EquipDevelop_SetEquipUndeveloped.h"
 #include "TppEquip_ReloadEquipIdTable.h"
+#include "EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex.h"
+#include "RankLimitedItems.h"
+#include "SupportWeaponRegistry.h"
+#include "../buddy/BuddyOutfitRegistry.h"
 
 namespace equip { int MenuGridRowCap(); }
 
@@ -1693,6 +1699,112 @@ namespace
         }
     }
 
+    constexpr const char* kResultRankLimitedTextField = "langResultRankLimited";
+
+    static bool IsSpecField(const NamedFieldSpec* specs, std::size_t specCount, const char* name)
+    {
+        for (std::size_t i = 0; i < specCount; ++i)
+        {
+            if (std::strcmp(specs[i].canonicalName, name) == 0
+                || (specs[i].aliasName && std::strcmp(specs[i].aliasName, name) == 0))
+                return true;
+        }
+        return false;
+    }
+
+    static void WarnUnknownFields(lua_State* L, int tableIndex, bool isConst, const std::string& key)
+    {
+        if (!ResolveLuaApi())
+            return;
+
+        const NamedFieldSpec* ownSpecs   = isConst ? k_ConstFieldSpecs : k_FlowFieldSpecs;
+        const std::size_t     ownCount   = isConst ? std::size(k_ConstFieldSpecs) : std::size(k_FlowFieldSpecs);
+        const NamedFieldSpec* otherSpecs = isConst ? k_FlowFieldSpecs : k_ConstFieldSpecs;
+        const std::size_t     otherCount = isConst ? std::size(k_FlowFieldSpecs) : std::size(k_ConstFieldSpecs);
+        const char*           section    = isConst ? "const" : "flow";
+
+        const int absIndex = AbsIndex(L, tableIndex);
+        const int top = g_Deps.GetLuaTop(L);
+        g_lua_pushnil(L);
+        while (g_lua_next(L, absIndex) != 0)
+        {
+            const char* name = IsLuaString(L, -2) ? g_Deps.GetLuaString(L, -2) : nullptr;
+            if (name && !IsSpecField(ownSpecs, ownCount, name)
+                && !(isConst && std::strcmp(name, kResultRankLimitedTextField) == 0))
+            {
+                if (IsSpecField(otherSpecs, otherCount, name))
+                    LogWarn("AddToEquipDevelopTable '%s': %s.%s belongs in %s, ignored",
+                        key.c_str(), section, name, isConst ? "flow" : "const");
+                else
+                    LogWarn("AddToEquipDevelopTable '%s': %s.%s is not a field, ignored",
+                        key.c_str(), section, name);
+            }
+            g_Deps.LuaSetTop(L, -2);
+        }
+        g_Deps.LuaSetTop(L, top);
+    }
+
+    static bool ReadLangIdString(lua_State* L, int tableIndex, const char* fieldName,
+                                 const std::string& key, std::string& outLangId)
+    {
+        if (TryReadStringFieldByName(L, tableIndex, fieldName, outLangId) && !outLangId.empty())
+            return true;
+        outLangId.clear();
+        std::uint64_t number = 0;
+        if (TryReadWideFieldByName(L, tableIndex, fieldName, number))
+            LogWarn("AddToEquipDevelopTable '%s': %s is a number, the rank limited result line needs a lang id string",
+                key.c_str(), fieldName);
+        return false;
+    }
+
+    static void NoteResultRankLimited(lua_State* L, int constTableIdx, const std::string& key,
+                                      const std::vector<FieldValue>& constFields)
+    {
+        std::int32_t equipId = 0;
+        bool limited = false;
+        for (const FieldValue& f : constFields)
+        {
+            if (f.name == "p01" && f.type == FieldValue::Type::Number)
+                equipId = f.numberValue;
+            else if (f.name == "p31")
+                limited = (f.type == FieldValue::Type::Number && f.numberValue != 0)
+                    || (f.type == FieldValue::Type::Boolean && f.boolValue);
+        }
+        if (equipId <= 0)
+            return;
+        if (!limited)
+        {
+            RankLimitedItems::Unregister(equipId);
+            return;
+        }
+
+        std::string langId;
+        if (!ReadLangIdString(L, constTableIdx, kResultRankLimitedTextField, key, langId)
+            && !ReadLangIdString(L, constTableIdx, "langEquipName", key, langId)
+            && !ReadLangIdString(L, constTableIdx, "p06", key, langId))
+            LogWarn("AddToEquipDevelopTable '%s': isResultRankLimited row has no lang id string in %s or langEquipName, the rank is capped without a result line",
+                key.c_str(), kResultRankLimitedTextField);
+        RankLimitedItems::Register(equipId, langId);
+    }
+
+    static void NoteSupportWeaponLine(std::uint16_t developId, const std::vector<FieldValue>& constFields)
+    {
+        std::int32_t equipId = 0;
+        std::int32_t baseDevelopId = 0;
+        for (const FieldValue& f : constFields)
+        {
+            if (f.type != FieldValue::Type::Number)
+                continue;
+            if (f.name == "p01")
+                equipId = f.numberValue;
+            else if (f.name == "p03")
+                baseDevelopId = f.numberValue;
+        }
+        if (equipId > 0 && baseDevelopId >= 0)
+            SupportWeapon::NoteDevelopRow(static_cast<std::uint32_t>(equipId), developId,
+                                          static_cast<std::uint32_t>(baseDevelopId));
+    }
+
     static bool ReadKeyAndPayload(
         lua_State* L,
         std::string& outKey,
@@ -1737,6 +1849,8 @@ namespace
             k_ConstFieldSpecs,
             sizeof(k_ConstFieldSpecs) / sizeof(k_ConstFieldSpecs[0]),
             outConstFields);
+        WarnUnknownFields(L, constTableIdx, true, outKey);
+        NoteResultRankLimited(L, constTableIdx, outKey, outConstFields);
 
         outHasDynamicGate = StoreGatePredicate(L, constTableIdx, outKey);
 
@@ -1750,12 +1864,14 @@ namespace
             return false;
         }
 
+        const int flowTableIdx = g_Deps.GetLuaTop(L);
         CollectKnownFields(
             L,
-            g_Deps.GetLuaTop(L),
+            flowTableIdx,
             k_FlowFieldSpecs,
             sizeof(k_FlowFieldSpecs) / sizeof(k_FlowFieldSpecs[0]),
             outFlowFields);
+        WarnUnknownFields(L, flowTableIdx, false, outKey);
 
         g_Deps.LuaSetTop(L, -2);
         return true;
@@ -1866,6 +1982,14 @@ namespace
             }
             if (field.name == "p05" && field.type != FieldValue::Type::Number)
                 continue;
+            if (field.name == "p01" && field.type == FieldValue::Type::Number
+                && field.numberValue > equip::kDevelopEquipIdFieldLast
+                && field.numberValue <= 0xFFFF)
+            {
+                equip::NoteWideDevelopRow(developId, static_cast<std::uint16_t>(field.numberValue));
+                SetIntField(L, tableIndex, "p01", equip::kDevelopWideMark);
+                continue;
+            }
             if (field.wide)
                 SetWideField(L, tableIndex, field.name.c_str(), field.wideValue);
             else if (field.type == FieldValue::Type::Number)
@@ -1875,6 +1999,7 @@ namespace
             else if (field.type == FieldValue::Type::Boolean)
                 SetIntField(L, tableIndex, field.name.c_str(), field.boolValue ? 1 : 0);
         }
+        SetIntField(L, tableIndex, "p36", 1);   // keeps custom rows out of cumulative_grade in CMD_SYNC_RESOURCE
     }
 
     static void BuildFlowRowTable(
@@ -2603,6 +2728,23 @@ namespace EquipDevelopAdd
         g_Deps = deps;
     }
 
+    static void NoteBuddyRow(const std::string& key, std::uint16_t developId,
+                             const std::vector<FieldValue>& constFields)
+    {
+        std::int32_t equipId = 0;
+        std::int32_t developType = 0;
+        for (const FieldValue& f : constFields)
+        {
+            if (f.type != FieldValue::Type::Number)
+                continue;
+            if (f.name == "p01")
+                equipId = f.numberValue;
+            else if (f.name == "p02")
+                developType = f.numberValue;
+        }
+        buddyoutfit::NoteDevelopRow(key, developId, equipId, developType);
+    }
+
     int __cdecl Lua_AddToEquipDevelopTable(lua_State* L)
     {
         V_FrameWorkState::SaveBatch _saveBatch;
@@ -2648,6 +2790,8 @@ namespace EquipDevelopAdd
             RequestRotationIfBandHasRoom(false);
             PublishSummaryDisplay(
                 static_cast<std::uint16_t>(dev32), constFields);
+            NoteBuddyRow(key, static_cast<std::uint16_t>(dev32), constFields);
+            NoteSupportWeaponLine(static_cast<std::uint16_t>(dev32), constFields);
             LogInfo("AddToEquipDevelopTable %s developId:%d", key.c_str(), dev32);
             g_Deps.PushLuaNumber(L, static_cast<float>(dev32));
             return 1;
@@ -2664,6 +2808,8 @@ namespace EquipDevelopAdd
 
             if (!stillPending)
             {
+                NoteBuddyRow(key, developId, constFields);
+                NoteSupportWeaponLine(developId, constFields);
                 g_Deps.PushLuaNumber(L, static_cast<float>(developId));
                 return 1;
             }
@@ -2673,6 +2819,8 @@ namespace EquipDevelopAdd
         QueueOrUpdatePendingRequest(key, constFields, flowFields, hasDynamicGate);
 
         PublishSummaryDisplay(developId, constFields);
+        NoteBuddyRow(key, developId, constFields);
+        NoteSupportWeaponLine(developId, constFields);
 
         FlushPendingRegistrations(L);
 

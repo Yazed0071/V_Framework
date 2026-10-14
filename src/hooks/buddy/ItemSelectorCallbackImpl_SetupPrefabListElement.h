@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_ItemSelectorCallbackImpl_SetupPrefabListElement_BuddyPatches();
+bool Uninstall_ItemSelectorCallbackImpl_SetupPrefabListElement_BuddyPatches();

@@ -369,9 +369,6 @@ static void __fastcall hkStateRadioRequest(void* self, int actionIndex, int stat
 
     if (stateProc != 0) return;
 
-
-    LostHostageDiscovery_OnRadioRequest(self, actionIndex, stateProc);
-
     std::uint32_t soldierIndex = 0xFFFFFFFFu;
     std::uint8_t  radioType = 0xFFu;
     if (!ReadRadioEntry(self, actionIndex, soldierIndex, radioType)) return;
@@ -396,15 +393,6 @@ static std::uint32_t __fastcall hkConvertRadioTypeToSpeechLabel(std::uint8_t rad
     if (MissionCodeGuard::ShouldBypassHooks()) return g_OrigConvertLabel(radioType);
 
     const std::uint32_t defaultLabel = g_OrigConvertLabel(radioType);
-
-    {
-        std::uint32_t discoveryLabel = 0u;
-        if (LostHostageDiscovery_TryConsumeConvertOverride(radioType, discoveryLabel)
-            && discoveryLabel != 0u)
-        {
-            return discoveryLabel;
-        }
-    }
 
     if (radioType == RADIO_PRISONER_GONE)
     {

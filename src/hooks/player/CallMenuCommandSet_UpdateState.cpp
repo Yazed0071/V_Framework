@@ -510,7 +510,7 @@ namespace
     }
 
     void AddHoldingOrderEntry(std::vector<Entry>& entries, bool interrogationOffered, int item, EntryKind kind,
-                              std::uint64_t label, bool selectable)
+                              std::uint64_t label, std::uint64_t description, bool selectable)
     {
         if (!g_Holding || !interrogationOffered)
             return;
@@ -520,7 +520,7 @@ namespace
         entry.kind        = kind;
         entry.column      = kBuiltInHome[item].column;
         entry.name        = label;
-        entry.description = label;
+        entry.description = description;
         entry.selectable  = selectable;
 
         const ItemSettings& settings = g_BuiltInSettings[item];
@@ -955,14 +955,16 @@ namespace
             const auto lock = LockItems();
             bool interrogationOffered = false;
             CollectVanillaEntries(entries, setParam, sets, fills, interrogationOffered);
+            const std::uint16_t held = At<std::uint16_t>(setParam, kSetParamHeldSoldierId);
             AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::CallComrade, EntryKind::CallComrade,
-                                 CallComradeCommand::Label(), true);
+                                 CallComradeCommand::Label(), CallComradeCommand::Label(), true);
             if (CpRadioResponse::IsAvailable())
             {
                 bool sitrep = false;
-                const bool waiting = CpRadioResponse::IsWaitingOn(At<std::uint16_t>(setParam, kSetParamHeldSoldierId), sitrep);
+                const bool waiting = CpRadioResponse::IsWaitingOn(held, sitrep);
                 AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::FalseRadioResponse,
-                                     EntryKind::FalseRadioResponse, FalseRadioResponseCommand::Label(sitrep), waiting);
+                                     EntryKind::FalseRadioResponse, FalseRadioResponseCommand::Label(sitrep),
+                                     FalseRadioResponseCommand::Help(sitrep), waiting);
             }
             AddCustomEntries(entries);
         }

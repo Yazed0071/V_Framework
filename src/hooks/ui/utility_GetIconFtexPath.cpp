@@ -9,6 +9,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "AddressSet.h"
+#include "EquipAliasLease.h"
 
 namespace
 {
@@ -46,7 +47,7 @@ static std::int64_t* __fastcall hkGetIconFtexPath(std::int64_t* outPathId, std::
 {
     {
         std::lock_guard<std::mutex> lock(g_PerEquipIconPathsMutex);
-        const auto it = g_PerEquipIconPaths.find(static_cast<int>(equipId));
+        const auto it = g_PerEquipIconPaths.find(equip::FromEngine(static_cast<int>(equipId)));
         if (it != g_PerEquipIconPaths.end())
         {
             *outPathId = static_cast<std::int64_t>(it->second);

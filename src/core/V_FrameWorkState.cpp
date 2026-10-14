@@ -4,11 +4,13 @@
 #include "AddressSet.h"
 #include "../hooks/equip/CustomBluePrint.h"
 #include "../hooks/equip/EquipIdCompression.h"
+#include "../hooks/equip/EquipAliasLease.h"
 #include "../hooks/equip/DevelopArrayGrow.h"
 #include "FeatureModule.h"
 
 #include <algorithm>
 #include <atomic>
+#include <bitset>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -16,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -196,6 +199,15 @@ namespace V_FrameWorkState
             std::int32_t misses = 0;
         };
 
+        struct DevelopTimerEntry
+        {
+            std::int32_t developId = 0;
+            std::int32_t flowIndex = 0;
+            std::int32_t endTime   = 0;
+        };
+
+        static constexpr std::size_t kMaxDevelopTimerEntries = 64;
+
         struct State
         {
             bool loaded = false;
@@ -206,6 +218,8 @@ namespace V_FrameWorkState
             std::unordered_map<std::string, std::int32_t> constants;
             std::unordered_map<std::string, std::int32_t> constantMisses;
             std::unordered_set<std::int32_t> pinnedEquipIds;
+            std::map<std::int32_t, std::int32_t> equipIdMoves;
+            std::vector<DevelopTimerEntry> developTimers;
             std::unordered_map<std::string, V_FrameWorkState::DispatchMission> dispatchMissions;
             std::vector<V_FrameWorkState::DispatchSlotFact> dispatchSlots;
             V_FrameWorkState::DispatchCursor dispatchCursors[2];
@@ -303,6 +317,11 @@ namespace V_FrameWorkState
         static bool g_PinSetFreshThisSession = false;
 
         static std::unordered_map<std::string, std::int32_t> g_SessionEquipIds;
+
+        static std::bitset<EquipIdCompression::kWideEquipIdLast + 1> g_WideTaken;
+        static bool g_WideTakenBuilt = false;
+        static std::int32_t g_WideScanFrom = EquipIdCompression::kWideEquipIdFirst;
+        static bool g_WideMoveLogged = false;
 
         static std::atomic<std::uint64_t> g_ClaimedEquipBits[0x10000 / 64] = {};
 
@@ -1006,6 +1025,9 @@ namespace V_FrameWorkState
             g_State.constants.clear();
             g_State.constantMisses.clear();
             g_State.pinnedEquipIds.clear();
+            g_State.equipIdMoves.clear();
+            g_State.developTimers.clear();
+            g_WideTakenBuilt = false;
             g_State.dispatchMissions.clear();
             g_State.dispatchSlots.clear();
             g_State.dispatchCursors[0] = {};
@@ -1023,7 +1045,7 @@ namespace V_FrameWorkState
 
             enum Section { None, Equips, Weapons, Outfits, HeadOptions, Tapes,
                            BluePrints, Constants, ConstantMisses,
-                           PinnedIds, DispatchMissions, DispatchSlots,
+                           PinnedIds, EquipIdMoves, DevelopTimers, DispatchMissions, DispatchSlots,
                            DispatchCursors, CallMenuItems } section = None;
 
             std::string constantSpace;
@@ -1104,6 +1126,20 @@ namespace V_FrameWorkState
                     trimmed.find('{') != std::string::npos)
                 {
                     section = PinnedIds;
+                    continue;
+                }
+
+                if (trimmed.rfind("equipIdMoves", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = EquipIdMoves;
+                    continue;
+                }
+
+                if (trimmed.rfind("equipDevelopTimers", 0) == 0 &&
+                    trimmed.find('{') != std::string::npos)
+                {
+                    section = DevelopTimers;
                     continue;
                 }
 
@@ -1223,6 +1259,26 @@ namespace V_FrameWorkState
                     std::int32_t value = 0;
                     if (ParseConstantLine(trimmed, key, value))
                         g_State.pinnedEquipIds.insert(value);
+                }
+                else if (section == EquipIdMoves)
+                {
+                    std::string key;
+                    std::int32_t value = 0;
+                    if (ParseConstantLine(trimmed, key, value))
+                    {
+                        const auto oldId = static_cast<std::int32_t>(std::strtol(key.c_str(), nullptr, 0));
+                        g_State.equipIdMoves[oldId] = value;
+                        equip::NoteEquipIdMoved(oldId, value);
+                    }
+                }
+                else if (section == DevelopTimers)
+                {
+                    DevelopTimerEntry timer;
+                    timer.developId = RowIntField(trimmed, 0, "developId");
+                    timer.flowIndex = RowIntField(trimmed, 0, "flowIndex");
+                    timer.endTime   = RowIntField(trimmed, 0, "endTime");
+                    if (timer.developId > 0 && timer.flowIndex > 0)
+                        g_State.developTimers.push_back(timer);
                 }
                 else if (section == DispatchMissions)
                 {
@@ -2116,6 +2172,43 @@ namespace V_FrameWorkState
                 out << "    },\n";
             }
 
+            if (!g_State.equipIdMoves.empty())
+            {
+                out << "\n    equipIdMoves = {\n";
+                for (const auto& move : g_State.equipIdMoves)
+                {
+                    std::string cell = "[\"" + std::to_string(move.first) + "\"]";
+                    out << "        " << cell << " = " << move.second << ",";
+                    for (const auto& kv : g_State.equips)
+                        if (kv.second.equipId == move.second)
+                        {
+                            out << "   -- " << kv.first;
+                            break;
+                        }
+                    out << "\n";
+                }
+                out << "    },\n";
+            }
+
+            if (!g_State.developTimers.empty())
+            {
+                out << "\n    equipDevelopTimers = {\n";
+                for (const DevelopTimerEntry& timer : g_State.developTimers)
+                {
+                    out << "        { developId = " << timer.developId
+                        << ", flowIndex = " << timer.flowIndex
+                        << ", endTime = " << timer.endTime << " },";
+                    for (const auto& kv : g_State.equips)
+                        if (kv.second.developId == timer.developId)
+                        {
+                            out << "   -- " << kv.first;
+                            break;
+                        }
+                    out << "\n";
+                }
+                out << "    },\n";
+            }
+
             out << "}\n";
             out.close();
             if (!out)
@@ -2281,9 +2374,75 @@ namespace V_FrameWorkState
         }
 
 
-        static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum,
-                                                           const char* key)
+        static bool IsMovedAwayEquipId_NoLock(std::int32_t equipId)
         {
+            return g_State.equipIdMoves.count(equipId) != 0;
+        }
+
+        static void EnsureWideTaken_NoLock()
+        {
+            if (g_WideTakenBuilt)
+                return;
+            g_WideTakenBuilt = true;
+            g_WideScanFrom = EquipIdCompression::kWideEquipIdFirst;
+            g_WideTaken.reset();
+            for (const auto& kv : g_State.equips)
+                if (EquipIdCompression::IsWideEquipId(kv.second.equipId))
+                    g_WideTaken.set(static_cast<std::size_t>(kv.second.equipId));
+            for (const auto& kv : g_SessionEquipIds)
+                if (EquipIdCompression::IsWideEquipId(kv.second))
+                    g_WideTaken.set(static_cast<std::size_t>(kv.second));
+        }
+
+        static void TakeWideId_NoLock(std::int32_t equipId)
+        {
+            if (EquipIdCompression::IsWideEquipId(equipId))
+                g_WideTaken.set(static_cast<std::size_t>(equipId));
+        }
+
+        static bool IsSupportWeaponKey(const char* key)
+        {
+            return key && std::strncmp(key, "EQP_SWP_", 8) == 0;
+        }
+
+        static bool IsVanillaSupportResidue(std::int32_t equipId)
+        {
+            const std::int32_t low = equipId & EquipIdCompression::kNoEquipId;   // what an 11-bit truncation would turn it into
+            return (low >= 0x15D && low <= 0x1B7) || (low >= 0x600 && low <= 0x608);
+        }
+
+        static std::int32_t AllocateWideEquipId_NoLock(const char* key)
+        {
+            EnsureWideTaken_NoLock();
+            const bool supportWeapon = IsSupportWeaponKey(key);
+            bool skippedFree = false;
+            for (std::int32_t id = g_WideScanFrom; id <= EquipIdCompression::kWideAllocLast; ++id)
+            {
+                if (!EquipIdCompression::IsAllocatableWideId(id)
+                    || g_WideTaken.test(static_cast<std::size_t>(id)))
+                    continue;
+                if (supportWeapon && IsVanillaSupportResidue(id))
+                {
+                    skippedFree = true;
+                    continue;
+                }
+                g_WideTaken.set(static_cast<std::size_t>(id));
+                if (!skippedFree)
+                    g_WideScanFrom = id + 1;
+                return id;
+            }
+            LogError("State: '%s' got no equipId, wide weapon ids 0x%X-0x%X are full",
+                key ? key : "?", static_cast<unsigned>(EquipIdCompression::kWideEquipIdFirst),
+                static_cast<unsigned>(EquipIdCompression::kWideAllocLast));
+            return -1;
+        }
+
+        static std::int32_t AllocateNextFreeEquipId_NoLock(std::int32_t minimum,
+                                                           const char* key, bool wide)
+        {
+            if (wide)
+                return AllocateWideEquipId_NoLock(key);
+
             const std::int32_t floor =
                 (minimum > kFirstCustomEquipIdMinimum)
                     ? minimum
@@ -2296,7 +2455,8 @@ namespace V_FrameWorkState
                 const auto taken = [](std::int32_t equipId) {
                     return NativeOwner_NoLock(equipId) != nullptr
                         || IsEquipIdInUse_NoLock(equipId)
-                        || IsPinnedEquipId_NoLock(equipId);
+                        || IsPinnedEquipId_NoLock(equipId)
+                        || IsMovedAwayEquipId_NoLock(equipId);
                 };
                 result = EquipIdCompression::FindLowestFreeEquipIdInRange(
                     taken, floor, EquipIdCompression::kItemBandLast);
@@ -2305,7 +2465,8 @@ namespace V_FrameWorkState
             {
                 result = EquipIdCompression::FindLowestFreeExtendedEquipId(
                     [key](std::int32_t id) {
-                        return IsEquipIdHeldByAnotherKey_NoLock(id, key);
+                        return IsEquipIdHeldByAnotherKey_NoLock(id, key)
+                            || IsMovedAwayEquipId_NoLock(id);
                     });
                 if (result < 0)
                     LogError("State: '%s' got no equipId, native and extended bands full above 0x%X",
@@ -2428,7 +2589,7 @@ namespace V_FrameWorkState
         const char* key,
         std::int32_t minimumId,
         std::int32_t& outEquipId,
-        bool isWeapon)
+        bool wideEligible)
     {
         outEquipId = 0;
         if (!key || !key[0]) return false;
@@ -2446,6 +2607,7 @@ namespace V_FrameWorkState
             return true;
         }
 
+        const bool wideKey = wideEligible && EquipIdCompression::WideWeaponsLive();
         std::int32_t movedFrom = 0;
         const char* movedBecause = nullptr;
         auto pit = g_State.equips.find(key);
@@ -2457,12 +2619,19 @@ namespace V_FrameWorkState
                 if (kv.second == persisted) { sessionTaken = true; break; }
             const bool isExtended = EquipIdCompression::IsExtendedEquipId(persisted);
             const char* reason = nullptr;
-            if (isExtended)
+            if (wideKey)
             {
-                if (persisted < EquipIdCompression::kExtendedAllocFirst)
-                    reason = "the retired extended band 0x289-0x6FF, whose fold can alias a vanilla row";
+                if (!EquipIdCompression::IsAllocatableWideId(persisted))
+                    reason = "the narrow band, weapons and ammo now take wide ids from 0x800";
+                else if (IsEquipIdHeldByAnotherKey_NoLock(persisted, key))
+                    reason = "a wide id another key already holds";
+            }
+            else if (isExtended)
+            {
+                if (!EquipIdCompression::IsAllocatableExtendedId(persisted))
+                    reason = "outside the extended band 0x609-0x7FE, so its fold can alias a vanilla or chimera row";
                 else if (EquipIdCompression::IsExtendedEquipIdUsed(persisted))
-                    reason = "an extended id another key already claimed";
+                    reason = "an extended id (or its InfoList row) another key already claimed";
             }
             else if (EnsureNativeSnapshot_NoLock())
             {
@@ -2473,7 +2642,8 @@ namespace V_FrameWorkState
             {
                 g_SessionEquipIds[key] = persisted;
                 NoteClaimedEquipId_NoLock(persisted);
-                if (isExtended)
+                TakeWideId_NoLock(persisted);
+                if (isExtended && !wideKey)
                     EquipIdCompression::MarkExtendedEquipIdUsed(persisted);
                 if (pit->second.misses != 0)
                 {
@@ -2491,7 +2661,7 @@ namespace V_FrameWorkState
             }
         }
 
-        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId, key);
+        const std::int32_t newId = AllocateNextFreeEquipId_NoLock(minimumId, key, wideKey);
         if (newId < 0)
         {
             if (movedFrom == 0 || EquipIdCompression::IsExtendedEquipId(movedFrom)
@@ -2508,9 +2678,32 @@ namespace V_FrameWorkState
             return true;
         }
 
-        if (movedFrom != 0)
-            LogWarn("State: '%s' equipId moved 0x%X -> 0x%X (old id on %s), saved loadout cells blanked",
-                key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId), movedBecause);
+        const bool supportWeaponHole = wideKey && IsSupportWeaponKey(key)
+            && movedFrom >= EquipIdCompression::kSupportWeaponHoleFirst
+            && movedFrom <= EquipIdCompression::kItemBandLast
+            && !EquipIdCompression::IsCompressedSlotUsed(movedFrom)
+            && g_VanillaIdentityIds.count(movedFrom) == 0;
+        const bool savesFollow = supportWeaponHole
+            || (movedFrom >= EquipIdCompression::kExtendedAllocFirst
+                && movedFrom <= EquipIdCompression::kExtendedEquipIdLast);
+        if (savesFollow)
+        {
+            g_State.equipIdMoves[movedFrom] = newId;
+            equip::NoteEquipIdMoved(movedFrom, newId);
+        }
+        if (movedFrom != 0 && wideKey)
+        {
+            if (!g_WideMoveLogged)
+            {
+                g_WideMoveLogged = true;
+                LogWarn("State: weapons and ammo move to wide equipIds from 0x800 this launch (first: '%s' 0x%X -> 0x%X)",
+                    key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId));
+            }
+        }
+        else if (movedFrom != 0)
+            LogWarn("State: '%s' equipId moved 0x%X -> 0x%X (old id on %s), %s",
+                key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId), movedBecause,
+                savesFollow ? "saved loadouts follow it" : "saved loadout cells blanked");
 
         g_SessionEquipIds[key] = newId;
         NoteClaimedEquipId_NoLock(newId);
@@ -2559,6 +2752,12 @@ namespace V_FrameWorkState
         for (const auto& kv : g_State.equips)
             if (kv.second.equipId == equipId) return true;
         return false;
+    }
+
+    bool IsOwnedEquipId(std::int32_t equipId)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return IsOwnedEquipId_NoLock(equipId);
     }
 
     static void EnsurePinSetFresh_NoLock()
@@ -2691,6 +2890,40 @@ namespace V_FrameWorkState
         LoadFromDisk_NoLock();
         auto it = g_OldFlowLayout.find(oldFlowIndex);
         return (it != g_OldFlowLayout.end()) ? it->second : 0;
+    }
+
+    void NoteDevelopTimer(std::int32_t developId, std::int32_t flowIndex, std::int32_t endTime)
+    {
+        if (developId <= 0 || flowIndex <= 0)
+            return;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        for (DevelopTimerEntry& timer : g_State.developTimers)
+        {
+            if (timer.flowIndex != flowIndex || timer.endTime != endTime)
+                continue;
+            if (timer.developId == developId)
+                return;
+            timer.developId = developId;
+            g_State.dirty = true;
+            SaveToDisk_NoLock();
+            return;
+        }
+        g_State.developTimers.push_back({ developId, flowIndex, endTime });
+        if (g_State.developTimers.size() > kMaxDevelopTimerEntries)
+            g_State.developTimers.erase(g_State.developTimers.begin());
+        g_State.dirty = true;
+        SaveToDisk_NoLock();
+    }
+
+    std::int32_t GetDevelopTimerOwner(std::int32_t flowIndex, std::int32_t endTime)
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        LoadFromDisk_NoLock();
+        for (const DevelopTimerEntry& timer : g_State.developTimers)
+            if (timer.flowIndex == flowIndex && timer.endTime == endTime)
+                return timer.developId;
+        return 0;
     }
 
     std::int32_t GetFlowIndexByDevelopId(std::int32_t developId)
@@ -3038,7 +3271,8 @@ namespace V_FrameWorkState
         const char* spaceTag,
         const char* name,
         std::int32_t minimumValue,
-        std::int32_t& outValue)
+        std::int32_t& outValue,
+        std::int32_t maximumValue)
     {
         outValue = 0;
         if (!spaceTag || !spaceTag[0] || !name || !name[0]) return false;
@@ -3053,22 +3287,30 @@ namespace V_FrameWorkState
 
         const std::string prefix = std::string(spaceTag) + ":";
         const std::string key = prefix + name;
+        const std::int32_t lowest  = (minimumValue > 0) ? minimumValue : 1;
+        const std::int32_t highest = (maximumValue > 0 && maximumValue < kMaxCustomConstantValue)
+                                         ? maximumValue : kMaxCustomConstantValue;
 
         auto it = g_State.constants.find(key);
         if (it != g_State.constants.end() && it->second != 0)
         {
-            g_ConstantsTouched.insert(key);
-            outValue = it->second;
-            return true;
+            const bool inRange = it->second >= lowest && it->second <= highest;
+            if (inRange || maximumValue <= 0)
+            {
+                g_ConstantsTouched.insert(key);
+                outValue = it->second;
+                return true;
+            }
+            g_State.constants.erase(it);
         }
 
-        std::int32_t value = (minimumValue > 0) ? minimumValue : 1;
-        while (value <= kMaxCustomConstantValue && IsConstantValueInUse_NoLock(prefix, value))
+        std::int32_t value = lowest;
+        while (value <= highest && IsConstantValueInUse_NoLock(prefix, value))
             ++value;
-        if (value > kMaxCustomConstantValue)
+        if (value > highest)
         {
             LogError("Constants: no free value for '%s', space '%s' pool %d..%d full",
-                name, spaceTag, minimumValue, kMaxCustomConstantValue);
+                name, spaceTag, lowest, highest);
             return false;
         }
 
@@ -3637,6 +3879,9 @@ namespace V_FrameWorkState
         g_State.constants.clear();
         g_State.constantMisses.clear();
         g_State.pinnedEquipIds.clear();
+        g_State.equipIdMoves.clear();
+        g_State.developTimers.clear();
+        g_WideTakenBuilt = false;
         g_State.dispatchMissions.clear();
         g_State.dispatchSlots.clear();
         g_State.dispatchCursors[0] = {};

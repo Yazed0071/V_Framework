@@ -971,6 +971,22 @@ namespace
         }
     }
 
+    static bool ForgetShellTypeInfoSEH(void* impl, std::uint32_t implSlot, std::uint8_t camoType)
+    {
+        __try
+        {
+            auto* shell = static_cast<std::uint8_t*>(ShellForImplSlot(impl, implSlot, nullptr));
+            if (!shell)
+                return false;
+            shell[kShell_TypeInfo + kTypeInfo_CamoType] = static_cast<std::uint8_t>(~camoType);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     static bool BuildStaffFaceLoadSnapshotSEH(
         void* impl, const std::uint8_t* nativeTypeInfo,
         const std::uint8_t* visualTypeInfo, StaffFaceLoadSnapshot& snapshot)
@@ -1163,6 +1179,13 @@ namespace outfit::ddheadlayers
             g_StaffFaceLoads.erase(impl);
         else
             g_StaffFaceLoads[impl] = snapshot;
+    }
+
+    bool ForgetShellTypeInfo(void* impl, std::uint32_t implSlot, const std::uint8_t* typeInfo)
+    {
+        if (!impl || !typeInfo || implSlot >= kMaxImplSlots || !g_Ready.load(std::memory_order_acquire))
+            return false;
+        return ForgetShellTypeInfoSEH(impl, implSlot, typeInfo[kTypeInfo_CamoType]);
     }
 
     PartsLoadProbe BeginPartsLoad(void* impl, std::uint32_t implSlot,

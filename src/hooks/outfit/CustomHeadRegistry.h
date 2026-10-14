@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "OutfitRegistry.h"
 
@@ -117,6 +118,14 @@ namespace outfit
 
     void SetCustomHeadBranchMask(const char* name, std::uint8_t mask);
     std::uint8_t GetCustomHeadBranchMask(const char* name);
+
+    struct HeadColorSet
+    {
+        OutfitColorList colors[kColorChannelCount];
+    };
+
+    void SetCustomHeadColors(const char* name, const HeadColorSet (&perPlayerType)[kPlayerTypeMax]);
+    std::shared_ptr<const HeadColorSet> GetCustomHeadColors(const char* name, std::uint8_t playerType);
 
 
     int DrainPendingHeads();

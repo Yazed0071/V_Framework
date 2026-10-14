@@ -18,6 +18,7 @@
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "log.h"
 #include "../../lua/LuaApi.h"
+#include "EquipAliasLease.h"
 
 namespace
 {
@@ -1706,8 +1707,9 @@ namespace shell
         ReleaseControl();
     }
 
-    void RemoteMissile_ArmShot(int playerIndex, int ownerEquipId)
+    void RemoteMissile_ArmShot(int playerIndex, int engineEquipId)
     {
+        const int ownerEquipId = equip::FromEngine(engineEquipId);
         tls_ShotArmed = false;
         if (MissionCodeGuard::ShouldBypassHooks())
             return;

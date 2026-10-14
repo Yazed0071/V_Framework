@@ -225,7 +225,7 @@ static short* __fastcall hkCallWithRadioType(
     {
         std::uint32_t hostageOverrideLabel = 0u;
         if (LostHostageDiscovery_TryOverrideForCallWithRadioType(
-                ownerIndex, radioType, hostageOverrideLabel)
+                ownerIndex, radioType, arg5, hostageOverrideLabel)
             && hostageOverrideLabel != 0u)
         {
             if (g_CallImpl)

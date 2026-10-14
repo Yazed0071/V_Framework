@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock_Hook();
+bool Uninstall_Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock_Hook();

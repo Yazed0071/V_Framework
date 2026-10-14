@@ -418,9 +418,6 @@ namespace
         FixupSupplyCellSelector(self, sSup, "supply");
 
 
-        outfit::SetSupplyDropClickLatch();
-
-
         SelectionSample s{};
         if (TryReadSelection(self, s) && s.haveSample)
         {

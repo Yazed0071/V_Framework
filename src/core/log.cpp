@@ -7,6 +7,8 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <string>
+#include <unordered_set>
 #include <share.h>
 
 static FILE* g_LogFile = nullptr;
@@ -99,6 +101,27 @@ void LogLevelImpl(const char* level, const char* fmt, ...)
         buf[len++] = '\n';
     buf[len] = '\0';
     WriteLog(buf, len);
+}
+
+void LogWarnOnceImpl(const char* fmt, ...)
+{
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    const int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (len < 0)
+        return;
+    static std::mutex s_lock;
+    static std::unordered_set<std::string> s_seen;   // at most 2048 texts remembered; later new texts are written each time
+    {
+        std::lock_guard<std::mutex> lock(s_lock);
+        if (s_seen.count(buf))
+            return;
+        if (s_seen.size() < 2048)
+            s_seen.insert(buf);
+    }
+    LogLevelImpl("WARNING: ", "%s (shown once)", buf);
 }
 
 static void WriteLog(const char* buf, int len)

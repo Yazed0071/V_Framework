@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipDevelopControllerImpl_GetDamageAmountRatio_Hook();
+void Uninstall_EquipDevelopControllerImpl_GetDamageAmountRatio_Hook();

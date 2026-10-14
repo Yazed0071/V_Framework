@@ -17,15 +17,18 @@ namespace
     using UpdateEquipHudFn = void(__fastcall*)(void* self);
     using InfoGetterFn     = void*(__fastcall*)(void* hudSystem);
 
-    constexpr int          kEnergyWallEquipId = 0x1E9;
-    constexpr std::size_t  kGateOffset        = 0x427;
-    constexpr std::size_t  kHudSystem         = 0x48;
-    constexpr std::size_t  kInfoSourceIds     = 0x58;
-    constexpr std::size_t  kInfoCounts        = 0x78;
-    constexpr std::size_t  kInfoStateIds      = 0x98;
-    constexpr std::size_t  kInfoStateFlags    = 0xB8;
-    constexpr int          kInfoSlots         = 8;
-    constexpr std::uint8_t kNoUseBit          = 0x01;
+    constexpr int           kEnergyWallEquipId = 0x1E9;
+    constexpr std::size_t   kGateOffset        = 0x427;
+    constexpr std::size_t   kPlayer            = 0x28;
+    constexpr std::size_t   kPlayerFlags       = 0x204;
+    constexpr std::uint32_t kFobPlayerFlag     = 0x40000;
+    constexpr std::size_t   kHudSystem         = 0x48;
+    constexpr std::size_t   kInfoSourceIds     = 0x58;
+    constexpr std::size_t   kInfoCounts        = 0x78;
+    constexpr std::size_t   kInfoStateIds      = 0x98;
+    constexpr std::size_t   kInfoStateFlags    = 0xB8;
+    constexpr int           kInfoSlots         = 8;
+    constexpr std::uint8_t  kNoUseBit          = 0x01;
 
     const std::uint8_t kGateBytes[] = { 0x81, 0xFB, 0xE9, 0x01, 0x00, 0x00 };
 
@@ -112,16 +115,42 @@ namespace
         }
     }
 
+    std::uint32_t* PlayerFlagsSEH(void* self)
+    {
+        __try
+        {
+            auto* player = *reinterpret_cast<std::uint8_t**>(static_cast<std::uint8_t*>(self) + kPlayer);
+            if (!player)
+                return nullptr;
+            auto* flags = reinterpret_cast<std::uint32_t*>(player + kPlayerFlags);
+            volatile std::uint32_t touch = *flags;
+            (void)touch;
+            return flags;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
     void __fastcall hkUpdateEquipHud(void* self)
     {
+        const bool singlePlayer = self && !MissionCodeGuard::ShouldBypassHooks() && Barrier_InSinglePlayer();
+        std::uint32_t* playerFlags = singlePlayer ? PlayerFlagsSEH(self) : nullptr;
+        const std::uint32_t savedFlags = playerFlags ? *playerFlags : 0;
+        if (playerFlags)
+            *playerFlags &= ~kFobPlayerFlag; // held by the Energy Wall / wormhole in single-player; the HUD would lock the cigar, stealth camo, reflex medicine and parasite items like in FOB
         g_OrigUpdateEquipHud(self);
+        if (playerFlags)
+            *playerFlags = (*playerFlags & ~kFobPlayerFlag) | (savedFlags & kFobPlayerFlag);
+
         if (!self)
             return;
         void* info = EquipHud_ResolveInfo(self);
         if (!info)
             return;
         g_EquipHudInfo.store(info, std::memory_order_release);
-        if (MissionCodeGuard::ShouldBypassHooks() || !Barrier_InSinglePlayer())
+        if (!singlePlayer)
             return;
         ClearEnergyWallNoUseSEH(info);
     }

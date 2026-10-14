@@ -35,6 +35,21 @@ namespace
     static constexpr std::uint8_t kMaxCallSign = 13;
 
 
+    struct SitrepCallSign
+    {
+        std::uint16_t member = 0xFFFFu;
+        std::uint16_t soldierIndex = 0xFFFFu;
+        std::uint64_t until = 0;
+    };
+
+    static constexpr std::uint32_t kMostCps = 0x100;
+    static constexpr std::uint64_t kSitrepCallSignMs = 30000;   // the call may queue behind others on that CP
+    static constexpr std::size_t kOwnerEntryCp = 0x08;
+    static constexpr std::size_t kOwnerEntryMember = 0x0A;      // 0xFFFF on a call to nobody in particular
+    static constexpr std::size_t kOwnerEntrySoldier = 0x0C;
+    static SitrepCallSign g_SitrepCallSigns[kMostCps];
+
+
     struct CallSignFamily
     {
         std::uint32_t wildcard = 0;
@@ -308,7 +323,7 @@ static std::uint32_t ResolveCallSignVoiceParam(const CallSignFamily& family, std
 }
 
 
-static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uint32_t ownerIndex)
+static std::uint64_t ResolveVoiceParam(void* self, std::uint32_t ownerIndex)
 {
     if (MissionCodeGuard::ShouldBypassHooks())
     {
@@ -327,7 +342,7 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
         if (family)
         {
             CallSignOwnerEntry58 entry58{};
-            if (TryReadCallSignOwnerEntry58(self, ownerIndex, entry58))
+            if (TryReadCallSignOwnerEntry58(self, ownerIndex, entry58) && entry58.rawCallSign0A != 0xFFFFu)   // +0xC is stale on a call to nobody
             {
                 const std::uint16_t resolvedSoldierIndex =
                     NormalizeSoldierIndexFromOwnerEntry(entry58.soldierIndex0C);
@@ -360,6 +375,49 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
         : 0;
 
     return finalVoiceParam;
+}
+
+
+static std::uint8_t* FindSitrepOwnerEntry(void* self, std::uint32_t ownerIndex, SitrepCallSign& outSitrep)
+{
+    std::uint64_t tableBase = 0;
+    if (!self || !SafeReadQword(reinterpret_cast<std::uintptr_t>(self) + 0x58ull, tableBase) || tableBase == 0)
+        return nullptr;
+
+    auto* entry = reinterpret_cast<std::uint8_t*>(tableBase) + static_cast<std::uintptr_t>(ownerIndex) * 0x14ull;
+    std::uint16_t cp = 0xFFFFu;
+    std::uint16_t member = 0;
+    if (!SafeReadWord(reinterpret_cast<std::uintptr_t>(entry) + kOwnerEntryCp, cp)
+        || !SafeReadWord(reinterpret_cast<std::uintptr_t>(entry) + kOwnerEntryMember, member)
+        || member != 0xFFFFu || cp >= kMostCps)
+        return nullptr;
+
+    std::lock_guard<std::mutex> lock(g_CallSignMutex);
+    const SitrepCallSign& sitrep = g_SitrepCallSigns[cp];
+    if (sitrep.member == 0xFFFFu || GetTickCount64() >= sitrep.until)
+        return nullptr;
+    outSitrep = sitrep;
+    return entry;
+}
+
+
+static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uint32_t ownerIndex)
+{
+    SitrepCallSign sitrep{};
+    std::uint8_t* entry = MissionCodeGuard::ShouldBypassHooks() ? nullptr : FindSitrepOwnerEntry(self, ownerIndex, sitrep);
+    if (!entry)
+        return ResolveVoiceParam(self, ownerIndex);
+
+    auto& member  = *reinterpret_cast<std::uint16_t*>(entry + kOwnerEntryMember);
+    auto& soldier = *reinterpret_cast<std::uint16_t*>(entry + kOwnerEntrySoldier);
+    const std::uint16_t oldMember  = member;
+    const std::uint16_t oldSoldier = soldier;
+    member  = sitrep.member;   // only for this lookup: left there, the call would wait on his voice like an addressed one
+    soldier = sitrep.soldierIndex;
+    const std::uint64_t voiceParam = ResolveVoiceParam(self, ownerIndex);
+    member  = oldMember;
+    soldier = oldSoldier;
+    return voiceParam;
 }
 
 
@@ -412,7 +470,29 @@ void Clear_SoldierCallSigns()
     {
         std::lock_guard<std::mutex> lock(g_CallSignMutex);
         g_SoldierCallSigns.clear();
+        for (SitrepCallSign& sitrep : g_SitrepCallSigns)
+            sitrep = SitrepCallSign{};
     }
+}
+
+
+void Set_SitrepCallSign(std::uint32_t cp, std::uint16_t member, std::uint16_t soldierIndex)
+{
+    if (cp >= kMostCps)
+        return;
+    std::lock_guard<std::mutex> lock(g_CallSignMutex);
+    g_SitrepCallSigns[cp].member       = member;
+    g_SitrepCallSigns[cp].soldierIndex = soldierIndex;
+    g_SitrepCallSigns[cp].until        = GetTickCount64() + kSitrepCallSignMs;
+}
+
+
+void Clear_SitrepCallSign(std::uint32_t cp)
+{
+    if (cp >= kMostCps)
+        return;
+    std::lock_guard<std::mutex> lock(g_CallSignMutex);
+    g_SitrepCallSigns[cp] = SitrepCallSign{};
 }
 
 

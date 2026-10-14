@@ -10,6 +10,8 @@
 #include "HookUtils.h"
 #include "V_FrameWorkState.h"
 #include "log.h"
+#include "../outfit/CustomHeadRegistry.h"
+#include "../outfit/OutfitRegistry.h"
 
 namespace
 {
@@ -23,6 +25,21 @@ namespace
     constexpr std::size_t kItemFirst     = 0x74;
     constexpr std::size_t kLoadoutSize   = 0xE8;
     constexpr int         kSlotsPerKind  = 8;
+
+    constexpr std::size_t kSuitParts       = 0x00;
+    constexpr std::size_t kSuitCamo        = 0x01;
+    constexpr std::size_t kSuitFace        = 0x03;
+    constexpr std::size_t kWeaponPartsDesc = 0x06;   // weapon block: id, isChimera, chimeraSlot, 12 part bytes, paint, colour
+    constexpr std::size_t kWeaponBlockSize = 0x14;
+    constexpr int         kWeaponBlocks    = 3;
+    constexpr int         kEssentialParts  = 3;      // receiver, barrel, magazine
+    constexpr int         kUnderBarrelPart = 10;
+
+    constexpr int kDescSpace[12] = {
+        kVanillaSpace_Receiver, kVanillaSpace_Barrel, kVanillaSpace_Magazine, kVanillaSpace_Stock,
+        -1, kVanillaSpace_MuzzleOption, kVanillaSpace_Sight, kVanillaSpace_Sight,
+        kVanillaSpace_Option, kVanillaSpace_Option, kVanillaSpace_UnderBarrel, kVanillaSpace_Magazine
+    };
 
     const std::uint8_t kPrologue[] = {
         0x40, 0x55, 0x56, 0x57, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x40,
@@ -99,17 +116,70 @@ namespace
         return donor != id && !IsManagedEquipId(donor) ? donor : 0;
     }
 
+    void SanitizeSuit(std::uint8_t* info)
+    {
+        const std::uint8_t parts = info[kSuitParts];
+        if (parts >= outfit::kCustomPartsTypeStart && parts <= outfit::kCustomPartsTypeEnd)
+        {
+            info[kSuitParts] = 0;
+            info[kSuitCamo] = 0;
+        }
+        else if (info[kSuitCamo] >= outfit::kCamoVirtualIdStart && info[kSuitCamo] <= outfit::kCamoVirtualIdEnd)
+        {
+            info[kSuitCamo] = 0;
+        }
+        if (outfit::IsCustomHeadSlot(info[kSuitFace]))
+            info[kSuitFace] = 0;
+    }
+
+    bool IsCustomPartByte(int space, std::uint8_t value)
+    {
+        return space >= 0 && value != 0 && value > EquipParam_VanillaPartCount(space);
+    }
+
+    void SanitizeWeapon(std::uint8_t* block, bool idWasCustom)
+    {
+        std::uint8_t* desc = block + kWeaponPartsDesc;
+        bool clearBlock = idWasCustom;
+        for (int part = 0; part < 12; ++part)
+        {
+            if (!IsCustomPartByte(kDescSpace[part], desc[part]))
+                continue;
+            if (part < kEssentialParts)
+            {
+                clearBlock = true;
+                continue;
+            }
+            desc[part] = 0;
+            if (part == kUnderBarrelPart)
+                desc[part + 1] = 0;
+        }
+        if (!clearBlock)
+            return;
+        std::memset(block + sizeof(std::uint32_t), 0, kWeaponBlockSize - sizeof(std::uint32_t));
+        if (!idWasCustom)
+            *reinterpret_cast<std::uint32_t*>(block) = 0;
+    }
+
     void SanitizeForServer(std::uint8_t* info)
     {
         constexpr int kCellCount = 4 + kSlotsPerKind * 2;
 
+        bool weaponWasCustom[kWeaponBlocks] = {};
         for (int i = 0; i < kCellCount; ++i)
         {
             std::uint32_t* cell = CellAt(info, i);
             const std::uint32_t id = *cell;
-            if (IsManagedEquipId(id))
-                *cell = ServerSubstitute(i, id);
+            if (!IsManagedEquipId(id))
+                continue;
+            if (i >= 1 && i <= kWeaponBlocks)
+                weaponWasCustom[i - 1] = true;
+            *cell = ServerSubstitute(i, id);
         }
+
+        SanitizeSuit(info);
+        for (int w = 0; w < kWeaponBlocks; ++w)
+            SanitizeWeapon(reinterpret_cast<std::uint8_t*>(CellAt(info, w + 1)), weaponWasCustom[w]);
     }
 
     bool __fastcall hkSynchronizeLoadout(void* self, const std::uint8_t* info)

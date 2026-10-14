@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipDevelopControllerImpl_GetDamageType_Hook();
+void Uninstall_EquipDevelopControllerImpl_GetDamageType_Hook();

@@ -21,21 +21,62 @@ namespace EquipIdCompression
         constexpr std::size_t kInternalInfoEntrySize = 0x18;
 
         std::bitset<kExtendedEquipIdLast + 1> g_ExtendedUsed;
+        std::int16_t g_FoldRowOwner[kExtendedFoldedLast + 1] = {}; // mirror row -> the one extended id stamped on it
         std::mutex                            g_ExtendedMutex;
+
+        bool FoldRowFreeFor_NoLock(std::int32_t equipId)
+        {
+            const std::int32_t row = ComputeCompressed(equipId);
+            if (row < kCompressedSlotBound || row > kExtendedFoldedLast)
+                return true;
+            return g_FoldRowOwner[row] == 0 || g_FoldRowOwner[row] == equipId;
+        }
+
+        void ClaimFoldRow_NoLock(std::int32_t equipId)
+        {
+            const std::int32_t row = ComputeCompressed(equipId);
+            if (row >= kCompressedSlotBound && row <= kExtendedFoldedLast)
+                g_FoldRowOwner[row] = static_cast<std::int16_t>(equipId);
+        }
+
+        std::int32_t ClaimLowestFreeInRange_NoLock(std::int32_t first, std::int32_t last,
+                                                   const ExtendedReservedFn& isReservedElsewhere)
+        {
+            for (std::int32_t id = first; id <= last; ++id)
+            {
+                if (!IsAllocatableExtendedId(id))
+                    continue;
+                if (g_ExtendedUsed.test(static_cast<std::size_t>(id)))
+                    continue;
+                if (!FoldRowFreeFor_NoLock(id))
+                    continue;
+                if (isReservedElsewhere && isReservedElsewhere(id))
+                    continue;
+                g_ExtendedUsed.set(static_cast<std::size_t>(id));
+                ClaimFoldRow_NoLock(id);
+                return id;
+            }
+            return -1;
+        }
     }
 
-    void MarkExtendedEquipIdUsed(std::int32_t equipId)
+    bool MarkExtendedEquipIdUsed(std::int32_t equipId)
     {
-        if (!IsExtendedEquipId(equipId)) return;
+        if (!IsExtendedEquipId(equipId)) return false;
         std::lock_guard<std::mutex> lock(g_ExtendedMutex);
+        if (!FoldRowFreeFor_NoLock(equipId))
+            return false;
         g_ExtendedUsed.set(static_cast<std::size_t>(equipId));
+        ClaimFoldRow_NoLock(equipId);
+        return true;
     }
 
     bool IsExtendedEquipIdUsed(std::int32_t equipId)
     {
         if (!IsExtendedEquipId(equipId)) return true;
         std::lock_guard<std::mutex> lock(g_ExtendedMutex);
-        return g_ExtendedUsed.test(static_cast<std::size_t>(equipId));
+        return g_ExtendedUsed.test(static_cast<std::size_t>(equipId))
+            || !FoldRowFreeFor_NoLock(equipId);
     }
 
     std::int32_t FindLowestFreeExtendedEquipId()
@@ -47,22 +88,33 @@ namespace EquipIdCompression
         const ExtendedReservedFn& isReservedElsewhere)
     {
         std::lock_guard<std::mutex> lock(g_ExtendedMutex);
-        for (std::int32_t id = kExtendedAllocFirst; id <= kExtendedAllocLast; ++id)
-        {
-            if (g_ExtendedUsed.test(static_cast<std::size_t>(id)))
-                continue;
-            if (isReservedElsewhere && isReservedElsewhere(id))
-                continue;
-            g_ExtendedUsed.set(static_cast<std::size_t>(id));
+        const bool wideLive = WideWeaponsLive();
+        std::int32_t id = -1;
+        if (!wideLive)
+            id = ClaimLowestFreeInRange_NoLock(
+                kExtendedPreferredFirst, kExtendedAllocLast, isReservedElsewhere);
+        if (id < 0)
+            id = ClaimLowestFreeInRange_NoLock(
+                kExtendedAllocFirst, kExtendedPreferredFirst - 1, isReservedElsewhere);
+        if (id >= 0)
             return id;
-        }
         static std::atomic<int> s_exhaustedLogged{ 0 };
         if (s_exhaustedLogged.fetch_add(1) < 2)
             LogError("EquipIdCompression: extended equipId range 0x%X-0x%X exhausted, "
                 "item gets no equipId and appears in no menu",
                 static_cast<unsigned>(kExtendedAllocFirst),
-                static_cast<unsigned>(kExtendedAllocLast));
+                static_cast<unsigned>(wideLive ? kNarrowCustomLast : kExtendedAllocLast));
         return -1;
+    }
+
+    bool WideWeaponsLive()
+    {
+        switch (gGameBuild)
+        {
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
+        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return true;
+        default:                                           return false;
+        }
     }
 
     void MarkCompressedSlotUsed(std::int32_t compressed)

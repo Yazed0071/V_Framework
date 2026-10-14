@@ -73,6 +73,10 @@ namespace equip
 
     std::size_t ScanVanillaDevelopEquipIds(std::uint64_t* bits, std::size_t words);
 
+    constexpr std::size_t kDevelopIdBitWords = 0x10000 / 64;
+
+    bool ScanCustomOnlyDevelopIds(std::uint64_t* bits, std::size_t words);
+
     void SyncDevelopFlagsWithSave();
 
 }

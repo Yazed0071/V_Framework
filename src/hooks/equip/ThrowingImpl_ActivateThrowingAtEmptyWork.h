@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_ThrowingImpl_ActivateThrowingAtEmptyWork_Hook();
+void Uninstall_ThrowingImpl_ActivateThrowingAtEmptyWork_Hook();

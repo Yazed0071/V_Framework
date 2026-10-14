@@ -16,9 +16,12 @@
 #include "MissionCodeGuard.h"
 #include "DevelopArrayGrow.h"
 #include "EquipDevelop_SetEquipUndeveloped.h"
+#include "GunBasicInject.h"
 #include "../outfit/EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 #include "V_FrameWorkState.h"
 #include "log.h"
+#include "EquipAliasLease.h"
+#include "EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex.h"
 
 namespace equip
 {
@@ -155,6 +158,7 @@ namespace equip
         std::uint16_t g_CustomBluePrintDevelopIds[kNewRows] = {};
 
         constexpr std::size_t  kRecDevelopIdOff             = 0x8;
+        constexpr std::size_t  kRecEquipIdOff               = 0xC;   // equipId << 4
         constexpr std::size_t  kRecDisplayInfoOff           = 0x58;
         constexpr std::uint8_t kDisplayInfoMask             = 0x7;
         constexpr std::uint8_t kDisplayInfoSkillOrBluePrint = 1;
@@ -3162,9 +3166,31 @@ namespace equip
             }
         }
 
+        bool CustomWeaponRowHasNoGunBasic(const void* self, std::uint16_t row)
+        {
+            if (row < kFirstCustomRow || row >= kNewRows)
+                return false;
+            std::uint16_t equipId = 0;
+            __try
+            {
+                const std::uint8_t* rec = static_cast<const std::uint8_t*>(self)
+                    + static_cast<std::size_t>(row) * kRecStride;
+                if (*reinterpret_cast<const std::uint16_t*>(rec + kRecDevelopIdOff) == 0)
+                    return false;
+                equipId = equip::DevelopRecordEquipId(rec);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+            return GunBasic_WeaponHasNoRow(equipId);
+        }
+
         bool __fastcall hkIsVisible(void* self, std::uint16_t row)
         {
             if (outfit::IsDevelopHidden(row))
+                return false;
+            if (CustomWeaponRowHasNoGunBasic(self, row))
                 return false;
             if (CustomBluePrintShowsRow(self, row))
                 return true;
@@ -3518,8 +3544,7 @@ namespace equip
                     rec + kBase20_RecFieldOff);
                 if (g_DevIdRow[dev] == 0xFFFF)
                     g_DevIdRow[dev] = static_cast<std::uint16_t>(i);
-                const std::uint16_t eqp = static_cast<std::uint16_t>(
-                    *reinterpret_cast<const std::uint16_t*>(rec + 0xC) >> 4);
+                const std::uint16_t eqp = equip::DevelopRecordEquipId(rec);
                 if (eqp < kEquipIdSlots && g_EquipIdRow[eqp] == 0xFFFF)
                     g_EquipIdRow[eqp] = static_cast<std::uint16_t>(i);
                 if (eqp != 0 && eqp < kEquipIdSlots)
@@ -3573,10 +3598,9 @@ namespace equip
                 const std::uint8_t* rec =
                     reinterpret_cast<const std::uint8_t*>(base20)
                     + static_cast<std::size_t>(row) * kRecStride;
-                const std::uint16_t raw =
-                    *reinterpret_cast<const std::uint16_t*>(
-                        rec + (equipField ? 0xC : kBase20_RecFieldOff));
-                out = equipField ? static_cast<std::uint16_t>(raw >> 4) : raw;
+                out = equipField
+                    ? equip::DevelopRecordEquipId(rec)
+                    : *reinterpret_cast<const std::uint16_t*>(rec + kBase20_RecFieldOff);
                 return true;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3657,8 +3681,9 @@ namespace equip
         }
 
         std::uint16_t __fastcall hkFindByEquipId(std::uintptr_t base20,
-                                                 std::uint16_t equipId)
+                                                 std::uint16_t engineEquipId)
         {
+            const auto equipId = static_cast<std::uint16_t>(equip::FromEngine(engineEquipId));
             if (equipId == 0)
                 return kFlowSentinel;
             EquipDevelop_RefreshDevelopTimerSnapshot();
@@ -3685,10 +3710,7 @@ namespace equip
             {
                 if (IsReservedFlowRow(i))
                     continue;
-                const std::uint16_t packed =
-                    *reinterpret_cast<const std::uint16_t*>(
-                        base + static_cast<std::size_t>(i) * kRecStride + 0xC);
-                if (static_cast<std::uint16_t>(packed >> 4) == equipId)
+                if (equip::DevelopRecordEquipId(base + static_cast<std::size_t>(i) * kRecStride) == equipId)
                     return static_cast<std::uint16_t>(i);
             }
             return kFlowSentinel;
@@ -3847,17 +3869,16 @@ namespace equip
         }
 
         std::uint16_t FindLastRowForEquipId(std::uintptr_t base20,
-                                            std::uint16_t equipId)
+                                            std::uint16_t engineEquipId)
         {
+            const auto equipId = static_cast<std::uint16_t>(equip::FromEngine(engineEquipId));
             std::uint16_t found = kFlowSentinel;
             const std::uint32_t bound = equip::NativeFlowBound();
             for (std::uint32_t i = 0; i < bound; ++i)
             {
-                const std::uint16_t packed =
-                    *reinterpret_cast<const std::uint16_t*>(
-                        base20 + 0xC
-                        + static_cast<std::size_t>(i) * kRecStride);
-                if (static_cast<std::uint16_t>(packed >> 4) == equipId)
+                const auto* rec = reinterpret_cast<const std::uint8_t*>(
+                    base20 + static_cast<std::size_t>(i) * kRecStride);
+                if (equip::DevelopRecordEquipId(rec) == equipId)
                     found = static_cast<std::uint16_t>(i);
             }
             return found;
@@ -4815,42 +4836,98 @@ namespace equip
         SyncFlagsWithSvars(false);
     }
 
+    namespace
+    {
+        std::uintptr_t LiveDevelopBase20()
+        {
+            if (!g_A)
+                return 0;
+            const GetQuark_t getQuark = reinterpret_cast<GetQuark_t>(
+                ResolveGameAddress(gAddr.GetQuarkSystemTable));
+            const std::uintptr_t vt20A = reinterpret_cast<std::uintptr_t>(
+                ResolveGameAddress(kAddr_Base20VtblA));
+            const std::uintptr_t vt20B = reinterpret_cast<std::uintptr_t>(
+                ResolveGameAddress(kAddr_Base20VtblB));
+            if (!getQuark || (!vt20A && !vt20B))
+                return 0;
+            __try
+            {
+                const std::uint8_t* quark = getQuark();
+                if (!quark)
+                    return 0;
+                const std::uintptr_t app =
+                    *reinterpret_cast<const std::uintptr_t*>(quark + 0x98);
+                if (!app)
+                    return 0;
+                const std::uintptr_t f110 =
+                    *reinterpret_cast<const std::uintptr_t*>(app + 0x110);
+                if (!f110)
+                    return 0;
+                const std::uintptr_t base20 =
+                    *reinterpret_cast<const std::uintptr_t*>(f110 + 0xAC8);
+                if (!base20)
+                    return 0;
+                const std::uintptr_t vt20 =
+                    *reinterpret_cast<const std::uintptr_t*>(base20);
+                return vt20 == vt20A || vt20 == vt20B ? base20 : 0;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+    }
+
+    bool ScanCustomOnlyDevelopIds(std::uint64_t* bits, std::size_t words)
+    {
+        if (!bits || words < kDevIdSlots / 64)
+            return false;
+        std::memset(bits, 0, kDevIdSlots / 8);
+        const std::uintptr_t base20 = LiveDevelopBase20();
+        if (!base20)
+            return false;
+        std::uint32_t bound = NativeFlowBound();
+        if (bound > kOldRows && base20 != g_ArmedBase20.load(std::memory_order_relaxed))
+            bound = kOldRows;   // live block not grown yet
+        __try
+        {
+            const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
+            for (std::uint32_t i = kFirstCustomRow; i < bound; ++i)
+            {
+                if (i == kFlowSentinel)
+                    continue;
+                const std::uint16_t dev = *reinterpret_cast<const std::uint16_t*>(
+                    base + static_cast<std::size_t>(i) * kRecStride + kBase20_RecFieldOff);
+                if (dev != 0)
+                    bits[dev >> 6] |= 1ull << (dev & 63);
+            }
+            for (std::uint32_t i = 0; i < kFirstCustomRow; ++i)
+            {
+                const std::uint16_t dev = *reinterpret_cast<const std::uint16_t*>(
+                    base + static_cast<std::size_t>(i) * kRecStride + kBase20_RecFieldOff);
+                bits[dev >> 6] &= ~(1ull << (dev & 63));
+            }
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            std::memset(bits, 0, kDevIdSlots / 8);
+            return false;
+        }
+    }
+
     std::size_t ScanVanillaDevelopEquipIds(std::uint64_t* bits, std::size_t words)
     {
-        if (!bits || words < kEquipIdSlots / 64 || !g_A)
+        if (!bits || words < kEquipIdSlots / 64)
             return 0;
-        const GetQuark_t getQuark = reinterpret_cast<GetQuark_t>(
-            ResolveGameAddress(gAddr.GetQuarkSystemTable));
-        const std::uintptr_t vt20A = reinterpret_cast<std::uintptr_t>(
-            ResolveGameAddress(kAddr_Base20VtblA));
-        const std::uintptr_t vt20B = reinterpret_cast<std::uintptr_t>(
-            ResolveGameAddress(kAddr_Base20VtblB));
-        if (!getQuark || (!vt20A && !vt20B))
+        const std::uintptr_t base20 = LiveDevelopBase20();
+        if (!base20)
             return 0;
 
         std::uint64_t local[kEquipIdSlots / 64] = {};
         std::size_t found = 0;
         __try
         {
-            const std::uint8_t* quark = getQuark();
-            if (!quark)
-                return 0;
-            const std::uintptr_t app =
-                *reinterpret_cast<const std::uintptr_t*>(quark + 0x98);
-            if (!app)
-                return 0;
-            const std::uintptr_t f110 =
-                *reinterpret_cast<const std::uintptr_t*>(app + 0x110);
-            if (!f110)
-                return 0;
-            const std::uintptr_t base20 =
-                *reinterpret_cast<const std::uintptr_t*>(f110 + 0xAC8);
-            if (!base20)
-                return 0;
-            const std::uintptr_t vt20 =
-                *reinterpret_cast<const std::uintptr_t*>(base20);
-            if (vt20 != vt20A && vt20 != vt20B)
-                return 0;
             const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
             for (std::uint32_t i = 0; i < kFirstCustomRow; ++i)
             {

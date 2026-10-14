@@ -16,6 +16,7 @@ extern "C" {
 #include "../hooks/equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../core/V_FrameWorkState.h"
 #include "../hooks/equip/CustomBluePrint.h"
+#include "../hooks/equip/RankLimitedItems.h"
 #include "../hooks/equip/DataBaseControllerImpl_AddDataBase.h"
 #include "FoxHashes.h"
 #include "MissionCodeGuard.h"
@@ -1057,6 +1058,7 @@ namespace
         { "SetEquipDevelopVisible",  l_SetEquipDevelopVisible },
 
         { "AddToEquipDevelopTable",  l_AddToEquipDevelopTable },
+        { "GetUsedRankLimitedItemLangIds", RankLimitedItems::Lua_GetUsedRankLimitedItemLangIds },
 
         { "RegisterUniqueStaff",     l_RegisterUniqueStaff },
         { "GetUniqueStaffTypeId",    l_GetUniqueStaffTypeId },

@@ -26,6 +26,12 @@ namespace
         { "ClearAllPlayerVoiceTypeOverrides",         l_ClearAllPlayerVoiceTypeOverrides },
 
         { "IsBarrierActive",                          l_IsBarrierActive },
+        { "GetPlayerHealth",                          l_GetPlayerHealth },
+        { "SetPlayerHealth",                          l_SetPlayerHealth },
+
+        { "GetFultonCount",                           l_GetFultonCount },
+        { "SetFultonCount",                           l_SetFultonCount },
+        { "ResupplyFulton",                           l_ResupplyFulton },
 
         { "RequestToSetTargetCqcStance",              l_RequestToSetTargetCqcStance },
 
@@ -56,6 +62,11 @@ namespace
         { "PlayHeadEffect",                           l_PlayHeadEffect },
         { "StopHeadEffect",                           l_StopHeadEffect },
         { "PlayHeadSound",                            l_PlayHeadSound },
+        { "GetOutfitColors",                          l_GetOutfitColors },
+        { "GetOutfitColor",                           l_GetOutfitColor },
+        { "SetOutfitColor",                           l_SetOutfitColor },
+        { "GetSortieOutfitCursor",                    l_GetSortieOutfitCursor },
+        { "EquipSortieOutfitCursor",                  l_EquipSortieOutfitCursor },
 
         { nullptr,          nullptr }
     };

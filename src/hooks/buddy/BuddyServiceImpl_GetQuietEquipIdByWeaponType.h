@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BuddyServiceImpl_GetQuietEquipIdByWeaponType_Hooks();
+bool Uninstall_BuddyServiceImpl_GetQuietEquipIdByWeaponType_Hooks();

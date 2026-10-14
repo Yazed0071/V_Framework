@@ -17,6 +17,10 @@
 #include "../hooks/equip/MotionLoaderImpl_GetMtarIds.h"
 #include "../hooks/shell/RemoteMissile.h"
 #include "../hooks/equip/UiUtility_GetWeaponItemNameLangId.h"
+#include "../hooks/equip/SupportWeaponRegistry.h"
+#include "../hooks/equip/EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.h"
+#include "../hooks/equip/EquipAliasLease.h"
+#include "V_FrameWorkState.h"
 #include "FoxHashes.h"
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -76,6 +80,207 @@ namespace
         return 0;
     }
 
+    static bool ReadNumberField(lua_State* L, const char* name, float& out)
+    {
+        LuaGetField(L, 1, name);
+        const bool have = LuaIsNumber(L, -1);
+        if (have)
+            out = GetLuaNumber(L, -1);
+        LuaPop(L, 1);
+        return have;
+    }
+
+    static bool ReadIntegerField(lua_State* L, const char* name, int& out)
+    {
+        LuaGetField(L, 1, name);
+        const bool have = LuaIsNumber(L, -1);
+        if (have)
+            out = GetLuaInt(L, -1);
+        LuaPop(L, 1);
+        return have;
+    }
+
+    static float ReadBarField(lua_State* L, int swpId, const char* name)
+    {
+        float bar = EquipParameterTables::kBarAutomatic;
+        LuaGetField(L, 1, name);
+        const int type = LuaType(L, -1);
+        if (type == LUA_TBOOLEAN && !GetLuaBool(L, -1))
+            bar = 0.0f;
+        else if (type == LUA_TNUMBER)
+        {
+            bar = GetLuaNumber(L, -1);
+            if (bar < 0.0f || bar > 1.0f)
+            {
+                LogWarn("SetSupportWeaponParameter swpId %d: %s %g is outside 0-1, clamped", swpId, name, bar);
+                bar = bar < 0.0f ? 0.0f : 1.0f;
+            }
+        }
+        else if (type != LUA_TNIL)
+            LogWarn("SetSupportWeaponParameter swpId %d: %s must be a number 0-1 or false, ignored", swpId, name);
+        LuaPop(L, 1);
+        return bar;
+    }
+
+    static float ReadBarMaxField(lua_State* L, int swpId, const char* name)
+    {
+        float value = 0.0f;
+        if (ReadNumberField(L, name, value) && value <= 0.0f)
+        {
+            LogWarn("SetSupportWeaponParameter swpId %d: %s must be above 0, ignored", swpId, name);
+            value = 0.0f;
+        }
+        return value;
+    }
+
+    static constexpr std::uint32_t kEquipTypeThrowing = 12;
+
+    static int l_SetSupportWeapon(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetSupportWeapon: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int equipId = 0;
+        int throwAs = 0;
+        int legacy = 0;
+        ReadIntegerField(L, "equipId", equipId);
+        ReadIntegerField(L, "throwAs", throwAs);
+        LuaGetField(L, 1, "nativeAction");
+        const bool hasLegacy = ReadIntegerField(L, "familyFrom", legacy) || LuaType(L, -1) != LUA_TNIL;
+        LuaPop(L, 1);
+        if (hasLegacy)
+            LogWarn("SetSupportWeapon equipId %d: familyFrom and nativeAction are gone, use throwAs (how it is held and thrown) and do the effect in OnActivateThrowing", equipId);
+        if (equipId <= 0 || equipId >= static_cast<int>(SupportWeapon::kEquipIdCount)
+            || !V_FrameWorkState::IsClaimedEquipId(equip::ResolveReal(equipId)))
+        {
+            LogWarn("SetSupportWeapon: equipId %d is not a custom EQP_SWP_ id from RegisterConstantEquipId, ignored", equipId);
+            return 0;
+        }
+        if (!SupportWeapon::IsVanillaSupportWeaponEquipId(static_cast<std::uint32_t>(throwAs))
+            || EquipParam_GetEquipType(static_cast<std::uint32_t>(throwAs)) != kEquipTypeThrowing)
+        {
+            LogWarn("SetSupportWeapon equipId %d: throwAs %d is not a vanilla thrown EQP_SWP_ id, ignored", equipId, throwAs);
+            return 0;
+        }
+
+        int attackId = 0;
+        if (ReadIntegerField(L, "attackId", attackId) && (attackId <= 0 || attackId > 0xFFFF))
+        {
+            LogWarn("SetSupportWeapon equipId %d: attackId %d out of range, the throwAs attack is used", equipId, attackId);
+            attackId = 0;
+        }
+
+        int blastId = SupportWeapon::kNoBlastId;
+        if (ReadIntegerField(L, "blastId", blastId)
+            && (blastId < 0 || blastId >= static_cast<int>(EquipParameterTables::kBlastRowCount)))
+        {
+            LogWarn("SetSupportWeapon equipId %d: blastId %d out of range 0-255, the throwAs blast is used", equipId, blastId);
+            blastId = SupportWeapon::kNoBlastId;
+        }
+
+        SupportWeapon::Set(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(throwAs),
+                           attackId, blastId);
+        return 0;
+    }
+
+    static int l_SetSupportWeaponParameter(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetSupportWeaponParameter: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int swpId = 0;
+        ReadIntegerField(L, "swpId", swpId);
+        if (swpId < static_cast<int>(EquipParameterTables::kFirstCustomSupportWeaponId)
+            || swpId >= static_cast<int>(EquipParameterTables::kSupportWeaponRowCount))
+        {
+            LogWarn("SetSupportWeaponParameter: swpId %d is not a custom SWP_ id from DeclareSWPs, ignored", swpId);
+            return 0;
+        }
+        if (!EquipParameterTables::SupportWeaponRowsAvailable())
+        {
+            LogWarn("SetSupportWeaponParameter swpId %d: custom rows are not available on this build, ignored", swpId);
+            return 0;
+        }
+        int   ammo  = 0;
+        float p1    = 0.0f;
+        float p2    = 0.0f;
+        int   grade = 1;
+        ReadIntegerField(L, "ammo", ammo);
+        ReadIntegerField(L, "grade", grade);
+
+        int p1Fields = 0;
+        p1Fields += ReadNumberField(L, "p1", p1) ? 1 : 0;
+        p1Fields += ReadNumberField(L, "fuseTime", p1) ? 1 : 0;
+        p1Fields += ReadNumberField(L, "sensorRange", p1) ? 1 : 0;
+        p1Fields += ReadNumberField(L, "decoyStrength", p1) ? 1 : 0;
+        if (p1Fields > 1)
+            LogWarn("SetSupportWeaponParameter swpId %d: p1, fuseTime, sensorRange and decoyStrength are the same column, %g used",
+                swpId, p1);
+
+        int p2Fields = 0;
+        p2Fields += ReadNumberField(L, "p2", p2) ? 1 : 0;
+        p2Fields += ReadNumberField(L, "activeTime", p2) ? 1 : 0;
+        if (p2Fields > 1)
+            LogWarn("SetSupportWeaponParameter swpId %d: p2 and activeTime are the same column, %g used", swpId, p2);
+        EquipParameterTables::SetSupportWeaponRow(static_cast<std::uint32_t>(swpId), ammo, p1, p2, grade);
+
+        int damageType = EquipParameterTables::kAutomaticDamageType;
+        if (ReadIntegerField(L, "damageType", damageType) && (damageType < 0 || damageType > 6))
+        {
+            LogWarn("SetSupportWeaponParameter swpId %d: damageType %d out of range 0-6, automatic used", swpId, damageType);
+            damageType = EquipParameterTables::kAutomaticDamageType;
+        }
+        EquipParameterTables::SetSupportWeaponDamageType(static_cast<std::uint32_t>(swpId), damageType);
+
+        EquipParameterTables::SupportWeaponBars bars;
+        bars.damage        = ReadBarField(L, swpId, "barDamage");
+        bars.durability    = ReadBarField(L, swpId, "barDurability");
+        bars.effectTime    = ReadBarField(L, swpId, "barEffectTime");
+        bars.durabilityMax = ReadBarMaxField(L, swpId, "durabilityMax");
+        bars.effectTimeMax = ReadBarMaxField(L, swpId, "effectTimeMax");
+        EquipParameterTables::SetSupportWeaponBars(static_cast<std::uint32_t>(swpId), bars);
+        return 0;
+    }
+
+    static int l_SetBlastParameter(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetBlastParameter: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int blastId = 0;
+        ReadIntegerField(L, "blastId", blastId);
+        if (blastId < static_cast<int>(EquipParameterTables::kFirstCustomBlastId)
+            || blastId >= static_cast<int>(EquipParameterTables::kBlastRowCount))
+        {
+            LogWarn("SetBlastParameter: blastId %d is not a custom BLA_ id from DeclareBLAs, ignored", blastId);
+            return 0;
+        }
+        if (!EquipParameterTables::BlastRowsAvailable())
+        {
+            LogWarn("SetBlastParameter blastId %d: custom rows are not available on this build, ignored", blastId);
+            return 0;
+        }
+        int   blastFlag    = 2;
+        float effectRange  = 0.0f;
+        float optimalRange = 0.0f;
+        ReadIntegerField(L, "blastFlag", blastFlag);
+        ReadNumberField(L, "effectRange", effectRange);
+        ReadNumberField(L, "optimalRange", optimalRange);
+        if (blastFlag < 0 || blastFlag > 4)
+        {
+            LogWarn("SetBlastParameter blastId %d: blastFlag %d out of range 0-4, ignored", blastId, blastFlag);
+            return 0;
+        }
+        EquipParameterTables::SetBlastRow(static_cast<std::uint32_t>(blastId), blastFlag, effectRange, optimalRange);
+        return 0;
+    }
+
     static bool ReadStringField(lua_State* L, int idx, const char* name, std::string& out)
     {
         LuaGetField(L, idx, name);
@@ -93,31 +298,12 @@ namespace
         return have;
     }
 
-    constexpr std::uint64_t kGaniExtCode = 0x1F8Aull << 51;
-
-    static bool ParseRawPathId(const std::string& text, std::uint64_t& out)
-    {
-        std::size_t start = 0;
-        if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
-            start = 2;
-        const std::size_t digits = text.size() - start;
-        if (digits != 16 && (digits < 8 || digits > 13))
-            return false;
-        for (std::size_t i = start; i < text.size(); ++i)
-            if (!std::isxdigit(static_cast<unsigned char>(text[i])))
-                return false;
-        const std::uint64_t value = std::strtoull(text.c_str() + start, nullptr, 16);
-        out = (digits == 16) ? value : (kGaniExtCode | value);
-        return true;
-    }
-
     static std::uint64_t ReadPathField(lua_State* L, int idx, const char* name)
     {
         std::string path;
         if (!ReadStringField(L, idx, name, path))
             return 0;
-        std::uint64_t raw = 0;
-        return ParseRawPathId(path, raw) ? raw : FoxHashes::PathCode64Ext(path);
+        return FoxHashes::ClipPathId(path);
     }
 
     static std::uint64_t PathAtTop(lua_State* L)
@@ -127,9 +313,7 @@ namespace
         const char* s = GetLuaString(L, -1);
         if (!s || !*s)
             return 0;
-        const std::string path = s;
-        std::uint64_t raw = 0;
-        return ParseRawPathId(path, raw) ? raw : FoxHashes::PathCode64Ext(path);
+        return FoxHashes::ClipPathId(s);
     }
 
     static void ReadStepPhases(lua_State* L, int idx, const char* name,
@@ -248,6 +432,29 @@ namespace
         ReadClipsTable(L, idx, "clips", clips);
     }
 
+    static void ReadExtraArchives(lua_State* L, int idx, std::vector<ReceiverMotionArchive>& out)
+    {
+        LuaGetField(L, idx, "extraArchives");
+        if (LuaType(L, -1) == LUA_TTABLE)
+        {
+            const int listAbs = GetLuaTop(L);
+            const std::size_t count = LuaObjLen(L, listAbs);
+            for (std::size_t i = 1; i <= count; ++i)
+            {
+                LuaRawGetI(L, listAbs, static_cast<int>(i));
+                if (LuaType(L, -1) == LUA_TTABLE)
+                {
+                    ReceiverMotionArchive archive;
+                    archive.mtar = ReadPathField(L, -1, "mtar");
+                    archive.pack = ReadPathField(L, -1, "pack");
+                    out.push_back(archive);
+                }
+                LuaPop(L, 1);
+            }
+        }
+        LuaPop(L, 1);
+    }
+
     static int l_SetReceiverMotion(lua_State* L)
     {
         if (!ResolveLuaApi())
@@ -268,6 +475,7 @@ namespace
         {
             desc.playerMtar = ReadPathField(L, -1, "mtar");
             desc.playerPack = ReadPathField(L, -1, "pack");
+            ReadExtraArchives(L, -1, desc.extraArchives);
             ReadClipsField(L, -1, desc.playerClips);
             ReadClipsTable(L, -1, "oneHand", desc.oneHandClips);
             ReadClipsTable(L, -1, "oneHandCqc", desc.oneHandCqcClips);
@@ -687,6 +895,9 @@ namespace
         { "SetDamage",              l_SetDamage },
         { "DeclareDamages",         l_DeclareDamages },
         { "SetWeaponHandling",      l_SetWeaponHandling },
+        { "SetSupportWeapon",       l_SetSupportWeapon },
+        { "SetSupportWeaponParameter", l_SetSupportWeaponParameter },
+        { "SetBlastParameter",      l_SetBlastParameter },
         { "SetReceiverMotion",      l_SetReceiverMotion },
 
         { nullptr, nullptr }

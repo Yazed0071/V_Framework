@@ -176,6 +176,9 @@ namespace AddressSetRuntime
             0x145F804D0ull, // VoiceParam_PlayDialogue
             0x149B603F0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
             0x14121EB90ull, // RideHeliActionPluginImpl_GetStateFn
+            0x1411FB360ull, // MBTerminalActionPluginImpl_IsDisableMBTerminal
+            0x14110F160ull, // CallMenuManagerImpl_Update
+            0x1411FA660ull, // MBTerminalActionPluginImpl_CheckActionState
             0x142BFF960ull, // SoundDaemon_Instance
             0x146142730ull, // SoundDaemon_PostEventQueue
             0x1420A72B0ull, // Sd_kW_Select
@@ -628,6 +631,123 @@ namespace AddressSetRuntime
             0x140D627A0ull, // cp::CommandPost2Impl::RequestRadioByCp
             0x1473CC750ull, // cp::RadioControllerImpl::StepIdle
             0x140D58D20ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
+            0x146D1C6C0ull, // tpp::gm::impl::AiControllerImpl::WakeNode
+            0x146D1BF60ull, // tpp::gm::impl::AiControllerImpl::SleepNode
+            0x149F41220ull, // tpp::gm::soldier::Soldier2InterrogateUtil::IsTranslatable (Arxan-moved body)
+            0x140A461D0ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetPathAtBuddyType
+            0x1464D5DC0ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietWeaponFileFromBuddyBlock
+            0x1464D56D0ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietFovaFile
+            0x1464D59A9ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietFv2FileFromBuddyBlock (fv2 id load)
+            0x140F664B0ull, // EquipDevelopControllerImpl::GetBuddyPartsDevelopInfoIndex
+            0x149501260ull, // EquipDevelopControllerImpl::GetBuddyPartsId
+            0x149501470ull, // EquipDevelopControllerImpl::GetBuddyPartsKind
+            0x142C29010ull, // tpp::gm::buddy::impl::g_buddyService (BuddyServiceImpl instance)
+            0x140A4E6D0ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeHorseSettings
+            0x1464F8F20ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeDogSettings
+            0x14650ABE0ull, // tpp::gm::buddy::impl::BuddyServiceImpl::GetQuietEquipIdByWeaponType
+            0x146514E70ull, // tpp::gm::buddy::impl::BuddyServiceImpl::IsUseSuppressorByWeaponType
+            0x1464F956Dull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeQuietCostume (costume clamp)
+            0x140A54847ull, // TppBuddyService.SetVarsQuietCostume (costume clamp)
+            0x1464FA151ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeQuietWeaponType (weapon clamp)
+            0x140A548C2ull, // TppBuddyService.SetVarsQuietWeaponType (weapon clamp)
+            0x140A4E74Cull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeHorseSettings (tack check)
+            0x1464F8F69ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeDogSettings (gear check)
+            0x140CE3918ull, // tpp::gm::buddyquiet::impl::BuddyQuiet2Impl weapon change command (weapon clamp)
+            0x140CE45A3ull, // tpp::gm::buddyquiet::impl::BuddyQuiet2Impl::SetBruise (costume check)
+            0x1416ABD67ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::SetupPrefabListElement (Quiet costume list gate)
+            0x1416AB8B7ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::SetupPrefabListElement (Quiet weapon list gate)
+            0x141459E2Bull, // tpp::gm::soldier::impl::DamageAiImpl::StepBitDamage (dog gear check)
+            0x140D04B80ull, // tpp::gm::buddyquiet::impl::(anon)::CombatAiImpl::SendFireSignal
+            0x1471BF840ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::InitCurrentSlot
+            0x140D18770ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::Update
+            0x1471BFCD0ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::SetMotion
+            0x1464D6740ull, // tpp::gm::buddy::Buddy2BlockController::GetFileForPathFromBuddyBlock
+            0x142C28910ull, // tpp::gm::buddy::Buddy2BlockController instance pointer
+            0x140E51490ull, // tpp::gm::horse::impl::ActionCoreImpl::ExecDefenseCallback tack damage switch
+            0x1490BC088ull, // tpp::gm::horse::impl::BasicAction2Impl::UpdateGallopMotionSpeed tack switch
+            0x1490AF9E2ull, // tpp::gm::horse::impl::BasicAction2Impl::EnterOffenseTarget tack switch
+            0x140E7C24Bull, // horse motion sound tack switch (FUN_140E7BE70)
+            0x140E58C20ull, // tpp::gm::horse::impl::BasicAction2Impl::Execute
+            0x14650BB8Aull, // tpp::gm::buddy::impl::BuddyServiceImpl D-Dog order variant gear check (FUN_140A515B0)
+            0x14650BF04ull, // tpp::gm::buddy::impl::BuddyServiceImpl::InitBuddyCommandForStatus gear check
+            0x140C89707ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::ProcessDamages gear check
+            0x146EE53B0ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::IsNeedReaction gear check
+            0x140C886E6ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::CallDamageEffect gear check
+            0x0ull,         // tpp::gm::buddydog::impl::DamageHandlerImpl::CallDamageSound gear check (not ported)
+            0x140C8F57Eull, // tpp::gm::buddydog::impl::EscapeIdleAiImpl::StepSearch gear check
+            0x0ull,         // tpp::gm::buddydog::impl::NoticeDamageAiImpl::Setup gear check (not ported)
+            0x140C63DB3ull, // tpp::gm::buddydog::impl::AttackAiImpl::ReTarget gear check
+            0x1414CFE15ull, // tpp::gm::soldier::impl::NoticeBuddyDogAiImpl::StepAware gear check
+            0x140C56471ull, // tpp::gm::buddydog::impl::BuddyDog2Impl::Initialize gear copy to +0xF4
+            0x0ull,         // tpp::gm::impl::SimplePartsEffectControllerImpl::CreateEffectImpl (not ported)
+            0x0ull,         // fox::fx::Effect::Create (not ported)
+            0x142A82C28ull, // tpp::gm::player Player2System instance
+            0x14C6A08E0ull, // fox::anim::AnimFile::GetEventData
+            0x149D78060ull, // tpp::gm::impl::equip::RealizedEquipObjectImpl::MotionEventCallbackImpl
+            0x141304890ull, // tpp::gm::impl::equip::RealizedEquipObjectImpl::EjectCasing
+            0x149744960ull, // tpp::gm::player::impl::attack::AttackActionImpl::SetEquipMotion
+            0x149739BA0ull, // tpp::gm::player::impl::attack::AttackActionImpl::MotionEventCallback
+            0x140A1C900ull, // tpp::gm::impl::(anon)::GetPackagePaths
+            0x1431FCE20ull, // fox::Array<fox::Path>::PushBack
+            0x14319E2B0ull, // fox::Path::Path(const char*)
+            0x14C6AF100ull, // fox::anim::EventCallback::ExecCallback
+            0x1416ADA20ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::Update
+            0x146231F10ull, // tpp::gm::player::impl::Player2BlockController::GetFileFromPartsBlockNew
+            0x142C1B0D8ull, // the Player2BlockController pointer it is called with
+            0x144A3BDB0ull, // fox::FormVariationFile2::ApplyFormVariation (ModelBuilder)
+            0x0ull,         // tpp::gm::player::impl::Fova2ControllerImpl work: type 0x11 extra after an fv2 apply (not ported)
+            0x140A29FE0ull, // tpp::gm::impl::equip::EquipIdTableImpl::GetSupportWeaponTypeId
+            0x140A41BA0ull, // tpp::gm::impl::equip::EquipParameterTablesImpl::ReloadEquipParameterTablesImpl
+            0x140A41CD5ull, // ReloadEquipParameterTablesImpl: add rax, 0x2D8 (SupportWeaponParameter size pass)
+            0x140A41CEEull, // ReloadEquipParameterTablesImpl: lea rax, [rcx+0x2D8] (allocation pass)
+            0x1415D6D20ull, // tpp::gm::impl::throwing::ThrowingImpl::GetBlastParamByEquipId
+            0x1415DA720ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionGrenade (grenade and stun)
+            0x1415DAF50ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionSmoke (smoke, sleeping gas, flares)
+            0x1415DAD00ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionMolotovCocktail
+            0x14A3CE1A0ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionDecoy
+            0x1415DAA50ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionKibidango
+            0x14A3CE5E0ull, // tpp::gm::impl::throwing::ThrowingImpl fake sign activation
+            0x14A3D0200ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateStatus
+            0x14A3D3F00ull, // tpp::gm::impl::throwing::ThrowingSystemImpl::ExecuteSerially
+            0x1415D3450ull, // tpp::gm::impl::throwing::ThrowingImpl::ActivateThrowingAtEmptyWork
+            0x14A3CED80ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateDeactivation
+            0x1415D3F50ull, // tpp::gm::impl::throwing::ThrowingImpl::AddReboundNoise
+            0x1415D9600ull, // tpp::gm::impl::throwing::ThrowingImpl::PostReboundSound
+            0x14A3CBA90ull, // tpp::gm::impl::throwing::ThrowingImpl::IsObstructSight
+            0x140F670C0ull, // tpp::mbm::impl::EquipDevelopControllerImpl::GetDamageType
+            0x1411AE310ull, // tpp::gm::player::impl::EquipControllerImpl::InitializePlayerAtIndex
+            0x1492E3000ull, // tpp::gm::impl::LoadoutManagerImpl::RestoreLoadoutInfosFromVars
+            0x1492E3C30ull, // tpp::gm::impl::LoadoutManagerImpl sortie loadout slot restore
+            0x1492E4FC0ull, // tpp::gm::impl::LoadoutManagerImpl return-heli loadout slot restore
+            0x140FCE680ull, // tpp::gm::impl::placed::PlacedSystemImpl::RestorationPlace
+            0x140ACA230ull, // tpp::gm::impl::SupplyCboxGameObjectImpl::RestoreRequestFromSVars
+            0x1409D1ED0ull, // tpp::gm::player::impl::Player2UtilityImpl::GetPickableInfosOfAmmoBox
+            0x140A3C980ull, // tpp::gm::impl::equip::EquipParameterTablesImpl::GetSupportWeaponParameterBlock
+            0x149504D80ull, // tpp::mbm::impl::EquipDevelopControllerImpl::GetDamageAmountRatio
+            0x14166C3F0ull, // tpp::ui::menu::mbm::impl::EquipDetailsCallbackImpl::SetupSupportParameterDetails (bar panel caller range)
+            0x141484C60ull, // tpp::gm::soldier::impl::IdleActingActionImpl::CallVoice
+            0x14A311030ull, // tpp::gm::soldier::impl::Soldier2SoundControllerImpl::__callVoiceWithoutSync
+            0x14158D2E0ull, // tpp::gm::soldier::impl::Soldier2SoundControllerImpl::__callVoiceWithSync
+            0x1415507A0ull, // tpp::gm::soldier::impl::RadioActionImpl::State_RadioChaffEnd
+            0x1460AFD9Cull, // tpp::gm::EquipIdTable::GetAmmoStockIdOfSupportOrItem: lea eax,[rbx-0x50A]
+            0x140951BD3ull, // MissionPreparationSystemImpl::CalcEquipWeaponItemCostFromLoadout support loop: lea r9d,[rbx-0x50A]
+            0x1492FD877ull, // LoadoutManagerImpl::StoreLoadoutInfoToPlayerVars support cells: add edi,-0x50A
+            0x1411AEEF9ull, // EquipControllerImpl::InitializePlayerAtIndex support slots: lea r8d,[rbx-0x50A]
+            0x149A99DF2ull, // PickUpActionPluginImpl::CheckLoadableForSupportOrItem: lea r8d,[rbx-0x50A]
+            0x14120A24Eull, // PickUpActionPluginImpl::DoPickUpPlaced carried slot: lea eax,[rsi-0x50A]
+            0x14120A2F2ull, // PickUpActionPluginImpl::DoPickUpPlaced picked item: lea ecx,[r15-0x50A]
+            0x14120ADE4ull, // PickUpActionPluginImpl::DoPickUpWithPickableInfo carried slot: lea ecx,[rsi-0x50A]
+            0x14A53EA5Full, // ItemSelectorCallbackImpl::GetCurrentAmmoFromVarsForSupportWeapon: add ebx,-0x50A
+            0x140A3B525ull, // EquipParameterTablesImpl::GetAmmoParameterBlock: lea edi,[rbx-0x50A]
+            0x140DA2AA0ull, // tpp::gm::impl::cp::RadioSpeechHandlerImpl::CallPart
+            0x149D35A50ull, // tpp::gm::impl::RangeAttackSystemImpl::ActivateChaff
+            0x140B08540ull, // tpp::gm::impl::SoundControllerImpl::IsPlayingVoice
+            0x1414B1A60ull, // tpp::gm::soldier::impl::MortarActionImpl::State_WaitAction
+            0x1414B1BF0ull, // tpp::gm::soldier::impl::UnrealMortarActionImpl::State_WaitAction
+            0x147478B80ull, // tpp::gm::heli::impl::Heli2Impl::Unrealize
+            0x1414B12B0ull, // tpp::gm::soldier::impl::MortarActionImpl::State_MortarAction
+            0x14A20D500ull, // tpp::gm::soldier::impl::UnrealMortarActionImpl::State_MortarAction
+            0x140DA1FD0ull, // tpp::gm::impl::cp::RadioControllerImpl::StepRadioChaff
         };
         return value;
     }
@@ -803,6 +923,9 @@ namespace AddressSetRuntime
             0x147b92a30ull, // VoiceParam_PlayDialogue
             0x14a4979a0ull, // RideHeliActionPluginImpl_ExecPreMotionGraph
             0x14121ecb0ull, // RideHeliActionPluginImpl_GetStateFn
+            0x1411fb470ull, // MBTerminalActionPluginImpl_IsDisableMBTerminal
+            0x14110f1c0ull, // CallMenuManagerImpl_Update
+            0x1411fa770ull, // MBTerminalActionPluginImpl_CheckActionState
             0x142bff960ull, // SoundDaemon_Instance
             0x147ddeb40ull, // SoundDaemon_PostEventQueue
             0x1420a72b0ull, // Sd_kW_Select
@@ -1255,6 +1378,123 @@ namespace AddressSetRuntime
             0x140D62510ull, // cp::CommandPost2Impl::RequestRadioByCp
             0x14952EC50ull, // cp::RadioControllerImpl::StepIdle
             0x140D58A80ull, // tpp::gm::CpRadioService::ConvertSpeechLabelToRadioType
+            0x148B5B7D0ull, // tpp::gm::impl::AiControllerImpl::WakeNode
+            0x148B5ACF0ull, // tpp::gm::impl::AiControllerImpl::SleepNode
+            0x14A93FAB0ull, // tpp::gm::soldier::Soldier2InterrogateUtil::IsTranslatable (Arxan-moved body)
+            0x140A45CA0ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetPathAtBuddyType
+            0x14811F640ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietWeaponFileFromBuddyBlock
+            0x14811F200ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietFovaFile
+            0x14811F339ull, // tpp::gm::buddy::impl::Buddy2BlockControllerImpl::GetBuddyQuietFv2FileFromBuddyBlock (fv2 id load)
+            0x140F665A0ull, // EquipDevelopControllerImpl::GetBuddyPartsDevelopInfoIndex
+            0x149F1AFE0ull, // EquipDevelopControllerImpl::GetBuddyPartsId
+            0x149F1B3D0ull, // EquipDevelopControllerImpl::GetBuddyPartsKind
+            0x142C29010ull, // tpp::gm::buddy::impl::g_buddyService (BuddyServiceImpl instance)
+            0x140A4E1A0ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeHorseSettings
+            0x1481441C0ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeDogSettings
+            0x1481547D0ull, // tpp::gm::buddy::impl::BuddyServiceImpl::GetQuietEquipIdByWeaponType
+            0x148161830ull, // tpp::gm::buddy::impl::BuddyServiceImpl::IsUseSuppressorByWeaponType
+            0x148144EADull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeQuietCostume (costume clamp)
+            0x140A54307ull, // TppBuddyService.SetVarsQuietCostume (costume clamp)
+            0x1481453B1ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeQuietWeaponType (weapon clamp)
+            0x140A54382ull, // TppBuddyService.SetVarsQuietWeaponType (weapon clamp)
+            0x140A4E21Cull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeHorseSettings (tack check)
+            0x148144209ull, // tpp::gm::buddy::impl::BuddyServiceImpl::ChangeDogSettings (gear check)
+            0x140CE3458ull, // tpp::gm::buddyquiet::impl::BuddyQuiet2Impl weapon change command (weapon clamp)
+            0x140CE40F3ull, // tpp::gm::buddyquiet::impl::BuddyQuiet2Impl::SetBruise (costume check)
+            0x1416ABEB7ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::SetupPrefabListElement (Quiet costume list gate)
+            0x1416ABA07ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::SetupPrefabListElement (Quiet weapon list gate)
+            0x141459E0Bull, // tpp::gm::soldier::impl::DamageAiImpl::StepBitDamage (dog gear check)
+            0x140D04800ull, // tpp::gm::buddyquiet::impl::(anon)::CombatAiImpl::SendFireSignal
+            0x149349CC0ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::InitCurrentSlot
+            0x140D183E0ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::Update
+            0x14934A560ull, // tpp::gm::buddyquiet::impl::EquipControllerImpl::SetMotion
+            0x14811FC60ull, // tpp::gm::buddy::Buddy2BlockController::GetFileForPathFromBuddyBlock
+            0x142C28910ull, // tpp::gm::buddy::Buddy2BlockController instance pointer
+            0x140E51610ull, // tpp::gm::horse::impl::ActionCoreImpl::ExecDefenseCallback tack damage switch
+            0x149911448ull, // tpp::gm::horse::impl::BasicAction2Impl::UpdateGallopMotionSpeed tack switch
+            0x149905212ull, // tpp::gm::horse::impl::BasicAction2Impl::EnterOffenseTarget tack switch
+            0x140E7C3CBull, // horse motion sound tack switch (FUN_140E7BE70)
+            0x140E58DA0ull, // tpp::gm::horse::impl::BasicAction2Impl::Execute
+            0x14815614Eull, // tpp::gm::buddy::impl::BuddyServiceImpl D-Dog order variant gear check (FUN_140A515B0)
+            0x148156594ull, // tpp::gm::buddy::impl::BuddyServiceImpl::InitBuddyCommandForStatus gear check
+            0x140C89297ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::ProcessDamages gear check
+            0x148E35CC0ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::IsNeedReaction gear check
+            0x140C88276ull, // tpp::gm::buddydog::impl::DamageHandlerImpl::CallDamageEffect gear check
+            0x0ull,         // tpp::gm::buddydog::impl::DamageHandlerImpl::CallDamageSound gear check (not ported)
+            0x140C8F10Eull, // tpp::gm::buddydog::impl::EscapeIdleAiImpl::StepSearch gear check
+            0x0ull,         // tpp::gm::buddydog::impl::NoticeDamageAiImpl::Setup gear check (not ported)
+            0x140C63933ull, // tpp::gm::buddydog::impl::AttackAiImpl::ReTarget gear check
+            0x1414CFDE5ull, // tpp::gm::soldier::impl::NoticeBuddyDogAiImpl::StepAware gear check
+            0x140C55FF1ull, // tpp::gm::buddydog::impl::BuddyDog2Impl::Initialize gear copy to +0xF4
+            0x0ull,         // tpp::gm::impl::SimplePartsEffectControllerImpl::CreateEffectImpl (not ported)
+            0x0ull,         // fox::fx::Effect::Create (not ported)
+            0x142A82C28ull, // tpp::gm::player Player2System instance
+            0x14CC6E250ull, // fox::anim::AnimFile::GetEventData
+            0x14A7FAA50ull, // tpp::gm::impl::equip::RealizedEquipObjectImpl::MotionEventCallbackImpl
+            0x1413049D0ull, // tpp::gm::impl::equip::RealizedEquipObjectImpl::EjectCasing
+            0x14A1D1D60ull, // tpp::gm::player::impl::attack::AttackActionImpl::SetEquipMotion
+            0x0ull,         // tpp::gm::player::impl::attack::AttackActionImpl::MotionEventCallback (not ported)
+            0x140A1C3C0ull, // tpp::gm::impl::(anon)::GetPackagePaths
+            0x14328DEF0ull, // fox::Array<fox::Path>::PushBack
+            0x143227C10ull, // fox::Path::Path(const char*)
+            0x14CC806C0ull, // fox::anim::EventCallback::ExecCallback
+            0x1416ADB70ull, // tpp::ui::menu::impl::ItemSelectorCallbackImpl::Update
+            0x147EE3670ull, // tpp::gm::player::impl::Player2BlockController::GetFileFromPartsBlockNew
+            0x142C1B0D8ull, // the Player2BlockController pointer it is called with
+            0x14489E650ull, // fox::FormVariationFile2::ApplyFormVariation (ModelBuilder)
+            0x0ull,         // tpp::gm::player::impl::Fova2ControllerImpl work: type 0x11 extra after an fv2 apply (not ported)
+            0x140A29AB0ull, // tpp::gm::impl::equip::EquipIdTableImpl::GetSupportWeaponTypeId
+            0x140A41670ull, // tpp::gm::impl::equip::EquipParameterTablesImpl::ReloadEquipParameterTablesImpl
+            0x140A417A5ull, // ReloadEquipParameterTablesImpl: add rax, 0x2D8 (SupportWeaponParameter size pass)
+            0x140A417BEull, // ReloadEquipParameterTablesImpl: lea rax, [rcx+0x2D8] (allocation pass)
+            0x1415D6E90ull, // tpp::gm::impl::throwing::ThrowingImpl::GetBlastParamByEquipId
+            0x1415DA890ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionGrenade (grenade and stun)
+            0x1415DB0C0ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionSmoke (smoke, sleeping gas, flares)
+            0x14ADCDC30ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionMolotovCocktail
+            0x14ADCD260ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionDecoy
+            0x1415DABC0ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateActionKibidango
+            0x14ADCD860ull, // tpp::gm::impl::throwing::ThrowingImpl fake sign activation
+            0x14ADCFEA0ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateStatus
+            0x14ADD3DA0ull, // tpp::gm::impl::throwing::ThrowingSystemImpl::ExecuteSerially
+            0x1415D35C0ull, // tpp::gm::impl::throwing::ThrowingImpl::ActivateThrowingAtEmptyWork
+            0x14ADCE120ull, // tpp::gm::impl::throwing::ThrowingImpl::UpdateDeactivation
+            0x1415D40C0ull, // tpp::gm::impl::throwing::ThrowingImpl::AddReboundNoise
+            0x1415D9760ull, // tpp::gm::impl::throwing::ThrowingImpl::PostReboundSound
+            0x14ADCA700ull, // tpp::gm::impl::throwing::ThrowingImpl::IsObstructSight
+            0x140F671C0ull, // tpp::mbm::impl::EquipDevelopControllerImpl::GetDamageType
+            0x1411AE440ull, // tpp::gm::player::impl::EquipControllerImpl::InitializePlayerAtIndex
+            0x149CB9B10ull, // tpp::gm::impl::LoadoutManagerImpl::RestoreLoadoutInfosFromVars
+            0x149CBB190ull, // tpp::gm::impl::LoadoutManagerImpl sortie loadout slot restore
+            0x149CBB900ull, // tpp::gm::impl::LoadoutManagerImpl return-heli loadout slot restore
+            0x140FCE740ull, // tpp::gm::impl::placed::PlacedSystemImpl::RestorationPlace
+            0x140AC9D60ull, // tpp::gm::impl::SupplyCboxGameObjectImpl::RestoreRequestFromSVars
+            0x1409D1990ull, // tpp::gm::player::impl::Player2UtilityImpl::GetPickableInfosOfAmmoBox
+            0x140A3C450ull, // tpp::gm::impl::equip::EquipParameterTablesImpl::GetSupportWeaponParameterBlock
+            0x149F1DCE0ull, // tpp::mbm::impl::EquipDevelopControllerImpl::GetDamageAmountRatio
+            0x14166C530ull, // tpp::ui::menu::mbm::impl::EquipDetailsCallbackImpl::SetupSupportParameterDetails (bar panel caller range)
+            0x141484C30ull, // tpp::gm::soldier::impl::IdleActingActionImpl::CallVoice
+            0x14AD11CF0ull, // tpp::gm::soldier::impl::Soldier2SoundControllerImpl::__callVoiceWithoutSync
+            0x14158D2B0ull, // tpp::gm::soldier::impl::Soldier2SoundControllerImpl::__callVoiceWithSync
+            0x141550770ull, // tpp::gm::soldier::impl::RadioActionImpl::State_RadioChaffEnd
+            0x147CCDECCull, // tpp::gm::EquipIdTable::GetAmmoStockIdOfSupportOrItem: lea eax,[rbx-0x50A]
+            0x1409515F3ull, // MissionPreparationSystemImpl::CalcEquipWeaponItemCostFromLoadout support loop: lea r9d,[rbx-0x50A]
+            0x149CC0597ull, // LoadoutManagerImpl::StoreLoadoutInfoToPlayerVars support cells: add edi,-0x50A
+            0x1411AF029ull, // EquipControllerImpl::InitializePlayerAtIndex support slots: lea r8d,[rbx-0x50A]
+            0x14A448E62ull, // PickUpActionPluginImpl::CheckLoadableForSupportOrItem: lea r8d,[rbx-0x50A]
+            0x14120A35Eull, // PickUpActionPluginImpl::DoPickUpPlaced carried slot: lea eax,[rsi-0x50A]
+            0x14120A402ull, // PickUpActionPluginImpl::DoPickUpPlaced picked item: lea ecx,[r15-0x50A]
+            0x14120AEF4ull, // PickUpActionPluginImpl::DoPickUpWithPickableInfo carried slot: lea ecx,[rsi-0x50A]
+            0x14AFD9F5Full, // ItemSelectorCallbackImpl::GetCurrentAmmoFromVarsForSupportWeapon: add ebx,-0x50A
+            0x140A3AFF5ull, // EquipParameterTablesImpl::GetAmmoParameterBlock: lea edi,[rbx-0x50A]
+            0x140DA2A10ull, // tpp::gm::impl::cp::RadioSpeechHandlerImpl::CallPart
+            0x14A72B430ull, // tpp::gm::impl::RangeAttackSystemImpl::ActivateChaff
+            0x140B08080ull, // tpp::gm::impl::SoundControllerImpl::IsPlayingVoice
+            0x1414B1A30ull, // tpp::gm::soldier::impl::MortarActionImpl::State_WaitAction
+            0x1414B1BC0ull, // tpp::gm::soldier::impl::UnrealMortarActionImpl::State_WaitAction
+            0x14966C410ull, // tpp::gm::heli::impl::Heli2Impl::Unrealize
+            0x1414B1280ull, // tpp::gm::soldier::impl::MortarActionImpl::State_MortarAction
+            0x14AB4D490ull, // tpp::gm::soldier::impl::UnrealMortarActionImpl::State_MortarAction
+            0x140DA1F40ull, // tpp::gm::impl::cp::RadioControllerImpl::StepRadioChaff
         };
 
         return value;

@@ -39,9 +39,10 @@ namespace V_FrameWorkState
         const char* key,
         std::int32_t minimumId,
         std::int32_t& outEquipId,
-        bool isWeapon = false);
+        bool wideEligible = false);
 
     bool IsClaimedEquipId(std::int32_t equipId);
+    bool IsOwnedEquipId(std::int32_t equipId);
 
     bool IsDevelopedByFlowRowDevelopId(std::int32_t developId, bool& developed);
 
@@ -72,6 +73,8 @@ namespace V_FrameWorkState
 
     std::int32_t GetFlowIndexByDevelopId(std::int32_t developId);
 
+    void         NoteDevelopTimer(std::int32_t developId, std::int32_t flowIndex, std::int32_t endTime);
+    std::int32_t GetDevelopTimerOwner(std::int32_t flowIndex, std::int32_t endTime);
 
     std::vector<std::int32_t> TakePendingDevelopedResets();
 
@@ -115,7 +118,8 @@ namespace V_FrameWorkState
         const char* spaceTag,
         const char* name,
         std::int32_t minimumValue,
-        std::int32_t& outValue);
+        std::int32_t& outValue,
+        std::int32_t maximumValue = 0);
 
     std::int32_t GetPersistedConstant(const char* spaceTag, const char* name);
     void         SetPersistedConstant(const char* spaceTag, const char* name,

@@ -81,6 +81,7 @@ namespace outfit
         std::unordered_map<std::string, SnakeFaceStages> g_SnakeStages;
         std::unordered_set<std::string> g_InfiniteAmmoHeads;
         std::unordered_map<std::string, std::uint8_t> g_HeadBranchMasks;
+        std::unordered_map<std::string, std::array<std::shared_ptr<const HeadColorSet>, kPlayerTypeMax>> g_HeadColors;
 
         std::string SnakeStageKey(const char* name)
         {
@@ -658,6 +659,36 @@ namespace outfit
         std::lock_guard<std::mutex> lock(g_Mutex);
         const auto it = g_HeadBranchMasks.find(SnakeStageKey(name));
         return it != g_HeadBranchMasks.end() ? it->second : std::uint8_t{0};
+    }
+
+    void SetCustomHeadColors(const char* name, const HeadColorSet (&perPlayerType)[kPlayerTypeMax])
+    {
+        if (!name || !name[0]) return;
+        std::array<std::shared_ptr<const HeadColorSet>, kPlayerTypeMax> sets{};
+        bool any = false;
+        for (std::uint8_t pt = 0; pt < kPlayerTypeMax; ++pt)
+        {
+            bool has = false;
+            for (const OutfitColorList& list : perPlayerType[pt].colors)
+                has = has || !list.empty();
+            if (!has)
+                continue;
+            sets[pt] = std::make_shared<const HeadColorSet>(perPlayerType[pt]);
+            any = true;
+        }
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        if (any)
+            g_HeadColors[SnakeStageKey(name)] = std::move(sets);
+        else
+            g_HeadColors.erase(SnakeStageKey(name));
+    }
+
+    std::shared_ptr<const HeadColorSet> GetCustomHeadColors(const char* name, std::uint8_t playerType)
+    {
+        if (!name || !name[0] || playerType >= kPlayerTypeMax) return nullptr;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        const auto it = g_HeadColors.find(SnakeStageKey(name));
+        return it != g_HeadColors.end() ? it->second[playerType] : nullptr;
     }
 
     static std::atomic<DWORD> g_PendingHeadsRetryTick{ 0 };
