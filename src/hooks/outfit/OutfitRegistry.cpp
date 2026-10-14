@@ -2440,6 +2440,30 @@ namespace outfit
         g_MenuStampTick[developId] = GetTickCount64();
     }
 
+    std::vector<OutfitListItem> ListOutfits(std::uint8_t playerType)
+    {
+        std::vector<OutfitListItem> out;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const OutfitEntry& e : g_Entries)
+        {
+            if (!e.used || !e.key[0] || !e.CanBeWornBy(playerType))
+                continue;
+            OutfitListItem item;
+            item.key = e.key;
+            item.developId = e.developId;
+            item.partsType = e.bound ? e.partsType : std::uint8_t{ 0 };
+            const std::uint8_t declared = e.GetVariantCountFor(playerType);
+            const std::uint8_t variants = declared ? declared : std::uint8_t{ 1 };
+            for (std::uint8_t v = 0; v < variants; ++v)
+            {
+                item.camos.push_back(e.bound ? e.GetVariantSelectorCode(v) : std::uint8_t{ 0 });
+                item.variantNames.push_back(e.GetVariantDisplayNameHash(playerType, v));
+            }
+            out.push_back(std::move(item));
+        }
+        return out;
+    }
+
     bool BindOutfitForVisibleRow(std::uint16_t developId)
     {
         if (developId == 0) return false;

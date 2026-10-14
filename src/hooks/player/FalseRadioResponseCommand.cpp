@@ -14,8 +14,7 @@ namespace
 {
     constexpr std::uint64_t kCallBackLabel = 0xC1DBDF4F6C56ull; // V_voice_cmd_res
     constexpr std::uint64_t kSitrepLabel   = 0xB1737C5E49Full;  // V_voice_cmd_cheat
-    constexpr std::uint64_t kCallBackHelp  = 0xE5117C8FCFC3ull; // V_voice_cmd_res_help
-    constexpr std::uint64_t kSitrepHelp    = 0xC6C6142BB9A9ull; // V_voice_cmd_cheat_help
+    constexpr std::uint64_t kHelp          = 0xC6C6142BB9A9ull; // V_voice_cmd_cheat_help
     constexpr std::uint32_t kFalseRadioResponseVoices[] = { 0xEAD084A8u, 0xEAD084ABu, 0xEAD084AAu }; // PLA0020_001, PLA0020_002, PLA0020_003
 
     constexpr std::size_t  kExecPlayerIndex    = 0x20;
@@ -127,7 +126,7 @@ std::uint64_t FalseRadioResponseCommand::Label(bool sitrep)
     return sitrep ? kSitrepLabel : kCallBackLabel;
 }
 
-std::uint64_t FalseRadioResponseCommand::Help(bool sitrep)
+std::uint64_t FalseRadioResponseCommand::Help()
 {
-    return sitrep ? kSitrepHelp : kCallBackHelp;
+    return kHelp;
 }

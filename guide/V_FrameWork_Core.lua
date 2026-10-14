@@ -181,20 +181,187 @@ function this._SetPlayIDroidEndMotion(enable)
 	end
 end
 
--- IH Appearance > Headgear: add custom heads once, after every module's LoadLibraries registered them
-function this.LoadSave()
+-- IH Appearance: custom heads in Headgear, custom outfits in Suit with their variants in Camo; rebuilt each time a menu opens
+local function RefreshHeadgear()
     local list = InfFova.playerFaceEquipIdInfo
+    while #list > 0 and list[#list].vfwHead do
+        table.remove(list)
+    end
     for _, head in ipairs(V_Player.GetHeadOptions() or {}) do
         while #list < head.slot do
-            table.insert(list, { name = "", playerFaceEquipId = #list, playerTypes = {} })
+            table.insert(list, { name = "", playerFaceEquipId = #list, playerTypes = {}, vfwHead = true })
         end
-        table.insert(list, {
-            name = head.key,
-            description = head.name,
-            playerFaceEquipId = head.slot,
-            playerTypes = head.playerTypes,
-        })
+        if #list == head.slot then
+            table.insert(list, {
+                name = head.key,
+                description = head.name,
+                playerFaceEquipId = head.slot,
+                playerTypes = head.playerTypes,
+                vfwHead = true,
+            })
+        end
     end
+end
+
+local customOutfits = {}
+local customOutfitOrder = {}
+
+local function RefreshOutfits()
+    customOutfits = {}
+    customOutfitOrder = {}
+    if not V_Player.GetOutfits then
+        return
+    end
+    local checkDeveloped = Ivars.skipDevelopChecks:Is(0)
+    for _, outfit in ipairs(V_Player.GetOutfits(vars.playerType) or {}) do
+        if not checkDeveloped or outfit.developId == 0
+            or TppMotherBaseManagement.IsEquipDevelopedFromDevelopID{ equipDevelopID = outfit.developId } then
+            customOutfits[outfit.key] = outfit
+            customOutfitOrder[#customOutfitOrder + 1] = outfit.key
+        end
+    end
+end
+
+local function WornOutfit()
+    for _, key in ipairs(customOutfitOrder) do
+        local outfit = customOutfits[key]
+        if outfit.partsType ~= 0 and outfit.partsType == vars.playerPartsType then
+            return outfit
+        end
+    end
+end
+
+local function WornVariant(outfit)
+    for i, variant in ipairs(outfit.variants) do
+        if variant.camo ~= 0 and variant.camo == vars.playerCamoType then
+            return i
+        end
+    end
+end
+
+local function CamoSetting(key, i)
+    return key .. "#" .. i
+end
+
+local function ParseCamoSetting(setting)
+    local key, i = string.match(tostring(setting), "^(.*)#(%d+)$")
+    if key and customOutfits[key] then
+        return customOutfits[key], tonumber(i)
+    end
+end
+
+local function WearOutfit(outfit, variant)
+    local partsType, camoType = V_Player.GetOutfitInfo(outfit.key, variant - 1)
+    if partsType then
+        vars.playerPartsType = partsType
+        vars.playerCamoType = camoType
+    end
+end
+
+local function SetSilently(ivar, fn, ...)
+    local own = rawget(ivar, "Set")
+    rawset(ivar, "Set", function() end)
+    local ok, err = pcall(fn, ivar, ...)
+    rawset(ivar, "Set", own)
+    if not ok then
+        error(err)
+    end
+end
+
+local function WrapAppearanceMenus()
+    local headgear, suit, camo = Ivars.playerFaceEquipId, Ivars.playerPartsType, Ivars.playerCamoType
+    if not headgear or not suit or not camo or rawget(suit, "vfwWrapped") then
+        return
+    end
+    rawset(suit, "vfwWrapped", true)
+
+    local headgearSelect = headgear.OnSelect
+    headgear.OnSelect = function(self, ...)
+        RefreshHeadgear()
+        return headgearSelect(self, ...)
+    end
+
+    local suitSelect, suitText, suitChange = suit.OnSelect, suit.GetSettingText, suit.OnChange
+    suit.OnSelect = function(self)
+        RefreshOutfits()
+        SetSilently(self, suitSelect)
+        local settings = {}
+        for _, name in ipairs(self.settings or {}) do
+            settings[#settings + 1] = name
+        end
+        for _, key in ipairs(customOutfitOrder) do
+            settings[#settings + 1] = key
+        end
+        if #settings == 0 then
+            return
+        end
+        IvarProc.SetSettings(self, settings)
+        local worn = WornOutfit()
+        local current = worn and worn.key or InfFova.playerPartsTypes[vars.playerPartsType + 1]
+        if current and self.enum[current] then
+            self:Set(self.enum[current])
+        end
+    end
+    suit.GetSettingText = function(self, setting)
+        local outfit = customOutfits[self.settings[setting + 1]]
+        if outfit then
+            return outfit.name
+        end
+        return suitText(self, setting)
+    end
+    suit.OnChange = function(self, setting, ...)
+        local outfit = customOutfits[self.settings[setting + 1]]
+        if not outfit then
+            return suitChange(self, setting, ...)
+        end
+        if WornOutfit() ~= outfit or not WornVariant(outfit) then
+            WearOutfit(outfit, 1)
+        end
+        Ivars.playerCamoType:OnSelect()
+    end
+
+    local camoSelect, camoText, camoChange = camo.OnSelect, camo.GetSettingText, camo.OnChange
+    camo.OnSelect = function(self)
+        RefreshOutfits()
+        local outfit = WornOutfit()
+        if not outfit then
+            return camoSelect(self)
+        end
+        local settings = {}
+        for i in ipairs(outfit.variants) do
+            settings[i] = CamoSetting(outfit.key, i)
+        end
+        IvarProc.SetSettings(self, settings)
+        local current = WornVariant(outfit)
+        if current then
+            self:Set(current - 1)
+        end
+    end
+    camo.GetSettingText = function(self, setting)
+        local outfit, i = ParseCamoSetting(self.settings[setting + 1])
+        if outfit then
+            local variant = outfit.variants[i]
+            return variant and variant.name or (#outfit.variants > 1 and outfit.name .. " " .. i or outfit.name)
+        end
+        return camoText(self, setting)
+    end
+    camo.OnChange = function(self, setting, ...)
+        local outfit, i = ParseCamoSetting(self.settings[setting + 1])
+        if not outfit then
+            return camoChange(self, setting, ...)
+        end
+        if WornOutfit() ~= outfit or WornVariant(outfit) ~= i then
+            WearOutfit(outfit, i)
+        end
+    end
+end
+
+function this.LoadSave()
+    if not V_Player or not InfFova or not Ivars or not IvarProc then
+        return
+    end
+    RefreshHeadgear()
+    WrapAppearanceMenus()
 end
 
 function this.OnAllocate(missionTable)

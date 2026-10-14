@@ -20,6 +20,7 @@
 #include "MissionCodeGuard.h"
 #include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
 #include "../hooks/equip/EquipDevelop_SetEquipUndeveloped.h"
+#include "../hooks/menupopup/MbDvcCustomPopupHook.h"
 
 static void SetLuaTop(lua_State* L, int idx)
 {
@@ -2059,10 +2060,71 @@ int __cdecl l_GetOutfitInfo(lua_State* L)
         }
     }
 
+    const int variant = LuaType(L, 2) == LUA_TNUMBER ? GetLuaInt(L, 2) : -1;
+    const std::uint8_t camo = variant >= 0 && variant < static_cast<int>(outfit::kMaxVariantsPerOutfit)
+        ? e->GetVariantSelectorCode(static_cast<std::uint8_t>(variant)) : e->selectorCode;
     PushLuaNumber(L, static_cast<float>(e->partsType));
-    PushLuaNumber(L, static_cast<float>(e->selectorCode));
+    PushLuaNumber(L, static_cast<float>(camo));
     PushLuaNumber(L, static_cast<float>(e->developId));
     return 3;
+}
+
+int __cdecl l_GetOutfits(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_createtable || !g_lua_settable)
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    const std::uint8_t playerType = LuaType(L, 1) == LUA_TNUMBER
+        ? static_cast<std::uint8_t>(GetLuaInt(L, 1)) : outfit::ReadLivePlayerType();
+    const std::vector<outfit::OutfitListItem> items = outfit::ListOutfits(playerType);
+    g_lua_createtable(L, static_cast<int>(items.size()), 0);
+    const int list = GetLuaTop(L);
+    int index = 0;
+    for (const outfit::OutfitListItem& item : items)
+    {
+        PushLuaNumber(L, static_cast<float>(++index));
+        g_lua_createtable(L, 0, 5);
+        const int entry = GetLuaTop(L);
+        PushLuaString(L, "key");
+        PushLuaString(L, item.key.c_str());
+        g_lua_settable(L, entry);
+        const std::string display = item.developId
+            ? EquipDevelop_DisplayName(static_cast<std::int32_t>(item.developId)) : std::string();
+        PushLuaString(L, "name");
+        PushLuaString(L, display.empty() ? item.key.c_str() : display.c_str());
+        g_lua_settable(L, entry);
+        PushLuaString(L, "developId");
+        PushLuaNumber(L, static_cast<float>(item.developId));
+        g_lua_settable(L, entry);
+        PushLuaString(L, "partsType");
+        PushLuaNumber(L, static_cast<float>(item.partsType));
+        g_lua_settable(L, entry);
+        PushLuaString(L, "variants");
+        g_lua_createtable(L, static_cast<int>(item.camos.size()), 0);
+        const int variants = GetLuaTop(L);
+        for (std::size_t v = 0; v < item.camos.size(); ++v)
+        {
+            PushLuaNumber(L, static_cast<float>(v + 1));
+            g_lua_createtable(L, 0, 2);
+            const int variant = GetLuaTop(L);
+            PushLuaString(L, "camo");
+            PushLuaNumber(L, static_cast<float>(item.camos[v]));
+            g_lua_settable(L, variant);
+            const char* text = item.variantNames[v] ? MbDvcCustom_TryResolveLangText(item.variantNames[v]) : nullptr;
+            if (text && *text)
+            {
+                PushLuaString(L, "name");
+                PushLuaString(L, text);
+                g_lua_settable(L, variant);
+            }
+            g_lua_settable(L, variants);
+        }
+        g_lua_settable(L, entry);
+        g_lua_settable(L, list);
+    }
+    return 1;
 }
 
 int __cdecl l_GetHeadOptionSlot(lua_State* L)

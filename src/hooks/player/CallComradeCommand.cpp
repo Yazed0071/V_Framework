@@ -22,6 +22,7 @@ namespace
     using IsVoicePlaying_t   = bool(__fastcall*)(void* sound, std::uint16_t playerId);
 
     constexpr std::uint64_t kCallComradeLabel = 0xFB42E9FFC03Aull; // key_call_cursor_left
+    constexpr std::uint64_t kCallComradeHelp  = 0x8F2193D5F973ull; // V_voice_cmd_callem_help
     constexpr std::uint32_t kCallComradeVoices[] = { 0x6BD14E8Eu, 0x6BD14E8Du, 0x6BD14E8Cu }; // player voice ids for the "call them over" lines
     constexpr std::uint32_t kVoicePriority = 3;
 
@@ -247,6 +248,11 @@ bool CallComradeCommand::Exec(std::uint8_t* execParam, std::uint8_t* block)
 std::uint64_t CallComradeCommand::Label()
 {
     return kCallComradeLabel;
+}
+
+std::uint64_t CallComradeCommand::Help()
+{
+    return kCallComradeHelp;
 }
 
 void CallComradeCommand::Initialize()

@@ -55,6 +55,7 @@ namespace
         { "RegisterOutfit",                           l_RegisterOutfit },
         { "RegisterHeadOption",                       l_RegisterHeadOption },
         { "ExtendVanillaOutfit",                      l_ExtendVanillaOutfit },
+        { "GetOutfits",                               l_GetOutfits },
         { "GetOutfitInfo",                            l_GetOutfitInfo },
         { "GetHeadOptionSlot",                        l_GetHeadOptionSlot },
         { "GetHeadOptions",                           l_GetHeadOptions },

@@ -374,6 +374,16 @@ namespace outfit
 
     bool TryGetOutfitByKey(const char* key, const OutfitEntry** outEntry);
 
+    struct OutfitListItem
+    {
+        std::string   key;
+        std::uint16_t developId = 0;
+        std::uint8_t  partsType = 0;
+        std::vector<std::uint8_t>  camos;
+        std::vector<std::uint64_t> variantNames;
+    };
+    std::vector<OutfitListItem> ListOutfits(std::uint8_t playerType);
+
     bool TryGetOutfitByPartsType(std::uint8_t partsType,
                                  const OutfitEntry** outEntry);
 

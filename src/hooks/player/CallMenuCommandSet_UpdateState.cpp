@@ -957,14 +957,14 @@ namespace
             CollectVanillaEntries(entries, setParam, sets, fills, interrogationOffered);
             const std::uint16_t held = At<std::uint16_t>(setParam, kSetParamHeldSoldierId);
             AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::CallComrade, EntryKind::CallComrade,
-                                 CallComradeCommand::Label(), CallComradeCommand::Label(), true);
+                                 CallComradeCommand::Label(), CallComradeCommand::Help(), true);
             if (CpRadioResponse::IsAvailable())
             {
                 bool sitrep = false;
                 const bool waiting = CpRadioResponse::IsWaitingOn(held, sitrep);
                 AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::FalseRadioResponse,
                                      EntryKind::FalseRadioResponse, FalseRadioResponseCommand::Label(sitrep),
-                                     FalseRadioResponseCommand::Help(sitrep), waiting);
+                                     FalseRadioResponseCommand::Help(), waiting);
             }
             AddCustomEntries(entries);
         }
