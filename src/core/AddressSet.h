@@ -2264,6 +2264,7 @@ namespace AddressSetRuntime
         uintptr_t DevelopArrayGrow_SweepAllow41 = 0;
         uintptr_t DevelopArrayGrow_SweepAllow42 = 0;
         uintptr_t RideWalkerGearActionImpl_UpdateRiderUi = 0;
+        uintptr_t EquipSystemImpl_GetFovaFileByEquipIdInBlock = 0;
     };
 
     inline GameBuild& GetGameBuild()

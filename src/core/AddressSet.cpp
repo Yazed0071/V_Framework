@@ -2206,8 +2206,9 @@ static const char* const kAddrFieldNames[] = {
     "DevelopArrayGrow_SweepAllow41",
     "DevelopArrayGrow_SweepAllow42",
     "RideWalkerGearActionImpl_UpdateRiderUi",
+    "EquipSystemImpl_GetFovaFileByEquipIdInBlock",
 };
-static const int kAddrFieldCount = 2191;
+static const int kAddrFieldCount = 2192;
 static_assert(sizeof(AddressSetRuntime::AddressSet) / sizeof(uintptr_t) == kAddrFieldCount,
               "kAddrFieldNames must stay in lockstep with the AddressSet layout");
 static_assert(sizeof(kAddrFieldNames) / sizeof(kAddrFieldNames[0]) == kAddrFieldCount,

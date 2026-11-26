@@ -1035,6 +1035,57 @@ bool TppEquip_GetCustomEquipPack(int equipId, std::uint64_t* outPack)
     return it->second.packHash != 0;
 }
 
+int TppEquip_FindShieldPaintDonor(int equipId)
+{
+    constexpr std::int32_t kEqpTypeShield = 9;
+    equipId = equip::FromEngine(equipId);
+    EquipIdRow shield;
+    std::set<std::int32_t> moddedIds;
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        bool found = false;
+        for (const auto& r : g_Rows)
+        {
+            moddedIds.insert(r.equipId);
+            if (r.equipId == equipId && !r.released && !FobHidesRowNoLock(equipId))
+            {
+                shield = r;
+                found = true;
+            }
+        }
+        const auto it = g_Extended.find(equipId);
+        if (!found && it != g_Extended.end() && !it->second.released)
+        {
+            shield = it->second;
+            found = true;
+        }
+        if (!found || shield.equipType != kEqpTypeShield || shield.partsHash == 0)
+            return 0;
+    }
+
+    const auto* infoList = static_cast<const std::uint8_t*>(ResolveGameAddress(gAddr.EquipIdTable_InfoList));
+    const auto* typeWords = static_cast<const std::uint16_t*>(ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+    if (!infoList || !typeWords)
+        return 0;
+    for (std::int32_t id = 1; id < EquipIdCompression::kCompressedSlotBound; ++id)
+    {
+        if (id == equipId || moddedIds.count(id) != 0)
+            continue;
+        VanillaInfoRow row;
+        if (!CopyNativeRowSEH(infoList + static_cast<size_t>(id) * kRowStride, typeWords + id, row))
+            return 0;
+        if ((row.word & 0x3F) != kEqpTypeShield)
+            continue;
+        std::uint64_t parts = 0;
+        std::uint64_t pack = 0;
+        std::memcpy(&parts, row.row + 0x00, sizeof(parts));
+        std::memcpy(&pack, row.row + 0x08, sizeof(pack));
+        if (parts == shield.partsHash && pack == shield.packHash)
+            return id;
+    }
+    return 0;
+}
+
 bool TppEquip_GetOwnPack(int equipId, std::uint64_t* outPack)
 {
     if (!outPack || !g_AnyOwnPack.load(std::memory_order_acquire))

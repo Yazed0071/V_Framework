@@ -2200,6 +2200,7 @@ namespace AddressSetRuntime
             0x0ull,         // develop array sweep allowed site
             0x0ull,         // develop array sweep allowed site
             0x14125E550ull, // RideWalkerGearActionImpl_UpdateRiderUi
+            0x140DBE6C0ull, // tpp::gm::impl::equip::EquipSystemImpl::GetFovaFileByEquipIdInBlock
         };
 
         return value;
@@ -4400,6 +4401,7 @@ namespace AddressSetRuntime
             0x149D5D78Eull, // develop array sweep allowed site
             0x149D5F52Aull, // develop array sweep allowed site
             0x14125E580ull, // RideWalkerGearActionImpl_UpdateRiderUi
+            0x140DBE680ull, // tpp::gm::impl::equip::EquipSystemImpl::GetFovaFileByEquipIdInBlock
         };
         return value;
     }

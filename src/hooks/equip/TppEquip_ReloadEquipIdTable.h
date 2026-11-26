@@ -28,6 +28,7 @@ struct V_ExtendedEquipRow
 
 bool TppEquip_GetExtendedEquipRow(int equipId, V_ExtendedEquipRow* out);
 bool TppEquip_GetCustomEquipPack(int equipId, std::uint64_t* outPack);
+int TppEquip_FindShieldPaintDonor(int equipId);   // vanilla shield with the custom shield's model and pack, 0 if none
 bool TppEquip_GetOwnPack(int equipId, std::uint64_t* outPack);   // throwable/placed/box/item rows with EQP_BLOCK_MISSION and a pack
 
 struct V_DecoyModels

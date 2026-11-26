@@ -10547,7 +10547,7 @@ namespace
             return false;
         const std::uint32_t type =
             GetEquipTypeForEquipId(static_cast<std::uint32_t>(equipId)) & 0x1F;
-        return type < 1 || type > 8;
+        return type < 1 || type > 9;   // 1-8 guns and launchers, 9 EQP_TYPE_Shield (the PB shield sits in a weapon cell)
     }
 
     static void BlankPhantomLoadoutWeaponsSEH(void* self, std::uint32_t slot,
