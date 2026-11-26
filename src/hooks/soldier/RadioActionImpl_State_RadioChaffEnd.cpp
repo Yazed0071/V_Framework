@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -14,7 +14,7 @@ namespace
 {
     using State_t = void(__fastcall*)(void* self, std::uint32_t actionId, int stateProc, void* param);
 
-    constexpr int         kStateEnter     = 1;      // plays the jammed-radio motion, then RadioActionImpl::CallVoice
+    constexpr int         kStateEnter     = 1;
     constexpr std::size_t kActionSoldiers = 0x70;
 
     State_t           g_OrigState = nullptr;
@@ -44,7 +44,7 @@ namespace
         g_ShoutSeen = false;
         g_OrigState(self, actionId, stateProc, param);
         g_InChaffEnter = false;
-        if (!g_ShoutSeen)   // radio types vanilla has no shout for still get the take
+        if (!g_ShoutSeen)
             SoldierVoiceSwap_SayJammedTake(SoldiersOf(self), actionId);
     }
 }

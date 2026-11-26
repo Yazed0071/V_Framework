@@ -1,6 +1,6 @@
 
 
-#include "pch.h"
+#include <pch.h>
 #include <Windows.h>
 #include <cstdint>
 #include <cstring>
@@ -219,7 +219,6 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
 {
     if (!hGame) return false;
 
-    gBase = reinterpret_cast<uintptr_t>(hGame);
     const uintptr_t target = reinterpret_cast<uintptr_t>(
         ResolveGameAddress(gAddr.State_StandHoldupCancelLookToPlayer));
 
@@ -231,8 +230,9 @@ bool Install_State_StandHoldupCancelLookToPlayer_Hook(HMODULE hGame)
         return false;
     }
 
-    MH_STATUS s1 = MH_CreateHook((LPVOID)target, (LPVOID)&Hook_State, (LPVOID*)&gOrig_State);
+    MH_STATUS s1 = CreateHookTracked((LPVOID)target, (LPVOID)&Hook_State, (LPVOID*)&gOrig_State);
     if (s1 != MH_OK) return false;
+    gBase = reinterpret_cast<uintptr_t>(hGame);
 
     MH_STATUS s2 = EnableOrQueueHook((LPVOID)target);
     if (s2 != MH_OK) return false;
@@ -247,8 +247,7 @@ bool Uninstall_State_StandHoldupCancelLookToPlayer_Hook()
     const uintptr_t target = reinterpret_cast<uintptr_t>(
         ResolveGameAddress(gAddr.State_StandHoldupCancelLookToPlayer));
 
-    MH_DisableHook((LPVOID)target);
-    MH_RemoveHook((LPVOID)target);
+    if (target) DisableAndRemoveHook(reinterpret_cast<void*>(target));
 
     gOrig_State = nullptr;
     gBase = 0;

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -7,8 +7,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "VIPSoundRecoveryHook.h"
-#include "VIPSleepFaintHook.h"
-#include "VIPHoldupHook.h"
+#include "VIPImportant.h"
 #include "MissionCodeGuard.h"
 #include "AddressSet.h"
 
@@ -23,208 +22,19 @@ namespace
     static constexpr std::uint32_t HASH_EVENT_VOICE_NOTICE = 0x1077DB8Du;
 
 
-    static constexpr std::uint32_t HASH_REACTION_CATEGORY_NOTICE = 0x95EA16B0u;
-
-
     static constexpr std::uint32_t HASH_SLEEP_WAKE_OFFICER = 0x9CD0A89Cu;
 
 
     static constexpr std::uint32_t HASH_HOLDUP_RECOVERY_VIP = 0x92D098DEu;
 
 
+    static constexpr std::uint8_t kNoticeKindHoldup = 0x0A;
+
+
     static State_SoundRecovery_t g_OrigState_SoundRecovery = nullptr;
 
 
     static std::atomic<unsigned> g_UnresolvedTargetLogs{0};
-}
-
-
-static bool SafeReadByte(std::uintptr_t addr, std::uint8_t& outValue)
-{
-    if (!addr)
-        return false;
-
-    __try
-    {
-        outValue = *reinterpret_cast<const std::uint8_t*>(addr);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-
-static bool SafeReadWord(std::uintptr_t addr, std::uint16_t& outValue)
-{
-    if (!addr)
-        return false;
-
-    __try
-    {
-        outValue = *reinterpret_cast<const std::uint16_t*>(addr);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-
-static std::uint16_t NormalizeSoldierIndexFromGameObjectId(std::uint32_t gameObjectId)
-{
-    const std::uint16_t raw = static_cast<std::uint16_t>(gameObjectId);
-
-    if (raw == 0xFFFFu)
-        return 0xFFFFu;
-
-    if ((raw & 0xFE00u) != 0x0400u)
-        return 0xFFFFu;
-
-    return static_cast<std::uint16_t>(raw & 0x01FFu);
-}
-
-
-static std::uintptr_t GetNoticeActionEntry(void* self, std::uint32_t actorId)
-{
-    if (!self)
-        return 0;
-
-    const std::uintptr_t selfAddr = reinterpret_cast<std::uintptr_t>(self);
-
-    __try
-    {
-        const std::uint32_t baseIndex =
-            *reinterpret_cast<const std::uint32_t*>(selfAddr + 0x98ull);
-
-        const std::uint64_t tableBase =
-            *reinterpret_cast<const std::uint64_t*>(selfAddr + 0x90ull);
-
-        const std::uint32_t slot = actorId - baseIndex;
-        return static_cast<std::uintptr_t>(
-            tableBase + (static_cast<std::uint64_t>(slot) * 0x68ull));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return 0;
-    }
-}
-
-
-static std::uint32_t GetEventHash(void* evt)
-{
-    if (!evt)
-        return 0;
-
-    __try
-    {
-        const auto objectAddr = reinterpret_cast<std::uintptr_t>(evt);
-        const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(objectAddr);
-        if (!vtbl)
-            return 0;
-
-        const auto fnAddr = *reinterpret_cast<const std::uintptr_t*>(vtbl + 0x0ull);
-        if (!fnAddr)
-            return 0;
-
-        using GetHashFn_t = std::uint32_t(__fastcall*)(void*);
-        auto fn = reinterpret_cast<GetHashFn_t>(fnAddr);
-        return fn(evt);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return 0;
-    }
-}
-
-
-static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std::uint32_t reactionHash)
-{
-    if (!noticeSelf)
-        return;
-
-    __try
-    {
-        const std::uintptr_t selfAddr = reinterpret_cast<std::uintptr_t>(noticeSelf);
-
-        const std::uint64_t soldierActionRoot =
-            *reinterpret_cast<const std::uint64_t*>(selfAddr + 0x78ull);
-        if (!soldierActionRoot)
-            return;
-
-        const std::uint64_t reactionMgr =
-            *reinterpret_cast<const std::uint64_t*>(
-                static_cast<std::uintptr_t>(soldierActionRoot) + 0xA8ull);
-        if (!reactionMgr)
-            return;
-
-        const std::uint64_t vtbl =
-            *reinterpret_cast<const std::uint64_t*>(static_cast<std::uintptr_t>(reactionMgr));
-        if (!vtbl)
-            return;
-
-        const std::uint64_t fnAddr =
-            *reinterpret_cast<const std::uint64_t*>(static_cast<std::uintptr_t>(vtbl) + 0x20ull);
-        if (!fnAddr)
-            return;
-
-        using DispatchFn_t =
-            void(__fastcall*)(void* mgr,
-                std::uint32_t actorId,
-                std::uint32_t categoryHash,
-                int arg4,
-                std::uint32_t reactionHash,
-                float delaySeconds);
-
-        auto fn = reinterpret_cast<DispatchFn_t>(fnAddr);
-        fn(
-            reinterpret_cast<void*>(reactionMgr),
-            actorId,
-            HASH_REACTION_CATEGORY_NOTICE,
-            1,
-            reactionHash,
-            1.0f);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        LogWarn("SoundRecovery: actor %u: VIP reaction dispatch faulted", actorId);
-    }
-}
-
-
-static bool TryResolveDownedSoldierIndex(std::uintptr_t entry, std::uint16_t& outSoldierIndex)
-{
-    outSoldierIndex = 0xFFFFu;
-
-    if (!entry)
-        return false;
-
-    std::uint16_t downedGameObjectId = 0xFFFFu;
-    if (!SafeReadWord(entry + 0x52ull, downedGameObjectId))
-        return false;
-
-    const std::uint16_t index = NormalizeSoldierIndexFromGameObjectId(downedGameObjectId);
-    if (index == 0xFFFFu)
-        return false;
-
-    outSoldierIndex = index;
-    return true;
-}
-
-
-static bool IsRegisteredImportantSoldier(std::uint16_t soldierIndex)
-{
-    if (soldierIndex == 0xFFFFu)
-        return false;
-
-    bool isOfficer = false;
-
-    if (IsVIPSleepFaintImportantSoldierIndex(soldierIndex, &isOfficer))
-        return true;
-
-    return IsVIPHoldupImportantSoldierIndex(soldierIndex, &isOfficer);
 }
 
 
@@ -236,47 +46,32 @@ static void __fastcall hkState_SoundRecovery(
 {
     MISSION_GUARD_ORIGINAL_VOID(g_OrigState_SoundRecovery, self, actorId, proc, evt);
 
-    if (proc == 6 && evt)
+    if (proc == 6 && evt && VIPImportant_EventHash(evt) == HASH_EVENT_VOICE_NOTICE)
     {
-        const std::uint32_t eventHash = GetEventHash(evt);
-
-        if (eventHash == HASH_EVENT_VOICE_NOTICE)
+        std::uint16_t downedGameObjectId = 0xFFFFu;
+        std::uint8_t noticeKind = 0;
+        if (!VIPImportant_ReadNoticeComrade(self, actorId, &downedGameObjectId, &noticeKind))
         {
-            const std::uintptr_t entry = GetNoticeActionEntry(self, actorId);
+            if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
+                LogWarn("SoundRecovery: actor %u: notice record unreadable, vanilla line plays", actorId);
+        }
+        else
+        {
+            const std::uint16_t soldierIndex = SoldierIndexOfGameObjectId(downedGameObjectId);
 
-            if (entry)
-            {
-                std::uint8_t b57 = 0;
-                if (SafeReadByte(entry + 0x57ull, b57))
-                {
-                    std::uint16_t soldierIndex = 0xFFFFu;
-                    const bool resolved = TryResolveDownedSoldierIndex(entry, soldierIndex);
-
-                    if (!resolved && g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
-                        LogWarn("SoundRecovery: actor %u: downed soldier unresolved, vanilla line plays",
-                            actorId);
-
-                    if (resolved && IsRegisteredImportantSoldier(soldierIndex))
-                    {
-                        const std::uint32_t replacementHash =
-                            (b57 == 0x0Au)
-                                ? HASH_HOLDUP_RECOVERY_VIP
-                                : HASH_SLEEP_WAKE_OFFICER;
-
-                        DispatchNoticeReaction(self, actorId, replacementHash);
-                        return;
-                    }
-                }
-                else if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
-                {
-                    LogWarn("SoundRecovery: actor %u: notice record read failed, vanilla line plays",
-                        actorId);
-                }
-            }
-            else if (g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
-            {
-                LogWarn("SoundRecovery: actor %u: notice record unreachable, vanilla line plays",
+            if (soldierIndex == 0xFFFFu && g_UnresolvedTargetLogs.fetch_add(1u) < 8u)
+                LogWarn("SoundRecovery: actor %u: downed soldier unresolved, vanilla line plays",
                     actorId);
+
+            if (soldierIndex != 0xFFFFu && IsVIPSoldier(VIPImportant_NoticeSoldiers(self), soldierIndex))
+            {
+                const std::uint32_t replacementHash =
+                    (noticeKind == kNoticeKindHoldup)
+                        ? HASH_HOLDUP_RECOVERY_VIP
+                        : HASH_SLEEP_WAKE_OFFICER;
+
+                VIPImportant_PlayVoiceLine(self, actorId, replacementHash);
+                return;
             }
         }
     }

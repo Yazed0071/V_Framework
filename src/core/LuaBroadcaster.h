@@ -16,6 +16,13 @@ namespace V_FrameWork
 {
     static constexpr int kMaxBroadcastArgs = 8;
 
+    struct Vector3Arg   // arrives in Lua as a Vector3
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    };
+
     struct LuaBroadcastArg
     {
         enum class Type
@@ -23,15 +30,23 @@ namespace V_FrameWork
             Nil,
             Boolean,
             Number,
-            String
+            String,
+            Vector3
         };
 
         Type type = Type::Nil;
         double number = 0.0;
         bool boolean = false;
         std::string stringValue;
+        float vector[3] = {};
 
         LuaBroadcastArg() = default;
+
+        LuaBroadcastArg(const Vector3Arg& value)
+            : type(Type::Vector3),
+            vector{ value.x, value.y, value.z }
+        {
+        }
 
         LuaBroadcastArg(std::nullptr_t)
             : type(Type::Nil)
@@ -110,7 +125,11 @@ namespace V_FrameWork
 
     void EnterLuaPcall();
     void ExitLuaPcall();
-    bool LuaStackHasRoom(lua_State* L, int slots);   // true when unknown; false when fewer free slots are left
+    void AbandonLuaPcall();   // a pcall left by a fault or longjmp: depth only, no drain
+    bool DeliveringMessage(const char* category, const char* msg, int& firstArg);   // this thread is inside the Lua handlers of that message
+    bool InsideGameLua();     // this thread is running the game's Lua: in a lua_pcall or the pumps after one
+    bool OnLuaOwnerThread();  // the pumps and the post-pcall work run here only; the game's job workers run Lua too
+    bool LuaStackHasRoom(lua_State* L, int slots);
     void DrainDeferredBroadcasts();
 
     inline void EmitMessage(const char* category, const char* msg)

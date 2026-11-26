@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -28,6 +28,7 @@ namespace
     static constexpr std::size_t   kStepFuncOffset   = 0;
     static constexpr std::size_t   kStepClassOffset  = 8;
     static constexpr std::int64_t  kBaseAdjustment   = -0x20;
+    static constexpr std::int32_t  kPhaseCount       = 9;   // the exe's step table holds exactly 9 entries
 
     static bool DispatchStepProc(void* selfPreUpdateArg,
                                  std::uint32_t slot,
@@ -42,6 +43,13 @@ namespace
         {
             LogError("Sahelan: StepFuncsTable address missing, %s skipped for phase %u",
                 label, static_cast<unsigned>(phase));
+            return false;
+        }
+
+        if (phase >= kPhaseCount)
+        {
+            LogWarn("Sahelan: phase %u is past the step table, %s skipped",
+                static_cast<unsigned>(phase), label);
             return false;
         }
 
@@ -99,8 +107,13 @@ namespace
         const std::int32_t forced =
             SahelanPhaseForce::g_ForcedPhase.load(std::memory_order_relaxed);
 
-        if (forced < 0 || forced > 0xFF)
+        if (forced < 0)
             return;
+        if (forced >= kPhaseCount)
+        {
+            SahelanPhaseForce::g_ForcedPhase.store(-1, std::memory_order_relaxed);
+            return;
+        }
 
         const std::uint8_t forcedByte = static_cast<std::uint8_t>(forced);
         const std::uint8_t currentByte = knowledge[4];
@@ -159,9 +172,9 @@ bool Uninstall_PhaseSneakAiImpl_PreUpdate_Hook()
 
 void Set_SahelanForcePhase(std::int32_t phase)
 {
-    if (phase < 0 || phase > 0xFF)
+    if (phase < 0 || phase >= kPhaseCount)
     {
-        LogWarn("SetSahelanPhase: phase %d out of range 0..255, ignored", phase);
+        LogWarn("SetSahelanPhase: phase %d out of range 0..8, ignored", phase);
         return;
     }
     SahelanPhaseForce::g_ForcedPhase.store(phase, std::memory_order_relaxed);

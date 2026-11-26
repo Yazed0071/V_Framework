@@ -1,26 +1,33 @@
-#include "pch.h"
+#include <pch.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "LuaApi.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "MissionCodeGuard.h"
+#include "V_UixUtilityIDroid.h"
 #include "V_UixUtilityLib.h"
+#include "V_UixUtilityPrefabList.h"
+#include "V_UixUtilitySubViewport.h"
+#include "WindowPages.h"
 
+#include "../hooks/equip/EquipAliasLease.h"
+#include "../hooks/ui/TextIcons.h"
 #include "../hooks/ui/UixUtilityControl.h"
 #include "../hooks/ui/UiPadLock.h"
 #include "../hooks/ui/UixUtilityDev.h"
 
-// V_UixUtility: the dev team's fox::uix::UixUtility for Lua. Every function keeps the dev name and argument order;
-// pointers become handles (numbers) from FindWindow / GetLayout / GetModel / GetModelNode* / GetAnimation.
 namespace
 {
     using namespace UixUtilityControl;
@@ -31,6 +38,11 @@ namespace
     constexpr int LUA_T_TABLE   = 5;
 
     constexpr std::uint64_t ID48_MASK = 0xFFFFFFFFFFFFull;
+    constexpr std::uint32_t NO_PAD_BUTTON = 0x14;   // the game's number for "no pad button"
+    constexpr std::uint64_t UI_DECIDE_ID       = 0x31443165E927ull;   // UI_DECIDE
+    constexpr std::uint64_t UI_CANCEL_ID       = 0x26B0735EEAE0ull;   // UI_CANCEL
+    constexpr std::uint64_t UI_MOUSE_DECIDE_ID = 0xAB1866607C9Cull;   // UI_MOUSE_DECIDE
+    constexpr std::uint64_t UI_MOUSE_CANCEL_ID = 0x8C32921AE766ull;   // UI_MOUSE_CANCEL
 
     struct alignas(16) V4 { float v[4]; };
 
@@ -40,8 +52,6 @@ namespace
 
     bool IsNode(Kind k) { return k == Kind::NodeCommon || k == Kind::NodeText || k == Kind::NodeMesh || k == Kind::NodeLine; }
 
-    // ---- calling the game's UixUtility ----
-
     template <typename R, typename... A>
     R Call(std::size_t devOffset, A... args)
     {
@@ -49,17 +59,20 @@ namespace
         return reinterpret_cast<F>(Method(devOffset))(Utility(), args...);
     }
 
-    // node and component overloads sit next to each other in the dev vtable, node first
     std::size_t Overload(std::size_t nodeOffset, const Object& o)
     {
         return IsNode(o.kind) ? nodeOffset : nodeOffset + sizeof(void*);
     }
 
-    // ---- Lua arguments ----
-
     bool Active()
     {
         return IsSupportedOnThisBuild() && !MissionCodeGuard::ShouldBypassHooks();
+    }
+
+    int EmptyList(lua_State* L)
+    {
+        g_lua_createtable(L, 0, 0);
+        return 1;
     }
 
     bool Present(lua_State* L, int idx)
@@ -114,7 +127,7 @@ namespace
         }
         handle = static_cast<std::uint32_t>(GetLuaInt64(L, idx));
         if (!Lookup(handle, object))
-            return false;   // its window is gone; a dev pointer would dangle here, the handle just says no
+            return false;
         if (!KindIn(object.kind, kinds))
         {
             LogWarnOnce("V_UixUtility.%s: argument %d is the wrong kind of handle", fn, idx);
@@ -151,8 +164,6 @@ namespace
         return Guarded(f);
     }
 
-    // ---- windows ----
-
     int __cdecl l_FindWindow(lua_State* L)
     {
         const std::uint64_t name = Name64(L, 1);
@@ -161,6 +172,13 @@ namespace
         void* window = nullptr;
         Now([&]() { window = Call<void*>(dev::FindWindow, name & ID48_MASK); });
         return PushHandle(L, HandleFor(Kind::Window, window, window));
+    }
+
+    int __cdecl l_SetWindowPage(lua_State* L)
+    {
+        const std::uint64_t name = Name64(L, 1) & ID48_MASK;
+        g_lua_pushboolean(L, name && WindowPages::Set(L, name, 2));
+        return 1;
     }
 
     int __cdecl l_GetChildWindowInterface(lua_State* L)
@@ -174,8 +192,6 @@ namespace
         return PushHandle(L, HandleFor(Kind::Window, child, child));
     }
 
-    // The window messages are queued like the setters: they run on the UI thread in the window's next update, where the
-    // window is known to be alive (a call made right away could reach a window the game is deleting).
     int WindowMessage(lua_State* L, const char* fn, std::size_t offset)
     {
         std::uint32_t handle = 0;
@@ -225,7 +241,7 @@ namespace
             || !Arg(L, 3, "SendConnectWindowMessage", NODES, nodeHandle, node))
             return 0;
         Queue(handle, [modelHandle, nodeHandle](const Object& t) {
-            Object m, n;   // looked up again: their windows may have gone since
+            Object m, n;
             if (Lookup(modelHandle, m) && Lookup(nodeHandle, n))
                 Call<void>(dev::SendConnectWindowMessage, t.ptr, m.ptr, n.ptr);
         });
@@ -270,7 +286,6 @@ namespace
     constexpr char kDisableAll[] = "DisableAllInheritance", kDisableScale[] = "DisableScaleInheritance", kDisableRotation[] = "DisableRotationInheritance";
     constexpr char kDisableTranslation[] = "DisableTranslationInheritance", kDisableColorRGB[] = "DisableColorRGBInheritance", kDisableColorAlpha[] = "DisableColorAlphaInheritance";
 
-    // the dev vtable lists All, Scale, Rotation, Translation, ColorRGB, ColorAlpha for Enable and again for Disable
     template <std::size_t Offset, const char* Fn>
     int __cdecl l_Inheritance(lua_State* L) { return Inheritance(L, Fn, Offset); }
 
@@ -328,7 +343,7 @@ namespace
         if (LuaType(L, -1) == LUA_T_TABLE)
         {
             const int count = static_cast<int>(LuaObjLen(L, -1));
-            for (int i = 1; i <= count && layouts.size() < 255; ++i)
+            for (int i = 1; i <= count; ++i)
             {
                 LuaRawGetI(L, -1, i);
                 const int rec = GetLuaTop(L);
@@ -373,8 +388,6 @@ namespace
             DestroyUiWindow(w);
         return 0;
     }
-
-    // ---- the tree ----
 
     int __cdecl l_GetLayout(lua_State* L)
     {
@@ -461,8 +474,6 @@ namespace
         g_lua_pushnumber(L, scale);
         return 1;
     }
-
-    // ---- nodes and components ----
 
     int __cdecl l_SetVisible(lua_State* L)
     {
@@ -605,7 +616,6 @@ namespace
         return 0;
     }
 
-    // SetScale(handle, s) scales evenly, SetScale(handle, x, y, z) per axis
     int __cdecl l_SetScale(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -641,8 +651,6 @@ namespace
     int __cdecl l_SetStatus(lua_State* L)   { return Status(L, "SetStatus", dev::SetStatusLine, dev::SetStatusText); }
     int __cdecl l_ResetStatus(lua_State* L) { return Status(L, "ResetStatus", dev::ResetStatusLine, dev::ResetStatusText); }
 
-    // a connect the engine cannot survive: to itself, a window's root layout, or into a loop (its layout walk recurses
-    // until the stack runs out). Each reason is logged once.
     bool ConnectRefused(const Object& child, void* parent)
     {
         static const char* const kWhy[] = { "", "to itself", "a window's root layout (its window draws it already)",
@@ -654,7 +662,6 @@ namespace
         return true;
     }
 
-    // ConnectComponent(child, parent, node): node is a node handle or a node name
     int __cdecl l_ConnectComponent(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -690,7 +697,6 @@ namespace
         return 0;
     }
 
-    // the optional layout or model whose HUD units a screen position should come in
     bool UnitsOf(lua_State* L, int idx, const char* fn, Object& component)
     {
         return Present(L, idx) && Arg(L, idx, fn, COMPONENTS, component);
@@ -710,22 +716,14 @@ namespace
         g_lua_settable(L, -3);
     }
 
-    // GetMarkers() -> { {gameObjectId, x, y, z, markerType, markerFlag, radiusLevel, radius, mapX, mapY, mapZ, dying}, ... } for every
-    // marker that is on (marked, or enabled by a mission script). From the HUD's own marker slot (nil when it has none this frame):
-    // markerType/markerFlag = UiMarkerCommonData::GetMarkerFlag (low byte = type, higher bits = state; test with bit.band),
-    // important/questImportant = a mission target / side-op target (the head marker's yellow / blue flashing circle),
-    // viewWorldIcon/viewMapIcon = shown in the world as a head marker / on the iDroid map (a mission can enable map-only markers),
-    // viewWorldGoal/viewMapGoal = the same as a mission goal (TppMarker.Enable view "all" / "map"),
-    // radiusLevel/radius = the area TppMarker.Enable gave it (level 0-9, radius in metres), mapX/Y/Z = where the HUD and iDroid draw it
-    // (an area's centre, offset from the target by randomLevel). dying = the head marker shows the dying colour
     int __cdecl l_GetMarkers(lua_State* L)
     {
         if (!Active())
-            return 0;
+            return EmptyList(L);
         static MarkerEntry entries[0x3B6];
         const int count = UixUtilityControl::GetMarkers(entries, 0x3B6);
         if (count < 0)
-            return 0;
+            return EmptyList(L);
         g_lua_createtable(L, count, 0);
         for (int i = 0; i < count; ++i)
         {
@@ -757,16 +755,14 @@ namespace
         return 1;
     }
 
-    // GetEnemyRoutePoints() -> { {groupIndex, width, points = { {x, z}, ... }}, ... }: every predicted route the game shows now
-    // (registered by TppUiCommand.ShowEnemyRoutePoints, removed by InitEnemyRoutePoints / InitAllEnemyRoutePoints)
     int __cdecl l_GetEnemyRoutePoints(lua_State* L)
     {
         if (!Active())
-            return 0;
+            return EmptyList(L);
         static UixUtilityControl::EnemyRoute routes[5];
         const int count = UixUtilityControl::GetEnemyRoutes(routes, 5);
         if (count < 0)
-            return 0;
+            return EmptyList(L);
         g_lua_createtable(L, count, 0);
         for (int i = 0; i < count; ++i)
         {
@@ -799,13 +795,10 @@ namespace
         g_lua_settable(L, -3);
     }
 
-    // GetWindows() -> { {window, id, group, parent, layouts = { {layout, id, depth, parentId, models = { {model, id}, ... }}, ... }}, ... }
-    // every live window, the game's own included; layouts are one flat list (depth 0 = the window's root layout), all as handles.
-    // Kept flat because a C function only gets about 20 Lua stack slots.
     int __cdecl l_GetWindows(lua_State* L)
     {
         if (!Active())
-            return 0;
+            return EmptyList(L);
         const std::vector<WindowEntry> windows = UixUtilityControl::GetWindows();
         g_lua_createtable(L, static_cast<int>(windows.size()), 0);
         for (std::size_t w = 0; w < windows.size(); ++w)
@@ -852,7 +845,6 @@ namespace
         return 1;
     }
 
-    // GetNodeScreenPosition(node[, layoutOrModel]) -> screenX, screenY, onScreen
     int __cdecl l_GetNodeScreenPosition(lua_State* L)
     {
         Object node;
@@ -869,7 +861,6 @@ namespace
         return 3;
     }
 
-    // GetMarkerPosition(gameObjectId[, layoutOrModel]) -> {enabled, x, y, z, screenX, screenY, onScreen}, nil without a marker
     int __cdecl l_GetMarkerPosition(lua_State* L)
     {
         if (!Active() || LuaType(L, 1) != LUA_T_NUMBER)
@@ -916,8 +907,6 @@ namespace
 
     int __cdecl l_GetTraversalTranslation(lua_State* L) { return Traversal(L, "GetTraversalTranslation", dev::GetTraversalTranslation); }
     int __cdecl l_GetTraversalScale(lua_State* L)       { return Traversal(L, "GetTraversalScale", dev::GetTraversalScale); }
-
-    // ---- text ----
 
     int TextByte(lua_State* L, const char* fn, std::size_t offset)
     {
@@ -988,7 +977,6 @@ namespace
         return 0;
     }
 
-    // SetTextForModelNodeText(textNode, textUnit, text, useLanguageFont)
     int TextWithUnits(lua_State* L, const char* fn, std::size_t offset)
     {
         std::uint32_t handle = 0;
@@ -1053,8 +1041,6 @@ namespace
         return problem == nullptr;
     }
 
-    // SetupTextUnits(textNode, textUnit, count, text, flagA, flagB) fills the units without showing them. Queued like the
-    // other text setters: the game frees and rewrites the units while the UI thread may be drawing from them.
     int __cdecl l_SetupTextUnits(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -1182,7 +1168,6 @@ namespace
     int __cdecl l_SetTextNodeWidth(lua_State* L)  { return TextSet(L, "SetTextNodeWidth", dev::SetTextNodeWidth); }
     int __cdecl l_SetTextNodeHeight(lua_State* L) { return TextSet(L, "SetTextNodeHeight", dev::SetTextNodeHeight); }
 
-    // fox::ui::ModelNodeText::SetFontGroup: a font of the UI font palette, e.g. "hud-def-M"
     int __cdecl l_SetFontGroup(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -1193,8 +1178,6 @@ namespace
         Queue(handle, [font](const Object& t) { reinterpret_cast<void(__fastcall*)(void*, std::uint32_t)>(SetFontGroupFn())(t.ptr, font); });
         return 0;
     }
-
-    // ---- meshes and textures ----
 
     int TextureName(lua_State* L, const char* fn, std::size_t plain, std::size_t withLevel)
     {
@@ -1355,7 +1338,6 @@ namespace
     int __cdecl l_SetShaderMaskTexUvRepeat(lua_State* L)   { return Uv(L, "SetShaderMaskTexUvRepeat", dev::SetShaderMaskTexUvRepeat, 1.0f); }
     int __cdecl l_SetShaderScreenTexUvRepeat(lua_State* L) { return Uv(L, "SetShaderScreenTexUvRepeat", dev::SetShaderScreenTexUvRepeat, 1.0f); }
 
-    // SetVertexTranslate(mesh, control, x, y, z, keepX, keepY, keepZ): keep 1 leaves that axis as the file has it
     int __cdecl l_SetVertexTranslate(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -1385,8 +1367,6 @@ namespace
         return 0;
     }
 
-    // ---- animations ----
-
     int AnimationCall(lua_State* L, const char* fn, std::size_t offset)
     {
         std::uint32_t handle = 0;
@@ -1410,7 +1390,6 @@ namespace
     int __cdecl l_StartAnimation(lua_State* L)               { return AnimationCall(L, "StartAnimation", dev::StartAnimation); }
     int __cdecl l_StartLoopAnimation(lua_State* L)           { return AnimationCall(L, "StartLoopAnimation", dev::StartLoopAnimation); }
     int __cdecl l_RecoverForAnimationWithRatio(lua_State* L) { return AnimationCall(L, "RecoverForAnimationWithRatio", dev::RecoverForAnimationWithRatio); }
-    // fox::ui::Animation::Pause / ForceLoop / UnsetForceLoop, called by tpp code directly
     template <typename... A>
     int AnimationMember(lua_State* L, const char* fn, UiFunction member, A... args)
     {
@@ -1429,7 +1408,6 @@ namespace
         return 0;
     }
 
-    // PauseAnimation(animation[, paused]): false resumes from where it stopped
     int __cdecl l_PauseAnimation(lua_State* L)
     {
         if (Present(L, 2) && !GetLuaBool(L, 2))
@@ -1480,7 +1458,6 @@ namespace
         return 1;
     }
 
-    // fox::ui::Animation::GetTimeLength
     int __cdecl l_GetAnimationTimeLength(lua_State* L)
     {
         Object o;
@@ -1491,8 +1468,6 @@ namespace
         g_lua_pushnumber(L, seconds);
         return 1;
     }
-
-    // ---- draw order ----
 
     int __cdecl l_SetModelNodePriority(lua_State* L)
     {
@@ -1569,8 +1544,6 @@ namespace
         return 1;
     }
 
-    // ---- time, maths, palette ----
-
     int __cdecl l_GetGameFrameRawDeltaTime(lua_State* L)
     {
         if (!Active())
@@ -1629,8 +1602,6 @@ namespace
         return PushV(L, color, 4);
     }
 
-    // ---- UI sounds (tpp::ui::utility and the UI SoundControl) ----
-
     int __cdecl l_StartSound(lua_State* L)
     {
         void* control = SoundControl();
@@ -1662,8 +1633,6 @@ namespace
         return 0;
     }
 
-    // ---- input: the UI pad, keyboard and mouse the game's menus read ----
-
     std::uint32_t ButtonName(lua_State* L, int idx)
     {
         return static_cast<std::uint32_t>(Name(L, idx));
@@ -1688,13 +1657,53 @@ namespace
         }
     }
 
+    bool PadButtonRead(std::size_t offset, uipad::KeyRead& read)
+    {
+        switch (offset)
+        {
+        case dev::IsButtonPress: case dev::IsButtonPressByName:       read = uipad::KeyRead::Press;    return true;
+        case dev::IsButtonPressing: case dev::IsButtonPressingByName: read = uipad::KeyRead::Pressing; return true;
+        case dev::IsButtonRelease: case dev::IsButtonReleaseByName:   read = uipad::KeyRead::Release;  return true;
+        default:                                                      return false;
+        }
+    }
+
+    bool MouseClick(std::size_t offset, std::uint64_t id)   // the game's ByName press and pressing also count a click for these two names
+    {
+        std::uint64_t click = 0;
+        if (id == UI_DECIDE_ID)
+            click = UI_MOUSE_DECIDE_ID;
+        else if (id == UI_CANCEL_ID)
+            click = UI_MOUSE_CANCEL_ID;
+        std::size_t mouseRead = 0;
+        if (offset == dev::IsButtonPressByName)
+            mouseRead = dev::IsMouseButtonPressingByName;   // the game's press asks this one
+        else if (offset == dev::IsButtonPressingByName)
+            mouseRead = dev::IsMouseButtonUpByName;         // and its pressing this one
+        if (!click || !mouseRead || uipad::HoldsOwnDisableRequest())
+            return false;
+        bool on = false;
+        uipad::OwnQuery own;
+        Now([&]() { on = Call<bool>(mouseRead, click); });
+        return on;
+    }
+
+    bool AnsweredFromMap(std::size_t offset, std::uint32_t name, std::uint64_t id, bool& on)   // a name with no pad button: the game's pad lookup would jump into its protected code
+    {
+        uipad::KeyRead read = uipad::KeyRead::Press;
+        if (!PadButtonRead(offset, read) || uipad::HasPadButton(name))
+            return false;
+        on = MouseClick(offset, id) || uipad::KeyboardHalf(read, name, 0.0f, uipad::HoldsOwnDisableRequest()) != 0;
+        return true;
+    }
+
     int ByNumber(lua_State* L, std::size_t offset)
     {
         if (!Active() || LuaType(L, 1) != LUA_T_NUMBER)
             return 0;
         const std::uint32_t button = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
         bool on = false;
-        if (!ReadThroughLock(offset, button, on))
+        if (!AnsweredFromMap(offset, button, button, on) && !ReadThroughLock(offset, button, on))
         {
             uipad::OwnQuery own;
             Now([&]() { on = Call<bool>(offset, button); });
@@ -1707,10 +1716,9 @@ namespace
         if (!Active())
             return 0;
         const std::uint32_t name = ButtonName(L, 1);
-        // the game takes a 48-bit StringId here: its decide checks compare the whole id (and then also count the mouse)
         const std::uint64_t id = Name64(L, 1) & ID48_MASK;
         bool on = false;
-        if (!ReadThroughLock(offset, name, on))
+        if (!AnsweredFromMap(offset, name, id, on) && !ReadThroughLock(offset, name, on))
         {
             uipad::OwnQuery own;
             Now([&]() { on = Call<bool>(offset, id); });
@@ -1743,8 +1751,6 @@ namespace
         return id != 0;
     }
 
-    // SetDisablePad(id): the game's pad and keyboard reads stop until ResetDisablePad(id). Unlike the exe's own, a request
-    // made here also stops the game's mouse reads (buttons and wheel); V_UixUtility's reads keep working
     int __cdecl l_SetDisablePad(lua_State* L)
     {
         std::uint32_t id = 0;
@@ -1780,15 +1786,18 @@ namespace
         return PushBool(L, held);
     }
 
-    // GetButtonNumber(name, convert): convert maps the name to the pad button it is bound to
     int __cdecl l_GetButtonNumber(lua_State* L)
     {
         if (!Active())
             return 0;
         const std::uint32_t name = ButtonName(L, 1);
         const bool convert = GetLuaBool(L, 2);
-        std::uint32_t number = 0;
-        Now([&]() { number = Call<std::uint32_t>(dev::GetButtonNumber, name, convert); });
+        std::uint32_t number = convert ? NO_PAD_BUTTON : name;
+        int padButton = 0, keyCode = 0;
+        if (!convert)
+            Now([&]() { number = Call<std::uint32_t>(dev::GetButtonNumber, name, false); });
+        else if (TextIcons::FindButton(name, padButton, keyCode))   // read the map ourselves: the game jumps into its protected code on a missing name
+            number = static_cast<std::uint32_t>(padButton);
         g_lua_pushnumber(L, number);
         return 1;
     }
@@ -1799,6 +1808,8 @@ namespace
             return 0;
         const std::uint32_t button = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
         const float a = Num(L, 2), b = Num(L, 3);
+        if (!uipad::HasPadButton(button))
+            return PushBool(L, uipad::KeyboardHalf(uipad::KeyRead::Repeat, button, 0.0f, uipad::HoldsOwnDisableRequest()) != 0);
         bool on = false;
         if (!uipad::HoldsOwnDisableRequest() || !uipad::Repeat(button, a, b, on))
             Now([&]() { on = Call<bool>(dev::IsButtonRepeat, button, a, b); });
@@ -1811,6 +1822,8 @@ namespace
             return 0;
         const std::uint32_t name = ButtonName(L, 1);
         const float a = Num(L, 2), b = Num(L, 3);
+        if (!uipad::HasPadButton(name))
+            return PushBool(L, uipad::KeyboardHalf(uipad::KeyRead::Repeat, name, 0.0f, uipad::HoldsOwnDisableRequest()) != 0);
         bool on = false;
         if (!uipad::HoldsOwnDisableRequest() || !uipad::Repeat(name, a, b, on))
             Now([&]() { on = Call<bool>(dev::IsButtonRepeatByName, name, a, b); });
@@ -1823,6 +1836,8 @@ namespace
             return 0;
         const std::uint32_t button = static_cast<std::uint32_t>(GetLuaInt64(L, 1));
         const float seconds = Num(L, 2);
+        if (!uipad::HasPadButton(button))
+            return PushBool(L, uipad::KeyboardHalf(uipad::KeyRead::LongPress, button, seconds, uipad::HoldsOwnDisableRequest()) == 1);
         bool on = false;
         int result = 0;
         if (uipad::HoldsOwnDisableRequest() && uipad::LongPressResult(button, seconds, result))
@@ -1838,6 +1853,8 @@ namespace
             return 0;
         const std::uint32_t name = ButtonName(L, 1);
         const float seconds = Num(L, 2);
+        if (!uipad::HasPadButton(name))
+            return PushBool(L, uipad::KeyboardHalf(uipad::KeyRead::LongPress, name, seconds, uipad::HoldsOwnDisableRequest()) == 1);
         bool on = false;
         int result = 0;
         if (uipad::HoldsOwnDisableRequest() && uipad::LongPressResult(name, seconds, result))
@@ -1853,6 +1870,11 @@ namespace
             return 0;
         const std::uint32_t name = ButtonName(L, 1);
         const float seconds = Num(L, 2);
+        if (!uipad::HasPadButton(name))
+        {
+            g_lua_pushnumber(L, uipad::KeyboardHalf(uipad::KeyRead::LongPress, name, seconds, uipad::HoldsOwnDisableRequest()));
+            return 1;
+        }
         int result = 0;
         if (!uipad::HoldsOwnDisableRequest() || !uipad::LongPressResult(name, seconds, result))
             Now([&]() { result = Call<int>(dev::GetButtonLongPressResultByName, name, seconds); });
@@ -1860,7 +1882,6 @@ namespace
         return 1;
     }
 
-    // GetAnalogStickAxis(stick): 0 left stick, 1 right stick
     int __cdecl l_GetAnalogStickAxis(lua_State* L)
     {
         if (!Active())
@@ -1882,7 +1903,6 @@ namespace
         return PushBool(L, on);
     }
 
-    // ButtonNameToKeyCode(name) -> status, keyCode; status 0x14 = no key bound
     int __cdecl l_ButtonNameToKeyCode(lua_State* L)
     {
         if (!Active())
@@ -1917,8 +1937,6 @@ namespace
         return 1;
     }
 
-    // ---- button glyphs and atlas cells ----
-
     int __cdecl l_SetButtonIconTextureByName(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -1932,7 +1950,82 @@ namespace
         return 0;
     }
 
-    // binds this platform's button atlas to the mesh; SetButtonIconTextureByName picks the cell
+    std::string StringField(lua_State* L, int table, const char* key)
+    {
+        LuaGetField(L, table, key);
+        const std::string value = LuaType(L, -1) == LUA_T_STRING ? GetLuaString(L, -1) : "";
+        LuaPop(L, 1);
+        return value;
+    }
+
+    int FieldType(lua_State* L, int table, const char* key)   // LUA_T_NIL when absent
+    {
+        LuaGetField(L, table, key);
+        const int type = LuaType(L, -1);
+        LuaPop(L, 1);
+        return type == -1 ? LUA_T_NIL : type;
+    }
+
+    bool FieldPresent(lua_State* L, int table, const char* key)
+    {
+        return FieldType(L, table, key) != LUA_T_NIL;
+    }
+
+    float NumberField(lua_State* L, int table, const char* key, float fallback)
+    {
+        LuaGetField(L, table, key);
+        const float value = Num(L, -1, fallback);
+        LuaPop(L, 1);
+        return value;
+    }
+
+    int __cdecl l_SetTextIcon(lua_State* L)
+    {
+        if (!Active())
+            return 0;
+        if (LuaType(L, 1) != LUA_T_TABLE)
+        {
+            LogWarnOnce("V_UixUtility.SetTextIcon: argument must be a table {name=..., action=...}, {name=..., pad=..., key=...} or {name=..., texture=..., u=..., v=..., width=..., height=...}");
+            return PushBool(L, false);
+        }
+        if (FieldType(L, 1, "name") != LUA_T_STRING)
+        {
+            LogWarnOnce("V_UixUtility.SetTextIcon: name must be a string, the NAME of <I=G=NAME>");
+            return PushBool(L, false);
+        }
+        const std::string name = StringField(L, 1, "name");
+        if ((FieldPresent(L, 1, "action") && FieldType(L, 1, "action") != LUA_T_STRING)
+            || (FieldPresent(L, 1, "pad") && FieldType(L, 1, "pad") != LUA_T_NUMBER)
+            || (FieldPresent(L, 1, "key") && FieldType(L, 1, "key") != LUA_T_NUMBER))
+        {
+            LogWarnOnce("V_UixUtility.SetTextIcon: %s: action must be a string, pad and key numbers (fox.PAD_..., fox.KEY_...)", name.c_str());
+            return PushBool(L, false);
+        }
+        const bool byAction = FieldPresent(L, 1, "action");
+        const bool byTexture = FieldPresent(L, 1, "texture");
+        const bool byButtons = FieldPresent(L, 1, "pad") || FieldPresent(L, 1, "key");
+        if (byAction + byTexture + byButtons != 1)
+        {
+            LogWarnOnce("V_UixUtility.SetTextIcon: %s: give exactly one of action, pad and key, or texture", name.c_str());
+            return PushBool(L, false);
+        }
+        if (byAction)
+            return PushBool(L, TextIcons::SetForAction(name, StringField(L, 1, "action")));
+        if (byButtons && !(FieldPresent(L, 1, "pad") && FieldPresent(L, 1, "key")))
+        {
+            LogWarnOnce("V_UixUtility.SetTextIcon: %s: pad and key go together, one picture for controllers and one for keyboards", name.c_str());
+            return PushBool(L, false);
+        }
+        if (byButtons)
+            return PushBool(L, TextIcons::SetFixed(name, static_cast<int>(NumberField(L, 1, "pad", -1.0f)), static_cast<int>(NumberField(L, 1, "key", -1.0f))));
+        LuaGetField(L, 1, "texture");
+        const std::uint64_t texture = PathId(L, -1);
+        LuaPop(L, 1);
+        return PushBool(L, TextIcons::SetPicture(name, texture, NumberField(L, 1, "u", 0.0f), NumberField(L, 1, "v", 0.0f),
+                                                 NumberField(L, 1, "width", 0.0f), NumberField(L, 1, "height", 0.0f),
+                                                 NumberField(L, 1, "size", 1.0f)));
+    }
+
     int __cdecl l_SetPlatformButtonTexture(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -1945,7 +2038,6 @@ namespace
         return 0;
     }
 
-    // SetUvShift(mesh, cell, gridSize): shows one cell of a gridSize x gridSize atlas, counted left to right, top to bottom
     int UvCell(lua_State* L, const char* fn, std::size_t offset)
     {
         std::uint32_t handle = 0;
@@ -1965,10 +2057,6 @@ namespace
     int __cdecl l_SetUvShift(lua_State* L)     { return UvCell(L, "SetUvShift", dev::SetShaderMaskTexUvShift); }
     int __cdecl l_SetUvShiftBase(lua_State* L) { return UvCell(L, "SetUvShiftBase", dev::SetShaderBaseTexUvShift); }
 
-    // ---- line drawing ----
-
-    // SetLineDraw(lineNode, indices, vertices): indices are 0-based vertex numbers, one line per neighbouring pair;
-    // vertices are {x, y[, z[, w]]}
     int __cdecl l_SetLineDraw(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -2003,25 +2091,57 @@ namespace
             LuaPop(L, 1);
         }
         std::vector<std::uint16_t> indices;
-        const int indexCount = static_cast<int>(LuaObjLen(L, 2));
-        for (int i = 1; i <= indexCount && i <= 0xFFFF; ++i)
+        std::vector<std::uint32_t> stripLengths;
+        LuaRawGetI(L, 2, 1);
+        const bool severalStrips = LuaType(L, -1) == LUA_T_TABLE;
+        LuaPop(L, 1);
+        const int stripCount = severalStrips ? static_cast<int>(LuaObjLen(L, 2)) : 1;
+        for (int s = 1; s <= stripCount; ++s)
         {
-            LuaRawGetI(L, 2, i);
-            const int index = LuaType(L, -1) == LUA_T_NUMBER ? GetLuaInt(L, -1) : -1;
-            LuaPop(L, 1);
-            if (index < 0 || index >= static_cast<int>(vertices.size()))
+            int strip = 2;
+            if (severalStrips)
             {
-                LogWarnOnce("V_UixUtility.SetLineDraw: indices[%d] is not a vertex number from 0 to %d", i, static_cast<int>(vertices.size()) - 1);
+                LuaRawGetI(L, 2, s);
+                strip = GetLuaTop(L);
+                if (LuaType(L, strip) != LUA_T_TABLE)
+                {
+                    LogWarnOnce("V_UixUtility.SetLineDraw: indices[%d] is not a table of vertex numbers", s);
+                    LuaPop(L, 1);
+                    return 0;
+                }
+            }
+            const std::size_t stripStart = indices.size();
+            const int indexCount = static_cast<int>(LuaObjLen(L, strip));
+            for (int i = 1; i <= indexCount && indices.size() < 0xFFFF; ++i)
+            {
+                LuaRawGetI(L, strip, i);
+                const int index = LuaType(L, -1) == LUA_T_NUMBER ? GetLuaInt(L, -1) : -1;
+                LuaPop(L, 1);
+                if (index < 0 || index >= static_cast<int>(vertices.size()))
+                {
+                    LogWarnOnce("V_UixUtility.SetLineDraw: index %d of strip %d is not a vertex number from 0 to %d", i, s, static_cast<int>(vertices.size()) - 1);
+                    if (severalStrips)
+                        LuaPop(L, 1);
+                    return 0;
+                }
+                indices.push_back(static_cast<std::uint16_t>(index));
+            }
+            if (severalStrips)
+                LuaPop(L, 1);
+            const std::size_t stripLength = indices.size() - stripStart;
+            if (stripLength < 2)
+            {
+                LogWarnOnce("V_UixUtility.SetLineDraw: strip %d needs at least two indices", s);
                 return 0;
             }
-            indices.push_back(static_cast<std::uint16_t>(index));
+            stripLengths.push_back(static_cast<std::uint32_t>(stripLength));
         }
-        if (indices.size() < 2)
+        if (stripLengths.empty())
         {
-            LogWarnOnce("V_UixUtility.SetLineDraw: a line needs at least two indices");
+            LogWarnOnce("V_UixUtility.SetLineDraw: no strip to draw");
             return 0;
         }
-        QueueLineDraw(handle, std::move(indices), std::move(vertices));
+        QueueLineDraw(handle, std::move(indices), std::move(stripLengths), std::move(vertices));
         return 0;
     }
 
@@ -2034,9 +2154,6 @@ namespace
         return 0;
     }
 
-    // ---- window tree ----
-
-    // AddChildWindow(parent, child): the child follows the parent and gets its messages; only windows from CreateWindow
     int __cdecl l_AddChildWindow(lua_State* L)
     {
         std::uint32_t childHandle = 0;
@@ -2047,22 +2164,6 @@ namespace
             LogWarnOnce("V_UixUtility.AddChildWindow: the child must be a window made by V_UixUtility.CreateWindow, other than the parent");
         return 0;
     }
-
-    // PostTriggerMessage(window, trigger): SendTrigger for the window and every window below it
-    int __cdecl l_PostTriggerMessage(lua_State* L)
-    {
-        std::uint32_t handle = 0;
-        Object w;
-        if (!Active() || !Arg(L, 1, "PostTriggerMessage", { Kind::Window }, handle, w) || !Function(UiFunction::PostTriggerMessage))
-            return 0;
-        const std::uint64_t trigger = Name64(L, 2) & ID48_MASK;
-        Queue(handle, [trigger](const Object& t) {
-            reinterpret_cast<void(__fastcall*)(void*, std::uint64_t)>(Function(UiFunction::PostTriggerMessage))(t.ptr, trigger);
-        });
-        return 0;
-    }
-
-    // ---- TPP's own UiUtility: button icons that follow pad / keyboard, pausing the 3D scene ----
 
     namespace ui   // its retail EN/JP 1.0.15.4 vtable slots
     {
@@ -2084,7 +2185,6 @@ namespace
         return Active() && UiUtility() != nullptr;
     }
 
-    // GetPadButtonUvShift(type, number) -> u, v: where a pad glyph sits in the button atlas (type 0 = pad button number 0-15)
     int __cdecl l_GetPadButtonUvShift(lua_State* L)
     {
         if (!UiActive())
@@ -2101,8 +2201,6 @@ namespace
         return 2;
     }
 
-    // SetPadKeyboardIconTexture(mesh, buttonName[, u, v]): the key glyph when the player is on keyboard;
-    // otherwise, with u and v, the pad glyph at that atlas position
     int __cdecl l_SetPadKeyboardIconTexture(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -2122,8 +2220,6 @@ namespace
         return 0;
     }
 
-    // RegistButtonMeshParam(mesh, buttonName, u, v, registId): shows the glyph now and again whenever the player
-    // switches between pad and keyboard; the game holds up to 50
     int __cdecl l_RegistButtonMeshParam(lua_State* L)
     {
         std::uint32_t handle = 0;
@@ -2167,7 +2263,6 @@ namespace
         return 0;
     }
 
-    // true on the frame the player switches between pad and keyboard / mouse
     int __cdecl l_IsChangePadKeyboard(lua_State* L)
     {
         if (!UiActive())
@@ -2177,7 +2272,6 @@ namespace
         return PushBool(L, changed);
     }
 
-    // PauseDrawScene(true) stops drawing the 3D world under a full-screen menu; PauseDrawScene(false) brings it back
     int __cdecl l_PauseDrawScene(lua_State* L)
     {
         if (!UiActive())
@@ -2189,8 +2283,6 @@ namespace
         });
         return 0;
     }
-
-    // ---- game state, names, icons, sounds ----
 
     int StateQuery(lua_State* L, UiFunction f)
     {
@@ -2204,7 +2296,6 @@ namespace
     int __cdecl l_IsGamePauseMenu(lua_State* L) { return StateQuery(L, UiFunction::IsGamePauseMenu); }
     int __cdecl l_IsInDemo(lua_State* L)        { return StateQuery(L, UiFunction::IsInDemo); }
 
-    // GetFocalLengthZoomRatio() -> the game camera's focal length / 21 mm: 1 = no zoom, higher while binoculars, a scope or aiming close in
     int __cdecl l_GetFocalLengthZoomRatio(lua_State* L)
     {
         void* fn = FocalLengthZoomRatioFn();
@@ -2216,12 +2307,11 @@ namespace
         return 1;
     }
 
-    // GetIconFtexPath(equipId[, variant]) -> the icon's path id as "0x..." (61-bit ids do not fit a Lua number)
     int __cdecl l_GetIconFtexPath(lua_State* L)
     {
         if (!Active() || !Function(UiFunction::GetIconFtexPath))
             return 0;
-        const int equipId = GetLuaInt(L, 1);
+        const int equipId = equip::ToEngine(equip::ResolveReal(GetLuaInt(L, 1)));
         const int variant = Present(L, 2) ? GetLuaInt(L, 2) : 0;
         std::uint64_t path = 0;
         Now([&]() { reinterpret_cast<void*(__fastcall*)(std::uint64_t*, int, int)>(Function(UiFunction::GetIconFtexPath))(&path, equipId, variant); });
@@ -2231,12 +2321,11 @@ namespace
         return 1;
     }
 
-    // GetWeaponItemNameLangId(equipId[, flag]) -> a lang id for GetLangText
     int __cdecl l_GetWeaponItemNameLangId(lua_State* L)
     {
         if (!Active() || !Function(UiFunction::GetWeaponItemNameLangId))
             return 0;
-        const int equipId = GetLuaInt(L, 1);
+        const int equipId = equip::ToEngine(equip::ResolveReal(GetLuaInt(L, 1)));
         const bool flag = GetLuaBool(L, 2);
         std::uint64_t langId = 0;
         Now([&]() { reinterpret_cast<void*(__fastcall*)(std::uint64_t*, int, bool)>(Function(UiFunction::GetWeaponItemNameLangId))(&langId, equipId, flag); });
@@ -2254,7 +2343,6 @@ namespace
         return 0;
     }
 
-    // GetSoundTypeId(eventName) -> the UI sound type StartSound/StopSound take, nil when the UI sound table has no such event
     int __cdecl l_GetSoundTypeId(lua_State* L)
     {
         if (!Active() || !Function(UiFunction::GetSoundTypeId) || LuaType(L, 1) != LUA_T_STRING)
@@ -2268,11 +2356,226 @@ namespace
         return 1;
     }
 
+    int __cdecl l_GetActivePadNo(lua_State* L)
+    {
+        if (!Active())
+            return 0;
+        std::uint32_t pad = 0;
+        Now([&]() { pad = Call<std::uint32_t>(dev::GetActivePadNo); });
+        g_lua_pushnumber(L, pad);
+        return 1;
+    }
+
+    int DirButton(lua_State* L, UiFunction f)
+    {
+        void* fn = Function(f);
+        if (!Active() || !fn || LuaType(L, 1) != LUA_T_NUMBER)
+            return 0;
+        const int button = GetLuaInt(L, 1);
+        bool on = false;
+        uipad::OwnQuery own;
+        Now([&]() { on = reinterpret_cast<bool(__fastcall*)(int)>(fn)(button); });
+        return PushBool(L, on);
+    }
+
+    int __cdecl l_IsDirButtonPress(lua_State* L) { return DirButton(L, UiFunction::IsDirButtonPress); }
+    int __cdecl l_IsDirButtonLong(lua_State* L)  { return DirButton(L, UiFunction::IsDirButtonLong); }
+
+    int __cdecl l_CheckIllegalDirButtonInput(lua_State*)
+    {
+        void* fn = Function(UiFunction::CheckIllegalDirButtonInput);
+        if (!Active() || !fn)
+            return 0;
+        uipad::OwnQuery own;
+        Now([&]() { reinterpret_cast<void(__fastcall*)()>(fn)(); });
+        return 0;
+    }
+
+    int __cdecl l_GetEnableDirButton(lua_State* L)
+    {
+        void* getInstance = Function(UiFunction::UiCommonDataManagerGetInstance);
+        void* getButton = Function(UiFunction::GetEnableDirButton);
+        if (!Active() || !getInstance || !getButton)
+            return 0;
+        int button = 0x10;   // none
+        Now([&]() {
+            void* manager = reinterpret_cast<void*(__fastcall*)()>(getInstance)();
+            if (manager)
+                button = reinterpret_cast<int(__fastcall*)(void*)>(getButton)(manager);
+        });
+        g_lua_pushnumber(L, button);
+        return 1;
+    }
+
+    int PrefabLayout(lua_State* L, int typeIdx, void* window)
+    {
+        const auto* names = static_cast<const std::uint64_t*>(Function(UiFunction::PrefabLayoutNameTable));
+        const int type = LuaType(L, typeIdx) == LUA_T_NUMBER ? GetLuaInt(L, typeIdx) : -1;
+        if (!names || !window || type < 0 || type >= 20)   // the game's table has 20 prefab types
+            return 0;
+        void* layout = nullptr;
+        Now([&]() {
+            void* root = WindowRootLayout(window);
+            if (root && names[type])
+                layout = Call<void*>(dev::GetLayoutOfLayout, root, names[type]);
+        });
+        return PushHandle(L, HandleFor(Kind::Layout, layout, window));
+    }
+
+    int __cdecl l_GetPrefabLayout(lua_State* L)
+    {
+        Object w;
+        if (!Active() || !Arg(L, 2, "GetPrefabLayout", { Kind::Window }, w))
+            return 0;
+        return PrefabLayout(L, 1, w.ptr);
+    }
+
+    int __cdecl l_GetPrefabLayoutFromParent(lua_State* L)
+    {
+        Object parent;
+        if (!Active() || !Arg(L, 2, "GetPrefabLayoutFromParent", { Kind::Window }, parent))
+            return 0;
+        const std::uint64_t name = Name64(L, 3) & ID48_MASK;
+        void* child = nullptr;
+        Now([&]() { child = Call<void*>(dev::GetChildWindowInterface, parent.ptr, name); });
+        return PrefabLayout(L, 1, child);
+    }
+
+    int __cdecl l_SetColorRGBA(lua_State* L)
+    {
+        std::uint32_t handle = 0;
+        Object o;
+        if (!Active() || !Arg(L, 1, "SetColorRGBA", SCENE, handle, o))
+            return 0;
+        const V4 color{ { Num(L, 2, 1.0f), Num(L, 3, 1.0f), Num(L, 4, 1.0f), Num(L, 5, 1.0f) } };
+        Queue(handle, [color](const Object& x) {
+            V4 c = color;
+            Call<void>(Overload(dev::SetColorRGBA, x), x.ptr, &c);
+        });
+        return 0;
+    }
+
+    int __cdecl l_SetTextureNameByPathCode(lua_State* L)
+    {
+        std::uint32_t handle = 0;
+        Object o;
+        if (!Active() || !Arg(L, 1, "SetTextureNameByPathCode", { Kind::NodeMesh }, handle, o))
+            return 0;
+        const char* hex = LuaType(L, 2) == LUA_T_STRING ? GetLuaString(L, 2) : nullptr;
+        const std::uint64_t pathCode = hex && hex[0] == '0' && (hex[1] == 'x' || hex[1] == 'X') ? std::strtoull(hex + 2, nullptr, 16) : 0;
+        if (!pathCode)
+        {
+            LogWarnOnce("V_UixUtility.SetTextureNameByPathCode: argument 2 must be the path code as a \"0x...\" string");
+            return 0;
+        }
+        const std::uint32_t slot = static_cast<std::uint32_t>(Name(L, 3));
+        const std::uint32_t level = Present(L, 4) ? static_cast<std::uint32_t>(GetLuaInt(L, 4)) : 2u;
+        Queue(handle, [pathCode, slot, level](const Object& t) { Call<void>(dev::SetTextureNameByPathCode, t.ptr, pathCode, slot, level); });
+        return 0;
+    }
+
+    struct alignas(16) ScrollRecord   // the record the game's list rows keep: only slot 0 of its two is used
+    {
+        std::uint8_t pad[0x10];
+        bool         loop;
+        std::uint8_t pad2[7];
+        void*        textNode[2];
+        float        textWidth[2];
+        std::uint8_t pad3[0x08];
+    };
+    static_assert(offsetof(ScrollRecord, loop) == 0x10 && offsetof(ScrollRecord, textNode) == 0x18 && offsetof(ScrollRecord, textWidth) == 0x28, "game layout");
+
+    std::mutex g_TextWidthLock;
+    std::unordered_map<void*, float> g_TextWidth;   // text node -> width of its text, for UpdateAutoScrollText
+
+    int __cdecl l_SetAutoScrollTextForModelNodeText(lua_State* L)
+    {
+        std::uint32_t handle = 0;
+        Object node, units;
+        if (!Active() || !Arg(L, 1, "SetAutoScrollTextForModelNodeText", { Kind::NodeText }, handle, node)
+            || !Arg(L, 2, "SetAutoScrollTextForModelNodeText", { Kind::TextUnit }, units))
+            return 0;
+        auto text = Text(L, 3);
+        const bool languageFont = GetLuaBool(L, 4);
+        const bool loop = Present(L, 5) ? GetLuaBool(L, 5) : true;
+        void* unitsPtr = units.ptr;
+        Queue(handle, [unitsPtr, text, languageFont, loop, pin = PinTextUnit(unitsPtr)](const Object& t) {
+            ScrollRecord record{};
+            record.loop = loop;
+            Call<void>(dev::SetScrollTextWithRecord, &record, t.ptr, unitsPtr, text->c_str(), languageFont, std::uint8_t{ 0 });
+            KeepTextAlive(unitsPtr, t, text);
+            if (!record.textNode[0])
+                return;
+            std::lock_guard<std::mutex> lock(g_TextWidthLock);
+            if (g_TextWidth.size() >= 4096)
+                g_TextWidth.clear();
+            g_TextWidth[t.ptr] = record.textWidth[0];
+        });
+        return 0;
+    }
+
+    int __cdecl l_UpdateAutoScrollText(lua_State* L)
+    {
+        std::uint32_t handle = 0;
+        Object node;
+        if (!Active() || !Arg(L, 1, "UpdateAutoScrollText", { Kind::NodeText }, handle, node))
+            return 0;
+        const bool loop = Present(L, 2) ? GetLuaBool(L, 2) : true;
+        Queue(handle, [loop](const Object& t) {
+            ScrollRecord record{};
+            {
+                std::lock_guard<std::mutex> lock(g_TextWidthLock);
+                const auto it = g_TextWidth.find(t.ptr);
+                if (it == g_TextWidth.end())
+                    return;
+                record.textWidth[0] = it->second;
+            }
+            record.loop = loop;
+            record.textNode[0] = t.ptr;
+            Call<void>(dev::UpdateScrollTextRecord, &record, loop, std::uint8_t{ 0 });
+        });
+        return 0;
+    }
+
+    int __cdecl l_SetMeshDistanceBetweenNodes(lua_State* L)
+    {
+        std::uint32_t handle = 0;
+        Object layout, from, to;
+        if (!Active() || !Arg(L, 1, "SetMeshDistanceBetweenNodes", { Kind::Layout }, handle, layout))
+            return 0;
+        const std::uint64_t meshName = Name64(L, 2) & ID48_MASK, paramName = Name64(L, 3) & ID48_MASK;
+        const float translateScale = Num(L, 4), paramScale = Num(L, 5);
+        if ((Present(L, 6) && !Arg(L, 6, "SetMeshDistanceBetweenNodes", NODES, from))
+            || (Present(L, 7) && !Arg(L, 7, "SetMeshDistanceBetweenNodes", NODES, to)))
+            return 0;
+        if ((from.ptr && from.window != layout.window) || (to.ptr && to.window != layout.window))
+        {
+            LogWarnOnce("V_UixUtility.SetMeshDistanceBetweenNodes: the nodes must be in the layout's window");
+            return 0;
+        }
+        V4 mask{ { 1.0f, 0.0f, 1.0f, 0.0f } };   // the game's own default: x and z keep the mesh's translate
+        if (LuaType(L, 8) == LUA_T_TABLE)
+            for (int i = 0; i < 4; ++i)
+            {
+                LuaRawGetI(L, 8, i + 1);
+                mask.v[i] = Num(L, -1, mask.v[i]);
+                LuaPop(L, 1);
+            }
+        void* fromPtr = from.ptr;
+        void* toPtr = to.ptr;
+        Queue(handle, [meshName, paramName, translateScale, paramScale, mask, fromPtr, toPtr](const Object& l) {
+            V4 m = mask;
+            Call<void>(dev::SetNodeDistanceLine, l.ptr, meshName, paramName, translateScale, paramScale, &m.v[0], fromPtr, toPtr);
+        });
+        return 0;
+    }
+
     luaL_Reg g_VUixUtilityLib[] =
     {
         { "CreateWindow",                    l_CreateWindow },
         { "DestroyWindow",                   l_DestroyWindow },
         { "FindWindow",                      l_FindWindow },
+        { "SetWindowPage",                   l_SetWindowPage },
         { "GetWindows",                      l_GetWindows },
         { "GetChildWindowInterface",         l_GetChildWindowInterface },
         { "PostShowAndStartMessage",         l_PostShowAndStartMessage },
@@ -2467,12 +2770,12 @@ namespace
         { "PauseDrawScene",                  l_PauseDrawScene },
         { "SetButtonIconTextureByName",      l_SetButtonIconTextureByName },
         { "SetPlatformButtonTexture",        l_SetPlatformButtonTexture },
+        { "SetTextIcon",                     l_SetTextIcon },
         { "SetUvShift",                      l_SetUvShift },
         { "SetUvShiftBase",                  l_SetUvShiftBase },
         { "SetLineDraw",                     l_SetLineDraw },
         { "ResetLineDraw",                   l_ResetLineDraw },
         { "AddChildWindow",                  l_AddChildWindow },
-        { "PostTriggerMessage",              l_PostTriggerMessage },
         { "IsGamePauseMenu",                 l_IsGamePauseMenu },
         { "IsInDemo",                        l_IsInDemo },
         { "GetFocalLengthZoomRatio",         l_GetFocalLengthZoomRatio },
@@ -2484,6 +2787,39 @@ namespace
         { "GetSoundTypeId",                  l_GetSoundTypeId },
         { "StartSoundEvent",                 l_StartSoundEvent },
         { "StopSoundEvent",                  l_StopSoundEvent },
+
+        { "GetActivePadNo",                  l_GetActivePadNo },
+        { "IsDirButtonPress",                l_IsDirButtonPress },
+        { "IsDirButtonLong",                 l_IsDirButtonLong },
+        { "CheckIllegalDirButtonInput",      l_CheckIllegalDirButtonInput },
+        { "GetEnableDirButton",              l_GetEnableDirButton },
+        { "GetPrefabLayout",                 l_GetPrefabLayout },
+        { "GetPrefabLayoutFromParent",       l_GetPrefabLayoutFromParent },
+        { "SetColorRGBA",                    l_SetColorRGBA },
+        { "SetTextureNameByPathCode",        l_SetTextureNameByPathCode },
+        { "SetAutoScrollTextForModelNodeText", l_SetAutoScrollTextForModelNodeText },
+        { "UpdateAutoScrollText",            l_UpdateAutoScrollText },
+        { "SetMeshDistanceBetweenNodes",     l_SetMeshDistanceBetweenNodes },
+
+        { "AddIDroidMenuItem",               VUixUtilityIDroid::l_AddIDroidMenuItem },
+        { "RemoveIDroidMenuItem",            VUixUtilityIDroid::l_RemoveIDroidMenuItem },
+        { "OpenIDroidPage",                  VUixUtilityIDroid::l_OpenIDroidPage },
+        { "CloseIDroidPage",                 VUixUtilityIDroid::l_CloseIDroidPage },
+        { "IsIDroidPageOpen",                VUixUtilityIDroid::l_IsIDroidPageOpen },
+
+        { "SetupPrefabList",                 UixUtilityPrefabList::l_SetupPrefabList },
+        { "SetPrefabListRows",               UixUtilityPrefabList::l_SetPrefabListRows },
+        { "GetPrefabListCursor",             UixUtilityPrefabList::l_GetPrefabListCursor },
+        { "ClosePrefabList",                 UixUtilityPrefabList::l_ClosePrefabList },
+
+        { "CreateSubViewport",               UixUtilitySubViewport::l_CreateSubViewport },
+        { "DeleteSubViewport",               UixUtilitySubViewport::l_DeleteSubViewport },
+        { "IsSubViewportReady",              UixUtilitySubViewport::l_IsSubViewportReady },
+        { "SetSubViewportCamera",            UixUtilitySubViewport::l_SetSubViewportCamera },
+        { "SetSubViewportDraw",              UixUtilitySubViewport::l_SetSubViewportDraw },
+        { "SetSubViewportExposure",          UixUtilitySubViewport::l_SetSubViewportExposure },
+        { "GetMainViewportExposure",         UixUtilitySubViewport::l_GetMainViewportExposure },
+        { "SetSubViewportTexture",           UixUtilitySubViewport::l_SetSubViewportTexture },
         { nullptr, nullptr }
     };
 }

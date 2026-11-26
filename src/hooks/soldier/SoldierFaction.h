@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 struct SoldierFactionHiddenSight
@@ -18,11 +19,25 @@ enum class SoldierFactionBodyNode : std::uint8_t
 };
 
 void Set_SoldierFaction(std::uint32_t gameObjectId, const char* factionName);
+void Set_HeliFaction(std::uint32_t heliKey, const char* factionName);
+void SoldierFaction_RefreshHelis(void* flightController);
+bool SoldierFaction_IsEnemyHeliId(std::uint16_t gameObjectId);
+bool SoldierFaction_HasFaction(std::uint16_t gameObjectId);
+bool SoldierFaction_AreHostileIds(std::uint16_t gameObjectId, std::uint16_t otherGameObjectId);
+void SoldierFaction_OnHeliDamages(std::uint16_t heliId, void* damages, std::uint32_t count);
 void Clear_AllSoldierFactions();
+void SoldierFaction_SetModuleActive(bool active);
 
 bool SoldierFaction_AnyFaction();
+bool SoldierFaction_IsModuleActive();
 bool SoldierFaction_IsFactionSoldier(std::uint16_t gameObjectId);
 bool SoldierFaction_AreHostileSoldiers(std::uint16_t gameObjectId, std::uint16_t otherGameObjectId);
+bool SoldierFaction_ReadSoldierTarget(std::uint16_t soldierId, float* position, bool* standing, bool* riding);
+bool SoldierFaction_ReadHeliPoint(std::uint16_t heliId, float* position);
+std::uint32_t SoldierFaction_FactionHeliCount();
+std::uint16_t SoldierFaction_FactionHeliAt(std::uint32_t index);
+void SoldierFaction_SetGunOperator(std::uint16_t gunId, std::uint16_t soldierId);
+bool SoldierFaction_PushNotice(void* noticeController, std::uint32_t soldierIndex, std::uint8_t type, std::uint16_t targetId);
 
 void SoldierFaction_OnSightCheck(void* noticeController, std::uint32_t soldierIndex);
 void SoldierFaction_WidenBulletRequest(void* bullet3, std::uint32_t requestIndex);
@@ -42,12 +57,15 @@ void SoldierFaction_BeginShotScope(std::uint32_t shooterIndex, std::uint16_t riv
 void SoldierFaction_EndShotScope();
 std::uint32_t SoldierFaction_FilterSoldierSearch(std::uint8_t* result, std::uint32_t count);
 std::uint16_t SoldierFaction_RiderOrSelf(std::uint16_t gameObjectId);
+bool SoldierFaction_IsMountId(std::uint16_t gameObjectId);
+bool SoldierFaction_OnMountShot(std::uint16_t shooterId, std::uint16_t mountId, std::uint64_t targetGroups, bool vanillaHit);
 
 void SoldierFaction_HideDownedRivals(void* noticeController, std::uint32_t soldierIndex, void* bodyTable,
                                      SoldierFactionHiddenSight* hidden);
 void SoldierFaction_RestoreDownedRivals(SoldierFactionHiddenSight* hidden);
 bool SoldierFaction_ShouldDropNotice(void* noticeInterface, std::uint32_t soldierIndex, std::uint8_t noticeType,
                                      const void* notice);
+bool SoldierFaction_IsRivalNotice(std::uint32_t soldierIndex, std::uint8_t noticeType, const void* notice);
 std::uint32_t SoldierFaction_IgnoredNoticeCount();
 bool SoldierFaction_ShouldIgnoreNoise(void* noticeController, std::uint32_t soldierIndex, const void* noise);
 bool SoldierFaction_ShouldLeaveBody(void* node, std::uint32_t soldierIndex, void* const* context,

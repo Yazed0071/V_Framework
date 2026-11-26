@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CmdSyncMotherBaseOption_Pack.h"
 
 #include <Windows.h>
@@ -32,10 +32,6 @@ namespace
         0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
         0x48, 0x8D, 0xA8, 0x08, 0xF5, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0xD0, 0x0B, 0x00, 0x00
     };
-    const std::uint8_t kPrologue153[] = {
-        0x48, 0x89, 0xE0, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
-        0x48, 0x8D, 0xA8, 0x08, 0xF5, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0xD0, 0x0B, 0x00, 0x00
-    };
 
     struct PackTarget
     {
@@ -52,16 +48,7 @@ namespace
 
     PackTarget Target()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return { 0x145B05460ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return { 0x1474DA240ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return { 0x14080F7B0ull, kPrologue154, sizeof(kPrologue154) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return { 0x14080F800ull, kPrologue154, sizeof(kPrologue154) };
-        default:                                           return {};
-        }
+        return { gAddr.CmdSyncMotherBaseOption_Pack, kPrologue154, sizeof(kPrologue154) };
     }
 
     bool PrologueMatchesSEH(const void* fn, const PackTarget& target)
@@ -128,7 +115,7 @@ namespace
         if (self)
         {
             auto* bytes = static_cast<std::uint8_t*>(self);
-            ClearCustomRowBitsSEH(bytes, equip::FirstCustomFlowIndex());
+            ClearCustomRowBitsSEH(bytes, equip::TrueVanillaRowCount());
             staffServer::SectionTally tally;
             if (staffServer::TallyLiveRoster(tally) && tally.customAll != 0)
             {
@@ -162,10 +149,14 @@ bool Install_CmdSyncMotherBaseOption_Pack()
     }
 
     void* fn = ResolveGameAddress(target.addr);
-    if (!fn || !PrologueMatchesSEH(fn, target))
+    char entry[160] = {};
+    const bool matches = fn && PrologueMatchesSEH(fn, target);
+    const bool onTop   = fn && !matches && EntryHookedByOtherModule(fn);
+    if (!matches && !onTop)
     {
-        LogError("MbSyncGuard: CMD_SYNC_MOTHER_BASE pack prologue mismatch on %s, developed custom R&D rows reach the server",
-            GetGameBuildName(gGameBuild));
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogError("MbSyncGuard: CMD_SYNC_MOTHER_BASE pack prologue mismatch on %s (%s), developed custom R&D rows reach the server",
+            GetGameBuildName(gGameBuild), entry);
         return false;
     }
 
@@ -177,6 +168,11 @@ bool Install_CmdSyncMotherBaseOption_Pack()
         return false;
     }
 
+    if (onTop)
+    {
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogInfo("MbSyncGuard: CMD_SYNC_MOTHER_BASE pack already hooked (%s), guard installed on top", entry);
+    }
     g_Addr = fn;
     return true;
 }

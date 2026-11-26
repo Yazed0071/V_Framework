@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PlacedSystemImpl_RestorationPlace.h"
 
 #include <Windows.h>
@@ -28,29 +28,54 @@ namespace
     RestorationPlace_t g_Orig   = nullptr;
     void*              g_Target = nullptr;
 
-    void SwapPlacedCellsToEngineSEH(std::uint8_t* vars, PlacedSwap* swaps)
+    bool ReadPlacedCellsSEH(const std::uint8_t* vars, std::uint16_t* out)
+    {
+        __try
+        {
+            const auto* cells = reinterpret_cast<const std::uint16_t*>(vars + kVarsPlacedWeapons);
+            for (int i = 0; i < kPlacedCells; ++i)
+                out[i] = cells[i];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void WritePlacedCellsSEH(std::uint8_t* vars, const PlacedSwap* swaps)
     {
         __try
         {
             auto* cells = reinterpret_cast<std::uint16_t*>(vars + kVarsPlacedWeapons);
             for (int i = 0; i < kPlacedCells; ++i)
-            {
-                const std::uint16_t value = cells[i];
-                if (value == 0)
-                    continue;
-                const std::int32_t realId = equip::ResolveReal(value);
-                std::int32_t engineId = equip::ToEngine(realId);
-                if (engineId == kNoEquipId && realId != kNoEquipId)
-                    engineId = 0;
-                if (engineId == value)
-                    continue;
-                cells[i] = static_cast<std::uint16_t>(engineId);
-                swaps[i] = { true, static_cast<std::uint16_t>(realId), static_cast<std::uint16_t>(engineId) };
-            }
+                if (swaps[i].swapped)
+                    cells[i] = swaps[i].engineId;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
         }
+    }
+
+    void SwapPlacedCellsToEngine(std::uint8_t* vars, PlacedSwap* swaps)
+    {
+        std::uint16_t cells[kPlacedCells] = {};
+        if (!ReadPlacedCellsSEH(vars, cells))
+            return;
+        for (int i = 0; i < kPlacedCells; ++i)
+        {
+            const std::uint16_t value = cells[i];
+            if (value == 0)
+                continue;
+            const std::int32_t realId = equip::ResolveReal(value);
+            std::int32_t engineId = equip::ToEngine(realId);   // outside __try: it holds the lease lock while it binds an alias
+            if (engineId == kNoEquipId && realId != kNoEquipId)
+                engineId = 0;
+            if (engineId == value)
+                continue;
+            swaps[i] = { true, static_cast<std::uint16_t>(realId), static_cast<std::uint16_t>(engineId) };
+        }
+        WritePlacedCellsSEH(vars, swaps);
     }
 
     void RestorePlacedCellsSEH(std::uint8_t* vars, const PlacedSwap* swaps)
@@ -73,7 +98,7 @@ namespace
         GoneEquipCleanup::CleanVars(bytes);
         PlacedSwap swaps[kPlacedCells] = {};
         if (bytes)
-            SwapPlacedCellsToEngineSEH(bytes, swaps);
+            SwapPlacedCellsToEngine(bytes, swaps);
         g_Orig(placedSystem, vars);
         if (bytes)
             RestorePlacedCellsSEH(bytes, swaps);

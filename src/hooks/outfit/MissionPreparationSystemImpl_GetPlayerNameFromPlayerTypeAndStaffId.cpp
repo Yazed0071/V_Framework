@@ -1,8 +1,9 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "MissionPreparationSystemImpl_GetPlayerNameFromPlayerTypeAndStaffId.h"
 
 #include "OutfitRegistry.h"
+#include "../player/FobPlayerCharacters.h"
 
 #include <atomic>
 #include <cstdint>
@@ -28,6 +29,7 @@ namespace
 
     constexpr const char* kSnakeFallbackLangId = "name_chara_snake_e";
 
+    constexpr const char* kLiquidNameLangIds[] = { "marker_chara_eli" };
     constexpr const char* kOcelotNameLangIds[] = { "name_chara_ocelot_e" };
     constexpr const char* kQuietNameLangIds[]  = { "marker_chara_quiet",
                                                    "marker_quiet",
@@ -78,7 +80,12 @@ namespace
         const char* const* ids   = nullptr;
         std::size_t        count = 0;
 
-        if (playerType == outfit::kPlayerType_Ocelot)
+        if (playerType == fobchars::kPlayerType_Liquid)
+        {
+            ids   = kLiquidNameLangIds;
+            count = sizeof(kLiquidNameLangIds) / sizeof(kLiquidNameLangIds[0]);
+        }
+        else if (playerType == outfit::kPlayerType_Ocelot)
         {
             ids   = kOcelotNameLangIds;
             count = sizeof(kOcelotNameLangIds) / sizeof(kOcelotNameLangIds[0]);
@@ -116,8 +123,9 @@ namespace
         const char* vanilla = g_OrigGetPlayerName(self, playerType, staffId);
 
         if (!self
-            || !outfit::IsUniqueCharacterPlayerType(
-                   static_cast<std::uint8_t>(playerType)))
+            || (playerType != fobchars::kPlayerType_Liquid
+                && !outfit::IsUniqueCharacterPlayerType(
+                       static_cast<std::uint8_t>(playerType))))
             return vanilla;
 
         const char* fallback = LangText(kSnakeFallbackLangId);

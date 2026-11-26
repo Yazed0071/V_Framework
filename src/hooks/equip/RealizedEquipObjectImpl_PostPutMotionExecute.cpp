@@ -1,14 +1,17 @@
-#include "pch.h"
+#include <pch.h>
 #include "RealizedEquipObjectImpl_PostPutMotionExecute.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <initializer_list>
 #include <mutex>
+#include <vector>
 
 #include "AddressSet.h"
 #include "FoxHashes.h"
 #include "HookUtils.h"
+#include "NativeCallPatch.h"
 #include "log.h"
 
 namespace
@@ -46,13 +49,8 @@ namespace
     std::uint8_t*     g_Table = nullptr;
     std::uint8_t*     g_Tramp = nullptr;
 
-    struct PatchedSite
-    {
-        std::uint8_t* site = nullptr;
-        std::uint8_t  orig[kSiteLength] = {};
-    };
-    PatchedSite g_Sites[3];
-    int         g_SiteCount = 0;
+    constexpr std::size_t kJumpLength = 5;
+    NativeCodePatch g_SitePatches[3] = {};
 
     std::atomic<bool> g_ArmTried{ false };
     bool ArmPartMotionRows();
@@ -198,17 +196,6 @@ namespace
         return nullptr;
     }
 
-    bool WriteCode(void* dst, const void* src, std::size_t n)
-    {
-        DWORD old = 0;
-        if (!VirtualProtect(dst, n, PAGE_EXECUTE_READWRITE, &old))
-            return false;
-        std::memcpy(dst, src, n);
-        VirtualProtect(dst, n, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), dst, n);
-        return true;
-    }
-
     bool InRel32Range(std::uintptr_t from, std::uintptr_t to)
     {
         const std::int64_t d = static_cast<std::int64_t>(to)
@@ -296,15 +283,23 @@ namespace
     constexpr std::uint32_t kTableMotionsPtr = 0x670;
     constexpr std::uint32_t kTablePosesPtr   = 0x678;
     constexpr std::uint32_t kTableMtarsPtr   = 0x680;
+    constexpr std::uint32_t kTableRowMotions = 0x688;   // per receiver row: 4 motion indices, 4 pose indices, 2 casing flags
+    constexpr std::uint32_t kTableRowPoses   = 0xA2C;
+    constexpr std::uint32_t kTableRowFlags   = 0xEB9;
+    constexpr int           kNativeRows      = kPartMotionRowReceiver - 1;
     constexpr std::size_t   kNativeRowStride = 12;
     constexpr std::size_t   kNativeRowCap    = 255;
     constexpr std::size_t   kNativeSlackMax  = 8;
     constexpr std::uint32_t kDegToRadBits    = 0x3C8EFA35;
+    constexpr std::uint8_t  kAxisXRot        = 1;
+    constexpr std::uint8_t  kAxisZRot        = 2;
+    constexpr float         kFullTurn        = 6.2831853f;
 
     struct NativeRowList
     {
-        std::uint8_t* buffer = nullptr;
-        std::size_t   used   = 0;
+        std::uint8_t* buffer     = nullptr;
+        std::size_t   used       = 0;
+        std::uint32_t generation = 0;
     };
     NativeRowList g_NativeMotions;
     NativeRowList g_NativePoses;
@@ -397,7 +392,21 @@ namespace
             return false;
         }
         list.used = span;
+        ++list.generation;
         return true;
+    }
+
+    bool AdoptNativeListsLocked(std::uint8_t* table)
+    {
+        return AdoptNativeList(g_NativeMotions, table, kTableMotionsPtr, kTablePosesPtr, "motion")
+            && AdoptNativeList(g_NativePoses, table, kTablePosesPtr, kTableMtarsPtr, "pose");
+    }
+
+    std::uint8_t* MotionTable()
+    {
+        if (!gAddr.Equip_MotionEntryTable)
+            return nullptr;
+        return static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Equip_MotionEntryTable));
     }
 
     std::uint16_t AppendNativeRow(NativeRowList& list, const ReceiverPartMotionRow& row, bool pose)
@@ -408,7 +417,7 @@ namespace
                 pose ? "pose" : "motion", kNativeRowCap, row.bone.c_str());
             return 0;
         }
-        const bool rotation = row.axis == 1 || row.axis == 2;
+        const bool rotation = row.axis == kAxisXRot || row.axis == kAxisZRot;
         const std::uint32_t hash = FoxHashes::StrCode32(row.bone);
         const float value = static_cast<float>(row.value) * (rotation ? DegToRad() : 1.0f);
         std::uint8_t* r = list.buffer + list.used;
@@ -435,15 +444,12 @@ namespace
 
 bool PartMotionRows_AppendNativeRows(const ReceiverPartMotion& motion, ReceiverPartRowIndices& out)
 {
-    if (!gAddr.Equip_MotionEntryTable)
-        return false;
-    auto* table = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Equip_MotionEntryTable));
+    std::uint8_t* table = MotionTable();
     if (!table)
         return false;
 
     std::lock_guard<std::mutex> lock(g_Mutex);
-    if (!AdoptNativeList(g_NativeMotions, table, kTableMotionsPtr, kTablePosesPtr, "motion")
-        || !AdoptNativeList(g_NativePoses, table, kTablePosesPtr, kTableMtarsPtr, "pose"))
+    if (!AdoptNativeListsLocked(table))
         return false;
 
     ReceiverPartRowIndices idx;
@@ -471,6 +477,158 @@ bool PartMotionRows_AppendNativeRows(const ReceiverPartMotion& motion, ReceiverP
     }
     out = idx;
     return true;
+}
+
+namespace
+{
+    const char* const kCylinderBones[] = {
+        "SKL_001_CYLINDER", "SKL_002_CYLINDER", "SKL_003_CYLINDER", "SKL_004_CYLINDER",
+        "SKL_005_CYLINDER", "SKL_006_CYLINDER", "WEAPON_CYLINDER", "CYLINDER" };
+
+    struct CylinderCopy
+    {
+        std::uint16_t source;
+        std::uint32_t turnBits;
+        std::uint16_t copy;
+    };
+    std::vector<CylinderCopy> g_CylinderCopies;
+    std::uint32_t             g_CylinderCopiesGeneration = 0;
+
+    bool IsCylinderBone(std::uint32_t hash)
+    {
+        static const std::vector<std::uint32_t> hashes = [] {
+            std::vector<std::uint32_t> out;
+            for (const char* name : kCylinderBones)
+                out.push_back(FoxHashes::StrCode32(name));
+            return out;
+        }();
+        for (const std::uint32_t h : hashes)
+            if (h == hash)
+                return true;
+        return false;
+    }
+
+    bool ReadMotionRowLocked(std::uint8_t* table, std::uint16_t index, std::uint8_t (&out)[kNativeRowStride])
+    {
+        std::uintptr_t list = 0;
+        if (index == 0 || !ReadPointerSEH(table + kTableMotionsPtr, &list) || !list)
+            return false;
+        std::size_t used = 0;
+        std::uintptr_t next = 0;
+        if (list == reinterpret_cast<std::uintptr_t>(g_NativeMotions.buffer))
+            used = g_NativeMotions.used;
+        else if (ReadPointerSEH(table + kTablePosesPtr, &next) && next > list)
+            used = static_cast<std::size_t>(next - list);
+        if (used > kNativeRowCap * kNativeRowStride || static_cast<std::size_t>(index) * kNativeRowStride > used)
+            return false;
+        return CopyBytesSEH(out, reinterpret_cast<const void*>(list + (static_cast<std::size_t>(index) - 1) * kNativeRowStride),
+                            kNativeRowStride);
+    }
+
+    bool SpinsCylinder(const std::uint8_t (&row)[kNativeRowStride])
+    {
+        std::uint32_t hash = 0;
+        std::memcpy(&hash, row, sizeof(hash));
+        return (row[10] == kAxisXRot || row[10] == kAxisZRot) && IsCylinderBone(hash);
+    }
+
+    std::uint16_t CylinderCopyLocked(std::uint16_t source, const std::uint8_t (&row)[kNativeRowStride], float turn)
+    {
+        if (g_CylinderCopiesGeneration != g_NativeMotions.generation)
+        {
+            g_CylinderCopies.clear();
+            g_CylinderCopiesGeneration = g_NativeMotions.generation;
+        }
+        std::uint32_t turnBits = 0;
+        std::memcpy(&turnBits, &turn, sizeof(turnBits));
+        for (const CylinderCopy& c : g_CylinderCopies)
+            if (c.source == source && c.turnBits == turnBits)
+                return c.copy;
+
+        if (g_NativeMotions.used + kNativeRowStride > kNativeRowCap * kNativeRowStride)
+        {
+            static bool warned = false;
+            if (!warned)
+            {
+                warned = true;
+                LogWarn("PartMotionRows: motion list full (%zu rows), revolver cylinders keep their receiver's turn", kNativeRowCap);
+            }
+            return 0;
+        }
+        std::uint8_t* copy = g_NativeMotions.buffer + g_NativeMotions.used;
+        std::memcpy(copy, row, kNativeRowStride);
+        std::memcpy(copy + 4, &turn, sizeof(turn));
+        g_NativeMotions.used += kNativeRowStride;
+        const auto index = static_cast<std::uint16_t>(g_NativeMotions.used / kNativeRowStride);
+        g_CylinderCopies.push_back({ source, turnBits, index });
+        return index;
+    }
+}
+
+bool PartMotionRows_ReadNativeRow(int row, ReceiverPartRowIndices& out)
+{
+    out = {};
+    std::uint8_t* table = MotionTable();
+    if (row < 1 || row > kNativeRows || !table)
+        return false;
+    const std::size_t at = static_cast<std::size_t>(row - 1);
+    std::uint8_t motion[4] = {};
+    std::uint8_t pose[4] = {};
+    if (!CopyBytesSEH(motion, table + kTableRowMotions + at * 4, sizeof(motion))
+        || !CopyBytesSEH(pose, table + kTableRowPoses + at * 4, sizeof(pose))
+        || !CopyBytesSEH(out.flags, table + kTableRowFlags + at * 2, sizeof(out.flags)))
+        return false;
+    for (int i = 0; i < 4; ++i)
+    {
+        out.motion[i] = motion[i];
+        out.pose[i] = pose[i];
+    }
+    out.present = true;
+    return true;
+}
+
+bool PartMotionRows_TurnsCylinder(const ReceiverPartRowIndices& row)
+{
+    std::uint8_t* table = MotionTable();
+    if (!table)
+        return false;
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    for (const std::uint16_t index : row.motion)
+    {
+        std::uint8_t motion[kNativeRowStride];
+        if (ReadMotionRowLocked(table, index, motion) && SpinsCylinder(motion))
+            return true;
+    }
+    return false;
+}
+
+bool PartMotionRows_FitCylinderToChambers(ReceiverPartRowIndices& row, unsigned int chambers)
+{
+    std::uint8_t* table = MotionTable();
+    if (chambers < 2 || !table)
+        return false;
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    if (!AdoptNativeListsLocked(table))
+        return false;
+    const float step = kFullTurn / static_cast<float>(chambers);
+    bool changed = false;
+    for (std::uint16_t& index : row.motion)
+    {
+        std::uint8_t motion[kNativeRowStride];
+        if (!ReadMotionRowLocked(table, index, motion) || !SpinsCylinder(motion))
+            continue;
+        float turn = 0.0f;
+        std::memcpy(&turn, motion + 4, sizeof(turn));
+        const float wanted = turn < 0.0f ? -step : step;
+        if (std::fabs(turn - wanted) < 1e-4f)
+            continue;
+        if (const std::uint16_t copy = CylinderCopyLocked(index, motion, wanted))
+        {
+            index = copy;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 namespace
@@ -617,29 +775,41 @@ namespace
 
     for (int i = 0; i < 3; ++i)
     {
-        std::uint8_t patch[kSiteLength];
-        std::memset(patch, 0x90, sizeof(patch));
-        patch[0] = 0xE9;
+        NativeCodePatch& patch = g_SitePatches[i];
+        patch = {};
+        patch.target = specs[i].site;
+        patch.size = kJumpLength; // only the jump is written, the trampoline replays the whole 9-byte site
+        std::memcpy(patch.expected, specs[i].vanilla, kJumpLength);
+        patch.replacement[0] = 0xE9;
         const std::int32_t rel = static_cast<std::int32_t>(
             reinterpret_cast<std::int64_t>(entries[i])
             - (reinterpret_cast<std::int64_t>(specs[i].site) + 5));
-        std::memcpy(patch + 1, &rel, 4);
+        std::memcpy(patch.replacement + 1, &rel, 4);
+    }
 
-        std::memcpy(g_Sites[i].orig, specs[i].site, kSiteLength);
-        g_Sites[i].site = specs[i].site;
-        if (!WriteCode(specs[i].site, patch, kSiteLength))
+    bool installed = false;
+    for (int attempt = 0; attempt < 50 && !installed; ++attempt)
+    {
+        installed = InstallNativeCodePatches(g_SitePatches, 3);
+        if (!installed)
         {
-            for (int k = 0; k < i; ++k)
-                WriteCode(g_Sites[k].site, g_Sites[k].orig, kSiteLength);
+            if (!NativePatchErrorIsTransient(GetLastError()))
+                break;
+            Sleep(4);
+        }
+    }
+    if (!installed)
+    {
+        LogError("PartMotionRows: site patch refused (%s), custom slide/bolt motion off",
+            NativePatchErrorName(GetLastError()));
+        if (!g_SitePatches[0].installed && !g_SitePatches[1].installed && !g_SitePatches[2].installed)
+        {
             VirtualFree(g_Tramp, 0, MEM_RELEASE);
             VirtualFree(g_Table, 0, MEM_RELEASE);
             g_Tramp = nullptr;
             g_Table = nullptr;
-            g_SiteCount = 0;
-            LogError("PartMotionRows: site %d code write failed, custom slide/bolt motion off", i);
-            return false;
         }
-        ++g_SiteCount;
+        return false;
     }
 
     g_Active.store(true, std::memory_order_release);
@@ -656,9 +826,23 @@ void PartMotionRows_Uninstall()
 {
     if (!g_Active.exchange(false, std::memory_order_acq_rel))
         return;
-    for (int i = 0; i < g_SiteCount; ++i)
-        WriteCode(g_Sites[i].site, g_Sites[i].orig, kSiteLength);
-    g_SiteCount = 0;
+    bool removed = false;
+    for (int attempt = 0; attempt < 50 && !removed; ++attempt)
+    {
+        removed = RemoveNativeCodePatches(g_SitePatches, 3);
+        if (!removed)
+        {
+            if (!NativePatchErrorIsTransient(GetLastError()))
+                break;
+            Sleep(4);
+        }
+    }
+    if (!removed)
+    {
+        LogError("PartMotionRows: site restore refused (%s), trampoline stays allocated",
+            NativePatchErrorName(GetLastError()));
+        return;
+    }
     if (g_Tramp)
     {
         VirtualFree(g_Tramp, 0, MEM_RELEASE);

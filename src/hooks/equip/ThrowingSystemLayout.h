@@ -32,9 +32,26 @@ namespace ThrowingSystemLayout
     constexpr std::size_t kRecordFlags2       = 0x20;
 
     constexpr std::size_t kImplFirstHandle    = 0x54;
+    constexpr std::size_t kImplOffenseData    = 0x68;    // 0x50 per local item, what a hit hands to whoever it hits
     constexpr std::size_t kImplVelocities     = 0x98;    // f32x4 per local item
+    constexpr std::size_t kImplLastHitIds     = 0xD0;    // u16 per local item, the last object it hit
+    constexpr std::size_t kImplPhysics        = 0x108;   // 8 bytes per local item
     constexpr std::size_t kImplEquipIds       = 0x120;   // u16 equipId + u16 owner per local item
     constexpr std::size_t kImplRecords        = 0x128;
+    constexpr std::size_t kImplEquipIdTable   = 0x168;   // +8 = the equip id table
+
+    constexpr std::size_t kOffenseDataSize        = 0x50;
+    constexpr std::size_t kOffenseAttackId        = 0x28;
+    constexpr std::size_t kOffenseFlags           = 0x2E;
+    constexpr std::uint8_t kOffenseMagazineHit    = 0x40;
+
+    constexpr std::size_t kPhysicsSize            = 8;
+    constexpr std::size_t kPhysicsRadius          = 0x0;   // f32
+    constexpr std::size_t kPhysicsBounce          = 0x4;   // u8, x 1/250
+    constexpr std::size_t kPhysicsFriction        = 0x5;   // u8, x 1/250
+    constexpr std::size_t kPhysicsRollingFriction = 0x6;   // u16, x 1/100
+
+    constexpr std::size_t kRecordHitIgnoreId  = 0x18;
 
     constexpr std::uint32_t kFlagAlive        = 0x1;
     constexpr std::uint32_t kFlagsStopped     = 0x3000;
@@ -136,5 +153,10 @@ namespace ThrowingSystemLayout
     inline std::uint16_t ImplRealEquipId(const std::uint8_t* impl, std::uint32_t localIndex)
     {
         return static_cast<std::uint16_t>(equip::FromEngine(ImplEquipId(impl, localIndex)));
+    }
+
+    inline std::uint16_t LastHitId(const std::uint8_t* impl, std::uint32_t localIndex)
+    {
+        return Read<std::uint16_t>(Read<const std::uint8_t*>(impl, kImplLastHitIds), localIndex * sizeof(std::uint16_t));
     }
 }

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CustomizeControllerImpl_SetSubWeaponAmmo_Hooks();
+void Uninstall_CustomizeControllerImpl_SetSubWeaponAmmo_Hooks();

@@ -1,7 +1,6 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
-#include <array>
 #include <cstdint>
 
 #include "AddressSet.h"
@@ -16,20 +15,7 @@ namespace
                                                      const float* start, const float* aim, const float* direction,
                                                      float length, void* context);
 
-    constexpr std::uint32_t kSoldierSlotCount = 0x200u;
-
     HasOtherSoldierOnVec_t g_OrigHasOtherSoldierOnVec = nullptr;
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedFiring{};
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedBlocked{};
-
-    void LogOncePerRival(std::array<std::uint16_t, kSoldierSlotCount>& logged, std::uint32_t soldierIndex,
-                         std::uint16_t rivalId, const char* what)
-    {
-        if (soldierIndex >= kSoldierSlotCount || logged[soldierIndex] == rivalId)
-            return;
-        logged[soldierIndex] = rivalId;
-        LogInfo("SoldierFaction: soldier %u %s rival %u from walker gear", soldierIndex, what, rivalId & 0x1FFu);
-    }
 
     bool __fastcall hk_HasOtherSoldierOnVec(void* self, std::uint32_t soldierIndex, void* work,
                                             const float* start, const float* aim, const float* direction,
@@ -46,12 +32,8 @@ namespace
         SoldierFaction_EndShotScope();
 
         if (blocked)
-        {
-            LogOncePerRival(g_loggedBlocked, soldierIndex, rivalId, "has a comrade in the line of fire at");
             return true;
-        }
         SoldierFaction_MarkFiring(soldierIndex);
-        LogOncePerRival(g_loggedFiring, soldierIndex, rivalId, "is firing at");
         return false;
     }
 }

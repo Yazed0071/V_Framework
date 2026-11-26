@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MbDvcMapCallbackControlImpl_RendezvousOperation_Hook();
+void Uninstall_MbDvcMapCallbackControlImpl_RendezvousOperation_Hook();

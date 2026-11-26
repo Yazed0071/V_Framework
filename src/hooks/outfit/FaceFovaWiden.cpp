@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "FaceFovaWiden.h"
 
@@ -67,7 +67,7 @@ namespace outfit
         std::array<NativeCallPatch, 11> g_Readers{};
 
         using DefinitionWriter = int(__fastcall*)(void*, lua_State*);
-        using FileTableWriter = void(__fastcall*)(void*, lua_State*);
+        using FileTableWriter = int(__fastcall*)(void*, lua_State*);
         DefinitionWriter g_DefinitionWriter = nullptr;
         FileTableWriter g_FileTableWriter = nullptr;
 
@@ -380,13 +380,10 @@ namespace outfit
             return true;
         }
 
-        void __fastcall WriteFileTable(void* object, lua_State* state)
+        int __fastcall WriteFileTable(void* object, lua_State* state)
         {
             if (!NativeRegistrationReady())
-            {
-                g_FileTableWriter(object, state);
-                return;
-            }
+                return g_FileTableWriter(object, state);
             const auto impl = static_cast<const std::uint8_t*>(object);
             if (!g_FileGuardSeen.load(std::memory_order_acquire)
                 && *reinterpret_cast<void* const*>(impl + 0x88))
@@ -394,10 +391,10 @@ namespace outfit
             if (!LuaAvailable() || !CheckFileTable(object, state))
             {
                 LogWarn("FaceFova: file table update not applied");
-                return;
+                return 0;
             }
             g_FileGuardSeen.store(true, std::memory_order_release);
-            g_FileTableWriter(object, state);
+            return g_FileTableWriter(object, state);
         }
 
         enum Register : unsigned
@@ -686,17 +683,7 @@ namespace outfit
                 return false;
             const auto& signature = signatures[index];
             const auto bytes = static_cast<const std::uint8_t*>(address) - signature.size;
-            auto expected = signature.hash;
-            if (gGameBuild == AddressSetRuntime::GameBuild::En_1_0_15_3
-                || gGameBuild == AddressSetRuntime::GameBuild::Jp_1_0_15_3)
-            {
-                if (index == 3 || index == 5)
-                    expected = 0xdfced5dcf8575952ull;
-                else if (index == 4 || index == 6)
-                    expected = 0x53a61617bf1671c4ull;
-                else if (index == 9)
-                    expected = 0xba510eccbc03b0b1ull;
-            }
+            const auto expected = signature.hash;
             __try
             {
                 std::uint64_t hash = 14695981039346656037ull;
@@ -832,12 +819,17 @@ namespace outfit
         };
         auto definitionTarget = ResolveGameAddress(gAddr.FaceFova_SetDefinitionTableImpl);
         auto fileTarget = ResolveGameAddress(gAddr.FaceFova_SetFileTableImpl);
-        if (!Matches(definitionTarget, definitionHead, sizeof(definitionHead))
-            || !Matches(fileTarget, fileHead, sizeof(fileHead)) || !LuaAvailable())
+        const HookEntry definitionEntry = CheckHookEntry(definitionTarget, definitionHead, sizeof(definitionHead));
+        const HookEntry fileEntry = CheckHookEntry(fileTarget, fileHead, sizeof(fileHead));
+        if (definitionEntry == HookEntry::Unknown || fileEntry == HookEntry::Unknown || !LuaAvailable())
         {
             LogError("FaceFova: registration code does not match this build, face index widening off");
             return false;
         }
+        if (definitionEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("FaceFova: FaceFova_SetDefinitionTableImpl", definitionTarget);
+        if (fileEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("FaceFova: FaceFova_SetFileTableImpl", fileTarget);
         const bool assetsAlreadyLoaded = FaceAssetsAlreadyLoaded();
         for (std::size_t i = 0; i < std::size(readers); ++i)
         {
@@ -868,13 +860,13 @@ namespace outfit
             g_Ready.store(kActive, std::memory_order_release);
             return true;
         }
-        if (MH_CreateHook(definitionTarget, &WriteDefinitions,
+        if (CreateHookTracked(definitionTarget, &WriteDefinitions,
                           reinterpret_cast<void**>(&g_DefinitionWriter)) != MH_OK)
         {
             LogError("FaceFova: SetDefinitionTable hook failed, face index widening off");
             return false;
         }
-        if (MH_CreateHook(fileTarget, &WriteFileTable,
+        if (CreateHookTracked(fileTarget, &WriteFileTable,
                           reinterpret_cast<void**>(&g_FileTableWriter)) != MH_OK)
         {
             MH_RemoveHook(definitionTarget);

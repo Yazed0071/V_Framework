@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PartIdWiden.h"
 
 #include <Windows.h>
@@ -259,23 +259,18 @@ namespace
     }
 }
 
-PartIdWidenReadGuard::PartIdWidenReadGuard() noexcept
+bool PartIdWiden_BeginRead()
 {
     if (g_ReadDepth == 0)
         AcquireSRWLockShared(&g_UseLock);
     ++g_ReadDepth;
-    usable = !g_Poisoned.load(std::memory_order_acquire);
+    return !g_Poisoned.load(std::memory_order_acquire);
 }
 
-PartIdWidenReadGuard::~PartIdWidenReadGuard() noexcept
+void PartIdWiden_EndRead()
 {
     if (--g_ReadDepth == 0)
         ReleaseSRWLockShared(&g_UseLock);
-}
-
-PartIdWidenReadGuard::operator bool() const noexcept
-{
-    return usable;
 }
 
 bool PartIdWiden_Plan()

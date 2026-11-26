@@ -9,11 +9,7 @@ namespace outfit
 
     bool TryResolveLocalPlayerStaffFace(std::uint16_t nativeFaceId, std::uint16_t& visualFaceId);
 
-    void* EnterOwnRosterPortraitContext(void* staffController);
-
-    void LeaveOwnRosterPortraitContext(void* previous);
-
-    bool IsLocalPlayerWearingCustomFace(std::uint16_t& customFaceId);
+    bool IsLocalPlayerFaceIdCustom(std::uint16_t& customFaceId);
 
     void PollStaffFaceHeal(std::uint32_t missionCode);
 

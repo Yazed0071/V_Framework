@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipDevelopControllerImpl_IsDisplayableBluePrintIDContion.h"
 
 #include <Windows.h>
@@ -36,9 +36,6 @@ namespace
     const std::uint8_t kIsDisplayablePrologue154[] = {
         0xB8, 0xFF, 0xFF, 0x00, 0x00, 0x66, 0x3B, 0xD0
     };
-    const std::uint8_t kIsDisplayablePrologue153[] = {
-        0xB8, 0xFF, 0xFF, 0x00, 0x00, 0x66, 0x39, 0xC2
-    };
     const std::uint8_t kConditionCountPrologue[] = {
         0x0F, 0xB7, 0xD2, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x41, 0xB0, 0x01
     };
@@ -46,9 +43,6 @@ namespace
         0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x7C, 0x24, 0x20,
         0x41, 0x56, 0x48, 0x83, 0xEC, 0x30
     };
-
-    static_assert(sizeof(kIsDisplayablePrologue154) == sizeof(kIsDisplayablePrologue153),
-                  "both IsDisplayableBluePrintIDContion prologues share one length");
 
     struct BuildTargets
     {
@@ -78,37 +72,8 @@ namespace
 
     bool SelectBuildTargets(BuildTargets& out)
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-            out = { 0x140F6CC70ull, 0x140F67C80ull, 0x140F670C0ull, kIsDisplayablePrologue154 };
-            return true;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-            out = { 0x140F6CCD0ull, 0x140F67CE0ull, 0x140F67120ull, kIsDisplayablePrologue154 };
-            return true;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            out = { 0x14951ECA0ull, 0x149506670ull, 0x140F67850ull, kIsDisplayablePrologue153 };
-            return true;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            out = { 0x149F38AE0ull, 0x149F1F2D0ull, 0x140F67950ull, kIsDisplayablePrologue153 };
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn, const std::uint8_t* expected, std::size_t size)
-    {
-        __try
-        {
-            return std::memcmp(fn, expected, size) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        out = { gAddr.EquipDevelopControllerImpl_IsDisplayableBluePrintIDContion, gAddr.EquipDevelopControllerImpl_BluePrintConditionCount, gAddr.EquipDevelopControllerImpl_BluePrintConditionMsgIds, kIsDisplayablePrologue154 };
+        return true;
     }
 
     const std::uint8_t* RowRecord(const void* base20, std::uint16_t row)
@@ -248,7 +213,8 @@ namespace equip
         for (std::size_t i = 0; i < kHookCount; ++i)
         {
             void* fn = ResolveGameAddress(hooks[i].address);
-            if (!fn || !PrologueMatchesSEH(fn, hooks[i].prologue, hooks[i].prologueSize))
+            const HookEntry entry = CheckHookEntry(fn, hooks[i].prologue, hooks[i].prologueSize);
+            if (entry == HookEntry::Unknown)
             {
                 LogError("DevelopBluePrint: %s prologue mismatch on %s, custom blueprints not listed as R&D requirements",
                     hooks[i].name, GetGameBuildName(gGameBuild));
@@ -263,6 +229,12 @@ namespace equip
                 return false;
             }
             g_HookedTargets[i] = fn;
+            if (entry == HookEntry::ForeignHook)
+            {
+                char what[96] = {};
+                snprintf(what, sizeof(what), "DevelopBluePrint: %s", hooks[i].name);
+                LogHookedOnTop(what, fn);
+            }
         }
         return true;
     }

@@ -1,6 +1,7 @@
-#include "pch.h"
+#include <pch.h>
 #include "UixUtilityControl.h"
 #include "UiPadLock.h"
+#include "WindowLayoutCount.h"
 
 #include <Windows.h>
 #include <atomic>
@@ -18,6 +19,8 @@
 #include "HeadMarkMarkerEvCall_SetIconSubType.h"
 #include "HookUtils.h"
 #include "../../lua/FrameCallbacks.h"
+#include "../../lua/WindowPages.h"
+#include "MbDvcManageEv_CustomPage.h"
 #include "MissionCodeGuard.h"
 #include "log.h"
 
@@ -46,7 +49,6 @@ namespace
         std::uintptr_t deleteDestroyedWindows;
         std::uintptr_t objCreateCommon;
         std::uintptr_t entityPtrSet;
-        // GetMarkers / GetMarkerPosition / GetNodeScreenPosition; zero = not ported to this build yet
         std::uintptr_t cameraViewMatrix;
         std::uintptr_t projectionMatrix;
         std::uintptr_t focalLengthZoomRatio;
@@ -56,158 +58,67 @@ namespace
         std::uintptr_t zoomRaise;
         std::uintptr_t screenMargin;
         std::uintptr_t getUiUtility;
-        // UiFunction, in enum order; zero = not ported to this build yet
+        std::uintptr_t blockUnload;
+        std::uintptr_t blockDeactivate;
         std::uintptr_t functions[static_cast<int>(UiFunction::Count)];
     };
 
     UiAddrs AddrsForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return {
-                0x141DF5A40ull, // fox::ui::WindowManager::UpdateLayouts
-                0x141DEF6D0ull, // fox::ui::WindowDaemon::GetWindowManager
-                0x141DABE90ull, // fox::ui::WindowFunction::DestroyWindow
-                0x141DABD50ull, // fox::ui::WindowFunction::CreateWindow
-                0x141DBF3E0ull, // fox::ui::Animation::GetTimeLength
-                0x141DB6800ull, // fox::ui::ModelNodeText::SetFontGroup
-                0x14091B8E0ull, // tpp::ui::utility::StartSound
-                0x141DCA2D0ull, // fox::ui::SoundControl::Stop
-                0x142C8FAD8ull, // the SoundControl the UI graphs play through
-                0x1400241F0ull, // fox::LwRWLockSection::LockShared
-                0x1400243F0ull, // fox::LwRWLockSection::Unlock
-                0x142B64238ull, // g_blockGroupsLock
-                0x1429E3CA0ull, // first entry of the block group map
-                0x1429E3CB8ull, // block group map nodes
-                0x1429E3CC0ull, // block group map values
-                0x141DACF80ull, // fox::ui::LayoutUtility::DisconnectComponent
-                0x141DF55F0ull, // fox::ui::WindowManager::DeleteDestroyedWindows
-                0x141DA9980ull, // fox::ui::ObjControl::CreateCommon
-                0x1400B31F0ull, // fox::impl::EntityPtrBase::Set
-                0x1409122B0ull, // tpp::ui::utility::GetGameCameraViewMatrix
-                0x140913C00ull, // tpp::ui::utility::GetProjectionMatrix
-                0x140912100ull, // tpp::ui::utility::GetFocalLengthZoomRatio
-                0x140916A90ull, // tpp::ui::utility::IsOutsideScreen
-                0x140866910ull, // tpp::ui::hud::CommonDataManager::GetInstance
-                0x140914F80ull, // tpp::ui::utility::GetViewport
-                0x1420A8068ull, // how far head markers rise per unit of zoom
-                0x1421079D4ull, // the screen margin head markers use
-                0x14093A480ull, // tpp::ui::utility::GetUiUtility
-                {
-                    0x140917730ull, // tpp::ui::utility::SetButtonIconTextureByName
-                    0x140917AC0ull, // tpp::ui::utility::SetPlatformButtonTexture
-                    0x140915DE0ull, // tpp::ui::utility::IsGamePauseMenu
-                    0x140915E40ull, // tpp::ui::utility::IsInDemo
-                    0x140912330ull, // tpp::ui::utility::GetIconFtexPath
-                    0x140915130ull, // tpp::ui::utility::GetWeaponItemNameLangId
-                    0x14091BA10ull, // tpp::ui::utility::StopSound
-                    0x140913FC0ull, // tpp::ui::utility::GetSoundTypeId
-                    0x141DBF830ull, // fox::ui::Animation::Pause
-                    0x141DBF390ull, // fox::ui::Animation::ForceLoop
-                    0x141DBFE80ull, // fox::ui::Animation::UnsetForceLoop
-                    0x141DABC40ull, // fox::ui::WindowFunction::AddChildWindow
-                    0x141DAC340ull, // fox::ui::WindowFunction::PostTriggerMessage
-                },
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            return {
-                0x141DF5A10ull, // fox::ui::WindowManager::UpdateLayouts
-                0x141DEF6C0ull, // fox::ui::WindowDaemon::GetWindowManager
-                0x141DABD70ull, // fox::ui::WindowFunction::DestroyWindow
-                0x141DABC30ull, // fox::ui::WindowFunction::CreateWindow
-                0x141DBF440ull, // fox::ui::Animation::GetTimeLength
-                0x141DB6870ull, // fox::ui::ModelNodeText::SetFontGroup
-                0x14091B7C0ull, // tpp::ui::utility::StartSound
-                0x141DCA330ull, // fox::ui::SoundControl::Stop
-                0x142C8FAD8ull, // the SoundControl the UI graphs play through
-                0x140024240ull, // fox::LwRWLockSection::LockShared
-                0x140024440ull, // fox::LwRWLockSection::Unlock
-                0x142B64238ull, // g_blockGroupsLock
-                0x1429E3CA0ull, // first entry of the block group map
-                0x1429E3CB8ull, // block group map nodes
-                0x1429E3CC0ull, // block group map values
-                0x141DACFC0ull, // fox::ui::LayoutUtility::DisconnectComponent
-                0x141DF55C0ull, // fox::ui::WindowManager::DeleteDestroyedWindows
-                0x141DA9860ull, // fox::ui::ObjControl::CreateCommon
-                0x1400B3510ull, // fox::impl::EntityPtrBase::Set
-                0x140912190ull, // tpp::ui::utility::GetGameCameraViewMatrix
-                0x140913AE0ull, // tpp::ui::utility::GetProjectionMatrix
-                0x140911FE0ull, // tpp::ui::utility::GetFocalLengthZoomRatio
-                0x140916970ull, // tpp::ui::utility::IsOutsideScreen
-                0x1408669B0ull, // tpp::ui::hud::CommonDataManager::GetInstance
-                0x140914E60ull, // tpp::ui::utility::GetViewport
-                0x1420A8068ull, // how far head markers rise per unit of zoom
-                0x1421079D4ull, // the screen margin head markers use
-                0x14093A360ull, // tpp::ui::utility::GetUiUtility
-                {
-                    0x140917610ull, // tpp::ui::utility::SetButtonIconTextureByName
-                    0x1409179A0ull, // tpp::ui::utility::SetPlatformButtonTexture
-                    0x140915CC0ull, // tpp::ui::utility::IsGamePauseMenu
-                    0x140915D20ull, // tpp::ui::utility::IsInDemo
-                    0x140912210ull, // tpp::ui::utility::GetIconFtexPath
-                    0x140915010ull, // tpp::ui::utility::GetWeaponItemNameLangId
-                    0x14091B8F0ull, // tpp::ui::utility::StopSound
-                    0x140913EA0ull, // tpp::ui::utility::GetSoundTypeId
-                    0x141DBF890ull, // fox::ui::Animation::Pause
-                    0x141DBF3F0ull, // fox::ui::Animation::ForceLoop
-                    0x141DBFEE0ull, // fox::ui::Animation::UnsetForceLoop
-                    0x141DABB20ull, // fox::ui::WindowFunction::AddChildWindow
-                    0x141DAC220ull, // fox::ui::WindowFunction::PostTriggerMessage
-                },
-            };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return {
-                0x14D964950ull, // fox::ui::WindowManager::UpdateLayouts
-                0x141DEF490ull, // fox::ui::WindowDaemon::GetWindowManager
-                0x141DAB9F0ull, // fox::ui::WindowFunction::DestroyWindow
-                0x141DAB8B0ull, // fox::ui::WindowFunction::CreateWindow
-                0x141DBEF00ull, // fox::ui::Animation::GetTimeLength
-                0x141DB6240ull, // fox::ui::ModelNodeText::SetFontGroup
-                0x14091AFA0ull, // tpp::ui::utility::StartSound
-                0x141DC9EF0ull, // fox::ui::SoundControl::Stop
-                0x142C8FAD0ull, // the SoundControl the UI graphs play through
-                0x140023F80ull, // fox::LwRWLockSection::LockShared
-                0x140024180ull, // fox::LwRWLockSection::Unlock
-                0x142B64238ull, // g_blockGroupsLock
-                0x1429E3CA0ull, // first entry of the block group map
-                0x1429E3CB8ull, // block group map nodes
-                0x1429E3CC0ull, // block group map values
-                0x141DACAD0ull, // fox::ui::LayoutUtility::DisconnectComponent
-                0x14D962BA0ull, // fox::ui::WindowManager::DeleteDestroyedWindows
-                0x141DA9590ull, // fox::ui::ObjControl::CreateCommon
-                0x1400B3120ull, // fox::impl::EntityPtrBase::Set
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return {
-                0x14DFF9880ull, // fox::ui::WindowManager::UpdateLayouts
-                0x141DEF490ull, // fox::ui::WindowDaemon::GetWindowManager
-                0x141DAB8A0ull, // fox::ui::WindowFunction::DestroyWindow
-                0x141DAB760ull, // fox::ui::WindowFunction::CreateWindow
-                0x141DBEF30ull, // fox::ui::Animation::GetTimeLength
-                0x141DB62A0ull, // fox::ui::ModelNodeText::SetFontGroup
-                0x14091A9D0ull, // tpp::ui::utility::StartSound
-                0x141DC9F30ull, // fox::ui::SoundControl::Stop
-                0x142C8FAD0ull, // the SoundControl the UI graphs play through
-                0x140023F30ull, // fox::LwRWLockSection::LockShared
-                0x140024130ull, // fox::LwRWLockSection::Unlock
-                0x142B64238ull, // g_blockGroupsLock
-                0x1429E3CA0ull, // first entry of the block group map
-                0x1429E3CB8ull, // block group map nodes
-                0x1429E3CC0ull, // block group map values
-                0x141DACAE0ull, // fox::ui::LayoutUtility::DisconnectComponent
-                0x14DFF5EA0ull, // fox::ui::WindowManager::DeleteDestroyedWindows
-                0x141DA9440ull, // fox::ui::ObjControl::CreateCommon
-                0x1400B3250ull, // fox::impl::EntityPtrBase::Set
-            };
-        default:
-            return {};
-        }
+        return {
+            gAddr.Uix_WindowManager_UpdateLayouts, // fox::ui::WindowManager::UpdateLayouts
+            gAddr.Uix_WindowDaemon_GetWindowManager, // fox::ui::WindowDaemon::GetWindowManager
+            gAddr.Uix_WindowFunction_DestroyWindow, // fox::ui::WindowFunction::DestroyWindow
+            gAddr.WindowFunction_CreateWindow, // fox::ui::WindowFunction::CreateWindow
+            gAddr.Uix_Animation_GetTimeLength, // fox::ui::Animation::GetTimeLength
+            gAddr.Uix_ModelNodeText_SetFontGroup, // fox::ui::ModelNodeText::SetFontGroup
+            gAddr.Uix_UiUtility_StartSound, // tpp::ui::utility::StartSound
+            gAddr.Uix_SoundControl_Stop, // fox::ui::SoundControl::Stop
+            gAddr.Uix_UiSoundControl, // the SoundControl the UI graphs play through
+            gAddr.Uix_LwRWLockSection_LockShared, // fox::LwRWLockSection::LockShared
+            gAddr.Uix_LwRWLockSection_Unlock, // fox::LwRWLockSection::Unlock
+            gAddr.Uix_BlockGroupsLock, // g_blockGroupsLock
+            gAddr.Uix_BlockGroupMapHead, // first entry of the block group map
+            gAddr.Uix_BlockGroupMapNodes, // block group map nodes
+            gAddr.Uix_BlockGroupMapValues, // block group map values
+            gAddr.Uix_LayoutUtility_DisconnectComponent, // fox::ui::LayoutUtility::DisconnectComponent
+            gAddr.Uix_WindowManager_DeleteDestroyedWindows, // fox::ui::WindowManager::DeleteDestroyedWindows
+            gAddr.Uix_ObjControl_CreateCommon, // fox::ui::ObjControl::CreateCommon
+            gAddr.Uix_EntityPtrBase_Set, // fox::impl::EntityPtrBase::Set
+            gAddr.Uix_UiUtility_GetGameCameraViewMatrix, // tpp::ui::utility::GetGameCameraViewMatrix
+            gAddr.Uix_UiUtility_GetProjectionMatrix, // tpp::ui::utility::GetProjectionMatrix
+            gAddr.Uix_UiUtility_GetFocalLengthZoomRatio, // tpp::ui::utility::GetFocalLengthZoomRatio
+            gAddr.Uix_UiUtility_IsOutsideScreen, // tpp::ui::utility::IsOutsideScreen
+            gAddr.HudCommonDataManager_GetInstance, // tpp::ui::hud::CommonDataManager::GetInstance
+            gAddr.Uix_UiUtility_GetViewport, // tpp::ui::utility::GetViewport
+            gAddr.Uix_HeadMarkerZoomRaise, // how far head markers rise per unit of zoom
+            gAddr.Uix_HeadMarkerScreenMargin, // the screen margin head markers use
+            gAddr.Uix_UiUtility_GetUiUtility, // tpp::ui::utility::GetUiUtility
+            gAddr.Uix_FoxBlock_Unload, // fox::Block::Unload
+            gAddr.Uix_FoxBlock_Deactivate, // fox::Block::Deactivate
+            {
+                gAddr.Uix_UiUtility_SetButtonIconTextureByName, // tpp::ui::utility::SetButtonIconTextureByName
+                gAddr.Uix_UiUtility_SetPlatformButtonTexture, // tpp::ui::utility::SetPlatformButtonTexture
+                gAddr.Uix_UiUtility_IsGamePauseMenu, // tpp::ui::utility::IsGamePauseMenu
+                gAddr.Uix_UiUtility_IsInDemo, // tpp::ui::utility::IsInDemo
+                gAddr.GetIconFtexPath, // tpp::ui::utility::GetIconFtexPath
+                gAddr.UiUtility_GetWeaponItemNameLangId, // tpp::ui::utility::GetWeaponItemNameLangId
+                gAddr.Uix_UiUtility_StopSound, // tpp::ui::utility::StopSound
+                gAddr.Uix_UiUtility_GetSoundTypeId, // tpp::ui::utility::GetSoundTypeId
+                gAddr.Uix_Animation_Pause, // fox::ui::Animation::Pause
+                gAddr.Uix_Animation_ForceLoop, // fox::ui::Animation::ForceLoop
+                gAddr.Uix_Animation_UnsetForceLoop, // fox::ui::Animation::UnsetForceLoop
+                gAddr.Uix_WindowFunction_AddChildWindow, // fox::ui::WindowFunction::AddChildWindow
+                gAddr.Uix_UiUtility_IsDirButtonPress, // tpp::ui::utility::IsDirButtonPress
+                gAddr.Uix_UiUtility_IsDirButtonLong, // tpp::ui::utility::IsDirButtonLong
+                gAddr.Uix_UiUtility_CheckIllegalDirButtonInput, // tpp::ui::utility::CheckIllegalDirButtonInput
+                gAddr.Ui_UiCommonDataManagerGetInstance, // tpp::ui::menu::UiCommonDataManager::GetInstance
+                gAddr.Uix_UiCommonDataManager_GetEnableDirButton, // tpp::ui::menu::UiCommonDataManager::GetEnableDirButton
+                gAddr.Uix_PrefabLayoutNameTable, // PrefabSystemImpl layout names
+            },
+        };
     }
 
-    // retail added these UixUtility slots to the dev build's vtable (const overloads and a few new methods)
     constexpr std::size_t kRetailOnlySlots[] = {
         0x0E8, 0x178, 0x238, 0x260, 0x278, 0x288, 0x4A8, 0x4B0, 0x4B8, 0x5D8, 0x6D8, 0x6E0, 0x6E8, 0x748, 0x888,
     };
@@ -240,6 +151,7 @@ namespace
     using GetOrthoScale_t   = float(__fastcall*)(void** util, void* model);
     using GetTraversal_t    = float* (__fastcall*)(void** util, float* out, void* component, void* node);
     using SetLineDraw_t     = void(__fastcall*)(void** util, void* node, const void* draw, const void* vertices);
+    using SetLineDraws_t    = void(__fastcall*)(void* node, std::uint32_t count, const void* draws);
     using ResetLineDraw_t   = void(__fastcall*)(void** util, void* node);
     using AddChildWindow_t  = void(__fastcall*)(void* parent, void* child);
 
@@ -265,19 +177,18 @@ namespace
     constexpr std::uintptr_t FILE_STATE    = 0x40;   // 2 = loaded
     constexpr std::uint32_t  PATH_EXT_UIGB = 0x1AB2; // path id >> 51
 
-    constexpr std::uintptr_t COMPONENT_PARENT      = 0x38; // the game never clears it on delete
+    constexpr std::uintptr_t COMPONENT_PARENT      = 0x38;
     constexpr std::uintptr_t COMPONENT_PARENT_NODE = 0x40;
     constexpr std::uintptr_t LAYOUT_MODEL_COUNT    = 0xC0;
     constexpr std::uintptr_t LAYOUT_MODELS         = 0xC8;
     constexpr std::uintptr_t LAYOUT_CHILD_COUNT    = 0xD0;
     constexpr std::uintptr_t LAYOUT_CHILDREN       = 0xD8;
-    constexpr std::uintptr_t COMPONENT_ID          = 0x20; // layouts and models alike
+    constexpr std::uintptr_t COMPONENT_ID          = 0x20;
     constexpr std::size_t    WINDOW_VT_GET_ID      = 0xC0 / sizeof(void*);
-    constexpr int            kMaxComponents        = 256;
+    constexpr int            kMostComponentsRead   = 1 << 20;   // a count past this is garbage, not a layout
     constexpr int            kMaxLayoutDepth       = 8;
     constexpr std::uintptr_t TEXT_UNITS            = 0x138;
 
-    // every marked or markable game object keeps a tpp::gk::Marker2 record its owner rewrites each frame
     constexpr std::uintptr_t CDM_MARKER_DATA   = 0xF08;   // hud::CommonDataManager -> UiMarkerCommonData
     constexpr std::uintptr_t MARKER_DATA_SYSTEM = 0x19E0; // -> tpp::gk::Marker2System
     constexpr std::uintptr_t MARKER_RECORDS    = 0x88;
@@ -287,21 +198,19 @@ namespace
     constexpr std::uintptr_t MARKER_OBJECT_ID  = 0x1C;
     constexpr std::uintptr_t MARKER_FLAGS      = 0x1F;    // bit 0 = in use, bit 1 = marker on (marked, or enabled by script)
 
-    // the HUD's own 128 marker slots inside UiMarkerCommonData, refilled every frame from the records above
     constexpr int            kUiSlots          = 0x80;
     constexpr std::uintptr_t UI_SLOT_BASE      = 2 * 0x30;
     constexpr std::uintptr_t UI_SLOT_STRIDE    = 0x30;
-    constexpr std::uintptr_t UI_SLOT_BITS      = 0x00;    // u16: bit 4 IsMarkerImportant, bit 7 IsMarkerQuestImportant
-    constexpr std::uintptr_t UI_SLOT_VIEW      = 0x02;    // bit 0 IsMarkerViewMapIcon, 1 IsMarkerViewWorldIcon, 2 IsMarkerViewMapGoal, 3 IsMarkerViewWorldGoal
-    constexpr std::uintptr_t UI_SLOT_RADIUS    = 0x03;    // GetMarkerRadiusLevel
-    constexpr std::uintptr_t UI_SLOT_KIND      = 0x08;    // UiMarkerCommonDataImpl::GetMarkerFlag: low byte = marker type, high bits = state
+    constexpr std::uintptr_t UI_SLOT_BITS      = 0x00;    // bit 4 is a mission target, bit 7 a side-op target
+    constexpr std::uintptr_t UI_SLOT_VIEW      = 0x02;    // bit 0 shows it on the iDroid map, bit 1 in the world, bits 2 and 3 the same as a mission goal
+    constexpr std::uintptr_t UI_SLOT_RADIUS    = 0x03;
+    constexpr std::uintptr_t UI_SLOT_KIND      = 0x08;    // low byte is the marker type, the rest is its state
     constexpr std::uintptr_t UI_SLOT_OBJECT_ID = 0x18;
-    constexpr std::uintptr_t UI_SLOT_POSITION  = 0x20;    // GetMarkerPos
-    constexpr std::uintptr_t UI_RADIUS_METRES  = 0x30;    // GetRadiusMeter: float per radius level
+    constexpr std::uintptr_t UI_SLOT_POSITION  = 0x20;
+    constexpr std::uintptr_t UI_RADIUS_METRES  = 0x30;    // one float per area size level
     constexpr int            kRadiusLevels     = 10;
+    constexpr std::uint8_t   UI_TYPE_SPY_SEARCH = 3;      // an Intel enemy search area: the soldier's id on a moved, map-only marker
 
-    // TppUiCommand.ShowEnemyRoutePoints: menu::UiCommonDataManager +0x78 holds 5 route groups of 0x108 bytes
-    // (+0 u8 shown, +1 u8 point count, +4 float width, +0x14 float x[30], +0x8C float z[30])
     constexpr std::uintptr_t UICDM_MAP_DATA    = 0x78;
     constexpr std::uintptr_t ROUTE_GROUPS      = 2 * 0x108;
     constexpr std::uintptr_t ROUTE_STRIDE      = 0x108;
@@ -317,7 +226,7 @@ namespace
 
     constexpr std::uint64_t ID48_MASK = 0xFFFFFFFFFFFFull;
     constexpr int kMaxArray = 4096;
-    constexpr int kMaxTextUnits = 256;   // CreateTextUnit cap
+    constexpr int kMaxTextUnits = 0x7FFFFFFF / 32;   // CreateTextUnit: the game sizes count * 32 bytes in an int
     constexpr int kCommandLifeFrames = 120;
 
     UpdateLayouts_t   g_OrigUpdateLayouts = nullptr;
@@ -425,8 +334,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    // ---- handles ----
-
     struct Entry
     {
         Object object;
@@ -435,7 +342,7 @@ namespace
 
     std::recursive_mutex g_Lock;
     std::unordered_map<std::uint32_t, Entry> g_Handles;
-    std::unordered_map<std::uint64_t, std::uint32_t> g_HandleOf;   // (ptr, kind) -> handle, so a getter called every frame does not grow the table
+    std::unordered_map<std::uint64_t, std::uint32_t> g_HandleOf;
     std::uint32_t g_NextHandle = 1;
 
     std::uint64_t HandleKey(void* ptr, Kind kind)
@@ -443,8 +350,6 @@ namespace
         return (reinterpret_cast<std::uint64_t>(ptr) << 4) ^ static_cast<std::uint64_t>(kind);
     }
 
-    // a handle of a gone window is dropped: Lua then sees it like any unknown handle, and the table does not grow with
-    // every window, layout and node ever fetched
     void KillHandlesOf(const std::unordered_set<void*>& windows)
     {
         for (auto it = g_Handles.begin(); it != g_Handles.end(); )
@@ -461,9 +366,6 @@ namespace
         }
     }
 
-    // ---- queued calls ----
-
-    // a faulting queued call can repeat every frame: the first 10 are logged, then every 1000th
     void NoteQueuedFault()
     {
         static unsigned s_faults = 0;
@@ -480,6 +382,7 @@ namespace
         int age = 0;
     };
     std::vector<Command> g_Commands;
+    std::vector<Command> g_KeptCommands;   // swapped with g_Commands each run, so neither loses its capacity
     std::atomic<bool> g_HasCommands{ false };
 
     struct GuardContext
@@ -512,7 +415,8 @@ namespace
             g_HasCommands.store(false, std::memory_order_release);
             return;
         }
-        std::vector<Command> keep;
+        std::vector<Command>& keep = g_KeptCommands;
+        keep.clear();
         for (Command& c : g_Commands)
         {
             if (!c.handle)
@@ -540,10 +444,9 @@ namespace
                 NoteQueuedFault();
         }
         g_Commands.swap(keep);
+        keep.clear();   // the commands that ran, with their captures
         g_HasCommands.store(!g_Commands.empty(), std::memory_order_release);
     }
-
-    // ---- links ----
 
     struct Link
     {
@@ -562,7 +465,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    // the parent is freed already: only forget it on the child's side
     void ForgetParentSEH(void* child)
     {
         __try
@@ -573,7 +475,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    // runs before the game deletes destroyed windows: a link into a window that is about to go would dangle
     void UnlinkDyingWindows(void* manager)
     {
         for (auto it = g_Links.begin(); it != g_Links.end();)
@@ -596,8 +497,6 @@ namespace
         }
     }
 
-    // ---- markers and screen positions (GetMarkers, GetMarkerPosition, GetNodeScreenPosition) ----
-
     bool IsScreenPorted()
     {
         return g_Addrs.cameraViewMatrix && g_Addrs.projectionMatrix && g_Addrs.focalLengthZoomRatio && g_Addrs.isOutsideScreen
@@ -606,7 +505,6 @@ namespace
 
     struct alignas(16) Vec4 { float v[4]; };
 
-    // what a screen position needs: the camera, the screen and the marker records
     struct ScreenFrame
     {
         const void* view = nullptr;
@@ -686,6 +584,8 @@ namespace
                 if (id == 0xFFFF)
                     continue;
                 const std::uint32_t flag = *reinterpret_cast<const std::uint32_t*>(s + UI_SLOT_KIND);
+                if ((flag & 0xFF) == UI_TYPE_SPY_SEARCH)   // same soldier id as his own marker; joining it would hide him
+                    continue;
                 const std::uint16_t bits = *reinterpret_cast<const std::uint16_t*>(s + UI_SLOT_BITS);
                 const std::uint8_t view = *reinterpret_cast<const std::uint8_t*>(s + UI_SLOT_VIEW);
                 const std::uint8_t level = *reinterpret_cast<const std::uint8_t*>(s + UI_SLOT_RADIUS);
@@ -712,6 +612,45 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
+    int CollectUiMarkerSlotsSEH(UixUtilityControl::UiMarkerSlot* out, int capacity)
+    {
+        int n = 0;
+        __try
+        {
+            const char* data = MarkerDataSEH();
+            if (!data)
+                return -1;
+            for (int slot = 0; slot < kUiSlots && n < capacity; ++slot)
+            {
+                const char* s = data + UI_SLOT_BASE + slot * UI_SLOT_STRIDE;
+                const std::uint16_t id = *reinterpret_cast<const std::uint16_t*>(s + UI_SLOT_OBJECT_ID);
+                if (id == 0xFFFF)
+                    continue;
+                const std::uint16_t bits = *reinterpret_cast<const std::uint16_t*>(s + UI_SLOT_BITS);
+                const std::uint8_t view = *reinterpret_cast<const std::uint8_t*>(s + UI_SLOT_VIEW);
+                const std::uint8_t level = *reinterpret_cast<const std::uint8_t*>(s + UI_SLOT_RADIUS);
+                const float* position = reinterpret_cast<const float*>(s + UI_SLOT_POSITION);
+                UixUtilityControl::UiMarkerSlot& e = out[n++];
+                e.slot = slot;
+                e.gameObjectId = id;
+                e.markerFlag = *reinterpret_cast<const std::uint32_t*>(s + UI_SLOT_KIND);
+                e.important = ((bits >> 4) & 1) != 0;
+                e.questImportant = ((bits >> 7) & 1) != 0;
+                e.viewWorldIcon = ((view >> 1) & 1) != 0;
+                e.viewMapIcon = (view & 1) != 0;
+                e.viewWorldGoal = ((view >> 3) & 1) != 0;
+                e.viewMapGoal = ((view >> 2) & 1) != 0;
+                e.radiusLevel = level;
+                e.radius = level < kRadiusLevels ? *reinterpret_cast<const float*>(data + UI_RADIUS_METRES + level * 4) : 0.0f;
+                e.x = position[0];
+                e.y = position[1];
+                e.z = position[2];
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+        return n;
+    }
+
     bool ReadScreenFrameSEH(ScreenFrame& f, bool needRecords)
     {
         __try
@@ -735,7 +674,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // the record the object's owner writes its marker position into; -1 when it has none
     bool RecordHolds(const char* records, int i, std::uint16_t objectId)
     {
         const char* r = records + i * MARKER_STRIDE;
@@ -801,7 +739,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
     }
 
-    // tpp::ui::utility::IsOutsideScreen: -1..1 screen position, x right and y up
     bool ProjectSEH(const ScreenFrame& f, const float* world, float* screen, bool& onScreen)
     {
         __try
@@ -813,7 +750,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // HUD units per screen half-width for the component's model camera
     float ComponentScaleSEH(const Object& o)
     {
         __try
@@ -824,7 +760,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return 0.0f; }
     }
 
-    // into the component's own units, as HeadMarkMarkerEvCall::SetMarkerPosRot does; lift = the head markers' zoom raise
     bool ToComponentUnits(const ScreenFrame& f, const Object& o, float* screen, bool lift)
     {
         const float scale = ComponentScaleSEH(o);
@@ -846,7 +781,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // fox::ui::Model::GetComponentInfo: the node's translation after the layouts, model and parent nodes above it
     bool NodeHudSEH(void* model, void* node, float* hud)
     {
         __try
@@ -860,8 +794,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // ---- line draws ----
-
     struct LineDrawRecord   // fox::ui::LineDraw
     {
         std::uint32_t        vertexCount;
@@ -872,14 +804,13 @@ namespace
 
     struct LineBuffers
     {
-        LineDrawRecord draw{};
+        std::vector<LineDrawRecord> draws;
         std::vector<std::uint16_t> indices;
         std::unique_ptr<Vec4[]> vertices;
         void* window = nullptr;
     };
     std::unordered_map<void*, std::shared_ptr<LineBuffers>> g_LineBuffers;   // line node -> what it points at
 
-    // the renderer may still read a replaced buffer this frame, so it waits two passes before it is freed
     struct RetiredLines
     {
         std::shared_ptr<LineBuffers> buffers;
@@ -911,8 +842,6 @@ namespace
         for (auto it = g_RetiredLines.begin(); it != g_RetiredLines.end();)
             it = ++it->passes >= 2 ? g_RetiredLines.erase(it) : it + 1;
     }
-
-    // ---- button icons the game refreshes when pad / keyboard changes ----
 
     constexpr std::size_t kUiEraseButtonMeshParam = 0x8F0;
     constexpr std::size_t kUiPauseDrawScene       = 0x228;
@@ -950,8 +879,6 @@ namespace
         }
     }
 
-    // ---- text units ----
-
     struct TextUnitInfo
     {
         std::shared_ptr<std::string> text;
@@ -978,7 +905,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    // units are freed only once no node of a live window still shows them
     void DeleteUnusedTextUnits(void* manager)
     {
         for (auto it = g_TextUnits.begin(); it != g_TextUnits.end();)
@@ -1002,8 +928,6 @@ namespace
             it = g_TextUnits.erase(it);
         }
     }
-
-    // ---- windows made by V_UixUtility ----
 
     struct CreateCommand
     {
@@ -1051,13 +975,46 @@ namespace
     struct NullCallback { void** vtbl; void* quark; };
     NullCallback g_NullCallback{ g_CallbackVtbl, nullptr };
 
-    void* __fastcall FactoryCreate(void*) { return &g_NullCallback; }
-    void* g_FactoryVtbl[] = {
-        reinterpret_cast<void*>(&CallbackDtor),
-        reinterpret_cast<void*>(&FactoryCreate),
+    // one per window: the engine calls these from its UI jobs, WindowPages hands them to the page's Lua table
+    struct PageCallback { void** vtbl; void* quark; std::uint64_t name; void* window; };
+
+    void __fastcall PageDtor(PageCallback* cb, unsigned flags)
+    {
+        if (flags & 1)
+            delete cb;
+    }
+    void __fastcall PageSetup(PageCallback* cb, void* window)
+    {
+        cb->window = window;
+        WindowPages::Note(cb->name, window, WindowPages::Event::Setup);
+    }
+    void __fastcall PageInit(PageCallback* cb)     { WindowPages::Note(cb->name, cb->window, WindowPages::Event::Init); }
+    void __fastcall PageStart(PageCallback* cb)    { WindowPages::Note(cb->name, cb->window, WindowPages::Event::Start); }
+    void __fastcall PageUpdate(PageCallback* cb)   { WindowPages::Note(cb->name, cb->window, WindowPages::Event::Update); }
+    void __fastcall PageStop(PageCallback* cb)     { WindowPages::Note(cb->name, cb->window, WindowPages::Event::Stop); }
+    void __fastcall PageFinalize(PageCallback* cb) { WindowPages::Note(cb->name, cb->window, WindowPages::Event::Finalize); }
+
+    void* g_PageVtbl[] = {
+        reinterpret_cast<void*>(&PageDtor),
+        reinterpret_cast<void*>(&PageSetup),
+        reinterpret_cast<void*>(&PageInit),
+        reinterpret_cast<void*>(&PageStart),
+        reinterpret_cast<void*>(&PageUpdate),
+        reinterpret_cast<void*>(&PageStop),
+        reinterpret_cast<void*>(&PageFinalize),
     };
-    struct NullFactory { void** vtbl; };
-    NullFactory g_NullFactory{ g_FactoryVtbl };
+
+    struct PageFactory { void** vtbl; std::uint64_t name; };
+
+    void* __fastcall PageFactoryCreate(PageFactory* factory)
+    {
+        PageCallback* cb = new (std::nothrow) PageCallback{ g_PageVtbl, nullptr, factory->name, nullptr };
+        return cb ? static_cast<void*>(cb) : static_cast<void*>(&g_NullCallback);
+    }
+    void* g_PageFactoryVtbl[] = {
+        reinterpret_cast<void*>(&CallbackDtor),
+        reinterpret_cast<void*>(&PageFactoryCreate),
+    };
 
 #pragma pack(push, 1)
     struct EngineLayoutRecord
@@ -1131,7 +1088,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
     }
 
-    // the package whose block holds the file, the kind of package vanilla HUD code passes when it creates a window
     void* PackageHolding(std::uint64_t pathId, void*& outBlock, void*& outFile)
     {
         auto lockShared = Fn<LockCall_t>(g_Addrs.lockShared);
@@ -1167,7 +1123,8 @@ namespace
 
     void* CreateWindowSEH(CreateWindow_t create, const EngineWindowInfo* info, std::uint32_t group, std::uint32_t pauseMask)
     {
-        __try { return create(&g_NullFactory, info, group, pauseMask); }
+        PageFactory factory{ g_PageFactoryVtbl, info->name };   // the engine calls Create once inside CreateWindow and keeps only the callback
+        __try { return create(&factory, info, group, pauseMask); }
         __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
     }
 
@@ -1241,13 +1198,20 @@ namespace
             records[i].fontType = c.layouts[i].fontType;
             records[i].flag = 1;
         }
+        if (records.size() > 0xFF && !WindowLayoutCount_Live())
+        {
+            LogWarnOnce("V_UixUtility.CreateWindow: window 0x%08X gets the first 255 of its %zu layouts", id, records.size());
+            records.resize(0xFF);
+        }
         EngineWindowInfo info{};
         info.name = c.name;
         info.priority = c.priority;
         info.package = package;
         info.layouts = records.data();
-        info.layoutCount = static_cast<std::uint8_t>(records.size());
+        info.layoutCount = static_cast<std::uint8_t>(records.size() > 0xFF ? 0xFF : records.size());
+        WindowLayoutCount_Begin(&info, static_cast<std::uint32_t>(records.size()));
         void* window = CreateWindowSEH(create, &info, c.group, c.pauseMask);
+        WindowLayoutCount_End();
         if (!window)
         {
             LogWarnOnce("V_UixUtility.CreateWindow: window 0x%08X was not created", id);
@@ -1331,7 +1295,6 @@ namespace
         g_GraphWindows.push_back(std::move(g));
     }
 
-    // a window made from a pack points into the pack's memory, so it goes before the pack does
     void DestroyWindowsOfUnloadedBlocks()
     {
         for (auto it = g_CreatedWindows.begin(); it != g_CreatedWindows.end();)
@@ -1356,7 +1319,6 @@ namespace
         }
     }
 
-    // runs where the UI daemon is idle: ObjControls join and leave the daemon's update list here
     void RunGraphWork(void* manager, bool bypass)
     {
         std::vector<CreateCommand> creates;
@@ -1393,12 +1355,10 @@ namespace
 
     void CollectDyingWindows(void* manager, std::unordered_set<void*>& out)
     {
-        static std::vector<void*> s_dying(kMaxArray);   // under g_Lock: one caller at a time
+        static std::vector<void*> s_dying(kMaxArray);
         const int n = DyingWindowsSEH(manager, s_dying.data(), static_cast<int>(s_dying.size()));
         out.insert(s_dying.begin(), s_dying.begin() + n);
     }
-
-    // ---- GetWindows: read-only walk of the live windows ----
 
     int LiveWindowsSEH(void* manager, void** out, int max)
     {
@@ -1415,7 +1375,6 @@ namespace
         return n;
     }
 
-    // the id the game's own FindWindow compares
     bool WindowFieldsSEH(void* window, std::uint32_t& id, int& group, void*& parent, void*& root)
     {
         __try
@@ -1430,7 +1389,24 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    bool LayoutFieldsSEH(void* layout, std::uint32_t& id, void** models, int& modelCount, void** children, int& childCount)
+    void LayoutTotalsSEH(void* layout, int& modelTotal, int& childTotal)
+    {
+        modelTotal = 0;
+        childTotal = 0;
+        __try
+        {
+            modelTotal = Field<int>(layout, LAYOUT_MODEL_COUNT);
+            childTotal = Field<int>(layout, LAYOUT_CHILD_COUNT);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (modelTotal < 0 || modelTotal > kMostComponentsRead)
+            modelTotal = 0;
+        if (childTotal < 0 || childTotal > kMostComponentsRead)
+            childTotal = 0;
+    }
+
+    bool LayoutFieldsSEH(void* layout, std::uint32_t& id, void** models, int modelRoom, int& modelCount,
+                         void** children, int childRoom, int& childCount)
     {
         modelCount = 0;
         childCount = 0;
@@ -1439,12 +1415,12 @@ namespace
             id = Field<std::uint32_t>(layout, COMPONENT_ID);
             void** modelArray = Field<void**>(layout, LAYOUT_MODELS);
             const int modelTotal = Field<int>(layout, LAYOUT_MODEL_COUNT);
-            for (int i = 0; modelArray && i < modelTotal && i < kMaxComponents; ++i)
+            for (int i = 0; modelArray && i < modelTotal && i < modelRoom; ++i)
                 if (modelArray[i])
                     models[modelCount++] = modelArray[i];
             void** childArray = Field<void**>(layout, LAYOUT_CHILDREN);
             const int childTotal = Field<int>(layout, LAYOUT_CHILD_COUNT);
-            for (int i = 0; childArray && i < childTotal && i < kMaxComponents; ++i)
+            for (int i = 0; childArray && i < childTotal && i < childRoom; ++i)
                 if (childArray[i])
                     children[childCount++] = childArray[i];
             return true;
@@ -1458,18 +1434,20 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
     }
 
-    // the layout, then every layout under it, in one flat list
     void ReadLayouts(void* layout, std::uint32_t parentId, int depth, std::vector<LayoutEntry>& out)
     {
         LayoutEntry entry;
         entry.layout = layout;
         entry.parentId = parentId;
         entry.depth = depth;
-        std::vector<void*> models(kMaxComponents);
-        std::vector<void*> children(kMaxComponents);
+        int modelTotal = 0;
+        int childTotal = 0;
+        LayoutTotalsSEH(layout, modelTotal, childTotal);
+        std::vector<void*> models(static_cast<std::size_t>(modelTotal) + 1);
+        std::vector<void*> children(static_cast<std::size_t>(childTotal) + 1);
         int modelCount = 0;
         int childCount = 0;
-        if (!LayoutFieldsSEH(layout, entry.id, models.data(), modelCount, children.data(), childCount))
+        if (!LayoutFieldsSEH(layout, entry.id, models.data(), modelTotal, modelCount, children.data(), childTotal, childCount))
             return;
         for (int i = 0; i < modelCount; ++i)
             entry.models.push_back({ models[i], ComponentIdSEH(models[i]) });
@@ -1480,11 +1458,6 @@ namespace
         for (int i = 0; i < childCount; ++i)
             ReadLayouts(children[i], id, depth + 1, out);
     }
-
-    // ---- resident UI packs ----------------------------------------------------------------------------
-    // The game keeps its own resident UI pack in tpp::ui::ResidentBlockController (UiCommonDataManager +0x840, made by
-    // TppUiBootInit.lua). A mod pack gets a block group of its own, built the same way that controller builds its group
-    // (FUN_140929B40 / ResidentBlockController::LoadBlock / ::Update), and is never unloaded.
 
     using BlockMemoryDescCtor_t = void* (__fastcall*)(void* desc);
     using SharedStringMake_t    = void* (__fastcall*)(void* out, const char* text);
@@ -1503,25 +1476,24 @@ namespace
 
     struct ResidentFn
     {
-        std::uintptr_t address;
+        std::uintptr_t AddressSetRuntime::AddressSet::* address;
         std::uint8_t   prologue[18];
         std::size_t    length;
     };
 
-    // EN 1.0.15.4 and 1.0.15.4a share these; the first bytes come from the EN 1.0.15.4 dump and are checked before any call
-    const ResidentFn kResidentFnsEn[RF_COUNT] =
+    const ResidentFn kResidentFns[RF_COUNT] =
     {
-        { 0x14006C910ull, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::BlockMemoryDesc ctor
-        { 0x140061AC0ull, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::SharedString(const char*)
-        { 0x14001D4C0ull, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xC2, 0x48, 0x8B, 0xD9 }, 12 },   // fox::SharedString copy
-        { 0x14001D3B0ull, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9 }, 9 },                     // fox::SharedString dtor
-        { 0x14006D3E0ull, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x60 }, 6 },                                       // fox::BlockGroup::Create
-        { 0x140016090ull, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xDA }, 13 }, // SharedPtrBase::Set
-        { 0x14006E040ull, { 0x48, 0x8B, 0xC4, 0x57, 0x41, 0x54 }, 6 },                                       // fox::Block::Load(ids, count)
-        { 0x14006CFB0ull, { 0x48, 0x89, 0x7C, 0x24, 0x18, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x20, 0x83, 0xB9, 0x80, 0x00, 0x00, 0x00, 0x02 }, 18 }, // fox::Block::Activate
-        { 0x140016490ull, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::KernelString(const char*)
-        { 0x1400858D0ull, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0x7A, 0x18, 0x10 }, 15 }, // fox::Path::CInitWithString
-        { 0x1400041C0ull, { 0xE9, 0x1B, 0x0A, 0x00, 0x00 }, 5 },                                              // jmp ffstd::StdFree
+        { &AddressSetRuntime::AddressSet::FoxBlockMemoryDesc_Ctor, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::BlockMemoryDesc ctor
+        { &AddressSetRuntime::AddressSet::FoxSharedString_FromCString, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::SharedString(const char*)
+        { &AddressSetRuntime::AddressSet::FoxSharedString_Copy, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xC2, 0x48, 0x8B, 0xD9 }, 12 },   // fox::SharedString copy
+        { &AddressSetRuntime::AddressSet::FoxSharedString_Dtor, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9 }, 9 },                     // fox::SharedString dtor
+        { &AddressSetRuntime::AddressSet::FoxBlockGroup_Create, { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x60 }, 6 },                                       // fox::BlockGroup::Create
+        { &AddressSetRuntime::AddressSet::FoxSharedPtrBase_Set, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xDA }, 13 }, // SharedPtrBase::Set
+        { &AddressSetRuntime::AddressSet::FoxBlock_Load, { 0x48, 0x8B, 0xC4, 0x57, 0x41, 0x54 }, 6 },                                       // fox::Block::Load(ids, count)
+        { &AddressSetRuntime::AddressSet::FoxBlock_Activate, { 0x48, 0x89, 0x7C, 0x24, 0x18, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x20, 0x83, 0xB9, 0x80, 0x00, 0x00, 0x00, 0x02 }, 18 }, // fox::Block::Activate
+        { &AddressSetRuntime::AddressSet::FoxKernelString_FromCString, { 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x48, 0x83, 0xEC, 0x30 }, 10 },               // fox::KernelString(const char*)
+        { &AddressSetRuntime::AddressSet::FoxPath_CInitWithString, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0x7A, 0x18, 0x10 }, 15 }, // fox::Path::CInitWithString
+        { &AddressSetRuntime::AddressSet::FfStd_StdFreeThunk, { 0xE9, 0x1B, 0x0A, 0x00, 0x00 }, 5 },                                              // jmp ffstd::StdFree
     };
 
     constexpr std::uintptr_t UICDM_RESIDENT_CONTROLLER = 0x840;   // tpp::ui::ResidentBlockController*
@@ -1530,36 +1502,33 @@ namespace
     constexpr std::uintptr_t DESC_BLOCK_COUNT = 0x0C;
     constexpr std::uintptr_t DESC_FROM_HEAP   = 0x10;   // 0: the group's memory comes from the heap, not from a loading block
     constexpr std::uintptr_t DESC_MEMORY_TAG  = 0x14;   // the game's resident UI group uses 0x70
-    constexpr std::uintptr_t DESC_OWNER       = 0x18;   // never read by the block code, null is fine
+    constexpr std::uintptr_t DESC_OWNER       = 0x18;
     constexpr int RESIDENT_MAX_LOADS = 3;
-    constexpr std::size_t   kMaxResidentPacks = 16;
-    constexpr std::uint64_t kMaxResidentBytes = 64ull << 20;
     constexpr ULONGLONG RESIDENT_RETRY_MS = 2000;
 
     struct ResidentPack
     {
         std::string   path;
         std::uint64_t pathId = 0;     // plain path hash, for the log
-        std::uint64_t packId = 0;     // the id Block::Load needs (fox::Path of the pack), made on the UI thread before the first load
+        std::uint64_t packId = 0;
         std::uint32_t size = 0;
-        void*         group = nullptr;   // a SharedPtr slot: our reference keeps the group alive for the rest of the game
+        void*         group = nullptr;
         char*         block = nullptr;
         int           loads = 0;
         ULONGLONG     nextLoad = 0;
         int           lastState = -1;
         bool          done = false;
+        bool          released = false;
     };
 
     std::mutex g_ResidentLock;
-    std::vector<std::unique_ptr<ResidentPack>> g_ResidentPacks;   // entries never move: the group slots must stay put
+    std::vector<std::unique_ptr<ResidentPack>> g_ResidentPacks;
     std::atomic<bool> g_ResidentWork{ false };
     int g_ResidentFnsChecked = 0;   // 0 not yet, 1 good, -1 a prologue did not match
 
     const ResidentFn* ResidentFns()
     {
-        if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4 || gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_4a)
-            return kResidentFnsEn;
-        return nullptr;
+        return kResidentFns;
     }
 
     bool PrologueMatchesSEH(const void* fn, const std::uint8_t* bytes, std::size_t length)
@@ -1568,7 +1537,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // another module's detour (MinHook writes jmp rel32 or jmp [rip]): IHHook hooks fox::Block::Load to log every load
     bool StartsWithJumpSEH(const void* fn)
     {
         __try
@@ -1588,21 +1556,21 @@ namespace
         int hooked = 0;
         for (int i = 0; fns && i < RF_COUNT; ++i)
         {
-            void* fn = ResolveGameAddress(fns[i].address);
+            void* fn = ResolveGameAddress(gAddr.*fns[i].address);
             if (PrologueMatchesSEH(fn, fns[i].prologue, fns[i].length))
                 continue;
             if (StartsWithJumpSEH(fn))
             {
                 LogInfo("LoadResidentUiPack: game function %d at 0x%llX is hooked by another module, calls go through its hook",
-                    i, static_cast<unsigned long long>(fns[i].address));
+                    i, static_cast<unsigned long long>(gAddr.*fns[i].address));
                 ++hooked;
                 continue;
             }
             LogError("LoadResidentUiPack: game function %d at 0x%llX does not match this build, resident UI packs stay off",
-                i, static_cast<unsigned long long>(fns[i].address));
+                i, static_cast<unsigned long long>(gAddr.*fns[i].address));
             g_ResidentFnsChecked = -1;
         }
-        if (g_ResidentFnsChecked > 0 && hooked > RF_COUNT / 2)   // most of them unreadable: not proof enough of the build
+        if (g_ResidentFnsChecked > 0 && hooked > RF_COUNT / 2)
         {
             LogError("LoadResidentUiPack: %d of %d game functions are hooked by other modules, resident UI packs stay off", hooked, RF_COUNT);
             g_ResidentFnsChecked = -1;
@@ -1613,12 +1581,9 @@ namespace
     template <typename T>
     T ResidentFn_(int index)
     {
-        return reinterpret_cast<T>(ResolveGameAddress(ResidentFns()[index].address));
+        return reinterpret_cast<T>(ResolveGameAddress(gAddr.*ResidentFns()[index].address));
     }
 
-    // A pack's id is not a plain path hash: fox::Path::CInitWithString registers .fpk/.fpkd paths in the engine's path table
-    // and returns that id (a plain hash loads only the .fpkd half). Built the way ResidentBlockController's Lua call builds it;
-    // the Path is never released, the pack stays loaded for the rest of the game anyway.
     constexpr std::uintptr_t KSTRING_CAPACITY = 0x18;   // > 15: the text lives on the heap, pointer at +0
     bool PackPathIdSEH(const char* path, std::uint64_t& out)
     {
@@ -1636,36 +1601,14 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // ---- other games' asset roots ----------------------------------------------------------------------
-    // TPP's path system knows five asset roots: fox, fox_export, tpp, sh and mgo (the name table at 0x1429E3990). A path
-    // under any other root, like MG Survive's /Assets/ssd/..., gets a user flag in its id (bit 50, ff_path_code_set_userflag)
-    // when a pack registers its files, while .uilb/.uif files and V_UixUtility look files up by the plain path hash: the
-    // files load but are never found. Treating these roots as known gives their files plain ids. No TPP file sits under them.
-
     using FindKnownProject_t = bool (__fastcall*)(const char* project);
     FindKnownProject_t g_OrigFindKnownProject = nullptr;
     void* g_FindKnownProjectTarget = nullptr;
 
     const char* const kExtraProjects[] = { "ssd" };
 
-    // fox::fs::impl::PathCodeResolver::FindKnownProject, EN 1.0.15.4 and 1.0.15.4a; 0 bytes in the mask are the
-    // rip-relative offsets of the name table
-    constexpr std::uintptr_t FIND_KNOWN_PROJECT_EN = 0x14003DAD0ull;
     const std::uint8_t kFindKnownProjectBytes[] = { 0x4C, 0x8B, 0x05, 0, 0, 0, 0, 0x4C, 0x8B, 0xD1, 0x4C, 0x8D, 0x0D, 0, 0, 0, 0, 0x4D, 0x85, 0xC0, 0x74, 0x3E };
     const std::uint8_t kFindKnownProjectMask[]  = { 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1 };
-
-    bool FindKnownProjectMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            const auto* b = static_cast<const std::uint8_t*>(fn);
-            for (std::size_t i = 0; i < sizeof(kFindKnownProjectBytes); ++i)
-                if (kFindKnownProjectMask[i] && b[i] != kFindKnownProjectBytes[i])
-                    return false;
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-    }
 
     bool __fastcall hkFindKnownProject(const char* project)
     {
@@ -1676,20 +1619,23 @@ namespace
         return g_OrigFindKnownProject(project);
     }
 
-    // before any pack is loaded: a file registered while the root was unknown keeps its flagged id until its pack unloads
     void InstallExtraProjects()
     {
-        if (gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4 && gGameBuild != ::AddressSetRuntime::GameBuild::En_1_0_15_4a)
+        const std::uintptr_t address = gAddr.FoxProject_FindKnownProject;
+        if (!address)
         {
             LogInfo("V_UixUtility: no address for FindKnownProject on %s, files under /Assets/ssd/ stay unfindable", GetGameBuildName(gGameBuild));
             return;
         }
-        void* target = ResolveGameAddress(FIND_KNOWN_PROJECT_EN);
-        if (!FindKnownProjectMatchesSEH(target))
+        void* target = ResolveGameAddress(address);
+        const HookEntry entryCheck = CheckHookEntryMasked(target, kFindKnownProjectBytes, kFindKnownProjectMask, sizeof(kFindKnownProjectBytes));
+        if (entryCheck == HookEntry::Unknown)
         {
             LogError("V_UixUtility: FindKnownProject does not match this build, files under /Assets/ssd/ stay unfindable");
             return;
         }
+        if (entryCheck == HookEntry::ForeignHook)
+            LogHookedOnTop("V_UixUtility: FindKnownProject", target);
         if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hkFindKnownProject), reinterpret_cast<void**>(&g_OrigFindKnownProject)))
         {
             LogError("V_UixUtility: FindKnownProject hook failed, files under /Assets/ssd/ stay unfindable");
@@ -1698,7 +1644,6 @@ namespace
         g_FindKnownProjectTarget = target;
     }
 
-    // the block system is up once the game's own resident UI block is active
     bool GameResidentBlockActiveSEH()
     {
         __try
@@ -1714,7 +1659,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // BlockGroup::Create hands the group back unowned (refcount 0), so it goes straight into our slot
     bool CreateResidentGroupSEH(ResidentPack& pack)
     {
         alignas(16) std::uint8_t desc[0x40] = {};
@@ -1764,8 +1708,37 @@ namespace
         return error;
     }
 
+    using BlockCall_t = int*(__fastcall*)(void* block, int* error);
+
+    void UnloadStepSEH(ResidentPack& pack)
+    {
+        const int state = pack.block ? BlockStateSEH(pack.block) : 0;
+        if (state == 0 || (state == 3 && !g_Addrs.blockDeactivate) || !g_Addrs.blockUnload)
+        {
+            pack.done = true;
+            return;
+        }
+        int error = 0;
+        __try
+        {
+            if (state == 3)
+                Fn<BlockCall_t>(g_Addrs.blockDeactivate)(pack.block, &error);
+            if (state == 2 || state == 3)
+                Fn<BlockCall_t>(g_Addrs.blockUnload)(pack.block, &error);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            pack.done = true;
+        }
+    }
+
     void StepResidentPack(ResidentPack& pack)
     {
+        if (pack.released)
+        {
+            UnloadStepSEH(pack);   // 1 loading / 4 unloading: the block's own task moves it on first
+            return;
+        }
         if (!pack.block)
         {
             if (!CreateResidentGroupSEH(pack))
@@ -1774,19 +1747,17 @@ namespace
                 pack.done = true;
                 return;
             }
-            LogInfo("LoadResidentUiPack: %s: block group made, %u bytes", pack.path.c_str(), pack.size);
         }
         const int state = BlockStateSEH(pack.block);
         const int previous = pack.lastState;
         if (state != previous)
         {
-            LogInfo("LoadResidentUiPack: %s: block state %d", pack.path.c_str(), state);
             pack.lastState = state;
         }
         const ULONGLONG now = GetTickCount64();
         switch (state)
         {
-        case 0:   // empty: load, or the last load failed (missing file, bad pack, too little memory)
+        case 0:
             if (previous == 1)
                 LogWarn("LoadResidentUiPack: %s: the load failed (is the pack installed, and is %u bytes enough?)", pack.path.c_str(), pack.size);
             if (pack.loads >= RESIDENT_MAX_LOADS)
@@ -1804,8 +1775,6 @@ namespace
                         pack.done = true;
                         break;
                     }
-                    LogInfo("LoadResidentUiPack: %s: pack id 0x%llX (plain hash 0x%llX)", pack.path.c_str(),
-                        static_cast<unsigned long long>(pack.packId), static_cast<unsigned long long>(pack.pathId));
                 }
                 ++pack.loads;
                 pack.nextLoad = now + RESIDENT_RETRY_MS;
@@ -1813,12 +1782,11 @@ namespace
                     LogWarn("LoadResidentUiPack: %s: Block::Load refused (%d)", pack.path.c_str(), error);
             }
             break;
-        case 2:   // loaded: activate, as the game's resident controller does
+        case 2:
             if (const int error = ActivateBlockSEH(pack.block); error < 0)
                 LogWarn("LoadResidentUiPack: %s: Block::Activate refused (%d)", pack.path.c_str(), error);
             break;
         case 3:
-            LogInfo("LoadResidentUiPack: %s is loaded and stays loaded", pack.path.c_str());
             pack.done = true;
             break;
         default:   // 1 loading, 4 unloading: the block's own task moves it on
@@ -1826,7 +1794,6 @@ namespace
         }
     }
 
-    // called once per UI frame (group 0), never while holding g_Lock or the block group lock
     void ResidentPacksTick()
     {
         if (!g_ResidentWork.load(std::memory_order_acquire) || MissionCodeGuard::ShouldBypassHooks())
@@ -1853,7 +1820,7 @@ namespace
 
     void RunFrameTickSEH(void (*tick)())
     {
-        __try { tick(); }
+        __try { tick(); }   // skips C++ destructors inside the tick: it frees its locks in __finally
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
@@ -1876,6 +1843,8 @@ namespace
         {
             FrameCallbacks::NoteFrame();
             ResidentPacksTick();
+            mbDvcCustomPage::Tick();
+            LogFlushIfDue();
             if (void (*tick)() = g_FrameTick.load(std::memory_order_acquire); tick && !MissionCodeGuard::ShouldBypassHooks())
                 RunFrameTickSEH(tick);
         }
@@ -1908,6 +1877,101 @@ namespace
         g_OrigDeleteDestroyed(manager);
     }
 
+    using BlockUnload_t = int* (__fastcall*)(void* block, int* error);
+    BlockUnload_t g_OrigBlockUnload = nullptr;
+    void* g_BlockUnloadTarget = nullptr;
+    constexpr int kUnloadLockTries = 200;
+    const std::uint8_t kBlockUnloadPrologue[] = { 0x40, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x30 };
+
+    int DestroyWindowsOfBlock(void* block)
+    {
+        int n = 0;
+        auto destroy = Fn<WindowCall_t>(g_Addrs.destroyWindow);
+        for (auto it = g_CreatedWindows.begin(); it != g_CreatedWindows.end();)
+        {
+            if (it->second != block)
+            {
+                ++it;
+                continue;
+            }
+            CallWindowSEH(destroy, it->first);
+            it = g_CreatedWindows.erase(it);
+            ++n;
+        }
+        for (auto it = g_DestroyingWindows.begin(); it != g_DestroyingWindows.end();)
+        {
+            if (it->second != block)
+            {
+                ++it;
+                continue;
+            }
+            CallWindowSEH(destroy, it->first);
+            it = g_DestroyingWindows.erase(it);
+            ++n;
+        }
+        for (auto it = g_GraphWindows.begin(); it != g_GraphWindows.end();)
+        {
+            if (it->block != block)
+            {
+                ++it;
+                continue;
+            }
+            ReleaseGraphSEH(it->control.get());
+            it = g_GraphWindows.erase(it);
+            ++n;
+        }
+        return n;
+    }
+
+    // Unload frees the block's memory without running the destructors of what was built from it,
+    // so our windows from its packs are destroyed first, the way the game's own owners destroy theirs
+    int* __fastcall hkBlockUnload(void* block, int* error)
+    {
+        if (block && (g_HasCommands.load(std::memory_order_acquire) || g_HasDaemonWork.load(std::memory_order_acquire))
+            && BlockStateSEH(static_cast<char*>(block)) == 2)
+        {
+            bool locked = false;
+            for (int i = 0; i < kUnloadLockTries && !(locked = g_Lock.try_lock()); ++i)
+                SwitchToThread();
+            if (locked)
+            {
+                const int n = DestroyWindowsOfBlock(block);
+                RefreshDaemonWork();
+                g_Lock.unlock();
+            }
+            else
+            {
+                LogWarnOnce("V_UixUtility: the UI pass was busy while a block unloaded, its windows go at the next pass");
+            }
+        }
+        return g_OrigBlockUnload(block, error);
+    }
+
+    void InstallBlockUnloadHook()
+    {
+        if (!g_Addrs.blockUnload)
+        {
+            LogInfo("V_UixUtility: no address for Block::Unload on %s, windows from mission packs go once their block is seen unloaded",
+                GetGameBuildName(gGameBuild));
+            return;
+        }
+        void* target = ResolveGameAddress(g_Addrs.blockUnload);
+        const HookEntry entryCheck = CheckHookEntry(target, kBlockUnloadPrologue, sizeof(kBlockUnloadPrologue));
+        if (entryCheck == HookEntry::Unknown)
+        {
+            LogError("V_UixUtility: Block::Unload does not match this build, windows from mission packs go once their block is seen unloaded");
+            return;
+        }
+        if (entryCheck == HookEntry::ForeignHook)
+            LogHookedOnTop("V_UixUtility: Block::Unload", target);
+        if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hkBlockUnload), reinterpret_cast<void**>(&g_OrigBlockUnload)))
+        {
+            LogError("V_UixUtility: Block::Unload hook failed, windows from mission packs go once their block is seen unloaded");
+            return;
+        }
+        g_BlockUnloadTarget = target;
+    }
+
     const std::uint8_t* FollowThunks(const std::uint8_t* p)
     {
         for (int hop = 0; p && hop < 3 && p[0] == 0xE9; ++hop)
@@ -1915,7 +1979,6 @@ namespace
         return p;
     }
 
-    // the method drops its this and forwards: SUB RSP,0x28 / MOV RCX,RDX / CALL target, or MOV RCX,RDX / JMP target
     const std::uint8_t* ForwardTarget(const std::uint8_t* p)
     {
         p = FollowThunks(p);
@@ -1926,7 +1989,6 @@ namespace
         return nullptr;
     }
 
-    // the build's UixUtility must have the dev vtable layout this library expects: its FindWindow slot forwards to FindWindow
     bool VerifySlotsSEH()
     {
         __try
@@ -1943,7 +2005,6 @@ namespace
 
 namespace UixUtilityControl
 {
-    // -1 not checked yet: the DLL can load before the game builds its UixUtility, so the check waits for first use
     std::atomic<int> g_SlotsChecked{ -1 };
 
     bool SlotsReady()
@@ -2065,7 +2126,7 @@ namespace UixUtilityControl
         void** util = Utility();
         if (!create || !util || count <= 0)
             return 0;
-        if (count > kMaxTextUnits)   // the game allocates count * 32 bytes unchecked; no vanilla screen uses more than 25
+        if (count > kMaxTextUnits)
         {
             LogWarnOnce("V_UixUtility.CreateTextUnit: %d units asked, %d made", count, kMaxTextUnits);
             count = kMaxTextUnits;
@@ -2126,13 +2187,13 @@ namespace UixUtilityControl
             if (child == parent)
                 return 1;
             if (childWindow && RootLayout(childWindow) == child)
-                return 2;   // its window draws it already: hung elsewhere too it is drawn twice
+                return 2;
             void* above = parent;
             for (int depth = 0; above && depth < 64; ++depth)
             {
                 above = Field<void*>(above, COMPONENT_PARENT);
                 if (above == child)
-                    return 3;   // the engine's layout walk would never end
+                    return 3;
             }
             return 0;
         }
@@ -2183,11 +2244,17 @@ namespace UixUtilityControl
         return count;
     }
 
+    int GetUiMarkerSlots(UiMarkerSlot* out, int capacity)
+    {
+        if (!IsScreenPorted() || !out || capacity <= 0)
+            return -1;
+        return CollectUiMarkerSlotsSEH(out, capacity);
+    }
+
     int GetEnemyRoutes(EnemyRoute* out, int capacity)
     {
         if (!out || capacity <= 0 || !gAddr.Ui_UiCommonDataManagerGetInstance)
             return -1;
-        // the route layout above was read on 1.0.15.4; 1.0.15.3 is not checked
         if (!::AddressSetRuntime::IsEn154Family(gGameBuild) && !::AddressSetRuntime::IsJp154Family(gGameBuild))
             return -1;
         return CollectEnemyRoutesSEH(out, capacity);
@@ -2274,7 +2341,7 @@ namespace UixUtilityControl
 
     bool LoadResidentUiPack(const std::string& packPathAsked, std::uint32_t sizeBytes)
     {
-        const std::string packPath = FoxHashes::NormalizeAssetPath(packPathAsked);   // one pack, however it is spelled
+        const std::string packPath = FoxHashes::NormalizeAssetPath(packPathAsked);
         if (packPath.empty() || !ResidentFns())
             return false;
         std::lock_guard<std::mutex> lock(g_ResidentLock);
@@ -2285,22 +2352,92 @@ namespace UixUtilityControl
                 return true;
             total += pack->size;
         }
-        // block groups stay for the rest of the game, so there is a ceiling
-        if (g_ResidentPacks.size() >= kMaxResidentPacks || total + sizeBytes > kMaxResidentBytes)
-        {
-            LogWarnOnce("LoadResidentUiPack: %s refused: at most %u packs and %u MiB in all", packPath.c_str(),
-                static_cast<unsigned>(kMaxResidentPacks), static_cast<unsigned>(kMaxResidentBytes >> 20));
-            return false;
-        }
         auto pack = std::make_unique<ResidentPack>();
         pack->path = packPath;
         pack->pathId = FoxHashes::PathCode64Ext(packPath);
         pack->size = sizeBytes;
-        LogInfo("LoadResidentUiPack: %s asked for, %u bytes, path id 0x%llX", packPath.c_str(), sizeBytes,
-            static_cast<unsigned long long>(pack->pathId));
         g_ResidentPacks.push_back(std::move(pack));
         g_ResidentWork.store(true, std::memory_order_release);
         return true;
+    }
+
+    bool LoadResidentPackById(std::uint64_t packId, std::uint32_t sizeBytes, const char* label)
+    {
+        if (packId == 0 || !label || !ResidentFns())
+            return false;
+        std::lock_guard<std::mutex> lock(g_ResidentLock);
+        std::uint64_t total = 0;
+        for (const auto& pack : g_ResidentPacks)
+        {
+            if (pack->packId == packId)
+            {
+                if (pack->released)
+                {
+                    pack->released = false;
+                    pack->done = false;
+                    pack->loads = 0;
+                    pack->nextLoad = 0;
+                    g_ResidentWork.store(true, std::memory_order_release);
+                }
+                return true;
+            }
+            total += pack->size;
+        }
+        for (const auto& pack : g_ResidentPacks)
+        {
+            if (!pack->released || !pack->done || pack->size < sizeBytes || !pack->block || BlockStateSEH(pack->block) != 0)
+                continue;
+            pack->path = label;
+            pack->pathId = packId;
+            pack->packId = packId;
+            pack->released = false;
+            pack->done = false;
+            pack->loads = 0;
+            pack->nextLoad = 0;
+            pack->lastState = -1;
+            g_ResidentWork.store(true, std::memory_order_release);
+            return true;
+        }
+        auto pack = std::make_unique<ResidentPack>();
+        pack->path = label;
+        pack->pathId = packId;
+        pack->packId = packId;   // already the game's pack path id, no path string to hash
+        pack->size = sizeBytes;
+        g_ResidentPacks.push_back(std::move(pack));
+        g_ResidentWork.store(true, std::memory_order_release);
+        return true;
+    }
+
+    void ReleaseResidentPackById(std::uint64_t packId)
+    {
+        std::lock_guard<std::mutex> lock(g_ResidentLock);
+        for (const auto& pack : g_ResidentPacks)
+        {
+            if (pack->packId != packId || pack->released)
+                continue;
+            pack->released = true;
+            pack->done = false;
+            g_ResidentWork.store(true, std::memory_order_release);
+            return;
+        }
+    }
+
+    void* GetResidentPackBlock(std::uint64_t packId)
+    {
+        std::lock_guard<std::mutex> lock(g_ResidentLock);
+        for (const auto& pack : g_ResidentPacks)
+            if (pack->packId == packId && !pack->released && pack->block && BlockStateSEH(pack->block) == 3)
+                return pack->block;
+        return nullptr;
+    }
+
+    bool IsResidentPackLoading(std::uint64_t packId)
+    {
+        std::lock_guard<std::mutex> lock(g_ResidentLock);
+        for (const auto& pack : g_ResidentPacks)
+            if (pack->packId == packId && !pack->released)
+                return !pack->done;
+        return false;
     }
 
     void DestroyUiWindow(const Object& window)
@@ -2314,7 +2451,7 @@ namespace UixUtilityControl
             g_CreatedWindows.erase(created);
             QueueNoHandle([target]() {
                 std::lock_guard<std::recursive_mutex> lock(g_Lock);
-                if (g_DestroyingWindows.erase(target))   // a CreateWindow of the same name may have destroyed it first
+                if (g_DestroyingWindows.erase(target))
                     CallWindowSEH(Fn<WindowCall_t>(g_Addrs.destroyWindow), target);
             });
             return;
@@ -2400,21 +2537,71 @@ namespace UixUtilityControl
         return ResolveGameAddress(g_Addrs.functions[i]);
     }
 
-    void QueueLineDraw(std::uint32_t lineNode, std::vector<std::uint16_t> indices, std::vector<LineVertex> vertices)
+    const std::uint8_t kOneStripCount[] = { 0xBA, 0x01, 0x00, 0x00, 0x00 };   // mov edx, 1
+    const std::uint8_t kSetLineDrawsPrologue[] = { 0x44, 0x8B, 0xCA, 0x8B, 0x91, 0x80, 0x00, 0x00, 0x00 };   // mov r9d, edx / mov edx, [rcx+0x80]
+
+    void* FindLineDrawsSetterSEH(const void* wrapper)
+    {
+        __try
+        {
+            const auto* code = static_cast<const std::uint8_t*>(wrapper);
+            for (int at = 0; at < 0x30; ++at)
+            {
+                if (std::memcmp(code + at, kOneStripCount, sizeof(kOneStripCount)) != 0)
+                    continue;
+                for (int call = at + 5; call < at + 0x18; ++call)
+                {
+                    if (code[call] != 0xE8)
+                        continue;
+                    const auto* target = code + call + 5 + *reinterpret_cast<const std::int32_t*>(code + call + 1);
+                    return std::memcmp(target, kSetLineDrawsPrologue, sizeof(kSetLineDrawsPrologue)) == 0 ? const_cast<std::uint8_t*>(target) : nullptr;
+                }
+                return nullptr;
+            }
+            return nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+    }
+
+    SetLineDraws_t LineDrawsSetter()
+    {
+        static SetLineDraws_t setter = nullptr;
+        static bool looked = false;
+        if (!looked)
+        {
+            looked = true;
+            setter = reinterpret_cast<SetLineDraws_t>(FindLineDrawsSetterSEH(Method(kDevSetLineDraw)));
+            if (!setter)
+                LogWarn("V_UixUtility.SetLineDraw: this game build's line node was not recognised, only the first of several strips is drawn");
+        }
+        return setter;
+    }
+
+    void QueueLineDraw(std::uint32_t lineNode, std::vector<std::uint16_t> indices, std::vector<std::uint32_t> stripLengths, std::vector<LineVertex> vertices)
     {
         auto buffers = std::make_shared<LineBuffers>();
         buffers->indices = std::move(indices);
         buffers->vertices.reset(new Vec4[vertices.size()]);
         for (std::size_t i = 0; i < vertices.size(); ++i)
             buffers->vertices[i] = { { vertices[i].x, vertices[i].y, vertices[i].z, vertices[i].w } };
-        buffers->draw.vertexCount = static_cast<std::uint32_t>(buffers->indices.size());
-        buffers->draw.indices = buffers->indices.data();
+        std::size_t first = 0;
+        for (std::uint32_t length : stripLengths)
+        {
+            LineDrawRecord draw{};
+            draw.vertexCount = length;
+            draw.indices = buffers->indices.data() + first;
+            buffers->draws.push_back(draw);
+            first += length;
+        }
         Queue(lineNode, [buffers](const Object& node) {
             RetireLineBuffersOf(node.ptr);
             buffers->window = node.window;
-            g_LineBuffers[node.ptr] = buffers;   // held before the call, so a fault halfway cannot leave the node pointing at freed memory
+            g_LineBuffers[node.ptr] = buffers;
             RefreshDaemonWork();
-            reinterpret_cast<SetLineDraw_t>(Method(kDevSetLineDraw))(Utility(), node.ptr, &buffers->draw, buffers->vertices.get());
+            reinterpret_cast<SetLineDraw_t>(Method(kDevSetLineDraw))(Utility(), node.ptr, buffers->draws.data(), buffers->vertices.get());
+            if (buffers->draws.size() > 1)
+                if (SetLineDraws_t setter = LineDrawsSetter())
+                    setter(node.ptr, static_cast<std::uint32_t>(buffers->draws.size()), buffers->draws.data());
         });
     }
 
@@ -2444,13 +2631,13 @@ namespace UixUtilityControl
         Queue(childHandle, [parentWindow](const Object& c) {
             void* manager = Manager();
             if (StateOfSEH(manager, parentWindow) != WindowState::Alive || Field<void*>(c.ptr, WINDOW_PARENT))
-                return;   // the parent is gone, or the child already has one (the game does not check)
+                return;
             void* up = parentWindow;
             for (int depth = 0; up && depth < 32; ++depth, up = Field<void*>(up, WINDOW_PARENT))
                 if (up == c.ptr)
                 {
                     LogWarnOnce("V_UixUtility.AddChildWindow: the parent is inside the child's own tree, ignored");
-                    return;   // a loop leaves both windows parented, so neither is ever drawn
+                    return;
                 }
             reinterpret_cast<AddChildWindow_t>(Function(UiFunction::AddChildWindow))(parentWindow, c.ptr);
         });
@@ -2476,6 +2663,11 @@ namespace UixUtilityControl
     {
         return window ? GroupSEH(window) : -1;
     }
+
+    void* WindowRootLayout(void* window)   // callers guard it: a virtual call on the window
+    {
+        return window ? RootLayout(window) : nullptr;
+    }
 }
 
 
@@ -2494,7 +2686,9 @@ bool Install_UixUtilityControl_Hook()
     if (!layoutsOk || !deleteOk)
         LogError("V_UixUtility: UI hooks failed (layouts=%d delete=%d), UI functions do nothing", layoutsOk ? 1 : 0, deleteOk ? 1 : 0);
 
-    InstallExtraProjects();   // its own hook: Survive's files must be findable even if the layout hooks failed
+    InstallExtraProjects();
+    InstallBlockUnloadHook();
+    Install_WindowLayoutCount();
 
     g_Installed.store(layoutsOk && deleteOk, std::memory_order_release);
     return layoutsOk && deleteOk;
@@ -2502,7 +2696,8 @@ bool Install_UixUtilityControl_Hook()
 
 bool Uninstall_UixUtilityControl_Hook()
 {
-    uipad::Uninstall();   // gives the game's UI pad back before anything else goes
+    uipad::Uninstall();
+    Uninstall_WindowLayoutCount();
     if (g_Addrs.updateLayouts)
     {
         DisableAndRemoveHook(ResolveGameAddress(g_Addrs.updateLayouts));
@@ -2513,9 +2708,13 @@ bool Uninstall_UixUtilityControl_Hook()
         DisableAndRemoveHook(g_FindKnownProjectTarget);
         g_FindKnownProjectTarget = nullptr;
     }
+    if (g_BlockUnloadTarget)
+    {
+        DisableAndRemoveHook(g_BlockUnloadTarget);
+        g_BlockUnloadTarget = nullptr;
+    }
     g_Installed.store(false, std::memory_order_release);
 
-    // the DLL is leaving mid-game: undo links and drop our windows, or the game keeps pointers into them
     std::lock_guard<std::recursive_mutex> lock(g_Lock);
     void* manager = Manager();
     for (const Link& l : g_Links)
@@ -2556,10 +2755,10 @@ bool Uninstall_UixUtilityControl_Hook()
     g_Handles.clear();
     g_HandleOf.clear();
     for (auto& entry : g_TextUnits)
-        new std::shared_ptr<std::string>(std::move(entry.second.text));   // nodes may still show these strings; leak them on purpose
+        new std::shared_ptr<std::string>(std::move(entry.second.text));
     g_TextUnits.clear();
     for (auto& entry : g_LineBuffers)
-        new std::shared_ptr<LineBuffers>(std::move(entry.second));        // the same for line draws
+        new std::shared_ptr<LineBuffers>(std::move(entry.second));
     g_LineBuffers.clear();
     for (auto& retired : g_RetiredLines)
         new std::shared_ptr<LineBuffers>(std::move(retired.buffers));

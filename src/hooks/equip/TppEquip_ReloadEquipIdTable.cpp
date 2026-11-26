@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "TppEquip_ReloadEquipIdTable.h"
 
 #include <Windows.h>
@@ -8,11 +8,13 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
+#include "MissionCodeGuard.h"
 #include "log.h"
 #include "FoxHashes.h"
 #include "LuaApi.h"
@@ -21,6 +23,8 @@
 #include "DeployGuard.h"
 #include "EquipAliasLease.h"
 #include "WideMagazine.h"
+#include "UixUtilityControl.h"
+#include "../../core/V_FrameWorkState.h"
 
 namespace
 {
@@ -34,9 +38,12 @@ namespace
         std::int32_t equipType = 0;
         std::int32_t subId = 0;
         std::int32_t nativeSubId = -1;
+        std::int32_t declaredSubId = 0;
         std::int32_t block = 0;
         std::uint64_t partsHash = 0;
         std::uint64_t packHash = 0;
+        std::uint64_t decoyPartsHash = 0;
+        bool partsIsModel = false;
         bool resident = false;
         bool released = false;
     };
@@ -89,6 +96,58 @@ namespace
         int native;
     };
     static std::map<std::int32_t, AmmoRootParam> g_AmmoRootParams;
+
+    struct VanillaInfoRow
+    {
+        std::uint8_t  row[kRowStride] = {};
+        std::uint16_t word = 0;
+    };
+    static std::map<std::int32_t, VanillaInfoRow> g_VanillaInfoRows;   // the game's own row, kept before a mod row first replaces it
+    static std::set<std::int32_t> g_FobVanillaIds;                      // vanilla equipIds showing the game's own row while FOB runs
+    static std::atomic<bool> g_FobVanillaRowsOn{ false };
+
+    constexpr std::int32_t kEqpBlockMission  = 2;
+    constexpr std::int32_t kEqpTypeThrowing  = 12;
+    constexpr std::int32_t kEqpTypePlaced    = 13;
+    constexpr std::int32_t kEqpTypeAmmoBox   = 15;
+    constexpr std::int32_t kEqpTypeWeaponBox = 16;
+    constexpr std::int32_t kEqpTypeItem      = 17;
+    constexpr double       kOwnPackDefaultMiB = 4.0;
+    constexpr double       kOwnPackMaxMiB     = 64.0;
+
+    static std::map<std::int32_t, std::uint64_t> g_OwnPacks;
+    static std::atomic<bool> g_AnyOwnPack{ false };
+
+    static bool CopyNativeRowSEH(const std::uint8_t* src, const std::uint16_t* word, VanillaInfoRow& out)
+    {
+        __try
+        {
+            std::memcpy(out.row, src, kRowStride);
+            out.word = *word;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool PutVanillaRowSEH(std::uint8_t* nativeRow, std::uint16_t* word, std::uint8_t* mirrorRow,
+                                 const VanillaInfoRow& vanilla)
+    {
+        __try
+        {
+            std::memcpy(nativeRow, vanilla.row, kRowStride);
+            *word = vanilla.word;
+            if (mirrorRow)
+                std::memcpy(mirrorRow, vanilla.row, kRowStride);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 
     static std::uint8_t* g_InfoMirror = nullptr;
     static std::uint8_t* g_InfoMirrorReserved = nullptr;
@@ -166,7 +225,7 @@ namespace
 
     struct MirrorAbsDispSite
     {
-        std::uintptr_t va;
+        std::uintptr_t AddressSetRuntime::AddressSet::* va;
         std::uint8_t   prefix[4];
         std::uint8_t   prefixLen;
         std::uint8_t   dispOffset;
@@ -176,7 +235,7 @@ namespace
 
     struct MirrorRipSite
     {
-        std::uintptr_t va;
+        std::uintptr_t AddressSetRuntime::AddressSet::* va;
         std::uint32_t  rowOffset;
     };
 
@@ -186,100 +245,33 @@ namespace
         std::size_t               ripCount;
         const MirrorAbsDispSite*  abs;
         std::size_t               absCount;
-        std::uintptr_t            nativeBase;
+        std::uintptr_t AddressSetRuntime::AddressSet::* nativeBase;
     };
 
-    static const MirrorRipSite kMirrorRipSitesEn154[] = {
-        { 0x140a03587ull, 0x00u }, { 0x140a03ca4ull, 0x00u },
-        { 0x140a047a4ull, 0x10u }, { 0x140a04832ull, 0x10u },
-        { 0x140a05487ull, 0x00u }, { 0x140a05b80ull, 0x00u },
-        { 0x140a05dd2ull, 0x00u }, { 0x140a05e15ull, 0x00u },
-        { 0x140a0676cull, 0x00u }, { 0x140a07556ull, 0x00u },
-        { 0x140a079d8ull, 0x00u }, { 0x140a081bbull, 0x00u },
+    using AS = AddressSetRuntime::AddressSet;
+
+    static const MirrorRipSite kMirrorRipSites[] = {
+        { &AS::EquipIdTable_InfoListRipSite01, 0x00u }, { &AS::EquipIdTable_InfoListRipSite02, 0x00u },
+        { &AS::EquipIdTable_InfoListRipSite03, 0x10u }, { &AS::EquipIdTable_InfoListRipSite04, 0x10u },
+        { &AS::EquipIdTable_InfoListRipSite05, 0x00u }, { &AS::EquipIdTable_InfoListRipSite06, 0x00u },
+        { &AS::EquipIdTable_InfoListRipSite07, 0x00u }, { &AS::EquipIdTable_InfoListRipSite08, 0x00u },
+        { &AS::EquipIdTable_InfoListRipSite09, 0x00u }, { &AS::EquipIdTable_InfoListRipSite10, 0x00u },
+        { &AS::EquipIdTable_InfoListRipSite11, 0x00u }, { &AS::EquipIdTable_InfoListRipSite12, 0x00u },
     };
-    static const MirrorAbsDispSite kMirrorAbsSitesEn154[] = {
-        { 0x140a0588aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
-        { 0x140a058beull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
+    static const MirrorAbsDispSite kMirrorAbsSites[] = {
+        { &AS::EquipIdTable_InfoListAbsSite01, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
+        { &AS::EquipIdTable_InfoListAbsSite02, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
     };
 
-    static const MirrorRipSite kMirrorRipSitesJp154[] = {
-        { 0x140a03397ull, 0x00u }, { 0x140a03ab4ull, 0x00u },
-        { 0x140a045b4ull, 0x10u }, { 0x140a04642ull, 0x10u },
-        { 0x140a05297ull, 0x00u }, { 0x140a05990ull, 0x00u },
-        { 0x140a05be2ull, 0x00u }, { 0x140a05c25ull, 0x00u },
-        { 0x140a0657cull, 0x00u }, { 0x140a07366ull, 0x00u },
-        { 0x140a077e8ull, 0x00u }, { 0x140a07fcbull, 0x00u },
-    };
-    static const MirrorAbsDispSite kMirrorAbsSitesJp154[] = {
-        { 0x140a0569aull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FD0u, 0x00u },
-        { 0x140a056ceull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FE0u, 0x10u },
-    };
-
-    static const MirrorRipSite kMirrorRipSitesEn153[] = {
-        { 0x140a02be7ull, 0x00u }, { 0x1463c0ec3ull, 0x00u },
-        { 0x1463c4494ull, 0x10u }, { 0x1463c47e2ull, 0x10u },
-        { 0x1463c5437ull, 0x00u }, { 0x1463c763full, 0x00u },
-        { 0x1463c7762ull, 0x00u }, { 0x1463c79a5ull, 0x00u },
-        { 0x140a0607cull, 0x00u }, { 0x1463dfde6ull, 0x00u },
-        { 0x140a07298ull, 0x00u }, { 0x140a07a7bull, 0x00u },
-    };
-    static const MirrorAbsDispSite kMirrorAbsSitesEn153[] = {
-        { 0x140a050daull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FB0u, 0x00u },
-        { 0x140a0510eull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FC0u, 0x10u },
-    };
-
-    static const MirrorRipSite kMirrorRipSitesJp153[] = {
-        { 0x140a026b7ull, 0x00u }, { 0x14801b7f3ull, 0x00u },
-        { 0x14801f744ull, 0x10u }, { 0x14801f972ull, 0x10u },
-        { 0x1480212b7ull, 0x00u }, { 0x148023cffull, 0x00u },
-        { 0x148024182ull, 0x00u }, { 0x148024995ull, 0x00u },
-        { 0x140a05b4cull, 0x00u }, { 0x14802a756ull, 0x00u },
-        { 0x140a06d68ull, 0x00u }, { 0x140a0754bull, 0x00u },
-    };
-    static const MirrorAbsDispSite kMirrorAbsSitesJp153[] = {
-        { 0x140a04baaull, { 0x4C, 0x8D, 0xBA, 0x00 }, 3, 3, 0x02C20FB0u, 0x00u },
-        { 0x140a04bdeull, { 0x0F, 0xB6, 0x94, 0xCA }, 4, 4, 0x02C20FC0u, 0x10u },
-    };
-
-    static const MirrorSiteTable kMirrorTableEn154 = {
-        kMirrorRipSitesEn154, sizeof(kMirrorRipSitesEn154) / sizeof(kMirrorRipSitesEn154[0]),
-        kMirrorAbsSitesEn154, sizeof(kMirrorAbsSitesEn154) / sizeof(kMirrorAbsSitesEn154[0]),
-        0x142c20fd0ull,
-    };
-
-    static const MirrorSiteTable kMirrorTableJp154 = {
-        kMirrorRipSitesJp154, sizeof(kMirrorRipSitesJp154) / sizeof(kMirrorRipSitesJp154[0]),
-        kMirrorAbsSitesJp154, sizeof(kMirrorAbsSitesJp154) / sizeof(kMirrorAbsSitesJp154[0]),
-        0x142c20fd0ull,
-    };
-    static const MirrorSiteTable kMirrorTableEn153 = {
-        kMirrorRipSitesEn153, sizeof(kMirrorRipSitesEn153) / sizeof(kMirrorRipSitesEn153[0]),
-        kMirrorAbsSitesEn153, sizeof(kMirrorAbsSitesEn153) / sizeof(kMirrorAbsSitesEn153[0]),
-        0x142c20fb0ull,
-    };
-    static const MirrorSiteTable kMirrorTableJp153 = {
-        kMirrorRipSitesJp153, sizeof(kMirrorRipSitesJp153) / sizeof(kMirrorRipSitesJp153[0]),
-        kMirrorAbsSitesJp153, sizeof(kMirrorAbsSitesJp153) / sizeof(kMirrorAbsSitesJp153[0]),
-        0x142c20fb0ull,
+    static const MirrorSiteTable kMirrorTable = {
+        kMirrorRipSites, sizeof(kMirrorRipSites) / sizeof(kMirrorRipSites[0]),
+        kMirrorAbsSites, sizeof(kMirrorAbsSites) / sizeof(kMirrorAbsSites[0]),
+        &AS::EquipIdTable_InfoList,
     };
 
     static const MirrorSiteTable* MirrorTableForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return &kMirrorTableEn154;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            return &kMirrorTableJp154;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return &kMirrorTableEn153;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return &kMirrorTableJp153;
-        default:
-            return nullptr;
-        }
+        return &kMirrorTable;
     }
     static constexpr std::uintptr_t kMirrorImageBase  = 0x140000000ull;
     static constexpr std::uintptr_t kMirrorNearBand   = 0x40000000ull;
@@ -312,7 +304,7 @@ namespace
         for (std::size_t i = 0; table && i < table->ripCount; ++i)
         {
             const auto next = reinterpret_cast<std::uintptr_t>(
-                ResolveGameAddress(table->rip[i].va)) + 7;
+                ResolveGameAddress(gAddr.*table->rip[i].va)) + 7;
             minNext = (std::min)(minNext, next);
             maxNext = (std::max)(maxNext, next);
         }
@@ -439,7 +431,7 @@ namespace
         if (!table)
             return 0;
         const auto nativeBase =
-            reinterpret_cast<std::uintptr_t>(ResolveGameAddress(table->nativeBase));
+            reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.*table->nativeBase));
         const std::uintptr_t imageBase = MirrorExeBase();
         std::size_t patched = 0;
         std::size_t skipped = 0;
@@ -447,7 +439,7 @@ namespace
         for (std::size_t s = 0; s < table->ripCount; ++s)
         {
             const MirrorRipSite& site = table->rip[s];
-            const auto va = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(site.va));
+            const auto va = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.*site.va));
             auto* p = reinterpret_cast<std::uint8_t*>(va);
             std::uint8_t head[7] = {};
             if (!p || !MirrorReadSiteSEH(p, head, sizeof(head)))
@@ -489,7 +481,7 @@ namespace
         for (std::size_t a = 0; a < table->absCount; ++a)
         {
             const MirrorAbsDispSite& site = table->abs[a];
-            auto* p = static_cast<std::uint8_t*>(ResolveGameAddress(site.va));
+            auto* p = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.*site.va));
             std::uint8_t head[8] = {};
             if (!p || !MirrorReadSiteSEH(p, head, sizeof(head)))
             {
@@ -593,6 +585,23 @@ namespace
         }
 
         std::uint8_t* dst = infoList + static_cast<size_t>(index) * kRowStride;
+        const bool vanillaId = row.equipId < EquipIdCompression::kExtendedAllocFirst
+            && !V_FrameWorkState::IsClaimedEquipId(row.equipId);   // claim check before g_Mutex, it takes the state lock
+        if (vanillaId)
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            if (g_VanillaInfoRows.find(row.equipId) == g_VanillaInfoRows.end())
+            {
+                VanillaInfoRow vanilla;
+                if (CopyNativeRowSEH(dst, typeWords + index, vanilla))
+                    g_VanillaInfoRows.emplace(row.equipId, vanilla);
+            }
+            if (g_FobVanillaRowsOn.load(std::memory_order_acquire))
+            {
+                g_FobVanillaIds.insert(row.equipId);   // FOB keeps the game's own row, this one comes back when FOB ends
+                return;
+            }
+        }
         if (!SafeStampRow(dst, typeWords + index, row))
         {
             static bool s_stampWarned = false;
@@ -669,12 +678,94 @@ namespace
         return ok;
     }
 
+    static std::string ReadRowString(lua_State* L, int n)
+    {
+        std::string out;
+        g_lua_rawgeti(L, -1, n);
+        if (g_lua_type(L, -1) == LUA_TSTRING)
+            if (const char* text = g_lua_tolstring(L, -1, nullptr))
+                out = text;
+        g_lua_settop(L, -2);
+        return out;
+    }
+
+    static std::uint64_t ReadRowFieldPathHash(lua_State* L, const char* key)
+    {
+        std::uint64_t out = 0;
+        g_lua_getfield(L, -1, const_cast<char*>(key));
+        if (g_lua_type(L, -1) == LUA_TSTRING)
+            if (const char* path = g_lua_tolstring(L, -1, nullptr); path && path[0])
+                out = FoxHashes::PathCode64Ext(path);
+        g_lua_settop(L, -2);
+        return out;
+    }
+
+    static bool IsModelPath(const std::string& path)
+    {
+        constexpr char kModel[] = ".fmdl";
+        constexpr std::size_t kLength = sizeof(kModel) - 1;
+        return path.size() >= kLength && _stricmp(path.c_str() + path.size() - kLength, kModel) == 0;
+    }
+
+    static bool HasOwnPack(const EquipIdRow& row)
+    {
+        const bool ownPackType = row.equipType == kEqpTypeThrowing || row.equipType == kEqpTypePlaced
+            || row.equipType == kEqpTypeAmmoBox || row.equipType == kEqpTypeWeaponBox || row.equipType == kEqpTypeItem;
+        return ownPackType && row.block == kEqpBlockMission && row.packHash != 0;
+    }
+
+    static bool PackStillUsedNoLock(std::uint64_t pack)
+    {
+        for (const auto& kv : g_OwnPacks)
+            if (kv.second == pack)
+                return true;
+        return false;
+    }
+
+    static std::uint64_t ForgetOwnPackNoLock(std::int32_t equipId)
+    {
+        const auto it = g_OwnPacks.find(equipId);
+        if (it == g_OwnPacks.end())
+            return 0;
+        const std::uint64_t pack = it->second;
+        g_OwnPacks.erase(it);
+        g_AnyOwnPack.store(!g_OwnPacks.empty(), std::memory_order_release);
+        return PackStillUsedNoLock(pack) ? 0 : pack;
+    }
+
+    static void NoteOwnPack(const EquipIdRow& row, const std::string& packPath, double sizeMiB)
+    {
+        const bool wanted = HasOwnPack(row) && !FeatureIsDisabled("EquipOwnPack");
+        std::uint64_t unused = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            unused = ForgetOwnPackNoLock(row.equipId);
+            if (wanted)
+            {
+                g_OwnPacks[row.equipId] = row.packHash;
+                g_AnyOwnPack.store(true, std::memory_order_release);
+                if (unused == row.packHash)
+                    unused = 0;
+            }
+        }
+        if (unused)
+            UixUtilityControl::ReleaseResidentPackById(unused);
+        if (!wanted)
+            return;
+        const double mib = sizeMiB <= 0.0 ? kOwnPackDefaultMiB : (std::min)(sizeMiB, kOwnPackMaxMiB);
+        const auto bytes = static_cast<std::uint32_t>(mib * 1024.0 * 1024.0);
+        if (!UixUtilityControl::LoadResidentPackById(row.packHash, bytes, packPath.c_str()))
+            LogWarn("AddToEquipIdTable: equipId %d: its own pack %s could not be queued, the item shows no model",
+                row.equipId, packPath.c_str());
+    }
+
     static void QueueAndWrite(const EquipIdRow& rowIn)
     {
         EquipIdRow row = rowIn;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
-            if (const auto it = g_AmmoRootParams.find(row.equipId); it != g_AmmoRootParams.end())
+            if (const auto it = g_AmmoRootParams.find(row.equipId);
+                it != g_AmmoRootParams.end() && row.declaredSubId == 0)
             {
                 row.subId = it->second.logical;
                 row.nativeSubId = it->second.native;
@@ -702,12 +793,18 @@ namespace
         g_TableEpoch.fetch_add(1, std::memory_order_release);
     }
 
+    static bool FobHidesRowNoLock(std::int32_t equipId)
+    {
+        return g_FobVanillaRowsOn.load(std::memory_order_acquire) && g_FobVanillaIds.count(equipId) != 0;
+    }
+
     static void ReapplyAll()
     {
         std::vector<EquipIdRow> snapshot;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
             snapshot = g_Rows;
+            g_VanillaInfoRows.clear();   // the reload just wrote the game's own rows again
         }
         for (const auto& row : snapshot)
         {
@@ -734,9 +831,18 @@ namespace
             || EquipIdCompression::IsWideEquipId(equipId);
     }
 
+    // an alias with no live lease (a save holding the alias itself) has no rows behind it: no equipment, an empty slot
+    static bool IsUnleasedAlias(std::int32_t equipId)
+    {
+        return EquipIdCompression::IsAliasPoolId(equipId) && !equip::IsLeasedAlias(equipId)
+            && !V_FrameWorkState::IsOwnedEquipId(equipId);
+    }
+
     static unsigned int __fastcall hkGetEquipTypeId(void* self, unsigned int equipId)
     {
         const std::int32_t realId = equip::FromEngine(static_cast<std::int32_t>(equipId));
+        if (IsUnleasedAlias(realId))
+            return 0;
         if (IsCustomBandEquipId(realId))
         {
             V_ExtendedEquipRow ext;
@@ -792,20 +898,23 @@ namespace
             {
                 bool owned = false;
                 bool released = false;
+                std::int32_t declaredSubId = 0;
                 const auto extended = g_Extended.find(static_cast<int>(equipId));
                 if (extended != g_Extended.end())
                 {
                     owned = true;
                     released = extended->second.released;
+                    declaredSubId = extended->second.declaredSubId;
                 }
                 for (const auto& row : g_Rows)
-                    if (row.equipId == static_cast<int>(equipId))
+                    if (row.equipId == static_cast<int>(equipId) && !FobHidesRowNoLock(row.equipId))
                     {
                         owned = true;
                         released = released || row.released;
+                        declaredSubId = row.declaredSubId;
                         break;
                     }
-                if (owned)
+                if (owned && declaredSubId == 0)
                     return released ? 0u : static_cast<unsigned>(ammo->second.logical);
             }
         }
@@ -841,7 +950,7 @@ int TppEquip_GetSubIdForEquipId(int equipId)
     std::lock_guard<std::mutex> lock(g_Mutex);
     for (const auto& r : g_Rows)
         if (r.equipId == equipId)
-            return (r.equipType >= 1 && r.equipType <= 8) ? r.subId : 0;
+            return (r.equipType >= 1 && r.equipType <= 8 && !FobHidesRowNoLock(equipId)) ? r.subId : 0;
     auto it = g_Extended.find(equipId);
     if (it != g_Extended.end() && !it->second.released)
         return (it->second.equipType >= 1 && it->second.equipType <= 8)
@@ -860,7 +969,7 @@ int TppEquip_GetSupportWeaponIdForEquipId(int equipId)
     std::lock_guard<std::mutex> lock(g_Mutex);
     for (const auto& r : g_Rows)
         if (r.equipId == equipId)
-            return isSupportWeapon(r.equipType) ? r.subId : -1;
+            return (isSupportWeapon(r.equipType) && !FobHidesRowNoLock(equipId)) ? r.subId : -1;
     auto it = g_Extended.find(equipId);
     if (it != g_Extended.end() && !it->second.released)
         return isSupportWeapon(it->second.equipType) ? it->second.subId : -1;
@@ -874,7 +983,7 @@ void TppEquip_GetCustomWeaponEquipIds(std::vector<int>& out)
         std::lock_guard<std::mutex> lock(g_Mutex);
         out.reserve(g_Rows.size() + g_Extended.size());
         for (const auto& r : g_Rows)
-            if (r.equipType >= 1 && r.equipType <= 8 && r.subId != 0)
+            if (r.equipType >= 1 && r.equipType <= 8 && r.subId != 0 && !FobHidesRowNoLock(r.equipId))
                 out.push_back(r.equipId);
         for (const auto& kv : g_Extended)
             if (!kv.second.released && kv.second.equipType >= 1
@@ -913,6 +1022,8 @@ bool TppEquip_GetCustomEquipPack(int equipId, std::uint64_t* outPack)
     {
         if (r.equipId == equipId && !r.released)
         {
+            if (FobHidesRowNoLock(equipId))
+                return false;
             *outPack = r.packHash;
             return r.packHash != 0;
         }
@@ -922,6 +1033,41 @@ bool TppEquip_GetCustomEquipPack(int equipId, std::uint64_t* outPack)
         return false;
     *outPack = it->second.packHash;
     return it->second.packHash != 0;
+}
+
+bool TppEquip_GetOwnPack(int equipId, std::uint64_t* outPack)
+{
+    if (!outPack || !g_AnyOwnPack.load(std::memory_order_acquire))
+        return false;
+    equipId = equip::FromEngine(equipId);
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    const auto it = g_OwnPacks.find(equipId);
+    if (it == g_OwnPacks.end())
+        return false;
+    *outPack = it->second;
+    return true;
+}
+
+bool TppEquip_GetDecoyModels(int equipId, V_DecoyModels* out)
+{
+    if (!out || !g_AnyOwnPack.load(std::memory_order_acquire))
+        return false;
+    *out = {};
+    equipId = equip::FromEngine(equipId);
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    const auto pack = g_OwnPacks.find(equipId);
+    if (pack == g_OwnPacks.end() || FobHidesRowNoLock(equipId))
+        return false;
+    for (const auto& r : g_Rows)
+    {
+        if (r.equipId != equipId || r.released)
+            continue;
+        out->pack = pack->second;
+        out->canister = r.partsIsModel ? r.partsHash : 0;
+        out->figure = r.decoyPartsHash;
+        return out->canister != 0 || out->figure != 0;
+    }
+    return false;
 }
 
 bool TppEquip_BindAliasRow(int aliasId, int wideId)
@@ -1029,20 +1175,88 @@ bool TppEquip_EnsureInfoListMirror()
     return true;
 }
 
-int __cdecl l_AddToEquipIdTable(lua_State* L)
+int TppEquip_FirstVanillaRowOverride()
 {
-    if (!ResolveLuaApi() || !g_lua_objlen || !g_lua_rawgeti)
-        return 0;
-    if (g_lua_type(L, 1) != LUA_TTABLE)
+    std::vector<std::int32_t> low;
     {
-        LogWarn("AddToEquipIdTable: argument #1 must be a table");
-        return 0;
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const EquipIdRow& row : g_Rows)
+            if (row.equipId < EquipIdCompression::kExtendedAllocFirst && row.resident && !row.released
+                && g_VanillaInfoRows.find(row.equipId) == g_VanillaInfoRows.end())
+                low.push_back(row.equipId);
     }
+    for (const std::int32_t equipId : low)   // claim check outside g_Mutex, it takes the state lock
+        if (!V_FrameWorkState::IsClaimedEquipId(equipId))
+            return equipId;
+    return 0;
+}
 
-    const int rowCount = static_cast<int>(g_lua_objlen(L, 1));
+void TppEquip_EnforceFobVanillaRows()
+{
+    const bool fob = MissionCodeGuard::ShouldBypassHooks();
+    if (g_FobVanillaRowsOn.load(std::memory_order_acquire) == fob)
+        return;
+
+    std::vector<std::int32_t> low;
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        for (const EquipIdRow& row : g_Rows)
+            if (!row.released && row.equipId < EquipIdCompression::kExtendedAllocFirst)
+                low.push_back(row.equipId);
+    }
+    std::set<std::int32_t> vanilla;
+    for (const std::int32_t equipId : low)   // claim check outside g_Mutex, it takes the state lock
+        if (!V_FrameWorkState::IsClaimedEquipId(equipId))
+            vanilla.insert(equipId);
+
+    auto* infoList = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.EquipIdTable_InfoList));
+    auto* typeWords = static_cast<std::uint16_t*>(ResolveGameAddress(gAddr.EquipIdTable_TypeWords));
+    std::vector<EquipIdRow> reapply;
+    std::size_t restored = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        if (g_FobVanillaRowsOn.load(std::memory_order_acquire) == fob)
+            return;
+        if (fob)
+        {
+            for (const std::int32_t equipId : vanilla)
+            {
+                const std::int32_t index = EquipIdCompression::ComputeCompressed(equipId);
+                const auto saved = g_VanillaInfoRows.find(equipId);
+                if (saved == g_VanillaInfoRows.end() || !infoList || !typeWords
+                    || !EquipIdCompression::IsCompressedInBounds(index))
+                    continue;
+                std::uint8_t* mirrorRow = (g_InfoMirror && index < kMirrorRows)
+                    ? g_InfoMirror + static_cast<size_t>(index) * kRowStride : nullptr;
+                if (PutVanillaRowSEH(infoList + static_cast<size_t>(index) * kRowStride,
+                                     typeWords + index, mirrorRow, saved->second))
+                    ++restored;
+            }
+            g_FobVanillaIds = vanilla;
+            g_FobVanillaRowsOn.store(true, std::memory_order_release);
+        }
+        else
+        {
+            g_FobVanillaRowsOn.store(false, std::memory_order_release);
+            for (const EquipIdRow& row : g_Rows)
+                if (!row.released && g_FobVanillaIds.count(row.equipId))
+                    reapply.push_back(row);
+            g_FobVanillaIds.clear();
+        }
+    }
+    for (const EquipIdRow& row : reapply)
+        WriteNativeRow(row);
+    g_TableEpoch.fetch_add(1, std::memory_order_release);
+    if (fob && restored)
+        LogInfo("FobGuard: %zu vanilla equip id row(s) a mod changed use the game's own values in FOB", restored);
+}
+
+static void AddRowsFromTable(lua_State* L, int table)
+{
+    const int rowCount = static_cast<int>(g_lua_objlen(L, table));
     for (int i = 1; i <= rowCount; ++i)
     {
-        g_lua_rawgeti(L, 1, i);
+        g_lua_rawgeti(L, table, i);
         if (g_lua_type(L, -1) == LUA_TTABLE)
         {
             double idN, typeN, subN, blockN;
@@ -1057,9 +1271,23 @@ int __cdecl l_AddToEquipIdTable(lua_State* L)
                 row.equipId   = static_cast<std::int32_t>(idN);
                 row.equipType = static_cast<std::int32_t>(typeN);
                 row.subId     = static_cast<std::int32_t>(subN);
+                row.declaredSubId = row.subId;
                 row.block     = static_cast<std::int32_t>(blockN);
+                row.partsIsModel = IsModelPath(ReadRowString(L, 5));
+                row.decoyPartsHash = ReadRowFieldPathHash(L, "decoyParts");
+                if (row.decoyPartsHash != 0 && !HasOwnPack(row))
+                {
+                    LogWarn("AddToEquipIdTable: equipId %d: decoyParts needs EQP_BLOCK_MISSION and the item's own pack, "
+                            "the decoy keeps the game's figure", row.equipId);
+                    row.decoyPartsHash = 0;
+                }
+                double packSizeMiB = 0.0;
+                ReadRowNumber(L, 7, packSizeMiB);
                 if (row.equipId > 0)
+                {
                     QueueAndWrite(row);
+                    NoteOwnPack(row, ReadRowString(L, 6), packSizeMiB);
+                }
             }
             else
             {
@@ -1068,8 +1296,95 @@ int __cdecl l_AddToEquipIdTable(lua_State* L)
         }
         g_lua_settop(L, -2);
     }
+}
 
+int __cdecl l_AddToEquipIdTable(lua_State* L)
+{
+    if (!ResolveLuaApi() || !g_lua_objlen || !g_lua_rawgeti)
+        return 0;
+    if (g_lua_type(L, 1) != LUA_TTABLE)
+    {
+        LogWarn("AddToEquipIdTable: argument #1 must be a table");
+        return 0;
+    }
+    AddRowsFromTable(L, 1);
     return 0;
+}
+
+using VanillaAddToEquipIdTable_t = int(__fastcall*)(lua_State* L);
+static VanillaAddToEquipIdTable_t g_OrigVanillaAddToEquipIdTable = nullptr;
+static void* g_VanillaAddTarget = nullptr;
+
+static constexpr std::uint8_t kVanillaAddToEquipIdTableEntry[] =
+{
+    0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0xC8,
+};
+
+static bool RowFitsGameTable(lua_State* L)
+{
+    double idN = 0.0;
+    if (!ReadRowNumber(L, 1, idN))
+        return true;
+    return EquipIdCompression::IsCompressedInBounds(EquipIdCompression::ComputeCompressed(static_cast<std::int32_t>(idN)));
+}
+
+static int __fastcall hkVanillaAddToEquipIdTable(lua_State* L)   // the game writes row id-0x380 of its 0x289-row table unchecked
+{
+    if (!ResolveLuaApi() || !g_lua_gettop || !g_lua_next || !g_lua_createtable || !g_lua_rawset
+        || !g_lua_pushvalue || !g_lua_pushnil || !g_lua_pushnumber || !g_lua_objlen || !g_lua_rawgeti)
+        return g_OrigVanillaAddToEquipIdTable(L);
+    const int table = g_lua_gettop(L);
+    if (table < 1 || g_lua_type(L, table) != LUA_TTABLE)
+        return g_OrigVanillaAddToEquipIdTable(L);
+
+    int fitting = 0;
+    int outside = 0;
+    g_lua_pushnil(L);
+    while (g_lua_next(L, table) != 0)
+    {
+        if (g_lua_type(L, -1) != LUA_TTABLE)
+        {
+            g_lua_settop(L, -3);
+            break;
+        }
+        if (RowFitsGameTable(L))
+            ++fitting;
+        else
+            ++outside;
+        g_lua_settop(L, -2);
+    }
+    if (outside == 0)
+        return g_OrigVanillaAddToEquipIdTable(L);
+
+    g_lua_createtable(L, fitting, 0);
+    const int fittingRows = g_lua_gettop(L);
+    g_lua_createtable(L, outside, 0);
+    const int outsideRows = g_lua_gettop(L);
+    int nextFitting = 0;
+    int nextOutside = 0;
+    g_lua_pushnil(L);
+    while (g_lua_next(L, table) != 0)
+    {
+        if (g_lua_type(L, -1) != LUA_TTABLE)
+        {
+            g_lua_settop(L, -3);
+            break;
+        }
+        const bool fits = RowFitsGameTable(L);
+        g_lua_pushnumber(L, static_cast<lua_Number>(fits ? ++nextFitting : ++nextOutside));
+        g_lua_pushvalue(L, -2);
+        g_lua_rawset(L, fits ? fittingRows : outsideRows);
+        g_lua_settop(L, -2);
+    }
+
+    static std::atomic<bool> s_told{ false };
+    if (!s_told.exchange(true))
+        LogInfo("TppEquip.AddToEquipIdTable: %d row(s) with ids outside the game's own table were added the V_TppEquip.AddToEquipIdTable way", outside);
+    g_lua_pushvalue(L, fittingRows);
+    const int results = g_OrigVanillaAddToEquipIdTable(L);
+    AddRowsFromTable(L, outsideRows);
+    g_lua_settop(L, table);
+    return results;
 }
 
 bool Install_TppEquip_ReloadEquipIdTable_Hook()
@@ -1122,11 +1437,38 @@ bool Install_TppEquip_ReloadEquipIdTable_Hook()
     }
     else
         LogError("EquipIdTable: GetEquipSubId address missing, extended weapons build a different gun");
+
+    if (void* addTarget = ResolveGameAddress(gAddr.EquipIdTable_AddToEquipIdTable))
+    {
+        const HookEntry entry = CheckHookEntry(addTarget, kVanillaAddToEquipIdTableEntry, sizeof(kVanillaAddToEquipIdTableEntry));
+        if (entry == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(addTarget, desc, sizeof(desc));
+            LogError("EquipIdTable: TppEquip.AddToEquipIdTable code differs on this build (%s), custom ids passed to it overwrite memory", desc);
+        }
+        else
+        {
+            if (entry == HookEntry::ForeignHook)
+                LogHookedOnTop("EquipIdTable: TppEquip.AddToEquipIdTable", addTarget);
+            if (CreateAndEnableHook(addTarget, &hkVanillaAddToEquipIdTable,
+                                    reinterpret_cast<void**>(&g_OrigVanillaAddToEquipIdTable)))
+                g_VanillaAddTarget = addTarget;
+            else
+                LogError("EquipIdTable: TppEquip.AddToEquipIdTable hook failed, custom ids passed to it overwrite memory");
+        }
+    }
+    else
+        LogError("EquipIdTable: TppEquip.AddToEquipIdTable address missing, custom ids passed to it overwrite memory");
     return ok;
 }
 
 bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
 {
+    if (g_VanillaAddTarget)
+        DisableAndRemoveHook(g_VanillaAddTarget);
+    g_VanillaAddTarget = nullptr;
+    g_OrigVanillaAddToEquipIdTable = nullptr;
     if (gAddr.EquipIdTable_GetEquipTypeId && g_OrigGetEquipTypeId)
         DisableAndRemoveHook(ResolveGameAddress(gAddr.EquipIdTable_GetEquipTypeId));
     g_OrigGetEquipTypeId = nullptr;
@@ -1144,6 +1486,8 @@ bool Uninstall_TppEquip_ReloadEquipIdTable_Hook()
             if (row.resident)
                 resident.push_back(row.equipId);
         g_Rows.clear();
+        g_OwnPacks.clear();
+        g_AnyOwnPack.store(false, std::memory_order_release);
     }
     g_TableEpoch.fetch_add(1, std::memory_order_release);
     for (const std::int32_t id : resident)
@@ -1169,7 +1513,7 @@ void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId
         {
             if (r.equipId != eqpAmmoEquipId || r.released)
                 continue;
-            if (r.subId != ammoId || r.nativeSubId != nativeAmmoId)
+            if (r.declaredSubId == 0 && (r.subId != ammoId || r.nativeSubId != nativeAmmoId))
             {
                 r.subId = ammoId;
                 r.nativeSubId = nativeAmmoId;
@@ -1179,7 +1523,7 @@ void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId
             break;
         }
         auto it = g_Extended.find(eqpAmmoEquipId);
-        if (it != g_Extended.end() && !it->second.released
+        if (it != g_Extended.end() && !it->second.released && it->second.declaredSubId == 0
             && (it->second.subId != ammoId || it->second.nativeSubId != nativeAmmoId))
         {
             it->second.subId = ammoId;
@@ -1197,6 +1541,7 @@ void TppEquip_NoteAmmoRootParam(int eqpAmmoEquipId, int ammoId, int nativeAmmoId
 int TppEquip_ReleaseEquipRow(int equipId)
 {
     bool found = false;
+    std::uint64_t unusedPack = 0;
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         for (auto& row : g_Rows)
@@ -1207,7 +1552,10 @@ int TppEquip_ReleaseEquipRow(int equipId)
                 found = true;
                 break;
             }
+        unusedPack = ForgetOwnPackNoLock(equipId);
     }
+    if (unusedPack)
+        UixUtilityControl::ReleaseResidentPackById(unusedPack);
     if (!found)
         return 0;
     g_TableEpoch.fetch_add(1, std::memory_order_release);

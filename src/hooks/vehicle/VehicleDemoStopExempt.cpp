@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -17,14 +17,6 @@ namespace
         0x66, 0x83, 0x4B, 0x58, 0x08, 0xEB, 0x09, 0xB8, 0xF7, 0xFF, 0x00, 0x00, 0x66, 0x21,
         0x43, 0x58
     };
-    constexpr std::uint8_t kSitePattern153[] =
-    {
-        0x48, 0x8B, 0x06, 0xB2, 0x20, 0x48, 0x89, 0xF1, 0xFF, 0x10, 0x84, 0xC0, 0x74, 0x07,
-        0x66, 0x83, 0x4B, 0x58, 0x08, 0xEB, 0x09, 0xB8, 0xF7, 0xFF, 0x00, 0x00, 0x66, 0x21,
-        0x43, 0x58
-    };
-    static_assert(sizeof(kSitePattern153) == sizeof(kSitePattern) && kSitePattern153[0] == kSitePattern[0],
-                  "both encodings of the site must share the scan length and first byte");
     constexpr std::size_t   kSiteOffsetInPattern = 3;
     constexpr std::size_t   kPatchSize           = 7;
     constexpr std::size_t   kThunkSize           = 64;
@@ -39,7 +31,9 @@ namespace
     std::uint8_t* g_Site  = nullptr;
     std::uint8_t* g_Thunk = nullptr;
     std::uint8_t  g_OrigBytes[kPatchSize] = {};
+    std::uint8_t  g_PatchBytes[kPatchSize] = {};
     bool          g_Patched = false;
+    bool          g_ThunkFromArena = false;   // arena pages are not allocation bases, VirtualFree would fail on them
 
     bool FindIgnoringVehicle(std::uint8_t* type, unsigned* outIndex, unsigned* outRealized)
     {
@@ -79,8 +73,12 @@ namespace
 
     void* AllocateThunkNear(std::uintptr_t nearAddr, std::size_t size)
     {
+        g_ThunkFromArena = false;
         if (void* arena = HookArena::AllocateNear(nearAddr, size))
+        {
+            g_ThunkFromArena = true;
             return arena;
+        }
         SYSTEM_INFO si{};
         GetSystemInfo(&si);
         const std::uintptr_t granularity = si.dwAllocationGranularity;
@@ -105,8 +103,7 @@ namespace
 
     bool SiteMatchesAt(const std::uint8_t* at)
     {
-        return std::memcmp(at, kSitePattern, sizeof(kSitePattern)) == 0
-            || std::memcmp(at, kSitePattern153, sizeof(kSitePattern153)) == 0;
+        return std::memcmp(at, kSitePattern, sizeof(kSitePattern)) == 0;
     }
 
     std::size_t ScanRegion(std::uint8_t* begin, std::size_t size, std::uint8_t** outSite,
@@ -246,7 +243,8 @@ bool Install_VehicleDemoStopExempt()
                            - (static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(site)) + 5);
     if (rel < INT32_MIN || rel > INT32_MAX)
     {
-        VirtualFree(g_Thunk, 0, MEM_RELEASE);
+        if (!g_ThunkFromArena)
+            VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         LogError("VehicleDemoStop: thunk out of rel32 range, demo exemption off");
         return false;
@@ -259,12 +257,14 @@ bool Install_VehicleDemoStopExempt()
     DWORD old = 0;
     if (!VirtualProtect(site, kPatchSize, PAGE_EXECUTE_READWRITE, &old))
     {
-        VirtualFree(g_Thunk, 0, MEM_RELEASE);
+        if (!g_ThunkFromArena)
+            VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         LogError("VehicleDemoStop: site unprotect failed, demo exemption off");
         return false;
     }
     std::memcpy(g_OrigBytes, site, kPatchSize);
+    std::memcpy(g_PatchBytes, patch, kPatchSize);
     std::memcpy(site, patch, kPatchSize);
     VirtualProtect(site, kPatchSize, old, &old);
     FlushInstructionCache(GetCurrentProcess(), site, kPatchSize);
@@ -276,21 +276,31 @@ bool Install_VehicleDemoStopExempt()
 
 void Uninstall_VehicleDemoStopExempt()
 {
+    bool restored = true;
     if (g_Patched && g_Site)
     {
-        DWORD old = 0;
-        if (VirtualProtect(g_Site, kPatchSize, PAGE_EXECUTE_READWRITE, &old))
+        std::uint8_t live[kPatchSize]{};
+        restored = false;
+        if (!ReadEntryBytesSEH(g_Site, live, sizeof(live)) || std::memcmp(live, g_PatchBytes, sizeof(live)) != 0)
+            LogWarn("VehicleDemoStop: site no longer holds our call (another module changed it), left as it is and the thunk stays in place");
+        else
         {
-            std::memcpy(g_Site, g_OrigBytes, kPatchSize);
-            VirtualProtect(g_Site, kPatchSize, old, &old);
-            FlushInstructionCache(GetCurrentProcess(), g_Site, kPatchSize);
+            DWORD old = 0;
+            if (VirtualProtect(g_Site, kPatchSize, PAGE_EXECUTE_READWRITE, &old))
+            {
+                std::memcpy(g_Site, g_OrigBytes, kPatchSize);
+                VirtualProtect(g_Site, kPatchSize, old, &old);
+                FlushInstructionCache(GetCurrentProcess(), g_Site, kPatchSize);
+                restored = true;
+            }
         }
     }
     g_Patched = false;
     g_Site = nullptr;
     if (g_Thunk)
     {
-        VirtualFree(g_Thunk, 0, MEM_RELEASE);
+        if (restored && !g_ThunkFromArena)
+            VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
     }
 }

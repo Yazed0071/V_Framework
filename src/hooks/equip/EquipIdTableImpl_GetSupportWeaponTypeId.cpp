@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipIdTableImpl_GetSupportWeaponTypeId.h"
 
 #include <Windows.h>
@@ -25,7 +25,7 @@ namespace
         std::ptrdiff_t       returnOffset;   // the call's return address, relative to the stock site
     };
 
-    const SlotMatchSite kSlotMatchSites[] = {   // DoPickUpPlaced / DoPickUpWithPickableInfo: a pickup replaces the carried slot of the same type
+    const SlotMatchSite kSlotMatchSites[] = {
         { &AS::PickUpActionPluginImpl_DoPickUpPlaced_SlotStockSite,     -0x127 },
         { &AS::PickUpActionPluginImpl_DoPickUpPlaced_SlotStockSite,     -0xA2  },
         { &AS::PickUpActionPluginImpl_DoPickUpWithPickableInfo_StockSite, -0x17A },
@@ -34,6 +34,7 @@ namespace
     constexpr std::size_t   kSlotMatchCount = sizeof(kSlotMatchSites) / sizeof(kSlotMatchSites[0]);
     constexpr std::uint8_t  kCallVtable48[] = { 0xFF, 0x50, 0x48 };   // call qword ptr [reg+0x48]
     constexpr int           kPickUpLineBase = 0x10000;                // above every vanilla support weapon type
+    constexpr int           kNoSupportWeaponType = 0x17;
 
     GetSupportWeaponTypeId_t g_Orig   = nullptr;
     void*                    g_Target = nullptr;
@@ -85,6 +86,11 @@ namespace
 
     __declspec(noinline) int __fastcall hkGetSupportWeaponTypeId(void* equipIdTable, std::uint32_t equipId)
     {
+        const std::uint32_t noticeAs = SupportWeapon::NoticeScope();
+        if (noticeAs == SupportWeapon::kNoticeNothing)
+            return kNoSupportWeaponType;
+        if (noticeAs != 0)
+            return g_Orig(equipIdTable, noticeAs);
         if (IsSlotMatchCall(reinterpret_cast<std::uintptr_t>(_ReturnAddress())))
         {
             const std::uint32_t line = SupportWeapon::PickUpLine(equipId);

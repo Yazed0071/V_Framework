@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "MotionLoaderImpl_GetMtarIds.h"
 
 #include <atomic>
@@ -193,7 +193,9 @@ namespace
     std::uint32_t __fastcall hkGetMtarIds(void* self, std::uint8_t* out, std::uint32_t* equipId)
     {
         const std::uint32_t eq = equipId ? *equipId : 0;
+        const unsigned int viewedBefore = EquipParam_ViewGunAsItsKind(eq);
         std::uint32_t n = g_OrigGetMtarIds(self, out, equipId);
+        EquipParam_ViewGunAsItsKind(viewedBefore);
         if (!out || eq == 0)
             return n;
         int owned[kMtarIdSlots] = {};
@@ -201,7 +203,7 @@ namespace
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
             const MotionFamily* f = FamilyForEquipLocked(eq);
-            if (f && f->mtarId != 0)
+            if (f && f->mtarId != 0 && f->playerMtar != 0 && f->playerPack != 0)
                 owned[ownedCount++] = f->mtarId;
             if (f)
                 for (const int id : f->extraMtarIds)
@@ -249,6 +251,11 @@ namespace
             *out = path;
             return out;
         }
+        if (out && mtarId >= static_cast<std::uint32_t>(kFirstOwnedMtarId))
+        {
+            *out = 0;   // ids from 128 are ours only, the vanilla table has no such rows
+            return out;
+        }
         return g_OrigGetMtarFilePath(self, out, mtarId);
     }
 
@@ -258,6 +265,11 @@ namespace
         if (out && OwnedPathFor(mtarId, true, &path))
         {
             *out = path;
+            return out;
+        }
+        if (out && mtarId >= static_cast<std::uint32_t>(kFirstOwnedMtarId))
+        {
+            *out = 0;
             return out;
         }
         return g_OrigGetBlockPackagePath(self, out, mtarId);
@@ -286,7 +298,6 @@ bool ReceiverMotion_Register(const ReceiverMotionDesc& desc)
     }
     std::lock_guard<std::mutex> lock(g_Mutex);
     MotionFamily& f = g_FamilyByReceiver[desc.receiverId];
-    g_ReceiverByRow.clear();
     if (f.receiverId == 0)
         f.receiverId = desc.receiverId;
     if (desc.playerMtar != 0 && f.mtarId == 0)
@@ -471,12 +482,16 @@ bool Install_MotionLoaderImpl_GetMtarIds_Hook()
     if (!gAddr.MotionLoaderImpl_GetMtarIds || !gAddr.MotionLoaderImpl_GetMtarFilePath
         || !gAddr.MotionLoaderImpl_GetBlockPackagePath)
         return true;
-    return HookOne(gAddr.MotionLoaderImpl_GetMtarIds, &hkGetMtarIds,
-                   reinterpret_cast<void**>(&g_OrigGetMtarIds), "GetMtarIds")
+    const bool installed =
+        HookOne(gAddr.MotionLoaderImpl_GetMtarIds, &hkGetMtarIds,
+                reinterpret_cast<void**>(&g_OrigGetMtarIds), "GetMtarIds")
         && HookOne(gAddr.MotionLoaderImpl_GetMtarFilePath, &hkGetMtarFilePath,
                    reinterpret_cast<void**>(&g_OrigGetMtarFilePath), "GetMtarFilePath")
         && HookOne(gAddr.MotionLoaderImpl_GetBlockPackagePath, &hkGetBlockPackagePath,
                    reinterpret_cast<void**>(&g_OrigGetBlockPackagePath), "GetBlockPackagePath");
+    if (!installed)
+        Uninstall_MotionLoaderImpl_GetMtarIds_Hook();
+    return installed;
 }
 
 void Uninstall_MotionLoaderImpl_GetMtarIds_Hook()

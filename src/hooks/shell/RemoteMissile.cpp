@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "RemoteMissile.h"
 
@@ -23,8 +23,7 @@
 namespace
 {
     constexpr std::size_t kQuarkApplicationSystem = 0x98;
-    constexpr std::size_t kAppShellSystem154 = 0x210;
-    constexpr std::size_t kAppShellSystem153 = 0x208;
+    constexpr std::size_t kAppShellSystem = 0x210;
 
     constexpr std::size_t kShellVtblFire = 0x00;
     constexpr std::size_t kShellVtblFireRocketPunch = 0x58;
@@ -240,24 +239,12 @@ namespace
             if (!app)
                 return nullptr;
 
-            const std::size_t offsets[2] = { kAppShellSystem154, kAppShellSystem153 };
-            for (std::size_t i = 0; i < 2; ++i)
+            std::uint8_t* candidate =
+                *reinterpret_cast<std::uint8_t**>(app + kAppShellSystem);
+            std::uint8_t* vtable = candidate ? *reinterpret_cast<std::uint8_t**>(candidate) : nullptr;
+            if (vtable && *reinterpret_cast<void**>(vtable + kShellVtblOperateRocketPunch)
+                && *reinterpret_cast<std::uint32_t*>(candidate + kShellActiveIndex) <= kShellNoIndex)
             {
-                std::uint8_t* candidate =
-                    *reinterpret_cast<std::uint8_t**>(app + offsets[i]);
-                if (!candidate)
-                    continue;
-                std::uint8_t* vtable = *reinterpret_cast<std::uint8_t**>(candidate);
-                if (!vtable)
-                    continue;
-                if (!*reinterpret_cast<void**>(vtable + kShellVtblOperateRocketPunch))
-                    continue;
-
-                const std::uint32_t activeIndex =
-                    *reinterpret_cast<std::uint32_t*>(candidate + kShellActiveIndex);
-                if (activeIndex > kShellNoIndex)
-                    continue;
-
                 g_ResolveLogged = true;
                 return candidate;
             }
@@ -266,7 +253,7 @@ namespace
             {
                 g_ResolveLogged = true;
                 LogError("RemoteMissile: shell system not found at "
-                    "ApplicationSystem+0x210/+0x208, remote missiles off");
+                    "ApplicationSystem+0x210, remote missiles off");
             }
             return nullptr;
         }
@@ -1696,8 +1683,21 @@ namespace shell
         ReleaseControl();
     }
 
+    void RemoteMissile_ClearForNewMission()
+    {
+        if (g_Flying)
+            RemoteMissile_AbortWithoutHandoff();
+        g_Flying = false;
+        g_CameraTaken = false;
+        g_InputMasked = false;
+        g_ClaimedWorkIndex = kShellNoIndex;
+        g_PlayerContext = nullptr;
+    }
+
     void RemoteMissile_Abort()
     {
+        if (!g_Flying)
+            return;
         std::uint8_t* shellSystem = ResolveShellSystemSEH();
         if (shellSystem && IsExistSEH(shellSystem))
         {
@@ -1748,7 +1748,8 @@ namespace shell
             return;
         if (!EnsureFireHook(shellSystem))
             return;
-        EnsureExecuteHook(shellSystem);
+        if (!EnsureExecuteHook(shellSystem))
+            return;
         if (IsExistSEH(shellSystem))
             return;
 
@@ -1907,6 +1908,11 @@ int __cdecl l_SetRemoteMissile(lua_State* L)
 {
     if (!ResolveLuaApi())
         return 0;
+    if (LuaType(L, 1) != LUA_TTABLE)
+    {
+        LogWarn("SetRemoteMissile: table expected");
+        return 0;
+    }
 
     int equipId = 0;
     LuaGetField(L, 1, "equipId");

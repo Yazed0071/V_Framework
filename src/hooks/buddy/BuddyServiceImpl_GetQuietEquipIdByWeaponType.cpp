@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BuddyServiceImpl_GetQuietEquipIdByWeaponType.h"
 
@@ -6,6 +6,7 @@
 
 #include "AddressSet.h"
 #include "BuddyOutfitRegistry.h"
+#include "EquipAliasLease.h"
 #include "EquipPartParams.h"
 #include "GunBasicInject.h"
 #include "HookUtils.h"
@@ -47,7 +48,7 @@ namespace
     {
         buddyoutfit::Entry e;
         if (CustomWeapon(weaponType, &e))
-            return e.equipId;
+            return static_cast<std::uint64_t>(equip::ToEngine(e.equipId));   // a wide id goes to the engine as its alias
         return g_OrigEquipId(svc, weaponType);
     }
 

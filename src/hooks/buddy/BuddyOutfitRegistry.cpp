@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BuddyOutfitRegistry.h"
 
@@ -35,6 +35,7 @@ namespace buddyoutfit
             { "D-Horse tack",  "BuddyHorseTack",    kBuddyTypeHorse, false, 7 },
             { "D-Dog gear",    "BuddyDogGear",      kBuddyTypeDog,   false, 8 },
             { "quiet weapon",  "BuddyQuietWeapon",  kBuddyTypeQuiet, false, 5 },
+            { "D-Walker sidearm", "BuddyWalkerSidearm", kBuddyTypeWalker, false, 7 },
         };
 
         alignas(64) std::uint32_t g_ValueBits[kKindCount][kValueBitWords] = {};
@@ -115,9 +116,35 @@ namespace buddyoutfit
 
         DogGearTables g_DogGear;
 
+        constexpr std::int32_t kNoEquipId = 0x7FF;
+
         std::mutex                                g_Mutex;
         std::vector<Entry>                        g_Entries;
         std::unordered_map<std::uint16_t, size_t> g_ByDevelopId;
+
+        std::unordered_map<std::string, std::int32_t>   g_NonBuddyRowEquip;
+        std::unordered_map<std::int32_t, std::uint32_t> g_NonBuddyRowEquipCount;
+        std::uint32_t                                   g_DevelopRowsGeneration = 0;
+
+        void NoteNonBuddyRow_NoLock(const std::string& key, std::int32_t equipId)
+        {
+            const auto it = g_NonBuddyRowEquip.find(key);
+            if (it != g_NonBuddyRowEquip.end())
+            {
+                if (it->second == equipId)
+                    return;
+                const auto count = g_NonBuddyRowEquipCount.find(it->second);
+                if (count != g_NonBuddyRowEquipCount.end() && --count->second == 0)
+                    g_NonBuddyRowEquipCount.erase(count);
+                g_NonBuddyRowEquip.erase(it);
+            }
+            if (equipId > 0)
+            {
+                g_NonBuddyRowEquip[key] = equipId;
+                ++g_NonBuddyRowEquipCount[equipId];
+            }
+            ++g_DevelopRowsGeneration;
+        }
 
         const KindInfo& InfoOf(Kind kind)
         {
@@ -145,7 +172,7 @@ namespace buddyoutfit
             g_DogGear.escape[v]   = on && fx.escapeDistance >= 0.0f ? fx.escapeDistance : kNakedEscapeDistance;
             g_DogGear.retreat[v]  = on && fx.hitRetreatDistance >= 0.0f ? fx.hitRetreatDistance : kNakedHitRetreatDistance;
             g_DogGear.retarget[v] = on && fx.retargetRange >= 0.0f ? fx.retargetRange : 0.0f;
-            SetBit(g_DogGear.holdsBite, v, commandGear == 0);   // the soldier only stays pinned under NAKED's bite
+            SetBit(g_DogGear.holdsBite, v, commandGear == 0);
             SetBit(g_DogGear.noFlinch, v, on && fx.bulletFlinch == 0);
             SetBit(g_DogGear.hitEffect, v, on && fx.armorHitEffect == 1);
             SetBit(g_DogGear.hitSound, v, on && fx.armorHitSound == 1);
@@ -233,14 +260,20 @@ namespace buddyoutfit
 
         constexpr std::int32_t kQuietSr010 = 59;
         constexpr std::int32_t kQuietSr030 = 61;
-        const bool quietWeapon = developType == kDevTypeQuiet && equipId > 0 && equipId <= 0xFFFF
-                              && !(equipId >= kQuietSr010 && equipId <= kQuietSr030);
-        if (!quietWeapon)
+        Kind kind = Kind::Count;
+        if (developType == kDevTypeQuiet && equipId > 0 && equipId <= 0xFFFF
+            && !(equipId >= kQuietSr010 && equipId <= kQuietSr030))
+            kind = Kind::QuietWeapon;
+        else if (developType == kDevTypeWalkerGear && equipId > 0 && equipId <= 0xFFFF && equipId != kNoEquipId)
+            kind = Kind::WalkerSidearm;
+
+        if (kind == Kind::Count)
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
+            NoteNonBuddyRow_NoLock(key, equipId);
             for (auto it = g_Entries.begin(); it != g_Entries.end(); ++it)
             {
-                if (it->key == key && it->kind == Kind::QuietWeapon)
+                if (it->key == key && (it->kind == Kind::QuietWeapon || it->kind == Kind::WalkerSidearm))
                 {
                     PublishBits(*it, false);
                     g_Entries.erase(it);
@@ -251,18 +284,23 @@ namespace buddyoutfit
             return;
         }
 
+        {
+            std::lock_guard<std::mutex> lock(g_Mutex);
+            NoteNonBuddyRow_NoLock(key, 0);
+        }
+
         Entry old;
-        if (TryGetByKey(key.c_str(), &old) && old.kind == Kind::QuietWeapon
+        if (TryGetByKey(key.c_str(), &old) && old.kind == kind
             && old.developId == developId && old.equipId == equipId)
             return;
 
         Entry e;
         e.key = key;
-        e.kind = Kind::QuietWeapon;
+        e.kind = kind;
         e.developId = developId;
         e.equipId = static_cast<std::uint16_t>(equipId);
         if (Register(e))
-            LogInfo("Quiet weapon %s developId:%u equipId:%d value:%u", key.c_str(),
+            LogInfo("%s %s developId:%u equipId:%d value:%u", KindName(kind), key.c_str(),
                 static_cast<unsigned>(developId), equipId, static_cast<unsigned>(e.value));
     }
 
@@ -313,6 +351,22 @@ namespace buddyoutfit
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         return !g_Entries.empty();
+    }
+
+    std::vector<std::int32_t> NonBuddyRowEquipIds()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        std::vector<std::int32_t> ids;
+        ids.reserve(g_NonBuddyRowEquipCount.size());
+        for (const auto& kv : g_NonBuddyRowEquipCount)
+            ids.push_back(kv.first);
+        return ids;
+    }
+
+    std::uint32_t DevelopRowsGeneration()
+    {
+        std::lock_guard<std::mutex> lock(g_Mutex);
+        return g_DevelopRowsGeneration;
     }
 
     std::uint32_t* ValueBits(Kind kind) { return g_ValueBits[static_cast<std::size_t>(kind)]; }

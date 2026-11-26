@@ -7,6 +7,7 @@ namespace MissionCodeGuard
     std::uint16_t GetCurrentMissionCode();
     bool IsMissionBlocked(std::uint16_t missionCode);
     bool ShouldBypassHooks();
+    bool IsFob();   // also true when this build's mission flags can't be read
 }
 
 

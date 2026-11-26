@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include <Windows.h>
 #include <cstdint>
 #include <cstddef>
@@ -457,24 +457,22 @@ namespace
 
     static bool InstallItemWindowBoundPatch()
     {
-        const uintptr_t site = gAddr.TppPickable_ItemWindowBoundSite;
-        if (!site)
+        auto* at = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.TppPickable_ItemWindowBoundSite));
+        if (!at)
             return true;
+        const uintptr_t site = reinterpret_cast<uintptr_t>(at);
 
-        auto* at = reinterpret_cast<std::uint8_t*>(site);
         static const std::uint8_t kOrig[6] = { 0x81, 0xFB, 0x09, 0x02, 0x00, 0x00 };
-        for (int i = 0; i < 6; ++i)
+        std::uint8_t found[6] = {};
+        if (!ReadEntryBytesSEH(at, found, sizeof(found)) || std::memcmp(found, kOrig, sizeof(kOrig)) != 0)
         {
-            if (at[i] != kOrig[i])
-            {
-                LogError("TppPickable: item-window patch at 0x%llX: found %02X %02X %02X "
-                         "%02X %02X %02X, low item equipIds crash on drop",
-                    static_cast<unsigned long long>(site),
-                    static_cast<unsigned>(at[0]), static_cast<unsigned>(at[1]),
-                    static_cast<unsigned>(at[2]), static_cast<unsigned>(at[3]),
-                    static_cast<unsigned>(at[4]), static_cast<unsigned>(at[5]));
-                return false;
-            }
+            LogError("TppPickable: item-window patch at 0x%llX: found %02X %02X %02X "
+                     "%02X %02X %02X, low item equipIds crash on drop",
+                static_cast<unsigned long long>(site),
+                static_cast<unsigned>(found[0]), static_cast<unsigned>(found[1]),
+                static_cast<unsigned>(found[2]), static_cast<unsigned>(found[3]),
+                static_cast<unsigned>(found[4]), static_cast<unsigned>(found[5]));
+            return false;
         }
 
         const uintptr_t backTo   = site + 6;
@@ -541,7 +539,7 @@ bool Install_TppPickableHooks()
 
     void* target = ResolveGameAddress(gAddr.CopyAndAdjustInfo);
 
-    if (MH_CreateHook(
+    if (CreateHookTracked(
         target,
         reinterpret_cast<void*>(&hkCopyAndAdjustInfo),
         reinterpret_cast<void**>(&g_OrigCopyAndAdjustInfo)) != MH_OK)
@@ -552,7 +550,7 @@ bool Install_TppPickableHooks()
 
     if (EnableOrQueueHook(target) != MH_OK)
     {
-        MH_RemoveHook(target);
+        DisableAndRemoveHook(target);
         g_OrigCopyAndAdjustInfo = nullptr;
         LogError("TppPickable: CopyAndAdjustInfo hook enable failed, pickable overrides off");
         return false;
@@ -572,8 +570,7 @@ bool Uninstall_TppPickableHooks()
     equip::NoteGateInstalled(equip::AliasGate::CopyAndAdjustInfo, false);
     void* target = ResolveGameAddress(gAddr.CopyAndAdjustInfo);
 
-    MH_DisableHook(target);
-    MH_RemoveHook(target);
+    DisableAndRemoveHook(target);
 
     g_OrigCopyAndAdjustInfo = nullptr;
     g_TppPickableHooksInstalled = false;

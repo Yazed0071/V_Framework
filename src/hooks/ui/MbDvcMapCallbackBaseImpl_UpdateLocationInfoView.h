@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MbDvcMapCallbackBaseImpl_UpdateLocationInfoView_Hook();
+bool Uninstall_MbDvcMapCallbackBaseImpl_UpdateLocationInfoView_Hook();

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "AnimalInstance.h"
 
 #include <Windows.h>
@@ -154,7 +154,6 @@ namespace
         }
     }
 
-    // the stored position (not spawned) or the spawned list must agree with what the game just answered
     bool StateAgreesSeh(const std::uint8_t* state, std::uint32_t index, const float* reported)
     {
         __try

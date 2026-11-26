@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "TornadoDualPatch.h"
 
 #include <Windows.h>
@@ -73,7 +73,13 @@ void Uninstall_TornadoDualPatch()
     {
         void* target = ResolveGameAddress(gAddr.TornadoDualPatch);
         if (target)
-            WriteBytes(target, kOriginalBytes);
+        {
+            const auto* cur = static_cast<const std::uint8_t*>(target);
+            if (cur[0] != kEnabledBytes[0] || cur[1] != kEnabledBytes[1])
+                LogWarn("TornadoDual: patch site no longer holds our bytes (another module changed it), left as it is");
+            else
+                WriteBytes(target, kOriginalBytes);
+        }
     }
     g_Applied = false;
 }

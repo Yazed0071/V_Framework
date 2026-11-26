@@ -1,9 +1,10 @@
-#include "pch.h"
+#include <pch.h>
 #include "HeliVoice.h"
 
 #include <Windows.h>
 #include <cstdint>
 #include <cstring>
+#include <unordered_map>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -11,6 +12,15 @@
 
 namespace
 {
+    struct PatchSite
+    {
+        std::uint8_t written[sizeof(unsigned int)] = {};
+        bool         ours   = false;
+        bool         warned = false;
+    };
+
+    std::unordered_map<uintptr_t, PatchSite> g_Sites;
+
     using FNVHash32_t = unsigned int(__fastcall*)(const char* strToHash);
     static FNVHash32_t g_FNVHash32 = nullptr;
 
@@ -49,6 +59,38 @@ namespace
             return false;
         }
 
+        PatchSite& site = g_Sites[pointer];
+        std::uint8_t live[sizeof(site.written)] = {};
+        if (dwSize > sizeof(live) || !ReadEntryBytesSEH(target, live, dwSize))
+        {
+            LogWarn("HeliVoice: site 0x%llx unreadable, heli voice not swapped",
+                static_cast<unsigned long long>(pointer));
+            return false;
+        }
+
+        const bool holdsVanilla = std::memcmp(live, originalBytes, dwSize) == 0;
+        const bool holdsNew     = std::memcmp(live, enabledBytes, dwSize) == 0;
+        const bool holdsOurs    = site.ours && std::memcmp(live, site.written, dwSize) == 0;
+
+        if (isEnable ? holdsNew : holdsVanilla)
+        {
+            site.ours = isEnable;
+            if (isEnable)
+                std::memcpy(site.written, enabledBytes, dwSize);
+            return true;
+        }
+
+        if (!holdsVanilla && !holdsOurs)
+        {
+            if (!site.warned)
+            {
+                site.warned = true;
+                LogWarn("HeliVoice: another module changed the site 0x%llx, this part of the heli voice is off",
+                    static_cast<unsigned long long>(pointer));
+            }
+            return false;
+        }
+
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, dwSize, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
@@ -60,6 +102,9 @@ namespace
 
         const std::uint8_t* src = isEnable ? enabledBytes : originalBytes;
         std::memcpy(target, src, dwSize);
+        site.ours = isEnable;
+        if (isEnable)
+            std::memcpy(site.written, enabledBytes, dwSize);
 
         DWORD restored = 0;
         VirtualProtect(target, dwSize, oldProtect, &restored);
@@ -80,6 +125,12 @@ bool SetEnableHeliVoice(bool isEnable,
     unsigned int origRadioHash = GetFNVHash32(kOriginalRadioEvent);
     unsigned int newVoiceHash  = GetFNVHash32(DD_vox_SH_voice_new);
     unsigned int newRadioHash  = GetFNVHash32(DD_vox_SH_radio_new);
+
+    if (!origVoiceHash || !origRadioHash)
+    {
+        LogError("HeliVoice: FNV hash function missing for this build, heli voice not swapped");
+        return false;
+    }
 
     auto* origVoiceBytes = reinterpret_cast<std::uint8_t*>(&origVoiceHash);
     auto* origRadioBytes = reinterpret_cast<std::uint8_t*>(&origRadioHash);

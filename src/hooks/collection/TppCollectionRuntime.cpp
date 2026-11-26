@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include <Windows.h>
 #include <algorithm>
 #include <cmath>
@@ -6,6 +6,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 #include "MinHook.h"
@@ -138,7 +139,10 @@ namespace
     using GetUixUtility_t        = void*(__fastcall*)();
     using LangTextResolve_t      = const char*(__fastcall*)(void* self, std::uint64_t langId);
 
+    using CollectionLocatorArrayDtor_t = void(__fastcall*)(std::uint8_t* self);
+
     static SetUpLinearAccessor_t g_OrigSetUpLinearAccessor = nullptr;
+    static CollectionLocatorArrayDtor_t g_OrigCollectionLocatorArrayDtor = nullptr;
     static PickUp_t              g_OrigPickUp              = nullptr;
     static RepopCountOperation_t g_OrigRepopCountOperation = nullptr;
     static GetCollectionInfo_t   g_OrigGetCollectionInfo   = nullptr;
@@ -554,7 +558,7 @@ namespace
         return true;
     }
 
-    static bool RebuildArrays(std::uint8_t* arr, bool wantCustoms)
+    static bool RebuildArraysImpl(std::uint8_t* arr, bool wantCustoms)
     {
         g_Tail.clear();
 
@@ -645,6 +649,10 @@ namespace
             return j;
         };
 
+        std::set<std::uint16_t> customRows; // z-rows holding a custom collectible: the engine reads a row's segments as one run
+        for (const auto& bucket : buckets)
+            customRows.insert(static_cast<std::uint16_t>(bucket.first >> 7));
+
         const std::size_t groupCount = g_Van.groupIds.size();
 
         std::size_t mergeGroup = SIZE_MAX;
@@ -687,8 +695,16 @@ namespace
 
                 if (haveVan && (!haveCus || vanSeg < cusSeg))
                 {
+                    std::uint16_t rowStart = g_Van.locIdx[s];
+                    if (mergeCustoms && customRows.count(static_cast<std::uint16_t>(vanSeg >> 7)))
+                    {
+                        rowStart = static_cast<std::uint16_t>(outInf.size());
+                        for (std::uint16_t r = 0; r < g_Van.locCnt[s]; ++r)
+                            appendVanillaRow(static_cast<std::uint32_t>(g_Van.locIdx[s]) + r);
+                    }
+
                     outSegIdx.push_back(vanSeg);
-                    outLocIdx.push_back(g_Van.locIdx[s]);
+                    outLocIdx.push_back(rowStart);
                     outLocCnt.push_back(g_Van.locCnt[s]);
                     ++s;
                 }
@@ -737,7 +753,7 @@ namespace
             LogWarn("TppCollection: locator table would hold %zu rows (max %u), customs dropped",
                     outInf.size(), kMaxLocatorRows);
             g_CustomsBlocked = true;
-            return RebuildArrays(arr, false);
+            return RebuildArraysImpl(arr, false);
         }
 
         const bool ok = InstallArrays(arr, outPos, outRot, outInf,
@@ -759,6 +775,19 @@ namespace
             ct.drawPathId    = 0;
         }
         return true;
+    }
+
+    static bool RebuildArrays(std::uint8_t* arr, bool wantCustoms)
+    {
+        const std::vector<TailRow> oldTail = g_Tail;
+        const bool oldInstalled = g_CustomsInstalled;
+        const bool ok = RebuildArraysImpl(arr, wantCustoms);
+        if (!ok)
+        {
+            g_Tail = oldTail; // a failed install leaves the previous tables live in the engine
+            g_CustomsInstalled = oldInstalled;
+        }
+        return ok;
     }
 
     static void EnsureCustomState(std::uint8_t* arr)
@@ -890,6 +919,27 @@ namespace
             MirrorHiddenBits();
         }
         g_OrigSetUpLinearAccessor(self, accessor, pos, radius, groupMask);
+    }
+
+    static std::uintptr_t Addr_CollectionLocatorArrayDtor()
+    {
+        return gAddr.CollectionLocatorArray_Dtor;
+    }
+
+    static void __fastcall Hook_CollectionLocatorArrayDtor(std::uint8_t* self)
+    {
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+            if (self == g_Arr)
+            {
+                g_Arr = nullptr;
+                g_SeenInfoData = nullptr;
+                g_HaveVanilla = false;
+                g_Tail.clear();
+                g_CustomsInstalled = false;
+            }
+        }
+        g_OrigCollectionLocatorArrayDtor(self);
     }
 
     static void __fastcall Hook_PickUp(std::uint8_t* iface, std::uint32_t index)
@@ -1560,6 +1610,70 @@ std::int32_t TppCollection_FindTypeByName(const char* typeName)
     return t ? static_cast<std::int32_t>(t->typeId) : -1;
 }
 
+using CollectionCount_t = std::uint32_t(__fastcall*)(std::uint8_t* iface);
+
+static bool CollectionInterfaceSEH(std::uint8_t*& iface, CollectionCount_t& count, GetCollectionInfo_t& getInfo)
+{
+    __try
+    {
+        std::uint8_t* self = GetCollectionSystemRaw();
+        if (!self)
+            return false;
+        iface = self + 0x20;
+        void** vtable = *reinterpret_cast<void***>(iface);
+        count   = reinterpret_cast<CollectionCount_t>(vtable[0x10 / sizeof(void*)]);
+        getInfo = reinterpret_cast<GetCollectionInfo_t>(vtable[0x18 / sizeof(void*)]);
+        return count && getInfo;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+// the engine calls stay outside SEH: Hook_GetCollectionInfo holds g_Mutex, and an SEH unwind under /EHsc would leave it locked
+int TppCollection_GetMapCollections(TppCollectionMapEntry* out, int capacity)
+{
+    constexpr std::uint32_t kMaxRows = 0x4000;
+    constexpr std::uint8_t kOnMap = 0x2;      // the iDroid map draws it (an Intel survey found it, or it was marked)
+    constexpr std::uint8_t kCollected = 0x4;
+    if (!out || capacity <= 0 || MissionCodeGuard::ShouldBypassHooks())
+        return -1;
+    std::uint8_t* iface = nullptr;
+    CollectionCount_t count = nullptr;
+    GetCollectionInfo_t getInfo = nullptr;
+    if (!CollectionInterfaceSEH(iface, count, getInfo))
+        return -1;
+    std::uint32_t total = count(iface) & 0xFFFF;
+    if (total > kMaxRows)
+        total = kMaxRows;
+    alignas(16) std::uint8_t info[0x20]; // GetCollectionInfo stores the position with movaps
+    int n = 0;
+    for (std::uint32_t i = 0; i < total && n < capacity; ++i)
+    {
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+            if (g_CustomsInstalled && i >= g_VanillaCount)
+            {
+                const std::size_t k = i - g_VanillaCount;
+                if (k < g_Tail.size() && g_Tail[k].canonical >= 0)
+                    continue; // copy of a vanilla row, the original row is listed
+            }
+        }
+        if (!getInfo(iface, i, info, 0) || !(info[0x17] & kOnMap))
+            continue;
+        const float* position = reinterpret_cast<const float*>(info);
+        TppCollectionMapEntry& e = out[n++];
+        e.index = i;
+        e.type = info[0x16];
+        e.collected = (info[0x17] & kCollected) != 0;
+        e.x = position[0];
+        e.y = position[1];
+        e.z = position[2];
+    }
+    return n;
+}
+
 bool TppCollection_TypesAvailable()
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
@@ -1611,6 +1725,18 @@ bool Install_TppCollectionHooks()
     }
 
     g_HooksInstalled = true;
+
+    if (Addr_CollectionLocatorArrayDtor() != 0)
+    {
+        void* tDtor = ResolveGameAddress(Addr_CollectionLocatorArrayDtor());
+        if (!CreateAndEnableHook(tDtor, Hook_CollectionLocatorArrayDtor,
+                                 reinterpret_cast<void**>(&g_OrigCollectionLocatorArrayDtor)))
+        {
+            DisableAndRemoveHook(tDtor);
+            g_OrigCollectionLocatorArrayDtor = nullptr;
+            LogError("TppCollection: locator array destructor hook failed, custom collectible state may outlive a map unload");
+        }
+    }
 
     if (gAddr.Collection_GetModelFilePath &&
         gAddr.Collection_GetCatchEffectColorAndScale &&
@@ -1750,6 +1876,12 @@ void Uninstall_TppCollectionHooks()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectionSystemImpl_PickUp));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectionSystemImpl_RepopCountOperation));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CollectionSystemImpl_GetCollectionInfo));
+
+    if (g_OrigCollectionLocatorArrayDtor)
+    {
+        DisableAndRemoveHook(ResolveGameAddress(Addr_CollectionLocatorArrayDtor()));
+        g_OrigCollectionLocatorArrayDtor = nullptr;
+    }
 
     if (g_TypeHooks == InstallState::Installed)
     {

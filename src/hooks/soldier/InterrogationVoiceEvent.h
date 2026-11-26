@@ -7,6 +7,7 @@ void Register_InterrogationVoiceEvent(std::uint32_t cpIndex, std::uint32_t event
                                       const std::uint32_t* labelBases,
                                       std::uint32_t labelBaseCount);
 void Clear_InterrogationVoiceEvents();
+void InterrogationVoiceEvent_ClearForReload();   // the armed swap only, keeps the registered events
 
 bool Install_InterrogationVoiceEvent_Hook();
 bool Uninstall_InterrogationVoiceEvent_Hook();

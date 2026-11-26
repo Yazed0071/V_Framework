@@ -21,6 +21,9 @@ std::uint32_t Get_SoldierAkObjId(std::uint32_t gameObjectId);
 bool Set_SoldierVoicePitch(std::uint32_t gameObjectId, float cents);
 
 
+void Set_EverySoldierVoicePitch(float cents);
+
+
 void Unset_AllSoldierVoicePitch();
 
 

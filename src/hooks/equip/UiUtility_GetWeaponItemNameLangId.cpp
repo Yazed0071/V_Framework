@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include <Windows.h>
 #include <cstdint>
 #include <unordered_map>
@@ -96,7 +96,7 @@ bool Install_UiUtility_GetWeaponItemNameLangIdHook()
         return false;
 
     void* target = ResolveGameAddress(addr);
-    if (MH_CreateHook(
+    if (CreateHookTracked(
             target,
             reinterpret_cast<void*>(&hkGetWeaponItemNameLangId),
             reinterpret_cast<void**>(&g_OrigGetWeaponItemNameLangId)) != MH_OK)
@@ -108,7 +108,7 @@ bool Install_UiUtility_GetWeaponItemNameLangIdHook()
 
     if (EnableOrQueueHook(target) != MH_OK)
     {
-        MH_RemoveHook(target);
+        DisableAndRemoveHook(target);
         g_OrigGetWeaponItemNameLangId = nullptr;
         LogError("EquipLangInfo: GetWeaponItemNameLangId hook enable failed at 0x%llX, custom equip names blank",
             static_cast<unsigned long long>(addr));
@@ -124,8 +124,7 @@ void Uninstall_UiUtility_GetWeaponItemNameLangIdHook()
     if (!g_Installed)
         return;
     void* target = ResolveGameAddress(gAddr.UiUtility_GetWeaponItemNameLangId);
-    MH_DisableHook(target);
-    MH_RemoveHook(target);
-    g_OrigGetWeaponItemNameLangId = nullptr;
+    if (target)
+        DisableAndRemoveHook(target); // may stay as a pass-through under a foreign hook, so the trampoline pointer is kept
     g_Installed = false;
 }

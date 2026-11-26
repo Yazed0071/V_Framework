@@ -32,6 +32,7 @@ namespace GameObjectLife
     };
 
     bool IsSupportedOnThisBuild();
+    void ClearCaptures();   // forget every cached life controller, call at mission end
 
     Kind KindOf(std::uint32_t gameObjectId);
     bool Read(std::uint32_t gameObjectId, Values& out);

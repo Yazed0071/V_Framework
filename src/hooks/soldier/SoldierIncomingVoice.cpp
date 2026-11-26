@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
@@ -230,7 +230,6 @@ void SoldierIncomingVoice_OnShot(const void* fireRequest, const void* gunInfo, i
     if (byPlayer && (equipType == kEquipTypeMissile || now - g_LastShotLogMs > 2000))
     {
         g_LastShotLogMs = now;
-        LogInfo("VoiceDebug: player shot owner 0x%X equip 0x%X gun type %u", owner, engineEquipId, equipType);
     }
     if (!byPlayer || equipType != kEquipTypeMissile)
         return;
@@ -239,14 +238,11 @@ void SoldierIncomingVoice_OnShot(const void* fireRequest, const void* gunInfo, i
     const std::uint8_t* soldiers = controller ? SoldiersOf(controller) : nullptr;
     if (!soldiers)
     {
-        LogInfo("VoiceDebug: incoming skipped, no live soldier system (controller %p)", controller);
         return;
     }
 
     std::lock_guard<std::mutex> lock(g_Mutex);
     const WitnessScan scan = AlertedWitnesses(soldiers, shotOrigin, now);
-    LogInfo("VoiceDebug: incoming scan soldiers %u seeing %u seeingAlert %u lastPhase %d candidates %u faulted %d",
-        scan.soldiers, scan.seeing, scan.seeingAlert, scan.seeingPhase, scan.witnessCount, scan.faulted ? 1 : 0);
     for (std::uint32_t i = 0; i < scan.witnessCount; ++i)
         g_Pending[i] = scan.witnesses[i].index;
     g_PendingNext = 0;
@@ -273,7 +269,6 @@ void SoldierIncomingVoice_OnSightCheck(void* noticeController, std::uint32_t sol
     }
 
     const bool spoke = Shout(soldiers, soldierIndex);
-    LogInfo("VoiceDebug: incoming EVR083 soldier %u speak %d (%llu ms after the shot)", soldierIndex, spoke ? 1 : 0, now - g_PendingSinceMs);
     if (spoke)
     {
         g_LastShoutMs[soldierIndex] = now;
@@ -282,4 +277,13 @@ void SoldierIncomingVoice_OnSightCheck(void* noticeController, std::uint32_t sol
     }
     if (++g_PendingNext >= count)
         g_PendingCount.store(0, std::memory_order_release);
+}
+
+void SoldierIncomingVoice_ClearForReload()
+{
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    g_LastShoutMs.fill(0);
+    g_PendingNext = 0;
+    g_PendingSinceMs = 0;
+    g_PendingCount.store(0, std::memory_order_release);
 }

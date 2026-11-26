@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "DeployGuard.h"
 #include "log.h"
 #include "V_FrameWorkState.h"
@@ -143,7 +143,10 @@ namespace DeployGuard
 
         const std::uint32_t code = g_LastCode.load(std::memory_order_relaxed);
         if (code != 0xFFFFFFFFu)
+        {
+            g_AwaitingPlayer.store(true, std::memory_order_relaxed); // the next weapon setup clears the marker again
             WriteMarker(code);
+        }
     }
 
     void OnMissionCode(std::uint32_t code)

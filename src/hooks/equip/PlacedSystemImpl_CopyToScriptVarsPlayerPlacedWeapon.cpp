@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon.h"
 
 #include <Windows.h>
@@ -29,24 +29,7 @@ namespace
 
     std::uintptr_t CopyToScriptVarsAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140FC69A0ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon;
     }
 
     void KeepRealIdInVarsSEH(std::uint8_t* system, std::uint32_t index)
@@ -86,12 +69,15 @@ bool Install_PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon_Hook()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: CopyToScriptVarsPlayerPlacedWeapon prologue mismatch on %s, placed items above 0x7FF come back as another item after a reload",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: CopyToScriptVarsPlayerPlacedWeapon", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkCopyToScriptVars),
                              reinterpret_cast<void**>(&g_Orig)))
     {

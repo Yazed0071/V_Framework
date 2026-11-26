@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -268,6 +268,15 @@ void Clear_InterrogationVoiceEvents()
 {
     std::lock_guard<std::mutex> lk(g_mtx);
     g_eventsByCp.clear();
+    g_pendingMainEvent.store(0, std::memory_order_relaxed);
+    g_pendingMarkerEvent.store(0, std::memory_order_relaxed);
+    g_pendingSoldierIndex.store(kInvalidSoldierIndex, std::memory_order_relaxed);
+    g_pendingUntilTick.store(0, std::memory_order_relaxed);
+    g_pendingLabelBaseCount.store(0, std::memory_order_relaxed);
+}
+
+void InterrogationVoiceEvent_ClearForReload()
+{
     g_pendingMainEvent.store(0, std::memory_order_relaxed);
     g_pendingMarkerEvent.store(0, std::memory_order_relaxed);
     g_pendingSoldierIndex.store(kInvalidSoldierIndex, std::memory_order_relaxed);

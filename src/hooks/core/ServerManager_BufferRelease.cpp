@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ServerManager_BufferRelease.h"
 
 #include <Windows.h>
@@ -20,7 +20,7 @@ namespace
 
     void* const* ResolveInstanceSlot(const std::uint8_t* target)
     {
-        if (!target)
+        if (!target || EntryHookedByOtherModule(target))
             return nullptr;
         __try
         {
@@ -89,7 +89,9 @@ bool Install_ServerManagerBufferRelease()
         ResolveInstanceSlot(reinterpret_cast<const std::uint8_t*>(target)));
     if (!g_Instance)
     {
-        LogError("ServerManager: %p has no singleton load, teardown guard off", target);
+        char entry[160] = {};
+        DescribeFunctionEntry(target, entry, sizeof(entry));
+        LogError("ServerManager: %p has no singleton load (%s), teardown guard off", target, entry);
         return false;
     }
 

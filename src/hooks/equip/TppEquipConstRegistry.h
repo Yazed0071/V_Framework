@@ -19,5 +19,7 @@ void TppDamageConst_SetValue(const char* name, std::uint32_t value, lua_State* L
 
 void TppEquipConst_InjectAll(lua_State* L);
 void TppDamageConst_InjectAll(lua_State* L);
+void TppEquipConst_InstallForwardDeclarations(lua_State* L);
 
 void TppEquipConst_ResetRuntimeState();
+bool TppEquipConst_FindEquipIdByNameHash(std::uint32_t nameHash, std::int32_t& equipId);   // custom EQP_ names only, real id

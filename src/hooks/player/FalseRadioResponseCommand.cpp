@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "FalseRadioResponseCommand.h"
 
 #include <Windows.h>
@@ -129,4 +129,12 @@ std::uint64_t FalseRadioResponseCommand::Label(bool sitrep)
 std::uint64_t FalseRadioResponseCommand::Help()
 {
     return kHelp;
+}
+
+void FalseRadioResponseCommand::ClearForReload()
+{
+    g_AnswerDueTick  = 0;
+    g_OrderBusyUntil = 0;
+    g_Order          = 0;
+    g_Excuse         = 0;
 }

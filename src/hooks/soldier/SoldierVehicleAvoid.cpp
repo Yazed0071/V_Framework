@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <array>
 #include <atomic>
@@ -26,6 +26,12 @@ void Set_SoldierIgnoreVehicle(std::uint32_t gameObjectId, bool enabled)
     const std::uint32_t slot = gameObjectId & kSoldierIndexMask;
     std::lock_guard<std::mutex> lk(g_mtx);
     g_ignore[slot] = enabled ? 1u : 0u;
+}
+
+void Set_EverySoldierIgnoreVehicle(bool enabled)
+{
+    std::lock_guard<std::mutex> lk(g_mtx);
+    g_ignore.fill(enabled ? 1u : 0u);
 }
 
 bool Soldier_IgnoresVehicle(std::uint32_t soldierIndex)

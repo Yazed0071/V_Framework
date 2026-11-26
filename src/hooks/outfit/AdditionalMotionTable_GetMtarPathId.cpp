@@ -1,10 +1,11 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "AdditionalMotionTable_GetMtarPathId.h"
 #include "OutfitRegistry.h"
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -21,6 +22,7 @@ namespace
     using AdditionalMtarAll_t = void (__fastcall*)(void*, std::uint32_t);
 
     static GetMtarPathId_t     g_OrigGetMtarPathId        = nullptr;
+    static std::uint8_t*       g_EntryTable               = nullptr;   // engine mtar table (0x28 per entry, File* at +0x10), read from GetMtarPathId's own lea
     static UpdateMotionBlock_t g_OrigUpdateMotionBlock    = nullptr;
     static GetFileForPathId_t  g_OrigBlockGetFileForPathId = nullptr;
     static GetBlockAtIndex_t   g_GetBlockAtIndex          = nullptr;
@@ -224,6 +226,11 @@ namespace
 
     static void __fastcall hkAddAdditionalMtarAll(void* self, std::uint32_t group)
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            g_OrigAddMtarAll(self, group);
+            return;
+        }
         if (self)
         {
             for (std::size_t i = 0; i < kMaxPlayerImpls; ++i)
@@ -485,11 +492,13 @@ namespace
     {
         __try
         {
+            if (!g_EntryTable || idx >= kMotionTableCount)
+                return;
             const std::uint64_t hash = *pathPtr;
             if (hash == 0)
                 return;
             void** filePtr = reinterpret_cast<void**>(
-                reinterpret_cast<std::uint8_t*>(pathPtr) + 0x10);
+                g_EntryTable + static_cast<std::size_t>(idx) * 0x28 + 0x10);
             void* file = SearchPlayerBlocksForPathId_SEH(nullptr, hash);
             if (file)
             {
@@ -586,7 +595,7 @@ namespace
 
     static void RevertSwappedEntries_SEH()
     {
-        if (!g_OrigGetMtarPathId)
+        if (!g_EntryTable)
             return;
 
         for (std::uint32_t idx = 0; idx < kMotionTableCount; ++idx)
@@ -595,15 +604,10 @@ namespace
                 continue;
             __try
             {
-                std::uint64_t out = 0;
-                std::uint64_t* r = g_OrigGetMtarPathId(&out, idx);
-                if (r)
-                {
-                    void** filePtr = reinterpret_cast<void**>(
-                        reinterpret_cast<std::uint8_t*>(r) + 0x10);
-                    if (*filePtr == g_EntrySwaps[idx].written)
-                        *filePtr = g_EntrySwaps[idx].original;
-                }
+                void** filePtr = reinterpret_cast<void**>(
+                    g_EntryTable + static_cast<std::size_t>(idx) * 0x28 + 0x10);
+                if (*filePtr == g_EntrySwaps[idx].written)
+                    *filePtr = g_EntrySwaps[idx].original;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -635,30 +639,12 @@ namespace outfit
 
     static uintptr_t MtarAddAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x141a6b8f0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x141a6b860ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x141a6bb80ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x141a6bca0ull;
-        default:                                           return 0;
-        }
+        return gAddr.AdditionalMotionTable_MtarAdd;
     }
 
     static uintptr_t MtarRemoveAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x141a6cc90ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x141a6cc00ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x141a6cf20ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x141a6d040ull;
-        default:                                           return 0;
-        }
+        return gAddr.AdditionalMotionTable_MtarRemove;
     }
 
     static void NoteCustomMtarHolder(void* holder)
@@ -916,6 +902,8 @@ namespace outfit
         ClearDirectSlotBindings();
         for (std::size_t i = 0; i < kMaxMtarHolders; ++i)
             g_MtarHolders[i].store(nullptr, std::memory_order_release);
+        for (std::size_t i = 0; i < kMaxAnimCtls; ++i)
+            g_AnimCtls[i].store(nullptr, std::memory_order_release);
 
         const std::uint32_t mission =
             static_cast<std::uint32_t>(MissionCodeGuard::GetCurrentMissionCode());
@@ -929,6 +917,12 @@ namespace outfit
 
         RevertSwappedEntries_SEH();
         g_SwapEpochMission.store(mission, std::memory_order_relaxed);
+    }
+
+    void ClearPlayerImpls()
+    {
+        for (std::size_t i = 0; i < kMaxPlayerImpls; ++i)
+            g_PlayerImpls[i].store(nullptr, std::memory_order_release);
     }
 
     static void RunAdditionalMotionReresolve()
@@ -1071,6 +1065,18 @@ namespace outfit
             return false;
         }
 
+        static const std::uint8_t kLeaHead[5]  = { 0x8B, 0xC2, 0x48, 0x8D, 0x15 };         // mov eax,edx / lea rdx,[table]
+        static const std::uint8_t kIndexTail[8] = { 0x48, 0x8D, 0x04, 0x80, 0x48, 0x8B, 0x04, 0xC2 };   // lea rax,[rax+rax*4] / mov rax,[rdx+rax*8]
+        const std::uint8_t* code = static_cast<const std::uint8_t*>(target);
+        if (std::memcmp(code, kLeaHead, sizeof(kLeaHead)) == 0 && std::memcmp(code + 9, kIndexTail, sizeof(kIndexTail)) == 0)
+        {
+            std::int32_t disp = 0;
+            std::memcpy(&disp, code + 5, sizeof(disp));
+            g_EntryTable = const_cast<std::uint8_t*>(code + 9 + disp);
+        }
+        else
+            LogWarn("OutfitMotionMtar: GetMtarPathId bytes differ, outfit motion changes apply on the next load");
+
         g_Installed = CreateAndEnableHook(
             target,
             reinterpret_cast<void*>(&hkGetMtarPathId),
@@ -1078,6 +1084,7 @@ namespace outfit
 
         if (!g_Installed)
         {
+            g_EntryTable = nullptr;
             LogError("OutfitMotionMtar: GetMtarPathId hook failed, motionMtars off");
             return false;
         }
@@ -1193,6 +1200,7 @@ namespace outfit
         g_OrigBlockGetFileForPathId = nullptr;
         g_OrigUpdateMotionBlock     = nullptr;
         g_OrigGetMtarPathId         = nullptr;
+        g_EntryTable                = nullptr;
         for (std::size_t i = 0; i < kMaxMotionCtls; ++i)
             g_MotionBlockCtls[i].store(nullptr, std::memory_order_release);
         g_Installed = false;

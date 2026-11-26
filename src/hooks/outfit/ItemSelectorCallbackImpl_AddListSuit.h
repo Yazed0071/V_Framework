@@ -24,6 +24,9 @@ namespace outfit
     };
     bool GetSortieListCursor(SortieListCursor& out);
 
+    bool ResolveSortieCellVariant(std::uint16_t flowIndex, std::uint8_t cellPos,
+                                  std::uint8_t* outVariant);
+
     bool DecideSortieListCursor();
 
     bool RequestSortieListEquip();

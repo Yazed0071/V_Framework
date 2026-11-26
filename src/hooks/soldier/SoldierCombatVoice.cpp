@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
@@ -6,12 +6,13 @@
 #include <cstdint>
 #include <mutex>
 
+#include "AddressSet.h"
 #include "CpRadioVariants.h"
+#include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "PlayerAlertPhase.h"
 #include "RadioControllerImpl_StepRadioWaitResponse.h"
 #include "SoldierCombatVoice.h"
-#include "SoldierCommandPost.h"
 #include "SoldierRealizedSlot.h"
 #include "SoldierVoiceType.h"
 #include "log.h"
@@ -23,6 +24,10 @@ namespace
     using GetPlayerPosition_t = void(__fastcall*)(void* playerInfo, float* outPosition);
     using GetCpPhase_t        = int(__fastcall*)(void* controller, std::uint32_t groupId, std::uint32_t soldierIndex);
     using IsPlayingVoice_t    = bool(__fastcall*)(void* soundController, std::uint32_t soldierIndex);
+    using GetQuarkSystemTable_t = std::uint8_t*(__fastcall*)();
+    using GetCommunication_t  = const std::int32_t*(__fastcall*)(void* vehicles, std::int64_t* result, const std::uint8_t** info,
+                                                                 std::uint32_t vehicleIndex);
+    using GetVehicleParameter_t = const std::uint8_t*(__fastcall*)(void* vehicles, std::uint32_t parameterIndex);
 
     constexpr std::uint32_t kEnemyVoiceEvent  = 0x95EA16B0u;  // DD_vox_ene
     constexpr std::uint32_t kAskOkLine        = 0xA79B6AC6u;  // EVC340 "You OK?"
@@ -37,10 +42,17 @@ namespace
     constexpr std::uint32_t kLeftLine         = 0x24961FBFu;  // EVC150 "Left!"
     constexpr std::uint32_t kUpLine           = 0x25962112u;  // EVC160 "Eyes up!"
     constexpr std::uint32_t kDownLine         = 0x26962285u;  // EVC170 "Eyes down!"
-    constexpr std::uint32_t kClearLine        = 0xCC15F167u;  // EVB100 "Clear!"
     constexpr std::uint32_t kCheckingLine     = 0x84C7C665u;  // EVE020 "Checking it!"
     constexpr std::uint32_t kGotItLine        = 0x83C7C4F2u;  // EVE030 "Got it!"
     constexpr std::uint32_t kFallInLine       = 0x80C7C039u;  // EVE060 "Fall in!"
+    constexpr std::uint32_t kTankLine         = 0x0CCD8752u;  // EVR084 "Tank!"
+    constexpr std::uint32_t kArmoredLine      = 0x0CCD8753u;  // EVR085 "Armored vehicle!"
+    constexpr std::uint32_t kContactLine      = 0x937AC414u;  // EVN150 "Contact!" on spotting Snake
+    constexpr std::uint32_t kCombatContactLine = 0x20961973u; // EVC110 "Contact!" in combat
+    constexpr std::uint32_t kChildVoiceEvent  = 0x68B311E1u;  // the child soldiers' event in vox_child
+    constexpr std::uint32_t kRelaxLine        = 0xF8531A05u;  // EVS040 "Phew"
+    constexpr std::uint32_t kChildIdleLines[4] = { 0xF3531266u, 0xF25310F3u, 0xF1530F00u, 0xFC5320B1u };  // EVS010 breathing, EVS020 yawn,
+                                                                                                             // EVS030 sneeze, EVS080 cough
     constexpr std::uint32_t kClockLines[12]   = { 0xBDA2496Cu, 0xBDA2496Fu, 0xBDA2496Eu, 0xBDA24969u,    // EVC401..EVC412, one to
                                                   0xBDA24968u, 0xBDA2496Bu, 0xBDA2496Au, 0xBDA24965u,    // twelve o'clock, as
                                                   0xBDA24964u, 0xBCA247FAu, 0xBCA247FBu, 0xBCA247F8u };  // ConvertDirectionVoice picks them
@@ -52,15 +64,18 @@ namespace
     constexpr std::uint64_t kReadyAfterMs     = 2600;   // a rifle reload, about
     constexpr std::uint64_t kAfterRadioMs     = 2500;   // the CP's own radio call goes first
     constexpr std::uint64_t kGotItAfterMs     = 1800;
-    constexpr std::uint64_t kCheckingAfterRadioMs = 800;
+    constexpr std::uint64_t kCheckingAfterSentMs  = 800;    // the CP sends its search team as the CPR0051 call ends
     constexpr std::uint64_t kFollowUpLateMs   = 3000;   // dropped when the soldier hasn't ticked by then
     constexpr std::uint64_t kQuietLateMs      = 25000;  // the same for a line that waits until he stops talking, a whole radio call
     constexpr std::uint64_t kHurtRecentlyMs   = 30000;
     constexpr std::uint64_t kPhaseLineGapMs   = 20000;  // per CP
     constexpr std::uint64_t kPhaseCheckMs     = 300;    // per soldier
     constexpr float         kAskOkReach       = 20.0f;
-    constexpr float         kGotItReach       = 20.0f;
-    constexpr float         kHearingReach     = 60.0f;  // the phase lines are only worth saying where Snake hears them
+    constexpr float         kComradeNearSearch = 45.0f;     // vanilla's rule for a searcher's opening line
+    constexpr float         kSnakeNearSearch   = 90.0f;
+    constexpr float         kHearingReach     = 60.0f;
+    constexpr float         kPrisonerOrderReach = 10.0f;
+    constexpr float         kSnakeAtVehicle   = 4.0f;   // he is the one putting someone in
     constexpr float         kAboveOrBelow     = 5.0f;
     constexpr int           kPhaseSneak       = 0;
     constexpr int           kPhaseCaution     = 1;
@@ -95,6 +110,22 @@ namespace
     constexpr std::size_t   kGetPlayerPositionSlot   = 0x18 / sizeof(void*);
     constexpr std::size_t   kGetCpPhaseSlot          = 0x188 / sizeof(void*);
 
+    constexpr std::size_t   kQuarkApplication          = 0x98;
+    constexpr std::size_t   kApplicationScriptVars     = 0x10;
+    constexpr std::size_t   kApplicationVehicles       = 0x2A8;
+    constexpr std::size_t   kScriptVarsPlayerVehicle   = 0x110;  // vars.playerVehicleGameObjectId
+    constexpr std::size_t   kGetCommunicationSlot      = 0x18 / sizeof(void*);
+    constexpr std::size_t   kGetVehicleParameterSlot   = 0x168 / sizeof(void*);
+    constexpr std::size_t   kCommunicationVehicleType  = 0x6C;   // high nibble, as VehicleCommunicationInfo::GetVehicleType reads it
+    constexpr std::size_t   kParameterVehicleType      = 0x1B6;
+    constexpr std::uint16_t kVehicleObjectType         = 0x32;   // TppVehicle2
+    constexpr std::uint16_t kTypeShift                 = 9;
+    constexpr std::uint16_t kIndexMask                 = 0x1FF;
+    constexpr std::uint8_t  kWesternArmoredVehicle     = 5;      // Vehicle.type order
+    constexpr std::uint8_t  kEasternArmoredVehicle     = 6;
+    constexpr std::uint8_t  kWesternTank               = 7;
+    constexpr std::uint8_t  kEasternTank               = 8;
+
     struct FollowUp
     {
         std::uint32_t soldierIndex  = kNoSoldier;
@@ -103,6 +134,7 @@ namespace
         std::uint64_t dueMs         = 0;
         std::uint32_t dialogueEvent = kEnemyVoiceEvent;
         std::uint64_t quietMs       = 0;       // waits until he has been quiet this long, 0 for no wait
+        std::uint32_t replier       = kNoSoldier;   // says EVE030 once this line has played
     };
 
     std::mutex                                                g_Mutex;
@@ -114,6 +146,12 @@ namespace
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_PhaseCheckedMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_TalkedMs{};
     std::atomic<std::uint32_t>                                g_LineRoll{ 0x2545F491u };
+#ifdef _DEBUG
+    constexpr std::uint64_t kProbeWindowMs = 6000;   // TEMP probe: what cuts EVE020/EVE030 off
+    std::array<std::atomic<std::uint32_t>, kSoldierSlotCount> g_ProbeLine{};
+    std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_ProbeStartMs{};
+    std::array<std::atomic<bool>, kSoldierSlotCount>          g_ProbeHeard{};
+#endif
 
     bool CoinFlip()
     {
@@ -227,7 +265,7 @@ namespace
         }
     }
 
-    bool CanSpeak(const std::uint8_t* soldiers, std::uint32_t soldierIndex)   // awake, hands down, near Snake, and a voice that has these lines
+    bool CanSpeak(const std::uint8_t* soldiers, std::uint32_t soldierIndex)
     {
         bool heldKnown = false;
         return IsActive(soldiers, soldierIndex) && IsAwake(soldiers, soldierIndex)
@@ -256,11 +294,26 @@ namespace
         return nearest;
     }
 
+    bool HasComradeWithin(const std::uint8_t* soldiers, std::uint32_t soldierIndex, const float* at, float reach)
+    {
+        const std::uint32_t count = SoldierCount(soldiers);
+        for (std::uint32_t index = 0; index < count && index < kSoldierSlotCount; ++index)
+        {
+            float other[3] = {};
+            if (index != soldierIndex && IsActive(soldiers, index) && IsAwake(soldiers, index) && PositionOf(soldiers, index, other)
+                && SquaredDistance(at, other) < reach * reach)
+                return true;
+        }
+        return false;
+    }
+
     void Schedule(std::uint32_t soldierIndex, std::uint32_t line, int priority, std::uint64_t dueMs,
-                  std::uint32_t dialogueEvent = kEnemyVoiceEvent, std::uint64_t quietMs = 0)   // a soldier can have several lines queued, one of each
+                  std::uint32_t dialogueEvent = kEnemyVoiceEvent, std::uint64_t quietMs = 0, std::uint32_t replier = kNoSoldier)
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
+        const std::uint64_t now = GetTickCount64();
         FollowUp* free = nullptr;
+        FollowUp* expired = nullptr;   // his soldier never ticked again (fultoned, unrealized), so nothing frees it
         for (FollowUp& followUp : g_FollowUps)
         {
             if (followUp.soldierIndex == soldierIndex && followUp.line == line && followUp.dialogueEvent == dialogueEvent)
@@ -270,9 +323,14 @@ namespace
             }
             if (!free && followUp.soldierIndex == kNoSoldier)
                 free = &followUp;
+            else if (!expired && followUp.soldierIndex != kNoSoldier && now > followUp.dueMs
+                     && now - followUp.dueMs > (followUp.quietMs ? kQuietLateMs : kFollowUpLateMs))
+                expired = &followUp;
         }
+        if (!free)
+            free = expired;
         if (free)
-            *free = FollowUp{ soldierIndex, line, priority, dueMs, dialogueEvent, quietMs };
+            *free = FollowUp{ soldierIndex, line, priority, dueMs, dialogueEvent, quietMs, replier };
     }
 
     bool Speak(const std::uint8_t* soldiers, std::uint32_t soldierIndex, std::uint32_t line, int priority,
@@ -318,6 +376,41 @@ namespace
         return false;
     }
 
+#ifdef _DEBUG
+    const char* ProbeName(std::uint32_t line)
+    {
+        return line == kCheckingLine ? "EVE020" : "EVE030";
+    }
+
+    void ProbeWatch(std::uint32_t soldierIndex, std::uint32_t line, bool spoke, std::uint64_t now)
+    {
+        if (line != kCheckingLine && line != kGotItLine)
+            return;
+        LogDebug("VoiceProbe: soldier %u %s %s", soldierIndex, spoke ? "starts" : "was refused", ProbeName(line));
+        if (!spoke)
+            return;
+        g_ProbeHeard[soldierIndex].store(false, std::memory_order_relaxed);
+        g_ProbeStartMs[soldierIndex].store(now, std::memory_order_relaxed);
+        g_ProbeLine[soldierIndex].store(line, std::memory_order_release);
+    }
+
+    void ProbeTick(const std::uint8_t* soldiers, std::uint32_t soldierIndex, std::uint64_t now)
+    {
+        const std::uint32_t line = g_ProbeLine[soldierIndex].load(std::memory_order_acquire);
+        if (!line)
+            return;
+        const std::uint64_t elapsed = now - g_ProbeStartMs[soldierIndex].load(std::memory_order_relaxed);
+        const bool talking = IsTalking(soldiers, soldierIndex);
+        if (talking)
+            g_ProbeHeard[soldierIndex].store(true, std::memory_order_relaxed);
+        const bool heard = g_ProbeHeard[soldierIndex].load(std::memory_order_relaxed);
+        if (elapsed <= kProbeWindowMs && (talking || !heard))
+            return;
+        LogDebug("VoiceProbe: soldier %u %s %s after %llu ms", soldierIndex, ProbeName(line), heard ? "ended" : "never played", elapsed);
+        g_ProbeLine[soldierIndex].store(0, std::memory_order_relaxed);
+    }
+#endif
+
     void SpeakDueFollowUp(const std::uint8_t* soldiers, std::uint32_t soldierIndex, std::uint64_t now)
     {
         if (IsTalking(soldiers, soldierIndex))
@@ -333,7 +426,7 @@ namespace
         FollowUp due;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
-            std::uint64_t heldDueMs = ~0ull;   // a line still waiting for quiet keeps the later waiting lines behind it
+            std::uint64_t heldDueMs = ~0ull;
             for (const FollowUp& followUp : g_FollowUps)
             {
                 if (followUp.soldierIndex == soldierIndex && now >= followUp.dueMs && quietFor < followUp.quietMs
@@ -358,15 +451,27 @@ namespace
                 *earliest = FollowUp{};
             }
         }
-        if (due.soldierIndex == kNoSoldier || now - due.dueMs > (due.quietMs ? kQuietLateMs : kFollowUpLateMs)
-            || !CanSpeak(soldiers, soldierIndex))
+        if (due.soldierIndex == kNoSoldier)
             return;
+        if (now - due.dueMs > (due.quietMs ? kQuietLateMs : kFollowUpLateMs) || !CanSpeak(soldiers, soldierIndex))
+        {
+#ifdef _DEBUG
+            if (due.line == kCheckingLine || due.line == kGotItLine)
+                LogDebug("VoiceProbe: soldier %u dropped %s: late or can't speak", soldierIndex, ProbeName(due.line));
+#endif
+            return;
+        }
         if (due.line == kReadyLine && !SoldierCombatVoice_InAlert(soldiers, soldierIndex))
             return;
         const bool spoke = Speak(soldiers, soldierIndex, due.line, due.priority, due.dialogueEvent);
-        if (spoke)
-            g_TalkedMs[soldierIndex].store(now, std::memory_order_relaxed);   // the next queued line waits for this one too
-        LogInfo("VoiceDebug: follow-up soldier %u line 0x%X speak %d (quiet %llu ms)", soldierIndex, due.line, spoke ? 1 : 0, quietFor);
+#ifdef _DEBUG
+        ProbeWatch(soldierIndex, due.line, spoke, now);
+#endif
+        if (!spoke)
+            return;
+        g_TalkedMs[soldierIndex].store(now, std::memory_order_relaxed);
+        if (due.replier != kNoSoldier)
+            Schedule(due.replier, kGotItLine, kCombatPriority, now + kGotItAfterMs);
     }
 
     void SayPhaseLine(const std::uint8_t* soldiers, std::uint32_t line, std::uint64_t now)
@@ -378,16 +483,13 @@ namespace
         if (speaker == kNoSoldier)
             return;
         Schedule(speaker, line, kPhasePriority, now + kAfterRadioMs);
-        LogInfo("VoiceDebug: phase line 0x%X by soldier %u", line, speaker);
     }
 
     std::uint32_t PhaseLine(int previous, int phase)
     {
         if (previous == kPhaseEvasion && phase == kPhaseCaution)
             return kFallInLine;     // the search teams form up
-        if (previous > kPhaseSneak && phase == kPhaseSneak)
-            return kClearLine;
-        return 0;
+        return 0;   // user: no "Clear!" back to sneak
     }
 
     void TrackCommandPostPhase(const std::uint8_t* soldiers, std::uint32_t soldierIndex, std::uint64_t now)
@@ -414,6 +516,43 @@ namespace
             g_CpSpokeMs[cp] = now;
         }
         SayPhaseLine(soldiers, line, now);
+    }
+
+    std::uint32_t PlayerVehicleLine()   // "Tank!" or "Armored vehicle!" for what Snake rides, 0 for anything else
+    {
+        const auto quarkTable = reinterpret_cast<GetQuarkSystemTable_t>(ResolveGameAddress(gAddr.Fox_GetQuarkSystemTable));
+        if (!quarkTable)
+            return 0;
+        __try
+        {
+            const std::uint8_t* application = *reinterpret_cast<const std::uint8_t* const*>(quarkTable() + kQuarkApplication);
+            const std::uint8_t* scriptVars = *reinterpret_cast<const std::uint8_t* const*>(application + kApplicationScriptVars);
+            const std::uint16_t vehicle = *reinterpret_cast<const std::uint16_t*>(scriptVars + kScriptVarsPlayerVehicle);
+            void* vehicles = *reinterpret_cast<void* const*>(application + kApplicationVehicles);
+            if ((vehicle >> kTypeShift) != kVehicleObjectType || !vehicles)
+                return 0;
+
+            std::int64_t result = -1;
+            const std::uint8_t* info = nullptr;
+            const auto getCommunication = (*reinterpret_cast<GetCommunication_t* const*>(vehicles))[kGetCommunicationSlot];
+            const std::int32_t* found = getCommunication(vehicles, &result, &info, vehicle & kIndexMask);
+            if (!found || *found < 0 || !info)
+                return 0;
+
+            const std::uint8_t parameterIndex = info[kCommunicationVehicleType] >> 4;
+            const auto getParameter = (*reinterpret_cast<GetVehicleParameter_t* const*>(vehicles))[kGetVehicleParameterSlot];
+            const std::uint8_t* parameter = getParameter(vehicles, parameterIndex);
+            const std::uint8_t type = parameter ? parameter[kParameterVehicleType] : parameterIndex;
+            if (type == kWesternTank || type == kEasternTank)
+                return kTankLine;
+            if (type == kWesternArmoredVehicle || type == kEasternArmoredVehicle)
+                return kArmoredLine;
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
     }
 
     void ForgetMission(const std::uint8_t* soldiers)
@@ -462,6 +601,18 @@ namespace
         }
         return 0;
     }
+
+    bool HasEscortLines(std::uint32_t voiceType)
+    {
+        switch (voiceType)
+        {
+        case SoldierVoiceType::kEneARu: case SoldierVoiceType::kEneBRu: case SoldierVoiceType::kEneCRu: case SoldierVoiceType::kEneDRu:
+        case SoldierVoiceType::kEneAAf: case SoldierVoiceType::kEneBAf: case SoldierVoiceType::kEneCAf: case SoldierVoiceType::kEneDAf:
+            return true;
+        default:
+            return false;
+        }
+    }
 }
 
 namespace
@@ -477,6 +628,28 @@ namespace
 
 std::uint32_t SoldierCombatVoice_SwapLine(const std::uint8_t* soldiers, std::uint32_t slot, std::uint32_t dialogueEvent, std::uint32_t line)
 {
+    if (line == kContactLine || line == kCombatContactLine)
+    {
+        const std::uint32_t soldierIndex = SpeakerOf(soldiers, slot, dialogueEvent);
+        if (soldierIndex == kNoSoldier || !SoldierVoiceType::IsAdult(SoldierVoiceType::Of(soldiers, soldierIndex)))   // the child voices have no tank lines
+            return line;
+        const std::uint32_t vehicleLine = PlayerVehicleLine();
+        if (vehicleLine == 0)
+            return line;
+        return vehicleLine;
+    }
+    if (line == kRelaxLine && (dialogueEvent == kChildVoiceEvent || dialogueEvent == kEnemyVoiceEvent) && soldiers
+        && !MissionCodeGuard::ShouldBypassHooks())
+    {
+        const std::uint32_t soldierIndex = SoldierRealizedSlot::SoldierIn(soldiers, slot);
+        const std::uint32_t voice = soldierIndex < kSoldierSlotCount ? SoldierVoiceType::Of(soldiers, soldierIndex) : SoldierVoiceType::kUnknown;
+        const bool child = voice == SoldierVoiceType::kChildA || voice == SoldierVoiceType::kChildB
+                        || voice == SoldierVoiceType::kChildC || voice == SoldierVoiceType::kChildD;
+        if (!child || !CoinFlip())
+            return line;
+        const std::uint32_t swapped = kChildIdleLines[(CoinFlip() ? 2 : 0) + (CoinFlip() ? 1 : 0)];
+        return swapped;
+    }
     if (line != kWatchOutLine && HourOf(line) == 0)
         return line;
     const std::uint32_t soldierIndex = SpeakerOf(soldiers, slot, dialogueEvent);
@@ -486,12 +659,10 @@ std::uint32_t SoldierCombatVoice_SwapLine(const std::uint8_t* soldiers, std::uin
     if (line == kWatchOutLine)
     {
         const std::uint32_t swapped = CoinFlip() ? kGetDownLine : line;
-        LogInfo("VoiceDebug: soldier %u EVC200 -> %s", soldierIndex, swapped == kGetDownLine ? "EVC190" : "EVC200");
         return swapped;
     }
     const int hour = HourOf(line);
     const std::uint32_t swapped = DirectionLine(soldiers, soldierIndex, hour, line);
-    LogInfo("VoiceDebug: soldier %u clock %d -> line 0x%X", soldierIndex, hour, swapped);
     return swapped;
 }
 
@@ -518,7 +689,6 @@ void SoldierCombatVoice_OnSaid(const std::uint8_t* soldiers, std::uint32_t slot,
         return index != soldierIndex && now - g_HurtMs[index].load(std::memory_order_relaxed) < kHurtRecentlyMs; });
     if (hurt != kNoSoldier)
         Schedule(hurt, kImOkLine, kCombatPriority, now + kImOkAfterMs);
-    LogInfo("VoiceDebug: soldier %u asks EVC340, EVC330 reply by %d", soldierIndex, hurt == kNoSoldier ? -1 : static_cast<int>(hurt));
 }
 
 void SoldierCombatVoice_OnSightCheck(void* noticeController, std::uint32_t soldierIndex)
@@ -541,6 +711,9 @@ void SoldierCombatVoice_OnSightCheck(void* noticeController, std::uint32_t soldi
     const std::uint64_t now = GetTickCount64();
     TrackCommandPostPhase(soldiers, soldierIndex, now);
     SpeakDueFollowUp(soldiers, soldierIndex, now);
+#ifdef _DEBUG
+    ProbeTick(soldiers, soldierIndex, now);
+#endif
 }
 
 bool SoldierCombatVoice_InAlert(const std::uint8_t* soldiers, std::uint32_t soldierIndex)
@@ -568,27 +741,52 @@ void SoldierCombatVoice_SayLater(std::uint32_t soldierIndex, std::uint32_t dialo
     Schedule(soldierIndex, line, priority, now + afterMs, dialogueEvent, quietMs);
 }
 
-void SoldierCombatVoice_OnHeadingToLastKnownPosition(std::uint32_t soldierIndex)
+void SoldierCombatVoice_SayPrisonerOrder(const float* vehicle, std::uint32_t line)
 {
     const std::uint8_t* soldiers = g_Soldiers.load(std::memory_order_acquire);
-    if (!soldiers || soldierIndex >= kSoldierSlotCount || MissionCodeGuard::ShouldBypassHooks() || !CanSpeak(soldiers, soldierIndex))
+    if (!soldiers || !vehicle || MissionCodeGuard::ShouldBypassHooks())
         return;
-    const std::uint64_t now = GetTickCount64();
-    Schedule(soldierIndex, kCheckingLine, kCombatPriority, now + kCheckingAfterRadioMs);
-
-    std::uint32_t replier = kNoSoldier;
-    float at[3] = {};
-    const std::uint8_t cp = SoldierCommandPost::IndexOf(soldiers, soldierIndex);
-    if (cp != SoldierCommandPost::kNone && PositionOf(soldiers, soldierIndex, at))
-    {
-        replier = Nearest(soldiers, at, kGotItReach,
-            [&](std::uint32_t index) { return index != soldierIndex && SoldierCommandPost::IndexOf(soldiers, index) == cp; });
-        if (replier != kNoSoldier)
-            Schedule(replier, kGotItLine, kCombatPriority, now + kCheckingAfterRadioMs + kGotItAfterMs);
-    }
-    LogInfo("VoiceDebug: soldier %u heads to the last known position (CPR0051), EVE020, EVE030 reply by %d", soldierIndex,
-        replier == kNoSoldier ? -1 : static_cast<int>(replier));
+    float snake[3] = {};
+    if (SnakePosition(soldiers, snake) && SquaredDistance(snake, vehicle) < kSnakeAtVehicle * kSnakeAtVehicle)
+        return;
+    const std::uint32_t speaker = Nearest(soldiers, vehicle, kPrisonerOrderReach,
+        [&](std::uint32_t index) { return HasEscortLines(SoldierVoiceType::Of(soldiers, index)); });
+    if (speaker != kNoSoldier)
+        Schedule(speaker, line, kCombatPriority, GetTickCount64());
 }
+
+void SoldierCombatVoice_OnSearchTeamSent(std::uint32_t lead, std::uint32_t second)
+{
+    const std::uint8_t* soldiers = g_Soldiers.load(std::memory_order_acquire);
+    if (!soldiers || lead >= kSoldierSlotCount || MissionCodeGuard::ShouldBypassHooks())
+        return;
+    float at[3] = {};
+    float snake[3] = {};
+    const bool leadCanSpeak = CanSpeak(soldiers, lead) && PositionOf(soldiers, lead, at);
+    const bool snakeNear = leadCanSpeak && SnakePosition(soldiers, snake) && SquaredDistance(at, snake) < kSnakeNearSearch * kSnakeNearSearch;
+    const bool comradeNear = snakeNear && HasComradeWithin(soldiers, lead, at, kComradeNearSearch);
+    LogDebug("VoiceProbe: search team lead %u, second %u: %s", lead, second,
+             !leadCanSpeak ? "lead can't speak" : !snakeNear ? "Snake beyond 90 m" : !comradeNear ? "nobody within 45 m" : "EVE020 due");
+    if (!comradeNear)
+        return;
+    const std::uint32_t replier = second < kSoldierSlotCount && CanSpeak(soldiers, second) ? second : kNoSoldier;
+    Schedule(lead, kCheckingLine, kCombatPriority, GetTickCount64() + kCheckingAfterSentMs, kEnemyVoiceEvent, 0, replier);
+}
+
+#ifdef _DEBUG
+void SoldierCombatVoice_ProbeVoiceCall(std::uint32_t soldierIndex, std::uint32_t dialogueEvent, std::uint32_t priority, std::uint32_t line)
+{
+    if (soldierIndex >= kSoldierSlotCount)
+        return;
+    const std::uint32_t watched = g_ProbeLine[soldierIndex].load(std::memory_order_acquire);
+    if (!watched || line == watched)
+        return;
+    const std::uint64_t elapsed = GetTickCount64() - g_ProbeStartMs[soldierIndex].load(std::memory_order_relaxed);
+    if (elapsed <= kProbeWindowMs)
+        LogDebug("VoiceProbe: soldier %u gets line 0x%08X (event 0x%08X, priority %u) %llu ms into his %s",
+                 soldierIndex, line, dialogueEvent, priority, elapsed, ProbeName(watched));
+}
+#endif
 
 void SoldierCombatVoice_OnSoldierDamaged(std::uint32_t soldierIndex)
 {
@@ -609,4 +807,10 @@ void SoldierCombatVoice_Reset()
         hurt.store(0, std::memory_order_relaxed);
     for (auto& checked : g_PhaseCheckedMs)
         checked.store(0, std::memory_order_relaxed);
+    for (auto& talked : g_TalkedMs)
+        talked.store(0, std::memory_order_relaxed);
+#ifdef _DEBUG
+    for (auto& line : g_ProbeLine)
+        line.store(0, std::memory_order_relaxed);
+#endif
 }

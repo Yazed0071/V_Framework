@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ThrowingImpl_AddReboundNoise.h"
 
 #include <Windows.h>
@@ -8,6 +8,7 @@
 #include "HookUtils.h"
 #include "LuaBroadcaster.h"
 #include "MissionCodeGuard.h"
+#include "SupportWeaponRegistry.h"
 #include "ThrowingSystemLayout.h"
 #include "log.h"
 
@@ -43,13 +44,32 @@ namespace
         }
     }
 
+    std::uint16_t ReadEngineEquipIdSEH(std::uint8_t* impl, std::uint32_t localIndex)
+    {
+        __try
+        {
+            return ThrowingSystemLayout::ImplEquipId(impl, localIndex);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
     void __fastcall hkAddReboundNoise(void* impl, std::uint32_t localIndex, const float* position)
     {
         Bounce bounce{};
-        if (impl && !MissionCodeGuard::ShouldBypassHooks()
-            && ReadBounceSEH(static_cast<std::uint8_t*>(impl), localIndex, bounce))
-            V_FrameWork::QueueMessage("Throwing", "OnBounceThrowing", bounce.handle, bounce.equipId, bounce.owner);
+        std::uint32_t noticeAs = 0;
+        if (impl && !MissionCodeGuard::ShouldBypassHooks())
+        {
+            auto* bytes = static_cast<std::uint8_t*>(impl);
+            if (ReadBounceSEH(bytes, localIndex, bounce))
+                V_FrameWork::QueueMessage("Throwing", "OnBounceThrowing", bounce.handle, bounce.equipId, bounce.owner);
+            noticeAs = SupportWeapon::NoticeAs(ReadEngineEquipIdSEH(bytes, localIndex));
+        }
+        SupportWeapon::SetNoticeScope(noticeAs);
         g_Orig(impl, localIndex, position);
+        SupportWeapon::SetNoticeScope(0);
     }
 }
 
@@ -57,8 +77,12 @@ void ThrowingImpl_AddReboundNoiseQuiet(void* impl, std::uint32_t localIndex, con
 {
     auto noise = g_Orig ? g_Orig
                         : reinterpret_cast<AddReboundNoise_t>(ResolveGameAddress(gAddr.ThrowingImpl_AddReboundNoise));
-    if (noise)
-        noise(impl, localIndex, position);
+    if (!noise)
+        return;
+    const std::uint32_t noticeAs = impl ? SupportWeapon::NoticeAs(ReadEngineEquipIdSEH(static_cast<std::uint8_t*>(impl), localIndex)) : 0;
+    SupportWeapon::SetNoticeScope(noticeAs);
+    noise(impl, localIndex, position);
+    SupportWeapon::SetNoticeScope(0);
 }
 
 bool Install_ThrowingImpl_AddReboundNoise_Hook()

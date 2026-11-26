@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipDevelopControllerImpl_GetDamageAmountRatio.h"
 
 #include <Windows.h>

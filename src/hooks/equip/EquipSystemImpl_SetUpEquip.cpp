@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipSystemImpl_SetUpEquip.h"
 
 #include <Windows.h>
@@ -7,6 +7,7 @@
 
 #include "AddressSet.h"
 #include "EquipAliasLease.h"
+#include "EquipIdCompression.h"
 #include "HookUtils.h"
 #include "log.h"
 
@@ -20,24 +21,34 @@ namespace
         0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20
     };
 
+    using EquipIdTableCall_t = std::uint32_t(__fastcall*)(void* equipIdTable, std::uint32_t equipId);
+
+    constexpr std::size_t   kEquipSystemIdTable = 0x08;   // EquipIdTableImpl: slot 0 equip type, slot 2 root parameter id
+    constexpr std::size_t   kTableEquipType     = 0;
+    constexpr std::size_t   kTableRootParameter = 2;
+    constexpr std::uint32_t kFirstGunType       = 1;
+    constexpr std::uint32_t kLastGunType        = 8;
+
     SetUpEquipFn g_Orig = nullptr;
     void*        g_Addr = nullptr;
+    bool         g_WarnedNoGunRow[EquipIdCompression::kNoEquipId + 1] = {};
 
-    std::uintptr_t SetUpEquipAddr()
+    // a gun type goes to the gun setup, which reads its parameter row unchecked: root parameter id 0 reads address 0
+    bool IsGunWithoutRowSEH(void* self, std::uint32_t engineId)
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140DC3250ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
+        if (engineId < static_cast<std::uint32_t>(EquipIdCompression::kExtendedAllocFirst)
+            || engineId >= static_cast<std::uint32_t>(EquipIdCompression::kNoEquipId))
+            return false;
         __try
         {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
+            void* table = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(self) + kEquipSystemIdTable);
+            if (!table)
+                return false;
+            void** calls = *static_cast<void***>(table);
+            const std::uint32_t type = reinterpret_cast<EquipIdTableCall_t>(calls[kTableEquipType])(table, engineId);
+            if (type < kFirstGunType || type > kLastGunType)
+                return false;
+            return reinterpret_cast<EquipIdTableCall_t>(calls[kTableRootParameter])(table, engineId) == 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -45,11 +56,27 @@ namespace
         }
     }
 
+    std::uintptr_t SetUpEquipAddr()
+    {
+        return gAddr.EquipSystemImpl_SetUpEquip;
+    }
+
     std::uint32_t* __fastcall hkSetUpEquip(void* self, std::uint32_t* outHandle,
                                            std::uint32_t equipId, std::uint32_t option)
     {
         equip::NoteEquipSystem(self);
-        const auto engineId = equip::ToEngine(equip::ResolveReal(static_cast<std::int32_t>(equipId)));
+        const auto realId   = equip::ResolveReal(static_cast<std::int32_t>(equipId));
+        const auto engineId = equip::ToEngine(realId);
+        if (self && IsGunWithoutRowSEH(self, static_cast<std::uint32_t>(engineId)))
+        {
+            if (!g_WarnedNoGunRow[engineId])
+            {
+                g_WarnedNoGunRow[engineId] = true;
+                LogWarn("EquipAlias: equipId 0x%X (real 0x%X, leased %d) is a gun without a gun parameter row, set up as an empty slot",
+                    static_cast<unsigned>(engineId), static_cast<unsigned>(realId), equip::IsLeasedAlias(engineId) ? 1 : 0);
+            }
+            return g_Orig(self, outHandle, static_cast<std::uint32_t>(EquipIdCompression::kNoEquipId), option);
+        }
         return g_Orig(self, outHandle, static_cast<std::uint32_t>(engineId), option);
     }
 }
@@ -61,7 +88,8 @@ bool Install_EquipSystemImpl_SetUpEquip()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: SetUpEquip prologue mismatch on %s, equipIds above 0x7FF stay off",
             GetGameBuildName(gGameBuild));
@@ -75,6 +103,8 @@ bool Install_EquipSystemImpl_SetUpEquip()
         return false;
     }
     g_Addr = fn;
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: SetUpEquip", fn);
     equip::NoteGateInstalled(equip::AliasGate::SetUpEquip, true);
     return true;
 }

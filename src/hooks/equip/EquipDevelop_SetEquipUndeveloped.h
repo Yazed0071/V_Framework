@@ -44,6 +44,7 @@ bool EquipDevelop_IsDevelopableByDevelopId(std::uint32_t developId);
 int __cdecl l_IsEquipDevelopable(lua_State* L);
 
 void EquipDevelop_SetDevelopParent(std::uint32_t developId, std::uint32_t baseDevelopId);
+std::uint32_t EquipDevelop_GetDevelopParent(std::uint32_t developId);
 bool EquipDevelop_IsParentDeveloped(void* controller, std::uint32_t developId);
 
 bool EquipDevelop_IsDevelopInitiallyAvailable(std::uint32_t developId);

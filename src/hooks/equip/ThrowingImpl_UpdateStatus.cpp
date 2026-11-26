@@ -1,9 +1,10 @@
-#include "pch.h"
+#include <pch.h>
 #include "ThrowingImpl_UpdateStatus.h"
 
 #include <Windows.h>
 #include <cstdint>
 
+#include <array>
 #include <atomic>
 
 #include "AddressSet.h"
@@ -24,15 +25,18 @@ namespace
     constexpr std::size_t   kItemEquipIdSize  = 4;
     constexpr std::size_t   kItemRecordSize   = 0x24;
     constexpr std::size_t   kItemFlags        = 0x1C;
+    constexpr std::size_t   kItemFlags2       = 0x20;
     constexpr std::uint32_t kFlagLive         = 0x1;
     constexpr std::uint32_t kFlagsAttached    = 0x3000000;
+    constexpr std::uint32_t kFlagRolledToStop = 0x4000000;
     constexpr std::uint32_t kFlagActivateNow  = 0x10000000;
+    constexpr std::uint32_t kFlag2DecoyPlaced = 0x80;
 
-    constexpr std::uint32_t kTrackedHandles   = 64;
+    constexpr std::uint32_t kTrackedHandles   = 256;   // handles are bytes, 0xFF = none
 
     UpdateStatus_t g_Orig   = nullptr;
     void*          g_Target = nullptr;
-    std::atomic<std::uint64_t> g_StopAnnounced{ 0 };
+    std::array<std::atomic<std::uint64_t>, kTrackedHandles / 64> g_StopAnnounced{};
 
     struct Stop
     {
@@ -63,8 +67,8 @@ namespace
                 const std::uint32_t handle = HandleOf(impl, local);
                 if (handle >= kTrackedHandles)
                     continue;
-                const std::uint64_t bit = 1ull << handle;
-                if (g_StopAnnounced.fetch_or(bit) & bit)
+                const std::uint64_t bit = 1ull << (handle % 64);
+                if (g_StopAnnounced[handle / 64].fetch_or(bit) & bit)
                     continue;
                 Stop& s = out[count++];
                 s.handle  = handle;
@@ -101,11 +105,17 @@ namespace
             for (std::uint32_t index = 0; index < count; ++index)
             {
                 auto* flags = reinterpret_cast<std::uint32_t*>(records + index * kItemRecordSize + kItemFlags);
-                if ((*flags & kFlagLive) == 0 || (*flags & kFlagsAttached) == 0)
+                if ((*flags & kFlagLive) == 0 || (*flags & (kFlagsAttached | kFlagRolledToStop)) == 0)
                     continue;
                 const std::uint16_t equipId = *reinterpret_cast<std::uint16_t*>(equipIds + index * kItemEquipIdSize);
                 const std::uint32_t familyFrom = SupportWeapon::FamilyFrom(equipId);
-                if (familyFrom != 0 && ActivatesOnAttach(familyFrom))
+                if (familyFrom == 0)
+                    continue;
+                if ((*flags & kFlagsAttached) != 0 && ActivatesOnAttach(familyFrom))
+                    *flags |= kFlagActivateNow;
+                const std::uint32_t flags2 = *reinterpret_cast<std::uint32_t*>(records + index * kItemRecordSize + kItemFlags2);
+                if ((*flags & kFlagRolledToStop) != 0 && SupportWeapon::IsDecoyDonor(familyFrom) && (flags2 & kFlag2DecoyPlaced) == 0
+                    && (*flags & kFlagActivateNow) == 0)
                     *flags |= kFlagActivateNow;
             }
         }
@@ -125,7 +135,7 @@ namespace
 void ThrowingImpl_ForgetStop(std::uint32_t handle)
 {
     if (handle < kTrackedHandles)
-        g_StopAnnounced.fetch_and(~(1ull << handle));
+        g_StopAnnounced[handle / 64].fetch_and(~(1ull << (handle % 64)));
 }
 
 bool Install_ThrowingImpl_UpdateStatus_Hook()
@@ -152,5 +162,6 @@ void Uninstall_ThrowingImpl_UpdateStatus_Hook()
         DisableAndRemoveHook(g_Target);
     g_Target = nullptr;
     g_Orig   = nullptr;
-    g_StopAnnounced.store(0);
+    for (auto& stopped : g_StopAnnounced)
+        stopped.store(0);
 }

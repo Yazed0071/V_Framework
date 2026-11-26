@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "UniqueCharacterSuitSlot.h"
 
@@ -12,6 +12,7 @@
 #include "MissionCodeGuard.h"
 #include "OutfitRegistry.h"
 #include "UniqueCharacterPartsTypePin.h"
+#include "../player/FobPlayerCharacters.h"
 
 #include "log.h"
 
@@ -42,6 +43,7 @@ namespace
     constexpr std::size_t kMenuModeOff  = 0x3CA0;
     constexpr std::uint32_t kCountWithHeadOption = 3;
     constexpr std::uint32_t kCountWithoutHead    = 2;
+    constexpr std::uint32_t kCountCharacterOnly  = 1;
 
     static bool TryReadMenuMode(void* self, std::int32_t* out)
     {
@@ -57,6 +59,13 @@ namespace
     static std::uint32_t __fastcall hkCharaSlotSelectionNum(void* self)
     {
         const std::uint32_t ret = g_OrigSlotNum ? g_OrigSlotNum(self) : 0;
+        if (self && ret >= kCountWithoutHead
+            && outfit::ReadLivePlayerType() == fobchars::kPlayerType_Liquid)
+        {
+            std::int32_t liquidMode = -1;
+            if (TryReadMenuMode(self, &liquidMode) && (liquidMode == 0 || liquidMode == 2))
+                return kCountCharacterOnly;
+        }
         if (ret != kCountWithHeadOption || !self) return ret;
         if (MissionCodeGuard::ShouldBypassHooks()) return ret;
 

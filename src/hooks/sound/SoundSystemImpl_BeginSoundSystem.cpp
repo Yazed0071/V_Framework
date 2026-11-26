@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -125,10 +125,14 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
 }
 
 
-static bool HasExpectedVtable(void* objectPtr, std::uintptr_t expectedVtable)
+static bool HasExpectedVtable(void* objectPtr, std::uintptr_t expectedVtableAbs)
 {
     if (!objectPtr)
         return false;
+
+    const std::uintptr_t expectedVtable = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(expectedVtableAbs));
+    if (!expectedVtable)
+        return false; // field not ported on this build
 
     std::uintptr_t actualVtable = 0;
     if (!TryReadPtr(objectPtr, actualVtable))

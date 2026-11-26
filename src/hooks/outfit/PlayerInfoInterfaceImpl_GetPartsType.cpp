@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "PlayerInfoInterfaceImpl_GetPartsType.h"
 #include "OutfitAbilities.h"
@@ -31,32 +31,38 @@ namespace
         std::uint32_t  need;
     };
 
+    using AddrField = std::uintptr_t AddressSetRuntime::AddressSet::*;
+
+    struct ReturnSiteField
+    {
+        AddrField     addr;
+        std::uint32_t need;
+    };
+
     struct GetterSites
     {
-        std::uintptr_t    getter;
-        const ReturnSite* returns;
-        std::size_t       returnCount;
+        AddrField              getter;
+        const ReturnSiteField* returns;
+        std::size_t            returnCount;
     };
 
-    constexpr ReturnSite kLocalReturns_En154[] =
+    using AS = AddressSetRuntime::AddressSet;
+
+    constexpr ReturnSiteField kLocalReturns[] =
     {
-        { 0x14093027Dull, outfit::kSprintRaidenRun },
-        { 0x14098D41Aull, outfit::kSprintDashSound },
+        { &AS::PlayerInfo_GetLocalPartsType_RaidenRunReturn, outfit::kSprintRaidenRun },
+        { &AS::PlayerInfo_GetLocalPartsType_DashSoundReturn, outfit::kSprintDashSound },
     };
-    constexpr ReturnSite kIndexReturns_En154[] =
+    constexpr ReturnSiteField kIndexReturns[] =
     {
-        { 0x140743509ull, kNeedSpark }, { 0x140743519ull, kNeedSpark }, { 0x140743558ull, kNeedSpark },
-        { 0x140743616ull, kNeedSpark }, { 0x140743626ull, kNeedSpark }, { 0x1407448C5ull, kNeedSpark },
-        { 0x1407448D5ull, kNeedSpark },
+        { &AS::PlayerInfo_GetPartsType_SparkReturn1, kNeedSpark }, { &AS::PlayerInfo_GetPartsType_SparkReturn2, kNeedSpark },
+        { &AS::PlayerInfo_GetPartsType_SparkReturn3, kNeedSpark }, { &AS::PlayerInfo_GetPartsType_SparkReturn4, kNeedSpark },
+        { &AS::PlayerInfo_GetPartsType_SparkReturn5, kNeedSpark }, { &AS::PlayerInfo_GetPartsType_SparkReturn6, kNeedSpark },
+        { &AS::PlayerInfo_GetPartsType_SparkReturn7, kNeedSpark },
     };
 
-    constexpr GetterSites kLocal_En154 =
-        { 0x141E02D50ull, kLocalReturns_En154, std::size(kLocalReturns_En154) };
-    constexpr GetterSites kIndex_En154 =
-        { 0x141E02B80ull, kIndexReturns_En154, std::size(kIndexReturns_En154) };
-
-    constexpr std::uintptr_t kDashMove_En154   = 0x1410B52F0ull;
-    constexpr std::uintptr_t kDashAttack_En154 = 0x1410A0660ull;
+    constexpr GetterSites kLocal = { &AS::PlayerInfo_GetLocalPartsType, kLocalReturns, std::size(kLocalReturns) };
+    constexpr GetterSites kIndex = { &AS::PlayerInfo_GetPartsType, kIndexReturns, std::size(kIndexReturns) };
     constexpr std::uint8_t kDashMoveCode[] =
         { 0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x81, 0xEC, 0x88, 0x00, 0x00, 0x00 };
     constexpr std::uint8_t kDashAttackCode[] =
@@ -168,7 +174,6 @@ namespace
             && SetRaidenRunSEH(static_cast<std::uint8_t*>(self), player) && !s_logged)
         {
             s_logged = true;
-            LogInfo("OutfitSprint: raidenRun on the sprint");
         }
     }
 
@@ -188,7 +193,6 @@ namespace
             if (ours && s_lastLogged != use + 1u)
             {
                 s_lastLogged = use + 1u;
-                LogInfo("OutfitSprint: dashAttack armed with attack 0x%X", static_cast<unsigned>(use));
             }
         }
         return on;
@@ -207,18 +211,15 @@ namespace
         }
     }
 
-    static bool CodeIs(std::uintptr_t addr, const std::uint8_t* expect, std::size_t n)
+    static HookEntry GetterEntry(std::uintptr_t fn)
     {
-        std::uint8_t b[16] = {};
-        return n <= sizeof(b) && ReadCode_SEH(addr, b, n) && std::memcmp(b, expect, n) == 0;
-    }
-
-    static bool GetterMatches(std::uintptr_t fn)
-    {
-        std::uint8_t b[16] = {};
-        if (!ReadCode_SEH(fn, b, sizeof(b))) return false;
-        return std::memcmp(b, kPrologue_GetPartsType, sizeof(kPrologue_GetPartsType)) == 0
-            && std::memcmp(b + 9, kEpilogue_GetPartsType, sizeof(kEpilogue_GetPartsType)) == 0;
+        std::uint8_t expected[16] = {};
+        std::uint8_t mask[16] = {};
+        std::memcpy(expected, kPrologue_GetPartsType, sizeof(kPrologue_GetPartsType));
+        std::memset(mask, 0xFF, sizeof(kPrologue_GetPartsType));
+        std::memcpy(expected + 9, kEpilogue_GetPartsType, sizeof(kEpilogue_GetPartsType));
+        std::memset(mask + 9, 0xFF, sizeof(kEpilogue_GetPartsType));
+        return CheckHookEntryMasked(reinterpret_cast<const void*>(fn), expected, mask, sizeof(expected));
     }
 
     static bool CallsGetter(std::uintptr_t ret, std::uintptr_t fn)
@@ -232,8 +233,9 @@ namespace
 
     static bool Prepare(const char* what, const GetterSites& sites, HookState& h)
     {
-        const auto fn = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(sites.getter));
-        if (!fn || !GetterMatches(fn))
+        const auto fn = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.*sites.getter));
+        const HookEntry entry = GetterEntry(fn);
+        if (entry == HookEntry::Unknown)
         {
             LogError("OutfitSprint: %s signature mismatch, sprint sound and sparks off", what);
             return false;
@@ -242,14 +244,20 @@ namespace
         for (std::size_t i = 0; i < sites.returnCount && i < kMaxReturnSites; ++i)
         {
             const auto ret = reinterpret_cast<std::uintptr_t>(
-                ResolveGameAddress(sites.returns[i].addr));
+                ResolveGameAddress(gAddr.*sites.returns[i].addr));
             if (!ret || !CallsGetter(ret, fn))
             {
                 LogError("OutfitSprint: %s call site 0x%llX mismatch, sprint sound and sparks off",
-                    what, static_cast<unsigned long long>(sites.returns[i].addr));
+                    what, static_cast<unsigned long long>(gAddr.*sites.returns[i].addr));
                 return false;
             }
             h.returns[h.returnCount++] = { ret, sites.returns[i].need };
+        }
+        if (entry == HookEntry::ForeignHook)
+        {
+            char name[64] = {};
+            snprintf(name, sizeof(name), "OutfitSprint: %s", what);
+            LogHookedOnTop(name, reinterpret_cast<const void*>(fn));
         }
         h.target = fn;
         return true;
@@ -259,10 +267,17 @@ namespace
                                          std::size_t n, void* detour, void** orig)
     {
         const auto fn = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(addr));
-        if (!fn || !CodeIs(fn, code, n))
+        const HookEntry entry = CheckHookEntry(reinterpret_cast<const void*>(fn), code, n);
+        if (entry == HookEntry::Unknown)
         {
             LogError("OutfitSprint: %s is not the known code, %s off", what, what);
             return 0;
+        }
+        if (entry == HookEntry::ForeignHook)
+        {
+            char name[64] = {};
+            snprintf(name, sizeof(name), "OutfitSprint: %s", what);
+            LogHookedOnTop(name, reinterpret_cast<const void*>(fn));
         }
         if (!CreateAndEnableHook(reinterpret_cast<void*>(fn), detour, orig))
         {
@@ -287,23 +302,15 @@ namespace outfit
     {
         if (g_Local.installed || g_Index.installed) return true;
 
-        if (!IsEn154Family(gGameBuild))
-        {
-            LogError("OutfitSprint: no addresses for build %s, sprint sound, sparks, raidenRun and dashAttack off",
-                GetGameBuildName(gGameBuild));
-            return false;
-        }
-
         if (!g_DashMoveTarget)
-            g_DashMoveTarget = InstallChecked("raidenRun", kDashMove_En154, kDashMoveCode, sizeof(kDashMoveCode),
+            g_DashMoveTarget = InstallChecked("raidenRun", gAddr.Player_DashMove, kDashMoveCode, sizeof(kDashMoveCode),
                 reinterpret_cast<void*>(&hkDashMove), reinterpret_cast<void**>(&g_OrigDashMove));
         if (!g_DashAttackTarget)
-            g_DashAttackTarget = InstallChecked("dashAttack", kDashAttack_En154, kDashAttackCode,
+            g_DashAttackTarget = InstallChecked("dashAttack", gAddr.Player_DashAttack, kDashAttackCode,
                 sizeof(kDashAttackCode), reinterpret_cast<void*>(&hkDashAttack),
                 reinterpret_cast<void**>(&g_OrigDashAttack));
 
-        if (!Prepare("GetPartsTypeLocal", kLocal_En154, g_Local)
-            || !Prepare("GetPartsType", kIndex_En154, g_Index))
+        if (!Prepare("GetPartsTypeLocal", kLocal, g_Local) || !Prepare("GetPartsType", kIndex, g_Index))
             return false;
 
         g_Local.installed = CreateAndEnableHook(

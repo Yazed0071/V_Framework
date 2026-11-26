@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "LoadingSplash.h"
 
 #include <atomic>
@@ -24,7 +24,7 @@ namespace
     MissionTextureTable g_MainTextures;
     MissionTextureTable g_BlurTextures;
 
-    std::atomic<void*> g_TipsEvent{ nullptr };   // read by V_TppUiCommand.GetLoadingTipsInfo on the Lua thread
+    std::atomic<void*> g_TipsEvent{ nullptr };
 
     void*    g_AppliedSelf = nullptr;
     uint64_t g_AppliedMain = 0;
@@ -91,7 +91,7 @@ void LoadingSplash_SetMainTexture(uint64_t textureHash, uint32_t missionCode)
 
 void LoadingSplash_ClearMainTexture(uint32_t missionCode)
 {
-    g_MainTextures.Clear(missionCode);
+    g_MainTextures.Unset(missionCode);
 }
 
 void LoadingSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
@@ -103,13 +103,13 @@ void LoadingSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
 
 void LoadingSplash_ClearBlurTexture(uint32_t missionCode)
 {
-    g_BlurTextures.Clear(missionCode);
+    g_BlurTextures.Unset(missionCode);
 }
 
 void LoadingSplash_ClearTextures(uint32_t missionCode)
 {
-    g_MainTextures.Clear(missionCode);
-    g_BlurTextures.Clear(missionCode);
+    g_MainTextures.Unset(missionCode);
+    g_BlurTextures.Unset(missionCode);
 }
 
 void* LoadingSplash_TipsEvent()

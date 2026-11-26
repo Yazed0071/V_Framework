@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstddef>
@@ -73,6 +73,19 @@ namespace
         if (!target || enable == g_FactionNopApplied)
             return;
 
+        const std::uint8_t factionTest[5] = { 0xF6, 0xC1, 0x08, 0x74, 0x07 };   // test cl,8 / je +7
+        std::uint8_t live[5] = {};
+        if (enable && (!ReadEntryBytesSEH(target, live, sizeof(live)) || std::memcmp(live, factionTest, sizeof(live)) != 0))
+        {
+            static bool s_foreignReported = false;
+            if (!s_foreignReported)
+            {
+                s_foreignReported = true;
+                LogWarn("OccasionalChatList: faction test site is not the game's original code (another module changed it), faction NOP off");
+            }
+            return;
+        }
+
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, sizeof(g_FactionNopOriginal), PAGE_EXECUTE_READWRITE, &oldProtect))
         {
@@ -81,16 +94,23 @@ namespace
             return;
         }
 
+        const std::uint8_t nops[5] = { 0x90, 0x90, 0x90, 0x90, 0x90 };
         if (enable)
         {
             std::memcpy(g_FactionNopOriginal, target, sizeof(g_FactionNopOriginal));
-            const std::uint8_t nops[5] = { 0x90, 0x90, 0x90, 0x90, 0x90 };
             std::memcpy(target, nops, sizeof(nops));
             g_FactionNopApplied = true;
         }
         else
         {
-            std::memcpy(target, g_FactionNopOriginal, sizeof(g_FactionNopOriginal));
+            static bool s_changedReported = false;
+            if (std::memcmp(target, nops, sizeof(nops)) == 0)
+                std::memcpy(target, g_FactionNopOriginal, sizeof(g_FactionNopOriginal));
+            else if (!s_changedReported)
+            {
+                s_changedReported = true;
+                LogWarn("OccasionalChatList: another module changed the faction NOP site, left as it is");
+            }
             g_FactionNopApplied = false;
         }
 
@@ -156,6 +176,22 @@ namespace
             tl_hashes = hashes; tl_count = count; tl_active = true;
             const std::uint32_t result = g_OrigGet(self, p1, p2);
             tl_active = false; tl_hashes = nullptr; tl_count = 0;
+
+            for (std::size_t s = 0; s < kCap; ++s)   // keep the game's "used" mark on the entries it still has
+            {
+                const std::uint32_t savedLabel = *reinterpret_cast<std::uint32_t*>(save + s * kStride);
+                if (savedLabel == 0) break;
+                for (std::size_t i = 0; i < kCap; ++i)
+                {
+                    const std::uint32_t cur = *reinterpret_cast<std::uint32_t*>(list + i * kStride);
+                    if (cur == 0) break;
+                    if (cur == savedLabel)
+                    {
+                        save[s * kStride + 4] |= *reinterpret_cast<std::uint8_t*>(list + i * kStride + 4) & 1;
+                        break;
+                    }
+                }
+            }
 
             std::memcpy(reinterpret_cast<void*>(list), save, sizeof(save));
             return result;

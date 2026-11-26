@@ -7,7 +7,6 @@ namespace GameClock
 {
     constexpr std::int64_t kLongestStepMs = 100;   // a pause or a hitch counts as this much
 
-    // Milliseconds of play: it only advances between calls, so poll it every frame while a timer runs.
     inline std::uint64_t NowMs()
     {
         static std::atomic<std::int64_t>  s_LastReal{ 0 };

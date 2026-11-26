@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+﻿#include <pch.h>
 
 #include <Windows.h>
 #include <intrin.h>
@@ -13,10 +13,11 @@
 #include "BulletLockOn.h"
 #include "EquipPartParams.h"
 #include "SoldierSuppressedShot.h"
-#include "SimplePartsEffectControllerImpl_CreateEffectImpl.h"
+#include "../buddy/BattleGearSound.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "log.h"
+#include "../player/AttackActionImpl_UpdateShootingByPad.h"
 #include "../shell/RemoteMissile.h"
 #include "../soldier/SoldierFaction.h"
 #include "../soldier/SoldierIncomingVoice.h"
@@ -781,7 +782,7 @@ namespace
                                        void*);
     DoFire_t g_OrigDoFire = nullptr;
 
-    bool ResolveDoFireRecordSEH(void* self, std::uint32_t p2,
+    bool ResolveDoFireRecordSEH(void* self, std::uint32_t p2, bool secondary,
                                 std::uint8_t** outRec, int* outBid)
     {
         __try
@@ -803,7 +804,7 @@ namespace
                 static_cast<std::uint8_t*>(g(sys, typeIdx));
             if (!rec) return false;
             *outRec = rec;
-            *outBid = rec[0x7c];
+            *outBid = secondary ? rec[0x7d] : rec[0x7c];
             return true;
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
@@ -812,11 +813,11 @@ namespace
         }
     }
 
-    void WriteRecTypeSEH(std::uint8_t* rec, int type)
+    void WriteRecTypeSEH(std::uint8_t* rec, bool secondary, int type)
     {
         __try
         {
-            rec[0x7e] = static_cast<std::uint8_t>(type);
+            rec[secondary ? 0x7f : 0x7e] = static_cast<std::uint8_t>(type);
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
         {
@@ -871,6 +872,19 @@ namespace
         }
     }
 
+    bool IsPlayerShotSEH(void* req)
+    {
+        __try
+        {
+            const std::uint16_t owner = *reinterpret_cast<std::uint16_t*>(static_cast<std::uint8_t*>(req) + 0x2A); // owner type 0 = the player
+            return (owner >> 9) == 0;
+        }
+        __except (SehKeepAvOnly(GetExceptionCode()))
+        {
+            return false;
+        }
+    }
+
     std::uint32_t ReadFireFlagsSEH(void* req)
     {
         __try
@@ -891,7 +905,7 @@ namespace
             const std::uint8_t bulletType = (*flags & kFireSecondary) ? rec[0x7F] : rec[0x7E];
             if (bulletType != kBulletTypeShell || (*flags & kFireNoFx))
                 return;
-            *flags = (*flags & ~kFireNoProjectile) | kFireSpawnShot; // her aimed shot is only flash and sound, the hit comes later at the target, so a shell never leaves the muzzle
+            *flags = (*flags & ~kFireNoProjectile) | kFireSpawnShot;
         }
         __except (SehKeepAvOnly(GetExceptionCode()))
         {
@@ -903,40 +917,49 @@ namespace
     {
         std::uint8_t* rec = nullptr;
         int bid = 0;
-        if (ResolveDoFireRecordSEH(self, p2, &rec, &bid))
+        const bool secondary = req && (ReadFireFlagsSEH(req) & kFireSecondary) != 0;
+        if (ResolveDoFireRecordSEH(self, p2, secondary, &rec, &bid))
         {
             int desired = -1;
+            const int bullet = EquipParam_LogicalBulletForLane(bid);
+            if (!EquipParam_FobVanillaBullet(bullet))
             {
                 std::lock_guard<std::recursive_mutex> lock(g_Mutex);
-                auto it = g_TypeByBulletId.find(bid);
+                auto it = g_TypeByBulletId.find(bullet);
                 if (it != g_TypeByBulletId.end())
                     desired = IsLockedNowInternal() ? it->second.lockedType
                                                     : it->second.normalType;
             }
             if (desired >= 0)
-                WriteRecTypeSEH(rec, desired);
+                WriteRecTypeSEH(rec, secondary, desired);
         }
         const bool quietShot = req && IsQuietShotSEH(req);
         if (quietShot && rec && !MissionCodeGuard::ShouldBypassHooks())
-        {
-            const std::uint32_t flagsIn = ReadFireFlagsSEH(req);
             FireQuietShellFromMuzzleSEH(req, rec);
-            ShellFxDiag_NoteQuietShot(self, p3, flagsIn, ReadFireFlagsSEH(req), rec);
-        }
+        int firedEquipId = 0;
         {
-            int firedEquipId = 0;
             float muzzlePos[3] = { 0.0f, 0.0f, 0.0f };
             float muzzleDir[3] = { 0.0f, 0.0f, 0.0f };
             if (!quietShot && ReadFiredEquipAndMuzzleSEH(self, p2, req, &firedEquipId,
                                                          muzzlePos, muzzleDir))
             {
-                shell::RemoteMissile_ArmShot(0, firedEquipId);
+                if (IsPlayerShotSEH(req))
+                    shell::RemoteMissile_ArmShot(0, firedEquipId);
                 SoldierIncomingVoice_OnShot(req, rec, firedEquipId, muzzlePos);
             }
         }
 
         SoldierShot_MarkSuppressed(self, p2, req);
+        equip::ChargeShotDoFire charged{};
+        if (rec && req && !quietShot && IsPlayerShotSEH(req))
+            equip::ChargeShot_BeforeDoFire(rec, secondary, req, &charged);
+        battleGearSound::SidearmShot roofGun{};
+        battleGearSound::BeforeSidearmShot(self, p2, firedEquipId, roofGun);
         g_OrigDoFire(self, p2, p3, req);
+        for (int run = 1; run < charged.runs; ++run)
+            g_OrigDoFire(self, p2, p3, req);
+        battleGearSound::AfterSidearmShot(roofGun);
+        equip::ChargeShot_AfterDoFire(rec, charged);
         shell::RemoteMissile_DisarmShot();
     }
 
@@ -950,9 +973,11 @@ namespace
 
         LockOnSpec spec{};
         bool found = false;
+        const int bullet = EquipParam_LogicalBulletForLane(static_cast<int>(bulletId & 0x3ff));
+        if (!EquipParam_FobVanillaBullet(bullet))
         {
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
-            auto it = g_SpecByBulletId.find(static_cast<int>(bulletId & 0x3ff));
+            auto it = g_SpecByBulletId.find(bullet);
             if (it != g_SpecByBulletId.end())
             {
                 spec = it->second;
@@ -1076,9 +1101,11 @@ namespace
 
         LockOnSpec spec{};
         bool registered = false;
+        const int bullet = EquipParam_LogicalBulletForLane(di.bulletId);
+        if (!EquipParam_FobVanillaBullet(bullet))
         {
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
-            auto it = g_SpecByBulletId.find(static_cast<int>(di.bulletId));
+            auto it = g_SpecByBulletId.find(bullet);
             if (it != g_SpecByBulletId.end())
             {
                 spec = it->second;
@@ -1376,9 +1403,9 @@ namespace equip
                                double homingStartMeters,
                                const LockOnCategories* categories)
     {
-        if (bulletId <= 0 || bulletId > 255)
+        if (bulletId <= 0 || bulletId > 0xFFFF)
         {
-            LogWarn("BulletLockOn: bulletId %d rejected, lockOn needs bulletId 1-255", bulletId);
+            LogWarn("BulletLockOn: bulletId %d rejected, lockOn needs bulletId 1-65535", bulletId);
             return;
         }
         LockOnSpec spec{};
@@ -1430,7 +1457,7 @@ namespace equip
 
     void LockOn_RegisterBulletType(int bulletId, int lockedType, int normalType)
     {
-        if (bulletId <= 0 || bulletId > 255 || lockedType < 0 || normalType < 0)
+        if (bulletId <= 0 || bulletId > 0xFFFF || lockedType < 0 || normalType < 0)
             return;
         TypeSwap swap{};
         swap.lockedType = lockedType;

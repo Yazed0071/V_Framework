@@ -31,6 +31,13 @@ namespace SoldierVoiceType
     constexpr std::uint32_t kChildB            = 0xB2F1D689u;
     constexpr std::uint32_t kChildC            = 0xB2F1D688u;
     constexpr std::uint32_t kChildD            = 0xB2F1D68Fu;
+    constexpr std::uint32_t kZombie            = 0x30B7B79Au;  // vox_zmb, zombies that are neither MSF nor strays
+
+    constexpr std::size_t   kSoldierStates     = 0x110;  // 0x28 per soldier
+    constexpr std::size_t   kStateEntries      = 0x08;
+    constexpr std::size_t   kStateCount        = 0x10;
+    constexpr std::size_t   kStateSize         = 0x28;
+    constexpr int           kStateZombieBit    = 60;     // the bit GetVoiceTypeFromSoldierTypeImpl gives the zombie voice for
 
     inline bool IsAdult(std::uint32_t voiceType)
     {
@@ -42,6 +49,44 @@ namespace SoldierVoiceType
         case kEneAFml: case kEneBFml: case kEneCFml: case kEneDFml:
             return true;
         default:
+            return false;
+        }
+    }
+
+    inline bool HasZombieGrunt(std::uint32_t voiceType)   // zmbdm0 was recorded only for these
+    {
+        return voiceType == kZombie || voiceType == kEneB || voiceType == kEneD;
+    }
+
+    inline const std::uint64_t* StateOf(const std::uint8_t* soldiers, std::uint32_t soldierIndex)
+    {
+        if (!soldiers)
+            return nullptr;
+        __try
+        {
+            const std::uint8_t* states = *reinterpret_cast<const std::uint8_t* const*>(soldiers + kSoldierStates);
+            if (soldierIndex >= *reinterpret_cast<const std::uint32_t*>(states + kStateCount))
+                return nullptr;
+            return reinterpret_cast<const std::uint64_t*>(*reinterpret_cast<const std::uint8_t* const*>(states + kStateEntries)
+                + soldierIndex * kStateSize);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    inline bool IsZombie(const std::uint8_t* soldiers, std::uint32_t soldierIndex)
+    {
+        const std::uint64_t* state = StateOf(soldiers, soldierIndex);
+        if (!state)
+            return false;
+        __try
+        {
+            return ((state[0] >> kStateZombieBit) & 1ull) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
             return false;
         }
     }

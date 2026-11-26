@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "GunBasicInject.h"
 
 #include <Windows.h>
@@ -16,9 +16,11 @@
 #include "MotionLoaderImpl_GetMtarIds.h"
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "EquipAliasLease.h"
+#include "PartIdWiden.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaApi.h"
+#include "MissionCodeGuard.h"
 #include "../../core/V_FrameWorkState.h"
 
 namespace
@@ -30,7 +32,7 @@ namespace
         std::int32_t slotSpace[13];
     };
 
-    using ReloadEquipParameterTables2_t = void(__fastcall*)(lua_State* L);
+    using ReloadEquipParameterTables2_t = int(__fastcall*)(lua_State* L);
     static ReloadEquipParameterTables2_t g_OrigReload = nullptr;
 
     static std::recursive_mutex g_Mutex;
@@ -150,6 +152,12 @@ namespace
         return StockSlotCount();
     }
 
+    static bool FobHidesVanillaRow(int weaponId)   // FOB: a vanilla weapon's mod row stays out of every lookup and write
+    {
+        return EquipParam_FobVanillaPartsOn() && weaponId >= 1 && weaponId <= StockSlotCount()
+            && !g_ClaimedIds.count(weaponId);
+    }
+
     static int SlotIsZeroSEH(const std::uint8_t* buf, int idx)
     {
         __try
@@ -194,6 +202,53 @@ namespace
         }
     }
 
+    static bool GunRowForWeapon(int weaponId, int logicalReceiver, unsigned char gunRow[12])
+    {
+        const unsigned int family = EquipParam_GetWeaponHandlingFamily(weaponId);
+        if (family && EquipParam_GetEquipGunBasicRow(family, gunRow) && gunRow[0] != 0)
+            return true;
+        const int receiver = EquipParam_GetReceiverMotionFrom(logicalReceiver);
+        std::uint8_t* buf = receiver > 0 ? BufferBase() : nullptr;
+        for (int weapon = 1; buf && weapon <= StockSlotCount(); ++weapon)   // the first vanilla gun built on that receiver
+            if (CopyRowBytesSEH(buf + static_cast<size_t>(weapon - 1) * 12, gunRow) == 1 && gunRow[0] == receiver)
+                return true;
+        return false;
+    }
+
+    static int GunMagazineForRow(int weaponId, int logicalReceiver)
+    {
+        unsigned char gunRow[12];
+        return GunRowForWeapon(weaponId, logicalReceiver, gunRow) ? gunRow[2] : 0;
+    }
+
+    static int GunPartForSlot(const unsigned char gunRow[12], int slot)
+    {
+        static const int kNativeByteForSlot[11] = { 0, 1, 2, 3, 4, 5, 6, 7, 10, 8, 9 };
+        return (slot >= 0 && slot < 11) ? gunRow[kNativeByteForSlot[slot]] : 0;
+    }
+
+    static int LentPart(const unsigned char* gunRow, int slot, int logicalPart)
+    {
+        static constexpr int kScope1Slot = 6;
+        static constexpr int kScope2Slot = 7;
+        if (slot == kScope1Slot || slot == kScope2Slot)
+        {
+            const int scopeDonor = EquipParam_GetSightScopeDonor(logicalPart);
+            if (scopeDonor > 0)
+                return scopeDonor;
+        }
+        return gunRow ? GunPartForSlot(gunRow, slot) : 0;
+    }
+
+    static int BorrowGunPart(int weaponId, int logicalReceiver, int slot, int logicalPart)
+    {
+        if (!PartIdWiden_IsPlanned())
+            return 0;
+        unsigned char gunRow[12];
+        const bool haveGun = GunRowForWeapon(weaponId, logicalReceiver, gunRow);
+        return LentPart(haveGun ? gunRow : nullptr, slot, logicalPart);
+    }
+
     static void ReapplyAllNative()
     {
         std::vector<GunBasicRow> snapshot;
@@ -210,16 +265,16 @@ namespace
 
         for (const GunBasicRow& row : snapshot)
         {
-            if (row.f[0] >= 1 && row.f[0] <= cap)
+            if (row.f[0] >= 1 && row.f[0] <= cap && !FobHidesVanillaRow(row.f[0]))
                 WriteNativeRowSEH(buf, row.f[0], &row.f[1]);
         }
     }
 
-    static void __fastcall hkReloadEquipParameterTables2(lua_State* L)
+    static int __fastcall hkReloadEquipParameterTables2(lua_State* L)
     {
-        if (g_OrigReload)
-            g_OrigReload(L);
+        const int resultCount = g_OrigReload ? g_OrigReload(L) : 0;
         ReapplyAllNative();
+        return resultCount;
     }
 
     static bool ReadNamedInt(lua_State* L, int tableIdx, const char* name, int& out)
@@ -375,9 +430,19 @@ bool GunBasic_WeaponHasNoRow(int equipId)
     return noRow;
 }
 
+unsigned char* GunBasic_RowForFob(int weaponId)
+{
+    std::uint8_t* buf = BufferBase();
+    if (!buf || weaponId <= 0 || weaponId > StockSlotCount() || weaponId > BufferSlotCount())
+        return nullptr;
+    return buf + static_cast<size_t>(weaponId - 1) * 12;
+}
+
 bool GunBasic_WeaponNeedsLaneBind(int weaponId)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (FobHidesVanillaRow(weaponId))
+        return false;
     for (const auto& r : g_Rows)
     {
         if (r.f[0] != weaponId)
@@ -398,9 +463,98 @@ bool GunBasic_WeaponNeedsLaneBind(int weaponId)
 // space-filtered on purpose: barrels/sights/etc are player-swappable in the
 // gunsmith, so the desc can legitimately hold a customised part there and must
 // not be overwritten. Only slots this build actually defers may be restamped.
+static int RowByteSEH(const std::uint8_t* row, int offset)
+{
+    __try
+    {
+        return row[offset];
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return 0;
+    }
+}
+
+int GunBasic_LogicalMagazineForRow(const std::uint8_t* row)
+{
+    const int narrow = row ? RowByteSEH(row, 2) : 0;
+    if (narrow == 0)
+        return 0;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* buf = BufferBase();
+    if (!buf || row < buf)
+        return narrow;
+    const std::size_t offset = static_cast<std::size_t>(row - buf);
+    if (offset % 12 != 0 || offset / 12 >= static_cast<std::size_t>(BufferSlotCount()))
+        return narrow;
+    const int weaponId = static_cast<int>(offset / 12) + 1;
+    if (FobHidesVanillaRow(weaponId))
+        return narrow;
+    for (const auto& r : g_Rows)
+    {
+        if (r.f[0] != weaponId)
+            continue;
+        for (int i = 1; i <= 11; ++i)
+            if (r.slotSpace[i] == kVanillaSpace_Magazine)
+                return (r.logical[i] >= 0x100 && r.f[i] == narrow) ? r.logical[i] : narrow;
+        return narrow;
+    }
+    return narrow;
+}
+
+int GunBasic_CustomMuzzleOptionForRow(const std::uint8_t* row)
+{
+    const int narrow = row ? RowByteSEH(row, 5) : 0;
+    if (narrow == 0)
+        return 0;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* buf = BufferBase();
+    if (!buf || row < buf)
+        return 0;
+    const std::size_t offset = static_cast<std::size_t>(row - buf);
+    if (offset % 12 != 0 || offset / 12 >= static_cast<std::size_t>(BufferSlotCount()))
+        return 0;
+    const int weaponId = static_cast<int>(offset / 12) + 1;
+    if (FobHidesVanillaRow(weaponId))
+        return 0;
+    for (const auto& r : g_Rows)
+    {
+        if (r.f[0] != weaponId)
+            continue;
+        for (int i = 1; i <= 11; ++i)
+            if (r.slotSpace[i] == kVanillaSpace_MuzzleOption)
+                return (r.logical[i] >= 0x100 && r.f[i] == narrow) ? r.logical[i] : narrow;
+        return narrow;
+    }
+    return 0;
+}
+
+int GunBasic_LogicalMagazineForWeapon(int weaponId, int narrowMagazine)
+{
+    if (weaponId <= 0 || narrowMagazine <= 0)
+        return narrowMagazine;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (FobHidesVanillaRow(weaponId))
+        return narrowMagazine;
+    for (const auto& r : g_Rows)
+    {
+        if (r.f[0] != weaponId)
+            continue;
+        for (int i = 1; i <= 11; ++i)
+            if (r.slotSpace[i] == kVanillaSpace_Magazine)
+                return (r.logical[i] >= 0x100 && r.f[i] == narrowMagazine) ? r.logical[i] : narrowMagazine;
+        return narrowMagazine;
+    }
+    return narrowMagazine;
+}
+
 int GunBasic_GetLogicalPart(int weaponId, int space)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (FobHidesVanillaRow(weaponId))
+        return 0;
     for (const auto& r : g_Rows)
     {
         if (r.f[0] != weaponId)
@@ -420,6 +574,8 @@ bool GunBasic_GetLogicalParts(int weaponId, int out11[11], const unsigned char* 
         out11[i] = nativeDesc ? nativeDesc[descLanes[i]] : 0;
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (FobHidesVanillaRow(weaponId))
+        return false;
     for (const auto& r : g_Rows)
     {
         if (r.f[0] != weaponId)
@@ -443,6 +599,8 @@ int GunBasic_GetWideSlotLanes(int weaponId, int space, unsigned char outLanes[12
         outLanes[i] = 0;
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (FobHidesVanillaRow(weaponId))
+        return 0;
     for (const auto& r : g_Rows)
     {
         if (r.f[0] != weaponId)
@@ -486,7 +644,7 @@ int GunBasic_ClearLaneFromRows(int space, int lane)
             dirty = true;
             ++cleared;
         }
-        if (dirty && buf && r.f[0] >= 1 && r.f[0] <= cap)
+        if (dirty && buf && r.f[0] >= 1 && r.f[0] <= cap && !FobHidesVanillaRow(r.f[0]))
             WriteNativeRowSEH(buf, r.f[0], &r.f[1]);
     }
     return cleared;
@@ -519,9 +677,72 @@ int GunBasic_ReNarrowReceiverRows(int wideRc)
             dirty = true;
             ++changed;
         }
-        if (dirty && buf && r.f[0] >= 1 && r.f[0] <= cap)
+        if (dirty && buf && r.f[0] >= 1 && r.f[0] <= cap && !FobHidesVanillaRow(r.f[0]))
             WriteNativeRowSEH(buf, r.f[0], &r.f[1]);
     }
+    return changed;
+}
+
+int GunBasic_RefreshBorrowedParts(int ammoId, int receiverId, int weaponId)
+{
+    const int vanillaMagazines = EquipParam_VanillaPartCount(kVanillaSpace_Magazine);
+    const bool borrowMagazines = EquipParam_WideMagazinesPlanned();
+    const bool borrowParts = PartIdWiden_IsPlanned();
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    std::uint8_t* buf = BufferBase();
+    const int cap = BufferSlotCount();
+    int changed = 0;
+    for (auto& r : g_Rows)
+    {
+        if ((ammoId && r.logical[3] != ammoId) || (receiverId && r.logical[1] != receiverId)
+            || (weaponId && r.f[0] != weaponId))
+            continue;
+        unsigned char gunRow[12] = {};
+        const bool haveGun = GunRowForWeapon(r.f[0], r.logical[1], gunRow);
+        bool dirty = false;
+        for (int i = 2; i <= 11; ++i)
+        {
+            const int space = r.slotSpace[i];
+            const int logical = r.logical[i];
+            if (space < 0)
+                continue;
+            if (space == kVanillaSpace_Magazine)
+            {
+                if (logical <= vanillaMagazines)
+                    continue;
+                if (logical < 0x100)
+                {
+                    if (haveGun && gunRow[2] > 0)
+                        EquipParam_InheritPartMotionTypes(0, 0, logical, gunRow[2], 0, 0, nullptr);
+                    continue;
+                }
+                const int lane = borrowMagazines
+                    ? EquipParam_MagazineLaneForWeapon(logical, haveGun ? gunRow[2] : 0) : 0;
+                if (lane > 0 && lane != r.f[i])
+                {
+                    r.f[i] = lane;
+                    dirty = true;
+                }
+                continue;
+            }
+            if (!borrowParts || logical < 0x100 || EquipParam_GetWideAlias(space, logical) > 0)
+                continue;
+            const int lent = LentPart(haveGun ? gunRow : nullptr, i - 1, logical);
+            if (lent > 0 && lent != r.f[i])
+            {
+                r.f[i] = lent;
+                dirty = true;
+            }
+        }
+        if (!dirty)
+            continue;
+        if (buf && r.f[0] >= 1 && r.f[0] <= cap && !FobHidesVanillaRow(r.f[0]))
+            WriteNativeRowSEH(buf, r.f[0], &r.f[1]);
+        ++changed;
+    }
+    if (changed)
+        g_RowEpoch.fetch_add(1, std::memory_order_release);
     return changed;
 }
 
@@ -556,7 +777,7 @@ int GunBasic_RebindWidePartsForWeapon(int weaponId)
     {
         const int cap = BufferSlotCount();
         std::uint8_t* buf = BufferBase();
-        if (buf && weaponId >= 1 && weaponId <= cap)
+        if (buf && weaponId >= 1 && weaponId <= cap && !FobHidesVanillaRow(weaponId))
             WriteNativeRowSEH(buf, weaponId, &row->f[1]);
     }
     return rebound;
@@ -612,11 +833,12 @@ static void CommitGunBasicRow(GunBasicRow& row)
     }
 
     const int donorRc = EquipParam_GetWideReceiverDonor(row.f[1]);
-    if (buf && donorRc > 0 && donorRc != row.f[1])
+    const int gunMagazine = GunMagazineForRow(row.f[0], row.logical[1]);
+    if (buf && ((donorRc > 0 && donorRc != row.f[1]) || gunMagazine > 0))
     {
         const int stock = StockSlotCount();
         int donorBa = 0, donorAm = 0, donorSt = 0;
-        for (int id = 1; id <= stock && id <= cap; ++id)
+        for (int id = 1; donorRc > 0 && donorRc != row.f[1] && id <= stock && id <= cap; ++id)
         {
             const std::uint8_t* r =
                 buf + static_cast<size_t>(id - 1) * 12;
@@ -627,6 +849,8 @@ static void CommitGunBasicRow(GunBasicRow& row)
             donorSt = r[3];
             break;
         }
+        if (gunMagazine > 0)
+            donorAm = gunMagazine;
         int eligible = 0;
         const int applied = EquipParam_InheritPartMotionTypes(
             row.f[2], donorBa, row.f[3], donorAm, row.f[4], donorSt, &eligible);
@@ -671,11 +895,15 @@ int GunBasic_ReplayPendingForMagazine(int ammoId)
                 row.f[i] = (donor > 0) ? donor : kEssentialDefaultId;
                 continue;
             }
-            const int b = EquipParam_ResolvePartByte(row.slotSpace[i], row.logical[i]);
+            int b = EquipParam_ResolvePartByte(row.slotSpace[i], row.logical[i]);
+            if (b <= 0)
+                b = BorrowGunPart(row.f[0], row.logical[1], i - 1, row.logical[i]);
             if (b > 0)
                 row.f[i] = b;
         }
-        row.f[3] = EquipParam_ResolvePartByte(kVanillaSpace_Magazine, ammoId);
+        row.f[3] = EquipParam_WideMagazinesPlanned()
+            ? EquipParam_MagazineLaneForWeapon(ammoId, GunMagazineForRow(row.f[0], row.logical[1]))
+            : EquipParam_ResolvePartByte(kVanillaSpace_Magazine, ammoId);
         if (row.f[3] <= 0)
         {
             LogWarn("SetGunBasic weaponId=%d: ammoId=%d has no engine lane, rejected",
@@ -700,7 +928,7 @@ int GunBasic_PendingWideAmmoForWeapon(int weaponId)
 
 int __cdecl l_SetGunBasic(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -799,7 +1027,20 @@ int __cdecl l_SetGunBasic(lua_State* L)
                     weaponId, wideRc, kEssentialDefaultId);
             continue;
         }
+        if (kSlotSpaces[i] == kVanillaSpace_Magazine && EquipParam_WideMagazinesPlanned())
+        {
+            row.f[i + 1] = EquipParam_MagazineLaneForWeapon(
+                row.f[i + 1], GunMagazineForRow(weaponId, row.logical[1]));
+            continue;
+        }
         row.f[i + 1] = EquipParam_ResolvePartByte(kSlotSpaces[i], row.f[i + 1]);
+        if (row.f[i + 1] <= 0 && kSlotSpaces[i] != kVanillaSpace_Magazine && PartIdWiden_IsPlanned())
+        {
+            row.f[i + 1] = BorrowGunPart(weaponId, row.logical[1], i, row.logical[i + 1]);
+            if (row.f[i + 1] <= 0)
+                LogWarn("SetGunBasic weaponId=%d: %s=%d has no engine lane and its gun has no %s to lend, weapon gets none",
+                    weaponId, kSlotNames[i], row.logical[i + 1], kSlotNames[i]);
+        }
     }
 
     for (int i = 1; i <= 3; ++i)

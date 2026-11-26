@@ -1,5 +1,5 @@
 
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -232,9 +232,6 @@ bool LostHostageDiscovery_TryOverrideForCallWithRadioType(
         return false;
 
     outOverrideLabel = report.label;
-    if (report.dead)
-        LogInfo("LostHostageDiscovery: soldier %u found prisoner 0x%04X dead, CP %u hears V_CPR0231 (radio 0x%02X)",
-            report.soldierIndex, static_cast<unsigned>(report.targetId), ownerIndex, static_cast<unsigned>(radioType));
     return true;
 }
 

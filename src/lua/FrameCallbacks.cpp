@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "FrameCallbacks.h"
 
 #include <algorithm>
@@ -14,11 +14,6 @@
 #include "LuaBroadcaster.h"
 #include "log.h"
 
-// The game calls Lua on its Lua thread every frame, also while a mission loads (measured 2026-10-14: about one
-// outermost call per frame during the whole loading screen), but Infinite Heaven's Update only runs inside a mission.
-// The lua_pcall hook runs Run() each time the game's outermost Lua call returns; Run() calls the stored functions at
-// most once per UI frame. The functions live in a registry table, so Lua's garbage collector sees them.
-
 namespace
 {
     constexpr int         LUA_REGISTRYINDEX_51 = -10000;
@@ -29,7 +24,7 @@ namespace
     std::mutex               g_Lock;
     std::vector<std::string> g_Names;   // call order = order of first Set
     lua_State*               g_State = nullptr;   // the main state the functions were stored in
-    std::unordered_map<std::string, std::string> g_LastError;   // per name: each distinct error is logged once
+    std::unordered_map<std::string, std::string> g_LastError;
 
     std::atomic<std::uint32_t> g_Frame{ 0 };
     std::uint32_t g_LastRunFrame = 0;
@@ -50,7 +45,6 @@ namespace
         return static_cast<double>(now.QuadPart - s_start.QuadPart) / static_cast<double>(s_freq.QuadPart);
     }
 
-    // pushes the stored function and its argument; false (stack back at top) when there is none or a read faults
     bool PushCallbackSEH(lua_State* L, const char* name, double time, int top)
     {
         __try
@@ -74,9 +68,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    // true when the function ran or there was none; false with the Lua error text copied out. The call itself is
-    // outside any __try: a fault unwound through the hooked lua_pcall would skip ExitLuaPcall and Lua's own
-    // state restore, so it must reach the game's crash handler instead.
     bool CallOne(lua_State* L, const char* name, double time, char* error, std::size_t errorSize)
     {
         const int top = g_lua_gettop(L);
@@ -126,7 +117,7 @@ bool FrameCallbacks::Set(lua_State* L, const char* name, int fnIdx)
 
     lua_State* main = V_FrameWork_AnyLuaState();
     std::lock_guard<std::mutex> lock(g_Lock);
-    if (main != g_State)   // a new Lua state: names stored for the old one are gone with it
+    if (main != g_State)
     {
         g_Names.clear();
         g_LastError.clear();
@@ -148,7 +139,7 @@ void FrameCallbacks::NoteFrame()
 
 void FrameCallbacks::Run()
 {
-    if (g_Running || GetCurrentThreadId() != V_FrameWork_LuaOwnerThreadId())
+    if (g_Running || !V_FrameWork::InsideGameLua())
         return;
     const std::uint32_t frame = g_Frame.load(std::memory_order_acquire);
     const ULONGLONG now = GetTickCount64();

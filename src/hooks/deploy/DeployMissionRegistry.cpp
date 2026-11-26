@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "DeployMissionRegistry.h"
 
 #include "AddressSet.h"
@@ -63,6 +63,8 @@ namespace deployMission
         constexpr std::size_t kRewardStaffWeights   = 0x0A;
         constexpr std::size_t kRewardStaffBuckets   = 12;
         constexpr std::size_t kRewardDrawCount      = 0x18;
+        constexpr std::size_t kRewardStaffDrawCount = 0x09;
+        constexpr std::int32_t kResourceUnitsPerDraw = 5;   // a material draw pays 5, a plant 1
         constexpr std::size_t kRewardResourceWeights = 0x1A;
         constexpr std::size_t kRewardResourceBuckets = 13;
         constexpr std::size_t kRewardKeyItem        = 0x28;
@@ -1162,6 +1164,18 @@ namespace deployMission
             WriteRewardRows_NoLock();
         row = mission->rewardRow;
         return g_RewardRowsWritten;
+    }
+
+    bool VanillaRewardMaximums(std::int32_t& gmp, std::int32_t& staff, std::int32_t& resources)
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Lock);
+        ComputeRewardLimits_NoLock(RewardIface());
+        if (!g_Limits.ready)
+            return false;
+        gmp = g_Limits.gmp;
+        staff = g_Limits.byteMax[kRewardStaffDrawCount];
+        resources = g_Limits.drawCount * kResourceUnitsPerDraw;
+        return true;
     }
 
     void EnsureRewardRowsWritten()

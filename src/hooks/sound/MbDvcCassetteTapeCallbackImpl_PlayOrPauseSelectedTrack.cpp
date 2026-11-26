@@ -1,8 +1,9 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
 #include <cstring>
+#include <intrin.h>
 #include <mutex>
 
 #include "HookUtils.h"
@@ -32,9 +33,17 @@ static int ReadU32FieldSEH(void* base, std::uintptr_t off, std::uint32_t* out)
 
 namespace
 {
-    using CassetteStart_t = void(__fastcall*)(void* cassetteCallbackBase);
+    using CassetteStart_t = void(__fastcall*)(void* cassetteInner);
 
     using PlayOrPauseSelectedTrack_t = bool(__fastcall*)(void* cassetteCallbackBase);
+
+    using CassetteSeekStep_t = bool(__fastcall*)(void* cassetteCallbackBase);
+
+    using CassettePlayerGetTrackId_t = std::uint32_t(__fastcall*)(void* player);
+    using CassettePlayerGetTrackInfo_t = const std::uint8_t* (__fastcall*)(void* player, std::uint32_t trackId);
+    using CassettePlayerGetAlbumInfo_t = const std::uint8_t* (__fastcall*)(void* player, std::uint64_t albumId);
+    using CassettePlayerGetPlayingTime_t = std::uint32_t(__fastcall*)(void* player);
+    using CassettePlayerSeek_t = std::uint32_t* (__fastcall*)(void* player, std::uint32_t* outResult, std::uint32_t positionMs);
 
     using MusicPlayerPlay_t = void(__fastcall*)(
         void* player,
@@ -58,6 +67,45 @@ namespace
     static constexpr std::size_t kCassettePlayerGetStateVtableOffset = 0xD8ull;
     static constexpr std::size_t kCassettePlayerSetSpeakerModeVtableOffset = 0x1A0ull;
     static constexpr std::size_t kCassettePlayerGetSpeakerModeVtableOffset = 0x1A8ull;
+    static constexpr std::size_t kCassettePlayerGetPlayingTrackIdVtableOffset = 0xE0ull;
+    static constexpr std::size_t kCassettePlayerGetAlbumInfoVtableOffset = 0x170ull;
+    static constexpr std::size_t kCassettePlayerGetTrackInfoVtableOffset = 0x180ull;
+    static constexpr std::size_t kCassettePlayerSeekVtableOffset = 0x1C0ull;
+    static constexpr std::size_t kCassettePlayerGetPlayingTimeVtableOffset = 0x200ull;
+
+    static constexpr std::uintptr_t kCassetteInnerOffset = 0x20ull;
+
+    static constexpr std::size_t kTrackAlbumId = 0x00ull;
+    static constexpr std::size_t kTrackDataTime = 0x18ull;
+    static constexpr std::size_t kTrackSaveIndex = 0x1Cull;
+    static constexpr std::size_t kAlbumType = 0x12ull;
+    static constexpr std::size_t kSmpPlayState = 0xD4ull;
+    static constexpr std::size_t kSmpSubtitleId = 0x114ull;
+
+    static constexpr std::uint16_t kAlbumTypeBriefing = 3u;
+    static constexpr std::uint16_t kAlbumTypeSubtitleSeek = 8u;
+    static constexpr std::uint32_t kTapSeekStepMs = 10000u;
+    static constexpr int kPlayerStatePlaying = 2;
+    static constexpr std::uintptr_t kPauseForSeekHeldReturn = 0x3AFAull;
+    static constexpr std::uintptr_t kPauseForSeekButtonReturnBack = 0x37Bull;
+
+    static constexpr std::uint8_t kSeekPrevSubtitlesEntry[] = {
+        0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x88,
+        0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00, 0x83, 0xC0, 0xFC,
+        0x83, 0xF8, 0x01, 0x77, 0x08, 0x32, 0xC0, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3, 0x48, 0x8B, 0x43,
+        0x30, 0x48, 0x8B, 0x88, 0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xE0, 0x00, 0x00 };
+
+    static constexpr std::uint8_t kSeekNextSubtitlesEntry[] = {
+        0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x88,
+        0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00, 0x83, 0xC0, 0xFC,
+        0x83, 0xF8, 0x01, 0x77, 0x08, 0x32, 0xC0, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3, 0x48, 0x8B, 0x43,
+        0x30, 0x48, 0x89, 0x7C, 0x24, 0x38, 0x48, 0x8B, 0x88, 0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01 };
+
+    static constexpr std::uint8_t kPauseForSeekEntry[] = {
+        0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x88,
+        0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00, 0x83, 0xC0, 0xFC,
+        0x83, 0xF8, 0x01, 0x77, 0x08, 0x32, 0xC0, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3, 0x48, 0x8B, 0x43,
+        0x30, 0x48, 0x8B, 0x88, 0xD8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xD8, 0x00, 0x00 };
 
     static constexpr std::uint32_t kCassetteSpeakerModeDisabled = 0u;
     static constexpr std::uint32_t kCassetteSpeakerModeEnabled = 1u;
@@ -67,6 +115,12 @@ namespace
     static CassetteStart_t g_OrigCassetteStart = nullptr;
     static PlayOrPauseSelectedTrack_t g_OrigPlayOrPauseSelectedTrack = nullptr;
     static MusicPlayerPlay_t g_OrigMusicPlayerPlay = nullptr;
+    static CassetteSeekStep_t g_OrigSeekPrevSubtitles = nullptr;
+    static CassetteSeekStep_t g_OrigSeekNextSubtitles = nullptr;
+    static CassetteSeekStep_t g_OrigPauseForSeek = nullptr;
+    static void* g_SeekPrevSubtitlesTarget = nullptr;
+    static void* g_SeekNextSubtitlesTarget = nullptr;
+    static void* g_PauseForSeekTarget = nullptr;
 
     static std::mutex g_CassettePlayHookMutex;
 
@@ -318,7 +372,7 @@ static void __fastcall hkMusicPlayerPlay(
     }
 }
 
-static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
+static void __fastcall hkCassetteStart(void* cassetteInner)
 {
     if (!g_OrigCassetteStart)
     {
@@ -326,12 +380,14 @@ static void __fastcall hkCassetteStart(void* cassetteCallbackBase)
         return;
     }
 
-    g_OrigCassetteStart(cassetteCallbackBase);
+    g_OrigCassetteStart(cassetteInner);
 
     const bool bypass = MissionCodeGuard::ShouldBypassHooks();
 
-    if (bypass)
+    if (bypass || !cassetteInner)
         return;
+
+    void* cassetteCallbackBase = static_cast<std::uint8_t*>(cassetteInner) - kCassetteInnerOffset;
 
     {
         std::lock_guard<std::mutex> lock(g_CassettePlayHookMutex);
@@ -593,6 +649,227 @@ static void* ResolveSoundMusicPlayerFromMusicManager()
     }
 }
 
+struct CustomTapeSeekState
+{
+    void* player = nullptr;
+    const std::uint8_t* track = nullptr;
+    std::uint32_t trackId = 0;
+    std::int16_t saveIndex = -1;
+    std::uint16_t albumType = 0;
+    int playerState = -1;
+    std::uint32_t rawPlayState = 0;
+    std::uint32_t playMode = 0;
+    std::uint32_t pausedPlayMode = 0;
+    std::uint32_t playingId = 0;
+    std::uint8_t mediaPath = 0;
+    std::uint8_t positional = 0;
+    float cooldown = 0.0f;
+    std::int32_t subtitleId = -1;
+};
+
+
+static bool ReadCustomTapeSeekState(void* cassetteCallbackBase, CustomTapeSeekState& out)
+{
+    out = CustomTapeSeekState{};
+
+    void* player = ResolveMusicPlayerFromCassetteCallback(cassetteCallbackBase);
+    void* smp = ResolveSoundMusicPlayerFromMusicManager();
+    if (!player || !smp)
+        return false;
+
+    void* getStateFn = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetStateVtableOffset);
+    void* getTrackIdFn = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetPlayingTrackIdVtableOffset);
+    void* getTrackFn = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetTrackInfoVtableOffset);
+    void* getAlbumFn = ResolveCassettePlayerVtableFunction(player, kCassettePlayerGetAlbumInfoVtableOffset);
+    if (!getStateFn || !getTrackIdFn || !getTrackFn || !getAlbumFn)
+        return false;
+
+    __try
+    {
+        const std::uintptr_t smpBase = reinterpret_cast<std::uintptr_t>(smp);
+
+        out.player = player;
+        out.playerState = reinterpret_cast<CassettePlayerGetState_t>(getStateFn)(player);
+        out.rawPlayState = *reinterpret_cast<const std::uint32_t*>(smpBase + kSmpPlayState);
+        out.playMode = *reinterpret_cast<const std::uint32_t*>(smpBase + 0xACull);
+        out.pausedPlayMode = *reinterpret_cast<const std::uint32_t*>(smpBase + 0xB0ull);
+        out.playingId = *reinterpret_cast<const std::uint32_t*>(smpBase + 0xA0ull);
+        out.cooldown = *reinterpret_cast<const float*>(smpBase + 0xC0ull);
+        out.mediaPath = *reinterpret_cast<const std::uint8_t*>(smpBase + 0x11Dull);
+        out.positional = *reinterpret_cast<const std::uint8_t*>(smpBase + 0x122ull);
+        out.subtitleId = *reinterpret_cast<const std::int32_t*>(smpBase + kSmpSubtitleId);
+
+        out.trackId = reinterpret_cast<CassettePlayerGetTrackId_t>(getTrackIdFn)(player);
+        out.track = reinterpret_cast<CassettePlayerGetTrackInfo_t>(getTrackFn)(player, out.trackId);
+        if (!out.track)
+            return false;
+
+        out.saveIndex = *reinterpret_cast<const std::int16_t*>(out.track + kTrackSaveIndex);
+
+        const std::uint8_t* album = reinterpret_cast<CassettePlayerGetAlbumInfo_t>(getAlbumFn)(
+            player, *reinterpret_cast<const std::uint64_t*>(out.track + kTrackAlbumId));
+        if (!album)
+            return false;
+
+        out.albumType = *reinterpret_cast<const std::uint16_t*>(album + kAlbumType);
+        return IsCustomTapeSaveIndex(out.saveIndex);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+
+static bool TryCustomTapeTapSeek(void* cassetteCallbackBase, bool forward)
+{
+    CustomTapeSeekState state;
+    if (!ReadCustomTapeSeekState(cassetteCallbackBase, state))
+        return false;
+
+    if (static_cast<unsigned int>(state.playerState - 4) < 2u)
+        return false;
+
+    if (state.albumType != kAlbumTypeBriefing && state.albumType != kAlbumTypeSubtitleSeek)
+        return false;
+
+    if (state.subtitleId != -1)
+        return false;
+
+    void* getTimeFn = ResolveCassettePlayerVtableFunction(state.player, kCassettePlayerGetPlayingTimeVtableOffset);
+    void* seekFn = ResolveCassettePlayerVtableFunction(state.player, kCassettePlayerSeekVtableOffset);
+    if (!getTimeFn || !seekFn)
+        return false;
+
+    __try
+    {
+        const std::uint32_t position = reinterpret_cast<CassettePlayerGetPlayingTime_t>(getTimeFn)(state.player);
+
+        std::uint32_t target = 0;
+        if (forward)
+        {
+            target = position + kTapSeekStepMs;
+            if (target >= *reinterpret_cast<const std::uint32_t*>(state.track + kTrackDataTime))
+                return false;
+        }
+        else
+        {
+            if (position <= kTapSeekStepMs)
+                return false;
+            target = position - kTapSeekStepMs;
+        }
+
+        std::uint32_t result = 0xFFFFFFFFu;
+        const std::uint32_t* status = reinterpret_cast<CassettePlayerSeek_t>(seekFn)(state.player, &result, target);
+        const bool ok = status != nullptr && static_cast<std::int32_t>(*status) >= 0;
+
+        LogDebug("CassetteSeek: tap %s on custom track %u (album type %u, no subtitles) %u -> %u ms, %s",
+            forward ? "forward" : "back", state.trackId, static_cast<unsigned int>(state.albumType),
+            position, target, ok ? "seeked" : "refused");
+        return ok;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+
+static bool __fastcall hkSeekPrevSubtitles(void* cassetteCallbackBase)
+{
+    const bool handled = g_OrigSeekPrevSubtitles ? g_OrigSeekPrevSubtitles(cassetteCallbackBase) : false;
+    if (handled || MissionCodeGuard::ShouldBypassHooks())
+        return handled;
+
+    return TryCustomTapeTapSeek(cassetteCallbackBase, false);
+}
+
+
+static bool __fastcall hkSeekNextSubtitles(void* cassetteCallbackBase)
+{
+    const bool handled = g_OrigSeekNextSubtitles ? g_OrigSeekNextSubtitles(cassetteCallbackBase) : false;
+    if (handled || MissionCodeGuard::ShouldBypassHooks())
+        return handled;
+
+    return TryCustomTapeTapSeek(cassetteCallbackBase, true);
+}
+
+
+static bool __fastcall hkPauseForSeek(void* cassetteCallbackBase)
+{
+    if (!g_OrigPauseForSeek)
+        return false;
+
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return g_OrigPauseForSeek(cassetteCallbackBase);
+
+    const std::uintptr_t returnAddress = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    const std::uintptr_t entry = reinterpret_cast<std::uintptr_t>(g_PauseForSeekTarget);
+    const bool fromHeldSeek = entry != 0 && returnAddress == entry + kPauseForSeekHeldReturn;
+    const bool fromPauseButton = entry != 0 && returnAddress == entry - kPauseForSeekButtonReturnBack;
+
+    CustomTapeSeekState before;
+    const bool custom = ReadCustomTapeSeekState(cassetteCallbackBase, before);
+
+    const bool ready = g_OrigPauseForSeek(cassetteCallbackBase);
+
+    if (custom)
+    {
+        LogDebug("CassetteSeek: %s on custom track %u (album type %u): state %d raw %u mode %u/%u playing id %u media %u positional %u cooldown %.2f subtitle %d -> %s",
+            fromHeldSeek ? "held seek" : (fromPauseButton ? "pause button" : "pause helper"),
+            before.trackId, static_cast<unsigned int>(before.albumType), before.playerState, before.rawPlayState,
+            before.playMode, before.pausedPlayMode, before.playingId, static_cast<unsigned int>(before.mediaPath),
+            static_cast<unsigned int>(before.positional), static_cast<double>(before.cooldown), before.subtitleId,
+            ready ? "ready" : "refused");
+
+        if (fromHeldSeek && !ready && before.playerState == kPlayerStatePlaying)
+            LogWarn("CassetteSeek: custom track %u did not pause for a held seek (raw %u mode %u/%u playing id %u media %u positional %u cooldown %.2f)",
+                before.trackId, before.rawPlayState, before.playMode, before.pausedPlayMode, before.playingId,
+                static_cast<unsigned int>(before.mediaPath), static_cast<unsigned int>(before.positional),
+                static_cast<double>(before.cooldown));
+    }
+
+    return ready;
+}
+
+
+static void InstallCassetteSeekHook(
+    std::uintptr_t address,
+    const std::uint8_t* entry,
+    std::size_t entrySize,
+    void* detour,
+    CassetteSeekStep_t* original,
+    void*& outTarget,
+    const char* what,
+    const char* fallback)
+{
+    void* target = ResolveGameAddress(address);
+    if (!target)
+    {
+        LogWarn("%s: address missing for %s, %s", what, GetGameBuildName(gGameBuild), fallback);
+        return;
+    }
+
+    const HookEntry state = CheckHookEntry(target, entry, entrySize);
+    if (state == HookEntry::Unknown)
+    {
+        LogError("%s differs on %s, %s", what, GetGameBuildName(gGameBuild), fallback);
+        return;
+    }
+    if (state == HookEntry::ForeignHook)
+        LogHookedOnTop(what, target);
+
+    if (!CreateAndEnableHook(target, detour, reinterpret_cast<void**>(original)))
+    {
+        LogError("%s hook failed at %p, %s", what, target, fallback);
+        *original = nullptr;
+        return;
+    }
+
+    outTarget = target;
+}
+
+
 static void* ResolveStaticPlayWrapperFromVtable()
 {
     void* vtbl = ResolveGameAddress(gAddr.CassettePlayerVtable);
@@ -692,6 +969,21 @@ bool Install_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
     if (playWrapper)
         InstallMusicPlayerPlayHookOnTarget(playWrapper);
 
+    InstallCassetteSeekHook(
+        gAddr.MbDvcSeekPrevSubtitles, kSeekPrevSubtitlesEntry, sizeof(kSeekPrevSubtitlesEntry),
+        reinterpret_cast<void*>(&hkSeekPrevSubtitles), &g_OrigSeekPrevSubtitles, g_SeekPrevSubtitlesTarget,
+        "CassetteSeek: SeekPrevSubtitles", "custom briefing tapes without subtitles keep a dead rewind tap");
+
+    InstallCassetteSeekHook(
+        gAddr.MbDvcSeekNextSubtitles, kSeekNextSubtitlesEntry, sizeof(kSeekNextSubtitlesEntry),
+        reinterpret_cast<void*>(&hkSeekNextSubtitles), &g_OrigSeekNextSubtitles, g_SeekNextSubtitlesTarget,
+        "CassetteSeek: SeekNextSubtitles", "custom briefing tapes without subtitles keep a dead fast-forward tap");
+
+    InstallCassetteSeekHook(
+        gAddr.MbDvcPauseForSeek, kPauseForSeekEntry, sizeof(kPauseForSeekEntry),
+        reinterpret_cast<void*>(&hkPauseForSeek), &g_OrigPauseForSeek, g_PauseForSeekTarget,
+        "CassetteSeek: PauseForSeek", "no hold-seek report for custom tapes");
+
     return okStart && okPlay;
 }
 
@@ -700,6 +992,20 @@ bool Uninstall_MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(gAddr.CassetteStart));
     DisableAndRemoveHook(ResolveGameAddress(gAddr.PlayOrPauseSelectedTrack));
+
+    if (g_SeekPrevSubtitlesTarget)
+        DisableAndRemoveHook(g_SeekPrevSubtitlesTarget);
+    if (g_SeekNextSubtitlesTarget)
+        DisableAndRemoveHook(g_SeekNextSubtitlesTarget);
+    if (g_PauseForSeekTarget)
+        DisableAndRemoveHook(g_PauseForSeekTarget);
+
+    g_SeekPrevSubtitlesTarget = nullptr;
+    g_SeekNextSubtitlesTarget = nullptr;
+    g_PauseForSeekTarget = nullptr;
+    g_OrigSeekPrevSubtitles = nullptr;
+    g_OrigSeekNextSubtitles = nullptr;
+    g_OrigPauseForSeek = nullptr;
 
     g_OrigCassetteStart = nullptr;
     g_OrigPlayOrPauseSelectedTrack = nullptr;

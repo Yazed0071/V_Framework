@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars.h"
 
 #include <Windows.h>
@@ -25,6 +25,8 @@ namespace
     constexpr std::size_t  kItemLevelBase    = 0x9A4;
     constexpr std::int32_t kItemWindowFirst  = 0x1C2;
     constexpr std::int32_t kItemWindowLast   = 0x209;
+    constexpr std::size_t  kWeaponBlockFirst = 0xB00;
+    constexpr std::size_t  kWeaponBlockLast  = 0xB65;
 
     const std::uint8_t kPrologue[] = {
         0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
@@ -44,44 +46,24 @@ namespace
         std::uint8_t  value = 0;
     };
 
+    struct GuardedCell
+    {
+        std::uint32_t* at    = nullptr;
+        std::uint32_t  value = 0;
+    };
+
     StoreLoadoutInfoFn g_Orig = nullptr;
     void*              g_Addr = nullptr;
     bool               g_Reported = false;
 
     std::uintptr_t StoreLoadoutInfoAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140EEF130ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x140EEF160ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x1492FD310ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x149CC0030ull;
-        default:                                           return 0;
-        }
+        return gAddr.LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars;
     }
 
     const std::uint8_t* ExpectedPrologue()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return kPrologueClone;
-        default:                                           return kPrologue;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, ExpectedPrologue(), sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return kPrologue;
     }
 
     std::uint8_t* ResolveScriptVarsSEH()
@@ -107,32 +89,75 @@ namespace
     }
 
     int CollectStompedBytesSEH(void* self, std::uint8_t* vars,
-                               GuardedByte* out, int capacity)
+                               GuardedByte* out, int capacity,
+                               GuardedCell* weaponCells, int& weaponCellCount)
     {
+        weaponCellCount = 0;
         __try
         {
             auto* base = static_cast<std::uint8_t*>(self);
             const std::size_t slot = *(base + kLoadoutSlotByte);
-            const std::uint8_t* info =
+            std::uint8_t* info =
                 base + kLoadoutArray + slot * kLoadoutStride;
             int n = 0;
             for (int i = 0; i < kItemCellCount && n < capacity; ++i)
             {
-                const std::int32_t id = *reinterpret_cast<const std::uint16_t*>(
+                auto* cell = reinterpret_cast<std::uint32_t*>(
                     info + kItemCellFirst + i * kItemCellStride);
+                const std::int32_t id = static_cast<std::uint16_t>(*cell);
                 if (id == 0 || (id >= kItemWindowFirst && id <= kItemWindowLast))
                     continue;
+                if (kItemLevelBase + id >= kWeaponBlockFirst && kItemLevelBase + id <= kWeaponBlockLast)
+                {
+                    weaponCells[weaponCellCount].at    = cell;
+                    weaponCells[weaponCellCount].value = *cell;
+                    ++weaponCellCount;
+                    ++n;
+                    continue;
+                }
                 std::uint8_t* at = vars + kItemLevelBase + id;
+                out[n - weaponCellCount].at    = at;
+                out[n - weaponCellCount].value = *at;
+                ++n;
+            }
+            return n - weaponCellCount;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            weaponCellCount = 0;
+            return 0;
+        }
+    }
+
+    void SetCellsSEH(const GuardedCell* cells, int count, bool zero)
+    {
+        __try
+        {
+            for (int i = 0; i < count; ++i)
+                *cells[i].at = zero ? 0 : cells[i].value;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    int SnapshotWeaponBytesSEH(std::uint8_t* vars, const GuardedCell* cells, int count, GuardedByte* out)
+    {
+        int n = 0;
+        __try
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                std::uint8_t* at = vars + kItemLevelBase + static_cast<std::uint16_t>(cells[i].value);
                 out[n].at    = at;
                 out[n].value = *at;
                 ++n;
             }
-            return n;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            return 0;
         }
+        return n;
     }
 
     void RestoreStompedBytesSEH(const GuardedByte* saved, int count)
@@ -150,10 +175,21 @@ namespace
     void __fastcall hkStoreLoadoutInfoToPlayerVars(void* self)
     {
         GuardedByte saved[kItemCellCount];
+        GuardedCell weaponCells[kItemCellCount];
         int guarded = 0;
+        int weaponCellCount = 0;
         std::uint8_t* vars = self ? ResolveScriptVarsSEH() : nullptr;
         if (vars)
-            guarded = CollectStompedBytesSEH(self, vars, saved, kItemCellCount);
+            guarded = CollectStompedBytesSEH(self, vars, saved, kItemCellCount, weaponCells, weaponCellCount);
+
+        if (weaponCellCount > 0)
+        {
+            // ids that land inside the weapon byte block: run once with those cells empty so the weapon bytes come out clean
+            SetCellsSEH(weaponCells, weaponCellCount, true);
+            g_Orig(self);
+            guarded += SnapshotWeaponBytesSEH(vars, weaponCells, weaponCellCount, saved + guarded);
+            SetCellsSEH(weaponCells, weaponCellCount, false);
+        }
 
         g_Orig(self);
 
@@ -179,12 +215,15 @@ bool Install_LoadoutManagerImpl_StoreLoadoutInfoToPlayerVars()
     }
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, ExpectedPrologue(), sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("LoadoutVars: StoreLoadoutInfoToPlayerVars 0x%llX prologue differs on %s, custom loadout items corrupt script vars",
             static_cast<unsigned long long>(addr), GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("LoadoutVars: StoreLoadoutInfoToPlayerVars", fn);
 
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkStoreLoadoutInfoToPlayerVars),
                              reinterpret_cast<void**>(&g_Orig)))

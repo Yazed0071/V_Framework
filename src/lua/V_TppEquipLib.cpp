@@ -1,8 +1,9 @@
-#include "pch.h"
+#include <pch.h>
 #include "V_TppEquipLib.h"
 
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -20,6 +21,11 @@
 #include "../hooks/equip/SupportWeaponRegistry.h"
 #include "../hooks/equip/EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.h"
 #include "../hooks/equip/EquipAliasLease.h"
+#include "../hooks/equip/EquipControllerImpl_UpdateBattery.h"
+#include "../hooks/equip/ItemCount.h"
+#include "../hooks/equip/ShieldParams.h"
+#include "../hooks/player/ItemParameter.h"
+#include "../hooks/player/AttackActionImpl_UpdateShootingByPad.h"
 #include "V_FrameWorkState.h"
 #include "FoxHashes.h"
 #include "AddressSet.h"
@@ -134,6 +140,21 @@ namespace
     }
 
     static constexpr std::uint32_t kEquipTypeThrowing = 12;
+    static constexpr float         kMostGravity       = 100.0f;
+
+    static int ReadPhysicsField(lua_State* L, int equipId, const char* name, float scale, int maxValue)
+    {
+        float value = 0.0f;
+        if (!ReadNumberField(L, name, value))
+            return -1;
+        const float maxAllowed = static_cast<float>(maxValue) / scale;
+        if (value < 0.0f || value > maxAllowed)
+        {
+            LogWarn("SetSupportWeapon equipId %d: %s %g is outside 0-%g, clamped", equipId, name, value, maxAllowed);
+            value = value < 0.0f ? 0.0f : maxAllowed;
+        }
+        return static_cast<int>(value * scale + 0.5f);
+    }
 
     static int l_SetSupportWeapon(lua_State* L)
     {
@@ -144,9 +165,11 @@ namespace
         }
         int equipId = 0;
         int throwAs = 0;
+        int placeAs = 0;
         int legacy = 0;
         ReadIntegerField(L, "equipId", equipId);
         ReadIntegerField(L, "throwAs", throwAs);
+        ReadIntegerField(L, "placeAs", placeAs);
         LuaGetField(L, 1, "nativeAction");
         const bool hasLegacy = ReadIntegerField(L, "familyFrom", legacy) || LuaType(L, -1) != LUA_TNIL;
         LuaPop(L, 1);
@@ -158,12 +181,23 @@ namespace
             LogWarn("SetSupportWeapon: equipId %d is not a custom EQP_SWP_ id from RegisterConstantEquipId, ignored", equipId);
             return 0;
         }
-        if (!SupportWeapon::IsVanillaSupportWeaponEquipId(static_cast<std::uint32_t>(throwAs))
-            || EquipParam_GetEquipType(static_cast<std::uint32_t>(throwAs)) != kEquipTypeThrowing)
+        if ((throwAs != 0) == (placeAs != 0))
+        {
+            LogWarn("SetSupportWeapon equipId %d: give either throwAs (a thrown item) or placeAs (a placed item), ignored", equipId);
+            return 0;
+        }
+        if (throwAs != 0 && (!SupportWeapon::IsVanillaSupportWeaponEquipId(static_cast<std::uint32_t>(throwAs))
+            || EquipParam_GetEquipType(static_cast<std::uint32_t>(throwAs)) != kEquipTypeThrowing))
         {
             LogWarn("SetSupportWeapon equipId %d: throwAs %d is not a vanilla thrown EQP_SWP_ id, ignored", equipId, throwAs);
             return 0;
         }
+        if (placeAs != 0 && !SupportWeapon::IsPlaceAsDonor(static_cast<std::uint32_t>(placeAs)))
+        {
+            LogWarn("SetSupportWeapon equipId %d: placeAs %d is not a vanilla C4, mine, Dung or decoy EQP_SWP_ id, ignored", equipId, placeAs);
+            return 0;
+        }
+        const int donor = throwAs != 0 ? throwAs : placeAs;
 
         int attackId = 0;
         if (ReadIntegerField(L, "attackId", attackId) && (attackId <= 0 || attackId > 0xFFFF))
@@ -180,8 +214,99 @@ namespace
             blastId = SupportWeapon::kNoBlastId;
         }
 
-        SupportWeapon::Set(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(throwAs),
+        int noticeAs = 0;
+        if (ReadIntegerField(L, "noticeAs", noticeAs))
+        {
+            if (noticeAs == 0)
+                noticeAs = static_cast<int>(SupportWeapon::kNoticeNothing);
+            else if (!SupportWeapon::IsVanillaSupportWeaponEquipId(static_cast<std::uint32_t>(noticeAs))
+                     || (EquipParam_GetEquipType(static_cast<std::uint32_t>(noticeAs)) != kEquipTypeThrowing
+                         && !SupportWeapon::IsDecoyDonor(static_cast<std::uint32_t>(noticeAs))))
+            {
+                LogWarn("SetSupportWeapon equipId %d: noticeAs %d is not a vanilla thrown EQP_SWP_ id, a decoy or EQP_None, ignored", equipId, noticeAs);
+                noticeAs = 0;
+            }
+        }
+
+        SupportWeapon::Physics physics;
+        physics.bounce          = ReadPhysicsField(L, equipId, "bounce", 250.0f, 0xFF);
+        physics.friction        = ReadPhysicsField(L, equipId, "friction", 250.0f, 0xFF);
+        physics.rollingFriction = ReadPhysicsField(L, equipId, "rollingFriction", 100.0f, 0xFFFF);
+        if (ReadNumberField(L, "radius", physics.radius) && !(physics.radius > 0.0f))
+        {
+            LogWarn("SetSupportWeapon equipId %d: radius must be above 0, the size from the model is used", equipId);
+            physics.radius = 0.0f;
+        }
+        if (ReadNumberField(L, "throwSpeed", physics.throwSpeed) && !(physics.throwSpeed > 0.0f))
+        {
+            LogWarn("SetSupportWeapon equipId %d: throwSpeed must be above 0, 1 is used", equipId);
+            physics.throwSpeed = 1.0f;
+        }
+        float gravity = -1.0f;
+        if (ReadNumberField(L, "gravity", gravity) && !(gravity >= 0.0f && gravity <= kMostGravity))
+        {
+            LogWarn("SetSupportWeapon equipId %d: gravity %g is outside 0-%g, clamped", equipId, gravity, kMostGravity);
+            gravity = gravity > kMostGravity ? kMostGravity : 0.0f;
+        }
+
+        int decoyType = 0;
+        if (ReadIntegerField(L, "decoyType", decoyType))
+        {
+            if (!SupportWeapon::IsDecoyDonor(static_cast<std::uint32_t>(placeAs)))
+            {
+                LogWarn("SetSupportWeapon equipId %d: decoyType needs placeAs = a vanilla decoy, ignored", equipId);
+                decoyType = 0;
+            }
+            else if (decoyType < 0 || decoyType > 7)
+            {
+                LogWarn("SetSupportWeapon equipId %d: decoyType %d is outside 0-7, ignored", equipId, decoyType);
+                decoyType = 0;
+            }
+        }
+
+        SupportWeapon::SetNoticeAs(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(noticeAs));
+        SupportWeapon::SetPhysics(static_cast<std::uint32_t>(equipId), physics);
+        SupportWeapon::SetGravity(static_cast<std::uint32_t>(equipId), gravity);
+        SupportWeapon::SetDecoyType(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(decoyType));
+        SupportWeapon::Set(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(donor),
                            attackId, blastId);
+        return 0;
+    }
+
+    static int l_SetItemBattery(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetItemBattery: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int equipId = 0;
+        float seconds = 0.0f;
+        float rechargeSeconds = ItemBattery::kRechargeStillSeconds;
+        float rechargeSecondsMoving = ItemBattery::kRechargeMovingSeconds;
+        ReadIntegerField(L, "equipId", equipId);
+        ReadNumberField(L, "seconds", seconds);
+        ReadNumberField(L, "rechargeSeconds", rechargeSeconds);
+        ReadNumberField(L, "rechargeSecondsMoving", rechargeSecondsMoving);
+        int gaugeLength = 0;
+        ReadIntegerField(L, "gaugeLength", gaugeLength);
+        if (equipId <= 0 || equipId > 0xFFFF || !V_FrameWorkState::IsClaimedEquipId(equipId))
+        {
+            LogWarn("SetItemBattery: equipId %d is not a custom EQP_IT_ id from RegisterConstantEquipId, ignored", equipId);
+            return 0;
+        }
+        if (!(seconds > 0.0f) || !(rechargeSeconds > 0.0f) || !(rechargeSecondsMoving > 0.0f))
+        {
+            LogWarn("SetItemBattery equipId %d: seconds, rechargeSeconds and rechargeSecondsMoving must be above 0, ignored", equipId);
+            return 0;
+        }
+        if (gaugeLength < 0 || gaugeLength > 3)
+        {
+            LogWarn("SetItemBattery equipId %d: gaugeLength %d is not 1, 2 or 3, the length follows seconds", equipId, gaugeLength);
+            gaugeLength = 0;
+        }
+        ItemBattery::Set(static_cast<std::uint16_t>(equipId), seconds, rechargeSeconds, rechargeSecondsMoving,
+                         static_cast<std::uint8_t>(gaugeLength));
         return 0;
     }
 
@@ -278,6 +403,180 @@ namespace
             return 0;
         }
         EquipParameterTables::SetBlastRow(static_cast<std::uint32_t>(blastId), blastFlag, effectRange, optimalRange);
+        return 0;
+    }
+
+    static bool ReadLevelNumber(lua_State* L, int idx, const char* name, float& out)
+    {
+        LuaGetField(L, idx, name);
+        const bool have = LuaIsNumber(L, -1);
+        if (have)
+            out = GetLuaNumber(L, -1);
+        LuaPop(L, 1);
+        return have;
+    }
+
+    static bool ReadLevelInteger(lua_State* L, int idx, const char* name, int& out)
+    {
+        LuaGetField(L, idx, name);
+        const bool have = LuaIsNumber(L, -1);
+        if (have)
+            out = GetLuaInt(L, -1);
+        LuaPop(L, 1);
+        return have;
+    }
+
+
+    static bool ReadChargeHash(lua_State* L, int idx, const char* key, const char* name, bool effect,
+                               std::uint64_t& out)
+    {
+        LuaGetField(L, idx, name);
+        const int type = LuaType(L, -1);
+        bool have = true;
+        if (type == LUA_TBOOLEAN && !GetLuaBool(L, -1))
+            out = 0;
+        else if (type == LUA_TNUMBER)
+            out = GetLuaInt64(L, -1);
+        else if (type == LUA_TSTRING)
+            out = effect ? (FoxHashes::StrCode64(GetLuaString(L, -1)) & 0xFFFFFFFFFFFFull)
+                         : FoxHashes::FNVHash32(GetLuaString(L, -1));
+        else
+        {
+            if (type != LUA_TNIL)
+                LogWarn("SetChargeShot %s: %s must be a name, an id or false, the default used", key, name);
+            have = false;
+        }
+        LuaPop(L, 1);
+        return have;
+    }
+
+    static void ReadChargeSound(lua_State* L, int idx, const char* key, const char* name, std::uint32_t& out)
+    {
+        std::uint64_t value = 0;
+        if (ReadChargeHash(L, idx, key, name, false, value))
+            out = static_cast<std::uint32_t>(value);
+    }
+
+    static void ReadChargeVariation(lua_State* L, int idx, int number, const char* name, std::uint32_t& out)
+    {
+        LuaGetField(L, idx, name);
+        const int type = LuaType(L, -1);
+        if (type == LUA_TNUMBER)
+            out = static_cast<std::uint32_t>(GetLuaInt64(L, -1));
+        else if (type != LUA_TNIL)
+            LogWarn("SetChargeShot level %d: %s must be a number such as 0x6448D545, the effect's own variation used",
+                number, name);
+        LuaPop(L, 1);
+    }
+
+    static bool ReadChargeLevel(lua_State* L, int idx, int number, float previousTime,
+                                equip::ChargeShotLevel& level)
+    {
+        char key[32] = {};
+        sprintf_s(key, "level %d", number);
+        if (!ReadLevelNumber(L, idx, "time", level.time) || level.time <= previousTime)
+        {
+            LogWarn("SetChargeShot level %d: time must be above the previous level's, level and the ones after ignored",
+                number);
+            return false;
+        }
+        if (ReadLevelInteger(L, idx, "ammo", level.ammo) && (level.ammo < 0 || level.ammo > 0xFFFF))
+        {
+            LogWarn("SetChargeShot level %d: ammo %d out of range, 1 used", number, level.ammo);
+            level.ammo = 1;
+        }
+        if (ReadLevelInteger(L, idx, "shots", level.shots) && (level.shots < 1 || level.shots > 0xFF))
+        {
+            LogWarn("SetChargeShot level %d: shots %d out of range 1-255, 1 used", number, level.shots);
+            level.shots = 1;
+        }
+        if (ReadLevelInteger(L, idx, "bulletId", level.bulletId)
+            && (level.bulletId < 0
+                || (level.bulletId > 0 && !EquipParam_IsBulletIdTaken(level.bulletId))))
+        {
+            LogWarn("SetChargeShot level %d: bulletId %d is not a vanilla or declared bullet, the weapon's bullet used",
+                number, level.bulletId);
+            level.bulletId = 0;
+        }
+        ReadChargeSound(L, idx, key, "sound", level.sound);
+        ReadChargeSound(L, idx, key, "fireSound", level.fireSound);
+        ReadChargeHash(L, idx, key, "effect", true, level.effect);
+        ReadChargeHash(L, idx, key, "impactEffect", true, level.impactEffect);
+        ReadChargeVariation(L, idx, number, "effectVariation", level.effectVariation);
+        ReadChargeVariation(L, idx, number, "impactVariation", level.impactVariation);
+        return true;
+    }
+
+    static int l_SetChargeShot(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetChargeShot: argument #1 must be a table, ignored");
+            return 0;
+        }
+        const int top = GetLuaTop(L);
+        int equipId = 0;
+        int receiverId = 0;
+        ReadIntegerField(L, "equipId", equipId);
+        ReadIntegerField(L, "receiverId", receiverId);
+        if ((equipId > 0) == (receiverId > 0))
+        {
+            LogWarn("SetChargeShot equipId %d receiverId %d: set exactly one, ignored", equipId, receiverId);
+            return 0;
+        }
+        const int key = equipId > 0 ? equipId : receiverId;
+
+        float cooldown = 1.0f;
+        if (ReadNumberField(L, "cooldown", cooldown) && cooldown < 0.0f)
+        {
+            LogWarn("SetChargeShot %d: cooldown %g below 0, 0 used", key, cooldown);
+            cooldown = 0.0f;
+        }
+
+        char keyText[16] = {};
+        sprintf_s(keyText, "%d", key);
+        equip::ChargeShotStyle style;
+        ReadChargeSound(L, 1, keyText, "chargeSound", style.chargeSound);
+        ReadChargeSound(L, 1, keyText, "fullSound", style.fullSound);
+        ReadChargeHash(L, 1, keyText, "chargeEffect", true, style.chargeEffect);
+        LuaGetField(L, 1, "hud");
+        style.hud = !(LuaType(L, -1) == LUA_TBOOLEAN && !GetLuaBool(L, -1));
+        LuaPop(L, 1);
+
+        LuaGetField(L, 1, "levels");
+        if (LuaType(L, -1) != LUA_TTABLE)
+        {
+            g_lua_settop(L, top);
+            LogWarn("SetChargeShot %d: levels must be a table of levels, ignored", key);
+            return 0;
+        }
+        const int listAbs = GetLuaTop(L);
+        int count = static_cast<int>(LuaObjLen(L, listAbs));
+
+        std::vector<equip::ChargeShotLevel> levels;
+        float previousTime = 0.0f;
+        for (int i = 1; i <= count; ++i)
+        {
+            LuaRawGetI(L, listAbs, i);
+            equip::ChargeShotLevel level;
+            const bool isTable = LuaType(L, -1) == LUA_TTABLE;
+            if (!isTable)
+                LogWarn("SetChargeShot %d: level %d is not a table, it and the ones after ignored", key, i);
+            const bool ok = isTable && ReadChargeLevel(L, GetLuaTop(L), i, previousTime, level);
+            LuaPop(L, 1);
+            if (!ok)
+                break;
+            levels.push_back(level);
+            previousTime = level.time;
+        }
+        g_lua_settop(L, top);
+
+        if (levels.empty())
+        {
+            LogWarn("SetChargeShot %d: no valid level, ignored", key);
+            return 0;
+        }
+        equip::ChargeShot_Register(equipId, receiverId, cooldown, style, levels);
         return 0;
     }
 
@@ -792,6 +1091,60 @@ namespace
         g_ChimeraWrapOwned = true;
     }
 
+    constexpr int kAmmoInfoResults = 6;   // bullet, capacity, carry, then the same three for the under barrel
+
+    static int l_GetAmmoInfoWithDeclaredBullets(lua_State* L)
+    {
+        const int nargs = g_lua_gettop(L);
+        g_lua_pushvalue(L, LUA_UPVALUEINDEX_51_1);
+        for (int i = 1; i <= nargs; ++i)
+            g_lua_pushvalue(L, i);
+        if (g_lua_pcall(L, nargs, kAmmoInfoResults, 0) != 0)
+        {
+            const char* err = LuaIsString(L, -1) ? GetLuaString(L, -1) : "?";
+            LogWarn("TppEquip.GetAmmoInfo: %s", err ? err : "?");
+            LuaPop(L, 1);
+            return 0;
+        }
+        lua_Number values[kAmmoInfoResults];
+        for (int i = 0; i < kAmmoInfoResults; ++i)
+            values[i] = g_lua_tonumber(L, i - kAmmoInfoResults);
+        LuaPop(L, kAmmoInfoResults);
+        values[0] = EquipParam_LogicalBulletForLane(static_cast<int>(values[0]));
+        values[3] = EquipParam_LogicalBulletForLane(static_cast<int>(values[3]));
+        for (const lua_Number value : values)
+            g_lua_pushnumber(L, value);
+        return kAmmoInfoResults;
+    }
+
+    static void InstallAmmoInfoWrap(lua_State* L)
+    {
+        g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("TppEquip"));
+        if (LuaType(L, -1) != LUA_TTABLE)
+        {
+            LuaPop(L, 1);
+            return;
+        }
+        LuaGetField(L, -1, "V_AmmoInfoWrapped");
+        const bool already = GetLuaBool(L, -1);
+        LuaPop(L, 1);
+        LuaGetField(L, -1, "GetAmmoInfo");
+        if (already || LuaType(L, -1) != LUA_TFUNCTION)
+        {
+            LuaPop(L, 2);
+            return;
+        }
+        g_lua_pushcclosure(L, l_GetAmmoInfoWithDeclaredBullets, 1);
+        PushLuaString(L, "GetAmmoInfo");
+        g_lua_pushvalue(L, -2);
+        g_lua_settable(L, -4);
+        LuaPop(L, 1);
+        PushLuaString(L, "V_AmmoInfoWrapped");
+        PushLuaBool(L, true);
+        g_lua_settable(L, -3);
+        LuaPop(L, 1);
+    }
+
     static bool ReadLangField(lua_State* L, const char* field, std::uint64_t& outId)
     {
         LuaGetField(L, 1, field);
@@ -807,8 +1160,7 @@ namespace
         }
         else if (LuaIsNumber(L, -1))
         {
-            outId = static_cast<std::uint64_t>(
-                static_cast<std::int64_t>(GetLuaNumber(L, -1)));
+            outId = GetLuaInt64(L, -1);
             have = true;
         }
         LuaPop(L, 1);
@@ -847,6 +1199,121 @@ namespace
 
         EquipLangInfo_Set(equipId, hasName, nameId, hasInfo, infoId,
                           hasRealName, realNameId);
+        return 0;
+    }
+
+    static int l_SetItemCount(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetItemCount: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int equipId = 0;
+        int count = 0;
+        ReadIntegerField(L, "equipId", equipId);
+        ReadIntegerField(L, "count", count);
+        if (equipId <= 0 || equipId > 0xFFFF || !V_FrameWorkState::IsClaimedEquipId(equipId))
+        {
+            LogWarn("SetItemCount: equipId %d is not a custom EQP_IT_ id from RegisterConstantEquipId, ignored", equipId);
+            return 0;
+        }
+        if (count < 1)
+        {
+            LogWarn("SetItemCount equipId %d: count %d is below 1, ignored", equipId, count);
+            return 0;
+        }
+        ItemCount::Set(static_cast<std::uint16_t>(equipId), count,
+                       ReadBoolField(L, 1, "consumeOnUse", true));
+        return 0;
+    }
+
+    static int l_SetItemParameter(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetItemParameter: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int equipId = 0;
+        int grade = 0;
+        int count = 0;
+        float seconds = 0.0f;
+        ReadIntegerField(L, "equipId", equipId);
+        const bool haveGrade   = ReadIntegerField(L, "grade", grade);
+        const bool haveCount   = ReadIntegerField(L, "count", count);
+        const bool haveSeconds = ReadNumberField(L, "seconds", seconds);
+        const int grades = equipId > 0 ? ItemParameter::GradeCount(static_cast<std::uint32_t>(equipId)) : 0;
+        if (grades == 0)
+        {
+            LogWarn("SetItemParameter: equipId %d is not EQP_IT_InstantStealth, TimeCigarette, Pentazemin, Clairvoyance, ReflexMedicine, "
+                    "ParasiteMist, ParasiteCamouf or ParasiteHard, ignored", equipId);
+            return 0;
+        }
+        if (haveGrade && (grade < 1 || grade > grades))
+        {
+            LogWarn("SetItemParameter equipId %d: grade %d is outside 1-%d, ignored", equipId, grade, grades);
+            return 0;
+        }
+        if (!haveCount && !haveSeconds)
+        {
+            LogWarn("SetItemParameter equipId %d: neither count nor seconds given, ignored", equipId);
+            return 0;
+        }
+        if (haveCount && (count < 1 || count > 999))
+        {
+            LogWarn("SetItemParameter equipId %d: count %d is outside 1-999, ignored", equipId, count);
+            return 0;
+        }
+        if (haveSeconds && !(seconds > 0.0f))
+        {
+            LogWarn("SetItemParameter equipId %d: seconds must be above 0, ignored", equipId);
+            return 0;
+        }
+        if (haveSeconds && !ItemParameter::HasField(static_cast<std::uint32_t>(equipId), ItemParameter::Field::Seconds))
+            LogWarn("SetItemParameter equipId %d: this item keeps no effect length in the item table, seconds ignored", equipId);
+        const int first = haveGrade ? grade : 1;
+        const int last  = haveGrade ? grade : grades;
+        for (int g = first; g <= last; ++g)
+        {
+            if (haveCount)
+                ItemParameter::Set(static_cast<std::uint32_t>(equipId), g, ItemParameter::Field::Count, static_cast<float>(count));
+            if (haveSeconds)
+                ItemParameter::Set(static_cast<std::uint32_t>(equipId), g, ItemParameter::Field::Seconds, seconds);
+        }
+        return 0;
+    }
+
+    static int l_SetShield(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE)
+        {
+            LogWarn("SetShield: argument #1 must be a table, ignored");
+            return 0;
+        }
+        int equipId = 0;
+        int durability = 0;
+        int level = 0;
+        ReadIntegerField(L, "equipId", equipId);
+        ReadIntegerField(L, "durability", durability);
+        ReadIntegerField(L, "level", level);
+        if (equipId <= 0 || !V_FrameWorkState::IsClaimedEquipId(equipId))
+        {
+            LogWarn("SetShield: equipId %d is not a custom id from RegisterConstantEquipId, ignored", equipId);
+            return 0;
+        }
+        if (durability < 1 || durability > 255)
+        {
+            LogWarn("SetShield equipId %d: durability %d is outside 1-255, ignored", equipId, durability);
+            return 0;
+        }
+        if (level < 0 || level > 2)
+        {
+            LogWarn("SetShield equipId %d: level %d is outside 0-2, 0 used", equipId, level);
+            level = 0;
+        }
+        ShieldParams::Set(static_cast<std::uint32_t>(equipId), static_cast<std::uint32_t>(durability),
+                          static_cast<std::uint32_t>(level));
         return 0;
     }
 
@@ -897,8 +1364,13 @@ namespace
         { "SetWeaponHandling",      l_SetWeaponHandling },
         { "SetSupportWeapon",       l_SetSupportWeapon },
         { "SetSupportWeaponParameter", l_SetSupportWeaponParameter },
+        { "SetItemBattery",         l_SetItemBattery },
+        { "SetItemCount",           l_SetItemCount },
+        { "SetItemParameter",       l_SetItemParameter },
+        { "SetShield",              l_SetShield },
         { "SetBlastParameter",      l_SetBlastParameter },
         { "SetReceiverMotion",      l_SetReceiverMotion },
+        { "SetChargeShot",          l_SetChargeShot },
 
         { nullptr, nullptr }
     };
@@ -915,6 +1387,7 @@ void ChimeraMotion_EnsureWrapInstalled(lua_State* L)
     if (!L || !ResolveLuaApi())
         return;
     InstallChimeraMotionWrap(L);
+    InstallAmmoInfoWrap(L);
 }
 
 bool ChimeraMotion_InstallNativeHooks()
@@ -948,6 +1421,7 @@ bool Register_V_TppEquipLibrary(lua_State* L)
 {
     const bool ok = RegisterLuaLibrary(L, "V_TppEquip", g_VTppEquipLib);
     InstallChimeraMotionWrap(L);
+    InstallAmmoInfoWrap(L);
     return ok;
 }
 

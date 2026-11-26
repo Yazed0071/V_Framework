@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -214,24 +214,59 @@ namespace
         return false;
     }
 
-    static bool SafeFindFirstSlotIsOurs(void* ctrl,
-                                        std::uint8_t wantedReserveId,
-                                        bool* outIsOurs)
+    static void SafeFindFirstOurSlots(void* ctrl,
+                                      const std::uint8_t* ids,
+                                      std::size_t numIds,
+                                      int* outSlotIndex)
     {
-        *outIsOurs = false;
+        for (std::size_t k = 0; k < numIds; ++k)
+            outSlotIndex[k] = -1;
+        if (!ctrl)
+            return;
+
+        __try
+        {
+            for (std::size_t k = 0; k < numIds; ++k)
+            {
+                for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
+                {
+                    const std::uint8_t* slot = SlotPtr(ctrl, i);
+                    if (*(slot + kSlot_ReserveIdOffset) != ids[k])
+                        continue;
+                    if (*reinterpret_cast<const std::uint32_t*>(slot + kSlot_CommonValue1Offset) == kVPopupMagic)
+                        outSlotIndex[k] = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            for (std::size_t k = 0; k < numIds; ++k)
+                outSlotIndex[k] = -1;
+        }
+    }
+
+    static bool SafeFindConsumedOurSlot(void* ctrl,
+                                        const std::uint8_t* ids,
+                                        std::size_t numIds,
+                                        const int* slotIndex,
+                                        std::uint8_t* outReserveId)
+    {
         if (!ctrl)
             return false;
 
         __try
         {
-            for (std::size_t i = 0; i < kCtrl_NumSlots; ++i)
+            for (std::size_t k = 0; k < numIds; ++k)
             {
-                const std::uint8_t* slot = SlotPtr(ctrl, i);
-                if (*(slot + kSlot_ReserveIdOffset) == wantedReserveId)
+                if (slotIndex[k] < 0)
+                    continue;
+                const std::uint8_t* slot = SlotPtr(ctrl, static_cast<std::size_t>(slotIndex[k]));
+                const bool stillOurs = *(slot + kSlot_ReserveIdOffset) == ids[k]
+                    && *reinterpret_cast<const std::uint32_t*>(slot + kSlot_CommonValue1Offset) == kVPopupMagic;
+                if (!stillOurs)
                 {
-                    const std::uint32_t cv1 = *reinterpret_cast<const std::uint32_t*>(
-                        slot + kSlot_CommonValue1Offset);
-                    *outIsOurs = (cv1 == kVPopupMagic);
+                    *outReserveId = ids[k];
                     return true;
                 }
             }
@@ -265,7 +300,7 @@ namespace
         }
     }
 
-    static bool SafeEvictOldestOurSlot(void* ctrl)
+    static bool SafeEvictOldestOurSlot(void* ctrl, std::uint8_t* outReserveId)
     {
         if (!ctrl)
             return false;
@@ -283,6 +318,7 @@ namespace
                     slot + kSlot_CommonValue1Offset);
                 if (cv1 == kVPopupMagic)
                 {
+                    *outReserveId = reserveId;
                     std::memset(slot, 0, kCtrl_SlotSize);
                     *(slot + kSlot_ReserveIdOffset) = kReserveId_Empty;
                     return true;
@@ -599,13 +635,17 @@ namespace
             }
             else
             {
-                const bool evicted = SafeEvictOldestOurSlot(ctrl);
-                if (evicted)
+                std::uint8_t evictedReserveId = 0xFF;
+                if (SafeEvictOldestOurSlot(ctrl, &evictedReserveId))
                 {
+                    std::lock_guard<std::mutex> lock(g_PendingMutex);
+                    for (auto it = g_PendingQueue.begin(); it != g_PendingQueue.end(); ++it)
                     {
-                        std::lock_guard<std::mutex> lock(g_PendingMutex);
-                        if (!g_PendingQueue.empty())
-                            g_PendingQueue.pop_front();
+                        if (it->reserved && it->reserveId == evictedReserveId)
+                        {
+                            g_PendingQueue.erase(it);
+                            break;
+                        }
                     }
                 }
             }
@@ -768,16 +808,9 @@ namespace
 
         TryInstallGateHook(self);
 
-        bool nextSlotIsOurs = false;
-        if (ctrl && prevState != 1)
-        {
-            for (std::size_t i = 0; i < numEligibleIds && !nextSlotIsOurs; ++i)
-            {
-                bool isOurs = false;
-                SafeFindFirstSlotIsOurs(ctrl, eligibleIds[i], &isOurs);
-                if (isOurs) nextSlotIsOurs = true;
-            }
-        }
+        int ourSlotIndex[8];
+        const std::size_t numIds = numEligibleIds < 8 ? numEligibleIds : 8;
+        SafeFindFirstOurSlots(prevState != 1 ? ctrl : nullptr, eligibleIds, numIds, ourSlotIndex);
 
         const bool anyOurSlotPending = SafeAnyOurSlotInRing(
             ctrl, eligibleIds, numEligibleIds);
@@ -792,7 +825,11 @@ namespace
 
         const std::uint32_t currState = SafeReadInnerState(self);
 
-        if (nextSlotIsOurs && prevState != 1 && currState == 1)
+        std::uint8_t consumedReserveId = 0xFF;
+        const bool openedOurSlot = prevState != 1 && currState == 1
+            && SafeFindConsumedOurSlot(ctrl, eligibleIds, numIds, ourSlotIndex, &consumedReserveId);
+
+        if (openedOurSlot)
         {
             bool            havePopped = false;
             PopupTextSource title;
@@ -803,16 +840,7 @@ namespace
                 for (auto it = g_PendingQueue.begin(); it != g_PendingQueue.end(); ++it)
                 {
                     if (!it->reserved) continue;
-                    bool eligible = false;
-                    for (std::size_t i = 0; i < numEligibleIds; ++i)
-                    {
-                        if (eligibleIds[i] == it->reserveId)
-                        {
-                            eligible = true;
-                            break;
-                        }
-                    }
-                    if (eligible)
+                    if (it->reserveId == consumedReserveId)
                     {
                         title     = std::move(it->title);
                         body      = std::move(it->body);

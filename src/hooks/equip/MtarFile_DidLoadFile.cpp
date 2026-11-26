@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "MtarFile_DidLoadFile.h"
 
 #include <atomic>
@@ -182,6 +182,7 @@ void MtarRegistry_ArmFromLiveArchive(void* mtar)
     g_WillUnloadAddr = willUnload;
     g_DtorAddr = dtor;
     g_Registering.store(true, std::memory_order_release);
+    Register(mtar);   // this archive finished loading before the hooks existed
 }
 
 void MtarRegistry_Uninstall()

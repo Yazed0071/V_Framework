@@ -5,6 +5,7 @@
 namespace fobchars
 {
     constexpr std::uint8_t kPlayerType_Avatar = 3;
+    constexpr std::uint8_t kPlayerType_Liquid = 4;
     constexpr std::uint8_t kPlayerType_Ocelot = 5;
     constexpr std::uint8_t kPlayerType_Quiet  = 6;
 

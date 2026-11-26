@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -8,8 +8,10 @@
 #include "AddressSet.h"
 #include "BulletLockOn.h"
 #include "BulletMultiShot.h"
+#include "EquipPartParams.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "../player/AttackActionImpl_UpdateShootingByPad.h"
 
 namespace
 {
@@ -49,8 +51,11 @@ namespace
 
     bool LookupForWork(std::uint8_t* work, MultiShotSpec* out)
     {
-        int bulletId = 0;
-        if (!ReadWorkIdsSEH(work, &bulletId))
+        int lane = 0;
+        if (!ReadWorkIdsSEH(work, &lane))
+            return false;
+        const int bulletId = EquipParam_LogicalBulletForLane(lane);
+        if (EquipParam_FobVanillaBullet(bulletId))
             return false;
         std::lock_guard<std::recursive_mutex> lock(g_Mutex);
         auto it = g_SpecByBulletId.find(bulletId);
@@ -112,6 +117,14 @@ namespace
 
     void __fastcall hkFire(void* self, std::uint8_t* work, std::uint32_t idx)
     {
+        equip::ChargeShotFire charged{};
+        if (equip::ChargeShot_BeginFire(work, idx, &charged))
+        {
+            g_OrigFire(self, work, idx);
+            equip::ChargeShot_EndFire(self, work, idx, charged);
+            return;
+        }
+
         MultiShotSpec spec{};
         if (!LookupForWork(work, &spec))
         {
@@ -183,7 +196,7 @@ namespace equip
     void MultiShot_RegisterBullet(int bulletId, int ammoPerShot,
                                   int lockAmmoPerShot)
     {
-        if (bulletId <= 0 || bulletId > 255)
+        if (bulletId <= 0 || bulletId > 0xFFFF)
             return;
         MultiShotSpec spec{};
         spec.ammoPerShot = ammoPerShot;

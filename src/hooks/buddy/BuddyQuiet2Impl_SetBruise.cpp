@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BuddyQuiet2Impl_SetBruise.h"
 

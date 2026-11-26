@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "OutfitPalette.h"
 
 #include <atomic>
@@ -232,10 +232,16 @@ namespace
         KeepTextAlive(u.ptr, n, keep);
     }
 
+    bool OwnQuerySEH(std::size_t devOffset, std::uint32_t name)   // catches below uipad::OwnQuery so a fault can't leave the pad filters off
+    {
+        __try { return Call<bool>(devOffset, name); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
     bool PressedFree(const char* name)
     {
         uipad::OwnQuery own;
-        return Call<bool>(dev::IsButtonPressByName, Name32(name));
+        return OwnQuerySEH(dev::IsButtonPressByName, Name32(name));
     }
 
     bool Pressed(const char* name)  { bool on = false; return uipad::Press(Name32(name), on) && on; }
@@ -247,9 +253,9 @@ namespace
         return Pressed(name) || (uipad::Repeat(Name32(name), kRepeatFirst, kRepeatStep, on) && on);
     }
 
-    bool MouseDown(const char* name)     { uipad::OwnQuery own; return Call<bool>(dev::IsMouseButtonDownByName, Name32(name)); }
-    bool MouseUp(const char* name)       { uipad::OwnQuery own; return Call<bool>(dev::IsMouseButtonUpByName, Name32(name)); }
-    bool MousePressing(const char* name) { uipad::OwnQuery own; return Call<bool>(dev::IsMouseButtonPressingByName, Name32(name)); }
+    bool MouseDown(const char* name)     { uipad::OwnQuery own; return OwnQuerySEH(dev::IsMouseButtonDownByName, Name32(name)); }
+    bool MouseUp(const char* name)       { uipad::OwnQuery own; return OwnQuerySEH(dev::IsMouseButtonUpByName, Name32(name)); }
+    bool MousePressing(const char* name) { uipad::OwnQuery own; return OwnQuerySEH(dev::IsMouseButtonPressingByName, Name32(name)); }
 
     bool UsingKeyboard() { return Call<bool>(dev::IsUseKeyboard); }
 
@@ -356,6 +362,9 @@ namespace
             return false;
         }
         const std::uint64_t wantPack = pack ? pack->fpkCode : 0;
+        LogDebug("ColorProbe: '%s' colour %u %s, wants pack %016llX, pack served now %016llX",   // TEMP ColorProbe
+            t.entry->key, index + 1, save ? "kept" : "previewed", static_cast<unsigned long long>(wantPack),
+            static_cast<unsigned long long>(outfit::GetServedColorFpk()));
         if (wantPack != outfit::GetServedColorFpk())
         {
             outfit::RequestPartsRestream();
@@ -571,18 +580,6 @@ namespace
         Call<void>(dev::SetShaderParameter, glow.ptr, std::uint64_t{ kBlendMaskTex }, &off);
         SetScale(cell.glow, kCellGlowSize, kCellGlowSize);
         SetTranslation(cell.glow, kCellGlowX, kCellGlowY, kCellGlowZ);
-    }
-
-    void LogGlowScale(const Cell& cell, const char* when)
-    {
-        static int s_logged = 0;
-        Object glow;
-        if (s_logged >= 3 || !Get(cell.glow, glow))
-            return;
-        ++s_logged;
-        V4 out{};
-        Call<V4*>(Overload(dev::GetScale, glow), &out, glow.ptr);
-        LogInfo("OutfitPalette: cursor glow scale %s = %.2f x %.2f (fitted %.1f)", when, out.v[0], out.v[1], kCellGlowSize);
     }
 
     std::unique_ptr<PaletteUi> FindPalette()
@@ -841,7 +838,6 @@ namespace
         {
             Anim(cell.model, "UI_ID_C_Pallet_Focus");
             Anim(cell.model, "UI_ID_C_Pallet_Cursor_Noise", true);
-            LogGlowScale(cell, "before refit");
             FitGlow(cell);
         }
         else
@@ -984,9 +980,8 @@ namespace
             LogWarn("OutfitPalette: the game's menus could not be held (4 pad requests already), palette not opened");
             return;
         }
-        LogInfo("OutfitPalette: opened for %s (%zu channel(s), saved %d)", target.Key(), o->channels.size(),
-            o->channels[0].saved);
         g_Open = std::move(o);
+        LogDebug("ColorProbe: palette opened for '%s'", target.Key());   // TEMP ColorProbe
         PlaySound(kSoundOpen);
         ShowHint(false);
         HideGameUi();
@@ -1009,8 +1004,6 @@ namespace
         c.previewAt = -1.0;
         c.appliedPack = color.fpkCode != 0;
         PlaySound(kSoundSelect);
-        LogInfo("OutfitPalette: kept %s colour %d%s", c.channel == 0 ? "primary" : "secondary", c.cursor,
-            ok ? "" : " (not applied)");
         o.drawnTop = -1;   // -1 forces a full redraw
         Render();
     }
@@ -1018,12 +1011,11 @@ namespace
     void ClosePalette(bool keep, const char* button, const char* mouse, bool byMouse, double now)
     {
         Open& o = *g_Open;
+        LogDebug("ColorProbe: palette closing (%s)", keep ? "kept" : "back");   // TEMP ColorProbe
         for (Channel& c : o.channels)
         {
             const int chosen = keep ? c.cursor : c.saved;
             const bool ok = ChooseColor(o.target, c.channel, static_cast<std::uint32_t>(chosen - 1), true);
-            LogInfo("OutfitPalette: %s %s colour %d%s", keep ? "kept" : "put back", c.channel == 0 ? "primary" : "secondary",
-                chosen, ok ? "" : " (not applied)");
         }
         PlaySound(keep ? kSoundSelect : kSoundBack);
         o.outAnims.clear();
@@ -1220,7 +1212,6 @@ namespace
         }
         else if (onHeads ? outfit::RequestSortieHeadEquip() : outfit::RequestSortieListEquip())
         {
-            LogInfo("OutfitPalette: equipping %s before opening", target.Key());
             HoldPad(true);
             g_Pending = target;
             g_PendingSet = true;
@@ -1231,7 +1222,6 @@ namespace
         }
         else if (onSuits && outfit::DecideSortieListCursor())
         {
-            LogInfo("OutfitPalette: equipping %s before opening (list decide)", target.Key());
             g_Pending = target;
             g_PendingSet = true;
             g_PendingUntil = now + kEquipTimeout;
@@ -1302,7 +1292,6 @@ namespace
         switch (AppendPackSEH(list, outfit::kOutfitPalettePack))
         {
         case PackAdded:
-            LogInfo("OutfitPalette: UI pack added to mission %u", static_cast<unsigned>(missionCode));
             break;
         case PackMissing:
             if (!s_missingLogged)
@@ -1321,12 +1310,6 @@ namespace
         default:
             break;
         }
-    }
-
-    bool CodeMatchesSEH(const void* code, const std::uint8_t* expect, std::size_t size)
-    {
-        __try { return std::memcmp(code, expect, size) == 0; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
     void ResetLocked()
@@ -1354,9 +1337,8 @@ namespace
         g_PaletteReady.store(false, std::memory_order_release);
     }
 
-    void Tick()
+    void TickLocked()
     {
-        std::lock_guard<std::mutex> lock(g_Lock);
         const double now = Now();
         if (!g_MouseFilterSet)
             g_MouseFilterSet = uipad::SetGameMouseFilter(&PaletteOwnsMouse);
@@ -1382,6 +1364,13 @@ namespace
         else
             UpdateList(now);
     }
+
+    void Tick()
+    {
+        g_Lock.lock();
+        __try { TickLocked(); }
+        __finally { g_Lock.unlock(); }   // RunFrameTickSEH catches faults above here and skips a lock_guard's destructor
+    }
 }
 
 namespace outfit
@@ -1396,11 +1385,14 @@ namespace outfit
             LogWarn("OutfitPalette: the mission pack list is not ported to this game version, the colour palette is off");
             return false;
         }
-        if (!CodeMatchesSEH(target, kGetPackagePathsCode, sizeof(kGetPackagePathsCode)))
+        const HookEntry entry = CheckHookEntry(target, kGetPackagePathsCode, sizeof(kGetPackagePathsCode));
+        if (entry == HookEntry::Unknown)
         {
             LogWarn("OutfitPalette: GetPackagePaths at %p is not the known code, the colour palette is off", target);
             return false;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("OutfitPalette: Mission_GetPackagePaths", target);
         if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hkGetPackagePaths), reinterpret_cast<void**>(&g_OrigGetPackagePaths)))
             return false;
         g_GetPackagePathsTarget = target;

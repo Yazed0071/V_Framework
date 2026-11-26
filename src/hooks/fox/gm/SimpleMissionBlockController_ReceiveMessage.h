@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_SimpleMissionBlockController_ReceiveMessage_Hook();
+void Uninstall_SimpleMissionBlockController_ReceiveMessage_Hook();

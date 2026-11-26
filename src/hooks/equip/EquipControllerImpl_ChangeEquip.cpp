@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipControllerImpl_ChangeEquip.h"
 
 #include <Windows.h>
@@ -12,7 +12,6 @@
 
 namespace
 {
-    // returns out (struct return), callers may read the result through it
     using ChangeEquipFn = std::uint32_t*(__fastcall*)(void* self, std::uint32_t* out, std::uint32_t playerIndex,
                                                       std::uint8_t* signal);
 
@@ -28,49 +27,49 @@ namespace
 
     std::uintptr_t ChangeEquipAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1411AC2E0ull;
-        default:                                           return 0;
-        }
+        return gAddr.EquipControllerImpl_ChangeEquip;
     }
 
-    bool PrologueMatchesSEH(const void* fn)
+    bool ReadSignalSEH(const std::uint8_t* signal, std::uint16_t& value)
     {
         __try
         {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-    bool SwapSignalToEngineSEH(std::uint8_t* signal, std::uint16_t& saved, std::uint16_t& written)
-    {
-        __try
-        {
-            auto* cell = reinterpret_cast<std::uint16_t*>(signal + kSignalEquipId);
-            const std::uint16_t value = *cell;
-            if (value == 0)
-                return false;
-            const std::int32_t realId = equip::ResolveReal(value);
-            std::int32_t engineId = equip::ToEngine(realId);
-            if (engineId == kNoEquipId && realId != kNoEquipId)
-                engineId = 0;
-            if (engineId == value)
-                return false;
-            saved = value;
-            written = static_cast<std::uint16_t>(engineId);
-            *cell = written;
+            value = *reinterpret_cast<const std::uint16_t*>(signal + kSignalEquipId);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return false;
         }
+    }
+
+    bool WriteSignalSEH(std::uint8_t* signal, std::uint16_t value)
+    {
+        __try
+        {
+            *reinterpret_cast<std::uint16_t*>(signal + kSignalEquipId) = value;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool SwapSignalToEngine(std::uint8_t* signal, std::uint16_t& saved, std::uint16_t& written)
+    {
+        std::uint16_t value = 0;
+        if (!ReadSignalSEH(signal, value) || value == 0)
+            return false;
+        const std::int32_t realId = equip::ResolveReal(value);
+        std::int32_t engineId = equip::ToEngine(realId);   // outside __try: it holds the lease lock while it binds an alias
+        if (engineId == kNoEquipId && realId != kNoEquipId)
+            engineId = 0;
+        if (engineId == value)
+            return false;
+        saved = value;
+        written = static_cast<std::uint16_t>(engineId);
+        return WriteSignalSEH(signal, written);
     }
 
     void RestoreSignalSEH(std::uint8_t* signal, std::uint16_t saved, std::uint16_t written)
@@ -90,7 +89,7 @@ namespace
     {
         std::uint16_t saved = 0;
         std::uint16_t written = 0;
-        const bool swapped = signal && SwapSignalToEngineSEH(signal, saved, written);
+        const bool swapped = signal && SwapSignalToEngine(signal, saved, written);
         std::uint32_t* result = g_Orig(self, out, playerIndex, signal);
         if (swapped)
             RestoreSignalSEH(signal, saved, written);
@@ -105,12 +104,15 @@ bool Install_EquipControllerImpl_ChangeEquip()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: ChangeEquip prologue mismatch on %s, Player.ChangeEquip with equipIds above 0x7FF equips the wrong item",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: ChangeEquip", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkChangeEquip),
                              reinterpret_cast<void**>(&g_Orig)))
     {

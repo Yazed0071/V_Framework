@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -14,6 +14,7 @@
 #include "OutfitRegistry.h"
 #include "ShadowState.h"
 #include "Player2Impl_UpdateVoiceType.h"
+#include "BlockControllerImpl_LoadPartsNew.h"
 
 namespace
 {
@@ -127,13 +128,10 @@ static bool ResolveVanillaExtVoice(std::uint32_t playerType, std::uint64_t* outV
         return false;
 
     const std::uint8_t pt = static_cast<std::uint8_t>(playerType & 0xFF);
-    const bool bypass = MissionCodeGuard::ShouldBypassHooks();
-    const std::uint32_t liveVoiceType =
-        bypass ? outfit::kSoundSwitchUnset
-               : Get_EffectivePlayerVoiceType(playerType);
+    const std::uint32_t liveVoiceType = Get_EffectivePlayerVoiceType(playerType);
 
     const outfit::VanillaSuitVariantAsset* var = nullptr;
-    if (!bypass)
+    if (!MissionCodeGuard::ShouldBypassHooks())   // suit variants never render in FOB
     {
         if (const std::uint8_t v = outfit::GetActiveVariant(vpt); v != 0)
             var = outfit::VanillaExtGetVariantBridged(vpt, pt, v);
@@ -181,6 +179,9 @@ static bool ResolveVanillaExtVoice(std::uint32_t playerType, std::uint64_t* outV
 
 static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t playerType, std::uint32_t playerFaceId)
 {
+    if (MissionCodeGuard::ShouldBypassHooks() && !outfit::IsLoadingLocalParts())
+        return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);   // in FOB only your own character's voice changes
+
     std::uint64_t vextVoice = 0;
     if (ResolveVanillaExtVoice(playerType, &vextVoice))
     {
@@ -188,15 +189,16 @@ static void* __fastcall hkLoadPlayerVoiceFpk(void* fileSlotPath, std::uint32_t p
         return fileSlotPath;
     }
 
-    if (MissionCodeGuard::ShouldBypassHooks())
-    {
-        return g_OrigLoadPlayerVoiceFpk(fileSlotPath, playerType, playerFaceId);
-    }
-
     std::uint64_t outfitVoice = 0;
     if (ResolveWornOutfitVoice(playerType, &outfitVoice))
     {
         WritePlayerVoicePath(fileSlotPath, outfitVoice);
+        return fileSlotPath;
+    }
+
+    if (const std::uint64_t builtInVoice = Get_BuiltInVoiceFpkForVoiceType(Get_EffectivePlayerVoiceType(playerType)))
+    {
+        WritePlayerVoicePath(fileSlotPath, builtInVoice);
         return fileSlotPath;
     }
 

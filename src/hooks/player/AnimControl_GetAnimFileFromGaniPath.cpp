@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -24,7 +24,7 @@ namespace
     void* g_Target = nullptr;
     std::atomic<std::uint64_t> g_ArchivePath{0};
     std::atomic<bool> g_ArchiveOn{false};                 // the FrameWorkMotionArchive module wants V_FrameWork_motion.mtar
-    std::atomic<AnimControlWatch_t> g_Watch{nullptr};     // WeaponKey's anim-control list shares this one hook
+    std::atomic<AnimControlWatch_t> g_Watch{nullptr};
 
     void* ClipFromArchive(void* mtar, std::uint64_t clip)
     {
@@ -55,12 +55,10 @@ namespace
         void* file = g_Orig(animControl, clip);
         if (const AnimControlWatch_t watch = g_Watch.load(std::memory_order_acquire))
             watch(animControl);
-        if (file || !g_ArchiveOn.load(std::memory_order_relaxed) || MissionCodeGuard::ShouldBypassHooks())
-            return file;
-        return FromFrameWorkArchive(clip);
+        return file ? file : FrameWorkMotion_GetAnimFile(clip);
     }
 
-    bool HookOnce()   // one MinHook per target: both users ride on it
+    bool HookOnce()
     {
         if (g_Target)
             return true;
@@ -79,6 +77,13 @@ namespace
         g_Target = nullptr;
         g_Orig = nullptr;
     }
+}
+
+void* FrameWorkMotion_GetAnimFile(std::uint64_t clip)
+{
+    if (!g_ArchiveOn.load(std::memory_order_relaxed) || MissionCodeGuard::ShouldBypassHooks())
+        return nullptr;
+    return FromFrameWorkArchive(clip);
 }
 
 bool Install_AnimControl_GetAnimFileFromGaniPath_Hook()

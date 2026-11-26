@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -13,6 +13,8 @@
 #include "AddressSet.h"
 #include "FieldTaxiMenu.h"
 #include "AccIDroidPutAway.h"
+#include "MechaActionImpl_StateOnPassenger.h"
+#include "HeliKey.h"
 
 namespace
 {
@@ -81,6 +83,7 @@ namespace
         0xD9, 0x48, 0x8B, 0x49, 0x18, 0xBA, 0xFF, 0xFF, 0x00, 0x00, 0x8B, 0xA9, 0x14, 0x02, 0x00, 0x00 }; // reads the local player index at +0x214
     constexpr unsigned int kRideHeliPadMaskOwner = 0xD6C2691Au; // hash of the pad mask the heli ride states set (real name unknown)
     constexpr unsigned int kCallButton           = 0x200;       // PlayerPad.CALL
+    constexpr unsigned int kCallMenuSelectButton = 0x1000000;   // pad bit 24, R3 / Space: picks the cursor row while CALL is held
     constexpr unsigned int kCallMenuStatusQuery  = 0x800;       // what the call menu asks the player before it opens (real name unknown)
     constexpr unsigned int kPlayerCanCallFlag    = 0x400;       // player +0x204 bit 10, the call menu needs it up
     constexpr unsigned int kCallInputAllowed     = 0x2;         // call input +8 bit 1
@@ -96,10 +99,10 @@ namespace
     static volatile bool         g_doorOpenAtDest  = false;
     static volatile unsigned long long g_arrivalTick = 0;
     static constexpr unsigned long long kDoorForceMs = 5000;
-    static constexpr int         kRouteWaitFrames  = 120;   // the Lua answer comes through a deferred message, so give it frames and real time
+    static constexpr int         kRouteWaitFrames  = 120;
     static constexpr unsigned long long kRouteWaitMs = 3000;
     static volatile unsigned long long g_pickTick  = 0;
-    static constexpr float       kGlideBlendFrames = 20.0f; // for pose switches the game has no animation for
+    static constexpr float       kGlideBlendFrames = 20.0f;
     static volatile bool         g_taxiStayAtLz    = false;
     static std::uintptr_t        g_pickClusterTable = 0;
     static int                   g_pickPrevCurIdx  = -1;
@@ -117,6 +120,7 @@ namespace
     static volatile bool         g_taxiRequested = false;
 
     static volatile unsigned char g_rideState = 0; // the player's ride state, refreshed every frame by hkExecPreMotion
+    static volatile std::uintptr_t g_taxiPassengerCtrl = 0; // passenger controller of the player's heli, only compared, never dereferenced
 
     static bool HoldsDoorOpen(unsigned int pose)
     {
@@ -178,7 +182,6 @@ namespace
     constexpr const char* kNoRouteLangId = "V_taxi_no_route";
     static volatile bool  g_noRouteNotice = false;
 
-    // the same native call TppUiCommand.AnnounceLogViewLangId makes; type 0 is the category of a Color="1" lang entry
     static void ShowNoRouteNotice()
     {
         auto getHud   = reinterpret_cast<HudGetInstance_t>(ResolveGameAddress(gAddr.HudCommonDataManager_GetInstance));
@@ -353,7 +356,7 @@ namespace
         if (g_OrigPassengerUpdate) g_OrigPassengerUpdate(self);
         if (g_doorOpenAtDest && GetTickCount64() - g_arrivalTick > kDoorForceMs)
             g_doorOpenAtDest = false;
-        if (!g_doorOpenAtDest)
+        if (!g_doorOpenAtDest || reinterpret_cast<std::uintptr_t>(self) != g_taxiPassengerCtrl)
             return;
         __try
         {
@@ -366,7 +369,7 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    static void __fastcall hkMechaDoorClosed(void* self, unsigned int idx, unsigned int side, int proc)
+    static void TaxiDoorClosed(void* self, unsigned int idx, unsigned int side, int proc)
     {
         if (g_OrigMechaDoorClosed) g_OrigMechaDoorClosed(self, idx, side, proc);
         if ((!g_doorOpenAtDest && !(g_carryActive && HoldsDoorOpen(g_taxiRideState))) || proc != 5 || side > 1)
@@ -374,7 +377,11 @@ namespace
         __try
         {
             const std::uintptr_t p   = reinterpret_cast<std::uintptr_t>(self);
-            const std::uintptr_t pc  = *reinterpret_cast<std::uintptr_t*>(*reinterpret_cast<std::uintptr_t*>(p + 0x68) + 0x58);
+            const std::uintptr_t heli = *reinterpret_cast<std::uintptr_t*>(p + 0x68);
+            if (*reinterpret_cast<unsigned short*>(heli + 0x130) != HeliKey::kFirstType) // only the player's heli (TppHeli2)
+                return;
+            const std::uintptr_t pc  = *reinterpret_cast<std::uintptr_t*>(heli + 0x58);
+            g_taxiPassengerCtrl = pc;
             const std::uintptr_t rec = *reinterpret_cast<std::uintptr_t*>(pc + 0x40) + static_cast<std::uintptr_t>(idx) * 0x1c0;
             const unsigned char phase = static_cast<unsigned char>(*reinterpret_cast<unsigned char*>(rec + 0x1be) & 3);
             const std::uintptr_t workEntry = *reinterpret_cast<std::uintptr_t*>(p + 0x80)
@@ -398,9 +405,21 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    static void __fastcall hkMechaDoorOpen(void* self, unsigned int idx, unsigned int side, int proc)
+    static void TaxiDoorOpen(void* self, unsigned int idx, unsigned int side, int proc)
     {
-        if (proc == 5 && side <= 1 && g_carryActive && (g_taxiRideState == 0x08 || g_taxiRideState == 0x0A))
+        bool playerHeli = false;
+        if (proc == 5 && side <= 1 && (g_carryActive || g_doorOpenAtDest))
+        {
+            __try
+            {
+                const std::uintptr_t heli = *reinterpret_cast<std::uintptr_t*>(reinterpret_cast<std::uintptr_t>(self) + 0x68);
+                playerHeli = *reinterpret_cast<unsigned short*>(heli + 0x130) == HeliKey::kFirstType; // only the player's heli (TppHeli2)
+                if (playerHeli)
+                    g_taxiPassengerCtrl = *reinterpret_cast<std::uintptr_t*>(heli + 0x58);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        if (playerHeli && g_carryActive && (g_taxiRideState == 0x08 || g_taxiRideState == 0x0A))
         {
             __try
             {
@@ -414,7 +433,7 @@ namespace
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
         if (g_OrigMechaDoorOpen) g_OrigMechaDoorOpen(self, idx, side, proc);
-        if ((!g_doorOpenAtDest && !(g_carryActive && HoldsDoorOpen(g_taxiRideState))) || proc != 5 || side > 1)
+        if (!playerHeli || (!g_doorOpenAtDest && !(g_carryActive && HoldsDoorOpen(g_taxiRideState))) || proc != 5 || side > 1)
             return;
         __try
         {
@@ -432,9 +451,23 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
+    static void __fastcall hkMechaDoorClosed(void* self, unsigned int idx, unsigned int side, int proc)
+    {
+        TaxiDoorClosed(self, idx, side, proc);
+        HeliDoor_ApplyRequest(self, idx, side, proc);
+        HeliDoor_Announce(self, idx, side, proc);
+    }
+
+    static void __fastcall hkMechaDoorOpen(void* self, unsigned int idx, unsigned int side, int proc)
+    {
+        TaxiDoorOpen(self, idx, side, proc);
+        HeliDoor_ApplyRequest(self, idx, side, proc);
+        HeliDoor_Announce(self, idx, side, proc);
+    }
+
     static unsigned long long __fastcall hkIsPassengerClosingDoor(void* self, unsigned int idx)
     {
-        if (g_doorOpenAtDest || (g_carryActive && HoldsDoorOpen(g_taxiRideState)))
+        if ((g_doorOpenAtDest || (g_carryActive && HoldsDoorOpen(g_taxiRideState))) && reinterpret_cast<std::uintptr_t>(self) == g_taxiPassengerCtrl)
             return 0;
         if (g_OrigIsPaxClosingDoor) return g_OrigIsPaxClosingDoor(self, idx);
         return 0;
@@ -905,14 +938,16 @@ namespace
             LogError("FieldTaxiMenu: hooking the player or pad table failed, the call menu stays closed on taxi rides");
     }
 
-    static bool CallMenuGates(std::uintptr_t player, unsigned int*& playerFlags, unsigned int*& inputFlags)
+    static bool CallMenuGates(std::uintptr_t player, unsigned int*& playerFlags, unsigned int*& inputFlags, unsigned int*& padMask)
     {
         __try
         {
             playerFlags = reinterpret_cast<unsigned int*>(player + 0x204);
             const std::uintptr_t input = *reinterpret_cast<std::uintptr_t*>(player + 0xd8);
             inputFlags = reinterpret_cast<unsigned int*>(input + 8);
-            volatile unsigned int touch = *playerFlags + *inputFlags;
+            const std::uintptr_t pad = *reinterpret_cast<std::uintptr_t*>(player + 0xb0);
+            padMask = reinterpret_cast<unsigned int*>(pad + 0x28); // every owner's button mask OR'd together; the pressed-buttons read drops these
+            volatile unsigned int touch = *playerFlags + *inputFlags + *padMask;
             (void)touch;
             return true;
         }
@@ -927,8 +962,9 @@ namespace
 
         unsigned int* playerFlags = nullptr;
         unsigned int* inputFlags  = nullptr;
+        unsigned int* padMask     = nullptr;
         if (!g_carryActive || MissionCodeGuard::ShouldBypassHooks() || !player || !g_PlayerStatusSlot
-            || !CallMenuGates(player, playerFlags, inputFlags))
+            || !CallMenuGates(player, playerFlags, inputFlags, padMask))
         {
             g_OrigCallMenuUpdate(self);
             return;
@@ -936,8 +972,11 @@ namespace
 
         const unsigned int savedPlayer = *playerFlags;
         const unsigned int savedInput  = *inputFlags;
+        const unsigned int savedMask   = *padMask;
+        const unsigned int menuMask    = savedMask & ~kCallMenuSelectButton;
         *playerFlags |= kPlayerCanCallFlag;
         *inputFlags   = (*inputFlags | kCallInputAllowed) & ~kCallInputBlocked;
+        *padMask      = menuMask;
 
         t_inCallMenuUpdate = true;
         g_OrigCallMenuUpdate(self);
@@ -945,6 +984,8 @@ namespace
 
         *playerFlags = (*playerFlags & ~kPlayerCanCallFlag) | (savedPlayer & kPlayerCanCallFlag);
         *inputFlags  = (*inputFlags & ~(kCallInputAllowed | kCallInputBlocked)) | (savedInput & (kCallInputAllowed | kCallInputBlocked));
+        if (*padMask == menuMask)
+            *padMask = savedMask; // the menu sets and resets its own mask on open/close, which rebuilds this; keep that one
     }
 }
 
@@ -969,6 +1010,11 @@ void FieldTaxi_SetMissionEnabled(unsigned int missionCode, bool enabled)
 
 void FieldTaxi_SetTaxiRideState(unsigned int state)
 {
+    if (state != 0x03 && state != 0x06 && state != 0x08 && state != 0x0A)
+    {
+        LogWarn("FieldTaxi_SetTaxiRideState: ride state %u not allowed", state);
+        return;
+    }
     g_taxiPose = state;
 }
 
@@ -1054,26 +1100,44 @@ bool Install_FieldTaxiMenu()
     void* isDisableTerminal = ResolveGameAddress(gAddr.MBTerminalActionPluginImpl_IsDisableMBTerminal);
     if (isDisableTerminal)
     {
-        if (std::memcmp(isDisableTerminal, kIsDisableMBTerminalPrologue, sizeof(kIsDisableMBTerminalPrologue)) != 0)
+        const HookEntry entry = CheckHookEntry(isDisableTerminal, kIsDisableMBTerminalPrologue, sizeof(kIsDisableMBTerminalPrologue));
+        if (entry == HookEntry::Unknown)
             LogError("FieldTaxiMenu: iDroid check at %p is not the expected code, the iDroid stays blocked inside the heli on taxi rides", isDisableTerminal);
-        else if (CreateAndEnableHook(isDisableTerminal, reinterpret_cast<void*>(&hkIsDisableMBTerminal), reinterpret_cast<void**>(&g_OrigIsDisableMBTerminal)))
-            g_IsDisableMBTerminalTarget = isDisableTerminal;
+        else
+        {
+            if (entry == HookEntry::ForeignHook)
+                LogHookedOnTop("FieldTaxiMenu: MBTerminalActionPluginImpl::IsDisableMBTerminal", isDisableTerminal);
+            if (CreateAndEnableHook(isDisableTerminal, reinterpret_cast<void*>(&hkIsDisableMBTerminal), reinterpret_cast<void**>(&g_OrigIsDisableMBTerminal)))
+                g_IsDisableMBTerminalTarget = isDisableTerminal;
+        }
     }
     void* checkActionState = ResolveGameAddress(gAddr.MBTerminalActionPluginImpl_CheckActionState);
     if (checkActionState)
     {
-        if (std::memcmp(checkActionState, kCheckActionStatePrologue, sizeof(kCheckActionStatePrologue)) != 0)
+        const HookEntry entry = CheckHookEntry(checkActionState, kCheckActionStatePrologue, sizeof(kCheckActionStatePrologue));
+        if (entry == HookEntry::Unknown)
             LogError("FieldTaxiMenu: iDroid action check at %p is not the expected code, the iDroid stays blocked inside the heli on taxi rides", checkActionState);
-        else if (CreateAndEnableHook(checkActionState, reinterpret_cast<void*>(&hkCheckActionState), reinterpret_cast<void**>(&g_OrigCheckActionState)))
-            g_CheckActionStateTarget = checkActionState;
+        else
+        {
+            if (entry == HookEntry::ForeignHook)
+                LogHookedOnTop("FieldTaxiMenu: MBTerminalActionPluginImpl::CheckActionState", checkActionState);
+            if (CreateAndEnableHook(checkActionState, reinterpret_cast<void*>(&hkCheckActionState), reinterpret_cast<void**>(&g_OrigCheckActionState)))
+                g_CheckActionStateTarget = checkActionState;
+        }
     }
     void* callMenuUpdate = ResolveGameAddress(gAddr.CallMenuManagerImpl_Update);
     if (callMenuUpdate)
     {
-        if (std::memcmp(callMenuUpdate, kCallMenuUpdatePrologue, sizeof(kCallMenuUpdatePrologue)) != 0)
+        const HookEntry entry = CheckHookEntry(callMenuUpdate, kCallMenuUpdatePrologue, sizeof(kCallMenuUpdatePrologue));
+        if (entry == HookEntry::Unknown)
             LogError("FieldTaxiMenu: call menu update at %p is not the expected code, the call menu stays closed on taxi rides", callMenuUpdate);
-        else if (CreateAndEnableHook(callMenuUpdate, reinterpret_cast<void*>(&hkCallMenuUpdate), reinterpret_cast<void**>(&g_OrigCallMenuUpdate)))
-            g_CallMenuUpdateTarget = callMenuUpdate;
+        else
+        {
+            if (entry == HookEntry::ForeignHook)
+                LogHookedOnTop("FieldTaxiMenu: CallMenuManagerImpl::Update", callMenuUpdate);
+            if (CreateAndEnableHook(callMenuUpdate, reinterpret_cast<void*>(&hkCallMenuUpdate), reinterpret_cast<void**>(&g_OrigCallMenuUpdate)))
+                g_CallMenuUpdateTarget = callMenuUpdate;
+        }
     }
     AccIDroidPutAway_Install();
 
@@ -1107,8 +1171,8 @@ bool Uninstall_FieldTaxiMenu()
         DisableAndRemoveHook(g_CallMenuUpdateTarget);
     g_CallMenuUpdateTarget = nullptr;
     g_OrigCallMenuUpdate = nullptr;
-    RestoreVtableSlot(g_PlayerStatusSlot, reinterpret_cast<void*>(g_OrigPlayerStatusCheck));
-    RestoreVtableSlot(g_PadSetMaskSlot, reinterpret_cast<void*>(g_OrigPadSetMask));
+    RestoreVtableSlot(g_PlayerStatusSlot, reinterpret_cast<void*>(g_OrigPlayerStatusCheck), reinterpret_cast<void*>(&hkPlayerStatusCheck));
+    RestoreVtableSlot(g_PadSetMaskSlot, reinterpret_cast<void*>(g_OrigPadSetMask), reinterpret_cast<void*>(&hkPadSetMask));
     g_PlayerStatusSlot = nullptr;
     g_PadSetMaskSlot = nullptr;
     g_OrigPlayerStatusCheck = nullptr;
@@ -1123,6 +1187,7 @@ bool Uninstall_FieldTaxiMenu()
     g_OrigStepGoToNav = nullptr;
     g_OrigStepTaxiCurrent = nullptr;
     g_OrigPassengerUpdate = nullptr;
+    g_taxiPassengerCtrl   = 0;
     g_OrigMechaDoorClosed = nullptr;
     g_OrigMechaDoorOpen = nullptr;
     g_OrigIsPaxClosingDoor = nullptr;

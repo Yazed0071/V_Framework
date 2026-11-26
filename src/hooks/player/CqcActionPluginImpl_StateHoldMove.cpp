@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+﻿#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -49,47 +49,17 @@ namespace
 
     std::uintptr_t Addr_StateHoldMove()
     {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (gGameBuild)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x1411666A0ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x141166730ull;
-        case GB::En_1_0_15_3:  return 0x141166D30ull;
-        case GB::Jp_1_0_15_3:  return 0x141166DB0ull;
-        default:               return 0;
-        }
+        return gAddr.CqcActionPluginImpl_StateHoldMove;
     }
 
     std::uintptr_t Addr_StateGunHoldMove()
     {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (gGameBuild)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x1411644E0ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x141164570ull;
-        case GB::En_1_0_15_3:  return 0x141164B70ull;
-        case GB::Jp_1_0_15_3:  return 0x141164BF0ull;
-        default:               return 0;
-        }
+        return gAddr.CqcActionPluginImpl_StateGunHoldMove;
     }
 
     std::uintptr_t Addr_RequestToSetTargetStance()
     {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (gGameBuild)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x1409DB170ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x1409DAFE0ull;
-        case GB::En_1_0_15_3:  return 0x1409DA3E0ull;
-        case GB::Jp_1_0_15_3:  return 0x1409D9ED0ull;
-        default:               return 0;
-        }
+        return gAddr.CqcActionPluginImpl_RequestToSetTargetStance;
     }
 
     bool CallStanceRequestSeh(LuaStanceReq_t fn, lua_State* L)

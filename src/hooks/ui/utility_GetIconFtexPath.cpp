@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "utility_GetIconFtexPath.h"
 
 #include <Windows.h>

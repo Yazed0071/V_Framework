@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "TppEquip_RegisterConstant.h"
 
 #include <Windows.h>
@@ -28,6 +28,7 @@ namespace
             TppEquipConst_InjectAll(L);
             TppDamageConst_InjectAll(L);
             bluePrint::InjectConstants(L);
+            TppEquipConst_InstallForwardDeclarations(L);
         }
     }
 }

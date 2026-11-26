@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h"
 
 #include <Windows.h>
@@ -70,7 +70,13 @@ static void PatchSite(std::uintptr_t addr, const char* addrName,
     }
     else if (!enable && applied)
     {
-        if (WriteBytes(savedSite, orig, size))
+        if (std::memcmp(savedSite, patch, size) != 0)
+        {
+            LogWarn("FriendlyFire: %s site no longer holds our patch (another module changed it), left as it is", addrName);
+            applied = false;
+            savedSite = nullptr;
+        }
+        else if (WriteBytes(savedSite, orig, size))
         {
             applied = false;
             savedSite = nullptr;

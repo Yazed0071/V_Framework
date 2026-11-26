@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipControllerImpl_SetUpPartsStateForGun_Hook();
+void Uninstall_EquipControllerImpl_SetUpPartsStateForGun_Hook();

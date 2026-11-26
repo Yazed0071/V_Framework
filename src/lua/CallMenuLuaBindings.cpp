@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CallMenuLuaBindings.h"
 
 extern "C" {
@@ -298,7 +298,6 @@ int __cdecl l_AddCallMenuItem(lua_State* L)
     ReadVoices(L, item.voices);
 
     const int id = CallMenuItems::AddCustomItem(item);
-    LogInfo("AddCallMenuItem: '%s' added as item %d, saved as '%s'", label, id, item.key.c_str());
     PushLuaNumber(L, static_cast<float>(id));
     return 1;
 }

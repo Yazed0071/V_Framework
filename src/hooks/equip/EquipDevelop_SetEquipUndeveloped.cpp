@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipDevelop_SetEquipUndeveloped.h"
 #include "EquipDevelopControllerImpl_SetEquipNew.h"
 
@@ -39,7 +39,6 @@ namespace
     constexpr std::size_t kSvars_DevTimerSlots = 0xf6e2;
     constexpr std::size_t kSvars_DevTimerEnds  = 0xf6f8;
     constexpr int         kDevTimerSlotCount   = 10;
-    constexpr std::int32_t kFirstCustomFlowIndex = 922;
 
     constexpr std::uint16_t kInvalidDevelopIndex = 0x400;
 
@@ -247,35 +246,47 @@ namespace
             return;
         if (!EquipDevelopAdd::IsManagedFlowIndex(index))
             return;
-        auto getIndex = NativeGetIndex();
-        if (!getIndex)
-            return;
 
-        std::vector<std::int32_t> ids;
-        V_FrameWorkState::ForEachManagedDevelop(
-            [&](std::int32_t id, bool, bool) { ids.push_back(id); });
-
-        for (std::int32_t id : ids)
+        std::int32_t owner = 0;
+        std::uint32_t rowDevelopId = 0;
+        if (equip::TryReadRowDevelopId(index, rowDevelopId) && rowDevelopId != 0)
         {
-            if (SafeGetIndex(getIndex, controller, static_cast<std::uint32_t>(id)) == index)
-            {
-                V_FrameWorkState::SetDevelopedByDevelopId(id, developed);
+            if (!V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(rowDevelopId)))
                 return;
-            }
+            owner = static_cast<std::int32_t>(rowDevelopId);
+        }
+        else if (auto getIndex = NativeGetIndex())
+        {
+            std::vector<std::int32_t> ids;
+            V_FrameWorkState::ForEachManagedDevelop(
+                [&](std::int32_t id, bool, bool) { ids.push_back(id); });
+            for (std::int32_t id : ids)
+                if (SafeGetIndex(getIndex, controller, static_cast<std::uint32_t>(id)) == index)
+                {
+                    owner = id;
+                    break;
+                }
         }
 
-        if (EquipDevelopAdd::IsManagedFlowIndex(index))
+        if (owner == 0)
+        {
             LogWarn("EquipDevelop: flow index %u has no managed developId, %s not saved",
                     static_cast<unsigned>(index), developed ? "develop" : "undevelop");
+            return;
+        }
+        if (!developed && EquipDevelop_IsDevelopInitiallyAvailable(static_cast<std::uint32_t>(owner)))
+        {
+            std::uint8_t b = 0;
+            if (equip::DevFlagsTryReadByte(controller, index, b))
+                equip::DevFlagsWriteByte(controller, index, static_cast<std::uint8_t>(b | 1u));
+            return;
+        }
+        V_FrameWorkState::SetDevelopedByDevelopId(owner, developed);
     }
 
-    static bool IsDevelopIdDeveloped(void* controller, GetEquipDevelopIndex_t getIndex,
-                                     std::uint32_t developId)
+    static bool IsNativeDevelopIdDeveloped(void* controller, GetEquipDevelopIndex_t getIndex,
+                                           std::uint32_t developId)
     {
-        if (developId == 0)
-            return false;
-        if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
-            return V_FrameWorkState::GetDevelopedByDevelopId(static_cast<std::int32_t>(developId));
         if (!controller || !getIndex)
             return false;
         __try
@@ -290,6 +301,30 @@ namespace
             return (bits[index] & 1u) != 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    static bool IsDevelopIdDeveloped(void* controller, GetEquipDevelopIndex_t getIndex,
+                                     std::uint32_t developId)
+    {
+        if (developId == 0)
+            return false;
+        if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
+            return V_FrameWorkState::GetDevelopedByDevelopId(static_cast<std::int32_t>(developId));
+        return IsNativeDevelopIdDeveloped(controller, getIndex, developId);
+    }
+
+    // Same answer as IsDevelopIdDeveloped, from a developId -> developed table filled in one pass,
+    // so a loop over every managed develop doesn't rescan the whole state for each one
+    static bool IsDevelopIdDevelopedIn(const std::unordered_map<std::uint32_t, bool>& managedDeveloped,
+                                       void* controller, GetEquipDevelopIndex_t getIndex,
+                                       std::uint32_t developId)
+    {
+        if (developId == 0)
+            return false;
+        const auto it = managedDeveloped.find(developId);
+        if (it != managedDeveloped.end())
+            return it->second;
+        return IsNativeDevelopIdDeveloped(controller, getIndex, developId);
     }
 
     static void SafeSetEnableForDevelopId(GetEquipDevelopIndex_t getIndex,
@@ -324,10 +359,12 @@ namespace
         }
 
         std::vector<std::uint32_t> managedIds;
+        std::unordered_map<std::uint32_t, bool> managedDeveloped;   // first entry wins, like GetDevelopedByDevelopId
         V_FrameWorkState::ForEachManagedDevelop(
-            [&](std::int32_t id, bool, bool)
+            [&](std::int32_t id, bool developed, bool)
             {
                 managedIds.push_back(static_cast<std::uint32_t>(id));
+                managedDeveloped.emplace(static_cast<std::uint32_t>(id), developed);
             });
 
         for (std::uint32_t childDevelopId : managedIds)
@@ -335,7 +372,7 @@ namespace
             const auto it = parents.find(childDevelopId);
             const bool enable = (it == parents.end() || it->second == 0)
                 ? true
-                : IsDevelopIdDeveloped(controller, getIndex, it->second);
+                : IsDevelopIdDevelopedIn(managedDeveloped, controller, getIndex, it->second);
 
             SafeSetEnableForDevelopId(getIndex, setEnable, controller,
                                       childDevelopId,
@@ -520,10 +557,16 @@ namespace
         return true;
     }
 
-    static bool ClaimNewBadgeSeed(std::int32_t developId)
+    static bool IsNewBadgeSeeded(std::int32_t developId)
     {
         std::lock_guard<std::mutex> lock(g_NewBadgeSeededMutex);
-        return g_NewBadgeSeeded.insert(developId).second;
+        return g_NewBadgeSeeded.count(developId) != 0;
+    }
+
+    static void MarkNewBadgeSeeded(std::int32_t developId)
+    {
+        std::lock_guard<std::mutex> lock(g_NewBadgeSeededMutex);
+        g_NewBadgeSeeded.insert(developId);
     }
 
     using IsEquipDevelopable_t = std::uint8_t (__fastcall*)(void* controller, std::uint16_t index);
@@ -600,18 +643,28 @@ namespace
         RearmAnnounceOnRequirementLoss(controller, getIndex);
 
         std::vector<std::int32_t> candidates;
+        std::unordered_map<std::uint32_t, bool> managedDeveloped;   // first entry wins, like GetDevelopedByDevelopId
         V_FrameWorkState::ForEachManagedDevelop(
             [&](std::int32_t developId, bool developed, bool isNew)
             {
+                managedDeveloped.emplace(static_cast<std::uint32_t>(developId), developed);
                 if (isNew && !developed)
                     candidates.push_back(developId);
             });
 
+        std::unordered_map<std::int32_t, bool> announced;   // first entry wins, like GetDevReqAnnouncedByDevelopId
+        V_FrameWorkState::ForEachManagedDevelopRow(
+            [&](std::int32_t developId, std::int32_t, bool reqAnnounced)
+            {
+                announced.emplace(developId, reqAnnounced);
+            });
+
         candidates.erase(
             std::remove_if(candidates.begin(), candidates.end(),
-                [](std::int32_t developId)
+                [&](std::int32_t developId)
                 {
-                    return V_FrameWorkState::GetDevReqAnnouncedByDevelopId(developId);
+                    const auto it = announced.find(developId);
+                    return it != announced.end() && it->second;
                 }),
             candidates.end());
 
@@ -643,7 +696,7 @@ namespace
                 if (it != g_DevelopParent.end())
                     parent = it->second;
             }
-            if (parent != 0 && !IsDevelopIdDeveloped(controller, getIndex, parent))
+            if (parent != 0 && !IsDevelopIdDevelopedIn(managedDeveloped, controller, getIndex, parent))
                 continue;
 
             FireDevRequirementsMet(hudCdm, developId);
@@ -708,7 +761,10 @@ bool EquipDevelop_UndevelopByDevelopId(std::uint32_t developId)
     if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
     {
         V_FrameWorkState::SetDevelopedByDevelopId(static_cast<std::int32_t>(developId), false);
-        return PokeDevelopedBit(controller, developId, false);
+        const bool poked = PokeDevelopedBit(controller, developId, false);
+        if (poked && g_DevelopSyncArmed)
+            SyncDevelopPrereqGates(controller, NativeGetIndex());
+        return poked;
     }
 
     std::uint16_t index = kInvalidDevelopIndex;
@@ -734,7 +790,13 @@ bool EquipDevelop_DevelopByDevelopId(std::uint32_t developId)
     if (V_FrameWorkState::IsManagedDevelopId(static_cast<std::int32_t>(developId)))
     {
         V_FrameWorkState::SetDevelopedByDevelopId(static_cast<std::int32_t>(developId), true);
-        return PokeDevelopedBit(controller, developId, true);
+        const bool poked = PokeDevelopedBit(controller, developId, true);
+        if (poked && g_DevelopSyncArmed)
+        {
+            SyncDevelopPrereqGates(controller, NativeGetIndex());
+            AnnounceNewlyDevelopable(controller, NativeGetIndex());
+        }
+        return poked;
     }
 
     auto getIndex = NativeGetIndex();
@@ -828,25 +890,7 @@ namespace
 
     std::uintptr_t SetEquipDevelopVarsAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1416740B0ull;
-        default:                                           return 0;
-        }
-    }
-
-    static bool SetEquipDevelopVarsPrologueMatches(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kSetEquipDevelopVarsPrologue,
-                               sizeof(kSetEquipDevelopVarsPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.EquipDevelopCallbackImpl_SetEquipDevelopVars;
     }
 
     static bool ReadTimerEnd(std::uint16_t flowIndex, std::int32_t& endTime)
@@ -878,12 +922,13 @@ namespace
     static void __fastcall hkSetEquipDevelopVars(void* callback, std::uint16_t flowIndex)
     {
         g_OrigSetEquipDevelopVars(callback, flowIndex);
-        if (flowIndex < kFirstCustomFlowIndex)
+        if (flowIndex < equip::FirstCustomFlowIndex())
             return;
 
         std::int32_t endTime = 0;
         if (!ReadTimerEnd(flowIndex, endTime))
             return;
+        SettleTimer(static_cast<std::int16_t>(flowIndex + 1), endTime);   // started this launch, the row is already right
 
         std::uint32_t developId = 0;
         if (!equip::TryReadRowDevelopId(flowIndex, developId) || developId == 0)
@@ -894,7 +939,6 @@ namespace
 
         V_FrameWorkState::NoteDevelopTimer(static_cast<std::int32_t>(developId),
                                            flowIndex, endTime);
-        SettleTimer(static_cast<std::int16_t>(flowIndex + 1), endTime);
     }
 
     static void InstallDevelopTimerStartHook()
@@ -904,12 +948,16 @@ namespace
             return;
 
         void* fn = ResolveGameAddress(addr);
-        if (!fn || !SetEquipDevelopVarsPrologueMatches(fn))
+        const HookEntry entry = CheckHookEntry(fn, kSetEquipDevelopVarsPrologue,
+                                               sizeof(kSetEquipDevelopVarsPrologue));
+        if (entry == HookEntry::Unknown)
         {
             LogError("EquipDevelop: SetEquipDevelopVars prologue mismatch on %s, custom R&D "
                      "timers can land on the wrong row when rows move", GetGameBuildName(gGameBuild));
             return;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipDevelop: SetEquipDevelopVars", fn);
         if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkSetEquipDevelopVars),
                                  reinterpret_cast<void**>(&g_OrigSetEquipDevelopVars)))
         {
@@ -927,10 +975,12 @@ namespace
     static void ReconcileInFlightDevelopTimers(
         void* controller, GetEquipDevelopIndex_t getIndex)
     {
-        if (!g_TimerStartHooked && g_InFlightTimersReconciled)   // without the start hook a timer started this launch looks like a saved one
+        if (!g_TimerStartHooked && g_InFlightTimersReconciled)
             return;
-        if (!controller || !getIndex)
+        if (!controller || !getIndex || !equip::IsDevelopLayoutSettled())
             return;
+        const std::int32_t trueVanillaRows = static_cast<std::int32_t>(equip::TrueVanillaRowCount());
+        const std::int32_t firstCustomRow = static_cast<std::int32_t>(equip::FirstCustomFlowIndex());
 
         std::uint8_t* svars = ResolveDevelopSaveVars();
         if (!svars)
@@ -951,7 +1001,7 @@ namespace
                 if (raw <= 0)
                     continue;
                 const std::int32_t storedIndex = static_cast<std::int32_t>(raw) - 1;
-                if (storedIndex < kFirstCustomFlowIndex ||
+                if (storedIndex < trueVanillaRows ||
                     !equip::IsValidFlowIndex(static_cast<std::uint32_t>(storedIndex)))
                     continue;
 
@@ -961,8 +1011,8 @@ namespace
 
                 std::int32_t developId =
                     V_FrameWorkState::GetDevelopTimerOwner(storedIndex, endTime);
-                if (developId <= 0)
-                    developId = V_FrameWorkState::GetDevelopIdAtOldFlowIndex(storedIndex);   // started before owners were kept: last launch's rows
+                if (developId <= 0 && storedIndex >= firstCustomRow)
+                    developId = V_FrameWorkState::GetDevelopIdAtOldFlowIndex(storedIndex);
                 if (developId <= 0 || !V_FrameWorkState::IsManagedDevelopId(developId))
                 {
                     SettleTimer(raw, endTime);
@@ -989,8 +1039,6 @@ namespace
                     }
 
                     slots[i] = want;
-                    LogInfo("EquipDevelop: developId %d R&D timer moved from row %d to row %u",
-                            developId, storedIndex, static_cast<unsigned>(currentIndex));
                 }
 
                 V_FrameWorkState::NoteDevelopTimer(developId, currentIndex, endTime);
@@ -1136,10 +1184,11 @@ void EquipDevelop_DrainPendingUndevelops()
         const std::uint32_t developId =
             static_cast<std::uint32_t>(row.developId);
 
-        if (ClaimNewBadgeSeed(row.developId))
+        if (!IsNewBadgeSeeded(row.developId))
         {
-            PokeNewBit(controller, getIndex, developId,
-                       row.isNew, row.developed);
+            if (PokeNewBit(controller, getIndex, developId,
+                           row.isNew, row.developed))
+                MarkNewBadgeSeeded(row.developId);
             continue;
         }
 
@@ -1186,6 +1235,13 @@ void EquipDevelop_SetDevelopParent(std::uint32_t developId, std::uint32_t baseDe
         g_DevelopParent.erase(developId);
     else
         g_DevelopParent[developId] = baseDevelopId;
+}
+
+std::uint32_t EquipDevelop_GetDevelopParent(std::uint32_t developId)
+{
+    std::lock_guard<std::mutex> lock(g_DevelopParentMutex);
+    const auto it = g_DevelopParent.find(developId);
+    return it != g_DevelopParent.end() ? it->second : 0;
 }
 
 bool EquipDevelop_IsParentDeveloped(void* controller, std::uint32_t developId)
@@ -1376,7 +1432,8 @@ bool EquipDevelop_SetVisibleByDevelopId(std::uint32_t developId, bool visible)
             static_cast<std::uint16_t>(developId), flowIndex))
         return false;
 
-    outfit::SetDevelopHidden(flowIndex, !visible);
+    if (flowIndex != 0)   // 0 = not resident; the static note applies it when the row lands
+        outfit::SetDevelopHidden(flowIndex, !visible);
     outfit::NoteStaticDevelopHidden(static_cast<unsigned short>(developId), !visible);
 
     if (visible)

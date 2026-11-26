@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "RewardPopupBgTexture.h"
 
 #include <Windows.h>
@@ -8,7 +8,6 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
-#include "MissionCodeGuard.h"
 
 namespace
 {
@@ -116,9 +115,6 @@ namespace
 
     std::uint64_t __fastcall hk_PopupSetup(void* self, void* param)
     {
-        if (MissionCodeGuard::ShouldBypassHooks())
-            return g_OrigSetup(self, param);
-
         const std::uint64_t result = g_OrigSetup(self, param);
         Apply(self);
         return result;
@@ -185,19 +181,6 @@ namespace
     }
 
 
-    bool PrologueMatches(const std::uint8_t* at)
-    {
-        __try
-        {
-            return std::memcmp(at, kSetupPrologue, sizeof(kSetupPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-
     void* LocateSetup()
     {
         std::uint8_t* site = nullptr;
@@ -209,11 +192,14 @@ namespace
         }
 
         std::uint8_t* const entry = site - SETUP_HASH_SITE_OFFSET;
-        if (!PrologueMatches(entry))
+        const HookEntry entryCheck = CheckHookEntry(entry, kSetupPrologue, sizeof(kSetupPrologue));
+        if (entryCheck == HookEntry::Unknown)
         {
             LogError("RewardPopupBg: popup setup code does not match this build, custom popup background off");
             return nullptr;
         }
+        if (entryCheck == HookEntry::ForeignHook)
+            LogHookedOnTop("RewardPopupBg: popup setup", entry);
         return entry;
     }
 }

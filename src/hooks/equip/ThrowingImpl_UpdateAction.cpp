@@ -1,6 +1,7 @@
-#include "pch.h"
+#include <pch.h>
 #include "ThrowingImpl_UpdateAction.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -39,7 +40,9 @@ namespace
     void* g_KibidangoTarget       = nullptr;
     void* g_FakeSignTarget        = nullptr;
 
-    std::atomic<std::uint64_t> g_Announced{ 0 };
+    constexpr std::uint32_t kTrackedHandles = 256;   // handles are bytes, 0xFF = none
+
+    std::array<std::atomic<std::uint64_t>, kTrackedHandles / 64> g_Announced{};
 
     template <typename Fn>
     Fn OriginalOr(Fn original, std::uintptr_t address)
@@ -47,21 +50,24 @@ namespace
         return original ? original : reinterpret_cast<Fn>(ResolveGameAddress(address));
     }
 
+    bool FirstAnnouncement(std::uint32_t handle)
+    {
+        const std::uint64_t bit = 1ull << (handle % 64);
+        return (g_Announced[handle / 64].fetch_or(bit) & bit) == 0;
+    }
+
     void AnnounceActivation(void* throwing, std::uint32_t index, std::uint32_t equipId)
     {
         using namespace ThrowingSystemLayout;
         auto* impl = static_cast<std::uint8_t*>(throwing);
         const std::uint32_t handle = HandleOf(impl, index);
-        if (handle >= 64)
-            return;
-        const std::uint64_t bit = 1ull << handle;
-        if (g_Announced.fetch_or(bit) & bit)
+        if (handle >= kTrackedHandles || !FirstAnnouncement(handle))
             return;
         if (MissionCodeGuard::ShouldBypassHooks())
             return;
         const std::uint16_t owner = Read<std::uint16_t>(ImplRecord(impl, index), kRecordOwner);
-        V_FrameWork::QueueMessage("Throwing", "OnActivateThrowing", handle,
-                                  static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(equipId))), owner);
+        const auto realEquipId = static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(equipId)));
+        V_FrameWork::QueueMessage("Throwing", "OnActivateThrowing", handle, realEquipId, owner);
     }
 
     void __fastcall hkUpdateActionGrenade(void* throwing, std::uint32_t index, std::uint32_t equipId, int supportWeaponType, float blastScale)
@@ -137,8 +143,8 @@ namespace
 
 void ThrowingImpl_ForgetActivation(std::uint32_t handle)
 {
-    if (handle < 64)
-        g_Announced.fetch_and(~(1ull << handle));
+    if (handle < kTrackedHandles)
+        g_Announced[handle / 64].fetch_and(~(1ull << (handle % 64)));
 }
 
 void ThrowingImpl_RunUpdateAction(ThrowingRequestKind kind, void* impl, std::uint32_t localIndex,
@@ -211,5 +217,6 @@ void Uninstall_ThrowingImpl_UpdateAction_Hooks()
     UnhookOne(g_DecoyTarget, reinterpret_cast<void**>(&g_OrigDecoy));
     UnhookOne(g_KibidangoTarget, reinterpret_cast<void**>(&g_OrigKibidango));
     UnhookOne(g_FakeSignTarget, reinterpret_cast<void**>(&g_OrigFakeSign));
-    g_Announced.store(0);
+    for (auto& announced : g_Announced)
+        announced.store(0);
 }

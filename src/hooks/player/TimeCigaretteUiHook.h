@@ -7,3 +7,4 @@ bool Show_TimeCigaretteUi();
 bool Hide_TimeCigaretteUi();
 
 void TimeCigaretteUi_SetUiController(void* uiController);
+void TimeCigaretteUi_ClearController();

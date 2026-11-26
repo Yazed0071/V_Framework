@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipIdCompression.h"
 
 #include <Windows.h>
@@ -112,7 +112,7 @@ namespace EquipIdCompression
         switch (gGameBuild)
         {
         case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return true;
+            return true;
         default:                                           return false;
         }
     }

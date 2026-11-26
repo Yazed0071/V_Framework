@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <atomic>
 #include <cstdint>
@@ -6,7 +6,9 @@
 #include <mutex>
 
 #include "UiPadLock.h"
+#include "TextIcons.h"
 #include "UixUtilityControl.h"
+#include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
 
@@ -20,6 +22,7 @@ namespace
     constexpr std::size_t kDevIsMouseButtonDown     = 0x170;   // the by-name mouse reads call these three through the vtable
     constexpr std::size_t kDevIsMouseButtonPressing = 0x180;
     constexpr std::size_t kDevIsMouseButtonUp       = 0x190;
+    constexpr std::size_t kDevButtonNameToKeyCode   = 0x0E0;
 
     constexpr std::size_t kPadRepeat      = 0x038;
     constexpr std::size_t kPadPress       = 0x058;
@@ -28,6 +31,13 @@ namespace
     constexpr std::size_t kPadStickAxis   = 0x0C8;
     constexpr std::size_t kPadIsDisableRequested = 0x120;
     constexpr std::size_t kDaemonPad      = 0xA0;
+    constexpr std::size_t kPadKeyRepeat    = 0x030;   // the keyboard reads take the action's place in the button map, not a key code
+    constexpr std::size_t kPadKeyPress     = 0x048;
+    constexpr std::size_t kPadKeyRelease   = 0x078;
+    constexpr std::size_t kPadKeyLongPress = 0x0A0;
+    constexpr std::size_t kPadUsedKeyboard = 0x024;   // byte the pad sets when the keyboard answered a read
+    constexpr std::uint32_t kNoPadButton   = 0x14;    // what the button map holds for an action without a pad button
+    constexpr std::uint32_t kNoKey         = 0x6D;    // what the key lookups give for a name without a key
 
     constexpr std::int16_t kFuncterStickAxisCode[] = {   // UiPadFuncter::GetStickAxis, -1 is any byte
         0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
@@ -90,6 +100,10 @@ namespace
     using MouseWheel_t  = float (__fastcall*)(void** util);
     using GkStickAxis_t = float (__fastcall*)(std::uint32_t index, std::uint32_t stick, std::uint32_t axis);
     using DaemonAxis_t  = float (__fastcall*)(void* daemon, std::uint32_t index, std::uint32_t stick, std::uint32_t axis);
+    using KeyLookup_t   = std::uint32_t (__fastcall*)(void** util, std::uint32_t name, std::uint32_t* place);
+    using EqualKey_t    = std::uint32_t (__fastcall*)(std::uint32_t name, std::uint32_t* place);
+    using KeyButton_t   = bool (__fastcall*)(void* pad, std::uint32_t index, std::uint32_t place, bool force);
+    using KeyLong_t     = int (__fastcall*)(void* pad, std::uint32_t index, std::uint32_t place, double seconds, bool force);
 
     std::mutex     g_ResolveLock;
     bool           g_Resolved = false;
@@ -115,8 +129,6 @@ namespace
     bool           g_MouseDownFailed = false;
     std::atomic<uipad::GameButtonFilter> g_MouseFilter{ nullptr };
 
-    // V_UixUtility.SetDisablePad holds the mouse too: the game's disable request only reaches the pad and keyboard reads,
-    // its mouse reads go to fox::MouseListener directly
     void**         g_MouseButtonDownSlot = nullptr;
     void**         g_MouseButtonPressingSlot = nullptr;
     void**         g_MouseButtonUpSlot = nullptr;
@@ -294,7 +306,6 @@ namespace
         return g_MouseDownSwapped;
     }
 
-    // while a Lua mod holds a disable request, the game's mouse reads see nothing; V_UixUtility's own reads pass
     bool GameMouseHeld()
     {
         return t_OwnQuery == 0 && g_HoldsOwn.load(std::memory_order_acquire);
@@ -415,6 +426,18 @@ namespace
         return ok;
     }
 
+    int ReadKey(void* pad, uipad::KeyRead read, std::uint32_t place, double seconds, bool force)
+    {
+        switch (read)
+        {
+        case uipad::KeyRead::Press:    return reinterpret_cast<KeyButton_t>(Slot(pad, kPadKeyPress))(pad, 0, place, force);
+        case uipad::KeyRead::Release:  return reinterpret_cast<KeyButton_t>(Slot(pad, kPadKeyRelease))(pad, 0, place, force);
+        case uipad::KeyRead::Repeat:   return reinterpret_cast<KeyButton_t>(Slot(pad, kPadKeyRepeat))(pad, 0, place, force);
+        case uipad::KeyRead::Pressing: return reinterpret_cast<KeyLong_t>(Slot(pad, kPadKeyLongPress))(pad, 0, place, 0.0, force) != 0;
+        default:                       return reinterpret_cast<KeyLong_t>(Slot(pad, kPadKeyLongPress))(pad, 0, place, seconds, force);
+        }
+    }
+
     void ResetDisableSEH(void* fn, void** util, std::uint32_t id)
     {
         __try
@@ -491,8 +514,40 @@ namespace uipad
         return true;
     }
 
+    bool HasPadButton(std::uint32_t name)
+    {
+        int padButton = 0, keyCode = 0;
+        return TextIcons::FindButton(name, padButton, keyCode) && padButton != static_cast<int>(kNoPadButton);
+    }
+
+    int KeyboardHalf(KeyRead read, std::uint32_t name, float seconds, bool force)
+    {
+        void** util = UixUtilityControl::Utility();
+        const auto lookup = reinterpret_cast<KeyLookup_t>(UixUtilityControl::Method(kDevButtonNameToKeyCode));
+        const auto equalKey = reinterpret_cast<EqualKey_t>(ResolveGameAddress(gAddr.ButtonMapper_GetKeyCodeEqual));
+        int out = 0;
+        if (!util || !lookup || !equalKey)
+            return out;
+        PadQuery([&](void* pad, std::uint32_t) {
+            std::uint32_t place = 0;
+            if (lookup(util, name, &place) == kNoKey)
+                return;
+            out = ReadKey(pad, read, place, seconds, force);
+            if (out == 0 && equalKey(name, &place) != kNoKey)
+                out = ReadKey(pad, read, place, seconds, force);
+            if (out != 0)
+                static_cast<std::uint8_t*>(pad)[kPadUsedKeyboard] = 1;
+        });
+        return out;
+    }
+
     bool Press(std::uint32_t name, bool& out)
     {
+        if (!HasPadButton(name))
+        {
+            out = KeyboardHalf(KeyRead::Press, name, 0.0f, true) != 0;
+            return true;
+        }
         return PadQuery([&](void* pad, std::uint32_t index) {
             out = reinterpret_cast<PadButton_t>(Slot(pad, kPadPress))(pad, index, name, true);
         });
@@ -500,6 +555,11 @@ namespace uipad
 
     bool Pressing(std::uint32_t name, bool& out)
     {
+        if (!HasPadButton(name))
+        {
+            out = KeyboardHalf(KeyRead::Pressing, name, 0.0f, true) != 0;
+            return true;
+        }
         return PadQuery([&](void* pad, std::uint32_t index) {
             out = reinterpret_cast<PadLong_t>(Slot(pad, kPadLongPress))(pad, index, name, 0.0, true) != 0;
         });
@@ -528,8 +588,35 @@ namespace uipad
         return ok && read;
     }
 
+    bool ButtonWords(std::uint32_t& held, std::uint32_t& pressed)
+    {
+        using PadListener_t = const std::uint8_t* (__fastcall*)(std::uint32_t index);
+        constexpr std::size_t kListenerHeld    = 0x28;
+        constexpr std::size_t kListenerPressed = 0x2C;
+
+        held = pressed = 0;
+        static const auto getListener = reinterpret_cast<PadListener_t>(ResolveGameAddress(gAddr.Fox_PadListener_GetDefault));
+        if (!getListener)
+            return false;
+        bool read = false;
+        const bool ok = PadQuery([&](void*, std::uint32_t index) {
+            if (const std::uint8_t* listener = getListener(index))
+            {
+                held    = *reinterpret_cast<const std::uint32_t*>(listener + kListenerHeld);
+                pressed = *reinterpret_cast<const std::uint32_t*>(listener + kListenerPressed);
+                read = true;
+            }
+        });
+        return ok && read;
+    }
+
     bool Release(std::uint32_t name, bool& out)
     {
+        if (!HasPadButton(name))
+        {
+            out = KeyboardHalf(KeyRead::Release, name, 0.0f, true) != 0;
+            return true;
+        }
         return PadQuery([&](void* pad, std::uint32_t index) {
             out = reinterpret_cast<PadButton_t>(Slot(pad, kPadRelease))(pad, index, name, true);
         });
@@ -537,6 +624,11 @@ namespace uipad
 
     bool Repeat(std::uint32_t name, float first, float interval, bool& out)
     {
+        if (!HasPadButton(name))
+        {
+            out = KeyboardHalf(KeyRead::Repeat, name, 0.0f, true) != 0;
+            return true;
+        }
         return PadQuery([&](void* pad, std::uint32_t index) {
             out = reinterpret_cast<PadRepeat_t>(Slot(pad, kPadRepeat))(pad, index, name, first, interval, true);
         });
@@ -544,6 +636,11 @@ namespace uipad
 
     bool LongPressResult(std::uint32_t name, float seconds, int& out)
     {
+        if (!HasPadButton(name))
+        {
+            out = KeyboardHalf(KeyRead::LongPress, name, seconds, true);
+            return true;
+        }
         return PadQuery([&](void* pad, std::uint32_t index) {
             out = reinterpret_cast<PadLong_t>(Slot(pad, kPadLongPress))(pad, index, name, seconds, true);
         });
@@ -557,22 +654,22 @@ namespace uipad
         std::lock_guard<std::mutex> lock(g_ResolveLock);
         if (g_PressByNameSwapped)
         {
-            RestoreVtableSlot(g_PressByNameSlot, reinterpret_cast<void*>(g_OrigPressByName));
+            RestoreVtableSlot(g_PressByNameSlot, reinterpret_cast<void*>(g_OrigPressByName), reinterpret_cast<void*>(&hkIsButtonPressByName));
             g_PressByNameSwapped = false;
             g_OrigPressByName = nullptr;
         }
         if (g_MouseDownSwapped)
         {
-            RestoreVtableSlot(g_MouseDownSlot, reinterpret_cast<void*>(g_OrigMouseDown));
+            RestoreVtableSlot(g_MouseDownSlot, reinterpret_cast<void*>(g_OrigMouseDown), reinterpret_cast<void*>(&hkIsMouseButtonDownByName));
             g_MouseDownSwapped = false;
             g_OrigMouseDown = nullptr;
         }
         if (g_HeldMouseSwapped)
         {
-            RestoreVtableSlot(g_MouseButtonDownSlot, reinterpret_cast<void*>(g_OrigMouseButtonDown));
-            RestoreVtableSlot(g_MouseButtonPressingSlot, reinterpret_cast<void*>(g_OrigMouseButtonPressing));
-            RestoreVtableSlot(g_MouseButtonUpSlot, reinterpret_cast<void*>(g_OrigMouseButtonUp));
-            RestoreVtableSlot(g_MouseWheelSlot, reinterpret_cast<void*>(g_OrigMouseWheel));
+            RestoreVtableSlot(g_MouseButtonDownSlot, reinterpret_cast<void*>(g_OrigMouseButtonDown), reinterpret_cast<void*>(&hkIsMouseButtonDown));
+            RestoreVtableSlot(g_MouseButtonPressingSlot, reinterpret_cast<void*>(g_OrigMouseButtonPressing), reinterpret_cast<void*>(&hkIsMouseButtonPressing));
+            RestoreVtableSlot(g_MouseButtonUpSlot, reinterpret_cast<void*>(g_OrigMouseButtonUp), reinterpret_cast<void*>(&hkIsMouseButtonUp));
+            RestoreVtableSlot(g_MouseWheelSlot, reinterpret_cast<void*>(g_OrigMouseWheel), reinterpret_cast<void*>(&hkGetMouseWheel));
             g_MouseButtonDownSlot = g_MouseButtonPressingSlot = g_MouseButtonUpSlot = g_MouseWheelSlot = nullptr;
             g_HeldMouseSwapped = false;
         }

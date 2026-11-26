@@ -55,6 +55,7 @@ namespace EquipDevelopAdd
 
     struct NativeDevelopNumber { const char* name; int value; };
     struct NativeDevelopString { const char* name; const char* value; };
+    struct NativeDevelopBool   { const char* name; bool value; };
 
     bool QueueNativeDevelopRequest(const char* key,
                                    const NativeDevelopNumber* constNums,
@@ -62,7 +63,9 @@ namespace EquipDevelopAdd
                                    const NativeDevelopString* constStrs,
                                    std::size_t constStrCount,
                                    const NativeDevelopNumber* flowNums,
-                                   std::size_t flowNumCount);
+                                   std::size_t flowNumCount,
+                                   const NativeDevelopBool* constBools = nullptr,
+                                   std::size_t constBoolCount = 0);
 
     bool IsManagedFlowIndex(std::uint16_t flowIndex);
 

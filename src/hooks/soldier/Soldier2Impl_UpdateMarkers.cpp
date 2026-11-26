@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "Soldier2Impl_UpdateMarkers.h"
 
 #include <Windows.h>
@@ -488,28 +488,6 @@ namespace
         PublishNamedSoldiers(static_cast<const std::uint8_t*>(soldier2Impl));
     }
 
-    bool IsCanaryOperand(std::size_t offset)
-    {
-        return offset >= kPrologueCanaryOperand && offset < kPrologueCanaryOperandEnd;
-    }
-
-    bool PrologueMatchesSeh(const std::uint8_t* entry)
-    {
-        __try
-        {
-            for (std::size_t i = 0; i < sizeof(kPrologue); ++i)
-            {
-                if (!IsCanaryOperand(i) && entry[i] != kPrologue[i])
-                    return false;
-            }
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
     bool LangIdToKeySeh(LangIdToKey_t toKey, const char* langId, std::uint64_t& outKey)
     {
         __try
@@ -673,6 +651,17 @@ void Set_HeadMarkStaffName(std::uint32_t gameObjectId, bool enable, bool showOnN
         NamedWord(soldierIndex).fetch_and(~NamedBit(soldierIndex), std::memory_order_relaxed);
 }
 
+void Set_EveryHeadMarkStaffName(bool enable, bool showOnNeutralized, const char* langId)
+{
+    const std::uint64_t langKey = enable ? NameLangKey(langId) : 0;
+    for (std::atomic<std::uint64_t>& key : g_NameLangKeys)
+        key.store(langKey, std::memory_order_relaxed);
+    for (std::atomic<std::uint64_t>& word : g_NeutralizedNamedSoldiers)
+        word.store(enable && showOnNeutralized ? ~0ull : 0ull, std::memory_order_relaxed);
+    for (std::atomic<std::uint64_t>& word : g_NamedSoldiers)
+        word.store(enable ? ~0ull : 0ull, std::memory_order_relaxed);
+}
+
 void Clear_AllHeadMarkStaffNames()
 {
     for (std::atomic<std::uint64_t>& word : g_NamedSoldiers)
@@ -716,11 +705,17 @@ bool Install_Soldier2Impl_UpdateMarkers_Hook()
         return false;
     }
 
-    if (!PrologueMatchesSeh(entry))
+    std::uint8_t prologueMask[sizeof(kPrologue)];
+    std::memset(prologueMask, 0xFF, sizeof(prologueMask));
+    std::memset(prologueMask + kPrologueCanaryOperand, 0, kPrologueCanaryOperandEnd - kPrologueCanaryOperand); // the canary operand differs per build
+    const HookEntry prologue = CheckHookEntryMasked(entry, kPrologue, prologueMask, sizeof(kPrologue));
+    if (prologue == HookEntry::Unknown)
     {
         LogError("ShowStaffName: UpdateMarkers prologue mismatch, ShowStaffName has no effect");
         return false;
     }
+    if (prologue == HookEntry::ForeignHook)
+        LogHookedOnTop("ShowStaffName: Soldier2Impl::UpdateMarkers", entry);
 
     g_GetQuarkSystemTable = reinterpret_cast<GetQuarkSystemTable_t>(
         ResolveGameAddress(gAddr.GetQuarkSystemTable));

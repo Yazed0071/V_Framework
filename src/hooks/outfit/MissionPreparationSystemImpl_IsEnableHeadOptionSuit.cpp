@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "MissionPreparationSystemImpl_IsEnableHeadOptionSuit.h"
 #include "OutfitRegistry.h"
@@ -22,6 +22,7 @@
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
 #include "../equip/EquipPartParams.h"
+#include "../equip/TppEquip_ReloadEquipIdTable.h"
 
 namespace
 {
@@ -97,6 +98,166 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
         }
+    }
+
+
+    using StartPopup_t     = std::uint8_t (__fastcall*)(void* prepSystem, const char* text, std::uint32_t type);
+    using GetPopupResult_t = std::uint32_t (__fastcall*)(void* prepSystem);
+    using HudGetInstance_t = std::uint8_t* (__fastcall*)();
+
+    static StartPopup_t     g_OrigStartPopup       = nullptr;
+    static void*            g_StartPopupTarget     = nullptr;
+    static GetPopupResult_t g_OrigGetPopupResult   = nullptr;
+    static void*            g_GetPopupResultTarget = nullptr;
+
+    static std::atomic<bool> g_FobBlockPopupArmed{ false };
+    static std::atomic<bool> g_FobBlockPopupPending{ false };
+    static const char*       g_FobBlockPopupText  = nullptr;
+    static std::uint32_t     g_FobBlockPopupType  = 0;
+    static ULONGLONG         g_FobBlockPopupSince = 0;
+
+    constexpr ULONGLONG     kFobBlockPopupWaitMs = 5000;
+    constexpr std::uint32_t kPopupResultClosed   = 1;   // Sortie Prep's popup phase returns to its menu on this
+    constexpr std::size_t   kHudPopupWindowA     = 0xE80;
+    constexpr std::size_t   kHudPopupWindowB     = 0xE88;
+    constexpr std::size_t   kPopupWindowOpen     = 0x20;
+    constexpr std::size_t   kHudPopupType        = 0x1510;
+    constexpr std::size_t   kHudPopupLangId      = 0x1530;
+    constexpr std::size_t   kHudPopupErrorFlag   = 0x1578;
+
+    const std::uint8_t kStartPopupEntry[] =
+    {
+        0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x41,
+        0x8B, 0xF8, 0x48, 0x8B, 0xF2,
+    };
+
+    const std::uint8_t kGetPopupResultEntry[] =
+    {
+        0x48, 0x83, 0xEC, 0x28, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xC8, 0x48, 0x83, 0xC4, 0x28,
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+    };
+    const std::uint8_t kGetPopupResultMask[] =
+    {
+        1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+        1, 0, 0, 0, 0,
+    };
+
+    struct ShownPopup
+    {
+        int windowA = -1;
+        int windowB = -1;
+        int type    = -1;
+        int error   = -1;
+        unsigned long long langId = 0;
+    };
+
+    static void ReadShownPopupSEH(std::uint8_t* hud, ShownPopup& out)
+    {
+        __try
+        {
+            const auto* a = *reinterpret_cast<std::uint8_t* const*>(hud + kHudPopupWindowA);
+            const auto* b = *reinterpret_cast<std::uint8_t* const*>(hud + kHudPopupWindowB);
+            out.windowA = a ? a[kPopupWindowOpen] : -1;
+            out.windowB = b ? b[kPopupWindowOpen] : -1;
+            out.type    = *reinterpret_cast<const std::int32_t*>(hud + kHudPopupType);
+            out.langId  = *reinterpret_cast<const std::uint64_t*>(hud + kHudPopupLangId) & kLangKeyMask;
+            out.error   = hud[kHudPopupErrorFlag];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void LogPopupInTheWay()
+    {
+        ShownPopup shown{};
+        const auto getHud = reinterpret_cast<HudGetInstance_t>(
+            ResolveGameAddress(gAddr.HudCommonDataManager_GetInstance));
+        if (std::uint8_t* hud = getHud ? getHud() : nullptr)
+            ReadShownPopupSEH(hud, shown);
+        LogWarn("FobGuard: the deploy-refused popup could not open, another popup is still up "
+                "(windows %d/%d, type %d, lang 0x%llX, error %d); retrying for %llu s",
+            shown.windowA, shown.windowB, shown.type, shown.langId, shown.error,
+            kFobBlockPopupWaitMs / 1000);
+    }
+
+    static std::uint8_t __fastcall hkStartPopup(void* prepSystem, const char* text, std::uint32_t type)
+    {
+        const bool fobBlock = g_FobBlockPopupArmed.exchange(false, std::memory_order_relaxed);
+        const std::uint8_t started = g_OrigStartPopup(prepSystem, text, type);
+        if (fobBlock && !started && !g_FobBlockPopupPending.load(std::memory_order_acquire))
+        {
+            g_FobBlockPopupText  = text;
+            g_FobBlockPopupType  = type;
+            g_FobBlockPopupSince = GetTickCount64();
+            g_FobBlockPopupPending.store(true, std::memory_order_release);
+            LogPopupInTheWay();
+        }
+        return started;
+    }
+
+    static std::uint32_t __fastcall hkGetPopupResult(void* prepSystem)
+    {
+        if (g_FobBlockPopupPending.load(std::memory_order_acquire))
+        {
+            if (g_OrigStartPopup(prepSystem, g_FobBlockPopupText, g_FobBlockPopupType))
+                g_FobBlockPopupPending.store(false, std::memory_order_relaxed);   // opened late, the menu now waits for its OK
+            else if (GetTickCount64() - g_FobBlockPopupSince >= kFobBlockPopupWaitMs)
+            {
+                g_FobBlockPopupPending.store(false, std::memory_order_relaxed);
+                LogWarn("FobGuard: the deploy-refused popup never opened, Sortie Prep goes back to its menu without it");
+                return kPopupResultClosed;
+            }
+        }
+        const std::uint32_t result = g_OrigGetPopupResult(prepSystem);
+        if (result == kPopupResultClosed)
+            g_FobBlockPopupPending.store(false, std::memory_order_relaxed);
+        return result;
+    }
+
+    static void InstallFobBlockPopupGuard()
+    {
+        void* start = gAddr.MissionPreparationSystemImpl_StartPopup
+            ? ResolveGameAddress(gAddr.MissionPreparationSystemImpl_StartPopup) : nullptr;
+        void* result = gAddr.MissionPreparationSystemImpl_GetPopupResult
+            ? ResolveGameAddress(gAddr.MissionPreparationSystemImpl_GetPopupResult) : nullptr;
+        if (!start || !result)
+        {
+            LogError("FobGuard: Sortie Prep popup addresses missing for this build, a refused deploy popup can leave Sortie Prep stuck");
+            return;
+        }
+        const HookEntry startEntry = CheckHookEntry(start, kStartPopupEntry, sizeof(kStartPopupEntry));
+        const HookEntry resultEntry = CheckHookEntryMasked(result, kGetPopupResultEntry, kGetPopupResultMask,
+                                                           sizeof(kGetPopupResultEntry));
+        if (startEntry == HookEntry::Unknown || resultEntry == HookEntry::Unknown)
+        {
+            char found[160] = {};
+            DescribeFunctionEntry(startEntry == HookEntry::Unknown ? start : result, found, sizeof(found));
+            LogError("FobGuard: Sortie Prep %s does not match (%s), a refused deploy popup can leave Sortie Prep stuck",
+                startEntry == HookEntry::Unknown ? "StartPopup" : "GetPopupResult", found);
+            return;
+        }
+        if (startEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("FobGuard: Sortie Prep StartPopup", start);
+        if (resultEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("FobGuard: Sortie Prep GetPopupResult", result);
+        if (!CreateAndEnableHook(start, reinterpret_cast<void*>(&hkStartPopup),
+                                 reinterpret_cast<void**>(&g_OrigStartPopup)))
+        {
+            LogError("FobGuard: Sortie Prep StartPopup hook failed @ %p, a refused deploy popup can leave Sortie Prep stuck", start);
+            return;
+        }
+        g_StartPopupTarget = start;
+        if (!CreateAndEnableHook(result, reinterpret_cast<void*>(&hkGetPopupResult),
+                                 reinterpret_cast<void**>(&g_OrigGetPopupResult)))
+        {
+            LogError("FobGuard: Sortie Prep GetPopupResult hook failed @ %p, a refused deploy popup can leave Sortie Prep stuck", result);
+            DisableAndRemoveHook(start);
+            g_StartPopupTarget = nullptr;
+            g_OrigStartPopup   = nullptr;
+            return;
+        }
+        g_GetPopupResultTarget = result;
     }
 
 
@@ -363,9 +524,8 @@ namespace
     constexpr std::uint32_t kEquipTypeThrowing = 12;
     constexpr std::uint32_t kEquipTypePlaced   = 13;
 
-    static bool FobLoadoutHasBannedManagedEquip(void* self)
+    static bool FobLoadoutHasBannedManagedEquip()
     {
-        static_cast<void>(self);
         __try
         {
             void* sys = ResolveLoadoutHolder();
@@ -462,7 +622,7 @@ namespace
                             LogWarn("FobGuard: deploy blocked, equipId %u is a custom weapon or support weapon",
                                 static_cast<unsigned>(bannedEquipId));
                         else if (entries[bannedAt].tainted)
-                            LogWarn("FobGuard: deploy blocked, equipId %u uses parts or damage rows a mod changed",
+                            LogWarn("FobGuard: deploy blocked, equipId %u uses parts a mod changed",
                                 static_cast<unsigned>(bannedEquipId));
                         else
                             LogWarn("FobGuard: deploy blocked, equipId %u (flowIndex %u) not FOB-available",
@@ -477,6 +637,87 @@ namespace
         return false;
     }
 
+    enum class FobGear { Clean, OwnDefaultOutfit, Banned };
+
+    static FobGear CheckFobGear()
+    {
+        const char* vanillaRow = "equip id table";
+        int vanillaRowId = 0;
+        if (!EquipParam_FindModifiedVanillaRow(&vanillaRow, &vanillaRowId))
+            vanillaRowId = TppEquip_FirstVanillaRowOverride();
+        if (vanillaRowId != 0)
+        {
+            static std::atomic<int> s_lastBlockedRow{ 0 };
+            if (s_lastBlockedRow.exchange(vanillaRowId, std::memory_order_relaxed) != vanillaRowId)
+                LogWarn("FobGuard: deploy blocked, a mod changed the vanilla %s row %d",
+                    vanillaRow, vanillaRowId);
+            return FobGear::Banned;
+        }
+
+        if (FobLoadoutHasBannedManagedEquip())
+            return FobGear::Banned;
+
+        std::uint16_t customFaceId = 0;
+        if (outfit::IsLocalPlayerFaceIdCustom(customFaceId))
+        {
+            static std::atomic<std::uint16_t> s_lastBlockedFace{ 0 };
+            if (s_lastBlockedFace.exchange(customFaceId, std::memory_order_relaxed) != customFaceId)
+                LogWarn("FobGuard: deploy blocked, the player's face id %u is a custom face (set directly, not through a staff member)",
+                    static_cast<unsigned>(customFaceId));
+            return FobGear::Banned;
+        }
+
+        const std::uint16_t wornHeadEquipId = outfit::GetCurrentWornHeadEquipId();
+        const std::uint8_t headPlayer = outfit::ReadLivePlayerType();
+        const std::uint8_t headParts  = outfit::ReadLivePartsType();
+        const outfit::OutfitEntry* headOutfit = nullptr;
+        const bool headWorn =
+            wornHeadEquipId != 0
+            && ((headParts >= outfit::kCustomPartsTypeStart
+                 && headParts <= outfit::kCustomPartsTypeEnd
+                 && outfit::TryGetOutfitByPartsType(headParts, &headOutfit)
+                 && headOutfit
+                 && headOutfit->HasHeadOptionAnyVariant(wornHeadEquipId, headPlayer))
+                || (headParts < outfit::kCustomPartsTypeStart
+                    && outfit::VanillaExtHasHeadOption(
+                           headParts, wornHeadEquipId, headPlayer,
+                           outfit::ReadLiveSelectorCode())));
+        if (headWorn)
+        {
+            static std::atomic<std::uint16_t> s_lastBlockedHead{ 0 };
+            if (s_lastBlockedHead.exchange(wornHeadEquipId, std::memory_order_relaxed) != wornHeadEquipId)
+                LogWarn("FobGuard: deploy blocked, custom head option equipId %u worn",
+                    static_cast<unsigned>(wornHeadEquipId));
+            return FobGear::Banned;
+        }
+
+        const std::uint8_t wornPt = outfit::ReadLivePartsType();
+        std::uint8_t defOwnerPt = 0;
+        if (uniquedefaultoutfit::IsDefaultOutfitPartsType(wornPt, &defOwnerPt)
+            && outfit::ReadLivePlayerType() == defOwnerPt)
+            return FobGear::OwnDefaultOutfit;
+
+        if (wornPt >= outfit::kCustomPartsTypeStart && wornPt <= outfit::kCustomPartsTypeEnd)
+        {
+            static std::atomic<std::uint8_t> s_lastBlockedPt{ 0 };
+            if (s_lastBlockedPt.exchange(wornPt, std::memory_order_relaxed) != wornPt)
+                LogWarn("FobGuard: deploy blocked, custom outfit partsType 0x%02X worn",
+                    static_cast<unsigned>(wornPt));
+            return FobGear::Banned;
+        }
+
+        if (wornPt < outfit::kCustomPartsTypeStart && outfit::GetActiveVariant(wornPt) != 0)
+        {
+            static std::atomic<std::uint8_t> s_lastBlockedVariantPt{ 0 };
+            if (s_lastBlockedVariantPt.exchange(wornPt, std::memory_order_relaxed) != wornPt)
+                LogWarn("FobGuard: deploy blocked, extended variant active on partsType 0x%02X",
+                    static_cast<unsigned>(wornPt));
+            return FobGear::Banned;
+        }
+
+        return FobGear::Clean;
+    }
+
     static std::uint8_t __fastcall hkIsEnableHeadOptionSuit(
         void* self, std::uint16_t param2)
     {
@@ -488,6 +729,26 @@ namespace
 
         const std::uint8_t pt     = outfit::ReadLivePartsType();
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
+
+        using GetCurrentSuitFlow_t = std::uint32_t (__fastcall*)(void* self);
+        constexpr std::size_t kVtblSlot_GetCurrentSuitFlow = 0x1F8 / 8;
+        auto getWornFlow = self
+            ? reinterpret_cast<GetCurrentSuitFlow_t>(
+                  (*reinterpret_cast<void***>(self))[kVtblSlot_GetCurrentSuitFlow])
+            : nullptr;
+        if (getWornFlow
+            && static_cast<std::uint16_t>(getWornFlow(self)) != param2)
+        {
+            // the picked suit is not the worn one, answer for the picked suit
+            const outfit::OutfitEntry* picked = nullptr;
+            if (outfit::TryGetOutfitByFlowIndex(param2, &picked) && picked)
+            {
+                const std::uint8_t variant = (picked->partsType == pt)
+                    ? outfit::GetActiveVariant(pt) : picked->defaultVariant;
+                return picked->HasHeadOptionsForVariant(livePT, variant) ? 1 : 0;
+            }
+            return g_OrigIsEnableHeadOptionSuit(self, param2);
+        }
 
         if (uniquecharpin::IsOwnSuitPartsType(livePT, pt))
             return 0;
@@ -551,97 +812,21 @@ namespace
             {
                 if (!g_OrigMenuGetLangText)
                     EnsureMenuLangHookSEH(self);
-                if (FobLoadoutHasBannedManagedEquip(self))
+                switch (CheckFobGear())
                 {
+                case FobGear::Banned:
                     g_FobBlockVfwOnly.store(
                         g_OrigIsEnableCurrentSuit(self) != 0,
                         std::memory_order_relaxed);
+                    g_FobBlockPopupArmed.store(true, std::memory_order_relaxed);
                     return 0;
-                }
-                std::uint16_t customFaceId = 0;
-                if (outfit::IsLocalPlayerWearingCustomFace(customFaceId))
-                {
-                    static std::atomic<std::uint16_t> s_lastBlockedFace{ 0 };
-                    if (s_lastBlockedFace.exchange(
-                            customFaceId, std::memory_order_relaxed)
-                        != customFaceId)
-                        LogWarn("FobGuard: deploy blocked, character wears custom face %u",
-                            static_cast<unsigned>(customFaceId));
-                    g_FobBlockVfwOnly.store(
-                        g_OrigIsEnableCurrentSuit(self) != 0,
-                        std::memory_order_relaxed);
-                    return 0;
-                }
-                const std::uint16_t wornHeadEquipId =
-                    outfit::GetCurrentWornHeadEquipId();
-                const std::uint8_t headPlayer = outfit::ReadLivePlayerType();
-                const std::uint8_t headParts  = outfit::ReadLivePartsType();
-                const outfit::OutfitEntry* headOutfit = nullptr;
-                const bool headWorn =
-                    wornHeadEquipId != 0
-                    && ((headParts >= outfit::kCustomPartsTypeStart
-                         && headParts <= outfit::kCustomPartsTypeEnd
-                         && outfit::TryGetOutfitByPartsType(headParts, &headOutfit)
-                         && headOutfit
-                         && headOutfit->HasHeadOptionAnyVariant(wornHeadEquipId,
-                                                                headPlayer))
-                        || (headParts < outfit::kCustomPartsTypeStart
-                            && outfit::VanillaExtHasHeadOption(
-                                   headParts, wornHeadEquipId, headPlayer,
-                                   outfit::ReadLiveSelectorCode())));
-                if (headWorn)
-                {
-                    static std::atomic<std::uint16_t> s_lastBlockedHead{ 0 };
-                    if (s_lastBlockedHead.exchange(
-                            wornHeadEquipId, std::memory_order_relaxed)
-                        != wornHeadEquipId)
-                        LogWarn("FobGuard: deploy blocked, custom head option equipId %u worn",
-                            static_cast<unsigned>(wornHeadEquipId));
-                    g_FobBlockVfwOnly.store(
-                        g_OrigIsEnableCurrentSuit(self) != 0,
-                        std::memory_order_relaxed);
-                    return 0;
-                }
-                const std::uint8_t wornPt = outfit::ReadLivePartsType();
-                std::uint8_t defOwnerPt = 0;
-                const bool wornIsOwnDefault =
-                    uniquedefaultoutfit::IsDefaultOutfitPartsType(
-                        wornPt, &defOwnerPt)
-                    && outfit::ReadLivePlayerType() == defOwnerPt;
-                if (wornIsOwnDefault)
-                {
+                case FobGear::OwnDefaultOutfit:
                     g_FobBlockVfwOnly.store(false, std::memory_order_relaxed);
                     return 1;
+                default:
+                    g_FobBlockVfwOnly.store(false, std::memory_order_relaxed);
+                    return g_OrigIsEnableCurrentSuit(self);
                 }
-                if (!wornIsOwnDefault
-                    && wornPt >= outfit::kCustomPartsTypeStart
-                    && wornPt <= outfit::kCustomPartsTypeEnd)
-                {
-                    static std::atomic<std::uint8_t> s_lastBlockedPt{ 0 };
-                    if (s_lastBlockedPt.exchange(
-                            wornPt, std::memory_order_relaxed) != wornPt)
-                        LogWarn("FobGuard: deploy blocked, custom outfit partsType 0x%02X worn",
-                            static_cast<unsigned>(wornPt));
-                    g_FobBlockVfwOnly.store(
-                        g_OrigIsEnableCurrentSuit(self) != 0,
-                        std::memory_order_relaxed);
-                    return 0;
-                }
-                if (wornPt < outfit::kCustomPartsTypeStart
-                    && outfit::GetActiveVariant(wornPt) != 0)
-                {
-                    static std::atomic<std::uint8_t> s_lastBlockedVariantPt{ 0 };
-                    if (s_lastBlockedVariantPt.exchange(
-                            wornPt, std::memory_order_relaxed) != wornPt)
-                        LogWarn("FobGuard: deploy blocked, extended variant active on partsType 0x%02X",
-                            static_cast<unsigned>(wornPt));
-                    g_FobBlockVfwOnly.store(
-                        g_OrigIsEnableCurrentSuit(self) != 0,
-                        std::memory_order_relaxed);
-                    return 0;
-                }
-                g_FobBlockVfwOnly.store(false, std::memory_order_relaxed);
-                return g_OrigIsEnableCurrentSuit(self);
             }
         }
 
@@ -668,6 +853,11 @@ namespace
 
 namespace outfit
 {
+    bool IsFobGearBanned()
+    {
+        return CheckFobGear() == FobGear::Banned;
+    }
+
     bool Install_OutfitHeadOption_Hook()
     {
         if (g_Installed) return true;
@@ -689,6 +879,8 @@ namespace outfit
                 reinterpret_cast<void**>(&g_OrigIsEnableCurrentSuit));
         if (!g_IsEnableCurrentSuitInstalled)
             LogError("OutfitHeadOption: IsEnableCurrentSuit hook failed, suit gate and FOB deploy guard off");
+        else
+            InstallFobBlockPopupGuard();
 
         void* hosTarget = ResolveGameAddress(
             gAddr.MissionPrepSystem_IsEnableHeadOptionSuit);
@@ -759,6 +951,21 @@ namespace outfit
             g_OrigIsEnableCurrentSuit       = nullptr;
             g_IsEnableCurrentSuitInstalled  = false;
         }
+
+        if (g_GetPopupResultTarget)
+        {
+            DisableAndRemoveHook(g_GetPopupResultTarget);
+            g_GetPopupResultTarget = nullptr;
+            g_OrigGetPopupResult   = nullptr;
+        }
+        if (g_StartPopupTarget)
+        {
+            DisableAndRemoveHook(g_StartPopupTarget);
+            g_StartPopupTarget = nullptr;
+            g_OrigStartPopup   = nullptr;
+        }
+        g_FobBlockPopupArmed.store(false, std::memory_order_relaxed);
+        g_FobBlockPopupPending.store(false, std::memory_order_relaxed);
 
         if (g_MenuGetLangTextTarget)
         {

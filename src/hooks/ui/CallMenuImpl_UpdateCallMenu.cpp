@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CallMenuImpl_UpdateCallMenu.h"
 
 #include <Windows.h>
@@ -20,33 +20,7 @@ namespace
 
     Addrs AddrsForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return {
-                0x14179BB50ull, // tpp::ui::hud::impl::CallMenuImpl::UpdateCallMenu
-                0x14179B340ull, // tpp::ui::hud::impl::CallMenuImpl::SetCommandText
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            return {
-                0x14179BA40ull, // tpp::ui::hud::impl::CallMenuImpl::UpdateCallMenu
-                0x14179B230ull, // tpp::ui::hud::impl::CallMenuImpl::SetCommandText
-            };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return {
-                0x14A903400ull, // tpp::ui::hud::impl::CallMenuImpl::UpdateCallMenu
-                0x14179BC90ull, // tpp::ui::hud::impl::CallMenuImpl::SetCommandText
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return {
-                0x14B2846E0ull, // tpp::ui::hud::impl::CallMenuImpl::UpdateCallMenu
-                0x14179BDC0ull, // tpp::ui::hud::impl::CallMenuImpl::SetCommandText
-            };
-        default:
-            return {};
-        }
+        return { gAddr.CallMenuImpl_UpdateCallMenu, gAddr.CallMenuImpl_SetCommandText };
     }
 
     using UpdateCallMenu_t = void(__fastcall*)(std::uint8_t* callMenu);
@@ -72,8 +46,6 @@ namespace
         return *reinterpret_cast<T*>(base + offset);
     }
 
-    // The game numbers a row only when its command changes, so a hidden row keeps its old number. Once our rows
-    // renumber the shown ones, two rows can share a number; the wheel then stops on the hidden one forever.
     void RenumberRowsSeh(std::uint8_t* callMenu)
     {
         __try

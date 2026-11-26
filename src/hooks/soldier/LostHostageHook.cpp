@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <intrin.h>
@@ -21,6 +21,8 @@
 #include "AddressSet.h"
 #include "FoxHashes.h"
 
+
+void SoldierNotice_NoteAccepted(std::uint32_t soldierIndex, const void* noticeBlob);   // SoldierNotice.cpp has no header
 
 using ConvertRadioTypeToSpeechLabel_t = std::uint32_t(__fastcall*)(std::uint8_t radioType);
 using AddNoticeInfo_t = bool(__fastcall*)(void* self, std::uint32_t soldierIndex, const void* noticeBlob);
@@ -313,7 +315,8 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
 
     ParseNoticeBlob(noticeBlob, noticeType, noticeObjId, slot);
 
-    if (SoldierNotice_ShouldDropNotice(soldierIndex, noticeType, _ReturnAddress()))
+    if (SoldierNotice_ShouldDropNotice(soldierIndex, noticeType, _ReturnAddress())
+        && !SoldierFaction_IsRivalNotice(soldierIndex, noticeType, noticeBlob))   // ignorePlayer still fights rivals
         return false;
 
     if (SoldierVehicleAvoid_ShouldDropNotice(soldierIndex, noticeType, noticeBlob))
@@ -325,6 +328,7 @@ static bool __fastcall hkAddNoticeInfo(void* self, std::uint32_t soldierIndex, c
     const bool accepted = g_OrigAddNoticeInfo(self, soldierIndex, noticeBlob);
     if (!accepted) return false;
 
+    SoldierNotice_NoteAccepted(soldierIndex, noticeBlob);
     if (noticeType != NOTICE_ESCAPE_OBJECT) return true;
 
     if (slot < 0)

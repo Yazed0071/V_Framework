@@ -20,6 +20,7 @@ namespace shell
     void RemoteMissile_ArmShot(int playerIndex, int ownerEquipId);
     void RemoteMissile_DisarmShot();
     void RemoteMissile_Abort();
+    void RemoteMissile_ClearForNewMission();
     bool RemoteMissile_IsFlying();
 
     bool Install_RemoteMissile_Hooks();

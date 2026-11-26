@@ -1,7 +1,6 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
-#include <array>
 #include <cstdint>
 
 #include "AddressSet.h"
@@ -33,7 +32,6 @@ namespace
     constexpr std::size_t   kQuarkGameSystems    = 0x98;
     constexpr std::size_t   kGameSystemsEquip    = 0x1E8;
     constexpr std::size_t   kEquipGetOwnerSlot   = 3;
-    constexpr std::uint32_t kSoldierSlotCount    = 0x200u;
 
     struct BulletContact
     {
@@ -44,8 +42,6 @@ namespace
     };
 
     OnOffenseHit_t g_OrigOnOffenseHit = nullptr;
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedHitRival{};
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedPassAlly{};
 
     bool ReadBulletContact(void* bullet3, std::uint32_t bulletIndex, const void* defense, BulletContact* out)
     {
@@ -111,29 +107,6 @@ namespace
         return gameObjectId != kNoGameObject && (gameObjectId >> 9) == 2u;
     }
 
-    void LogOnce(std::array<std::uint16_t, kSoldierSlotCount>& logged, std::uint16_t shooterId,
-                 std::uint16_t soldierId, const char* what)
-    {
-        const std::uint32_t shooter = shooterId & 0x1FFu;
-        if (logged[shooter] == soldierId)
-            return;
-        logged[shooter] = soldierId;
-        LogInfo("SoldierFaction: bullet from soldier %u %s soldier %u", shooter, what, soldierId & 0x1FFu);
-    }
-
-    std::array<bool, 16> g_loggedUnknownKind{};
-
-    void LogUnknownPassOnce(const BulletContact& contact)
-    {
-        const std::uint32_t kind = static_cast<std::uint32_t>((contact.targetHandle >> 59) & 0xFu);
-        if (g_loggedUnknownKind[kind])
-            return;
-        g_loggedUnknownKind[kind] = true;
-        LogInfo("SoldierFaction: bullet from soldier %u passed through a non-soldier target, handle 0x%016llX groups 0x%03llX",
-            contact.ownerId & 0x1FFu, static_cast<unsigned long long>(contact.targetHandle),
-            static_cast<unsigned long long>(contact.targetGroups));
-    }
-
     std::uint32_t __fastcall hk_OnOffenseHit(void* bullet3, std::uint32_t bulletIndex, void* offense,
                                              void* defense, void* result)
     {
@@ -146,34 +119,41 @@ namespace
         if (!ReadBulletContact(bullet3, bulletIndex, defense, &contact))
             return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
         const std::uint16_t shooterId = SoldierFaction_RiderOrSelf(contact.ownerId);
-        if (!SoldierFaction_IsFactionSoldier(shooterId))
+        if (!SoldierFaction_HasFaction(shooterId))   // a faction soldier or a faction heli: both had their bullets widened
             return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
 
         const std::uint16_t victimId = TargetGameObjectId(contact.targetHandle);
         if (IsSoldierId(victimId) && victimId != shooterId)
         {
-            if (SoldierFaction_AreHostileSoldiers(shooterId, victimId))
-            {
-                LogOnce(g_loggedHitRival, shooterId, victimId, "hit rival");
+            if (SoldierFaction_AreHostileIds(shooterId, victimId) || Get_FriendlyFire())
                 return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
-            }
-            if (Get_FriendlyFire())
+            return kPassThrough;
+        }
+
+        const std::uint16_t vanillaGroups = static_cast<std::uint16_t>(contact.bulletGroups & ~kGroupEnemy);
+        const bool vanillaHit = (vanillaGroups & contact.targetGroups) != 0 || victimId == contact.ownerId || Get_FriendlyFire();
+
+        if (SoldierFaction_IsEnemyHeliId(victimId) && SoldierFaction_HasFaction(victimId))
+        {
+            if (SoldierFaction_AreHostileIds(shooterId, victimId))
                 return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
-            LogOnce(g_loggedPassAlly, shooterId, victimId, "passed through non-rival");
+            if (!Get_FriendlyFire())
+                return kPassThrough;
+        }
+
+        if (SoldierFaction_IsMountId(victimId))
+        {
+            if (SoldierFaction_OnMountShot(shooterId, victimId, contact.targetGroups, vanillaHit) || vanillaHit)
+                return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
             return kPassThrough;
         }
 
         const std::uint16_t victimRider = victimId == kNoGameObject ? kNoGameObject : SoldierFaction_RiderOrSelf(victimId);
         if (victimRider != victimId && IsSoldierId(victimRider) && SoldierFaction_AreHostileSoldiers(shooterId, victimRider))
-        {
-            LogOnce(g_loggedHitRival, shooterId, victimRider, "hit the walker gear or vehicle of rival");
             return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
-        }
 
-        const std::uint16_t vanillaGroups = static_cast<std::uint16_t>(contact.bulletGroups & ~kGroupEnemy);
-        if ((vanillaGroups & contact.targetGroups) != 0 || victimId == contact.ownerId || Get_FriendlyFire())
+        if (vanillaHit)
             return g_OrigOnOffenseHit(bullet3, bulletIndex, offense, defense, result);
-        LogUnknownPassOnce(contact);
         return kPassThrough;
     }
 }

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -173,7 +173,6 @@ static void GameFree(void* data)
 }
 
 
-// SubtitlesManager::GetInstance is exactly "mov rax,[rip+disp32]; ret"; anything else is a wrong table entry
 static bool IsSubtitleManagerGetterSEH(const void* fn)
 {
     __try

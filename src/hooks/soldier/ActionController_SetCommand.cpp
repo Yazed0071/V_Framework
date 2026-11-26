@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ActionController_SetCommand.h"
 
 #include <cstdint>
@@ -7,6 +7,9 @@
 #include "ComradeTurn.h"
 #include "FakeSurrender.h"
 #include "HookUtils.h"
+#include "RideHeliActionImpl_State_GetInAction.h"
+#include "SoldierFactionAntiAir.h"
+#include "SoldierThrowCommand.h"
 #include "log.h"
 
 namespace
@@ -18,8 +21,12 @@ namespace
 
     void __fastcall hk_SetCommand(std::uint8_t* actionController, std::uint32_t soldierIndex, std::uint8_t* command)
     {
+        SoldierThrow_OnSetCommand(actionController, soldierIndex, command);
         CallComrade::OnSetCommand(soldierIndex, command);
         FakeSurrender::OnSetCommand(soldierIndex, command);
+        SoldierFactionAntiAir_OnSetCommand(soldierIndex, command);
+        if (SoldierRideHeli_OnSetCommand(actionController, soldierIndex, command))
+            return;
         g_Orig(actionController, soldierIndex, command);
     }
 }
@@ -50,7 +57,7 @@ bool Install_ActionController_SetCommand_Hook()
 
 void Uninstall_ActionController_SetCommand_Hook()
 {
-    CallComrade::StopTurn();
+    CallComrade::ForgetComrades();
     FakeSurrender::Clear();
     if (g_HookTarget)
     {

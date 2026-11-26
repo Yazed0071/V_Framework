@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MissionPreparationSystemImpl_GetParamBuddyPartsFromVars_Hook();
+void Uninstall_MissionPreparationSystemImpl_GetParamBuddyPartsFromVars_Hook();

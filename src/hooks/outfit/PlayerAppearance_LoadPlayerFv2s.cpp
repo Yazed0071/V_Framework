@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "PlayerAppearance_LoadPlayerFv2s.h"
 
@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "AddressSet.h"
+#include "BlockControllerImpl_LoadPartsNew.h"
 #include "CustomHeadRegistry.h"
 #include "FoxPathInternal.h"
 #include "HeadMotion.h"
@@ -83,6 +84,7 @@ namespace
     constexpr std::size_t   kFv2_Hair            = 3;
     constexpr std::size_t   kFv2_HairDeco        = 4;
     constexpr std::size_t   kFv2_Horn            = 5;
+    constexpr std::size_t   kFv2_Cap             = 6;
     constexpr std::size_t   kFv2_ContainerOffset = 0xB;
 
     constexpr std::size_t   kTypeInfo_PlayerType = 0x00;
@@ -123,29 +125,9 @@ namespace
 
     static HeadAddresses AddressesForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-            return { 0x1409b2750ull, 0x1409b3770ull, 0x1404e39d0ull,
-                     0x1409b3670ull, 0x1409b3170ull, 0x1409f1fe0ull,
-                     0x1409f09d0ull, 0x1409f0860ull };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-            return { 0x1409b2660ull, 0x1409b3680ull, 0x1404e3dc0ull,
-                     0x1409b3580ull, 0x1409b3080ull, 0x1409f1e00ull,
-                     0x1409f07f0ull, 0x1409f0680ull };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return { 0x1409b1ae0ull, 0x1409b2b00ull, 0x144a43950ull,
-                     0x146235c90ull, 0x146233a90ull, 0x146323c30ull,
-                     0x14631c0f0ull, 0x14631b870ull };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return { 0x1409b15c0ull, 0x1409b25e0ull, 0x1448a71f0ull,
-                     0x147ee6ab0ull, 0x147ee5050ull, 0x147fd3170ull,
-                     0x147fcc600ull, 0x147fcbf70ull };
-        default:
-            return { 0, 0, 0, 0, 0, 0, 0, 0 };
-        }
+        return { gAddr.PlayerAppearance_LoadPlayerFv2s, gAddr.PlayerAppearance_LoadPlayerFv2sSubset, gAddr.PlayerAppearance_CreateFv2ResourceManager,
+                 gAddr.PlayerAppearance_GetShell, gAddr.PlayerAppearance_GetShellForBlock, gAddr.PlayerAppearance_GetFaceSystem,
+                 gAddr.PlayerAppearance_GetFaceFovaPathIdAtFaceId, gAddr.PlayerAppearance_GetFaceFovaFpkPathIdAtFaceId };
     }
 
     constexpr std::uint8_t kFaceGetterMovR9Rcx[]  = { 0x4C, 0x8B, 0xC9 };
@@ -657,6 +639,132 @@ namespace
         }
     }
 
+    struct HatShell
+    {
+        std::uint8_t* shell      = nullptr;
+        void*         block      = nullptr;
+        std::uint8_t  playerType = 0;
+    };
+
+    static void LogHatOnce(std::uint64_t code, const char* cause)
+    {
+        static std::atomic<std::uint64_t> s_last{ 0 };
+        if (s_last.exchange(code, std::memory_order_relaxed) != code)
+            LogWarn("OutfitHeadOption: hat %016llX %s, no hat shown",
+                static_cast<unsigned long long>(code), cause);
+    }
+
+    static bool QueueHatPathSEH(std::uint8_t* shell, std::uint64_t fpk)
+    {
+        __try
+        {
+            QueuePath(shell, kPath_Horn, fpk);
+            return PathAlreadyQueued(shell, fpk);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static HatShell HatShellForBlockSEH(void* impl, void* blockGroup, std::uint32_t blockIndex)
+    {
+        HatShell hs{};
+        __try
+        {
+            hs.shell = static_cast<std::uint8_t*>(g_GetShellForBlock(impl, blockGroup, blockIndex));
+            if (hs.shell)
+            {
+                hs.playerType = hs.shell[kShell_TypeInfo + kTypeInfo_PlayerType];
+                hs.block      = g_GetBlockAtIndex(blockGroup, blockIndex);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            hs.shell = nullptr;
+        }
+        return hs;
+    }
+
+    static HatShell HatShellForImplSlotSEH(void* impl, std::uint32_t implSlot)
+    {
+        HatShell hs{};
+        __try
+        {
+            void* op = nullptr;
+            hs.shell = static_cast<std::uint8_t*>(ShellForImplSlot(impl, implSlot, &op));
+            if (hs.shell && op)
+            {
+                hs.playerType = hs.shell[kShell_TypeInfo + kTypeInfo_PlayerType];
+                hs.block      = g_GetBlockAtIndex(
+                    *reinterpret_cast<void**>(static_cast<std::uint8_t*>(op) + kOp_BlockGroup),
+                    *reinterpret_cast<std::uint32_t*>(hs.shell + kShell_BlockIndex));
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            hs.shell = nullptr;
+        }
+        return hs;
+    }
+
+    static bool MakeHatContainerSEH(const HatShell& hs, std::uint64_t fv2)
+    {
+        __try
+        {
+            void*& horn = ContainerAt(hs.shell, kContainer_Horn);
+            if (!horn)
+                horn = MakeContainer(hs.block, fv2);
+            return horn != nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void AddHatContainer(void* impl, void* blockGroup, std::uint32_t blockIndex)
+    {
+        const HatShell hs = HatShellForBlockSEH(impl, blockGroup, blockIndex);
+        std::uint64_t fpk = 0;
+        std::uint64_t fv2 = 0;
+        if (!hs.shell || !hs.block || !outfit::ShellCustomHat(hs.shell, hs.playerType, &fpk, &fv2))
+            return;
+        if (!MakeHatContainerSEH(hs, fv2))
+            LogHatOnce(fv2, "fv2 not in its fpk or has no model");
+    }
+
+    static void SetHatFilesSEH(const HatShell& hs, std::uint64_t* rec, std::uint64_t fv2)
+    {
+        __try
+        {
+            void* horn = ContainerAt(hs.shell, kContainer_Horn);
+            if (rec[kFv2_Horn] || !HasModels(horn))
+                return;
+            void* file = LoadedFile(hs.block, fv2);
+            if (!file)
+                return;
+            rec[kFv2_Horn] = reinterpret_cast<std::uint64_t>(file);
+            rec[kFv2_ContainerOffset + kFv2_Horn] = reinterpret_cast<std::uint64_t>(horn);
+            rec[kFv2_Cap] = 0;   // the head's own hat stands in for the chicken / chick cap
+            rec[kFv2_ContainerOffset + kFv2_Cap] = 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            LogHatOnce(fv2, "model choice faulted");
+        }
+    }
+
+    static void ApplyHatFiles(void* impl, std::uint64_t* rec, std::uint32_t implSlot)
+    {
+        const HatShell hs = HatShellForImplSlotSEH(impl, implSlot);
+        std::uint64_t fpk = 0;
+        std::uint64_t fv2 = 0;
+        if (!hs.shell || !hs.block || !outfit::ShellCustomHat(hs.shell, hs.playerType, &fpk, &fv2))
+            return;
+        SetHatFilesSEH(hs, rec, fv2);
+    }
+
     static std::uint64_t* ServeArmedFace(void* faceSys, std::uint64_t* out,
                                          std::uint32_t faceId, bool wantFpk,
                                          FaceFovaCode_t orig)
@@ -686,23 +794,17 @@ namespace
                               g_OrigGetFaceFovaFpkPathIdAtFaceId);
     }
 
-    static bool FaceGetterPrologueMatchesSEH(void* fn)
+    static HookEntry FaceGetterEntry(void* fn)
     {
-        __try
-        {
-            const auto* bytes = static_cast<const std::uint8_t*>(fn);
-            const bool movOk =
-                std::memcmp(bytes, kFaceGetterMovR9Rcx, sizeof(kFaceGetterMovR9Rcx)) == 0
-                || std::memcmp(bytes, kFaceGetterMovR9RcxAlt,
-                               sizeof(kFaceGetterMovR9RcxAlt)) == 0;
-            return movOk
-                && std::memcmp(bytes + sizeof(kFaceGetterMovR9Rcx), kFaceGetterCmpFaceId,
-                               sizeof(kFaceGetterCmpFaceId)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        std::uint8_t expected[sizeof(kFaceGetterMovR9Rcx) + sizeof(kFaceGetterCmpFaceId)] = {};
+        std::memcpy(expected, kFaceGetterMovR9Rcx, sizeof(kFaceGetterMovR9Rcx));
+        std::memcpy(expected + sizeof(kFaceGetterMovR9Rcx), kFaceGetterCmpFaceId,
+                    sizeof(kFaceGetterCmpFaceId));
+        const HookEntry plain = CheckHookEntry(fn, expected, sizeof(expected));
+        if (plain != HookEntry::Unknown)
+            return plain;
+        std::memcpy(expected, kFaceGetterMovR9RcxAlt, sizeof(kFaceGetterMovR9RcxAlt));
+        return CheckHookEntry(fn, expected, sizeof(expected));
     }
 
     static void ReportBranchFaceModelSEH(void* impl, void* blockGroup,
@@ -730,12 +832,30 @@ namespace
             LogFaceModelMissingOnce(slot, playerType, "fv2 not in its fpk or has no model");
     }
 
+    static void* ShellForBlockSEH(void* impl, void* blockGroup, std::uint32_t blockIndex)
+    {
+        __try
+        {
+            return g_GetShellForBlock(impl, blockGroup, blockIndex);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
     static std::uint64_t __fastcall hkLoadPlayerFv2sSubset(
         void* listener, void* blockGroup, std::uint32_t blockIndex)
     {
+        void* shell = nullptr;
+        if (listener && blockGroup && g_Ready.load(std::memory_order_acquire)
+            && !MissionCodeGuard::ShouldBypassHooks())
+            shell = ShellForBlockSEH(static_cast<std::uint8_t*>(listener) - 0x30, blockGroup, blockIndex);
+        outfit::BeginLateFaceLoad(shell);
         t_BranchFaceServed = false;
         const std::uint64_t result =
             g_OrigLoadPlayerFv2sSubset(listener, blockGroup, blockIndex);
+        outfit::EndLateFaceLoad();
         const bool served = t_BranchFaceServed;
         t_BranchFaceServed = false;
         if (listener && blockGroup && g_Ready.load(std::memory_order_acquire)
@@ -746,6 +866,7 @@ namespace
                                          blockGroup, blockIndex);
             AddLayerContainersSEH(static_cast<std::uint8_t*>(listener) - 0x30,
                                   blockGroup, blockIndex);
+            AddHatContainer(static_cast<std::uint8_t*>(listener) - 0x30, blockGroup, blockIndex);
         }
         return result;
     }
@@ -890,7 +1011,10 @@ namespace
             g_OrigLoadPlayerFv2s(impl, fv2Info, loadInfo, playerIndex, implSlot);
         RestoreDroppedHeadSEH(swap);
         if (ready && fv2Info && !MissionCodeGuard::ShouldBypassHooks())
+        {
             ApplyLayerFilesSEH(impl, fv2Info, implSlot);
+            ApplyHatFiles(impl, fv2Info, implSlot);
+        }
         if (ready && playerIndex == 0 && implSlot == 0)
         {
             g_LocalHeadImpl.store(impl, std::memory_order_release);
@@ -1069,15 +1193,20 @@ namespace outfit::ddheadlayers
 
         g_FaceFovaPathTarget    = ResolveGameAddress(a.getFaceFovaPathIdAtFaceId);
         g_FaceFovaFpkPathTarget = ResolveGameAddress(a.getFaceFovaFpkPathIdAtFaceId);
+        const HookEntry pathEntry = FaceGetterEntry(g_FaceFovaPathTarget);
+        const HookEntry fpkEntry = FaceGetterEntry(g_FaceFovaFpkPathTarget);
         if (!g_FaceFovaPathTarget || !g_FaceFovaFpkPathTarget
-            || !FaceGetterPrologueMatchesSEH(g_FaceFovaPathTarget)
-            || !FaceGetterPrologueMatchesSEH(g_FaceFovaFpkPathTarget))
+            || pathEntry == HookEntry::Unknown || fpkEntry == HookEntry::Unknown)
         {
             LogError("DdHeadLayers: face fova getters %s, fv2/fpk heads use their face row",
                 (g_FaceFovaPathTarget && g_FaceFovaFpkPathTarget)
                     ? "not the expected code" : "have no address");
             return true;
         }
+        if (pathEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("DdHeadLayers: GetFaceFovaPathIdAtFaceId", g_FaceFovaPathTarget);
+        if (fpkEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("DdHeadLayers: GetFaceFovaFpkPathIdAtFaceId", g_FaceFovaFpkPathTarget);
 
         const bool fv2GetterOk = CreateAndEnableHook(
             g_FaceFovaPathTarget,
@@ -1181,6 +1310,14 @@ namespace outfit::ddheadlayers
             g_StaffFaceLoads[impl] = snapshot;
     }
 
+    void* PartsShell(void* impl, std::uint32_t implSlot)
+    {
+        if (!impl || implSlot >= kMaxImplSlots || !g_Ready.load(std::memory_order_acquire))
+            return nullptr;
+        std::int32_t state = 0;
+        return ProbeShellSEH(impl, implSlot, &state);
+    }
+
     bool ForgetShellTypeInfo(void* impl, std::uint32_t implSlot, const std::uint8_t* typeInfo)
     {
         if (!impl || !typeInfo || implSlot >= kMaxImplSlots || !g_Ready.load(std::memory_order_acquire))
@@ -1188,18 +1325,10 @@ namespace outfit::ddheadlayers
         return ForgetShellTypeInfoSEH(impl, implSlot, typeInfo[kTypeInfo_CamoType]);
     }
 
-    PartsLoadProbe BeginPartsLoad(void* impl, std::uint32_t implSlot,
-                                  const std::uint8_t* typeInfo)
+    static PartsLoadProbe ProbeParts(void* impl, std::uint32_t implSlot,
+                                     const std::uint8_t* typeInfo)
     {
         PartsLoadProbe probe{};
-        if (!impl || !typeInfo || implSlot >= kMaxImplSlots
-            || !g_Ready.load(std::memory_order_acquire)
-            || MissionCodeGuard::ShouldBypassHooks())
-            return probe;
-        if (!IsDdPlayerType(typeInfo[kTypeInfo_PlayerType])
-            || !IsCustomHeadSlot(typeInfo[kTypeInfo_FaceEquip]))
-            return probe;
-
         std::int32_t state = 0;
         void* shell = ProbeShellSEH(impl, implSlot, &state);
         if (!shell)
@@ -1214,20 +1343,54 @@ namespace outfit::ddheadlayers
         return probe;
     }
 
-    void EndPartsLoad(const PartsLoadProbe& probe, const std::uint8_t* typeInfo)
+    static bool PartsLoadQueued(const PartsLoadProbe& probe, const std::uint8_t* typeInfo)
     {
         if (!probe.valid || !typeInfo)
-            return;
+            return false;
 
         std::int32_t stateAfter = 0;
         if (!ReadSlotStateSEH(probe.impl, probe.implSlot, &stateAfter))
-            return;
+            return false;
 
         const bool freshLoad = probe.stateBefore == 1 && stateAfter == 3;
         const bool reload = probe.stateBefore != 0 && probe.stateBefore != 1
             && !probe.matchedBefore && stateAfter == 5
             && TypeInfoMatchesShellSEH(probe.shell, typeInfo);
-        if (!freshLoad && !reload)
+        return freshLoad || reload;
+    }
+
+    PartsLoadProbe BeginPartsLoad(void* impl, std::uint32_t implSlot,
+                                  const std::uint8_t* typeInfo)
+    {
+        if (!impl || !typeInfo || implSlot >= kMaxImplSlots
+            || !g_Ready.load(std::memory_order_acquire)
+            || MissionCodeGuard::ShouldBypassHooks())
+            return PartsLoadProbe{};
+        if (!IsDdPlayerType(typeInfo[kTypeInfo_PlayerType])
+            || !IsCustomHeadSlot(typeInfo[kTypeInfo_FaceEquip]))
+            return PartsLoadProbe{};
+        return ProbeParts(impl, implSlot, typeInfo);
+    }
+
+    PartsLoadProbe BeginHatLoad(void* impl, std::uint32_t implSlot,
+                                const std::uint8_t* typeInfo)
+    {
+        if (!impl || !typeInfo || implSlot >= kMaxImplSlots
+            || !g_Ready.load(std::memory_order_acquire))
+            return PartsLoadProbe{};
+        return ProbeParts(impl, implSlot, typeInfo);
+    }
+
+    void EndHatLoad(const PartsLoadProbe& probe, const std::uint8_t* typeInfo, std::uint64_t fpk)
+    {
+        if (PartsLoadQueued(probe, typeInfo)
+            && !QueueHatPathSEH(static_cast<std::uint8_t*>(probe.shell), fpk))
+            LogHatOnce(fpk, "pack not queued, the extra-model pack slot is taken");
+    }
+
+    void EndPartsLoad(const PartsLoadProbe& probe, const std::uint8_t* typeInfo)
+    {
+        if (!PartsLoadQueued(probe, typeInfo))
             return;
 
         DdHeadLayers layers{};

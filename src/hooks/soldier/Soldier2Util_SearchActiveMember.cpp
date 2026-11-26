@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -6,6 +6,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "RideVehicleActionImpl_State_IdleAction.h"
 #include "SoldierFaction.h"
 
 namespace
@@ -19,7 +20,7 @@ namespace
         MISSION_GUARD_ORIGINAL_RET(g_OrigSearchActiveMember, result, center, radius);
 
         const std::uint32_t count = g_OrigSearchActiveMember(result, center, radius);
-        return SoldierFaction_FilterSoldierSearch(result, count);
+        return JeepGunner_FilterCrewSearch(result, SoldierFaction_FilterSoldierSearch(result, count));
     }
 }
 

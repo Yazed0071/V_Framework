@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipParameterTablesImpl_GetSupportWeaponParameterBlock.h"
 
 #include <intrin.h>

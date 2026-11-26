@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CustomizeSelectorCallbackImpl_DecideActWindowPartHelicopter_Hook();
+void Uninstall_CustomizeSelectorCallbackImpl_DecideActWindowPartHelicopter_Hook();

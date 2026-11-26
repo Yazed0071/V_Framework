@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "CamouflageControllerImpl_ExecSuitCorrect.h"
 #include "OutfitRegistry.h"
@@ -43,7 +43,8 @@ namespace
             return nullptr;
 
 
-        const std::uint8_t pin = entry->GetCamoBonusType(livePlayer);
+        const std::uint8_t pin = entry->GetCamoBonusPin(livePlayer,
+            entry->HasVariants() ? outfit::GetActiveVariant(liveParts) : std::uint8_t{ 0 });
         const bool isVanillaPin =
             (pin <= outfit::kVanillaCamoTypeMax);
         const bool isVirtualPin =

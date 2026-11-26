@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PickableSystemImpl_CreateInstanceFromVars.h"
 
 #include <Windows.h>
@@ -29,24 +29,7 @@ namespace
 
     std::uintptr_t CreateInstanceFromVarsAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140FB9810ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.PickableSystemImpl_CreateInstanceFromVars;
     }
 
     std::uint16_t* DroppedWeaponCellsSEH()
@@ -130,12 +113,15 @@ bool Install_PickableSystemImpl_CreateInstanceFromVars()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: CreateInstanceFromVars prologue mismatch on %s, equipIds above 0x7FF stay off",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: CreateInstanceFromVars", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkCreateInstanceFromVars),
                              reinterpret_cast<void**>(&g_Orig)))
     {

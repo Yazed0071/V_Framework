@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "EquipControllerImpl_InitCurrentSlot.h"
 
@@ -160,7 +160,7 @@ namespace
             {
                 g_ActiveSlot.store(slot, std::memory_order_relaxed);
                 g_Active.store(m, std::memory_order_release);
-                g_OrigInit(impl, slot, buddyService, kSinfulButterflyEquipId); // only flips her clip set to the sinful-butterfly slots
+                g_OrigInit(impl, slot, buddyService, kSinfulButterflyEquipId);
                 return;
             }
             WarnOnce(*m);
@@ -183,7 +183,7 @@ namespace
             const std::uint8_t state = (*reinterpret_cast<std::uint8_t**>(impl + 0x58))[slot]; // weapon slot state, 4 and 5 = releasing the pack
             if (state != 4 && state != 5)
                 return;
-            (*reinterpret_cast<std::int32_t**>(impl + 0x38))[slot] = 0; // back to her rifle clip set before the pack unloads
+            (*reinterpret_cast<std::int32_t**>(impl + 0x38))[slot] = 0;
             g_Active.store(nullptr, std::memory_order_release);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

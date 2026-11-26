@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CharacterSelectorCallbackImpl_SetupBuddyList_Patch();
+void Uninstall_CharacterSelectorCallbackImpl_SetupBuddyList_Patch();

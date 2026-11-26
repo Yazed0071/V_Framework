@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "BarrierEffectSpawn.h"
 
 #include <Windows.h>
@@ -64,16 +64,7 @@ namespace
 
     static uintptr_t BarrierBlowCbAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF94D0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF9560ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x140FF9C70ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x140FF9CC0ull;
-            default: return 0;
-        }
+        return gAddr.BarrierEffect_BlowCallback;
     }
 
     struct SoundMuteSite
@@ -89,49 +80,13 @@ namespace
 
     static std::size_t BarrierSoundMuteSites(SoundMuteSite (&out)[kMaxMuteSites])
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-                out[0] = { 0x140D2DDB7ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
-                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
-                out[1] = { 0x1417525CAull, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
-                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
-                out[2] = { 0x141751648ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
-                return 3;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-                out[0] = { 0x140D2DD67ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
-                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
-                out[1] = { 0x14175258Aull, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
-                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
-                out[2] = { 0x141751608ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
-                return 3;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-                out[0] = { 0x140D2DC77ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
-                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
-                out[1] = { 0x14175310Aull, { 0xE8, 0xC1, 0xF0, 0xFF, 0xFF },
-                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
-                out[2] = { 0x14194C55Eull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
-                out[3] = { 0x14194C5A3ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag (2)" };
-                return 4;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-                out[0] = { 0x140D2D8D7ull, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
-                                            { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
-                out[1] = { 0x1417531DAull, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
-                                            { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
-                out[2] = { 0x14194C68Eull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
-                out[3] = { 0x14194C6D3ull, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
-                                            { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag (2)" };
-                return 4;
-            default:
-                return 0;
-        }
+        out[0] = { gAddr.BarrierEffect_BulletWallHitSe, { 0x41, 0x0F, 0xB7, 0x47, 0x2A },
+                                    { 0xE9, 0x15, 0x02, 0x00, 0x00 }, "bullet wall-hit SE" };
+        out[1] = { gAddr.BarrierEffect_WallObjectHitSe, { 0xE8, 0xD1, 0xF0, 0xFF, 0xFF },
+                                    { 0x90, 0x90, 0x90, 0x90, 0x90 }, "wall-object hit SE" };
+        out[2] = { gAddr.BarrierEffect_RicochetSoundFlag, { 0xC6, 0x44, 0x24, 0x28, 0x01 },
+                                    { 0xC6, 0x44, 0x24, 0x28, 0x00 }, "ricochet-spawn sound flag" };
+        return 3;
     }
 
     static bool WritePatchBytes(void* target, const std::uint8_t* src, std::size_t size)
@@ -190,57 +145,21 @@ namespace
 
     static uintptr_t BarrierRegisterDefenseCbAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF5BB0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF5C40ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496DA350ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A13FBB0ull;
-            default: return 0;
-        }
+        return gAddr.BarrierEffect_RegisterDefenseCallback;
     }
     static uintptr_t BarrierDefenseFunctorAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x142ACEB58ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x142ACEB58ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x142ACEB58ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x142ACEB58ull;
-            default: return 0;
-        }
+        return gAddr.BarrierEffect_DefenseFunctor;
     }
 
     static uintptr_t BarrierPredicateAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FFAAA0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FFAB30ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496DD430ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A142E80ull;
-            default: return 0;
-        }
+        return gAddr.BarrierEffect_Predicate;
     }
 
     static uintptr_t BarrierPlayerDtorAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF4AE0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF4B70ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1496D5120ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14A137900ull;
-            default: return 0;
-        }
+        return gAddr.BarrierEffect_PlayerDtor;
     }
 
     static std::atomic<bool> g_DesiredUp{ false };
@@ -323,10 +242,17 @@ namespace
     static void* __fastcall hk_Update(void* r15, std::uint64_t index, void* r8, void* r9)
     {
         if (g_Failed.load(std::memory_order_relaxed) || index != kPlayerIndex || !r15)
+        {
+            if (index == kPlayerIndex)
+                RestoreBarrierSoundMute();
             return g_Orig ? g_Orig(r15, index, r8, r9) : nullptr;
+        }
 
         if (InFob())
+        {
+            RestoreBarrierSoundMute();
             return g_Orig ? g_Orig(r15, index, r8, r9) : nullptr;
+        }
 
         g_Tick.fetch_add(1, std::memory_order_relaxed);
 
@@ -536,6 +462,8 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             g_Failed.store(true, std::memory_order_relaxed);
+            g_PrevShieldActive.store(false, std::memory_order_relaxed);
+            RestoreBarrierSoundMute();
             LogError("Barrier: Energy Wall update faulted reading player state, dome off");
             return g_Orig ? g_Orig(r15, index, r8, r9) : nullptr;
         }
@@ -551,6 +479,8 @@ namespace
         {
             if (forced && sub204) *sub204 = oldSub204;
             g_Failed.store(true, std::memory_order_relaxed);
+            g_PrevShieldActive.store(false, std::memory_order_relaxed);
+            RestoreBarrierSoundMute();
             LogError("Barrier: effect update faulted with the Energy Wall forced, reverted, dome off");
             return ret;
         }
@@ -562,6 +492,9 @@ namespace
     static std::uint32_t __fastcall hk_BlowCb(void* callable, void* offense,
                                               void* defense, void* result, void* core)
     {
+        if (InFob())
+            return g_OrigBlowCb(callable, offense, defense, result, core);
+
         bool rehitDrain = false;
         __try
         {

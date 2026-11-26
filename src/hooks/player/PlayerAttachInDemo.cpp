@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -166,17 +166,7 @@ namespace
 
     std::uintptr_t MainViewportGlobalAddress()
     {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (gGameBuild)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x142BE1280ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x142BE1280ull;
-        case GB::En_1_0_15_3:  return 0x142BE1260ull;
-        case GB::Jp_1_0_15_3:  return 0x142BE1260ull;
-        default:               return 0;
-        }
+        return gAddr.MainViewport_Global;
     }
 
     constexpr std::size_t    kViewportCamera    = 0x570;
@@ -195,9 +185,6 @@ namespace
     constexpr float          kAnchorMatchQuatDot  = 0.999f;
     constexpr unsigned char  kCameraCommitPrologue[] = { 0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54,
                                                          0x41, 0x55, 0x41, 0x56, 0x41, 0x57 };
-    constexpr unsigned char  kCameraCommitPrologue153[] = { 0x48, 0x89, 0xE0, 0x55, 0x41, 0x54,
-                                                            0x41, 0x55, 0x41, 0x56, 0x41, 0x57 };
-    static_assert(sizeof(kCameraCommitPrologue153) == sizeof(kCameraCommitPrologue));
 
     using CameraCommit_t = void(__fastcall*)(void* daemon, void* a2, void* a3, void* a4);
     CameraCommit_t     g_OrigCameraCommit = nullptr;
@@ -593,26 +580,8 @@ namespace
 
     DemoCameraSites GetDemoCameraSites()
     {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (gGameBuild)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a:
-            return { 0x140437B60ull, kCameraCommitPrologue, 0x140421740ull,
-                     0x1404334B0ull, 0x140433720ull };
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a:
-            return { 0x1404380E0ull, kCameraCommitPrologue, 0x140421D30ull,
-                     0x140433A90ull, 0x140433D00ull };
-        case GB::En_1_0_15_3:
-            return { 0x1444A6AD0ull, kCameraCommitPrologue153, 0x1443C9170ull,
-                     0x140433030ull, 0x1404332A0ull };
-        case GB::Jp_1_0_15_3:
-            return { 0x144465CB0ull, kCameraCommitPrologue153, 0x144416AE0ull,
-                     0x140432BA0ull, 0x140432E10ull };
-        default:
-            return { 0, kCameraCommitPrologue, 0, 0, 0 };
-        }
+        return { gAddr.DemoCamera_Commit, kCameraCommitPrologue, gAddr.DemoCamera_GetControlRoot,
+                 gAddr.DemoCamera_AnchorCaptureBegin, gAddr.DemoCamera_AnchorCaptureEnd };
     }
 
     using GetControlRoot_t = int* (__fastcall*)(int* err, float* outTransform, std::uint64_t id);
@@ -770,18 +739,6 @@ namespace
             g_OrigCameraCommit(daemon, a2, a3, a4);
     }
 
-    bool PrologueMatchesSeh(const void* at, const unsigned char* expect, std::size_t len)
-    {
-        __try
-        {
-            return std::memcmp(at, expect, len) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
     bool InstallGetControlRootHook()
     {
         if (g_HookGetControlRoot)
@@ -790,11 +747,14 @@ namespace
         void* target = ResolveGameAddress(sites.getControlRoot);
         if (!target)
             return false;
-        if (!PrologueMatchesSeh(target, kGetControlRootPrologue, sizeof(kGetControlRootPrologue)))
+        const HookEntry entry = CheckHookEntry(target, kGetControlRootPrologue, sizeof(kGetControlRootPrologue));
+        if (entry == HookEntry::Unknown)
         {
             LogError("AttachInDemo: control-root prologue mismatch, demo camera lag fix needs an attach");
             return false;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("AttachInDemo: GetCharacterControlRoot", target);
         if (!CreateAndEnableHook(target, &hkGetCharacterControlRoot,
                                  reinterpret_cast<void**>(&g_OrigGetControlRoot)))
         {
@@ -813,11 +773,14 @@ namespace
         void* target = ResolveGameAddress(sites.cameraCommit);
         if (!target)
             return false;
-        if (!PrologueMatchesSeh(target, sites.cameraCommitPrologue, sizeof(kCameraCommitPrologue)))
+        const HookEntry entry = CheckHookEntry(target, sites.cameraCommitPrologue, sizeof(kCameraCommitPrologue));
+        if (entry == HookEntry::Unknown)
         {
             LogError("AttachInDemo: camera commit prologue mismatch, demo camera fix off");
             return false;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("AttachInDemo: camera commit", target);
         if (!CreateAndEnableHook(target, &hkCameraCommit,
                                  reinterpret_cast<void**>(&g_OrigCameraCommit)))
         {
@@ -1141,7 +1104,7 @@ namespace
                                  const float* rot, bool waitForBlock)
     {
         const bool own = g_InOwnWarp.exchange(false, std::memory_order_relaxed);
-        if (!own)
+        if (!own && !MissionCodeGuard::ShouldBypassHooks())
         {
             float p[3] = {};
             const bool havePos = pos && ReadFloat3Safe(pos, p);
@@ -1774,7 +1737,13 @@ namespace
 
     std::uint32_t __fastcall hkDoFinish(void* playback)
     {
-        NoteDemoEnd();
+        if (g_Active.load(std::memory_order_relaxed))
+            NoteDemoEnd();
+        else
+        {
+            g_DemoEndQpc.store(0, std::memory_order_relaxed);
+            g_MissionWarpPending.store(false, std::memory_order_relaxed);
+        }
         OpenHandoffWindow();
         const std::uint32_t result = g_OrigDoFinish ? g_OrigDoFinish(playback) : 0;
         ReleaseAttach();
@@ -1785,7 +1754,13 @@ namespace
 
     std::uint32_t __fastcall hkDoInterrupt(void* playback)
     {
-        NoteDemoEnd();
+        if (g_Active.load(std::memory_order_relaxed))
+            NoteDemoEnd();
+        else
+        {
+            g_DemoEndQpc.store(0, std::memory_order_relaxed);
+            g_MissionWarpPending.store(false, std::memory_order_relaxed);
+        }
         OpenHandoffWindow();
         const std::uint32_t result = g_OrigDoInterrupt ? g_OrigDoInterrupt(playback) : 0;
         ReleaseAttach();
@@ -1866,19 +1841,14 @@ void ClearAttachInDemo()
 {
     ReleaseAttach();
     g_HandoffDeadlineMs.store(0, std::memory_order_relaxed);
+    g_Playback.store(nullptr, std::memory_order_relaxed);
+    ResetGeneralFixState();
 }
 
 bool Install_PlayerAttachInDemo_Hook()
 {
     if (g_HookTarget)
         return true;
-
-    if (gGameBuild == ::AddressSetRuntime::GameBuild::En_1_0_15_3
-        || gGameBuild == ::AddressSetRuntime::GameBuild::Jp_1_0_15_3)
-    {
-        LogError("AttachInDemo: not supported on 15.3, RequestToAttachInDemo has no effect");
-        return true;
-    }
 
     if (!gAddr.DemoPlayback_OnPlayingAfterUpdateStream
         || !gAddr.Vehicle_GetConnectPointWorldMatrix)

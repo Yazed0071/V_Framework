@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "log.h"
 #include <windows.h>
@@ -15,6 +15,7 @@ static FILE* g_LogFile = nullptr;
 static std::mutex g_LogMutex;
 static bool g_AtLineStart = true;
 static DWORD g_LastFlushTick = 0;
+static bool g_LogPending = false;   // lines written inside the 100 ms flush gap, not on disk yet
 static std::atomic<unsigned long> g_LogIoBeginTick{ 0 };
 static std::atomic<unsigned long> g_LogIoTid{ 0 };
 static std::atomic<unsigned long> g_LogSerial{ 0 };
@@ -23,6 +24,35 @@ static inline void ConsoleWrite(const char* data, int len)
 {
     if (GetConsoleWindow())
         fwrite(data, 1, static_cast<size_t>(len), stdout);
+}
+
+static bool LogHasCrashReport(const char* path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path, "rb") != 0 || !f)
+        return false;
+    std::string text;
+    char chunk[64 * 1024];
+    size_t got = 0;
+    while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0)
+        text.append(chunk, got);
+    fclose(f);
+    return text.find("[CRASH] faulting instruction") != std::string::npos;
+}
+
+static void KeepCrashLog(const char* logPath, const char* vfDir)
+{
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (!GetFileAttributesExA(logPath, GetFileExInfoStandard, &info) || !LogHasCrashReport(logPath))
+        return;
+    FILETIME local{};
+    SYSTEMTIME st{};
+    if (!FileTimeToLocalFileTime(&info.ftLastWriteTime, &local) || !FileTimeToSystemTime(&local, &st))
+        return;
+    char crashPath[MAX_PATH]{};
+    sprintf_s(crashPath, "%s\\V_FrameWork_crash_%04u-%02u-%02u_%02u-%02u-%02u.txt", vfDir,
+              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    CopyFileA(logPath, crashPath, TRUE);
 }
 
 void InitLog()
@@ -50,6 +80,8 @@ void InitLog()
     char prevPath[MAX_PATH]{};
     strcpy_s(prevPath, gameDir);
     strcat_s(prevPath, "mod\\V_FrameWork\\V_FrameWork_log.prev.txt");
+
+    KeepCrashLog(logPath, vfDir);
 
     bool rotateFailed = false;
     DWORD rotateErr   = 0;
@@ -180,11 +212,27 @@ static void WriteLog(const char* buf, int len)
         {
             fflush(g_LogFile);
             g_LastFlushTick = now;
+            g_LogPending = false;
         }
+        else
+            g_LogPending = true;
     }
 
     g_LogIoBeginTick.store(0, std::memory_order_release);
     g_LogSerial.fetch_add(1, std::memory_order_relaxed);
+}
+
+void LogFlushIfDue()
+{
+    std::unique_lock<std::mutex> lock(g_LogMutex, std::try_to_lock);   // never wait on a writer from the frame
+    if (!lock.owns_lock() || !g_LogFile || !g_LogPending)
+        return;
+    const DWORD now = GetTickCount();
+    if (now - g_LastFlushTick < 100u)
+        return;
+    fflush(g_LogFile);
+    g_LastFlushTick = now;
+    g_LogPending = false;
 }
 
 unsigned long LogLineSerial()
@@ -231,6 +279,16 @@ void CloseLog()
 {
     std::lock_guard<std::mutex> lock(g_LogMutex);
     if (g_LogFile)
+    {
+        fclose(g_LogFile);
+        g_LogFile = nullptr;
+    }
+}
+
+void CloseLogAtExit()
+{
+    std::unique_lock<std::mutex> lock(g_LogMutex, std::try_to_lock);
+    if (lock.owns_lock() && g_LogFile)
     {
         fclose(g_LogFile);
         g_LogFile = nullptr;

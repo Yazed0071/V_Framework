@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipBgTexture.h"
 
 #include <Windows.h>
@@ -12,7 +12,6 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "AddressSet.h"
-#include "MissionCodeGuard.h"
 #include "UiTexturePrefetch.h"
 #include "EquipAliasLease.h"
 
@@ -59,8 +58,6 @@ namespace
     constexpr uint8_t kIsReadyTextureEntry154[] = {
         0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF,
         0xFF, 0x41, 0x8B, 0xD8, 0x48, 0x85, 0xD2, 0x75, 0x04, 0x32, 0xC0, 0xEB, 0x35 };
-    constexpr uint8_t kIsReadyTextureThunkEn153[] = { 0xE9, 0x7B, 0xEA, 0x99, 0x0B };
-    constexpr uint8_t kIsReadyTextureThunkJp153[] = { 0xE9, 0xFB, 0xCC, 0x03, 0x0C };
 
     struct IsReadyTextureSite
     {
@@ -71,33 +68,7 @@ namespace
 
     IsReadyTextureSite IsReadyTextureSiteForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return { 0x141DBBD20ull, kIsReadyTextureThunkEn153, sizeof(kIsReadyTextureThunkEn153) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return { 0x141DBBD60ull, kIsReadyTextureThunkJp153, sizeof(kIsReadyTextureThunkJp153) };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-            return { 0x141DBC2D0ull, kIsReadyTextureEntry154, sizeof(kIsReadyTextureEntry154) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-            return { 0x141DBC330ull, kIsReadyTextureEntry154, sizeof(kIsReadyTextureEntry154) };
-        default:
-            return { 0, nullptr, 0 };
-        }
-    }
-
-    bool EntryBytesMatchSEH(const void* entry, const uint8_t* bytes, size_t size)
-    {
-        __try
-        {
-            return std::memcmp(entry, bytes, size) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return { gAddr.EquipBgTexture_IsReadyTexture, kIsReadyTextureEntry154, sizeof(kIsReadyTextureEntry154) };
     }
 
     void InstallTextureGuard()
@@ -107,11 +78,14 @@ namespace
         if (!target)
             return;
 
-        if (!EntryBytesMatchSEH(target, site.entryBytes, site.entrySize))
+        const HookEntry entry = CheckHookEntry(target, site.entryBytes, site.entrySize);
+        if (entry == HookEntry::Unknown)
         {
             LogError("UiTextureGuard: IsReadyTexture entry bytes differ at %p, guard off", target);
             return;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("UiTextureGuard: IsReadyTexture", target);
 
         if (!CreateAndEnableHook(
                 target,
@@ -139,7 +113,7 @@ namespace
     constexpr uintptr_t SLOT_FLAGS      = 0x04;
     constexpr uintptr_t SLOT_TEXTURE    = 0x08;
     constexpr uintptr_t TEXTURE_PATH    = 0x10; // fox::Path, first qword is the path hash
-    constexpr uint32_t  SLOT_LOCKED     = 0x100000; // layout resets keep this slot's texture instead of the layout default
+    constexpr uint32_t  SLOT_LOCKED     = 0x100000;
 
     constexpr uintptr_t QUARK_GAME            = 0x98;   // game side of the quark table
     constexpr uintptr_t GAME_VARS             = 0x10;   // script vars
@@ -265,7 +239,6 @@ namespace
     {
         __try
         {
-            // the loadout holds the alias of a wide equipId, equipId here is the real one
             for (int i = 0; i < 3; ++i)
                 if (equip::FromEngine(*reinterpret_cast<const int*>(loadout + LOADOUT_WEAPONS + i * LOADOUT_WEAPON_STRIDE)) == equipId) return true;
             for (int i = 0; i < 8; ++i)
@@ -707,12 +680,11 @@ namespace
     {
         if (node)
         {
-            const bool bypass = MissionCodeGuard::ShouldBypassHooks();
             std::lock_guard<std::mutex> lock(g_Lock);
             if (Resolve())
             {
                 BgTex t;
-                if (!bypass && PickTexture(equipId, t) && Apply(node, t))
+                if (PickTexture(equipId, t) && Apply(node, t))
                     return 1;
                 RestoreNode(node);
             }

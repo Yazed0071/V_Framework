@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -109,12 +109,8 @@ namespace
     static std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> g_AkObjIdsByCp;
 
     static std::mutex                                            g_ControlLinkMutex;
-    static std::unordered_map<void*, void*>                      g_SelfToParentControl;
     static std::unordered_map<void*, std::vector<std::uint32_t>> g_AkObjIdsByControl;
     static std::unordered_map<void*, float>                      g_PitchByControl;
-
-
-    static thread_local void* t_CurrentParentControl = nullptr;
 
 
     static constexpr std::size_t kActiveStackCap = 16;
@@ -159,15 +155,6 @@ namespace
         if (pushed)
             t_ActiveObjectStack[t_ActiveObjectDepth++] = self;
 
-        void* prevParentControl = t_CurrentParentControl;
-        t_CurrentParentControl = a4;
-
-        if (self && a4)
-        {
-            std::lock_guard<std::mutex> lock(g_ControlLinkMutex);
-            g_SelfToParentControl[self] = a4;
-        }
-
         void* result = SehCallObjectActivate(self, errOut, a3, a4, a5, a6,
                                              a7, a8, a9, a10);
 
@@ -177,7 +164,6 @@ namespace
         {
             --t_ActiveObjectDepth;
         }
-        t_CurrentParentControl = prevParentControl;
 
         try { TryApplyAllPendingSoldierPitches(); } catch (...) {}
 
@@ -330,7 +316,7 @@ namespace
                 catch (...) {}
 
                 const std::uint32_t currentSlot = t_CurrentSpeakingSlot;
-                if (currentSlot != kNoSoundSlot)
+                if (currentSlot != kNoSoundSlot && currentSlot != 0xFFFFu)   // 0xFFFF = slot never recorded
                 {
                     const std::uint32_t goId = 0x0400u | (currentSlot & 0x01FFu);
                     float desiredCents = 0.0f;
@@ -605,6 +591,19 @@ namespace SoldierAkObjIdMap
         {
             std::lock_guard<std::mutex> lock(g_GoIdAkObjMutex);
             g_DesiredCentsByGoId.clear();
+            g_AkObjIdsByGoId.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_MapMutex);
+            g_AkObjIdsByObject.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_EmitterNameMutex);
+            g_EmitterNameByAkObjId.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_SoldierVoiceMutex);
+            g_SoldierVoiceAkObjIds.clear();
         }
         Clear_AllPerAkObjIdPitchBiases();
     }

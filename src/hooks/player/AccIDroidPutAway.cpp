@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -42,17 +42,24 @@ namespace
     constexpr std::uint32_t kIDroidItem = 0x1F3; // TppEquip.EQP_IT_IDroid
     constexpr std::uint32_t kItemType = 0x11;
 
-    Request_t g_Orig160 = nullptr;
-    Request_t g_Orig170 = nullptr;
-    void** g_Slot160 = nullptr;
-    void** g_Slot170 = nullptr;
+    constexpr std::size_t kMaxMotionVtables = 4;
+
+    struct HookedVtable
+    {
+        void** vtable;
+        Request_t orig160;
+        Request_t orig170;
+    };
+
+    HookedVtable g_Vtables[kMaxMotionVtables] = {};
+    std::atomic<std::size_t> g_VtableCount{0};
+    bool g_VtableTableFull = false;
     CloseState_t g_OrigCloseState = nullptr;
     Deactivate_t g_OrigDeactivate = nullptr;
     SetItemVisible_t g_OrigSetItemVisible = nullptr;
     PluginQuery_t g_IsPutAwayInterrupted = nullptr;
     PluginQuery_t g_IsOtherAvatar = nullptr;
     bool g_ItemHooks = false;
-    bool g_Tried = false;
     std::atomic<bool> g_Enabled{false};
 
     bool g_Holding[kTrackedIndices] = {};
@@ -102,6 +109,30 @@ namespace
         {
             return 0;
         }
+    }
+
+    const HookedVtable* HookedFor(void* motion)
+    {
+        void** vtable = reinterpret_cast<void**>(ReadPtr(reinterpret_cast<std::uintptr_t>(motion)));
+        const std::size_t count = g_VtableCount.load(std::memory_order_acquire);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (g_Vtables[i].vtable == vtable)
+                return &g_Vtables[i];
+        }
+        return nullptr;
+    }
+
+    std::uint64_t Orig160(void* motion, std::uint32_t index, std::uint32_t layer, std::uint64_t tag, float blend, std::uint32_t flags)
+    {
+        const HookedVtable* hooked = HookedFor(motion);
+        return hooked ? hooked->orig160(motion, index, layer, tag, blend, flags) : 0;
+    }
+
+    std::uint64_t Orig170(void* motion, std::uint32_t index, std::uint32_t layer, std::uint64_t tag, float blend, std::uint32_t flags)
+    {
+        const HookedVtable* hooked = HookedFor(motion);
+        return hooked ? hooked->orig170(motion, index, layer, tag, blend, flags) : 0;
     }
 
     std::uint32_t ReadU32(std::uintptr_t p)
@@ -170,7 +201,7 @@ namespace
     void RestartSeatIdle(std::uint32_t index, void* motion)
     {
         const std::uintptr_t self = reinterpret_cast<std::uintptr_t>(g_SeatPlugin[index]);
-        if (!self || !motion || !g_Orig160 || !InHeliSpace())
+        if (!self || !motion || !HookedFor(motion) || !InHeliSpace())
             return;
         if (MotionOf(self) != reinterpret_cast<std::uintptr_t>(motion))
             return;
@@ -187,7 +218,7 @@ namespace
             if (!seat)
                 return;
             g_FaultStage = 3;
-            g_Orig160(motion, index, kBodyLayer, seat, kIdleRestartBlend, 0);
+            Orig160(motion, index, kBodyLayer, seat, kIdleRestartBlend, 0);
         }
         __except (CaptureFault(GetExceptionInformation()))
         {
@@ -209,7 +240,7 @@ namespace
             g_RestartPending[index] = false;
             g_Holding[index] = iDroid;
         }
-        return g_Orig170(motion, index, layer, tag, blend, flags);
+        return Orig170(motion, index, layer, tag, blend, flags);
     }
 
     std::uint64_t __fastcall hk160(void* motion, std::uint32_t index, std::uint32_t layer,
@@ -229,10 +260,10 @@ namespace
                 g_RestartPending[index] = false;
                 g_EndSkips[index] = 0;
                 g_PlayingUntil[index] = GetTickCount64() + kPutAwayMs;
-                return g_Orig170(motion, index, layer, kIDroidPutAway, kPutAwayBlend, flags);
+                return Orig170(motion, index, layer, kIDroidPutAway, kPutAwayBlend, flags);
             }
         }
-        return g_Orig160(motion, index, layer, tag, blend, flags);
+        return Orig160(motion, index, layer, tag, blend, flags);
     }
 
     std::uint64_t __fastcall hkCloseState(void* plugin, std::uint32_t index, std::uint32_t ev, void* msg)
@@ -346,35 +377,43 @@ namespace
         g_ItemHooks = true;
     }
 
-    void TryInstall(std::uintptr_t self)
+    void HookMotionVtable(std::uintptr_t self)
     {
-        g_Tried = true;
-        __try
+        void* motion = reinterpret_cast<void*>(MotionOf(self));
+        if (!motion || HookedFor(motion))
+            return;
+        const std::size_t count = g_VtableCount.load(std::memory_order_acquire);
+        if (count == kMaxMotionVtables)
         {
-            const std::uintptr_t owner = *reinterpret_cast<std::uintptr_t*>(self + 8);
-            const std::uintptr_t holder = owner ? *reinterpret_cast<std::uintptr_t*>(owner + 0x78) : 0;
-            const std::uintptr_t motion = holder ? *reinterpret_cast<std::uintptr_t*>(holder + 0x238) : 0; // the motion controller
-            if (!motion)
-                return;
-            void** vt = *reinterpret_cast<void***>(motion);
-            g_Slot160 = vt + 0x160 / 8; // request a motion right now
-            g_Slot170 = vt + 0x170 / 8; // request a motion through the graph
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            LogError("AccIDroidPutAway: reading the motion controller faulted");
+            if (!g_VtableTableFull)
+                LogWarn("AccIDroidPutAway: more than %zu player motion vtables, the iDroid close stays vanilla on the new one", kMaxMotionVtables);
+            g_VtableTableFull = true;
             return;
         }
-        if (!SwapVtableSlot(g_Slot170, reinterpret_cast<void*>(&hk170), reinterpret_cast<void**>(&g_Orig170)))
+        HookedVtable& hooked = g_Vtables[count];
+        hooked.vtable = reinterpret_cast<void**>(ReadPtr(reinterpret_cast<std::uintptr_t>(motion)));
+        if (!hooked.vtable)
+            return;
+        void** slot170 = hooked.vtable + 0x170 / 8; // request a motion through the graph
+        void** slot160 = hooked.vtable + 0x160 / 8; // request a motion right now
+        hooked.orig170 = reinterpret_cast<Request_t>(ReadPtr(reinterpret_cast<std::uintptr_t>(slot170)));
+        hooked.orig160 = reinterpret_cast<Request_t>(ReadPtr(reinterpret_cast<std::uintptr_t>(slot160)));
+        if (!hooked.orig170 || !hooked.orig160)
+        {
+            hooked = {};
+            return;
+        }
+        g_VtableCount.store(count + 1, std::memory_order_release); // published before the swap so a request on another thread always finds its original
+        void* unused = nullptr;
+        if (!SwapVtableSlot(slot170, reinterpret_cast<void*>(&hk170), &unused))
         {
             LogError("AccIDroidPutAway: hooking the motion request failed");
-            g_Slot170 = g_Slot160 = nullptr;
             return;
         }
-        if (!SwapVtableSlot(g_Slot160, reinterpret_cast<void*>(&hk160), reinterpret_cast<void**>(&g_Orig160)))
+        if (!SwapVtableSlot(slot160, reinterpret_cast<void*>(&hk160), &unused))
         {
             LogError("AccIDroidPutAway: hooking the immediate motion request failed");
-            g_Slot160 = nullptr;
+            RestoreVtableSlot(slot170, reinterpret_cast<void*>(hooked.orig170), reinterpret_cast<void*>(&hk170));
             return;
         }
     }
@@ -390,17 +429,14 @@ void AccIDroidPutAway_OnRideHeliPreMotion(void* self, unsigned int idx)
 {
     if (!InHeliSpace())
         return;
-    if (!g_Tried)
-        TryInstall(reinterpret_cast<std::uintptr_t>(self));
-    if (!g_Orig160 || idx >= kTrackedIndices)
+    HookMotionVtable(reinterpret_cast<std::uintptr_t>(self));
+    if (!HookedFor(reinterpret_cast<void*>(MotionOf(reinterpret_cast<std::uintptr_t>(self)))) || idx >= kTrackedIndices)
         return;
     g_SeatPlugin[idx] = self;
     if (g_Motion[idx] && MotionOf(reinterpret_cast<std::uintptr_t>(self)) != reinterpret_cast<std::uintptr_t>(g_Motion[idx]))
         ResetIndex(idx);
     if (!g_Holding[idx] && g_IdleRestartRequested[idx].exchange(false, std::memory_order_acquire))
     {
-        LogInfo("SetMotion: index %u seat idle restart (putting away %d, restart pending %d)",
-                idx, g_PlayingUntil[idx] ? 1 : 0, g_RestartPending[idx] ? 1 : 0);
         if (!g_PlayingUntil[idx] && !g_RestartPending[idx])
             RestartSeatIdle(idx, reinterpret_cast<void*>(MotionOf(reinterpret_cast<std::uintptr_t>(self))));
     }
@@ -414,7 +450,7 @@ void AccIDroidPutAway_OnRideHeliPreMotion(void* self, unsigned int idx)
             g_RestartDeadline[idx] = now + kEndGraceMs;
             return;
         }
-        g_Orig160(g_Motion[idx], idx, kUpperBodyLayer, kUpperBodyEmpty, kReleaseBlend, 0);
+        Orig160(g_Motion[idx], idx, kUpperBodyLayer, kUpperBodyEmpty, kReleaseBlend, 0);
         RestartSeatIdle(idx, g_Motion[idx]);
         return;
     }
@@ -423,7 +459,7 @@ void AccIDroidPutAway_OnRideHeliPreMotion(void* self, unsigned int idx)
         g_RestartPending[idx] = false;
         if (idx == 0)
             LogWarn("AccIDroidPutAway: index %u iDroid plugin did not end after the put-away; releasing the upper body directly", idx);
-        g_Orig160(g_Motion[idx], idx, kUpperBodyLayer, kUpperBodyEmpty, kReleaseBlend, 0);
+        Orig160(g_Motion[idx], idx, kUpperBodyLayer, kUpperBodyEmpty, kReleaseBlend, 0);
         RestartSeatIdle(idx, g_Motion[idx]);
     }
 }
@@ -435,7 +471,6 @@ void AccIDroidPutAway_SetEnabled(bool enabled)
 
 void AccIDroidPutAway_RequestSeatIdleRestart()
 {
-    LogInfo("SetMotion: restart requested, mission %u", MissionCodeGuard::GetCurrentMissionCode());
     if (!InHeliSpace())
         return;
     for (auto& requested : g_IdleRestartRequested)
@@ -453,17 +488,18 @@ void AccIDroidPutAway_Uninstall()
         if (void* visible = ResolveGameAddress(gAddr.EquipSystemImpl_SetItemVisible))
             DisableAndRemoveHook(visible);
     }
-    RestoreVtableSlot(g_Slot160, reinterpret_cast<void*>(g_Orig160));
-    RestoreVtableSlot(g_Slot170, reinterpret_cast<void*>(g_Orig170));
+    const std::size_t count = g_VtableCount.exchange(0, std::memory_order_acq_rel);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        RestoreVtableSlot(g_Vtables[i].vtable + 0x160 / 8, reinterpret_cast<void*>(g_Vtables[i].orig160), reinterpret_cast<void*>(&hk160));
+        RestoreVtableSlot(g_Vtables[i].vtable + 0x170 / 8, reinterpret_cast<void*>(g_Vtables[i].orig170), reinterpret_cast<void*>(&hk170));
+        g_Vtables[i] = {};
+    }
+    g_VtableTableFull = false;
     g_ItemHooks = false;
     g_OrigCloseState = nullptr;
     g_OrigDeactivate = nullptr;
     g_OrigSetItemVisible = nullptr;
-    g_Slot160 = nullptr;
-    g_Slot170 = nullptr;
-    g_Orig160 = nullptr;
-    g_Orig170 = nullptr;
-    g_Tried = false;
     for (std::uint32_t i = 0; i < kTrackedIndices; ++i)
     {
         ResetIndex(i);

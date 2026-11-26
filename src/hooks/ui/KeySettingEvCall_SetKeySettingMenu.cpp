@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -11,6 +11,8 @@
 #include "log.h"
 #include "KeySettingEvCall_SetKeySettingMenu.h"
 #include "OptionListLayoutImage.h"
+#include "ButtonIconSheet.h"
+#include "ControlTypePageAssign.h"
 #include "../sound/CAkParameterNodeBase_SetInitialRTPC.h"
 
 namespace
@@ -45,19 +47,32 @@ namespace
 
     const MenuAddresses* AddressesForBuild()
     {
-        static constexpr MenuAddresses kEn154 = {
-            0x1408941F0ull, 0x140895180ull, 0x140890D20ull, 0x14088EFE0ull, 0x140896150ull, 0x140893850ull,
-            0x1408933E0ull, 0x140890BD0ull, 0x141DACEE0ull, 0x140016F40ull, 0x140894675ull, 0x14089469Bull,
-            0x141DFA330ull, 0x140891170ull, 0x140896F30ull, 0x140896550ull, 0x141DAE4A0ull, 0x141DAE4E0ull,
-            0x141DC2020ull, 0x1409134B0ull, 0x140913540ull, 0x1400252E0ull, 0x14091B940ull, 0x140916DD0ull };
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return &kEn154;
-        default:
-            return nullptr;
-        }
+        static const MenuAddresses addresses = {
+            gAddr.KeySettingEvCall_SetKeySettingMenu,
+            gAddr.KeySettingEvCall_SetListMenu,
+            gAddr.KeySettingEvCall_GetListInfoText,
+            gAddr.KeySettingEvCall_DispKeySettingParam,
+            gAddr.KeySettingEvCall_SettingParamChanged,
+            gAddr.KeySettingEvCall_SetDecideParam,
+            gAddr.KeySettingEvCall_SetCancelParam,
+            gAddr.KeySettingEvCall_GetConnectNodeName,
+            gAddr.Fox_Ui_ConnectComponent,
+            gAddr.FoxKernel_StringFormat,
+            gAddr.KeySettingEvCall_SetKeySettingMenu_RowListSite,
+            gAddr.KeySettingEvCall_SetKeySettingMenu_RowListResume,
+            gAddr.FoxUi_ReadUilb,
+            gAddr.KeySettingEvCall_GetModelAssetForPause,
+            gAddr.KeySettingEvCall_VisibleKeySetting,
+            gAddr.KeySettingEvCall_UpdateKeySetting,
+            gAddr.Layout_GetLayout,
+            gAddr.Layout_GetModel,
+            gAddr.Layout_GetAnimation,
+            gAddr.UiUtility_GetModel,
+            gAddr.UiUtility_GetModelNodeText,
+            gAddr.ModelNode_SetVisible,
+            gAddr.Ui_StartLoopUiAnimation,
+            gAddr.Ui_PauseInitUiAnimation };
+        return &addresses;
     }
 
     using SelfCall_t           = void(__fastcall*)(std::uint8_t* self);
@@ -127,7 +142,7 @@ namespace
     constexpr std::uint64_t kBarGaugeFillName  = 0x9D0544A508DAull;  // UI_sys_pus_opt_bgrh_scle
     constexpr std::uint64_t kBarLoopName       = 0x69362415DD5Cull;  // hash of the bar's noise loop animation (real name unknown)
 
-    constexpr std::size_t kListLayoutHeaderBytes = 0x30;   // counts and table offsets, compared first so other layouts bail early
+    constexpr std::size_t kListLayoutHeaderBytes = 0x30;
 
     constexpr std::int32_t kItemMaster      = 0x39;
     constexpr std::int32_t kItemMusic       = 0x28;   // the game's own unused BGM volume row
@@ -143,37 +158,50 @@ namespace
         kItemMaster, kItemMusic, kItemVoice, kItemSoundEffect, kItemAmbience, kItemUi,
         kItemTape, kItemCustomSoundtrack, kItemAudioGuidance, 0 };
 
+    constexpr std::int32_t kItemButtonIcons = 0x3F;
+
+    std::int32_t g_ControlsPageItems[] = { 3, 5, 9, 0xA, 7, 4, 2, kItemButtonIcons, 0 };   // the game's own seven controls rows, then ours
+
+    std::int32_t g_ControlTypePageItems[] = { 1, 0, 0 };   // the game's own Control Type row, then ASSIGN BUTTON while it is offered
+
+    constexpr const char* kButtonIconValueText[buttoniconsheet::kChoiceCount] = {
+        "V_option_button_icons_auto", "V_option_button_icons_playstation", "V_option_button_icons_playstation3",
+        "V_option_button_icons_xbox", "V_option_button_icons_xbox_one" };
+
     constexpr std::uint8_t kRowListSiteBytes[5] = { 0x48, 0x8D, 0x5C, 0x24, 0x58 };   // lea rbx,[rsp+0x58], the sound page item list
+    constexpr std::uint8_t kControlsRowListSiteBytes[5] = { 0x48, 0x8D, 0x5C, 0x24, 0x70 };   // lea rbx,[rsp+0x70], the controls page item list
+    constexpr std::uint8_t kControlTypeRowListSiteBytes[5] = { 0x48, 0x8D, 0x5C, 0x24, 0x38 };   // lea rbx,[rsp+0x38], the Control Type page item list
 
     struct ExpectedBytes
     {
         std::uintptr_t MenuAddresses::* field;
+        const char*    name;
         std::uint8_t   bytes[5];
     };
 
     constexpr ExpectedBytes kExpected[] = {
-        { &MenuAddresses::setKeySettingMenu,   { 0x48, 0x89, 0x5C, 0x24, 0x10 } },
-        { &MenuAddresses::setListMenu,         { 0x40, 0x53, 0x55, 0x48, 0x83 } },
-        { &MenuAddresses::getListInfoText,     { 0xFF, 0xCA, 0x83, 0xFA, 0x37 } },
-        { &MenuAddresses::dispKeySettingParam, { 0x48, 0x85, 0xD2, 0x0F, 0x84 } },
-        { &MenuAddresses::settingParamChanged, { 0x48, 0x85, 0xD2, 0x0F, 0x84 } },
-        { &MenuAddresses::setDecideParam,      { 0x40, 0x53, 0x57, 0x48, 0x81 } },
-        { &MenuAddresses::setCancelParam,      { 0x40, 0x55, 0x48, 0x83, 0xEC } },
-        { &MenuAddresses::getConnectNodeName,  { 0x48, 0x81, 0xEC, 0x98, 0x00 } },
-        { &MenuAddresses::connectComponent,    { 0x48, 0x85, 0xC9, 0x74, 0x3E } },
-        { &MenuAddresses::kernelStringFormat,  { 0x4C, 0x8B, 0xDC, 0x49, 0x89 } },
-        { &MenuAddresses::readUilb,            { 0x40, 0x55, 0x53, 0x56, 0x57 } },
-        { &MenuAddresses::getModelAssetForPause, { 0x48, 0x8B, 0xC4, 0x55, 0x56 } },
-        { &MenuAddresses::visibleKeySetting,   { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
-        { &MenuAddresses::updateKeySetting,    { 0x40, 0x55, 0x53, 0x56, 0x57 } },
-        { &MenuAddresses::getLayout,           { 0x48, 0x8B, 0x81, 0xD8, 0x00 } },
-        { &MenuAddresses::getModel,            { 0x48, 0x8B, 0x81, 0xC8, 0x00 } },
-        { &MenuAddresses::getAnimation,        { 0x48, 0x8B, 0x81, 0xA8, 0x00 } },
-        { &MenuAddresses::utilGetModel,        { 0x48, 0x89, 0x54, 0x24, 0x10 } },
-        { &MenuAddresses::utilGetModelNodeText, { 0x48, 0x89, 0x54, 0x24, 0x10 } },
-        { &MenuAddresses::setNodeVisible,      { 0x84, 0xD2, 0x74, 0x06, 0x66 } },
-        { &MenuAddresses::startLoopAnimation,  { 0x40, 0x53, 0x48, 0x83, 0xEC } },
-        { &MenuAddresses::pauseInitAnimation,  { 0x40, 0x53, 0x48, 0x83, 0xEC } },
+        { &MenuAddresses::setKeySettingMenu, "AudioVolume: SetKeySettingMenu", { 0x48, 0x89, 0x5C, 0x24, 0x10 } },
+        { &MenuAddresses::setListMenu, "AudioVolume: SetListMenu", { 0x40, 0x53, 0x55, 0x48, 0x83 } },
+        { &MenuAddresses::getListInfoText, "AudioVolume: GetListInfoText", { 0xFF, 0xCA, 0x83, 0xFA, 0x37 } },
+        { &MenuAddresses::dispKeySettingParam, "AudioVolume: DispKeySettingParam", { 0x48, 0x85, 0xD2, 0x0F, 0x84 } },
+        { &MenuAddresses::settingParamChanged, "AudioVolume: SettingParamChanged", { 0x48, 0x85, 0xD2, 0x0F, 0x84 } },
+        { &MenuAddresses::setDecideParam, "AudioVolume: SetDecideParam", { 0x40, 0x53, 0x57, 0x48, 0x81 } },
+        { &MenuAddresses::setCancelParam, "AudioVolume: SetCancelParam", { 0x40, 0x55, 0x48, 0x83, 0xEC } },
+        { &MenuAddresses::getConnectNodeName, "AudioVolume: GetConnectNodeName", { 0x48, 0x81, 0xEC, 0x98, 0x00 } },
+        { &MenuAddresses::connectComponent, "AudioVolume: ConnectComponent", { 0x48, 0x85, 0xC9, 0x74, 0x3E } },
+        { &MenuAddresses::kernelStringFormat, "AudioVolume: KernelStringFormat", { 0x4C, 0x8B, 0xDC, 0x49, 0x89 } },
+        { &MenuAddresses::readUilb, "AudioVolume: ReadUilb", { 0x40, 0x55, 0x53, 0x56, 0x57 } },
+        { &MenuAddresses::getModelAssetForPause, "AudioVolume: GetModelAssetForPause", { 0x48, 0x8B, 0xC4, 0x55, 0x56 } },
+        { &MenuAddresses::visibleKeySetting, "AudioVolume: VisibleKeySetting", { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
+        { &MenuAddresses::updateKeySetting, "AudioVolume: UpdateKeySetting", { 0x40, 0x55, 0x53, 0x56, 0x57 } },
+        { &MenuAddresses::getLayout, "AudioVolume: GetLayout", { 0x48, 0x8B, 0x81, 0xD8, 0x00 } },
+        { &MenuAddresses::getModel, "AudioVolume: GetModel", { 0x48, 0x8B, 0x81, 0xC8, 0x00 } },
+        { &MenuAddresses::getAnimation, "AudioVolume: GetAnimation", { 0x48, 0x8B, 0x81, 0xA8, 0x00 } },
+        { &MenuAddresses::utilGetModel, "AudioVolume: UtilGetModel", { 0x48, 0x89, 0x54, 0x24, 0x10 } },
+        { &MenuAddresses::utilGetModelNodeText, "AudioVolume: UtilGetModelNodeText", { 0x48, 0x89, 0x54, 0x24, 0x10 } },
+        { &MenuAddresses::setNodeVisible, "AudioVolume: SetNodeVisible", { 0x84, 0xD2, 0x74, 0x06, 0x66 } },
+        { &MenuAddresses::startLoopAnimation, "AudioVolume: StartLoopAnimation", { 0x40, 0x53, 0x48, 0x83, 0xEC } },
+        { &MenuAddresses::pauseInitAnimation, "AudioVolume: PauseInitAnimation", { 0x40, 0x53, 0x48, 0x83, 0xEC } },
     };
 
     struct VolumeRow
@@ -222,9 +250,17 @@ namespace
     AnimationCall_t         g_StartLoopAnimation        = nullptr;
     AnimationCall_t         g_PauseInitAnimation        = nullptr;
 
+    struct RowListPatch
+    {
+        std::uint8_t* site = nullptr;
+        std::uint8_t  original[5] = {};
+        std::uint8_t  jump[5] = {};
+    };
+
     void*         g_HookTargets[11]     = {};
-    std::uint8_t* g_RowListSite         = nullptr;
-    std::uint8_t  g_RowListOriginal[5]  = {};
+    RowListPatch  g_SoundRowList;
+    RowListPatch  g_ControlsRowList;
+    RowListPatch  g_ControlTypeRowList;
     bool          g_RowListPatched      = false;
     std::atomic<bool> g_MissingTextWarned{ false };
 
@@ -313,7 +349,7 @@ namespace
             g_OrigReadUilb(resource, package, outLayout, caarFiles);
             return;
         }
-        At<std::uint8_t*>(file, kFileImage) = g_ExtendedLayout;   // the loader builds 4 more bars from our copy, then the file gets its own image back
+        At<std::uint8_t*>(file, kFileImage) = g_ExtendedLayout;
         g_OrigReadUilb(resource, package, outLayout, caarFiles);
         At<std::uint8_t*>(file, kFileImage) = image;
     }
@@ -444,6 +480,7 @@ namespace
 
     void __fastcall hk_SetKeySettingMenu(std::uint8_t* self)
     {
+        g_ControlTypePageItems[1] = g_ControlTypeRowList.site && controltypepage::RowIsOffered() ? controltypepage::kItemAssignButton : 0;
         g_OrigSetKeySettingMenu(self);
         if (!IsSoundPage(self))
         {
@@ -456,6 +493,17 @@ namespace
 
     const char* __fastcall hk_SetListMenu(std::uint8_t* self, std::uint8_t* row)
     {
+        if (row && At<std::int32_t>(row, 0) == kItemButtonIcons)
+        {
+            const int choice = buttoniconsheet::GetChoice();
+            At<std::int32_t>(row, kRowOriginal) = choice;
+            At<std::int32_t>(row, kRowCurrent)  = choice;
+            At<std::int32_t>(row, kRowChoices)  = buttoniconsheet::kChoiceCount;
+            At<std::int32_t>(row, kRowDefault)  = buttoniconsheet::kChoiceAuto;
+            return LangText("V_option_button_icons");
+        }
+        if (row && At<std::int32_t>(row, 0) == controltypepage::kItemAssignButton)
+            return controltypepage::OpenRow(self, row);
         const VolumeRow* volume = row ? FindVolumeRow(At<std::int32_t>(row, 0)) : nullptr;
         if (!volume)
             return g_OrigSetListMenu(self, row);
@@ -469,6 +517,10 @@ namespace
 
     const char* __fastcall hk_GetListInfoText(std::uint8_t* self, std::int32_t itemId)
     {
+        if (itemId == kItemButtonIcons)
+            return LangText("V_option_button_icons_info");
+        if (itemId == controltypepage::kItemAssignButton)
+            return controltypepage::RowHelp(self);
         const VolumeRow* volume = FindVolumeRow(itemId);
         return volume ? LangText(volume->info) : g_OrigGetListInfoText(self, itemId);
     }
@@ -477,12 +529,22 @@ namespace
     {
         if (row && FindVolumeRow(At<std::int32_t>(row, 0)))
             g_KernelStringFormat(row + kRowValueText, "%d", At<std::int32_t>(self, kShownValue) + kAudioVolumeMin);
+        else if (row && At<std::int32_t>(row, 0) == kItemButtonIcons)
+        {
+            std::int32_t shown = At<std::int32_t>(self, kShownValue);
+            if (shown < 0 || shown >= buttoniconsheet::kChoiceCount)
+                shown = buttoniconsheet::kChoiceAuto;
+            g_KernelStringFormat(row + kRowValueText, "%s", LangText(kButtonIconValueText[shown]));
+        }
+        else if (row && At<std::int32_t>(row, 0) == controltypepage::kItemAssignButton)
+            g_KernelStringFormat(row + kRowValueText, "%s", controltypepage::RowValue(self, At<std::int32_t>(self, kShownValue)));
         g_OrigDispKeySettingParam(self, row);
     }
 
     void __fastcall hk_SettingParamChanged(std::uint8_t* self, std::uint8_t* row)
     {
         g_OrigSettingParamChanged(self, row);
+        controltypepage::RowChanged(self, row);
         if (!IsSoundPage(self) || !row || !IsPageRow(self, row))
             return;
         if (const VolumeRow* volume = FindVolumeRow(At<std::int32_t>(row, 0)))
@@ -492,6 +554,13 @@ namespace
     void __fastcall hk_SetDecideParam(std::uint8_t* self)
     {
         g_OrigSetDecideParam(self);
+        if (!self)
+            return;
+        controltypepage::Kept(self);
+        if (g_ControlsRowList.site)
+            for (int i = 0; i < PageRowCount(self); ++i)
+                if (std::uint8_t* row = RowAt(self, i); At<std::int32_t>(row, 0) == kItemButtonIcons)
+                    buttoniconsheet::SetChoice(At<std::int32_t>(row, kRowCurrent));
         if (!IsSoundPage(self))
             return;
         for (int i = 0; i < PageRowCount(self); ++i)
@@ -505,6 +574,7 @@ namespace
     void __fastcall hk_SetCancelParam(std::uint8_t* self)
     {
         g_OrigSetCancelParam(self);
+        controltypepage::Restored(self);
         if (IsSoundPage(self))
             AudioVolume_ApplySaved();
     }
@@ -520,16 +590,17 @@ namespace
         return true;
     }
 
-    bool PatchRowList()
+    bool PatchRowList(std::uintptr_t siteAddress, const std::uint8_t (&expected)[5], const std::int32_t* itemList,
+                      std::uint32_t itemCount, RowListPatch& patch)
     {
-        auto* site = static_cast<std::uint8_t*>(ResolveGameAddress(g_Addr->rowListSite));
+        auto* site = static_cast<std::uint8_t*>(ResolveGameAddress(siteAddress));
         const auto resume = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(g_Addr->rowListResume));
-        if (!site || !resume || std::memcmp(site, kRowListSiteBytes, sizeof(kRowListSiteBytes)) != 0)
+        if (!site || !resume || std::memcmp(site, expected, sizeof(expected)) != 0)
             return false;
 
         std::uint8_t cave[29] = {};
-        const auto items    = reinterpret_cast<std::uint64_t>(&g_SoundPageItems[0]);
-        const auto count    = static_cast<std::uint32_t>(sizeof(g_SoundPageItems) / sizeof(g_SoundPageItems[0]));
+        const auto items    = reinterpret_cast<std::uint64_t>(itemList);
+        const auto count    = itemCount;
         const auto resume64 = static_cast<std::uint64_t>(resume);
         cave[0] = 0x48; cave[1] = 0xBB;                                      // mov rbx, items
         std::memcpy(cave + 2, &items, 8);
@@ -552,11 +623,24 @@ namespace
         const auto rel32 = static_cast<std::int32_t>(rel);
         std::memcpy(jump + 1, &rel32, 4);
 
-        std::memcpy(g_RowListOriginal, site, sizeof(g_RowListOriginal));
+        std::memcpy(patch.original, site, sizeof(patch.original));
+        std::memcpy(patch.jump, jump, sizeof(jump));
         if (!WriteSite(site, jump, sizeof(jump)))
             return false;
-        g_RowListSite = site;
+        patch.site = site;
         return true;
+    }
+
+    void UnpatchRowList(RowListPatch& patch, const char* page)
+    {
+        if (!patch.site)
+            return;
+        std::uint8_t live[sizeof(patch.jump)] = {};
+        if (!ReadEntryBytesSEH(patch.site, live, sizeof(live)) || std::memcmp(live, patch.jump, sizeof(live)) != 0)
+            LogWarn("AudioVolume: %s page row list site no longer holds our jump (another module changed it), left as it is", page);
+        else
+            WriteSite(patch.site, patch.original, sizeof(patch.original));
+        patch.site = nullptr;
     }
 
     bool Hook(int slot, std::uintptr_t addr, void* detour, void** original)
@@ -580,11 +664,14 @@ bool Install_KeySettingEvCall_SetKeySettingMenu_Hooks()
     for (const ExpectedBytes& e : kExpected)
     {
         const void* at = ResolveGameAddress(g_Addr->*(e.field));
-        if (!at || std::memcmp(at, e.bytes, sizeof(e.bytes)) != 0)
+        const HookEntry entry = CheckHookEntry(at, e.bytes, sizeof(e.bytes));
+        if (entry == HookEntry::Unknown)
         {
             LogError("AudioVolume: options menu code differs (another mod patched it?), volume rows off");
             return false;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop(e.name, at);
     }
 
     g_GetConnectNodeName = reinterpret_cast<GetConnectNodeName_t>(ResolveGameAddress(g_Addr->getConnectNodeName));
@@ -628,23 +715,35 @@ bool Install_KeySettingEvCall_SetKeySettingMenu_Hooks()
         return false;
     }
 
-    if (!PatchRowList())
+    if (!PatchRowList(g_Addr->rowListSite, kRowListSiteBytes, g_SoundPageItems,
+                      static_cast<std::uint32_t>(sizeof(g_SoundPageItems) / sizeof(g_SoundPageItems[0])), g_SoundRowList))
     {
         Uninstall_KeySettingEvCall_SetKeySettingMenu_Hooks();
         LogError("AudioVolume: sound page code differs (another mod patched it?), volume rows off");
         return false;
     }
     g_RowListPatched = true;
+
+    if (!PatchRowList(gAddr.KeySettingEvCall_SetKeySettingMenu_ControlsRowListSite, kControlsRowListSiteBytes,
+                      g_ControlsPageItems,
+                      static_cast<std::uint32_t>(sizeof(g_ControlsPageItems) / sizeof(g_ControlsPageItems[0])),
+                      g_ControlsRowList))
+        LogError("ButtonIcons: controls page code differs on %s (another mod patched it?), no Button Icons row",
+                 GetGameBuildName(gGameBuild));
+    if (!PatchRowList(gAddr.KeySettingEvCall_SetKeySettingMenu_ControlTypeRowListSite, kControlTypeRowListSiteBytes,
+                      g_ControlTypePageItems,
+                      static_cast<std::uint32_t>(sizeof(g_ControlTypePageItems) / sizeof(g_ControlTypePageItems[0])),
+                      g_ControlTypeRowList))
+        LogError("ControlTypePage: Control Type page code differs on %s (another mod patched it?), no ASSIGN BUTTON row",
+                 GetGameBuildName(gGameBuild));
     return true;
 }
 
 bool Uninstall_KeySettingEvCall_SetKeySettingMenu_Hooks()
 {
-    if (g_RowListSite)
-    {
-        WriteSite(g_RowListSite, g_RowListOriginal, sizeof(g_RowListOriginal));
-        g_RowListSite = nullptr;
-    }
+    UnpatchRowList(g_ControlTypeRowList, "Control Type");
+    UnpatchRowList(g_ControlsRowList, "controls");
+    UnpatchRowList(g_SoundRowList, "sound");
     g_RowListPatched = false;
     for (void*& target : g_HookTargets)
     {

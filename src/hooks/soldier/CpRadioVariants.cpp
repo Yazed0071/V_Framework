@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
@@ -9,15 +9,25 @@
 #include "AddressSet.h"
 #include "CpRadioVariants.h"
 #include "FoxHashes.h"
+#include "GameClock.h"
 #include "GetGameObjectIdWithIndex.h"
 #include "HookUtils.h"
+#include "InvestigateAiImpl_PreUpdate.h"
 #include "MissionCodeGuard.h"
+#include "FeatureSwitch.h"
+#include "NoticeAiImpl_StepRadio.h"
+#include "NoticeControllerImpl_CheckForceNotice.h"
 #include "NoticeControllerImpl_CheckSightNoticePlayer.h"
+#include "NoticeDownComradeAiImpl_StepPreRadio.h"
 #include "PlayerAlertPhase.h"
 #include "RadioControllerImpl_StepRadioWaitResponse.h"
+#include "RevengeLevel.h"
 #include "Soldier2SoundControllerImpl_CallVoiceWithoutSync.h"
 #include "SoldierRealizedSlot.h"
 #include "SoldierVoiceType.h"
+#include "HoldupAiImpl_StepHoldupStand.h"
+#include "TppPermanentGimmickUnit_CallNoise.h"
+#include "UavLifeControllerImpl_SendStatusMessage.h"
 #include "log.h"
 
 namespace
@@ -30,38 +40,87 @@ namespace
     using MortarState_t         = void(__fastcall*)(std::uint8_t* mortarAction, std::uint32_t slot, std::int32_t proc, void* data);
     using UnrealMortarState_t   = void(__fastcall*)(std::uint8_t* mortarAction, std::uint32_t soldier, std::int32_t proc);
     using HeliUnrealize_t       = void(__fastcall*)(std::uint8_t* heli, std::uint32_t instance, std::uint32_t realizedIndex);
-    using AssignRadioInCombat_t = bool(__fastcall*)(void* roleController, std::uint32_t cp, std::uint32_t radioType);
+    using AssignRadioInCombat_t = void(__fastcall*)(void* roleController, std::uint32_t cp, std::uint32_t radioType);
+    using ResignRadio_t         = void(__fastcall*)(void* roleController, std::uint32_t cp);
+    using RequestInvestigation_t = void(__fastcall*)(std::uint8_t* radioService, std::uint32_t cp, const void* request);
+    using SetMemberRole_t       = void(__fastcall*)(std::uint8_t* radioService, std::uint32_t member, std::uint32_t role, const void* payload,
+                                                    std::uint64_t size);
+    using ClearInvestigation_t  = void(__fastcall*)(void* roleController, std::uint32_t cp, std::uint32_t kinds);
+    using CpQuery_t             = bool(__fastcall*)(std::uint8_t* radioService, std::uint32_t cp);
     using SequenceLabel_t       = std::uint32_t(__fastcall*)(void* sequencer, std::uint32_t sequence);
     using SpeakAtIndex_t        = bool(__fastcall*)(void* soundController, std::uint32_t soldierIndex, std::uint32_t event,
                                                     std::uint32_t priority, std::uint32_t label, bool understood, float delay);
     using GetPlayerPosition_t   = void(__fastcall*)(void* playerInfo, float* outPosition);
     using IsPlayingVoice_t      = bool(__fastcall*)(void* soundController, std::uint32_t owner);
+    using BgmPhaseMismatch_t    = bool(__fastcall*)(std::uint8_t radioType, std::int32_t bgmPhase);
 
     constexpr std::uint32_t  kMortarOrderRadio        = 0x56;     // CPR0180, AlertAiImpl::UpdateCombatMortar asks it of nobody
     constexpr std::uint32_t  kAnyLabelRadio           = 0x5E;     // a member call whose label has no type of its own
     constexpr std::uint32_t  kUnknownLabelRadio       = 0x5F;
     constexpr std::uint32_t  kGunshipRadio            = 0x47;     // CPR0220, the CP's own chopper order; carries CPR0210 for the radio man
+    constexpr std::uint32_t  kAlertBroadcastRadio     = 0x3D;     // CPR0020, AlertAiImpl::StepNormal's own call a few seconds into an alert
+    constexpr std::uint32_t  kCameraAlertRadio        = 0x3E;     // CPR0022, the same call when a camera spotted him
+    constexpr std::uint32_t  kUavAlertRadio           = 0x3F;     // CPR0500 "UAV has spotted an intruder! Move in ASAP!"
+    constexpr std::uint32_t  kCautionStartRadio       = 0x0B;     // CPR0050 "We may have an intruder. Going on alert."
+    constexpr std::uint32_t  kCpOnAlertRadio          = 0x4E;     // the CP's own "All units, on alert" call; ours speaks CPR0049 instead
     constexpr std::size_t    kDamageStride            = 0x30;
     constexpr std::size_t    kDamageAttacker          = 0x22;
-    enum Line : std::uint32_t { kOrderLine, kRequestLine, kReadyLine, kFlareLine, kGunshipLine, kLineCount };
+    enum Line : std::uint32_t { kOrderLine, kRequestLine, kReadyLine, kFlareLine, kGunshipLine, kContactLine, kLineCount };
     constexpr const char*    kLineLabels[kLineCount]  = {
         "CPR0180",   // CP "Lay down suppressing mortar fire on the target!" > the operator "Preparing for mortar strike!"
         "CPR0182",   // he "Requesting mortar support!" > CP "Mortar team: Provide fire support!" (CPR0181's line)
         "CPR0190",   // the operator "Mortar ready to fire!" > CP "Commence strike."
         "CPR0200",   // CP "Fire a flare to illuminate the area." > the flare man "Preparing to fire flare."
-        "CPR0210" }; // he "Taking fire from enemy gunship!" > CP "Enemy chopper is priority one!"
+        "CPR0210",   // he "Taking fire from enemy gunship!" > CP "Enemy chopper is priority one!"
+        "CPR0010" }; // he "Enemy contact, we are now engaging!" > CP "All units, prepare for combat."
     constexpr std::uint32_t  kNoMember                = 0xFFFF;
     constexpr std::uint16_t  kNoHandle                = 0xFFFF;   // RequestRadioByCp's answer when no call went out
     constexpr std::uint32_t  kNoSoldier               = 0xFFFFFFFF;
     constexpr std::ptrdiff_t kServiceToCpController   = -0x18;
     constexpr std::size_t    kServiceRoleController   = 0x18;     // MemberRoleControllerImpl, as AlertAiImpl reaches it
-    constexpr std::size_t    kAssignRadioInCombatSlot = 0x60 / sizeof(void*);   // AlertAiImpl::UpdateReinforceRadio's backup request
+    constexpr std::size_t    kAssignRadioInCombatSlot = 0x68 / sizeof(void*);   // AlertAiImpl::UpdateReinforceRadio's backup request; the debug build has it at 0x60, retail's 0x60 is AssignRadio
+    constexpr std::size_t    kResignRadioSlot         = 0x78 / sizeof(void*);   // AlertAiImpl::StepNormal clears the CP's radio men with it when an alert ends
+    constexpr std::size_t    kIsLrrpCpSlot            = 0x98 / sizeof(void*);   // CP spec +0x77 bits 0/1/2/4/5, names from the debug build's order
+    constexpr std::size_t    kIsOuterBaseCpSlot       = 0xA0 / sizeof(void*);
+    constexpr std::size_t    kIsMarchCpSlot           = 0xA8 / sizeof(void*);
+    constexpr std::size_t    kIsChildCpSlot           = 0xB0 / sizeof(void*);
+    constexpr std::size_t    kIsSkullCpSlot           = 0xB8 / sizeof(void*);
+    constexpr std::size_t    kHasBaseToCallSlot       = 0xD8 / sizeof(void*);   // another CP of its group can take the call
+    constexpr std::size_t    kRequestInvestigationSlot = 0x80 / sizeof(void*);  // thunk into DoRequestInvestigationWithCpIndex
+    constexpr std::size_t    kSetMemberRoleSlot       = 0x130 / sizeof(void*);
+    constexpr std::size_t    kClearInvestigationSlot  = 0x28 / sizeof(void*);   // role controller
+    constexpr std::size_t    kServiceRoles            = 0x50;     // 0x20 per member: payload, kind at +0x1D
+    constexpr std::size_t    kRolePointToken          = 0x0C;     // in an investigator's payload: kept when the CP moves his point a little
+    constexpr std::size_t    kServicePoints           = 0x80;     // one investigation point per CP
+    constexpr std::size_t    kPointSize               = 0x1C;
+    constexpr std::size_t    kPointCause              = 0x10;
+    constexpr std::size_t    kPointId                 = 0x12;
+    constexpr std::size_t    kPointArea               = 0x14;
+    constexpr std::size_t    kPointFlags              = 0x16;
+    constexpr std::size_t    kPointInvestigators      = 0x18;
+    constexpr std::uint8_t   kPointActive             = 0x40;
+    constexpr std::size_t    kRoleLocators            = 0x30;     // role controller: 0x30 per combat locator, its member count at +0x29
+    constexpr std::size_t    kLocatorSize             = 0x30;
+    constexpr std::size_t    kLocatorMembers          = 0x29;
+    constexpr std::size_t    kMemberPosition          = 0x04;     // in the 0x14 member record: x y z
+    constexpr std::size_t    kMemberAbilities         = 0x12;
+    constexpr std::uint32_t  kMemberUp                = 0x80001;
+    constexpr std::uint32_t  kInvestigatorBusy        = 0x7303C214;   // AssignInvestigation's bits 2/9/15/16/17/24/28 and 0x62004010
+    constexpr std::uint8_t   kCanInvestigate          = 0x02;
+    constexpr std::uint8_t   kInvestigateRole         = 1;
+    constexpr std::uint8_t   kGuardRole               = 3;
+    constexpr std::uint16_t  kNoLocator               = 0x100;
+    constexpr std::uint8_t   kNoticeInvestigation     = 3;        // the kind the soldiers' own notice requests carry
+    constexpr std::uint16_t  kNoCause                 = 0x1FF;
+    constexpr std::uint32_t  kAllKinds                = 0xFFFFFFFF;
     constexpr std::size_t    kServiceMemberRadioFlags = 0x58;     // 0x14 per member, bit 1: CallPart speaks him through his own voice
     constexpr std::size_t    kMemberRadioFlagsSize    = 0x14;
     constexpr std::uint32_t  kOwnVoiceFlag            = 0x2;
     constexpr std::size_t    kServiceCpStates         = 0x30;     // 0x60 per CP
     constexpr std::size_t    kCpStateSize             = 0x60;
     constexpr std::size_t    kCpStatePhase            = 0x48;
+    constexpr std::size_t    kCpStateFlags            = 0x54;
+    constexpr std::uint32_t  kCpNoInvestigators       = 0x40000;   // CautionAiImpl / EvasionAiImpl::StepNormal assign nobody while it's set
     constexpr std::int32_t   kPhaseAlert              = 3;
     constexpr std::size_t    kCpControllerMembers     = 0x58;     // 0x18 per member
     constexpr std::size_t    kCpControllerMemberTotal = 0x174;
@@ -143,7 +202,7 @@ namespace
     constexpr std::uint8_t   kChaffInUse              = 0x01;
     constexpr std::uint8_t   kChaffEnded              = 0x04;
     constexpr std::uint8_t   kChaffEndless            = 0x20;
-    constexpr std::uint64_t  kChaffWatchMs            = 120000;   // past this the cloud is long gone, the pointer is not read
+    constexpr std::uint64_t  kChaffWatchMs            = 120000;
 
     ConvertSpeechLabel_t g_OrigConvertSpeechLabel = nullptr;
     RequestRadioByCp_t   g_OrigRequestRadioByCp   = nullptr;
@@ -154,6 +213,7 @@ namespace
     MortarState_t        g_OrigMortarAction       = nullptr;
     UnrealMortarState_t  g_OrigUnrealMortarAction = nullptr;
     HeliUnrealize_t      g_OrigHeliUnrealize      = nullptr;
+    BgmPhaseMismatch_t   g_OrigBgmPhaseMismatch   = nullptr;
     std::uint32_t        g_LineHashes[kLineCount] = {};
 
     constexpr std::uint64_t kRetryForMs        = 30000;   // a higher call can push a queued one out; vanilla just loses it
@@ -182,9 +242,11 @@ namespace
     enum class Pending : std::uint8_t { None, Decide, AwaitRequester, CpOrder, Resend };
     struct PendingMortar
     {
-        Pending       kind    = Pending::None;
-        std::uint64_t untilMs = 0;
-        std::uint64_t triedMs = 0;
+        Pending       kind        = Pending::None;
+        std::uint64_t untilMs     = 0;
+        std::uint64_t triedMs     = 0;
+        std::uint32_t caller      = kNoSoldier;   // tried his radio under the chaff: he makes the call once it clears
+        bool          callOutSaid = false;
     };
     struct NamedCall   // a CP call that has to name a real soldier: his call sign, his voice
     {
@@ -201,14 +263,15 @@ namespace
         std::uint32_t cp         = kNoCp;
         std::uint32_t serial     = 0;       // the strike call it answers
         std::uint64_t startedMs  = 0;
-        std::uint64_t capFromMs  = 0;       // his wait limit runs from here: his arrival, or the chaff clearing
+        std::uint64_t capFromMs  = 0;
         std::uint64_t askedMs    = 0;
         std::uint64_t lastAskMs  = 0;
         std::uint64_t releasedMs = 0;
         std::uint64_t onAirMs    = 0;
         bool          jammed     = false;   // chaff ate his call: he waits until it clears, then asks again
+        bool          callOutSaid = false;
         bool          done       = false;
-        bool          refused    = false;   // on and off air without his voice: the CP turned it down
+        bool          refused    = false;
     };
     struct PartSpeaker
     {
@@ -266,6 +329,27 @@ namespace
     };
     std::array<RoleCall, kCpCount>  g_RoleCalls{};
     constexpr std::uint64_t         kRoleCallMs = 20000;
+    struct RadioOrder   // Lua's AssignRadioInCombat: he takes the radio role, pose and all, for one call of this label
+    {
+        std::uint32_t soldier = kNoSoldier;
+        std::uint32_t member  = kNoMember;   // set when his request goes out
+        std::uint32_t label   = 0;
+        std::uint32_t type    = 0;            // what the label means to the CP
+        std::uint64_t untilMs = 0;
+        bool          queued  = false;        // asked from Lua: the CP hands the radio over on its own idle tick
+        bool          noPose  = false;        // he only talks: no radio role, his call goes out as a member radio
+        bool          reply   = false;        // the soldiers' answer to the CP's camera or UAV call, not Lua's
+        std::uint64_t postedMs = 0;
+        bool          sent    = false;
+        bool          onAir   = false;
+        bool          done    = false;        // off air: the role goes back on the next idle tick
+    };
+    std::array<RadioOrder, kCpCount> g_RadioOrders{};
+    std::array<bool, kCpCount>       g_SpottedReplyDue{};  // user: after the CP's CPR0022 or CPR0500 the soldier nearest Snake answers
+    constexpr std::uint64_t          kNoPoseCallMs = 30000;   // a call without the pose keeps asking a busy radio this long
+    std::uint32_t                    g_CameraReplyLabel = 0;   // V_CPR0022ENE, the soldier's cpr0022_01 alone
+    std::uint32_t                    g_UavReplyLabel = 0;      // CPR0341ENE "Will investigate immediately.", a camera checker's answer (NoticeCameraAiImpl::StepRadioStart, 0x2D)
+    std::uint32_t                    g_InvestigateReplyTake2 = 0;   // V_CPR0340ENE: cpr0340_01, the same answer recorded for CPR0340 and never played
     using RequestRadioByMember_t = std::uint16_t(__fastcall*)(std::uint8_t* cpController, std::uint32_t client, std::uint32_t local,
                                                               std::uint32_t radioType, std::uint32_t label);
     RequestRadioByMember_t          g_OrigRequestRadioByMember = nullptr;
@@ -276,10 +360,11 @@ namespace
 
     struct GunshipCall
     {
-        std::uint32_t soldier   = kNoSoldier;   // the man the heli hit, the fallback speaker
-        std::uint64_t pendingMs = 0;
-        std::uint64_t awaitMs   = 0;            // the radio man has until then to put it on air
-        bool          called    = false;        // once per CP until the heli unrealizes (user)
+        std::uint32_t soldier     = kNoSoldier;   // the man the heli hit: tries his radio under chaff, the fallback speaker
+        std::uint64_t pendingMs   = 0;
+        std::uint64_t awaitMs     = 0;            // the radio man has until then to put it on air
+        bool          called      = false;        // once per CP until the heli unrealizes (user)
+        bool          callOutSaid = false;
     };
     std::array<GunshipCall, kCpCount> g_Gunship{};
     std::atomic<std::uint32_t>      g_SupportHeliId{ 0xFFFFFFFF };
@@ -290,20 +375,149 @@ namespace
     std::array<std::atomic<std::uint64_t>, kCpCount>      g_CpRadioMs{};        // a call naming nobody last played on this CP
     std::array<std::atomic<std::uint64_t>, kSoldierCount> g_SoldierRadioMs{};   // a call naming him last played
 
-    const char* LineName(std::uint32_t label)
+    struct ContactCall   // the radio man calls the alert in himself (CPR0010); the CP's own CPR0020 is the fallback
     {
-        for (std::uint32_t i = 0; i < kLineCount; ++i)
-        {
-            if (g_LineHashes[i] == label)
-                return kLineLabels[i];
-        }
-        return "?";
-    }
+        std::uint32_t soldier = kNoSoldier;
+        std::uint32_t member  = kNoMember;   // set when his request goes out
+        std::uint64_t untilMs = 0;
+        bool          sent    = false;
+        bool          onAir   = false;
+        bool          done    = false;   // off air: his radio role goes on the next idle tick
+        bool          cpAnswered = false;
+    };
+    std::array<ContactCall, kCpCount> g_Contact{};
+
+    struct HeldUpReport   // a held-up soldier who freed himself calls it in, then the CP answers with CPR0049
+    {
+        std::uint32_t soldier  = 0xFFFFFFFF;
+        bool          onAir    = false;
+        bool          replyDue = false;
+        std::uint64_t replyMs  = 0;       // the CP's answer was asked for; its 0x4E call speaks CPR0049 for a while
+        std::uint64_t requestMs = 0;      // when his hold-up call was asked for; one that never airs goes stale
+    };
+    constexpr std::uint64_t            kHeldUpReportMs    = 60000;
+    std::array<HeldUpReport, kCpCount> g_HeldUpReports{};
+    std::uint32_t                      g_StayOnAlertLabel = 0;   // CPR0049, no radio type of its own
+    constexpr std::uint64_t            kAnswerWindowMs    = 20000;
+    constexpr std::uint64_t           kContactWaitMs = 10000;   // user: if he hasn't started his call by then, the CP calls CPR0020 itself
+    constexpr std::uint64_t           kAlertCallDelayMs = 3000;
+
+    constexpr std::uint8_t   kSomethingToCheckRadio = 0x0C;     // CPR0052 "Got something worth checking here" > "Tighten security, and stay alert"
+    constexpr std::uint8_t   kSearchCompleteRadio   = 0x3A;     // CPR0070, an investigator's own end report
+    constexpr std::uint8_t   kExplosionRadio        = 0x05;     // CPR0031 "There was an explosion, damage unknown!"
+    constexpr std::uint8_t   kExplosionAgainRadio   = 0x06;     // CPR0035, his second threat since his CP last calmed down
+    constexpr std::uint8_t   kInstallationRadio     = 0x04;     // CPR0145 "Got damage to some equipment here." > "Move to investigate, ASAP."
+    constexpr std::uint64_t  kEquipmentReportMs     = 30000;    // his CPR0145 has this long to come on air as CPR0346 / CPR0345
+    constexpr std::uint8_t   kUavDownRadio          = 0x44;     // CPR0510 "UAV feed is down... Whoever's closest, go and investigate immediately."
+    constexpr std::uint64_t  kUavDownCallDelayMs    = 5000;     // user: as late as a downed camera's CPR0340 (MemberRoleControllerImpl::UpdateCheckGimmick, 5 s)
+    constexpr std::uint64_t  kUavReplyAirMs         = 10000;    // RadioAiImpl::StepWait holds him 1-3 s, then the CP's radio may still be busy
+    constexpr std::uint64_t  kUavReplyMostMs        = 30000;
+    constexpr std::uint8_t   kInvestigateReplyRadio = 0x2D;     // CPR0341ENE, a camera or lights checker's answer (and our UAV checker's)
+    constexpr std::uint64_t  kBlastReportMs         = 60000;    // long enough for his radio step to finish
+    constexpr int            kStealthForTeams       = 3;        // user: TppRevenge.GetRevengeLv(STEALTH) 3 and up, vanilla below
+    constexpr int            kStealthAlwaysTeam     = 5;        // user: a find brings a team 1 in 3 at level 3, 2 in 3 at 4, always at 5
+    constexpr std::size_t    kSurveyTeamMost        = 2;        // user: two; the finder is one of them only for a vehicle blast
+    constexpr std::uint64_t  kSurveyCallMs          = 30000;    // the find call has this long to come on air and end
+    constexpr std::uint64_t  kSurveyMostMs          = 240000;
+    constexpr std::uint64_t  kFinderHoldMs          = 60000;
+    constexpr std::uint64_t  kWakeStartMs           = 10000;    // the nearest one's downed-comrade node has this long to start
+    constexpr std::uint64_t  kWakeMostMs            = 90000;    // walking up to 100 m, then seeing to him
+    constexpr std::uint64_t  kFinderHoldMostMs      = kSurveyCallMs + kWakeStartMs + kWakeMostMs;
+    constexpr int            kFirstSightNotice      = 0x1E;     // what starts NoticeDownComradeAi
+    constexpr std::uint16_t  kNoComrade             = 0xFFFF;
+    constexpr float          kSameSpotRange         = 10.0f;    // a second find there stays vanilla: that finder walks over and wakes him
+    constexpr float          kSurveyTeamSpread      = 100.0f;   // AssignSelectTargetInvestigation's 10000.0 squared
+
+    enum class Survey : std::uint8_t { None, Found, Told, Dispatch, Replying, Waking, Out };
+    struct SurveyTeam   // user design: a soldier finds something, the CP sends up to four others, one of them reports the sweep
+    {
+        Survey        stage    = Survey::None;
+        std::uint8_t* service  = nullptr;      // the mission it belongs to
+        std::uint32_t finder   = kNoSoldier;
+        std::uint32_t member   = kNoMember;    // the finder's
+        float         spot[3]  = {};
+        float         pointAt[3] = {};         // where the CP put the point; it moves it when it hands the point to another job
+        std::uint32_t team[kSurveyTeamMost]   = {};
+        std::uint32_t teamSoldier[kSurveyTeamMost] = {};
+        std::uint32_t teamSize = 0;
+        bool          calledOff = false;       // one of them lied "All clear" to the CP
+        std::uint16_t token    = 0;            // the point the CP made of the spot
+        std::uint64_t untilMs  = 0;
+        bool          fromBody = false;        // a downed comrade: only that node can hold him
+        std::uint16_t comrade  = kNoComrade;   // that comrade's GameObjectId
+        std::uint32_t waker    = kNoSoldier;   // user: the team's nearest sees to him before the sweep
+        bool          wakerUp  = false;        // his downed-comrade node has started
+        bool          wakeDone = false;
+        bool          busy     = false;        // the CP was already investigating something else
+        std::uint8_t  radioType = kSomethingToCheckRadio;   // his find call: 0x0C, or 5/6 for a vehicle blast
+        bool          blast    = false;        // user: CPR0143, and the man who reported it goes with the team
+        bool          uav      = false;        // user: CPR0510, the CP's own order: the nearest one goes, nobody found it
+        bool          replied  = false;        // user: he answers the CP first, in his radio pose, as a camera's checker does
+        std::uint32_t replier  = kNoSoldier;
+        std::uint32_t missingTeam = 0;         // the SITREP group of the members the player took out
+        bool          reported[kSurveyTeamMost] = {};
+        bool          second   = false;        // user: sent after a SITREP nobody answered; no third team comes
+    };
+    struct SurveyAsked   // user: a member taken out gets his CP's SITREP; nobody answering it brings a second team to the spot
+    {
+        std::uint8_t* service  = nullptr;
+        std::uint32_t team     = 0;            // CpRadioResponse's SITREP group
+        float         spot[3]  = {};
+        bool          second   = false;        // they were the second team already
+        bool          sendTeam = false;        // nobody answered: the CP's next idle tick sends the second team
+    };
+    constexpr std::size_t kSurveyedSpotsKept = 8;
+    struct SurveyedSpots   // the bodies stay down after a sweep: the next guard who finds one gets vanilla and wakes him
+    {
+        std::uint8_t* service = nullptr;
+        std::uint32_t next    = 0;
+        std::uint32_t count   = 0;
+        float         spot[kSurveyedSpotsKept][3] = {};
+    };
+    std::array<SurveyTeam, kCpCount>                      g_Survey{};
+    std::array<SurveyAsked, kCpCount>                     g_SurveyAsked{};
+    std::array<SurveyedSpots, kCpCount>                   g_SurveyedSpot{};
+#ifdef _DEBUG
+    std::array<std::atomic<std::uint16_t>, kSoldierCount> g_ProbeSurveyCp{};   // TEMP probe: CP + 1 while he's on a survey team that's out
+#endif
+    std::array<std::atomic<std::uint64_t>, kSoldierCount> g_FinderHoldUntilMs{};
+    std::array<std::atomic<std::uint64_t>, kSoldierCount> g_FinderWatchUntilMs{};   // holding his spot: not picked for a team
+    std::array<std::atomic<bool>, kSoldierCount>          g_FinderHeld{};   // his Wait step is ours until it sends him back to his route
+    std::array<std::atomic<bool>, kSoldierCount>          g_Waker{};
+    std::array<std::atomic<std::uint64_t>, kSoldierCount> g_BlastReporterUntilMs{};   // his NoiseThreat node mustn't file vanilla's point
+    std::array<std::atomic<std::int32_t>, kCpCount>       g_CpPhaseSeen{};
+    std::array<std::atomic<std::uint64_t>, kCpCount>      g_CpCalmedMs{};   // the CP last dropped back to sneak
+    std::uint32_t g_SendTeamLabel   = 0;   // CPR0148 "Maintain watch where you are. We'll send another team to check it out."
+    std::uint32_t g_StayOnGuardLabel = 0;  // CPR0142 "Stay on guard where you are."
+    std::uint32_t g_SweepDoneLabel  = 0;   // CPR0147 "Finished our sweep. There's nobody here. Heading back." > "Head back immediately."
+    std::uint32_t g_BlastLabel      = 0;   // CPR0143 "Got damage to a vehicle. Looks like the work of a hostile." > "Move to investigate, ASAP."
+    std::uint32_t g_CommsLabel      = 0;   // CPR0346 "This comms equipment's been destroyed. It's the enemy."
+    std::uint32_t g_PowerLabel      = 0;   // CPR0345 "Power system's been taken out. This is enemy sabotage."
+
+    struct EquipmentReport   // user: a guard who hears an antenna, comms gear or a generator go names it instead of CPR0145
+    {
+        std::uint32_t soldier = kNoSoldier;
+        std::uint32_t member  = kNoMember;
+        std::uint32_t label   = 0;
+        std::uint64_t untilMs = 0;
+    };
+    std::array<EquipmentReport, kCpCount> g_EquipmentReports{};
+
+    struct UavDown   // it fell on the UAV's update; the CP's first idle tick 5 s later says it
+    {
+        bool          due          = false;
+        std::uint8_t* cpController = nullptr;   // the one the UAV belongs to
+        float         spot[3]      = {};
+        std::uint64_t downMs       = 0;
+    };
+    std::array<UavDown, kCpCount> g_UavDown{};
 
     std::uint8_t __fastcall hk_ConvertSpeechLabelToRadioType(std::uint32_t label)
     {
         if (label != 0 && !MissionCodeGuard::ShouldBypassHooks())
         {
+            if (label == g_LineHashes[kContactLine])
+                return static_cast<std::uint8_t>(kAlertBroadcastRadio);
             if (label == g_LineHashes[kOrderLine] || label == g_LineHashes[kRequestLine])
                 return static_cast<std::uint8_t>(kMortarOrderRadio);   // CPR0182 is still the vanilla mortar call
             if (label == g_LineHashes[kReadyLine] || label == g_LineHashes[kFlareLine] || label == g_LineHashes[kGunshipLine])
@@ -312,17 +526,58 @@ namespace
         return g_OrigConvertSpeechLabel(label);
     }
 
-    bool InAlert(std::uint8_t* service, std::uint32_t cp)
+    std::int32_t CpPhase(std::uint8_t* service, std::uint32_t cp)
     {
         __try
         {
             const std::uint8_t* states = *reinterpret_cast<std::uint8_t* const*>(service + kServiceCpStates);
-            return *reinterpret_cast<const std::int32_t*>(states + cp * kCpStateSize + kCpStatePhase) == kPhaseAlert;
+            return *reinterpret_cast<const std::int32_t*>(states + cp * kCpStateSize + kCpStatePhase);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            return false;
+            return -1;
         }
+    }
+
+    bool InAlert(std::uint8_t* service, std::uint32_t cp)
+    {
+        return CpPhase(service, cp) == kPhaseAlert;
+    }
+
+    bool NoInvestigatorsAllowed(std::uint8_t* service, std::uint32_t cp)
+    {
+        __try
+        {
+            const std::uint8_t* states = *reinterpret_cast<std::uint8_t* const*>(service + kServiceCpStates);
+            return (*reinterpret_cast<const std::uint32_t*>(states + cp * kCpStateSize + kCpStateFlags) & kCpNoInvestigators) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return true;
+        }
+    }
+
+    bool RollTeam(int stealth)
+    {
+        static std::atomic<std::uint32_t> roll{ static_cast<std::uint32_t>(GetTickCount64()) | 1u };
+        std::uint32_t x = roll.load(std::memory_order_relaxed);
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        roll.store(x, std::memory_order_relaxed);
+        const int thirds = stealth >= kStealthAlwaysTeam ? 3 : stealth - kStealthForTeams + 1;
+        return static_cast<int>(x % 3) < thirds;
+    }
+
+    bool CoinFlip()
+    {
+        static std::atomic<std::uint32_t> roll{ static_cast<std::uint32_t>(GetTickCount64()) | 1u };
+        std::uint32_t x = roll.load(std::memory_order_relaxed);
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        roll.store(x, std::memory_order_relaxed);
+        return (x & 1u) != 0;
     }
 
     bool ChaffIsUp()
@@ -393,7 +648,7 @@ namespace
         return true;
     }
 
-    bool IsUp(const std::uint8_t* soldiers, std::uint32_t soldierIndex, float* position)   // active and awake, where he stands
+    bool IsUp(const std::uint8_t* soldiers, std::uint32_t soldierIndex, float* position)
     {
         __try
         {
@@ -479,6 +734,23 @@ namespace
         }
     }
 
+    bool OutOfAction(const std::uint8_t* soldiers, std::uint32_t soldierIndex)   // killed, knocked out or held up: he won't get on the radio
+    {
+        bool heldKnown = false;
+        if (CpRadioResponse::IsHeld(static_cast<std::uint16_t>(soldierIndex), heldKnown))
+            return true;
+        __try
+        {
+            const auto* life = *reinterpret_cast<const std::uint8_t* const*>(
+                *reinterpret_cast<const std::uint8_t* const*>(soldiers + kSoldiersLife) + kLifeRecords) + soldierIndex * kLifeRecordSize;
+            return life[kLifeState] == kLifeStateDead || (*reinterpret_cast<const std::uint16_t*>(life + kLifeFlags) & kLifeFlagsStatus) != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     bool CanTalk(const std::uint8_t* soldiers, std::uint32_t soldierIndex, float* position)
     {
         bool heldKnown = false;
@@ -489,7 +761,7 @@ namespace
     }
 
     std::uint32_t RoleHolder(std::uint8_t* service, std::uint32_t cp, const std::uint8_t* soldiers, std::uint8_t role, bool talking,
-                             std::uint32_t& memberOut)   // that CP's member in the role, nearest Snake; talking: one who can say his line
+                             std::uint32_t& memberOut)
     {
         float snake[3] = {};
         if (!service || !soldiers || !SnakePosition(soldiers, snake))
@@ -522,7 +794,7 @@ namespace
         return best;
     }
 
-    std::uint32_t RadioRoleHolder(std::uint8_t* service, std::uint32_t cp, const std::uint8_t* soldiers)   // far from Snake he has no position: the role alone counts
+    std::uint32_t RadioRoleHolder(std::uint8_t* service, std::uint32_t cp, const std::uint8_t* soldiers)
     {
         if (!service || !soldiers)
             return kNoSoldier;
@@ -553,12 +825,13 @@ namespace
         return radioMan;
     }
 
-    bool MemberOfClient(std::uint8_t* cpController, std::uint32_t client, std::uint32_t local, std::uint32_t& soldier, std::uint32_t& cp)
+    bool MemberOfClient(std::uint8_t* cpController, std::uint32_t client, std::uint32_t local, std::uint32_t& soldier, std::uint32_t& cp,
+                        std::uint32_t& member)
     {
         __try
         {
             const std::uint8_t* clients = *reinterpret_cast<std::uint8_t* const*>(cpController + kCpControllerClients);
-            const std::uint32_t member = *reinterpret_cast<const std::uint16_t*>(clients + client * kClientSize + kClientFirstMember) + local;
+            member = *reinterpret_cast<const std::uint16_t*>(clients + client * kClientSize + kClientFirstMember) + local;
             const std::uint8_t* entry = *reinterpret_cast<std::uint8_t* const*>(cpController + kCpControllerMembers) + member * kMemberSize;
             const std::uint16_t gameObjectId = *reinterpret_cast<const std::uint16_t*>(entry + kMemberGameObjectId);
             if ((gameObjectId & kTypeMask) != kSoldierType)
@@ -573,27 +846,206 @@ namespace
         }
     }
 
+    std::uint8_t RoleKindOf(std::uint8_t* service, std::uint32_t member)
+    {
+        __try
+        {
+            return (*reinterpret_cast<std::uint8_t* const*>(service + kServiceRoles))[member * kRoleSize + kRoleKind];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return kAnyRole;
+        }
+    }
+
+    bool NearSpot(const float* a, const float* b, float range)
+    {
+        const float dx = a[0] - b[0];
+        const float dy = a[1] - b[1];
+        const float dz = a[2] - b[2];
+        return dx * dx + dy * dy + dz * dz < range * range;
+    }
+
+    bool WasSurveyed(const SurveyedSpots& swept, std::uint8_t* service, const float* spot)
+    {
+        if (swept.service != service)
+            return false;
+        for (std::uint32_t i = 0; i < swept.count; ++i)
+        {
+            if (NearSpot(swept.spot[i], spot, kSameSpotRange))
+                return true;
+        }
+        return false;
+    }
+
+    void RememberSurveyed(SurveyedSpots& swept, std::uint8_t* service, const float* spot)
+    {
+        if (swept.service != service)
+            swept = SurveyedSpots{ service };
+        float* slot = swept.spot[swept.next];
+        slot[0] = spot[0];
+        slot[1] = spot[1];
+        slot[2] = spot[2];
+        swept.next = (swept.next + 1) % kSurveyedSpotsKept;
+        if (swept.count < kSurveyedSpotsKept)
+            ++swept.count;
+    }
+
+    void NoteSomethingToCheck(std::uint8_t* service, std::uint32_t soldier, std::uint32_t cp, std::uint32_t member,
+                              std::uint8_t radioType)   // his call goes out unchanged
+    {
+        if (RoleKindOf(service, member) == kInvestigateRole)
+        {
+            return;   // an investigator who comes across it is still the sweep
+        }
+        float spot[3] = {};
+        const NoticeRadio from = NoticeAiImpl_RadioFrom(soldier, spot);
+        const bool blast = from == NoticeRadio::VehicleBlast;
+        if (radioType != kSomethingToCheckRadio && !blast)
+        {
+            std::uint16_t flags = 0;
+            std::int32_t noise = -1;
+            bool wreck = false;
+            const bool threat = NoticeAiImpl_ThreatNoise(soldier, flags, noise, wreck);
+            return;   // 5 and 6 report every explosion: only a vehicle's brings a team (user)
+        }
+        if (from == NoticeRadio::Vehicle)
+            return;   // user: the vehicle that drove at him is long gone by the time a team comes
+        const bool fromBody = from == NoticeRadio::None && NoticeDownComradeAiImpl_FoundSpot(soldier, spot);
+        if (from == NoticeRadio::None && !fromBody && !IsUp(LiveSoldiers(), soldier, spot))
+            return;
+        g_Service.store(service, std::memory_order_relaxed);   // a quiet CP may not have made a call of its own yet
+        if (!FeatureSwitch::IsOn(FeatureSwitch::Feature::SurveyTeams))
+            return;
+        const int stealth = RevengeLevel::Stealth();
+        if (stealth < kStealthForTeams)
+        {
+            return;
+        }
+        if (!blast && !RollTeam(stealth))
+        {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        SurveyTeam& survey = g_Survey[cp];
+        if (survey.stage != Survey::None && survey.service == service)
+        {
+            return;   // user: one sweep per CP at a time
+        }
+        if (!blast && WasSurveyed(g_SurveyedSpot[cp], service, spot))   // a blast is over once it's swept; a body stays down
+        {
+            return;
+        }
+        survey = SurveyTeam{};
+        survey.stage = Survey::Found;
+        survey.service = service;
+        survey.finder = soldier;
+        survey.member = member;
+        survey.fromBody = fromBody;
+        if (fromBody)
+        {
+            survey.comrade = NoticeDownComradeAiImpl_FoundComrade(soldier);
+            if ((survey.comrade & kTypeMask) != kSoldierType)
+                survey.comrade = kNoComrade;
+        }
+        survey.radioType = radioType;
+        survey.blast = blast;
+        survey.spot[0] = spot[0];
+        survey.spot[1] = spot[1];
+        survey.spot[2] = spot[2];
+        survey.untilMs = GetTickCount64() + kSurveyCallMs;
+    }
+
+    void NoteEquipmentReport(std::uint32_t soldier, std::uint32_t cp, std::uint32_t member)   // his type stays 4: vanilla's investigators still come
+    {
+        float heard[3] = {};
+        if (!FeatureSwitch::IsOn(FeatureSwitch::Feature::SoldierRadioAnswers) || !NoticeAiImpl_HeardNoiseAt(soldier, heard))
+            return;
+        const DestroyedEquipment what = TppPermanentGimmickUnit_DestroyedAt(heard);
+        if (what == DestroyedEquipment::Other)
+            return;
+        const bool comms = what == DestroyedEquipment::Comms;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            g_EquipmentReports[cp] = EquipmentReport{ soldier, member, comms ? g_CommsLabel : g_PowerLabel, GetTickCount64() + kEquipmentReportMs };
+        }
+    }
+
     std::uint16_t __fastcall hk_RequestRadioByMember(std::uint8_t* cpController, std::uint32_t client, std::uint32_t local,
                                                      std::uint32_t radioType, std::uint32_t label)
     {
         std::uint32_t soldier = kNoSoldier;
         std::uint32_t cp = kNoCp;
-        if (label == 0 && !MissionCodeGuard::ShouldBypassHooks() && MemberOfClient(cpController, client, local, soldier, cp))
+        std::uint32_t member = kNoMember;
+        const bool contactLine = label != 0 && label == g_LineHashes[kContactLine];   // the alert caller's own post, no radio role (user)
+        if ((label == 0 || contactLine) && !MissionCodeGuard::ShouldBypassHooks() && MemberOfClient(cpController, client, local, soldier, cp, member))
         {
+            RadioOrder order;
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                RadioOrder& stored = g_RadioOrders[cp];
+                if (!contactLine && !stored.queued && stored.soldier == soldier && !stored.sent && GetTickCount64() < stored.untilMs)
+                {
+                    stored.sent = true;
+                    stored.member = member;
+                    order = stored;
+                }
+            }
+            if (order.sent)
+            {
+                return g_OrigRequestRadioByMember(cpController, client, local, order.type, order.label);
+            }
+            if (HoldupSelfRelease_TakeRadioCall(soldier))
+            {
+                {
+                    std::lock_guard<std::mutex> lock(g_PendingMutex);
+                    g_HeldUpReports[cp] = HeldUpReport{ soldier, false, false, 0, GetTickCount64() };
+                }
+                return g_OrigRequestRadioByMember(cpController, client, local, kCautionStartRadio, 0);
+            }
+            if (radioType == kSearchCompleteRadio)
+            {
+                bool uavChecker = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_PendingMutex);
+                    const SurveyTeam& survey = g_Survey[cp];
+                    for (std::uint32_t i = 0; survey.uav && survey.stage == Survey::Out && i < survey.teamSize; ++i)
+                        uavChecker = survey.team[i] == member || uavChecker;
+                }
+                if (uavChecker)   // user: the wrecked UAV is no false alarm, his end report puts the CP in Caution
+                {
+                    return g_OrigRequestRadioByMember(cpController, client, local, kCautionStartRadio, 0);
+                }
+            }
+            if (radioType == kSomethingToCheckRadio || radioType == kExplosionRadio || radioType == kExplosionAgainRadio)
+                NoteSomethingToCheck(cpController - kServiceToCpController, soldier, cp, member, static_cast<std::uint8_t>(radioType));
+            else if (radioType == kInstallationRadio)
+                NoteEquipmentReport(soldier, cp, member);
             Line line = kLineCount;
             {
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
+                ContactCall& alert = g_Contact[cp];
                 RoleCall& call = g_RoleCalls[cp];
-                if (call.soldier == soldier && !call.sent && GetTickCount64() < call.untilMs)
+                if (alert.soldier == soldier && !alert.sent && radioType == kAlertBroadcastRadio)
+                {
+                    alert.sent = true;
+                    alert.untilMs = GetTickCount64() + kContactWaitMs;   // from here on: how long his posted call may stay off the air
+                    alert.member = member;
+                    line = kContactLine;
+                }
+                else if (call.soldier == soldier && !call.sent && GetTickCount64() < call.untilMs)
                 {
                     call.sent = true;
                     line = call.line;
                 }
             }
+            if (line == kContactLine)   // it ends as the CP's own 0x3D: the CP reacts to it as to its broadcast
+            {
+                return g_OrigRequestRadioByMember(cpController, client, local, kAlertBroadcastRadio, g_LineHashes[line]);
+            }
             if (line != kLineCount)
             {
-                LogInfo("VoiceDebug: soldier %u radios %s (his radio-role call 0x%02X, as a plain label)", soldier, kLineLabels[line], radioType);
-                return g_OrigRequestRadioByMember(cpController, client, local, kAnyLabelRadio, g_LineHashes[line]);   // past the CP's refusals, his pose kept
+                return g_OrigRequestRadioByMember(cpController, client, local, kAnyLabelRadio, g_LineHashes[line]);
             }
         }
         return g_OrigRequestRadioByMember(cpController, client, local, radioType, label);
@@ -607,7 +1059,7 @@ namespace
         g_Named[cp] = NamedCall{ g_LineHashes[line], soldier, member, GetTickCount64() + kNamedCallMs, false };
     }
 
-    void OrderStrikeByCp(std::uint8_t* service, std::uint32_t cp)   // the fallback: the CP orders it, naming the man on the mortar
+    void OrderStrikeByCp(std::uint8_t* service, std::uint32_t cp)
     {
         std::uint32_t member = kNoMember;
         const std::uint32_t operatorSoldier = RoleHolder(service, cp, LiveSoldiers(), kMortarRole, true, member);
@@ -618,19 +1070,40 @@ namespace
             const std::uint64_t now = GetTickCount64();
             g_Pending[cp] = PendingMortar{ Pending::CpOrder, now + kRetryForMs, now };
         }
-        g_OrigRequestRadioByCp(service, cp, kMortarOrderRadio, kNoMember, g_LineHashes[kOrderLine]);   // unaddressed: naming the busy operator gets it dropped
-        LogInfo("VoiceDebug: CP %u orders the strike (CPR0180), names %s %d", cp,
-            operatorSoldier != kNoSoldier ? "the mortar operator, soldier" : "nobody (generic voice)",
-            operatorSoldier != kNoSoldier ? static_cast<int>(operatorSoldier) : -1);
+        g_OrigRequestRadioByCp(service, cp, kMortarOrderRadio, kNoMember, g_LineHashes[kOrderLine]);
     }
 
-    bool AssignRequester(std::uint8_t* service, std::uint32_t cp, std::uint32_t radioType = kMortarOrderRadio)   // he takes the radio role and puts the call on air himself, radio pose and all
+    bool AssignRequester(std::uint8_t* service, std::uint32_t cp, std::uint32_t radioType = kMortarOrderRadio)   // someone holds the radio role after it
     {
         __try
         {
             void* roles = *reinterpret_cast<void* const*>(service + kServiceRoleController);
             const auto assign = (*reinterpret_cast<AssignRadioInCombat_t* const*>(roles))[kAssignRadioInCombatSlot];
-            return assign(roles, cp, radioType);
+            assign(roles, cp, radioType);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return RadioRoleHolder(service, cp, LiveSoldiers()) != kNoSoldier;
+    }
+
+    bool GiveRadioRole(std::uint8_t* service, std::uint32_t member, std::uint8_t radioType)   // AssignRadioInCombat's own hand-over, to a chosen man
+    {
+        __try
+        {
+            std::uint8_t* role = *reinterpret_cast<std::uint8_t* const*>(service + kServiceRoles) + member * kRoleSize;
+            const std::uint16_t locator = *reinterpret_cast<const std::uint16_t*>(role);
+            if ((role[kRoleKind] == 0 || role[kRoleKind] == kGuardRole) && locator != kNoLocator)   // he leaves his combat post
+            {
+                std::uint8_t* roles = *reinterpret_cast<std::uint8_t* const*>(service + kServiceRoleController);
+                std::uint8_t& onLocator = (*reinterpret_cast<std::uint8_t* const*>(roles + kRoleLocators))[locator * kLocatorSize + kLocatorMembers];
+                if (onLocator)
+                    --onLocator;
+            }
+            const auto setMemberRole = (*reinterpret_cast<SetMemberRole_t* const*>(service))[kSetMemberRoleSlot];
+            setMemberRole(service, member, kRadioRole, &radioType, sizeof(radioType));
+            return role[kRoleKind] == kRadioRole;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -638,7 +1111,756 @@ namespace
         }
     }
 
-    void DecideStrikeCall(std::uint8_t* service, std::uint32_t cp, bool again = false)   // the requester as vanilla picks who radios for backup, else the CP
+    bool ResignRadio(std::uint8_t* service, std::uint32_t cp)   // everyone on the CP's radio role goes back to no role
+    {
+        __try
+        {
+            void* roles = *reinterpret_cast<void* const*>(service + kServiceRoleController);
+            const auto resign = (*reinterpret_cast<ResignRadio_t* const*>(roles))[kResignRadioSlot];
+            resign(roles, cp);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    void ResignRadioMan(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier)   // the role keeps him calling 0x3D every ~25 s
+    {
+        if (RadioRoleHolder(service, cp, LiveSoldiers()) != soldier || !ResignRadio(service, cp))
+            return;
+    }
+
+    void CallOutUnderChaff(std::uint32_t soldier)
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        float at[3] = {};
+        if (soldier < kSoldierCount && soldiers && CanTalk(soldiers, soldier, at))
+            SoldierVoiceSwap_SayCallOut(soldier);
+    }
+
+    std::uint32_t StrikeCallerUnderChaff(std::uint8_t* service, std::uint32_t cp)
+    {
+        const std::uint32_t radioMan = RadioRoleHolder(service, cp, LiveSoldiers());
+        if (radioMan != kNoSoldier)
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            const RoleCall& call = g_RoleCalls[cp];
+            return call.soldier == radioMan && call.line == kRequestLine ? radioMan : kNoSoldier;
+        }
+        if (!AssignRequester(service, cp))
+            return kNoSoldier;
+        const std::uint32_t picked = RadioRoleHolder(service, cp, LiveSoldiers());
+        if (picked == kNoSoldier || !ResignRadio(service, cp))   // vanilla's pick, but the role would have him pose and call
+            return kNoSoldier;
+        return picked;
+    }
+
+    bool GiveCallTo(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier, std::uint8_t radioType, Line line)
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        std::uint32_t member = kNoMember;
+        std::uint32_t memberCp = kNoCp;
+        float at[3] = {};
+        if (soldier >= kSoldierCount || !soldiers || !CanTalk(soldiers, soldier, at) || !FindMember(service, soldier, member, memberCp)
+            || memberCp != cp || RadioRoleHolder(service, cp, soldiers) != kNoSoldier)
+            return false;
+        const std::uint8_t role = RoleKindOf(service, member);
+        if ((role != 0 && role != kGuardRole) || !GiveRadioRole(service, member, radioType))
+            return false;
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        RoleCall call;
+        call.soldier = soldier;
+        call.line = line;
+        call.untilMs = GetTickCount64() + kRoleCallMs;
+        g_RoleCalls[cp] = call;
+        return true;
+    }
+
+    std::uint8_t* PointOf(std::uint8_t* service, std::uint32_t cp)
+    {
+        return *reinterpret_cast<std::uint8_t* const*>(service + kServicePoints) + cp * kPointSize;
+    }
+
+    std::uint16_t PointToken(std::uint32_t cp, const std::uint8_t* point)   // what the role payload and CompleteInvestigation carry
+    {
+        return static_cast<std::uint16_t>(((cp & 0x7F) << 7) | (*reinterpret_cast<const std::uint16_t*>(point + kPointId) & 0x7F));
+    }
+
+    bool PointBusy(std::uint8_t* service, std::uint32_t cp)   // the CP's one point already has investigators: nobody is sent twice
+    {
+        __try
+        {
+            const std::uint8_t* point = PointOf(service, cp);
+            return (point[kPointFlags] & kPointActive) && point[kPointInvestigators] != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return true;
+        }
+    }
+
+    bool PointIsOurs(std::uint8_t* service, std::uint32_t cp, std::uint16_t token)
+    {
+        __try
+        {
+            const std::uint8_t* point = PointOf(service, cp);
+            return (point[kPointFlags] & kPointActive) && PointToken(cp, point) == token;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool ReadPointAt(std::uint8_t* service, std::uint32_t cp, float* out)
+    {
+        __try
+        {
+            const float* at = reinterpret_cast<const float*>(PointOf(service, cp));
+            out[0] = at[0];
+            out[1] = at[1];
+            out[2] = at[2];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool CanInvestigate(std::uint8_t* service, std::uint32_t member, float* position)   // AssignInvestigation's own test
+    {
+        __try
+        {
+            const std::uint8_t* record = *reinterpret_cast<std::uint8_t* const*>(service + kServiceMemberRadioFlags) + member * kMemberRadioFlagsSize;
+            const std::uint32_t flags = *reinterpret_cast<const std::uint32_t*>(record);
+            if ((flags & kMemberUp) != kMemberUp || (flags & kInvestigatorBusy) || !(record[kMemberAbilities] & kCanInvestigate))
+                return false;
+            const float* at = reinterpret_cast<const float*>(record + kMemberPosition);
+            position[0] = at[0];
+            position[1] = at[1];
+            position[2] = at[2];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return RoleKindOf(service, member) == 0;
+    }
+
+    void PickSurveyTeam(std::uint8_t* service, std::uint32_t cp, SurveyTeam& survey, std::uint32_t most)   // the nearest free soldiers to the spot, never the finder
+    {
+        std::uint8_t* cpController = service + kServiceToCpController;
+        const std::uint32_t total = MemberTotal(cpController);
+        float distance[kSurveyTeamMost] = {};
+        float where[kSurveyTeamMost][3] = {};
+        survey.teamSize = 0;
+        for (std::uint32_t member = 0; member < total; ++member)
+        {
+            std::uint16_t gameObjectId = 0;
+            std::uint8_t memberCp = 0;
+            float at[3] = {};
+            bool heldKnown = false;
+            if (member == survey.member || !MemberEntry(cpController, member, gameObjectId, memberCp) || memberCp != cp
+                || (gameObjectId & kTypeMask) != kSoldierType || !CanInvestigate(service, member, at)
+                || CpRadioResponse::IsHeld(static_cast<std::uint16_t>(gameObjectId & kIndexMask), heldKnown)
+                || GetTickCount64() < g_FinderWatchUntilMs[gameObjectId & kIndexMask].load(std::memory_order_relaxed))
+                continue;
+            const float dx = at[0] - survey.spot[0];
+            const float dy = at[1] - survey.spot[1];
+            const float dz = at[2] - survey.spot[2];
+            const float d = dx * dx + dy * dy + dz * dz;
+            std::uint32_t slot = survey.teamSize;
+            while (slot > 0 && distance[slot - 1] > d)
+                --slot;
+            if (slot >= most)
+                continue;
+            for (std::uint32_t i = (survey.teamSize < most ? survey.teamSize : most - 1); i > slot; --i)
+            {
+                distance[i] = distance[i - 1];
+                survey.team[i] = survey.team[i - 1];
+                where[i][0] = where[i - 1][0];
+                where[i][1] = where[i - 1][1];
+                where[i][2] = where[i - 1][2];
+            }
+            distance[slot] = d;
+            survey.team[slot] = member;
+            where[slot][0] = at[0];
+            where[slot][1] = at[1];
+            where[slot][2] = at[2];
+            if (survey.teamSize < most)
+                ++survey.teamSize;
+        }
+        std::uint32_t kept = survey.teamSize ? 1 : 0;   // as AssignSelectTargetInvestigation: the rest within 100 m of the nearest
+        for (std::uint32_t i = 1; i < survey.teamSize; ++i)
+        {
+            if (NearSpot(where[i], where[0], kSurveyTeamSpread))
+                survey.team[kept++] = survey.team[i];
+        }
+        survey.teamSize = kept;
+    }
+
+    bool RequestSurveyPoint(std::uint8_t* service, std::uint32_t cp, const float* spot)
+    {
+        struct InvestigationRequest
+        {
+            float         x, y, z;
+            std::uint16_t cause;
+            std::uint8_t  kind;
+            std::uint8_t  pad;
+        } request{ spot[0], spot[1], spot[2], kNoCause, kNoticeInvestigation, 0 };
+        __try
+        {
+            const auto requestInvestigation = (*reinterpret_cast<RequestInvestigation_t* const*>(service))[kRequestInvestigationSlot];
+            requestInvestigation(service, cp, &request);
+            return (PointOf(service, cp)[kPointFlags] & kPointActive) != 0;   // it clamps the spot into the CP's area, or drops it
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool GiveInvestigateRole(std::uint8_t* service, std::uint32_t cp, std::uint32_t member)   // as AssignInvestigation does it
+    {
+        __try
+        {
+            std::uint8_t* point = PointOf(service, cp);
+            std::uint8_t payload[0x14] = {};
+            *reinterpret_cast<float*>(payload + 0x0) = *reinterpret_cast<const float*>(point + 0x0);
+            *reinterpret_cast<float*>(payload + 0x4) = *reinterpret_cast<const float*>(point + 0x4);
+            *reinterpret_cast<float*>(payload + 0x8) = *reinterpret_cast<const float*>(point + 0x8);
+            *reinterpret_cast<std::uint16_t*>(payload + 0xC) = PointToken(cp, point);
+            *reinterpret_cast<std::uint16_t*>(payload + 0xE) = *reinterpret_cast<const std::uint16_t*>(point + kPointArea);
+            *reinterpret_cast<std::uint16_t*>(payload + 0x10) = *reinterpret_cast<const std::uint16_t*>(point + kPointCause) & kNoCause;
+            std::uint8_t* role = *reinterpret_cast<std::uint8_t* const*>(service + kServiceRoles) + member * kRoleSize;
+            const std::uint16_t locator = *reinterpret_cast<const std::uint16_t*>(role);
+            if ((role[kRoleKind] == 0 || role[kRoleKind] == kGuardRole) && locator != kNoLocator)
+            {
+                std::uint8_t* roles = *reinterpret_cast<std::uint8_t* const*>(service + kServiceRoleController);
+                std::uint8_t& onLocator = (*reinterpret_cast<std::uint8_t* const*>(roles + kRoleLocators))[locator * kLocatorSize + kLocatorMembers];
+                if (onLocator)
+                    --onLocator;
+            }
+            const auto setMemberRole = (*reinterpret_cast<SetMemberRole_t* const*>(service))[kSetMemberRoleSlot];
+            setMemberRole(service, member, kInvestigateRole, payload, sizeof(payload));
+            ++point[kPointInvestigators];   // Caution's own assigner skips a point that has investigators
+            return role[kRoleKind] == kInvestigateRole;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool StillOurs(std::uint8_t* service, std::uint32_t member, std::uint16_t token)   // the game hasn't given him another job since
+    {
+        __try
+        {
+            const std::uint8_t* role = *reinterpret_cast<std::uint8_t* const*>(service + kServiceRoles) + member * kRoleSize;
+            return role[kRoleKind] == kInvestigateRole && *reinterpret_cast<const std::uint16_t*>(role + kRolePointToken) == token;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void TakeRoleBack(std::uint8_t* service, std::uint32_t member)   // StepRadioToSneak's own release
+    {
+        const std::uint16_t none = kNoLocator;
+        __try
+        {
+            const auto setMemberRole = (*reinterpret_cast<SetMemberRole_t* const*>(service))[kSetMemberRoleSlot];
+            setMemberRole(service, member, 0, &none, sizeof(none));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    void ClearPoint(std::uint8_t* service, std::uint32_t cp)
+    {
+        __try
+        {
+            void* roles = *reinterpret_cast<void* const*>(service + kServiceRoleController);
+            const auto clear = (*reinterpret_cast<ClearInvestigation_t* const*>(roles))[kClearInvestigationSlot];
+            clear(roles, cp, kAllKinds);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    void EndBlastReport(const SurveyTeam& survey)   // no team after all: vanilla's own point for his report may still go
+    {
+        if (survey.blast && survey.finder < kSoldierCount)
+            g_BlastReporterUntilMs[survey.finder].store(0, std::memory_order_relaxed);
+    }
+
+    void ReleaseFinder(std::uint32_t finder)   // his Wait step sends him back to his route on its next update
+    {
+        if (finder >= kSoldierCount)
+            return;
+        g_FinderHoldUntilMs[finder].store(0, std::memory_order_relaxed);
+        g_FinderWatchUntilMs[finder].store(0, std::memory_order_relaxed);
+    }
+
+    void ReportDown(std::uint8_t* service, std::uint32_t cp, SurveyTeam& survey, const std::uint16_t* down, std::uint32_t count)   // user: his CP asks him for a SITREP
+    {
+        survey.missingTeam = CpRadioResponse::ReportMissing(down, count, survey.missingTeam);
+        for (std::uint32_t i = 0; i < count; ++i)
+            LogDebug("SurveyProbe: cp %u: soldier %u of the %s team was taken out, the CP will ask for a SITREP", cp,
+                     static_cast<std::uint32_t>(down[i]), survey.second ? "second" : "first");
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        SurveyAsked& asked = g_SurveyAsked[cp];
+        if (asked.team == survey.missingTeam)
+            return;
+        asked = SurveyAsked{};
+        asked.service = service;
+        asked.team    = survey.missingTeam;
+        asked.spot[0] = survey.spot[0];
+        asked.spot[1] = survey.spot[1];
+        asked.spot[2] = survey.spot[2];
+        asked.second  = survey.second;
+    }
+
+    void SendSurveyTeam(std::uint8_t* service, std::uint32_t cp, SurveyTeam survey)
+    {
+        ReleaseFinder(survey.finder);   // user: once they start the search he goes back to his route
+        if (survey.waker < kSoldierCount)
+            g_Waker[survey.waker].store(false, std::memory_order_relaxed);
+        std::uint32_t members[kSurveyTeamMost] = {};
+        std::uint32_t count = 0;
+        std::uint16_t down[kSurveyTeamMost] = {};
+        std::uint32_t downCount = 0;
+        const std::uint8_t* liveSoldiers = LiveSoldiers();
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            float at[3] = {};
+            bool heldKnown = false;
+            const bool reporter = survey.blast && survey.team[i] == survey.member;   // his notice may still flag him busy from his own line
+            if (reporter ? RoleKindOf(service, survey.team[i]) == 0 && IsUp(LiveSoldiers(), survey.finder, at)
+                               && !CpRadioResponse::IsHeld(static_cast<std::uint16_t>(survey.finder), heldKnown)
+                         : CanInvestigate(service, survey.team[i], at))
+            {
+                members[count++] = survey.team[i];
+                continue;
+            }
+            std::uint16_t gameObjectId = 0;
+            std::uint8_t memberCp = 0;
+            if (liveSoldiers && MemberEntry(service + kServiceToCpController, survey.team[i], gameObjectId, memberCp)
+                && (gameObjectId & kTypeMask) == kSoldierType && OutOfAction(liveSoldiers, gameObjectId & kIndexMask))
+                down[downCount++] = static_cast<std::uint16_t>(gameObjectId & kIndexMask);   // taken out before the sweep, the man seeing to the comrade too
+        }
+        if (downCount)
+            ReportDown(service, cp, survey, down, downCount);
+        const bool busy = count != 0 && (PointBusy(service, cp) || NoInvestigatorsAllowed(service, cp));
+        if (count == 0 || busy || !RequestSurveyPoint(service, cp, survey.spot))
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                g_Survey[cp] = SurveyTeam{};
+            }
+            EndBlastReport(survey);
+            return;
+        }
+        survey.token = PointToken(cp, PointOf(service, cp));
+        ReadPointAt(service, cp, survey.pointAt);
+        survey.teamSize = 0;
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            if (!GiveInvestigateRole(service, cp, members[i]))
+                continue;
+            survey.team[survey.teamSize] = members[i];
+            survey.reported[survey.teamSize] = false;
+            ++survey.teamSize;
+        }
+        if (survey.teamSize == 0)
+        {
+            ClearPoint(service, cp);
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                g_Survey[cp] = SurveyTeam{};
+            }
+            EndBlastReport(survey);
+            return;
+        }
+        std::int32_t soldiers[kSurveyTeamMost] = { -1, -1 };
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            std::uint16_t gameObjectId = 0;
+            std::uint8_t memberCp = 0;
+            survey.teamSoldier[i] = kNoSoldier;
+            if (MemberEntry(service + kServiceToCpController, survey.team[i], gameObjectId, memberCp))
+            {
+                survey.teamSoldier[i] = gameObjectId & kIndexMask;
+                soldiers[i] = static_cast<std::int32_t>(survey.teamSoldier[i]);
+            }
+        }
+        survey.stage = Survey::Out;
+        survey.untilMs = GetTickCount64() + kSurveyMostMs;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            g_Survey[cp] = survey;
+            if (!survey.blast && !survey.uav && !survey.second)
+                RememberSurveyed(g_SurveyedSpot[cp], service, survey.spot);
+        }
+#ifdef _DEBUG
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (survey.teamSoldier[i] < kSoldierCount)
+                g_ProbeSurveyCp[survey.teamSoldier[i]].store(static_cast<std::uint16_t>(cp + 1), std::memory_order_relaxed);
+        }
+        LogDebug("SurveyProbe: cp %u: %s team out to (%.1f, %.1f, %.1f): soldier %d and soldier %d", cp, survey.second ? "second" : "first",
+                 survey.spot[0], survey.spot[1], survey.spot[2], soldiers[0], soldiers[1]);
+#endif
+    }
+
+    void StartWake(std::uint8_t* service, std::uint32_t cp, SurveyTeam survey)   // user: the team sees to the downed comrade first, then sweeps
+    {
+        std::uint32_t waker = kNoSoldier;
+        for (std::uint32_t i = 0; i < survey.teamSize && waker == kNoSoldier; ++i)   // nearest first
+        {
+            float at[3] = {};
+            std::uint16_t gameObjectId = 0;
+            std::uint8_t memberCp = 0;
+            if (CanInvestigate(service, survey.team[i], at) && MemberEntry(service + kServiceToCpController, survey.team[i], gameObjectId, memberCp))
+                waker = gameObjectId & kIndexMask;
+        }
+        if (waker == kNoSoldier)
+        {
+            survey.wakeDone = true;
+            SendSurveyTeam(service, cp, survey);
+            return;
+        }
+        survey.stage = Survey::Waking;
+        survey.waker = waker;
+        survey.untilMs = GetTickCount64() + kWakeStartMs;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            SurveyTeam& stored = g_Survey[cp];
+            if (stored.stage != Survey::Dispatch || stored.finder != survey.finder)
+                return;
+            stored = survey;
+        }
+        g_Waker[waker].store(true, std::memory_order_relaxed);   // before the notice: his node can wake on the next AI tick
+        if (!SoldierNotice::Add(waker, kFirstSightNotice, survey.comrade, nullptr))   // as if he had seen the body himself
+        {
+            survey.wakeDone = true;
+            SendSurveyTeam(service, cp, survey);
+            return;
+        }
+    }
+
+    void AnswerCpCall(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier, std::uint32_t label, bool pose);
+
+    void AskUavReply(std::uint8_t* service, std::uint32_t cp, SurveyTeam survey)   // the radio role wakes his RadioAi: pose, then his call
+    {
+        survey.replied = true;
+        std::uint16_t gameObjectId = 0;
+        std::uint8_t memberCp = 0;
+        float at[3] = {};
+        const std::uint8_t* soldiers = LiveSoldiers();
+        if (survey.teamSize && !ChaffIsUp() && soldiers
+            && MemberEntry(service + kServiceToCpController, survey.team[0], gameObjectId, memberCp)
+            && CanTalk(soldiers, gameObjectId & kIndexMask, at))
+        {
+            survey.replier = gameObjectId & kIndexMask;
+            AnswerCpCall(service, cp, survey.replier, g_UavReplyLabel, true);
+        }
+        bool replying = false;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            replying = survey.replier != kNoSoldier && g_RadioOrders[cp].soldier == survey.replier;   // the CP can turn the role down
+            SurveyTeam& stored = g_Survey[cp];
+            if (stored.stage != Survey::Dispatch || stored.service != service)
+                return;
+            survey.stage = replying ? Survey::Replying : Survey::Dispatch;
+            survey.untilMs = GetTickCount64() + kUavReplyMostMs;
+            stored = survey;
+        }
+        if (!replying)
+            SendSurveyTeam(service, cp, survey);
+    }
+
+    void UavReplyTick(std::uint8_t* service, std::uint32_t cp, const SurveyTeam& survey)   // he goes once his call is over
+    {
+        RadioOrder reply;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            reply = g_RadioOrders[cp];
+        }
+        const std::uint64_t now = GetTickCount64();
+        if (reply.soldier == survey.replier)
+        {
+            const bool stalled = !reply.onAir && now - reply.postedMs > kUavReplyAirMs;
+            if (!reply.done && !stalled && now <= survey.untilMs)
+                return;
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                if (g_RadioOrders[cp].soldier == survey.replier)
+                    g_RadioOrders[cp] = RadioOrder{};
+            }
+            ResignRadioMan(service, cp, survey.replier);   // the role would keep him calling
+        }
+        float at[3] = {};
+        if (!CanInvestigate(service, survey.team[0], at) && now <= survey.untilMs)
+            return;   // his radio flags can take a tick to clear
+        SendSurveyTeam(service, cp, survey);
+    }
+
+    bool SurveyTeamAllDown(const SurveyTeam& survey)   // nobody left to sweep
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        if (!soldiers || survey.teamSize == 0)
+            return false;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (survey.teamSoldier[i] >= kSoldierCount || !OutOfAction(soldiers, survey.teamSoldier[i]))
+                return false;
+        }
+        return true;
+    }
+
+    void ReportTakenOut(std::uint8_t* service, std::uint32_t cp, SurveyTeam& survey)   // user: any member the player takes out gets his CP's SITREP
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        if (!soldiers)
+            return;
+        std::uint16_t down[kSurveyTeamMost] = {};
+        std::uint32_t count = 0;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (survey.reported[i] || survey.teamSoldier[i] >= kSoldierCount || !OutOfAction(soldiers, survey.teamSoldier[i]))
+                continue;
+            survey.reported[i] = true;
+            down[count++] = static_cast<std::uint16_t>(survey.teamSoldier[i]);
+        }
+        if (count == 0)
+            return;
+        ReportDown(service, cp, survey, down, count);
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        SurveyTeam& stored = g_Survey[cp];
+        if (stored.stage != Survey::Out || stored.service != service || stored.token != survey.token)
+            return;
+        stored.missingTeam = survey.missingTeam;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+            stored.reported[i] = survey.reported[i];
+    }
+
+    void EndSurvey(std::uint8_t* service, std::uint32_t cp, const SurveyTeam& survey)   // they go back to their posts, and the point goes if it's still this job
+    {
+        bool anyOurs = false;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+            anyOurs = StillOurs(service, survey.team[i], survey.token) || anyOurs;
+        const bool pointOurs = PointIsOurs(service, cp, survey.token);
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (StillOurs(service, survey.team[i], survey.token))
+                TakeRoleBack(service, survey.team[i]);
+        }
+        float pointNow[3] = {};
+        const bool unmoved = ReadPointAt(service, cp, pointNow) && NearSpot(pointNow, survey.pointAt, 1.0f);
+        if (pointOurs && (anyOurs || unmoved))   // overwriting a point keeps its id: moved and nobody of ours on it, it's another job now
+            ClearPoint(service, cp);
+#ifdef _DEBUG
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (survey.teamSoldier[i] < kSoldierCount)
+                g_ProbeSurveyCp[survey.teamSoldier[i]].store(0, std::memory_order_relaxed);
+        }
+        LogDebug("SurveyProbe: cp %u: the %s team's survey is over", cp, survey.second ? "second" : "first");
+#endif
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        SurveyTeam& stored = g_Survey[cp];
+        if (stored.stage == Survey::Out && stored.service == service && stored.token == survey.token)
+            stored = SurveyTeam{};
+    }
+
+    void StartSecondTeam(std::uint8_t* service, std::uint32_t cp)   // user: nobody answered the SITREP, so the CP sends a second team to the spot
+    {
+        SurveyAsked asked;
+        SurveyTeam current;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            asked = g_SurveyAsked[cp];
+            g_SurveyAsked[cp] = SurveyAsked{};
+            current = g_Survey[cp];
+        }
+        if (asked.service != service || !FeatureSwitch::IsOn(FeatureSwitch::Feature::SurveyTeams))
+            return;
+        if (current.stage == Survey::Out && current.missingTeam == asked.team)
+            EndSurvey(service, cp, current);   // what's left of the first team goes back to their posts
+        else if (current.stage != Survey::None)
+            return;   // the CP is on another find already
+        if (PointBusy(service, cp) || NoInvestigatorsAllowed(service, cp))
+            return;
+        SurveyTeam second;
+        second.service  = service;
+        second.spot[0]  = asked.spot[0];
+        second.spot[1]  = asked.spot[1];
+        second.spot[2]  = asked.spot[2];
+        second.wakeDone = true;
+        second.second   = true;
+        PickSurveyTeam(service, cp, second, kSurveyTeamMost);
+        if (second.teamSize == 0)
+            return;
+        second.stage = Survey::Dispatch;   // the next idle tick sends them
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        if (g_Survey[cp].stage == Survey::None)
+            g_Survey[cp] = second;
+    }
+
+    void SurveyTick(std::uint8_t* service, std::uint32_t cp)
+    {
+        bool sendSecond = false;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            sendSecond = g_SurveyAsked[cp].sendTeam;
+        }
+        if (sendSecond)
+        {
+            StartSecondTeam(service, cp);
+            return;
+        }
+        SurveyTeam survey;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            survey = g_Survey[cp];
+            if (survey.stage != Survey::None && survey.service != service)
+            {
+                g_Survey[cp] = SurveyTeam{};   // an earlier mission's
+                return;
+            }
+            if ((survey.stage == Survey::Found || survey.stage == Survey::Told) && GetTickCount64() > survey.untilMs)
+            {
+                g_Survey[cp] = SurveyTeam{};
+                EndBlastReport(survey);
+                ReleaseFinder(survey.finder);
+                return;
+            }
+        }
+        if (survey.stage == Survey::Replying)
+        {
+            UavReplyTick(service, cp, survey);
+            return;
+        }
+        if (survey.stage == Survey::Dispatch)
+        {
+            if (survey.uav && !survey.replied)
+                AskUavReply(service, cp, survey);
+            else if (survey.fromBody && survey.comrade != kNoComrade && !survey.wakeDone)
+                StartWake(service, cp, survey);
+            else
+                SendSurveyTeam(service, cp, survey);
+            return;
+        }
+        if (survey.stage == Survey::Waking)
+        {
+            if (GetTickCount64() <= survey.untilMs)
+                return;
+            survey.wakeDone = true;
+            SendSurveyTeam(service, cp, survey);
+            return;
+        }
+        if (survey.stage != Survey::Out)
+            return;
+        if (!survey.calledOff)
+            ReportTakenOut(service, cp, survey);
+        bool anyOurs = false;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+            anyOurs = StillOurs(service, survey.team[i], survey.token) || anyOurs;
+        const bool pointOurs = PointIsOurs(service, cp, survey.token);
+        const bool late = GetTickCount64() > survey.untilMs;
+        const bool allDown = !survey.calledOff && SurveyTeamAllDown(survey);
+        if (anyOurs && pointOurs && !late && !survey.calledOff && !allDown)
+            return;
+        EndSurvey(service, cp, survey);
+    }
+
+    void DecideSurvey(std::uint32_t cp, std::uint32_t finder, std::uint8_t radioType)   // as his call goes on air, voiced or skipped for a far player
+    {
+        SurveyTeam survey;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            survey = g_Survey[cp];
+        }
+        if (survey.stage != Survey::Found || survey.finder != finder || survey.radioType != radioType || !survey.service)
+            return;
+        survey.busy = PointBusy(survey.service, cp) || NoInvestigatorsAllowed(survey.service, cp);   // user: vanilla's own gates
+        if (survey.blast && survey.busy)
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                SurveyTeam& stored = g_Survey[cp];
+                if (stored.stage == Survey::Found && stored.finder == finder)
+                    stored = SurveyTeam{};
+            }
+            return;
+        }
+        PickSurveyTeam(survey.service, cp, survey, survey.blast ? kSurveyTeamMost - 1 : kSurveyTeamMost);
+        bool heldKnown = false;
+        if (survey.blast && !CpRadioResponse::IsHeld(static_cast<std::uint16_t>(finder), heldKnown))
+            survey.team[survey.teamSize++] = survey.member;   // "Move to investigate, ASAP." is said to him
+        if (survey.blast && survey.teamSize == 0)
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                SurveyTeam& stored = g_Survey[cp];
+                if (stored.stage == Survey::Found && stored.finder == finder)
+                    stored = SurveyTeam{};
+            }
+            return;
+        }
+        if (survey.busy)
+            survey.teamSize = 0;
+        survey.stage = Survey::Told;
+        survey.untilMs = GetTickCount64() + kSurveyCallMs;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            SurveyTeam& stored = g_Survey[cp];
+            if (stored.stage != Survey::Found || stored.finder != finder)
+                return;
+            stored = survey;
+        }
+        if (survey.fromBody && survey.teamSize && survey.comrade != kNoComrade && finder < kSoldierCount)   // user: after CPR0142 nobody comes, so he checks the body himself
+            g_FinderHoldUntilMs[finder].store(GetTickCount64() + kFinderHoldMs, std::memory_order_relaxed);
+        if (survey.blast && finder < kSoldierCount)
+            g_BlastReporterUntilMs[finder].store(GetTickCount64() + kBlastReportMs, std::memory_order_relaxed);
+    }
+
+    void OrderUavCheck(std::uint8_t* service, std::uint32_t cp, const float* spot)   // user: the CP says CPR0510 and sends the nearest soldier
+    {
+        SurveyTeam survey;
+        survey.service = service;
+        survey.spot[0] = spot[0];
+        survey.spot[1] = spot[1];
+        survey.spot[2] = spot[2];
+        survey.radioType = kUavDownRadio;
+        survey.uav = true;
+        const bool busy = PointBusy(service, cp) || NoInvestigatorsAllowed(service, cp);   // vanilla's own gates
+        if (!busy)
+            PickSurveyTeam(service, cp, survey, 1);
+        bool sending = false;
+        if (survey.teamSize)
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            SurveyTeam& stored = g_Survey[cp];
+            if (stored.stage == Survey::None || stored.service != service)
+            {
+                survey.stage = Survey::Told;   // his call's end sends him, as for a find
+                survey.untilMs = GetTickCount64() + kSurveyCallMs;
+                stored = survey;
+                sending = true;
+            }
+        }
+        g_OrigRequestRadioByCp(service, cp, kUavDownRadio, kNoMember, 0);
+    }
+
+    void DecideStrikeCall(std::uint8_t* service, std::uint32_t cp, bool again = false, std::uint32_t caller = kNoSoldier)
     {
         {
             std::lock_guard<std::mutex> lock(g_PendingMutex);
@@ -646,7 +1868,8 @@ namespace
             if (!again)
                 ++g_StrikeSerial[cp];   // chaff lost the last request: the same strike, the same ready call
         }
-        if (!AssignRequester(service, cp))
+        const bool hisCall = GiveCallTo(service, cp, caller, static_cast<std::uint8_t>(kMortarOrderRadio), kRequestLine);
+        if (!hisCall && !AssignRequester(service, cp))
         {
             OrderStrikeByCp(service, cp);
             return;
@@ -656,9 +1879,8 @@ namespace
             const std::uint64_t now = GetTickCount64();
             g_Pending[cp] = PendingMortar{ Pending::AwaitRequester, now + kRequesterWaitMs, now };
         }
-        const std::uint32_t requester = GiveRoleCall(service, cp, kRequestLine);
-        LogInfo("VoiceDebug: CP %u strike: soldier %d takes the radio to request it%s (CPR0182)", cp,
-            requester != kNoSoldier ? static_cast<int>(requester) : -1, again ? " again" : "");
+        if (!hisCall)
+            GiveRoleCall(service, cp, kRequestLine);
     }
 
     bool ReadSequence(std::uint8_t* speechHandler, std::uint8_t sequence, std::uint16_t& cp, std::uint32_t& label, std::uint8_t*& service)
@@ -667,7 +1889,7 @@ namespace
         {
             const std::uint8_t* record = *reinterpret_cast<std::uint8_t* const*>(speechHandler + kHandlerSequences) + sequence * kSequenceSize;
             if (*reinterpret_cast<const std::uint16_t*>(record + kSequenceMember) != kNoMember)
-                return false;   // a named member already answers in his own voice
+                return false;
             cp = *reinterpret_cast<const std::uint16_t*>(record + kSequenceCp);
             service = *reinterpret_cast<std::uint8_t* const*>(speechHandler + kHandlerService);
             void* sequencer = *reinterpret_cast<void* const*>(speechHandler + kHandlerSequencer);
@@ -680,7 +1902,7 @@ namespace
         }
     }
 
-    bool SpeaksOwnVoice(std::uint8_t* service, std::uint32_t member)   // CallPart then plays his half through him, no redirect needed
+    bool SpeaksOwnVoice(std::uint8_t* service, std::uint32_t member)
     {
         __try
         {
@@ -711,7 +1933,7 @@ namespace
         {
             if (label != g_LineHashes[kOrderLine])
                 return kNoSoldier;
-            named = NamedCall{ label, kNoSoldier, kNoMember, now + kNamedCallMs, false };   // a vanilla CPR0180 still names the operator
+            named = NamedCall{ label, kNoSoldier, kNoMember, now + kNamedCallMs, false };
             soldiers = LiveSoldiers();
             named.soldier = RoleHolder(service, cp, soldiers, kMortarRole, true, named.member);
             if (named.soldier == kNoSoldier)
@@ -722,10 +1944,9 @@ namespace
         soldiers = LiveSoldiers();
         float at[3] = {};
         if (!soldiers || !CanTalk(soldiers, named.soldier, at))
-            return kNoSoldier;   // last resort: the vanilla generic voice
+            return kNoSoldier;
         if (!named.logged)
         {
-            LogInfo("VoiceDebug: CP %u %s names soldier %u (member %u)", cp, LineName(label), named.soldier, named.member);
             std::lock_guard<std::mutex> lock(g_PendingMutex);
             g_Named[cp].logged = true;
         }
@@ -839,7 +2060,7 @@ namespace
             patched = soundController && NameInPart(speechHandler, sequence, speaker, member, soundController, patch);
         }
         if (patched && !SpeaksOwnVoice(service, member))
-            t_PartSpeaker = PartSpeaker{ soundController, speaker };   // his half comes out of the CP's channel: sent to him instead
+            t_PartSpeaker = PartSpeaker{ soundController, speaker };
         const bool done = g_OrigCallPart(speechHandler, sequence);
         t_PartSpeaker = PartSpeaker{};
         t_Sequence = outer;
@@ -853,27 +2074,218 @@ namespace
         g_OrigActivateChaff(rangeAttack, request, requestId);
         g_RangeAttack.store(rangeAttack, std::memory_order_release);
         g_ChaffAtMs.store(GetTickCount64(), std::memory_order_relaxed);
-        LogInfo("VoiceDebug: chaff up, mortar calls held until it clears");
+    }
+
+    bool AirsCpCalls(std::uint8_t* service, std::uint32_t cp)   // cp::ActionControllerImpl::StateRadio: patrols and guard posts only get their HQ calls on air, these other three nothing
+    {
+        __try
+        {
+            CpQuery_t const* cpVtable = *reinterpret_cast<CpQuery_t const* const*>(service);
+            return !cpVtable[kIsLrrpCpSlot](service, cp) && !cpVtable[kIsOuterBaseCpSlot](service, cp)
+                && !cpVtable[kIsMarchCpSlot](service, cp) && !cpVtable[kIsChildCpSlot](service, cp) && !cpVtable[kIsSkullCpSlot](service, cp);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return true;
+        }
+    }
+
+    bool SendsHqRadioMan(std::uint8_t* service, std::uint32_t cp)   // AlertAiImpl::StepNormal's own pick right after its 0x3D: a guard post radios HQ
+    {
+        __try
+        {
+            CpQuery_t const* cpVtable = *reinterpret_cast<CpQuery_t const* const*>(service);
+            return !cpVtable[kIsChildCpSlot](service, cp) && !cpVtable[kIsMarchCpSlot](service, cp) && !cpVtable[kIsSkullCpSlot](service, cp)
+                && (cpVtable[kIsLrrpCpSlot](service, cp) || cpVtable[kIsOuterBaseCpSlot](service, cp))
+                && cpVtable[kHasBaseToCallSlot](service, cp);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool SpottedUnderChaff(std::uint8_t* service, std::uint32_t cp)
+    {
+        if (!ChaffIsUp())
+            return false;
+        bool callsAtOnce = false;   // AlertAiImpl::StepNormal calls once its alert is 3.0 s old, these CPs at once
+        __try
+        {
+            CpQuery_t const* cpVtable = *reinterpret_cast<CpQuery_t const* const*>(service);
+            callsAtOnce = cpVtable[kIsChildCpSlot](service, cp) || cpVtable[kIsMarchCpSlot](service, cp) || cpVtable[kIsSkullCpSlot](service, cp);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            callsAtOnce = false;
+        }
+        return GetTickCount64() - g_ChaffAtMs.load(std::memory_order_relaxed) >= (callsAtOnce ? 0 : kAlertCallDelayMs);   // up before he was spotted
+    }
+
+    bool CallContactIn(std::uint8_t* service, std::uint32_t cp)   // vanilla's reinforcement picker hands one of them the radio
+    {
+        if (!SpottedUnderChaff(service, cp))
+        {
+            return false;   // user: the soldier calls it in only when Snake was spotted while chaff was up
+        }
+        if (SendsHqRadioMan(service, cp))
+        {
+            return false;   // user: guard posts stay vanilla, his radio role would block that HQ call
+        }
+        const std::uint32_t busy = RadioRoleHolder(service, cp, LiveSoldiers());
+        if (busy != kNoSoldier)
+        {
+            return false;   // AssignRadioInCombat would just leave the job with him
+        }
+        if (!AssignRequester(service, cp, kAlertBroadcastRadio))
+            return false;
+        const std::uint32_t caller = RadioRoleHolder(service, cp, LiveSoldiers());
+        if (caller == kNoSoldier || !ResignRadio(service, cp))   // vanilla's pick, but he only talks: the role is what makes him pose (user)
+            return false;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            g_Contact[cp] = ContactCall{ caller, kNoMember, GetTickCount64() + kContactWaitMs, false, false };
+        }
+        CpRadioResponse::MemberRadio call;
+        call.label = g_LineHashes[kContactLine];
+        if (!CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(kSoldierType | caller), call))
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            g_Contact[cp] = ContactCall{};
+            return false;
+        }
+        return true;
+    }
+
+    void StartRadioOrder(std::uint8_t* service, std::uint32_t cp, RadioOrder order)   // Lua's AssignRadioInCombat, on the CP's own tick
+    {
+        std::uint32_t type = hk_ConvertSpeechLabelToRadioType(order.label);   // as CallRadio does: the CP acts on what the label means
+        if (type == kUnknownLabelRadio)
+            type = kAnyLabelRadio;
+        bool alertCall = false;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            alertCall = g_Contact[cp].soldier != kNoSoldier;
+        }
+        const std::uint32_t busy = RadioRoleHolder(service, cp, LiveSoldiers());
+        std::uint32_t soldier = kNoSoldier;
+        std::uint32_t member = kNoMember;
+        std::uint32_t memberCp = kNoCp;
+        const char* refused = nullptr;
+        const bool needsRadioRole = !order.noPose || order.soldier == kNoSoldier;   // a named man who only talks waits in the CP's queue
+        if (needsRadioRole && (alertCall || busy != kNoSoldier))
+            refused = "its radio is taken by another call";
+        else if (order.soldier == kNoSoldier)
+        {
+            if (AssignRequester(service, cp, type))
+                soldier = RadioRoleHolder(service, cp, LiveSoldiers());
+            if (soldier == kNoSoldier || !FindMember(service, soldier, member, memberCp))
+                refused = "nobody there can take the radio";
+            else if (order.noPose && !ResignRadio(service, cp))   // vanilla's pick, but the role is what makes him pose
+                refused = "its radio man didn't give the role back";
+        }
+        else
+        {
+            if (!FindMember(service, order.soldier, member, memberCp) || memberCp != cp || OutOfAction(LiveSoldiers(), order.soldier))
+                refused = "the soldier has left it, or is down or held up";
+            else if (!order.noPose && !GiveRadioRole(service, member, static_cast<std::uint8_t>(type)))
+                refused = "the soldier didn't take the radio role";
+            else
+                soldier = order.soldier;
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            RadioOrder& stored = g_RadioOrders[cp];
+            if (!stored.queued)
+                return;
+            stored = RadioOrder{};
+            if (!refused)
+            {
+                stored.soldier = soldier;
+                stored.label = order.label;
+                stored.type = type;
+                stored.noPose = order.noPose;
+                stored.reply = order.reply;
+                stored.sent = order.noPose;   // his member radio carries the label itself
+                stored.member = order.noPose ? member : kNoMember;
+                stored.postedMs = GetTickCount64();
+                stored.untilMs = stored.postedMs + (order.noPose ? kNoPoseCallMs : kRoleCallMs);
+            }
+        }
+        if (!refused && order.noPose)
+        {
+            CpRadioResponse::MemberRadio call;
+            call.label = order.label;
+            if (!CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(kSoldierType | soldier), call))
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                if (g_RadioOrders[cp].soldier == soldier)
+                    g_RadioOrders[cp] = RadioOrder{};
+                refused = "his radio call was refused";
+            }
+        }
+        if (refused && !order.reply)
+            LogWarn("AssignRadioInCombat: CP %u: %s, dropped", cp, refused);
+    }
+
+    void AnswerCpCall(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier, std::uint32_t label, bool pose)
+    {
+        RadioOrder reply;
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            RadioOrder& stored = g_RadioOrders[cp];
+            if (stored.queued || stored.soldier != kNoSoldier)
+                return;   // the CP's radio already carries a call of ours
+            stored = RadioOrder{};
+            stored.queued = true;
+            stored.noPose = !pose;
+            stored.reply = true;
+            stored.soldier = soldier;
+            stored.label = label;
+            stored.untilMs = GetTickCount64() + (pose ? kRoleCallMs : kNoPoseCallMs);
+            reply = stored;
+        }
+        StartRadioOrder(service, cp, reply);
     }
 
     std::uint16_t __fastcall hk_RequestRadioByCp(std::uint8_t* service, std::uint32_t cp, std::uint32_t radioType,
                                                  std::uint32_t member, std::uint32_t label)
     {
         g_Service.store(service, std::memory_order_relaxed);
+        if (radioType == kAlertBroadcastRadio && member == kNoMember && label == 0 && cp < kCpCount
+            && !MissionCodeGuard::ShouldBypassHooks() && CallContactIn(service, cp))
+            return kNoHandle;
         if (radioType != kMortarOrderRadio || member != kNoMember || label != 0 || cp >= kCpCount || MissionCodeGuard::ShouldBypassHooks()
-            || !(InAlert(service, cp) || PlayerAlertPhase::Read() == PlayerAlertPhase::kAlert))   // the CP's own phase reads 0 now and then in alert
+            || !(InAlert(service, cp) || PlayerAlertPhase::Read() == PlayerAlertPhase::kAlert)   // the CP's own phase reads 0 now and then in alert
+            || !AirsCpCalls(service, cp))
             return g_OrigRequestRadioByCp(service, cp, radioType, member, label);
         if (ChaffIsUp())
         {
             std::lock_guard<std::mutex> lock(g_PendingMutex);
             const std::uint64_t now = GetTickCount64();
-            g_Pending[cp] = PendingMortar{ Pending::Decide, now + kRetryForMs, now };
+            const PendingMortar waiting = g_Pending[cp];
+            PendingMortar decide{ Pending::Decide, now + kRetryForMs, now };
+            if (waiting.kind != Pending::None && waiting.callOutSaid)
+            {
+                decide.caller = waiting.caller;
+                decide.callOutSaid = true;
+            }
+            g_Pending[cp] = decide;
             g_StrikeOpenedMs[cp] = now;
-            LogInfo("VoiceDebug: CP %u strike call held, chaff is up", cp);
             return kNoHandle;
         }
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            if (g_Contact[cp].soldier != kNoSoldier)   // the radio-role pick would take the radio off the man calling the alert in
+            {
+                const std::uint64_t now = GetTickCount64();
+                g_Pending[cp] = PendingMortar{ Pending::Decide, now + kRetryForMs + kContactWaitMs, now };
+                g_StrikeOpenedMs[cp] = now;
+                return kNoHandle;
+            }
+        }
         DecideStrikeCall(service, cp);
-        return kNoHandle;   // the requester's own call carries it; UpdateCombatMortar only stores the handle
+        return kNoHandle;
     }
 
     std::uint8_t* WorkOf(std::uint8_t* mortarAction, std::uint32_t slot)
@@ -915,28 +2327,26 @@ namespace
         }
     }
 
-    bool StrikeCallOpen(std::uint32_t cp, std::uint64_t now)   // the CPR0182 / CPR0180 exchange hasn't finished, or still has to go out
+    bool StrikeCallOpen(std::uint32_t cp, std::uint64_t now)
     {
         return (g_StrikeOpenedMs[cp] && now - g_StrikeOpenedMs[cp] < kStrikeCallMostMs) || g_Pending[cp].kind != Pending::None;
     }
 
-    void ReleaseRound(ReadyHold& hold, std::uint64_t now, const char* why)
+    void ReleaseRound(ReadyHold& hold, std::uint64_t now)
     {
-        LogInfo("VoiceDebug: %s %u fires (%s, waited %llu ms)", hold.line == kFlareLine ? "flare man" : "operator", hold.soldier, why,
-            now - hold.startedMs);
         hold.releasedMs = now;
         hold.startedMs = 0;
         if (hold.line != kFlareLine)
-            g_ReadyDoneSerial[hold.soldier] = hold.serial;   // the rest of this strike fires freely
+            g_ReadyDoneSerial[hold.soldier] = hold.serial;
         if (hold.cp < kCpCount && g_ReadyHolder[hold.cp] == hold.soldier + 1)
             g_ReadyHolder[hold.cp] = 0;
     }
 
-    bool PhaseWants(Line line)   // lethal rounds in alert, flares in caution and evasion only (user)
+    bool PhaseWants(Line line)   // user: flares and CPR0190 ready calls in caution and evasion only; alert strikes fire without a ready call
     {
+        UNREFERENCED_PARAMETER(line);
         const int phase = PlayerAlertPhase::Read();
-        return line == kFlareLine ? phase == PlayerAlertPhase::kCaution || phase == PlayerAlertPhase::kEvasion
-                                  : phase == PlayerAlertPhase::kAlert;
+        return phase == PlayerAlertPhase::kCaution || phase == PlayerAlertPhase::kEvasion;
     }
 
     std::uint32_t CpOfSoldier(std::uint8_t* service, std::uint32_t soldier, std::uint64_t now)
@@ -956,7 +2366,7 @@ namespace
         return cp;
     }
 
-    bool HoldRound(std::uint32_t soldier, Line line)   // true while he waits at the mortar for his radio exchange to finish
+    bool HoldRound(std::uint32_t soldier, Line line)
     {
         if (soldier >= kSoldierCount)
             return false;
@@ -970,7 +2380,7 @@ namespace
         }
         enum class Act { Hold, Start, Post, Jam } act = Act::Hold;
         std::uint32_t cp = CpOfSoldier(service, soldier, now);
-        if (cp == kNoCp)
+        if (cp == kNoCp || !AirsCpCalls(service, cp))
             return false;
         const bool inFlight = CpRadioResponse::HasMemberRadio(static_cast<std::uint16_t>(kSoldierType | soldier));
         const bool chaffUp = ChaffIsUp();
@@ -985,7 +2395,7 @@ namespace
                 act = Act::Start;
             }
             else if (hold.done)
-                ReleaseRound(hold, now, hold.line == kFlareLine ? "after his reply" : "after Commence strike");
+                ReleaseRound(hold, now);
             else if (chaffUp)
             {
                 hold.capFromMs = now;   // no call gets through: his wait starts over once the chaff clears
@@ -993,36 +2403,37 @@ namespace
                 {
                     hold.jammed = true;
                     if (!hold.askedMs)
-                    {
-                        hold.askedMs = now;   // he tries the radio and gets nothing back
-                        act = Act::Jam;
-                    }
+                        hold.askedMs = now;
+                }
+                if (hold.jammed && !hold.callOutSaid)
+                {
+                    hold.callOutSaid = true;
+                    act = Act::Jam;
                 }
             }
             else if (hold.jammed)
             {
-                hold.jammed = false;   // the chaff cleared: he asks again, after the strike call if that still has to go out
+                hold.jammed = false;
+                hold.callOutSaid = false;
                 hold.refused = false;
                 hold.onAirMs = 0;
                 hold.capFromMs = now;
                 hold.askedMs = inFlight ? now : 0;
                 hold.lastAskMs = now;
-                LogInfo("VoiceDebug: chaff cleared, %s %u radios %s again", hold.line == kFlareLine ? "flare man" : "operator", soldier,
-                    kLineLabels[hold.line]);
             }
             else if (!hold.askedMs && hold.line != kFlareLine && StrikeCallOpen(hold.cp, now))
-                hold.capFromMs = now;   // the strike request is still going out: his own wait starts after it
+                hold.capFromMs = now;
             else if (hold.refused)
-                ReleaseRound(hold, now, "the call was turned down");
+                ReleaseRound(hold, now);
             else if (now - hold.capFromMs > kReadyHoldMostMs)
-                ReleaseRound(hold, now, "waited too long");
+                ReleaseRound(hold, now);
             else if (hold.askedMs && !hold.onAirMs && now - hold.askedMs > kReadyAirMostMs)
-                ReleaseRound(hold, now, "the radio stayed busy");
+                ReleaseRound(hold, now);
             else if (hold.onAirMs && now - hold.onAirMs > kReadyAnswerMostMs)
-                ReleaseRound(hold, now, "no answer in time");
+                ReleaseRound(hold, now);
             else if (hold.askedMs && !hold.onAirMs && !inFlight && now - hold.lastAskMs >= kReadyRepostMs)
             {
-                hold.lastAskMs = now;   // dropped while the CP was busy: asked again
+                hold.lastAskMs = now;
                 act = Act::Post;
                 cp = hold.cp;
             }
@@ -1057,28 +2468,19 @@ namespace
             hold.capFromMs = now;
             g_Ready[soldier] = hold;
             g_ReadyHolder[cp] = soldier + 1;
-            LogInfo(line == kFlareLine ? "VoiceDebug: flare man %u on the mortar, waits for the flare order (CPR0200)"
-                                       : "VoiceDebug: operator %u on the mortar, waits for the strike call before his ready call", soldier);
             return true;
         }
         if (act == Act::Jam)
-        {
-            const std::uint8_t* soldiers = LiveSoldiers();   // he tries the radio, nothing comes back, he stays on the mortar
-            const std::uint32_t slot = SoldierRealizedSlot::Of(soldiers, soldier);
-            if (slot != SoldierRealizedSlot::kNotRealized)
-                SoldierVoiceSwap_SayJammedTake(soldiers, slot);
-            LogInfo("VoiceDebug: soldier %u's %s call jammed, he holds fire until the chaff clears", soldier, kLineLabels[line]);
-        }
+            CallOutUnderChaff(soldier);
         else if (act == Act::Post)
         {
             CpRadioResponse::MemberRadio call;
             call.label = g_LineHashes[line];   // his own call: his call sign, his voice, the CP's part in the same call
             const bool posted = CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(kSoldierType | soldier), call);
-            LogInfo("VoiceDebug: soldier %u radios %s on CP %u%s", soldier, kLineLabels[line], cp, posted ? "" : ", radio busy, fires");
             if (!posted)
             {
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
-                ReleaseRound(g_Ready[soldier], now, "no radio");
+                ReleaseRound(g_Ready[soldier], now);
                 return false;
             }
         }
@@ -1086,7 +2488,7 @@ namespace
     }
 
     bool NewCommand(std::uint8_t* commandsOwner, std::uint32_t soldier, std::uint16_t workGimmick, std::uint16_t workCommand, bool& flare)
-    {   // a new target waits: the fire state re-aims to it once his current round is done
+    {
         __try
         {
             const std::uint8_t* command = *reinterpret_cast<std::uint8_t* const*>(commandsOwner + kCommandTable) + soldier * kCommandSize;
@@ -1153,7 +2555,7 @@ namespace
         bool flare = false;
         if (proc == kStateUpdate && !MissionCodeGuard::ShouldBypassHooks() && PendingRealTarget(mortarAction, slot, soldier, flare)
             && HoldRound(soldier, flare ? kFlareLine : kReadyLine))
-            return;   // already on the mortar: a new strike's radio exchange comes before he re-aims
+            return;
         g_OrigMortarAction(mortarAction, slot, proc, data);
     }
 
@@ -1162,7 +2564,7 @@ namespace
         bool flare = false;
         if (proc == kStateUpdate && !MissionCodeGuard::ShouldBypassHooks() && PendingUnrealTarget(mortarAction, soldier, flare)
             && HoldRound(soldier, flare ? kFlareLine : kReadyLine))
-            return;   // far from Snake his timer would fire it: it pauses too
+            return;
         g_OrigUnrealMortarAction(mortarAction, soldier, proc);
     }
 
@@ -1210,7 +2612,7 @@ namespace
             || (flags & kWorkRegistration) != 1)
             return;
         if (HoldRound(soldier, (flags & kUnrealFlareShell) ? kFlareLine : kReadyLine))
-            WriteUnrealNextState(work, nextBefore);   // far from Snake he fires on a timer; it waits for the radio too
+            WriteUnrealNextState(work, nextBefore);
     }
 
     void __fastcall hk_State_WaitAction(std::uint8_t* mortarAction, std::uint32_t slot, std::int32_t proc, void* data)
@@ -1231,7 +2633,7 @@ namespace
             || (flags & kWorkRegistration) != 1)
             return;
         if (HoldRound(soldier, (flags & kWorkFlareShell) ? kFlareLine : kReadyLine))
-            WriteNextState(work, nextBefore);   // he stays at the mortar, aiming, until the radio exchange is over
+            WriteNextState(work, nextBefore);
     }
 
     void __fastcall hk_Heli2Unrealize(std::uint8_t* heli, std::uint32_t instance, std::uint32_t realizedIndex)
@@ -1247,8 +2649,6 @@ namespace
             }
         }
         g_SupportHeliCheckedMs.store(0, std::memory_order_relaxed);
-        if (any)
-            LogInfo("VoiceDebug: heli unrealized, the gunship call (CPR0210) can play again on every CP");
     }
 
     std::uint32_t SupportHeliId()
@@ -1285,22 +2685,23 @@ namespace
 
     void GunshipFallback(std::uint32_t cp, std::uint32_t soldier);
 
-    void CallGunship(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier)   // the radio man, radio pose and all; CPR0220's type carries it
+    void CallGunship(std::uint8_t* service, std::uint32_t cp, std::uint32_t soldier, bool triedUnderChaff)
     {
-        if (AssignRequester(service, cp, kGunshipRadio))
+        const bool hisCall = triedUnderChaff && GiveCallTo(service, cp, soldier, static_cast<std::uint8_t>(kGunshipRadio), kGunshipLine);
+        if (hisCall || AssignRequester(service, cp, kGunshipRadio))
         {
             {
                 std::lock_guard<std::mutex> lock(g_PendingMutex);
                 g_Gunship[cp].awaitMs = GetTickCount64() + kGunshipAwaitMs;
             }
-            const std::uint32_t radioMan = GiveRoleCall(service, cp, kGunshipLine);
-            LogInfo("VoiceDebug: CP %u gunship: soldier %d takes the radio (CPR0210)", cp, radioMan != kNoSoldier ? static_cast<int>(radioMan) : -1);
+            if (!hisCall)
+                GiveRoleCall(service, cp, kGunshipLine);
             return;
         }
         GunshipFallback(cp, soldier);
     }
 
-    void GunshipFallback(std::uint32_t cp, std::uint32_t soldier)   // his call never aired: the man the heli hit, else the nearest, calls it in, no pose
+    void GunshipFallback(std::uint32_t cp, std::uint32_t soldier)
     {
         const std::uint8_t* soldiers = LiveSoldiers();
         float at[3] = {};
@@ -1311,13 +2712,28 @@ namespace
         }
         if (soldier == kNoSoldier)
         {
-            LogInfo("VoiceDebug: CP %u gunship: nobody can call it in", cp);
             return;
         }
         CpRadioResponse::MemberRadio call;
         call.label = g_LineHashes[kGunshipLine];
         const bool posted = CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(kSoldierType | soldier), call);
-        LogInfo("VoiceDebug: CP %u gunship: soldier %u calls it in himself (CPR0210)%s", cp, soldier, posted ? "" : ", radio refused");
+    }
+
+    bool __fastcall hk_CheckRadioTypeBgmPhaseMismatch(std::uint8_t radioType, std::int32_t bgmPhase)   // StateRadio drops most types under the combat music
+    {
+        const bool mismatch = g_OrigBgmPhaseMismatch(radioType, bgmPhase);
+        if (!mismatch || MissionCodeGuard::ShouldBypassHooks())
+            return mismatch;
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        for (std::uint32_t cp = 0; cp < kCpCount; ++cp)
+        {
+            const RadioOrder& order = g_RadioOrders[cp];
+            if (order.sent && !order.done && order.type == radioType)
+            {
+                return false;   // user: AssignRadioInCombat is heard in combat too
+            }
+        }
+        return mismatch;
     }
 
     bool Hook(std::uintptr_t address, void* detour, void** original, const char* name)
@@ -1350,7 +2766,13 @@ void CpRadioVariants_OnRadioOnAir(std::uint32_t cp, std::uint8_t radioType, std:
     if (cp >= kCpCount)
         return;
     const std::uint32_t soldier = (speaker >> 9) == kSoldierObjectType ? (speaker & kIndexMask) : kNoSoldier;
+    if ((radioType == kSomethingToCheckRadio || radioType == kExplosionRadio || radioType == kExplosionAgainRadio) && soldier != kNoSoldier
+        && !MissionCodeGuard::ShouldBypassHooks())
+        DecideSurvey(cp, soldier, radioType);
     std::lock_guard<std::mutex> lock(g_PendingMutex);
+    if (g_HeldUpReports[cp].soldier == soldier && soldier != kNoSoldier && radioType == kCautionStartRadio
+        && !g_HeldUpReports[cp].replyMs && GetTickCount64() - g_HeldUpReports[cp].requestMs < kHeldUpReportMs)
+        g_HeldUpReports[cp].onAir = true;
     g_Calls[cp] = CallOnAir{ GetTickCount64(), 0, false };
     if (radioType == kMortarOrderRadio)
         g_Pending[cp] = PendingMortar{};
@@ -1358,10 +2780,16 @@ void CpRadioVariants_OnRadioOnAir(std::uint32_t cp, std::uint8_t radioType, std:
     if (roleCall.sent && roleCall.soldier == soldier && soldier != kNoSoldier)
     {
         if (roleCall.line == kRequestLine)
-            g_Pending[cp] = PendingMortar{};   // his request is on air: no CP fallback
+            g_Pending[cp] = PendingMortar{};
         else
             g_Gunship[cp].awaitMs = 0;
     }
+    ContactCall& alert = g_Contact[cp];
+    if (alert.sent && alert.soldier == soldier && soldier != kNoSoldier)
+        alert.onAir = true;
+    RadioOrder& order = g_RadioOrders[cp];
+    if (order.sent && order.soldier == soldier && soldier != kNoSoldier)
+        order.onAir = true;
     if (g_ReadyHolder[cp])
     {
         ReadyHold& hold = g_Ready[g_ReadyHolder[cp] - 1];
@@ -1376,8 +2804,38 @@ void CpRadioVariants_OnRadioOffAir(std::uint32_t cp, std::uint8_t radioType, std
         return;
     const std::uint32_t soldier = (speaker >> 9) == kSoldierObjectType ? (speaker & kIndexMask) : kNoSoldier;
     std::lock_guard<std::mutex> lock(g_PendingMutex);
+    HeldUpReport& report = g_HeldUpReports[cp];
+    if (report.onAir && report.soldier == soldier && soldier != kNoSoldier)
+    {
+        report.onAir = false;
+        report.replyDue = true;
+    }
+    else if (report.replyMs && radioType == kCpOnAlertRadio)
+        report = HeldUpReport{};
+    if (g_Contact[cp].onAir && g_Contact[cp].soldier == soldier && soldier < kSoldierCount)
+    {
+        g_Contact[cp].done = true;
+        g_Contact[cp].cpAnswered = g_CpTurnMs[soldier].load(std::memory_order_relaxed) >= g_Calls[cp].onAirMs;
+    }
+    if (g_RadioOrders[cp].onAir && g_RadioOrders[cp].soldier == soldier && soldier != kNoSoldier)
+        g_RadioOrders[cp].done = true;
+    if ((radioType == kCameraAlertRadio || radioType == kUavAlertRadio) && soldier == kNoSoldier && g_Calls[cp].onAirMs
+        && g_CpRadioMs[cp].load(std::memory_order_relaxed) >= g_Calls[cp].onAirMs)   // the CP's line was voiced, not skipped for a far player
+        g_SpottedReplyDue[cp] = true;
+    SurveyTeam& survey = g_Survey[cp];
+    if (survey.stage == Survey::Told && survey.finder == soldier && radioType == survey.radioType)
+    {
+        if (survey.teamSize)
+            survey.stage = Survey::Dispatch;   // the next idle tick sends them
+        else
+        {
+            if (!survey.busy)
+                RememberSurveyed(g_SurveyedSpot[cp], survey.service, survey.spot);
+            survey = SurveyTeam{};
+        }
+    }
     if (radioType == kMortarOrderRadio)
-        g_StrikeOpenedMs[cp] = 0;   // the CP's own order is over: the operator's turn
+        g_StrikeOpenedMs[cp] = 0;
     RoleCall& roleCall = g_RoleCalls[cp];
     if (roleCall.sent && roleCall.soldier == soldier && soldier != kNoSoldier)
     {
@@ -1386,12 +2844,11 @@ void CpRadioVariants_OnRadioOffAir(std::uint32_t cp, std::uint8_t radioType, std
             if (g_CpTurnMs[soldier].load(std::memory_order_relaxed) < g_Calls[cp].onAirMs && ChaffIsUp())
             {
                 const std::uint64_t now = GetTickCount64();
-                g_Pending[cp] = PendingMortar{ Pending::Resend, now + kRetryForMs, now };   // the CP never heard it: it goes out again once the chaff clears
-                g_StrikeOpenedMs[cp] = now;   // the operator keeps quiet until then
-                LogInfo("VoiceDebug: chaff lost soldier %u's strike request (CPR0182), it goes out again once the chaff clears", soldier);
+                g_Pending[cp] = PendingMortar{ Pending::Resend, now + kRetryForMs, now, soldier, true };   // the jam already had him call out
+                g_StrikeOpenedMs[cp] = now;
             }
             else
-                g_StrikeOpenedMs[cp] = 0;   // request and reply are over: the operator's turn
+                g_StrikeOpenedMs[cp] = 0;
         }
         roleCall = RoleCall{};
     }
@@ -1402,14 +2859,13 @@ void CpRadioVariants_OnRadioOffAir(std::uint32_t cp, std::uint8_t radioType, std
         {
             if (g_CpTurnMs[hold.soldier].load(std::memory_order_relaxed) < hold.onAirMs && ChaffIsUp())
             {
-                hold.jammed = true;    // chaff cut it before the CP answered: he asks again once it clears
+                hold.jammed = true;
                 hold.onAirMs = 0;
-                LogInfo("VoiceDebug: chaff cut soldier %u's %s call, he holds fire until it clears", hold.soldier, kLineLabels[hold.line]);
             }
             else if (g_SpokeMs[hold.soldier].load(std::memory_order_relaxed) >= hold.onAirMs)
-                hold.done = true;      // he said his line and the CP's part is over
+                hold.done = true;
             else
-                hold.refused = true;   // it never got his voice out
+                hold.refused = true;
         }
     }
 }
@@ -1432,7 +2888,7 @@ bool CpRadioVariants_HoldChaffJam(std::uint32_t cp, std::uint32_t soldierIndex)
     const bool spoke = g_SpokeMs[soldierIndex].load(std::memory_order_relaxed) >= call.onAirMs;
     const bool signedOff = g_SignedOffMs[soldierIndex].load(std::memory_order_relaxed) >= call.onAirMs;
     const bool cpTurn = g_CpTurnMs[soldierIndex].load(std::memory_order_relaxed) >= call.onAirMs;
-    const bool stillTalking = channel.soundController && channel.soldier == soldierIndex && ChannelPlaying(channel);
+    const bool stillTalking = channel.soundController && now - channel.startedMs <= kChannelFreshMs && channel.soldier == soldierIndex && ChannelPlaying(channel);
     const char* release = !spoke ? "before he said a word"
         : cpTurn ? "the CP's turn came"
         : signedOff && !stillTalking ? "after his Over!!"
@@ -1450,18 +2906,15 @@ bool CpRadioVariants_HoldChaffJam(std::uint32_t cp, std::uint32_t soldierIndex)
             if (!held.heldSinceMs)
             {
                 held.heldSinceMs = now;
-                LogInfo("VoiceDebug: chaff up mid-request, soldier %u finishes his call first", soldierIndex);
             }
             return true;
         }
         held.released = true;
         wasHeld = held.heldSinceMs != 0;
-        if (wasHeld)
-            LogInfo("VoiceDebug: chaff jams soldier %u's call %s (held %llu ms)", soldierIndex, release, now - held.heldSinceMs);
     }
     if (wasHeld)
     {
-        const std::uint8_t* soldiers = LiveSoldiers();   // his radio action can finish on its own before the jam reaches it
+        const std::uint8_t* soldiers = LiveSoldiers();
         const std::uint32_t slot = SoldierRealizedSlot::Of(soldiers, soldierIndex);
         if (slot != SoldierRealizedSlot::kNotRealized)
             SoldierVoiceSwap_SayJammedTake(soldiers, slot);
@@ -1469,15 +2922,116 @@ bool CpRadioVariants_HoldChaffJam(std::uint32_t cp, std::uint32_t soldierIndex)
     return false;
 }
 
-void CpRadioVariants_OnCpIdle(std::uint32_t cp)
+void CpRadioVariants_OnCpIdle(std::uint32_t cp, std::uint8_t* liveService)
 {
     if (cp >= kCpCount || !g_OrigRequestRadioByCp || MissionCodeGuard::ShouldBypassHooks())
         return;
-    std::uint8_t* service = g_Service.load(std::memory_order_relaxed);
+    if (liveService)
+        g_Service.store(liveService, std::memory_order_relaxed);   // the cached one can be an earlier mission's
+    std::uint8_t* service = liveService ? liveService : g_Service.load(std::memory_order_relaxed);
     if (!service)
         return;
     const std::uint64_t now = GetTickCount64();
+    const std::int32_t phase = CpPhase(service, cp);
+    if (phase == 0 && g_CpPhaseSeen[cp].exchange(phase, std::memory_order_relaxed) > 0)
+        g_CpCalmedMs[cp].store(now, std::memory_order_relaxed);
+    else if (phase > 0)
+        g_CpPhaseSeen[cp].store(phase, std::memory_order_relaxed);
+    SurveyTick(service, cp);
+    UavDown uav;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        if (g_UavDown[cp].due && GameClock::NowMs() - g_UavDown[cp].downMs >= kUavDownCallDelayMs)
+        {
+            uav = g_UavDown[cp];
+            g_UavDown[cp] = UavDown{};
+        }
+    }
+    if (uav.due && uav.cpController == service + kServiceToCpController)
+        OrderUavCheck(service, cp, uav.spot);
+    else if (uav.due)
+        LogWarn("CpRadioVariants: a downed UAV of CP %u belongs to another CP controller, no CPR0510", cp);
+    RadioOrder order;
+    bool spottedReply = false;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        order = g_RadioOrders[cp];
+        spottedReply = g_SpottedReplyDue[cp];
+        g_SpottedReplyDue[cp] = false;
+    }
+    if (order.queued)
+        StartRadioOrder(service, cp, order);
+    else if (order.soldier != kNoSoldier)
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        const bool gone = !soldiers || OutOfAction(soldiers, order.soldier);
+        if (order.done || (!order.onAir && (gone || now > order.untilMs)))
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                if (g_RadioOrders[cp].soldier == order.soldier)
+                    g_RadioOrders[cp] = RadioOrder{};
+            }
+            ResignRadioMan(service, cp, order.soldier);   // one call per order: the role would keep him calling it
+        }
+        else if (order.noPose && !order.onAir && now - order.postedMs > kRetryEveryMs
+                 && !CpRadioResponse::HasMemberRadio(static_cast<std::uint16_t>(kSoldierType | order.soldier)))   // the CP's queue gave up on him
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                if (g_RadioOrders[cp].soldier == order.soldier)
+                    g_RadioOrders[cp].postedMs = now;
+            }
+            CpRadioResponse::MemberRadio call;
+            call.label = order.label;
+            CpRadioResponse::RequestMemberRadio(static_cast<std::uint16_t>(kSoldierType | order.soldier), call);
+        }
+    }
+    if (spottedReply && FeatureSwitch::IsOn(FeatureSwitch::Feature::SoldierRadioAnswers))
+    {
+        std::uint32_t member = kNoMember;
+        const std::uint32_t soldier = ChaffIsUp() ? kNoSoldier : RoleHolder(service, cp, LiveSoldiers(), kAnyRole, true, member);
+        if (soldier != kNoSoldier)
+            AnswerCpCall(service, cp, soldier, g_CameraReplyLabel, false);
+    }
+    ContactCall contactDone;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        if (g_Contact[cp].done)
+        {
+            contactDone = g_Contact[cp];
+            g_Contact[cp] = ContactCall{};   // his alert call is done: a waiting strike call may go
+        }
+    }
+    bool answerHeldUp = false;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        HeldUpReport& report = g_HeldUpReports[cp];
+        if (report.replyDue)
+        {
+            report.replyDue = false;
+            report.replyMs = GetTickCount64();
+            answerHeldUp = true;
+        }
+    }
+    if (answerHeldUp)
+    {
+        g_OrigRequestRadioByCp(service, cp, kCpOnAlertRadio, kNoMember, 0);
+    }
+    if (contactDone.soldier != kNoSoldier)
+    {
+        ResignRadioMan(service, cp, contactDone.soldier);
+        const std::uint8_t* soldiers = LiveSoldiers();
+        if (!contactDone.cpAnswered && soldiers && OutOfAction(soldiers, contactDone.soldier)
+            && (InAlert(service, cp) || PlayerAlertPhase::Read() == PlayerAlertPhase::kAlert))
+        {
+            g_OrigRequestRadioByCp(service, cp, kAlertBroadcastRadio, kNoMember, 0);
+        }
+    }
+
     Pending act = Pending::None;
+    std::uint32_t strikeCaller = kNoSoldier;
+    bool strikeCallOut = false;
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         PendingMortar& pending = g_Pending[cp];
@@ -1491,21 +3045,30 @@ void CpRadioVariants_OnCpIdle(std::uint32_t cp)
             }
             else if (ChaffIsUp())
             {
-                pending.untilMs = now + kRetryForMs;   // radios are jammed, asked once it clears
+                pending.untilMs = now + kRetryForMs;
                 pending.triedMs = now;
+                if (!pending.callOutSaid && pending.kind != Pending::CpOrder && g_Contact[cp].soldier == kNoSoldier)
+                {
+                    pending.callOutSaid = true;
+                    strikeCallOut = true;
+                }
             }
             else if (pending.kind == Pending::AwaitRequester)
             {
                 if (now > pending.untilMs)
                 {
-                    act = Pending::AwaitRequester;   // his request never went on air: the CP orders it itself
+                    act = Pending::AwaitRequester;
                     pending = PendingMortar{};
                 }
             }
             else if (pending.kind == Pending::Decide || pending.kind == Pending::Resend)
             {
-                act = pending.kind;
-                pending = PendingMortar{};
+                if (g_Contact[cp].soldier == kNoSoldier)   // the alert call goes first
+                {
+                    act = pending.kind;
+                    strikeCaller = pending.caller;
+                    pending = PendingMortar{};
+                }
             }
             else if (now - pending.triedMs >= kRetryEveryMs)
             {
@@ -1514,9 +3077,22 @@ void CpRadioVariants_OnCpIdle(std::uint32_t cp)
             }
         }
     }
+    if (strikeCallOut)
+    {
+        const std::uint32_t caller = StrikeCallerUnderChaff(service, cp);
+        {
+            std::lock_guard<std::mutex> lock(g_PendingMutex);
+            PendingMortar& pending = g_Pending[cp];
+            if (pending.kind != Pending::None && pending.callOutSaid && pending.caller == kNoSoldier)
+                pending.caller = caller;
+        }
+        CallOutUnderChaff(caller);
+    }
+
     GunshipCall gunship;
     bool callGunship = false;
     bool gunshipFallback = false;
+    std::uint32_t gunshipCallOut = kNoSoldier;
     {
         std::lock_guard<std::mutex> lock(g_PendingMutex);
         GunshipCall& call = g_Gunship[cp];
@@ -1527,6 +3103,11 @@ void CpRadioVariants_OnCpIdle(std::uint32_t cp)
             gunship = call;
             callGunship = true;
         }
+        else if (call.pendingMs && !call.called && !call.callOutSaid)
+        {
+            call.callOutSaid = true;
+            gunshipCallOut = call.soldier;
+        }
         else if (call.awaitMs && now > call.awaitMs)
         {
             call.awaitMs = 0;
@@ -1535,21 +3116,45 @@ void CpRadioVariants_OnCpIdle(std::uint32_t cp)
         }
     }
     if (callGunship)
-        CallGunship(service, cp, gunship.soldier);
+        CallGunship(service, cp, gunship.soldier, gunship.callOutSaid);
     else if (gunshipFallback)
         GunshipFallback(cp, gunship.soldier);
+    else if (gunshipCallOut != kNoSoldier)
+        CallOutUnderChaff(gunshipCallOut);
+
+    ContactCall contact;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        contact = g_Contact[cp];
+    }
+    if (contact.soldier != kNoSoldier && !contact.onAir)
+    {
+        const std::uint8_t* soldiers = LiveSoldiers();
+        const bool canCall = soldiers && !OutOfAction(soldiers, contact.soldier);
+        const bool neverAired = now > contact.untilMs
+            && (!contact.sent || !CpRadioResponse::HasMemberRadio(static_cast<std::uint16_t>(kSoldierType | contact.soldier)));   // turned down by the CP, or its queue gave up
+        if (!canCall || neverAired)
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_PendingMutex);
+                g_Contact[cp] = ContactCall{};
+            }
+            ResignRadioMan(service, cp, contact.soldier);
+            const bool alert = InAlert(service, cp) || PlayerAlertPhase::Read() == PlayerAlertPhase::kAlert;
+            if (alert)
+                g_OrigRequestRadioByCp(service, cp, kAlertBroadcastRadio, kNoMember, 0);
+        }
+    }
 
     if (act == Pending::Decide || act == Pending::Resend)
-        DecideStrikeCall(service, cp, act == Pending::Resend);
+        DecideStrikeCall(service, cp, act == Pending::Resend, strikeCaller);
     else if (act == Pending::AwaitRequester)
     {
-        LogInfo("VoiceDebug: CP %u strike request never aired, the CP orders it", cp);
         OrderStrikeByCp(service, cp);
     }
     else if (act == Pending::CpOrder)
     {
         g_OrigRequestRadioByCp(service, cp, kMortarOrderRadio, kNoMember, g_LineHashes[kOrderLine]);
-        LogInfo("VoiceDebug: CP %u strike order not on air yet, asked again", cp);
     }
 }
 
@@ -1563,15 +3168,14 @@ void CpRadioVariants_OnSoldierDamages(std::uint32_t soldierIndex, const void* da
     std::uint8_t* service = g_Service.load(std::memory_order_relaxed);
     std::uint32_t member = kNoMember;
     std::uint32_t cp = kNoCp;
-    if (!FindMember(service, soldierIndex, member, cp))
+    if (!FindMember(service, soldierIndex, member, cp) || !AirsCpCalls(service, cp))
         return;
     std::lock_guard<std::mutex> lock(g_PendingMutex);
     GunshipCall& call = g_Gunship[cp];
     if (call.called || call.pendingMs)
         return;
     call.soldier = soldierIndex;
-    call.pendingMs = GetTickCount64();   // put on air from the CP's own update
-    LogInfo("VoiceDebug: support heli hits soldier %u, CP %u calls in the gunship", soldierIndex, cp);
+    call.pendingMs = GetTickCount64();
 }
 
 void CpRadioVariants_OnCpChannelVoice(void* soundController, std::uint32_t owner, std::uint32_t voiceType, std::uint32_t label)
@@ -1600,7 +3204,6 @@ void CpRadioVariants_OnCpChannelVoice(void* soundController, std::uint32_t owner
         if (signOff == label)
         {
             g_SignedOffMs[playing.soldier].store(now, std::memory_order_relaxed);
-            LogInfo("VoiceDebug: soldier %u signs off his radio call (Over!!)", playing.soldier);
         }
     }
 }
@@ -1630,6 +3233,348 @@ std::uint64_t CpRadioVariants_RadioHeardMs(std::uint32_t soldierIndex)
     return ChannelPlaying(channel) ? now : heard;   // the line keeps playing after the game winds the call down
 }
 
+std::uint32_t CpRadioVariants_LabelForCall(std::uint32_t owner, std::uint8_t radioType, std::uint16_t member)
+{
+    if (radioType == kInvestigateReplyRadio && g_InvestigateReplyTake2 && !MissionCodeGuard::ShouldBypassHooks() && CoinFlip())
+        return g_InvestigateReplyTake2;   // user: the unused take mixed with vanilla's cpr0341_01, always
+    if (member != kNoMember && owner < kCpCount && !MissionCodeGuard::ShouldBypassHooks())
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        const RadioOrder& order = g_RadioOrders[owner];
+        if (order.sent && order.type == radioType && (order.member == member || (kSoldierType | order.soldier) == member))
+            return order.label;   // a typed call plays its type's own label otherwise
+    }
+    if (radioType == kInstallationRadio && member != kNoMember && owner < kCpCount && !MissionCodeGuard::ShouldBypassHooks())
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        EquipmentReport& report = g_EquipmentReports[owner];
+        if (report.soldier != kNoSoldier && GetTickCount64() < report.untilMs
+            && (report.member == member || (kSoldierType | report.soldier) == member))
+        {
+            const std::uint32_t label = report.label;
+            report = EquipmentReport{};
+            return label;
+        }
+    }
+    if (radioType == kSearchCompleteRadio && member != kNoMember && owner < kCpCount && !MissionCodeGuard::ShouldBypassHooks())
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        const SurveyTeam& survey = g_Survey[owner];
+        for (std::uint32_t i = 0; survey.stage == Survey::Out && i < survey.teamSize; ++i)
+        {
+            if (survey.team[i] == member)
+            {
+                LogDebug("SurveyProbe: cp %u: soldier %u radios CPR0147, the sweep report", owner, survey.teamSoldier[i]);
+                return g_SweepDoneLabel;
+            }
+        }
+    }
+    if (radioType == kCpOnAlertRadio && g_StayOnAlertLabel && !MissionCodeGuard::ShouldBypassHooks())
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        const std::uint64_t now = GetTickCount64();
+        if (owner < kCpCount)
+        {
+            const HeldUpReport& report = g_HeldUpReports[owner];
+            if (report.replyMs && now - report.replyMs < kAnswerWindowMs)
+            {
+                return g_StayOnAlertLabel;
+            }
+        }
+    }
+    if (radioType != kAlertBroadcastRadio || member == kNoMember || MissionCodeGuard::ShouldBypassHooks())
+        return 0;
+    std::uint32_t cp = kNoCp;
+    std::uint32_t soldier = kNoSoldier;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        for (std::uint32_t i = 0; i < kCpCount && cp == kNoCp; ++i)
+        {
+            const ContactCall& alert = g_Contact[i];
+            if (alert.sent && (alert.member == member || (kSoldierType | alert.soldier) == member))
+            {
+                cp = i;
+                soldier = alert.soldier;
+            }
+        }
+    }
+    if (cp == kNoCp)
+    {
+        return 0;
+    }
+    return g_LineHashes[kContactLine];
+}
+
+std::uint32_t CpRadioVariants_SurveyLabel(std::uint32_t owner, std::uint8_t radioType, std::uint16_t member)
+{
+    if (member == kNoMember || owner >= kCpCount || MissionCodeGuard::ShouldBypassHooks())
+        return 0;
+    std::uint32_t finder = kNoSoldier;
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        const SurveyTeam& survey = g_Survey[owner];
+        if ((survey.stage != Survey::Found && survey.stage != Survey::Told) || survey.radioType != radioType
+            || (survey.member != member && (kSoldierType | survey.finder) != member))
+            return 0;
+        finder = survey.finder;
+    }
+    DecideSurvey(owner, finder, radioType);
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    const SurveyTeam& survey = g_Survey[owner];
+    if (survey.stage != Survey::Told || survey.finder != finder)
+        return 0;
+    if (survey.blast)
+        return g_BlastLabel;   // his type stays 5/6: a quiet CP still goes to caution when it ends
+    return survey.teamSize ? g_SendTeamLabel : g_StayOnGuardLabel;
+}
+
+void CpRadioVariants_ClearForNewMission()
+{
+    {
+        std::lock_guard<std::mutex> lock(g_PendingMutex);
+        g_Survey.fill(SurveyTeam{});
+        g_SurveyAsked.fill(SurveyAsked{});
+        g_SurveyedSpot.fill(SurveyedSpots{});
+        g_EquipmentReports.fill(EquipmentReport{});
+        g_UavDown.fill(UavDown{});
+        g_RadioOrders.fill(RadioOrder{});
+        g_SpottedReplyDue.fill(false);
+        g_Pending.fill(PendingMortar{});
+        g_Named.fill(NamedCall{});
+        g_ReadyHolder.fill(0);
+        g_StrikeOpenedMs.fill(0);
+        g_Gunship.fill(GunshipCall{});
+        g_Contact.fill(ContactCall{});
+        g_HeldUpReports.fill(HeldUpReport{});
+        g_RoleCalls.fill(RoleCall{});
+        g_Ready.fill(ReadyHold{});
+        g_FlareCalledMs.fill(0);
+        g_Channels.fill(RadioChannel{});   // holds the old mission's sound controller
+        g_Calls.fill(CallOnAir{});
+    }
+    g_RangeAttack.store(nullptr, std::memory_order_release);
+    g_ChaffAtMs.store(0, std::memory_order_relaxed);
+    for (auto& hold : g_FinderHoldUntilMs)
+        hold.store(0, std::memory_order_relaxed);
+    for (auto& watch : g_FinderWatchUntilMs)
+        watch.store(0, std::memory_order_relaxed);
+    for (auto& held : g_FinderHeld)
+        held.store(false, std::memory_order_relaxed);
+    for (auto& waker : g_Waker)
+        waker.store(false, std::memory_order_relaxed);
+    for (auto& reporter : g_BlastReporterUntilMs)
+        reporter.store(0, std::memory_order_relaxed);
+#ifdef _DEBUG
+    for (auto& tagged : g_ProbeSurveyCp)
+        tagged.store(0, std::memory_order_relaxed);
+#endif
+    const std::uint64_t now = GetTickCount64();
+    for (std::size_t cp = 0; cp < kCpCount; ++cp)
+    {
+        g_CpPhaseSeen[cp].store(0, std::memory_order_relaxed);
+        g_CpCalmedMs[cp].store(now, std::memory_order_relaxed);   // a new mission starts every base calm
+    }
+    g_Service.store(nullptr, std::memory_order_relaxed);
+}
+
+std::uint64_t CpRadioVariants_CpCalmedMs(std::uint32_t cp)
+{
+    return cp < kCpCount ? g_CpCalmedMs[cp].load(std::memory_order_relaxed) : 0;
+}
+
+bool CpRadioVariants_TakesVehicleBlast(std::uint32_t soldierIndex)
+{
+    return soldierIndex < kSoldierCount && GetTickCount64() < g_BlastReporterUntilMs[soldierIndex].load(std::memory_order_relaxed);
+}
+
+void CpRadioVariants_VehicleBlastReported(std::uint32_t soldierIndex)
+{
+    if (soldierIndex < kSoldierCount)
+        g_BlastReporterUntilMs[soldierIndex].store(0, std::memory_order_relaxed);
+}
+
+bool CpRadioVariants_IsWatchingFinder(std::uint32_t soldierIndex)
+{
+    if (soldierIndex >= kSoldierCount)
+        return false;
+    const std::uint64_t now = GetTickCount64();
+    return now < g_FinderWatchUntilMs[soldierIndex].load(std::memory_order_relaxed)
+        || now < g_FinderHoldUntilMs[soldierIndex].load(std::memory_order_relaxed);
+}
+
+bool CpRadioVariants_HoldFinder(std::uint32_t soldierIndex)
+{
+    if (soldierIndex >= kSoldierCount)
+        return false;
+    const std::uint64_t until = g_FinderHoldUntilMs[soldierIndex].exchange(0, std::memory_order_relaxed);
+    if (until == 0 || GetTickCount64() >= until)
+        return false;
+    g_FinderWatchUntilMs[soldierIndex].store(GetTickCount64() + kFinderHoldMostMs, std::memory_order_relaxed);   // the sweep starting ends it sooner
+    g_FinderHeld[soldierIndex].store(true, std::memory_order_relaxed);
+    return true;
+}
+
+FinderWait CpRadioVariants_FinderWait(std::uint32_t soldierIndex)
+{
+    if (soldierIndex >= kSoldierCount || !g_FinderHeld[soldierIndex].load(std::memory_order_relaxed))
+        return FinderWait::Vanilla;
+    if (GetTickCount64() < g_FinderWatchUntilMs[soldierIndex].load(std::memory_order_relaxed))
+        return FinderWait::Hold;
+    g_FinderHeld[soldierIndex].store(false, std::memory_order_relaxed);
+    return FinderWait::Release;
+}
+
+void CpRadioVariants_OnUavDown(std::uint32_t cp, std::uint8_t* cpController, const float spot[3])
+{
+    if (cp >= kCpCount || MissionCodeGuard::ShouldBypassHooks() || !FeatureSwitch::IsOn(FeatureSwitch::Feature::UavDownChecks))
+        return;
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    UavDown& uav = g_UavDown[cp];
+    uav.due = true;
+    uav.cpController = cpController;
+    uav.spot[0] = spot[0];
+    uav.spot[1] = spot[1];
+    uav.spot[2] = spot[2];
+    uav.downMs = GameClock::NowMs();
+}
+
+bool CpRadioVariants_AssignRadioInCombat(std::uint32_t cp, std::uint32_t soldierIndex, std::uint32_t label, bool noPose)
+{
+    std::uint8_t* service = g_Service.load(std::memory_order_relaxed);
+    if (!service || label == 0 || MissionCodeGuard::ShouldBypassHooks())
+    {
+        LogWarn("AssignRadioInCombat: %s, ignored", label == 0 ? "needs a label" : "no command post has used its radio yet");
+        return false;
+    }
+    if (soldierIndex != kNoSoldier)
+    {
+        float at[3] = {};
+        bool heldKnown = false;
+        std::uint32_t member = kNoMember;
+        if (!FindMember(service, soldierIndex, member, cp))
+        {
+            LogWarn("AssignRadioInCombat: soldier %u is on no command post, ignored", soldierIndex);
+            return false;
+        }
+        if (!IsUp(LiveSoldiers(), soldierIndex, at) || CpRadioResponse::IsHeld(static_cast<std::uint16_t>(soldierIndex), heldKnown))
+        {
+            LogWarn("AssignRadioInCombat: soldier %u is down or held up, ignored", soldierIndex);
+            return false;
+        }
+    }
+    if (cp >= kCpCount)
+        return false;
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    RadioOrder& order = g_RadioOrders[cp];
+    if ((order.queued || order.soldier != kNoSoldier) && GetTickCount64() < order.untilMs)
+    {
+        LogWarn("AssignRadioInCombat: CP %u already has a radio call of ours going, ignored", cp);
+        return false;
+    }
+    order = RadioOrder{};
+    order.queued = true;
+    order.noPose = noPose;
+    order.soldier = soldierIndex;
+    order.label = label;
+    order.untilMs = GetTickCount64() + kRoleCallMs;
+    return true;
+}
+
+bool CpRadioVariants_IsWaker(std::uint32_t soldierIndex)
+{
+    return soldierIndex < kSoldierCount && g_Waker[soldierIndex].load(std::memory_order_relaxed);
+}
+
+void CpRadioVariants_OnDownComradeNode(std::uint32_t soldierIndex, bool awake)
+{
+    if (soldierIndex >= kSoldierCount)
+        return;
+    g_FinderHeld[soldierIndex].store(false, std::memory_order_relaxed);   // a new node, or his old one gone: Wait is vanilla's again
+    if (!g_Waker[soldierIndex].load(std::memory_order_relaxed))
+        return;
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    for (std::uint32_t cp = 0; cp < kCpCount; ++cp)
+    {
+        SurveyTeam& survey = g_Survey[cp];
+        if (survey.stage != Survey::Waking || survey.waker != soldierIndex)
+            continue;
+        if (awake && !survey.wakerUp)
+        {
+            survey.wakerUp = true;
+            survey.untilMs = GetTickCount64() + kWakeMostMs;
+        }
+        else if (!awake && survey.wakerUp)
+        {
+            survey.stage = Survey::Dispatch;   // the next idle tick sends them, him included
+            survey.wakeDone = true;
+            g_Waker[soldierIndex].store(false, std::memory_order_relaxed);
+        }
+        return;
+    }
+}
+
+bool CpRadioVariants_SurveyMemberOf(std::uint16_t soldierIndex, std::uint32_t& cp, std::uint16_t& member)
+{
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    for (std::uint32_t c = 0; c < kCpCount; ++c)
+    {
+        const SurveyTeam& survey = g_Survey[c];
+        if (survey.stage != Survey::Out || survey.calledOff)
+            continue;
+        for (std::uint32_t i = 0; i < survey.teamSize; ++i)
+        {
+            if (survey.teamSoldier[i] == soldierIndex)
+            {
+                cp = c;
+                member = static_cast<std::uint16_t>(survey.team[i]);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void CpRadioVariants_CallOffSurvey(std::uint32_t cp)
+{
+    if (cp >= kCpCount)
+        return;
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    if (g_Survey[cp].stage == Survey::Out)
+        g_Survey[cp].calledOff = true;   // the next idle tick sends them all back
+}
+
+void CpRadioVariants_OnSitrepUnanswered(std::uint32_t cp, const std::uint32_t* teams, std::uint32_t count)
+{
+    if (cp >= kCpCount || !teams || MissionCodeGuard::ShouldBypassHooks())
+        return;
+    std::lock_guard<std::mutex> lock(g_PendingMutex);
+    SurveyAsked& asked = g_SurveyAsked[cp];
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        if (asked.team == 0 || teams[i] != asked.team)
+            continue;
+        LogDebug("SurveyProbe: cp %u: nobody answered the SITREP, %s", cp, asked.second ? "it was the second team, no third" : "a second team goes to the spot");
+        if (asked.second)
+            asked = SurveyAsked{};   // user: no third team
+        else
+            asked.sendTeam = true;
+        return;
+    }
+}
+
+#ifdef _DEBUG
+bool CpRadioVariants_ProbeSurveyCp(std::uint32_t soldierIndex, std::uint32_t& cp)
+{
+    if (soldierIndex >= kSoldierCount)
+        return false;
+    const std::uint16_t tagged = g_ProbeSurveyCp[soldierIndex].load(std::memory_order_relaxed);
+    if (tagged == 0)
+        return false;
+    cp = tagged - 1u;
+    return true;
+}
+#endif
+
 bool CpRadioVariants_SpeakSoldierHalf(std::uint32_t priority, std::uint32_t event, std::uint32_t voiceType, std::uint32_t label)
 {
     const PartSpeaker speaker = t_PartSpeaker;
@@ -1638,7 +3583,7 @@ bool CpRadioVariants_SpeakSoldierHalf(std::uint32_t priority, std::uint32_t even
     for (const std::uint32_t cpVoice : kCpVoices)
     {
         if (cpVoice == voiceType)
-            return false;   // the CP's own half keeps the CP voice
+            return false;
     }
     bool spoke = false;
     t_PartSpeaker = PartSpeaker{};   // his own voice call comes back through CallVoice
@@ -1652,7 +3597,6 @@ bool CpRadioVariants_SpeakSoldierHalf(std::uint32_t priority, std::uint32_t even
         spoke = false;
     }
     t_PartSpeaker = speaker;
-    LogInfo("VoiceDebug: radio line 0x%X spoken by soldier %u%s", label, speaker.soldier, spoke ? "" : " refused, CP channel voice");
     return spoke;
 }
 
@@ -1660,6 +3604,16 @@ bool Install_CpRadioVariants_Hooks()
 {
     for (std::uint32_t i = 0; i < kLineCount; ++i)
         g_LineHashes[i] = FoxHashes::StrCode32(kLineLabels[i]);
+    g_StayOnAlertLabel = FoxHashes::StrCode32("CPR0049");
+    g_SendTeamLabel = FoxHashes::StrCode32("CPR0148");
+    g_StayOnGuardLabel = FoxHashes::StrCode32("CPR0142");
+    g_SweepDoneLabel = FoxHashes::StrCode32("CPR0147");
+    g_BlastLabel = FoxHashes::StrCode32("CPR0143");
+    g_CommsLabel = FoxHashes::StrCode32("CPR0346");
+    g_PowerLabel = FoxHashes::StrCode32("CPR0345");
+    g_CameraReplyLabel = FoxHashes::StrCode32("V_CPR0022ENE");
+    g_UavReplyLabel = FoxHashes::StrCode32("CPR0341ENE");
+    g_InvestigateReplyTake2 = FoxHashes::StrCode32("V_CPR0340ENE");
     g_IsPlayingVoice = reinterpret_cast<IsPlayingVoice_t>(ResolveGameAddress(gAddr.SoundControllerImpl_IsPlayingVoice));
     if (!Hook(gAddr.CpRadioService_ConvertSpeechLabelToRadioType, reinterpret_cast<void*>(&hk_ConvertSpeechLabelToRadioType),
               reinterpret_cast<void**>(&g_OrigConvertSpeechLabel), "ConvertSpeechLabelToRadioType"))
@@ -1695,11 +3649,23 @@ bool Install_CpRadioVariants_Hooks()
     if (!Hook(gAddr.Heli2Impl_Unrealize, reinterpret_cast<void*>(&hk_Heli2Unrealize),
               reinterpret_cast<void**>(&g_OrigHeliUnrealize), "Heli2Impl::Unrealize"))
         LogError("CpRadioVariants: the gunship call stays once per CP for the whole mission");
+    if (!Hook(gAddr.CpRadioService_CheckRadioTypeBgmPhaseMismatch, reinterpret_cast<void*>(&hk_CheckRadioTypeBgmPhaseMismatch),
+              reinterpret_cast<void**>(&g_OrigBgmPhaseMismatch), "CpRadioService::CheckRadioTypeBgmPhaseMismatch"))
+        LogError("CpRadioVariants: AssignRadioInCombat calls of most labels stay silent while the combat music plays");
+    Install_TppPermanentGimmickUnit_CallNoise_Hook();
+    Install_UavLifeControllerImpl_SendStatusMessage_Hook();
+#ifdef _DEBUG
+    Install_InvestigateAiImpl_PreUpdate_Hook();   // TEMP probe: which investigation steps a survey team reaches
+#endif
     return true;
 }
 
 bool Uninstall_CpRadioVariants_Hooks()
 {
+    Uninstall_UavLifeControllerImpl_SendStatusMessage_Hook();
+    Uninstall_TppPermanentGimmickUnit_CallNoise_Hook();
+    Unhook(gAddr.CpRadioService_CheckRadioTypeBgmPhaseMismatch, reinterpret_cast<void*>(g_OrigBgmPhaseMismatch));
+    g_OrigBgmPhaseMismatch = nullptr;
     Unhook(gAddr.Heli2Impl_Unrealize, reinterpret_cast<void*>(g_OrigHeliUnrealize));
     Unhook(gAddr.UnrealMortarActionImpl_State_MortarAction, reinterpret_cast<void*>(g_OrigUnrealMortarAction));
     Unhook(gAddr.MortarActionImpl_State_MortarAction, reinterpret_cast<void*>(g_OrigMortarAction));
@@ -1731,14 +3697,33 @@ bool Uninstall_CpRadioVariants_Hooks()
         g_SoldierCp.fill(0);
         g_SoldierCpMs.fill(0);
         g_Gunship.fill(GunshipCall{});
+        g_Contact.fill(ContactCall{});
+        g_HeldUpReports.fill(HeldUpReport{});
         g_RoleCalls.fill(RoleCall{});
         g_Ready.fill(ReadyHold{});
         g_FlareCalledMs.fill(0);
         g_Channels.fill(RadioChannel{});
         g_Calls.fill(CallOnAir{});
+        g_Survey.fill(SurveyTeam{});
+        g_SurveyAsked.fill(SurveyAsked{});
+        g_SurveyedSpot.fill(SurveyedSpots{});
+        g_EquipmentReports.fill(EquipmentReport{});
+        g_UavDown.fill(UavDown{});
+        g_RadioOrders.fill(RadioOrder{});
+        g_SpottedReplyDue.fill(false);
     }
+    Uninstall_NoticeDownComradeAiImpl_StepPreRadio();
+    Uninstall_NoticeAiImpl_StepRadio();
+#ifdef _DEBUG
+    Uninstall_InvestigateAiImpl_PreUpdate_Hook();
+#endif
     for (std::size_t i = 0; i < kSoldierCount; ++i)
     {
+        g_FinderHoldUntilMs[i].store(0, std::memory_order_relaxed);
+        g_FinderWatchUntilMs[i].store(0, std::memory_order_relaxed);
+        g_FinderHeld[i].store(false, std::memory_order_relaxed);
+        g_Waker[i].store(false, std::memory_order_relaxed);
+        g_BlastReporterUntilMs[i].store(0, std::memory_order_relaxed);
         g_SpokeMs[i].store(0, std::memory_order_relaxed);
         g_SignedOffMs[i].store(0, std::memory_order_relaxed);
         g_CpTurnMs[i].store(0, std::memory_order_relaxed);

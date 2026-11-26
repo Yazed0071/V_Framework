@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "MotherBaseSecurityShadow.h"
 
 #include <Windows.h>
@@ -40,7 +40,7 @@ namespace mbSecurity
         constexpr int kPlatformsPerCluster = 7;
         constexpr int kPlatformCount       = kClusterCount * kPlatformsPerCluster;
         constexpr int kFirstPlatform       = 7;
-        constexpr std::uint32_t kMaxBucketRank = 9;   // CalcSecurityParameter reads past the buckets above this
+        constexpr std::uint32_t kMaxBucketRank = 9;
 
         constexpr int           kCountGroups     = 4;
         constexpr int           kCountKinds      = 7;
@@ -86,16 +86,9 @@ namespace mbSecurity
 
         bool ExpectedSlots(std::uintptr_t& rank, std::uintptr_t& clamp)
         {
-            switch (gGameBuild)
-            {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  rank = 0x140F514A0; clamp = 0x140F55DB0; return true;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  rank = 0x140F515A0; clamp = 0x140F55EA0; return true;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  rank = 0x140F50D20; clamp = 0x140F55620; return true;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  rank = 0x140F50D70; clamp = 0x140F55680; return true;
-            default:                                           return false;
-            }
+            rank = gAddr.MotherBaseSecurity_RankSlot;
+            clamp = gAddr.MotherBaseSecurity_ClampSlot;
+            return true;
         }
 
         bool ReadLiveSEH(LiveInputs& in)
@@ -144,7 +137,7 @@ namespace mbSecurity
                     if (in.buckets[k] != points.bucketFull[k])
                         return false;
                     buckets[k] = static_cast<std::uint16_t>(in.buckets[k] - points.bucketCustom[k]);
-                    changed |= (in.buckets[k] != 0) != (buckets[k] != 0);   // only an emptied bucket moves the rank
+                    changed |= (in.buckets[k] != 0) != (buckets[k] != 0);
                 }
                 const std::uint8_t level = staffServer::SectionLevelOfSum(
                     in.ctrl, in.baseDevSum - points.custom[kBaseDevSection]);
@@ -159,7 +152,7 @@ namespace mbSecurity
         }
 
         bool EvaluateShadowSEH(const LiveInputs& in, const std::uint16_t (&buckets)[staffServer::kSecurityBuckets],
-                               std::uint8_t unit)   // runs the game's rank and clamp code on copies; nothing live is written
+                               std::uint8_t unit)
         {
             __try
             {

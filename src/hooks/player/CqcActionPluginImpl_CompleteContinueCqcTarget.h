@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_CqcActionPluginImpl_CompleteContinueCqcTarget_Hook();
+void Uninstall_CqcActionPluginImpl_CompleteContinueCqcTarget_Hook();

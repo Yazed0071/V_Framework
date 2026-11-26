@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -92,6 +92,9 @@ namespace
         {
             __try { g_OrigPushEyeColor(self, slot, mode); }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+            for (int i = 0; i < kMaxEyeSlots; ++i)
+                g_HasVanillaEye[i] = false; // the game just stored a fresh phase colour, the old snapshot is stale
         }
     }
 

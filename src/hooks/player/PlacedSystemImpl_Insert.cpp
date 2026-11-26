@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PlacedSystemImpl_Insert.h"
 
 #include <Windows.h>
@@ -57,94 +57,28 @@ namespace
 
     static uintptr_t PlacedSystemInsertAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FC8020ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FC8070ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x140FC88A0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x140FC8960ull;
-            default: return 0;
-        }
+        return gAddr.PlacedSystemImpl_Insert;
     }
     static uintptr_t SetWarpToPositionAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x1409CEAE0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x1409CE9E0ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x14627C6F0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x147F4CCE0ull;
-            default: return 0;
-        }
+        return gAddr.Player2Impl_SetWarpToPosition;
     }
     static uintptr_t DeathFamilyTickAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x14118C1C0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x14118C240ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x14118C970ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14118CA10ull;
-            default: return 0;
-        }
+        return gAddr.Player_DeathFamilyTick;
     }
     static uintptr_t DamageFallStateAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x14118E1B0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x14118E230ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x14118E9E0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x14118EA90ull;
-            default: return 0;
-        }
+        return gAddr.Player_DamageFallState;
     }
     static uintptr_t PrePollingAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140FF28D0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140FF28F0ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x140FF3000ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x140FF30C0ull;
-            default: return 0;
-        }
+        return gAddr.Player_PrePolling;
     }
 
     static uintptr_t GetBasicDamageReactionAddr()
     {
-        switch (gGameBuild)
-        {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141194A80ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141194B00ull;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1411952B0ull;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141195360ull;
-            default: return 0;
-        }
-    }
-
-    static bool DamageReactionPrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kDamageReactionPrologue, sizeof(kDamageReactionPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.Player_GetBasicDamageReaction;
     }
 
     static bool IsPortalEquipId(std::uint16_t id)
@@ -397,7 +331,7 @@ namespace
         {
             flags  = reinterpret_cast<std::uint16_t*>(static_cast<std::uint8_t*>(damage) + kDamageFlags);
             injury = *flags & kInjuryDamageFlags;
-            *flags &= ~kInjuryDamageFlags; // without these the hit picks a normal reaction, never the wound that needs the Cure spray
+            *flags &= ~kInjuryDamageFlags;
         }
         const std::uint8_t reaction = g_OrigDamageReaction(damageController, idx, damage);
         if (flags)
@@ -447,15 +381,21 @@ bool Install_PlacedSystemImpl_Insert_Hook()
                  "after the portal warp", GetGameBuildName(gGameBuild));
 
     void* reaction = reinterpret_cast<void*>(GetBasicDamageReactionAddr());
-    if (!reaction || !DamageReactionPrologueMatchesSEH(reaction))
+    const HookEntry reactionEntry = CheckHookEntry(reaction, kDamageReactionPrologue, sizeof(kDamageReactionPrologue));
+    if (reactionEntry == HookEntry::Unknown)
         LogError("Wormhole: damage reaction address missing or changed for %s, the player "
                  "can still be wounded while a portal is placed", GetGameBuildName(gGameBuild));
-    else if (CreateAndEnableHook(reaction, reinterpret_cast<void*>(&hk_GetBasicDamageReaction),
-                                 reinterpret_cast<void**>(&g_OrigDamageReaction)))
-        g_DamageReactionAddr = reaction;
     else
-        LogError("Wormhole: damage reaction hook failed for %s, the player can still be "
-                 "wounded while a portal is placed", GetGameBuildName(gGameBuild));
+    {
+        if (reactionEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("Wormhole: GetBasicDamageReaction", reaction);
+        if (CreateAndEnableHook(reaction, reinterpret_cast<void*>(&hk_GetBasicDamageReaction),
+                                reinterpret_cast<void**>(&g_OrigDamageReaction)))
+            g_DamageReactionAddr = reaction;
+        else
+            LogError("Wormhole: damage reaction hook failed for %s, the player can still be "
+                     "wounded while a portal is placed", GetGameBuildName(gGameBuild));
+    }
 
     return true;
 }

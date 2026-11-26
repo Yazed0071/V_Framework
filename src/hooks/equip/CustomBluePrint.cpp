@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CustomBluePrint.h"
 
 #include <Windows.h>
@@ -34,7 +34,7 @@ namespace
     constexpr const char*  kLuaLibTable        = "V_TppMotherBaseManagement";
 
     constexpr std::int32_t kPublicIdBase       = 0x2000;
-    constexpr std::int32_t kMaxRowsPerTab      = 108;
+    constexpr std::int32_t kMaxRowsPerTab      = 0x7FFF - 108;   // a tab lists 0x7FFF rows, the game's own take at most 108
     constexpr std::int32_t kListableTabCount   = 7;
     constexpr std::int32_t kMaxCustomEntries   = kMaxRowsPerTab * kListableTabCount;
 
@@ -354,11 +354,18 @@ namespace bluePrint
 
         EnsureDataBaseGuard();
 
+        std::int32_t cachedId = 0;
         {
             std::lock_guard<std::mutex> lock(g_Mutex);
             auto it = g_IdByKey.find(key);
             if (it != g_IdByKey.end())
-                return it->second;
+                cachedId = it->second;
+        }
+        if (cachedId != 0)
+        {
+            std::int32_t persistedId = 0;
+            V_FrameWorkState::ResolveOrCreateBluePrintId(key, persistedId); // registering counts as present, clears the unregistered-launch count
+            return cachedId;
         }
 
         {

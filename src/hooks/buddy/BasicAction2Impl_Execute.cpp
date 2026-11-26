@@ -1,19 +1,26 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BasicAction2Impl_Execute.h"
 
 #include <Windows.h>
+#include <atomic>
 #include <cstdint>
 
 #include "AddressSet.h"
 #include "BuddyOutfitRegistry.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "../player/Player2Impl_CallVoice.h"
+#include "../player/RideHorseActionPluginImpl_State_Idle.h"
+#include "../sound/AkSoundEngine_PostEvent.h"
 
 namespace
 {
     using Execute_t            = void(__fastcall*)(void* self, std::int32_t phase, std::uint32_t index);
     using SetMotionSpeedRate_t = void(__fastcall*)(void* controller, std::uint32_t index, std::uint32_t layer, float rate);
+    using StateProc_t          = void(__fastcall*)(void* object, std::uint32_t index, std::uint32_t proc, void* param);
+
+    const std::uint8_t kStateRideOnIdleEntry[] = { 0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x38, 0x48, 0x8B, 0xF9 };
 
     Execute_t g_Orig   = nullptr;
     void*     g_Target = nullptr;
@@ -27,6 +34,17 @@ namespace
     constexpr std::size_t kWork_Horse                = 0x268;
     constexpr std::size_t kHorse_Tack                = 0x2D4;
     constexpr std::size_t kSlot_SetMotionSpeedRate   = 0x280 / sizeof(void*);
+    constexpr std::uint8_t kRideOnIdle               = 6;   // standing still with a rider; the spur slaps happen in the moving states
+    constexpr std::uint8_t kEjectDungStart           = 49;  // the unridden idles start one too, on Snake's order from any distance
+    constexpr std::uint8_t kEjectDungEnd             = 51;  // the dung has dropped
+    constexpr std::size_t kIface_Object              = 0x20;   // Execute runs on the object's +0x20 interface, the state functions on the object
+    constexpr std::size_t kWork_NextState            = 0x261;
+    constexpr std::size_t kWork_AfterDung            = 0x431;
+    constexpr std::uint32_t kProcEnter               = 2;
+    constexpr std::uint32_t kProcLeave               = 3;
+    constexpr std::uint32_t kNoHorse                 = 0xFFFFFFFFu;
+
+    std::atomic<std::uint32_t> g_RiddenDungHorse{ kNoHorse };   // the horse whose dung started under Snake
 
     bool IsGallopState(std::uint8_t state) // BasicAction2Impl::s_stateFuncs ids
     {
@@ -97,10 +115,124 @@ namespace
         }
     }
 
+    std::uint8_t ReadStateSEH(void* self, std::uint32_t index)
+    {
+        __try
+        {
+            auto* iface = static_cast<std::uint8_t*>(self);
+            const std::uint32_t first = *reinterpret_cast<const std::uint32_t*>(iface + kIface_FirstIndex);
+            auto* works = *reinterpret_cast<std::uint8_t**>(iface + kIface_Works);
+            if (!works || index < first)
+                return 0;
+            return works[static_cast<std::size_t>(index - first) * kWorkStride + kWork_State];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    std::uint8_t* WorkSEH(void* self, std::uint32_t index)
+    {
+        __try
+        {
+            auto* iface = static_cast<std::uint8_t*>(self);
+            const std::uint32_t first = *reinterpret_cast<const std::uint32_t*>(iface + kIface_FirstIndex);
+            auto* works = *reinterpret_cast<std::uint8_t**>(iface + kIface_Works);
+            if (!works || index < first)
+                return nullptr;
+            return works + static_cast<std::size_t>(index - first) * kWorkStride;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    bool NothingQueuedSEH(const std::uint8_t* work)
+    {
+        __try
+        {
+            return work[kWork_NextState] == 0 && work[kWork_AfterDung] != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void ClearAfterDungSEH(std::uint8_t* work)
+    {
+        __try
+        {
+            work[kWork_AfterDung] = 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    StateProc_t RideOnIdleState()
+    {
+        static StateProc_t s_State = nullptr;
+        static bool        s_Checked = false;
+        if (!s_Checked)
+        {
+            s_Checked = true;
+            void* target = ResolveGameAddress(gAddr.HorseBasicAction2Impl_State_RideOnIdle);
+            if (target && CheckHookEntry(target, kStateRideOnIdleEntry, sizeof(kStateRideOnIdleEntry)) != HookEntry::Unknown)
+                s_State = reinterpret_cast<StateProc_t>(target);
+            else
+                LogError("HorsePat: D-Horse's State_RideOnIdle missing or changed on %s, Reload starts no pat", GetGameBuildName(gGameBuild));
+        }
+        return s_State;
+    }
+
+    // what Execute does when the state changes: leave, then enter; with +0x431 set the entry is the after-dung one, idle mode 2
+    void ReenterRideOnIdle(void* self, std::uint32_t index, std::uint8_t* work)
+    {
+        const StateProc_t state = RideOnIdleState();
+        if (!state || !NothingQueuedSEH(work))
+        {
+            ClearAfterDungSEH(work);
+            return;
+        }
+        void* object = static_cast<std::uint8_t*>(self) - kIface_Object;
+        state(object, index, kProcLeave, nullptr);
+        state(object, index, kProcEnter, nullptr);
+    }
+
     void __fastcall hkExecute(void* self, std::int32_t phase, std::uint32_t index)
     {
+        const std::uint8_t before = phase == 2 ? ReadStateSEH(self, index) : 0;   // phase 2 runs the state switch
         g_Orig(self, phase, index);
-        ApplyGallopRateSEH(self, index); // the dash and stop states never set a speed, they ride on the last one
+        ApplyGallopRateSEH(self, index);
+        if (phase == 2)
+        {
+            const std::uint8_t after = ReadStateSEH(self, index);
+            if (after != before)
+            {
+                SayHorseGaitLine(after);
+                if (after == kEjectDungStart)
+                    g_RiddenDungHorse.store(before == kRideOnIdle ? index : kNoHorse, std::memory_order_relaxed);
+                if (after == kEjectDungEnd)
+                {
+                    if (g_RiddenDungHorse.exchange(kNoHorse, std::memory_order_relaxed) == index)
+                        SayHorseDungLine();
+                }
+            }
+            if (after == kRideOnIdle && TakeHorseSlapSound())
+                SayHorsePatLine();   // the slap of Snake's mounted pat idle
+            if (std::uint8_t* work = WorkSEH(self, index); work && TakeHorsePatReentry(work))
+            {
+                if (after == kRideOnIdle)
+                    ReenterRideOnIdle(self, index, work);
+                else
+                {
+                    ClearAfterDungSEH(work);
+                }
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "StaffControllerImpl_AddStaff.h"
 
@@ -37,13 +37,10 @@ namespace outfit
                                                           std::uint64_t, std::uint64_t);
         using StaffPortrait_t = std::uint64_t* (__fastcall*)(void*, std::uint64_t*,
                                                             std::uint32_t, std::uint32_t);
-        using RefreshFaceRecord_t = void (__fastcall*)(void*, void*, std::uint16_t, std::int16_t);
 
         AddStaffShort_t g_OriginalShort = nullptr;
         AddStaffFull_t g_OriginalFull = nullptr;
         StaffPortrait_t g_OriginalPortrait = nullptr;
-        RefreshFaceRecord_t g_OriginalRefreshFaceRecord = nullptr;
-        thread_local void* g_PortraitContextController = nullptr;
         std::mutex g_Mutex;
         std::map<std::uint64_t, std::uint64_t> g_PendingOwners;
         std::map<std::uint64_t, std::uint64_t> g_PersistedOwners;
@@ -69,6 +66,9 @@ namespace outfit
         constexpr std::uint64_t kHealIntervalMs = 10000;
 
         constexpr std::uint32_t kStaffCapacity = 0xDAC;
+        constexpr std::size_t kOff_UniqueTypeFaces = 0x5790;   // face dword of each 0x20-byte RegisterUniqueStaff entry
+        constexpr std::size_t kUniqueTypeStride = 0x20;
+        constexpr std::uint32_t kFovaWord_Female = 0x40000000u;
         constexpr std::size_t kOff_RemoverHeaders = 0x9E20;
         constexpr std::uint32_t kRemoverCapacity = 0x40;
         constexpr std::uint32_t kFaceFlag_MbIneligible = 0x00000008u;
@@ -465,9 +465,6 @@ namespace outfit
                         static_cast<unsigned long long>(request.proxyId));
                 return;
             }
-            if (!request.existing)
-                LogInfo("StaffFace: staff %016llX recruited with custom face %d (stand-in face %d)",
-                    static_cast<unsigned long long>(request.proxyId), request.faceId, request.donorId);
         }
 
         void PrepareFallbackRecruitment(void* controller, std::uint64_t staffId, Recruitment& request)
@@ -802,17 +799,108 @@ namespace outfit
             return result;
         }
 
+        std::uint8_t UniqueTypeIdOf(std::uint64_t staffId)
+        {
+            if (!IsValidStaffId(staffId) || ((staffId >> 7) & 0x3F) != 0x3F)
+                return 0;
+            const auto typeId = static_cast<std::uint8_t>((staffId >> 45) & 0xFF);   // seed byte 3
+            return typeId < 0xFE ? typeId : 0;
+        }
+
+        bool ReadUniqueTypeFace_Guarded(const void* controller, std::uint8_t typeId, std::uint32_t& faceId)
+        {
+            __try
+            {
+                if (!controller)
+                    return false;
+                faceId = *reinterpret_cast<const std::uint32_t*>(static_cast<const std::uint8_t*>(controller)
+                    + kOff_UniqueTypeFaces + static_cast<std::size_t>(typeId) * kUniqueTypeStride);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool IsFemaleFace(std::int32_t faceId, bool& female)
+        {
+            FaceDiagnostics diagnostics;
+            if (!ReadFaceDiagnostics(faceId, diagnostics) || !diagnostics.rowDefined)
+                return false;
+            female = (diagnostics.fovaWord & kFovaWord_Female) != 0;
+            return true;
+        }
+
+        bool IsLiveCustomFace(std::int32_t faceId)
+        {
+            return IsFaceIdInPool(faceId) && IsManagedFaceId(faceId) && IsFaceRowDefined(faceId)
+                && !IsFaceRowDefinedByOtherMod(faceId) && !IsCustomFaceFallback(faceId);
+        }
+
+        bool TryResolveUniqueTypeFace(std::uint64_t staffId, std::uint16_t nativeFaceId, bool sameGenderOnly,
+                                      std::uint16_t& visualFaceId)
+        {
+            const std::uint8_t typeId = UniqueTypeIdOf(staffId);
+            if (typeId == 0 || HeaderFaceId(staffId) != nativeFaceId)
+                return false;
+            void* controller = CurrentStaffController_Guarded();
+            std::uint32_t typeFace = 0;
+            if (!ReadUniqueTypeFace_Guarded(controller, typeId, typeFace) || typeFace >= 900
+                || typeFace == nativeFaceId || !IsLiveCustomFace(static_cast<std::int32_t>(typeFace)))
+                return false;
+            if (sameGenderOnly)
+            {
+                bool nativeFemale = false;
+                bool typeFemale = false;
+                if (!IsFemaleFace(nativeFaceId, nativeFemale)
+                    || !IsFemaleFace(static_cast<std::int32_t>(typeFace), typeFemale)
+                    || nativeFemale != typeFemale)
+                    return false;
+            }
+            std::uint32_t matches = 0;
+            if (!CountIdentity_Guarded(controller, staffId, matches) || matches != 1)
+                return false;
+            visualFaceId = static_cast<std::uint16_t>(typeFace);
+            return true;
+        }
+
+        bool TryResolveLinkedFace(std::uint64_t staffId, std::uint16_t nativeFaceId, std::uint16_t& visualFaceId)
+        {
+            if (!IsValidStaffId(staffId) || HeaderFaceId(staffId) != nativeFaceId)
+                return false;
+            const std::string proxyKey = StaffKey(staffId);
+            const std::int32_t savedFace = V_FrameWorkState::GetPersistedConstant(kFaceSpace, proxyKey.c_str());
+            if (savedFace < 1 || savedFace > 900)
+                return false;
+            const std::int32_t faceId = savedFace - 1;
+            if (!IsLiveCustomFace(faceId))
+                return false;
+            const std::uint64_t originalId = WithHeaderFaceId(staffId, static_cast<std::uint16_t>(faceId));
+            const std::string originalKey = StaffKey(originalId);
+            FaceFallbackMetadata metadata;
+            if (V_FrameWorkState::GetPersistedConstant(kProxySpace, originalKey.c_str()) != nativeFaceId + 1
+                || !GetFaceFallbackMetadata(faceId, metadata) || !IsCompatibleDonor(nativeFaceId, metadata))
+                return false;
+            std::uint32_t matches = 0;
+            if (!CountIdentity_Guarded(CurrentStaffController_Guarded(), staffId, matches) || matches != 1)
+                return false;
+            visualFaceId = static_cast<std::uint16_t>(faceId);
+            return true;
+        }
+
         bool TryBuildStaffPortraitHeader(void* controller, std::uint32_t header,
                                          std::uint32_t seed, std::uint32_t& visualHeader)
         {
             visualHeader = header;
-            if (!controller || controller != g_PortraitContextController || (seed & 0x7FFu) != 0
-                || controller != CurrentStaffController_Guarded())
+            if (!controller || (seed & 0x7FFu) != 0 || controller != CurrentStaffController_Guarded())
                 return false;
             const std::uint64_t staffId = (static_cast<std::uint64_t>(seed) << 21) | header;
             const std::uint16_t nativeFace = HeaderFaceId(staffId);
             std::uint16_t visualFace = nativeFace;
-            if (!TryResolveStaffVisualFace(staffId, nativeFace, visualFace) || visualFace == nativeFace)
+            const bool resolved = TryResolveUniqueTypeFace(staffId, nativeFace, false, visualFace)
+                || TryResolveLinkedFace(staffId, nativeFace, visualFace);
+            if (!resolved || visualFace == nativeFace)
                 return false;
             FaceDiagnostics diagnostics;
             if (!ReadFaceDiagnostics(visualFace, diagnostics) || !diagnostics.rowDefined
@@ -838,70 +926,14 @@ namespace outfit
             return g_OriginalPortrait(controller, outPath, header, seed);
         }
 
-        void* ReadOwnPortraitController_Guarded(const void* ui)
-        {
-            __try
-            {
-                if (!ui)
-                    return nullptr;
-                const auto* bytes = static_cast<const std::uint8_t*>(ui);
-                const std::uint8_t mode = bytes[0x1C91];
-                return mode == 13 || mode == 15 ? nullptr
-                    : *reinterpret_cast<void* const*>(bytes + 0x50);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return nullptr;
-            }
-        }
-
-        void __fastcall hkRefreshStaffFaceRecord(void* ui, void* record,
-                                                  std::uint16_t slot, std::int16_t mode)
-        {
-            void* previous = g_PortraitContextController;
-            g_PortraitContextController = ReadOwnPortraitController_Guarded(ui);
-            __try
-            {
-                g_OriginalRefreshFaceRecord(ui, record, slot, mode);
-            }
-            __finally
-            {
-                g_PortraitContextController = previous;
-            }
-        }
-
-        bool RefreshFaceRecordSiteMatches_Guarded(const void* target)
-        {
-            constexpr std::uint8_t expected[] = {
-                0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18,
-                0x48, 0x89, 0x74, 0x24, 0x20, 0x57, 0x41, 0x56, 0x41, 0x57,
-                0x48, 0x83, 0xEC, 0x30, 0x0F, 0xB6, 0x81, 0x91, 0x1C, 0x00, 0x00
-            };
-            __try
-            {
-                return target && std::memcmp(target, expected, sizeof(expected)) == 0;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return false;
-            }
-        }
-
-        bool PortraitSiteMatches_Guarded(const void* target)
+        HookEntry PortraitSiteEntry_Guarded(const void* target)
         {
             constexpr std::uint8_t expected[] = {
                 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74,
                 0x24, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x20,
                 0x45, 0x33, 0xDB, 0x41, 0x8B, 0xC0, 0x41, 0x8B, 0xF9
             };
-            __try
-            {
-                return target && std::memcmp(target, expected, sizeof(expected)) == 0;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return false;
-            }
+            return CheckHookEntry(target, expected, sizeof(expected));
         }
 
         using CanSetMotherBase_t = std::uint32_t (__fastcall*)(void*, void*, std::uint16_t*, std::uint16_t);
@@ -923,7 +955,7 @@ namespace outfit
 
         bool EnableHookNow(void* target, void* detour, void** original)
         {
-            const MH_STATUS created = MH_CreateHook(target, detour, original);
+            const MH_STATUS created = CreateHookTracked(target, detour, original);
             if (created != MH_OK)
             {
                 if (created == MH_ERROR_MEMORY_ALLOC)
@@ -1044,24 +1076,17 @@ namespace outfit
             }
         }
 
-        bool CanSetMotherBaseMatches_Guarded(const void* target)
+        HookEntry CanSetMotherBaseEntry_Guarded(const void* target)
         {
             constexpr std::uint8_t expected[] = {
                 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10,
                 0x48, 0x89, 0x7C, 0x24, 0x18, 0x4C, 0x89, 0x74, 0x24, 0x20,
                 0x8B, 0x7A, 0x08, 0x8B, 0x42, 0x04
             };
-            __try
-            {
-                return target && std::memcmp(target, expected, sizeof(expected)) == 0;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return false;
-            }
+            return CheckHookEntry(target, expected, sizeof(expected));
         }
 
-        bool EventFobStaffMatches_Guarded(const void* target)
+        HookEntry EventFobStaffEntry_Guarded(const void* target)
         {
             constexpr std::uint8_t head[] = {
                 0x40, 0x55, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x68, 0x48, 0x8B, 0x05
@@ -1071,68 +1096,38 @@ namespace outfit
                 0x41, 0x0F, 0xB6, 0xE8, 0x44, 0x0F, 0xB6, 0xF2, 0x48, 0x8B, 0xF9,
                 0x41, 0x80, 0xF8, 0x3F
             };
-            __try
-            {
-                const auto bytes = static_cast<const std::uint8_t*>(target);
-                return bytes && std::memcmp(bytes, head, sizeof(head)) == 0
-                    && std::memcmp(bytes + sizeof(head) + 4, tail, sizeof(tail)) == 0;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return false;
-            }
+            std::uint8_t expected[sizeof(head) + 4 + sizeof(tail)] = {};
+            std::uint8_t mask[sizeof(expected)] = {};
+            std::memcpy(expected, head, sizeof(head));
+            std::memset(mask, 0xFF, sizeof(head));
+            std::memcpy(expected + sizeof(head) + 4, tail, sizeof(tail));   // the 4 bytes between are the rip-relative displacement
+            std::memset(mask + sizeof(head) + 4, 0xFF, sizeof(tail));
+            return CheckHookEntryMasked(target, expected, mask, sizeof(expected));
         }
 
         void InstallStaffPortraitHook()
         {
             void* target = ResolveGameAddress(gAddr.StaffControllerImpl_StaffSeedToFaceTexturePathId);
-            void* refresh = ResolveGameAddress(gAddr.StaffListCallbackImpl_RefreshFaceRecord);
-            if (!PortraitSiteMatches_Guarded(target))
+            const HookEntry portraitEntry = PortraitSiteEntry_Guarded(target);
+            if (portraitEntry == HookEntry::Unknown)
             {
                 LogError("StaffFace: portrait address missing or code mismatch, portraits show stand-in face");
                 return;
             }
+            if (portraitEntry == HookEntry::ForeignHook)
+                LogHookedOnTop("StaffFace: StaffSeedToFaceTexturePathId", target);
             if (!CreateAndEnableHook(target, &hkStaffSeedToFaceTexturePathId,
                                      reinterpret_cast<void**>(&g_OriginalPortrait)))
-            {
                 LogError("StaffFace: portrait hook failed, portraits show stand-in face");
-                return;
-            }
-            if (!RefreshFaceRecordSiteMatches_Guarded(refresh))
-            {
-                LogError("StaffFace: staff list address missing or code mismatch, list shows stand-in portraits");
-                return;
-            }
-            if (!CreateAndEnableHook(refresh, &hkRefreshStaffFaceRecord,
-                                     reinterpret_cast<void**>(&g_OriginalRefreshFaceRecord)))
-                LogError("StaffFace: staff list hook failed, list shows stand-in portraits");
         }
     }
 
     bool TryResolveStaffVisualFace(std::uint64_t staffId, std::uint16_t nativeFaceId,
                                    std::uint16_t& visualFaceId)
     {
-        if (!IsValidStaffId(staffId) || HeaderFaceId(staffId) != nativeFaceId)
-            return false;
-        const std::string proxyKey = StaffKey(staffId);
-        const std::int32_t savedFace = V_FrameWorkState::GetPersistedConstant(kFaceSpace, proxyKey.c_str());
-        if (savedFace < 1 || savedFace > 900)
-            return false;
-        const std::int32_t faceId = savedFace - 1;
-        if (!IsFaceIdInPool(faceId) || !IsManagedFaceId(faceId) || !IsFaceRowDefined(faceId)
-            || IsFaceRowDefinedByOtherMod(faceId) || IsCustomFaceFallback(faceId))
-            return false;
-        const std::uint64_t originalId = WithHeaderFaceId(staffId, static_cast<std::uint16_t>(faceId));
-        const std::string originalKey = StaffKey(originalId);
-        FaceFallbackMetadata metadata;
-        if (V_FrameWorkState::GetPersistedConstant(kProxySpace, originalKey.c_str()) != nativeFaceId + 1
-            || !GetFaceFallbackMetadata(faceId, metadata) || !IsCompatibleDonor(nativeFaceId, metadata))
-            return false;
-        std::uint32_t matches = 0;
-        if (!CountIdentity_Guarded(CurrentStaffController_Guarded(), staffId, matches) || matches != 1)
-            return false;
-        visualFaceId = static_cast<std::uint16_t>(faceId);
-        return true;
+        const bool resolved = TryResolveUniqueTypeFace(staffId, nativeFaceId, true, visualFaceId)
+            || TryResolveLinkedFace(staffId, nativeFaceId, visualFaceId);
+        return resolved;
     }
 
     bool TryResolveLocalPlayerStaffFace(std::uint16_t nativeFaceId, std::uint16_t& visualFaceId)
@@ -1142,19 +1137,7 @@ namespace outfit
             && TryResolveStaffVisualFace(staffId, nativeFaceId, visualFaceId);
     }
 
-    void* EnterOwnRosterPortraitContext(void* staffController)
-    {
-        void* previous = g_PortraitContextController;
-        g_PortraitContextController = staffController;
-        return previous;
-    }
-
-    void LeaveOwnRosterPortraitContext(void* previous)
-    {
-        g_PortraitContextController = previous;
-    }
-
-    bool IsLocalPlayerWearingCustomFace(std::uint16_t& customFaceId)
+    bool IsLocalPlayerFaceIdCustom(std::uint16_t& customFaceId)
     {
         std::uint8_t playerType = 0;
         std::uint16_t faceId = 0;
@@ -1165,11 +1148,13 @@ namespace outfit
             customFaceId = faceId;
             return true;
         }
-        std::uint16_t visualFaceId = faceId;
-        if (!TryResolveLocalPlayerStaffFace(faceId, visualFaceId) || visualFaceId == faceId)
-            return false;
-        customFaceId = visualFaceId;
-        return true;
+        std::uint64_t staffId = 0;
+        if (ReadLocalPlayerIdentity_Guarded(staffId) && IsMintedFaceId(HeaderFaceId(staffId)))
+        {
+            customFaceId = HeaderFaceId(staffId);
+            return true;
+        }
+        return false;
     }
 
     void PollStaffFaceHeal(std::uint32_t missionCode)
@@ -1252,11 +1237,17 @@ namespace outfit
         g_FobGuardTried = true;
         void* canSet = ReadVtableSlot_Guarded(faceSystem, kFaceSlot_CanSetMotherBase);
         void* eventFob = ReadVtableSlot_Guarded(staffController, kStaffSlot_EventFobStaff);
-        if (!CanSetMotherBaseMatches_Guarded(canSet) || !EventFobStaffMatches_Guarded(eventFob))
+        const HookEntry canSetEntry = CanSetMotherBaseEntry_Guarded(canSet);
+        const HookEntry eventFobEntry = EventFobStaffEntry_Guarded(eventFob);
+        if (canSetEntry == HookEntry::Unknown || eventFobEntry == HookEntry::Unknown)
         {
             LogError("StaffFace: FOB face guard code mismatch, mbEligible faces stay out of random picks");
             return false;
         }
+        if (canSetEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("StaffFace: CanSetMotherBase", canSet);
+        if (eventFobEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("StaffFace: EventFobStaff", eventFob);
         if (!EnableHookNow(canSet, &hkGetSoldierFaceIdCanSetMotherBase,
                            reinterpret_cast<void**>(&g_OriginalCanSetMotherBase)))
         {
@@ -1317,11 +1308,6 @@ namespace outfit
         {
             DisableAndRemoveHook(ResolveGameAddress(gAddr.StaffControllerImpl_StaffSeedToFaceTexturePathId));
             g_OriginalPortrait = nullptr;
-        }
-        if (g_OriginalRefreshFaceRecord)
-        {
-            DisableAndRemoveHook(ResolveGameAddress(gAddr.StaffListCallbackImpl_RefreshFaceRecord));
-            g_OriginalRefreshFaceRecord = nullptr;
         }
         if (g_OriginalShort)
         {

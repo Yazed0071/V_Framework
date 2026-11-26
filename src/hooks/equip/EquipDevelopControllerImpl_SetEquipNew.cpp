@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipDevelopControllerImpl_SetEquipNew.h"
 
 #include <Windows.h>
@@ -190,7 +190,7 @@ namespace
         if (EquipDevelop_IsDevelopedByDevelopId(static_cast<std::uint32_t>(developId)))
             return 0;
         return EquipDevelop_IsParentDeveloped(controller, static_cast<std::uint32_t>(developId))
-               ? answer : 0;   // a grade stays shut until the one before it has finished developing
+               ? answer : 0;
     }
 
     void InstallDevelopAvailableGate(void* controller)

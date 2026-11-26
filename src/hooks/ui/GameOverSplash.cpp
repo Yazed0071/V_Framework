@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "GameOverSplash.h"
 
 #include <atomic>
@@ -21,8 +21,8 @@ namespace
     constexpr uintptr_t EVENT_MAIN_LAYOUT = 0x238;   // MainLayout::SetVisible gets GameOverEvCall + 0x238
 
     GameOverSetVisible_t g_OrigGameOverSetVisible = nullptr;
-    std::atomic<void*>   g_GameOverEvent{ nullptr };   // read by V_TppUiCommand.GetGameOverInfo on the Lua thread
-    std::atomic<void*>   g_GameOverEventVtable{ nullptr };   // its vtable when seen: the event is made anew each mission
+    std::atomic<void*>   g_GameOverEvent{ nullptr };
+    std::atomic<void*>   g_GameOverEventVtable{ nullptr };
     SetTextureName_t     g_SetTextureName = nullptr;
 
     MissionTextureTable g_MainTextures;
@@ -44,11 +44,6 @@ namespace
             char* event = reinterpret_cast<char*>(layout) - EVENT_MAIN_LAYOUT;
             g_GameOverEventVtable.store(*reinterpret_cast<void**>(event), std::memory_order_release);
             g_GameOverEvent.store(event, std::memory_order_release);
-        }
-        if (MissionCodeGuard::ShouldBypassHooks())
-        {
-            g_OrigGameOverSetVisible(layout, visible);
-            return;
         }
 
         g_OrigGameOverSetVisible(layout, visible);
@@ -91,7 +86,7 @@ void GameOverSplash_SetMainTexture(uint64_t textureHash, uint32_t missionCode)
 
 void GameOverSplash_ClearMainTexture(uint32_t missionCode)
 {
-    g_MainTextures.Clear(missionCode);
+    g_MainTextures.Unset(missionCode);
 }
 
 void GameOverSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
@@ -101,13 +96,13 @@ void GameOverSplash_SetBlurTexture(uint64_t textureHash, uint32_t missionCode)
 
 void GameOverSplash_ClearBlurTexture(uint32_t missionCode)
 {
-    g_BlurTextures.Clear(missionCode);
+    g_BlurTextures.Unset(missionCode);
 }
 
 void GameOverSplash_ClearTextures(uint32_t missionCode)
 {
-    g_MainTextures.Clear(missionCode);
-    g_BlurTextures.Clear(missionCode);
+    g_MainTextures.Unset(missionCode);
+    g_BlurTextures.Unset(missionCode);
 }
 
 void* GameOverSplash_GameOverEvent(void** vtable)

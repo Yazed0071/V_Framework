@@ -2,18 +2,8 @@
 
 #include <cstdint>
 
-class PartIdWidenReadGuard
-{
-public:
-    PartIdWidenReadGuard() noexcept;
-    ~PartIdWidenReadGuard() noexcept;
-    PartIdWidenReadGuard(const PartIdWidenReadGuard&) = delete;
-    PartIdWidenReadGuard& operator=(const PartIdWidenReadGuard&) = delete;
-    explicit operator bool() const noexcept;
-
-private:
-    bool usable;
-};
+bool PartIdWiden_BeginRead();   // false when poisoned; not RAII so SetUpGunInfo can release it in __finally
+void PartIdWiden_EndRead();
 
 bool PartIdWiden_Plan();
 bool PartIdWiden_IsPlanned();

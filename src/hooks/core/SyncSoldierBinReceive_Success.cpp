@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "SyncSoldierBinReceive_Success.h"
 
 #include <Windows.h>
@@ -32,28 +32,7 @@ namespace
 
     std::uintptr_t SuccessAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x1459EC220ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x147437B00ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1407EA9E0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x1407EAAD0ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.SyncSoldierBinReceive_Success;
     }
 
     void EchoCustomStaffSEH(std::uint8_t* result, const staffServer::StaffWords* staff, std::size_t staffCount)
@@ -61,7 +40,7 @@ namespace
         __try
         {
             std::uint32_t count = *reinterpret_cast<const std::uint16_t*>(result + kEchoCount);
-            if (count == 0 || count > kEchoCapacity)   // empty echo wipes the whole roster in vanilla too
+            if (count == 0 || count > kEchoCapacity)
                 return;
             const std::uint32_t served = count;
             for (std::size_t s = 0; s < staffCount && count < kEchoCapacity; ++s)
@@ -91,7 +70,7 @@ namespace
         }
     }
 
-    void __fastcall hkSuccess(void* self, void** result)   // the game deletes local staff missing from the server's echo; BIN upload left custom ones out
+    void __fastcall hkSuccess(void* self, void** result)
     {
         if (result && *result)
         {
@@ -115,12 +94,15 @@ bool Install_SyncSoldierBinReceive_Success()
     }
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = fn ? CheckHookEntry(fn, kPrologue, sizeof(kPrologue)) : HookEntry::Unknown;
+    if (entry == HookEntry::Unknown)
     {
         LogError("StaffSyncGuard: soldier sync reply handler prologue mismatch on %s, CMD_SYNC_SOLDIER_BIN left unfiltered",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("StaffSyncGuard: soldier sync reply handler", fn);
 
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkSuccess),
                              reinterpret_cast<void**>(&g_Orig)))

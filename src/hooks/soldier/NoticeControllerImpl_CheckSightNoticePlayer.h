@@ -11,6 +11,7 @@ bool Install_CheckSightNoticePlayer_Hook();
 bool Uninstall_CheckSightNoticePlayer_Hook();
 
 void Set_SoldierNoticeIgnoreMask(std::uint32_t gameObjectId, std::uint8_t mask);
+void Set_EverySoldierNoticeIgnoreMask(std::uint8_t mask);
 bool Soldier_IgnoresNotice(std::uint32_t soldierIndex, std::uint8_t flag);
 bool SoldierNotice_ShouldDropNotice(std::uint32_t soldierIndex, std::uint8_t noticeType,
                                     const void* returnAddress);

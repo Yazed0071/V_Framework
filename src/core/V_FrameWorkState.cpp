@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "V_FrameWorkState.h"
 #include "log.h"
 #include "AddressSet.h"
@@ -152,6 +152,33 @@ namespace V_FrameWorkState
             return true;
         }
 
+        static bool IsUniqueStaffLinkKey(const std::string& key)
+        {
+            std::size_t prefixLength = 0;
+            if (HasKeyPrefix(key, kStaffFaceKeyPrefix, sizeof(kStaffFaceKeyPrefix) - 1))
+                prefixLength = sizeof(kStaffFaceKeyPrefix) - 1;
+            else if (HasKeyPrefix(key, kStaffProxyKeyPrefix, sizeof(kStaffProxyKeyPrefix) - 1))
+                prefixLength = sizeof(kStaffProxyKeyPrefix) - 1;
+            else
+                return false;
+            const std::string hex = key.substr(prefixLength);
+            if (hex.size() != 16)
+                return false;
+            std::uint64_t staffId = 0;
+            for (const char c : hex)
+            {
+                std::uint32_t digit = 0;
+                if (c >= '0' && c <= '9')
+                    digit = static_cast<std::uint32_t>(c - '0');
+                else if (c >= 'A' && c <= 'F')
+                    digit = static_cast<std::uint32_t>(c - 'A' + 10);
+                else
+                    return false;
+                staffId = (staffId << 4) | digit;
+            }
+            return ((staffId >> 7) & 0x3F) == 0x3F;   // unique staff take their face from the unique type
+        }
+
         struct RetiredFace
         {
             std::string key;
@@ -206,7 +233,7 @@ namespace V_FrameWorkState
             std::int32_t endTime   = 0;
         };
 
-        static constexpr std::size_t kMaxDevelopTimerEntries = 64;
+        static constexpr std::size_t kMaxDevelopTimerEntries = 65535;   // as many as develop flow slots
 
         struct State
         {
@@ -301,6 +328,8 @@ namespace V_FrameWorkState
         static std::unordered_set<std::string> g_DispatchTouched;
         static bool g_ExitSave = false;
         static bool g_LaunchHealthy = false;
+        static bool g_InstallSettled = false; // all modules installed, gate flags are final
+        static bool g_LoadComplete = false;
 
         static bool CanCountConstantMisses()
         {
@@ -321,7 +350,6 @@ namespace V_FrameWorkState
         static std::bitset<EquipIdCompression::kWideEquipIdLast + 1> g_WideTaken;
         static bool g_WideTakenBuilt = false;
         static std::int32_t g_WideScanFrom = EquipIdCompression::kWideEquipIdFirst;
-        static bool g_WideMoveLogged = false;
 
         static std::atomic<std::uint64_t> g_ClaimedEquipBits[0x10000 / 64] = {};
 
@@ -853,9 +881,10 @@ namespace V_FrameWorkState
             for (auto it = g_State.constants.begin(); it != g_State.constants.end(); )
             {
                 std::int32_t faceId = -1;
-                if (!IsFaceLinkConstantKey(it->first)
-                    || !FaceIdOfLinkKey(it->first, it->second, faceId)
-                    || live.count(faceId) != 0)
+                if (!IsUniqueStaffLinkKey(it->first)
+                    && (!IsFaceLinkConstantKey(it->first)
+                        || !FaceIdOfLinkKey(it->first, it->second, faceId)
+                        || live.count(faceId) != 0))
                 {
                     ++it;
                     continue;
@@ -1041,7 +1070,12 @@ namespace V_FrameWorkState
 
             std::ifstream in(kSavePath);
             if (!in)
+            {
+                g_LoadComplete = GetFileAttributesA(kSavePath) == INVALID_FILE_ATTRIBUTES; // a file that exists but would not open stays unloaded
                 return;
+            }
+
+            bool previousLaunchClean = false;
 
             enum Section { None, Equips, Weapons, Outfits, HeadOptions, Tapes,
                            BluePrints, Constants, ConstantMisses,
@@ -1054,6 +1088,12 @@ namespace V_FrameWorkState
             while (std::getline(in, line))
             {
                 const std::string trimmed = Trim(line);
+
+                if (section == None && trimmed.rfind("launchClean", 0) == 0)
+                {
+                    previousLaunchClean = trimmed.find("true") != std::string::npos;
+                    continue;
+                }
 
                 if ((section == Constants || section == ConstantMisses)
                     && trimmed.find("[\"") == std::string::npos
@@ -1204,10 +1244,10 @@ namespace V_FrameWorkState
                         if (colon != std::string::npos && entry.equipId != 0)
                         {
                             const std::string bareKey = key.substr(colon + 1);
+                            const bool bareIsNew = g_State.equips.find(bareKey) == g_State.equips.end();
                             EquipEntry& bare = g_State.equips[bareKey];
                             bare.equipId = entry.equipId;
-                            if (entry.misses != 0)
-                                bare.misses = entry.misses;
+                            bare.misses = bareIsNew ? entry.misses : (std::min)(bare.misses, entry.misses); // a live row of the same name keeps it alive
                             entry.equipId = 0;
                         }
                         g_State.equips[key] = entry;
@@ -1344,7 +1384,7 @@ namespace V_FrameWorkState
                         ++it;
                 }
 
-                for (auto it = g_State.bluePrints.begin(); it != g_State.bluePrints.end(); )
+                for (auto it = g_State.bluePrints.begin(); previousLaunchClean && it != g_State.bluePrints.end(); ) // a launch that did not end cleanly proves nothing about missing mods
                 {
                     if (it->second.misses >= kBluePrintOrphanGraceLaunches)
                     {
@@ -1363,7 +1403,7 @@ namespace V_FrameWorkState
 
             bool gcChanged = false;
             std::size_t evicted = 0;
-            for (auto it = g_State.tapes.begin(); it != g_State.tapes.end(); )
+            for (auto it = g_State.tapes.begin(); previousLaunchClean && it != g_State.tapes.end(); )
             {
                 if (it->second.misses >= kTapeOrphanGraceLaunches)
                 {
@@ -1379,7 +1419,7 @@ namespace V_FrameWorkState
                 }
             }
 
-            for (auto it = g_State.callMenuItems.begin(); it != g_State.callMenuItems.end(); )
+            for (auto it = g_State.callMenuItems.begin(); previousLaunchClean && it != g_State.callMenuItems.end(); )
             {
                 if (it->second.misses >= kCallMenuOrphanGraceLaunches)
                 {
@@ -1434,7 +1474,8 @@ namespace V_FrameWorkState
                 LogWarn("State: %zu equip constant(s) expired, new equipIds shift; re-pick affected loadout slots",
                     evicted);
 
-            for (auto it = g_State.equips.begin(); it != g_State.equips.end(); )
+            std::size_t retiredProgress = 0;
+            for (auto it = g_State.equips.begin(); previousLaunchClean && it != g_State.equips.end(); )
             {
                 if (it->second.misses >= kEquipOrphanGraceLaunches
                     && it->second.equipId != 0)
@@ -1456,14 +1497,36 @@ namespace V_FrameWorkState
                 }
                 if (it->second.misses >= kEquipOrphanGraceLaunches)
                 {
-                    it = g_State.equips.erase(it);
-                    gcChanged = true;
+                    if (it->second.developed < 0)
+                    {
+                        it = g_State.equips.erase(it);
+                        gcChanged = true;
+                        continue;
+                    }
+                    if (it->second.developId != 0 || it->second.flowIndex != 0 || it->second.equipId != 0
+                        || it->second.subId != 0 || it->second.partsType != 0 || it->second.selector != 0)
+                    {
+                        // ids go back to the pool; developed/seen stay for when the mod comes back
+                        it->second.developId = 0;
+                        it->second.flowIndex = 0;
+                        it->second.equipId = 0;
+                        it->second.subId = 0;
+                        it->second.partsType = 0;
+                        it->second.selector = 0;
+                        std::memset(it->second.variantSelectors, 0, sizeof(it->second.variantSelectors));
+                        ++retiredProgress;
+                        gcChanged = true;
+                    }
+                    ++it;
                     continue;
                 }
                 ++it->second.misses;
                 gcChanged = true;
                 ++it;
             }
+            if (retiredProgress != 0)
+                LogInfo("State: %zu R&D row(s) not registered for %d launches, their ids freed, developed state kept",
+                    retiredProgress, kEquipOrphanGraceLaunches);
 
             g_OldFlowLayout.clear();
             for (const auto& kv : g_State.equips)
@@ -1480,6 +1543,8 @@ namespace V_FrameWorkState
                 else if (found->second != dv)
                     found->second = -1;
             }
+
+            g_LoadComplete = true;
 
             if (gcChanged)
             {
@@ -1532,6 +1597,10 @@ namespace V_FrameWorkState
             if (!g_FlusherRunning)
             {
                 g_FlusherRunning = true;
+                HMODULE pinnedModule = nullptr;
+                if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                        reinterpret_cast<LPCWSTR>(&FlusherMain), &pinnedModule))
+                    LogWarn("State: cannot pin the module for the save thread (err %lu)", GetLastError());
                 g_FlusherThread = std::thread(&FlusherMain);
             }
 
@@ -1954,7 +2023,7 @@ namespace V_FrameWorkState
                     if (kv.second.developed >= 0)
                         cell(2, "developed",
                              kv.second.developed == 1 ? "true" : "false");
-                    if (kv.second.developId != 0)
+                    if (kv.second.developId != 0 || kv.second.developed >= 0)
                     {
                         if (!kv.second.isNew)
                             cell(3, "seen", "true");
@@ -2209,6 +2278,7 @@ namespace V_FrameWorkState
                 out << "    },\n";
             }
 
+            out << "\n    launchClean = " << (CanCountConstantMisses() ? "true" : "false") << ",\n";
             out << "}\n";
             out.close();
             if (!out)
@@ -2505,6 +2575,7 @@ namespace V_FrameWorkState
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_LaunchHealthy = allInstalled;
+        g_InstallSettled = true;
     }
 
     void Save()
@@ -2523,6 +2594,9 @@ namespace V_FrameWorkState
             LogWarn("State: file locked at exit, this launch not recorded");
             return;
         }
+
+        if (!g_LoadComplete)
+            return;
 
         g_ExitSave = true;
         g_SaveDueTick = 0;
@@ -2567,7 +2641,7 @@ namespace V_FrameWorkState
 
         g_FlushCv.notify_all();
         if (joinMe.joinable())
-            joinMe.join();
+            joinMe.detach(); // joining here runs under the loader lock and would never return; the module is pinned so the thread's code stays mapped
     }
 
     void BeginBatch()
@@ -2607,7 +2681,8 @@ namespace V_FrameWorkState
             return true;
         }
 
-        const bool wideKey = wideEligible && EquipIdCompression::WideWeaponsLive();
+        const bool wideKey = wideEligible && EquipIdCompression::WideWeaponsLive()
+            && (!g_InstallSettled || equip::WideEquipIdsReady()); // a missing alias gate keeps wide ids off
         std::int32_t movedFrom = 0;
         const char* movedBecause = nullptr;
         auto pit = g_State.equips.find(key);
@@ -2691,16 +2766,7 @@ namespace V_FrameWorkState
             g_State.equipIdMoves[movedFrom] = newId;
             equip::NoteEquipIdMoved(movedFrom, newId);
         }
-        if (movedFrom != 0 && wideKey)
-        {
-            if (!g_WideMoveLogged)
-            {
-                g_WideMoveLogged = true;
-                LogWarn("State: weapons and ammo move to wide equipIds from 0x800 this launch (first: '%s' 0x%X -> 0x%X)",
-                    key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId));
-            }
-        }
-        else if (movedFrom != 0)
+        if (movedFrom != 0 && !wideKey)
             LogWarn("State: '%s' equipId moved 0x%X -> 0x%X (old id on %s), %s",
                 key, static_cast<unsigned>(movedFrom), static_cast<unsigned>(newId), movedBecause,
                 savesFollow ? "saved loadouts follow it" : "saved loadout cells blanked");
@@ -2953,10 +3019,12 @@ namespace V_FrameWorkState
         auto it = g_State.equips.find(key);
         if (it == g_State.equips.end())
             return defaultDeveloped;
-        if (it->second.developed < 0)
+        const bool firstSeen = it->second.developed < 0;
+        if (firstSeen || (defaultDeveloped && it->second.developed != 1)) // initialAvailable rows stay developed, like vanilla
         {
             it->second.developed = defaultDeveloped ? 1 : 0;
-            it->second.isNew = true;
+            if (firstSeen)
+                it->second.isNew = true;
             g_State.dirty = true;
             SaveToDisk_NoLock();
         }
@@ -2974,6 +3042,34 @@ namespace V_FrameWorkState
         return false;
     }
 
+    static std::string CallerChain()
+    {
+        void* frames[24] = {};
+        const USHORT count = RtlCaptureStackBackTrace(2, 24, frames, nullptr);
+        HMODULE dll = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&CallerChain), &dll);
+        const auto exe = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        const auto exeHeaders = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+            exe + reinterpret_cast<const IMAGE_DOS_HEADER*>(exe)->e_lfanew);
+        const std::uintptr_t exeEnd = exe + exeHeaders->OptionalHeader.SizeOfImage;
+        const auto dllBase = reinterpret_cast<std::uintptr_t>(dll);
+        std::string chain;
+        for (USHORT i = 0; i < count && chain.size() < 240; ++i)
+        {
+            const auto at = reinterpret_cast<std::uintptr_t>(frames[i]);
+            char part[32];
+            if (at >= exe && at < exeEnd)
+                std::snprintf(part, sizeof(part), " %llX", static_cast<unsigned long long>(at - exe + 0x140000000ull));
+            else if (dllBase && at > dllBase && at - dllBase < 0x4000000)
+                std::snprintf(part, sizeof(part), " dll+%llX", static_cast<unsigned long long>(at - dllBase));
+            else
+                continue;
+            chain += part;
+        }
+        return chain;
+    }
+
     void SetDevelopedByDevelopId(std::int32_t developId, bool developed)
     {
         if (developId == 0) return;
@@ -2986,6 +3082,10 @@ namespace V_FrameWorkState
             {
                 if (kv.second.developed != v)
                 {
+                    static std::atomic<int> s_undevelopLogBudget{ 64 };
+                    if (kv.second.developed == 1 && !developed && s_undevelopLogBudget.fetch_sub(1) > 0)
+                        LogWarn("V_FrameWorkState: '%s' (developId %d) set undeveloped, called from%s",
+                                kv.first.c_str(), developId, CallerChain().c_str());
                     kv.second.developed = v;
                     g_State.dirty = true;
                     SaveToDisk_NoLock();
@@ -3577,6 +3677,7 @@ namespace V_FrameWorkState
     {
         outId = 0;
         if (!key || !key[0]) return false;
+        if (!GuardStateKey(key, "ResolveOrCreateBluePrintId")) return false;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
 
@@ -3630,6 +3731,7 @@ namespace V_FrameWorkState
     void SetBluePrintOwned(const char* key, bool owned)
     {
         if (!key || !key[0]) return;
+        if (!GuardStateKey(key, "SetBluePrintOwned")) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
         auto it = g_State.bluePrints.find(key);
@@ -3652,6 +3754,7 @@ namespace V_FrameWorkState
     void SetBluePrintNew(const char* key, bool isNew)
     {
         if (!key || !key[0]) return;
+        if (!GuardStateKey(key, "SetBluePrintNew")) return;
         std::lock_guard<std::mutex> lock(g_Mutex);
         LoadFromDisk_NoLock();
         auto it = g_State.bluePrints.find(key);
@@ -3872,6 +3975,7 @@ namespace V_FrameWorkState
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_State.loaded = false;
+        g_LoadComplete = false;
         g_State.dirty = false;
         g_State.equips.clear();
         g_State.tapes.clear();

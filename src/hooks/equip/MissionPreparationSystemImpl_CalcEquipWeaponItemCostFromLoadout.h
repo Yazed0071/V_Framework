@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MissionPreparationSystemImpl_CalcEquipWeaponItemCostFromLoadout();
+void Uninstall_MissionPreparationSystemImpl_CalcEquipWeaponItemCostFromLoadout();

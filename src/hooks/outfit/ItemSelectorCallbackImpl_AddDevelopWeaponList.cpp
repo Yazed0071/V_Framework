@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "ItemSelectorCallbackImpl_AddDevelopWeaponList.h"
 
@@ -28,7 +28,8 @@ namespace
                                     std::uint8_t b);
     using VarFill_t =
         void (__fastcall*)(void* edc, std::uint32_t flow,
-                           std::uint32_t count, std::uint16_t* out);
+                           std::uint32_t count, std::uint16_t* out,
+                           std::uint8_t mode);
     using VarColumn_t =
         std::uint8_t (__fastcall*)(void* edc, std::uint32_t flow,
                                    std::uint8_t b);
@@ -44,12 +45,12 @@ namespace
     static bool                   g_Installed = false;
 
     constexpr std::uint32_t kNativeRootCap = 0x14;
+    constexpr std::uint32_t kNativeVarCap  = 0x1E; // at 0x1F the game skips the variants and lists the next base weapon on the same row
     constexpr std::uint32_t kRootCap       = 0x200;
     constexpr std::uint32_t kVarCap        = 0x100;
     constexpr std::uint32_t kRowCap        = 0x400;
 
     constexpr std::uint32_t kFallback        = 0xFFFFFFFFu;
-    constexpr std::uint32_t kFirstCustomFlow = 922;
 
     static std::uint32_t CollectTabRoots(void* edc, std::uint32_t tab,
                                          std::uint16_t* out)
@@ -90,6 +91,20 @@ namespace
             out[count++] = static_cast<std::uint16_t>(row);
         }
         return count;
+    }
+
+    static bool AnyRootOverNativeVariantCap(void* edc, const std::uint16_t* roots,
+                                            std::uint32_t rootCount)
+    {
+        const std::uintptr_t vtbl = *reinterpret_cast<std::uintptr_t*>(edc);
+        const auto rowGate  = *reinterpret_cast<const RowGate_t*>(vtbl + 0x1C8);
+        const auto varCount = *reinterpret_cast<const VarCount_t*>(vtbl + 0x160);
+        if (!rowGate || !varCount)
+            return false;
+        for (std::uint32_t i = 0; i < rootCount; ++i)
+            if (rowGate(edc, roots[i]) && varCount(edc, roots[i], 1) > kNativeVarCap)
+                return true;
+        return false;
     }
 
     static std::uint32_t BuildOverCapList(void* panel, std::uint32_t tab,
@@ -135,12 +150,12 @@ namespace
                         flow, static_cast<unsigned>(vc), kVarCap);
                 vc = kVarCap;
             }
-            varFill(edc, flow, vc, vars);
+            varFill(edc, flow, vc, vars, 1); // same mode as the count call and vanilla
             std::uint32_t maxRow = nextRow;
             for (std::uint32_t j = 0; j < vc; ++j)
             {
                 const std::uint32_t vflow = vars[j];
-                const bool dv = diag && vflow >= kFirstCustomFlow;
+                const bool dv = diag && vflow >= equip::FirstCustomFlowIndex();
                 if (!rowGate(edc, vflow))
                     continue;
                 const std::uint32_t row = nextRow + varCol(edc, vflow, 1);
@@ -194,7 +209,8 @@ namespace
                 const std::uint16_t n =
                     rootCount ? rootCount(edc, tab) : 0;
                 const std::uint32_t ours = CollectTabRoots(edc, tab, roots);
-                if (ours > kNativeRootCap || ours > n)
+                if (ours > kNativeRootCap || ours > n
+                    || AnyRootOverNativeVariantCap(edc, roots, ours))
                 {
                     r = BuildOverCapList(panel, tab, startRow, curItems,
                                          roots, ours);

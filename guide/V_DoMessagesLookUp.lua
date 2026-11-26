@@ -14,22 +14,32 @@ this.DEBUG_strCode32List={
   "CassettePlay",
   "CrawlSideRoll",
   "TimeCigaretteUi",
+  "IDroidMenuItemSelected",
   "HeliStart",
   "HeliFinish",
   "HUD",
   "AnnounceLog",
   "RequestedHeliTaxi",
+  "NotifyLifeRate",
   "Start",
   "Rolling",
   "End",
   "NoticeIndis",
   "NoticeNoise",
+  "DamageGimmick",
   "AnimalNotice",
   "NearThreat",
   "NoiseAlert",
   "NearGameObject",
   "Noise",
   "AntiAir",
+  "InvestigationEnd",
+  "Done",
+  "TakenOut",
+  "Reassigned",
+  "Replaced",
+  "TimeUp",
+  "Refused",
   "OffBinocularsMode",
   "OnPlayerLockPickStart",
   "OnPlayerLockPickEnd",
@@ -47,6 +57,17 @@ this.DEBUG_strCode32List={
   "partsTypeChange",
   "FinishHeadMotion",
   "ItemSelected",
+  "ItemBatteryEmpty",
+  "ItemUse",
+  "ItemCountEmpty",
+  "SkillStart",
+  "SkillEnd",
+  "UavEmpStart",
+  "UavEmpEnd",
+  "OnChargeStart",
+  "OnChargeLevel",
+  "OnChargeShot",
+  "OnChargeCancel",
   "ClipEvent",
   "Throwing",
   "OnThrow",
@@ -54,6 +75,12 @@ this.DEBUG_strCode32List={
   "OnBounceThrowing",
   "OnStopThrowing",
   "OnRemoveThrowing",
+  "OnHitThrowing",
+  "Placed",
+  "OnActivateCustom",
+  "OnPlaceCustom",
+  "Dispatch",
+  "OnRewardReceived",
 }
 
 this.CassettePlay={
@@ -80,6 +107,8 @@ this.HeliVoiceLines={
   ["SHR0090"]="Notification of action - forced landing at nearby LZ",
   ["SHR0100"]="Notification of action - cover fire",
   ["SHR0110"]="LZ standby - pulling out (time has elapsed)",
+  ["SHR0120"]="No script text",
+  ["SHR0130"]="No script text",
   ["SHR0140"]="Landing notification - please move",
   ["SHR0150"]="Landing notification - please move object",
   ["SHR0160"]="Landing notification - moving to different LZ",
@@ -105,12 +134,15 @@ this.HeliVoiceLines={
   ["SHV0040"]="Taken damage_explosion (safe)",
   ["SHV0050"]="Taken damage_explosion (caution)",
   ["SHV0060"]="Taken damage_explosion (danger)",
-  ["SHV0070"]="Evasive action_general",
-  ["SHV0080"]="Evasive action_circling (player is onboard)",
-  ["SHV0090"]="Evasive action_rapid ascension (player is onboard)",
+  ["SHV0070"]="Evasive action - breaking to evade",
+  ["SHV0080"]="Evasive action - incoming",
+  ["SHV0090"]="Evasive action_circling (player is onboard)",
+  ["SHV0100"]="Evasive action_rapid ascension (player is onboard)",
   ["SHV0110"]="Door closing",
   ["SHV0120"]="Door opening",
-  ["SHV0130"]="Player disembarks (safe)",
+  ["SHV0130"]="Player disembarks (combat)",
+  ["SHV0131"]="Player disembarks (safe)",
+  ["SHV0140"]="No script text",
   ["SHV0150"]="Pulling out",
   ["SHV0200"]="Enemy dead ahead",
   ["SHV0201"]="Enemy at 1 o'clock",
@@ -131,6 +163,20 @@ this.HeliVoiceLines={
   ["SHV0311"]="Really leaving the mission? (combat)",
   ["SHV0320"]="Moving to other AO (area of operation)",
   ["SHV0330"]="Sightseeing around Mother Base",
+  ["SHV0360_01"]="General purpose - gaining altitude",
+  ["SHV0360_02"]="General purpose - descending",
+  ["SHV0360_03"]="General purpose - entering a hover",
+  ["SHV0360_04"]="General purpose - heading for objective",
+  ["SHV0360_05"]="General purpose - departing",
+  ["SHV0360_06"]="General purpose - beginning patrol",
+  ["SHV0360_07"]="General purpose - at hold point, beginning patrol",
+  ["SHV0360_08"]="General purpose - patrol flight, starting now",
+  ["SHV0360_09"]="Self-identification (normal)",
+  ["SHV0360_10"]="Self-identification (tense)",
+  ["SHV0360_11"]="Self-identification (angry)",
+  ["SHV0370"]="Sandstorm - unable to land",
+  ["SHV0371"]="Sandstorm - pulling back",
+  ["SHV0372"]="Sandstorm - zero visibility, pulling back",
 }
 
 this.heliVoiceByHash=nil
@@ -161,6 +207,26 @@ this.signatureTypes={
     {argName="soldierId",argType="gameId"},
   },
 
+  NoticeIndis={
+    {argName="soldierId",argType="gameId"},
+    {argName="targetId",argType="gameId"},
+    {argName="position",argType="vector3"},
+  },
+
+  NoticeNoise={
+    {argName="soldierId",argType="gameId"},
+    {argName="noiseType",argType="number"},
+    {argName="noiseMakerId",argType="gameId"},
+    {argName="position",argType="vector3"},
+  },
+
+  DamageGimmick={
+    {argName="gimmickId",argType="gimmickId"},
+    {argName="locatorNameS32",argType="str32"},
+    {argName="dataSetPath32",argType="dataSetPath32"},
+    {argName="attackerId",argType="gameId"},
+  },
+
   AnimalNotice={
     {argName="animalId",argType="gameId"},
     {argName="noticeKind",argType="animalNoticeKind"},
@@ -184,6 +250,10 @@ this.signatureTypes={
     {argName="isShown",argType="number"},
   },
 
+  IDroidMenuItemSelected={
+    {argName="itemId",argType="number"},
+  },
+
   HeliStart={
     {argName="voiceId",argType="heliVoice"},
     {argName="param4",argType="heliVoice"},
@@ -201,6 +271,11 @@ this.signatureTypes={
     {argName="nextLandingZoneName",argType="str32"},
   },
 
+  NotifyLifeRate={
+    {argName="heliId",argType="gameId"},
+    {argName="lifeRate",argType="number"},
+  },
+
   AnnounceLog={
     {argName="announceType",argType="str64"},
     {argName="seId",argType="number"},
@@ -209,6 +284,12 @@ this.signatureTypes={
   AntiAir={
     {argName="commandPostId",argType="gameId"},
     {argName="isEnable",argType="number"},
+  },
+
+  InvestigationEnd={
+    {argName="commandPostId",argType="gameId"},
+    {argName="reason",argType="str32"},
+    {argName="memberCount",argType="number"},
   },
 
   OffBinocularsMode={
@@ -277,6 +358,54 @@ this.signatureTypes={
     {argName="heldSoldierId",argType="gameId"},
   },
 
+  ItemBatteryEmpty={
+    {argName="equipId",argType="number"},
+  },
+
+  ItemUse={
+    {argName="equipId",argType="number"},
+    {argName="fromWheel",argType="number"},
+  },
+
+  ItemCountEmpty={
+    {argName="equipId",argType="number"},
+  },
+
+  SkillStart={
+    {argName="skill",argType="number"},
+  },
+
+  SkillEnd={
+    {argName="skill",argType="number"},
+  },
+
+  UavEmpStart={
+    {argName="uavId",argType="gameId"},
+    {argName="empLevel",argType="number"},
+  },
+
+  UavEmpEnd={
+    {argName="uavId",argType="gameId"},
+  },
+
+  OnChargeStart={
+    {argName="equipId",argType="equipId"},
+  },
+
+  OnChargeLevel={
+    {argName="equipId",argType="equipId"},
+    {argName="level",argType="number"},
+  },
+
+  OnChargeShot={
+    {argName="equipId",argType="equipId"},
+    {argName="level",argType="number"},
+  },
+
+  OnChargeCancel={
+    {argName="equipId",argType="equipId"},
+  },
+
   ClipEvent={
     {argName="event",argType="str32"},
     {argName="clip",argType="string"},
@@ -288,16 +417,38 @@ this.signatureTypes={
     {argName="equipId",argType="equipId"},
     {argName="owner",argType="gameId"},
   },
+
+  ThrowingHit={
+    {argName="handle",argType="number"},
+    {argName="equipId",argType="equipId"},
+    {argName="owner",argType="gameId"},
+    {argName="hitId",argType="gameId"},
+  },
+
+  Placed={
+    {argName="handle",argType="number"},
+    {argName="equipId",argType="equipId"},
+    {argName="owner",argType="gameId"},
+  },
+
+  OnRewardReceived={
+    {argName="missionKey",argType="string"},
+    {argName="rewardName",argType="string"},
+    {argName="count",argType="number"},
+  },
 }
 
 this.messageSignatures={
   GameObject={
     HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer,
-    NoticeIndis=this.signatureTypes.Notice,
-    NoticeNoise=this.signatureTypes.Notice,
+    NoticeIndis=this.signatureTypes.NoticeIndis,
+    NoticeNoise=this.signatureTypes.NoticeNoise,
+    DamageGimmick=this.signatureTypes.DamageGimmick,
     AnimalNotice=this.signatureTypes.AnimalNotice,
     RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi,
+    NotifyLifeRate=this.signatureTypes.NotifyLifeRate,
     AntiAir=this.signatureTypes.AntiAir,
+    InvestigationEnd=this.signatureTypes.InvestigationEnd,
     ClipEvent=this.signatureTypes.ClipEvent,
   },
 
@@ -311,10 +462,22 @@ this.messageSignatures={
     partsTypeChange=this.signatureTypes.PartsTypeChange,
     FinishHeadMotion=this.signatureTypes.FinishHeadMotion,
     ItemSelected=this.signatureTypes.ItemSelected,
+    ItemBatteryEmpty=this.signatureTypes.ItemBatteryEmpty,
+    ItemUse=this.signatureTypes.ItemUse,
+    ItemCountEmpty=this.signatureTypes.ItemCountEmpty,
+    SkillStart=this.signatureTypes.SkillStart,
+    SkillEnd=this.signatureTypes.SkillEnd,
+    UavEmpStart=this.signatureTypes.UavEmpStart,
+    UavEmpEnd=this.signatureTypes.UavEmpEnd,
+    OnChargeStart=this.signatureTypes.OnChargeStart,
+    OnChargeLevel=this.signatureTypes.OnChargeLevel,
+    OnChargeShot=this.signatureTypes.OnChargeShot,
+    OnChargeCancel=this.signatureTypes.OnChargeCancel,
   },
 
   UI={
     TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi,
+    IDroidMenuItemSelected=this.signatureTypes.IDroidMenuItemSelected,
     StopWalkMan=this.signatureTypes.StopWalkMan,
     StartWalkMan=this.signatureTypes.StartWalkMan,
     PauseWalkMan=this.signatureTypes.PauseWalkMan,
@@ -348,6 +511,16 @@ this.messageSignatures={
     OnBounceThrowing=this.signatureTypes.Throwing,
     OnStopThrowing=this.signatureTypes.Throwing,
     OnRemoveThrowing=this.signatureTypes.Throwing,
+    OnHitThrowing=this.signatureTypes.ThrowingHit,
+  },
+
+  Placed={
+    OnActivateCustom=this.signatureTypes.Placed,
+    OnPlaceCustom=this.signatureTypes.Placed,
+  },
+
+  Dispatch={
+    OnRewardReceived=this.signatureTypes.OnRewardReceived,
   },
 }
 
@@ -371,6 +544,16 @@ this.lookups={
   heliVoice=function(value)
     this.BuildHeliVoiceLookup()
     return this.heliVoiceByHash and this.heliVoiceByHash[value]
+  end,
+
+  vector3=function(value)
+    if type(value)~="userdata" then
+      return nil
+    end
+    local ok,text=pcall(function()
+      return string.format("%.2f, %.2f, %.2f",value:GetX(),value:GetY(),value:GetZ())
+    end)
+    return ok and text or nil
   end,
 }
 
@@ -552,17 +735,27 @@ function this.RefreshLookups()
   InfLookup.lookups.CassettePlay=this.CassettePlay
   InfLookup.lookups.animalNoticeKind=this.AnimalNoticeKind
   InfLookup.lookups.heliVoice=this.lookups.heliVoice
+  InfLookup.lookups.vector3=this.lookups.vector3
 
   InfLookup.signatureTypes.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.signatureTypes.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
+  InfLookup.signatureTypes.IDroidMenuItemSelected=this.signatureTypes.IDroidMenuItemSelected
   InfLookup.signatureTypes.HeliStart=this.signatureTypes.HeliStart
+  InfLookup.signatureTypes.HeliFinish=this.signatureTypes.HeliFinish
+  InfLookup.signatureTypes.MissionStateReset=this.signatureTypes.MissionStateReset
+  InfLookup.signatureTypes.PartsTypeChange=this.signatureTypes.PartsTypeChange
   InfLookup.signatureTypes.cassettePlay=this.signatureTypes.cassettePlay
   InfLookup.signatureTypes.holdupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
   InfLookup.signatureTypes.notice=this.signatureTypes.Notice
+  InfLookup.signatureTypes.NoticeIndis=this.signatureTypes.NoticeIndis
+  InfLookup.signatureTypes.NoticeNoise=this.signatureTypes.NoticeNoise
+  InfLookup.signatureTypes.DamageGimmick=this.signatureTypes.DamageGimmick
   InfLookup.signatureTypes.AnimalNotice=this.signatureTypes.AnimalNotice
   InfLookup.signatureTypes.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
+  InfLookup.signatureTypes.NotifyLifeRate=this.signatureTypes.NotifyLifeRate
   InfLookup.signatureTypes.AnnounceLog=this.signatureTypes.AnnounceLog
   InfLookup.signatureTypes.AntiAir=this.signatureTypes.AntiAir
+  InfLookup.signatureTypes.InvestigationEnd=this.signatureTypes.InvestigationEnd
   InfLookup.signatureTypes.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
   InfLookup.signatureTypes.OnPlayerLockPickStart=this.signatureTypes.OnPlayerLockPickStart
   InfLookup.signatureTypes.OnPlayerLockPickEnd=this.signatureTypes.OnPlayerLockPickEnd
@@ -575,8 +768,21 @@ function this.RefreshLookups()
   InfLookup.signatureTypes.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
   InfLookup.signatureTypes.FinishHeadMotion=this.signatureTypes.FinishHeadMotion
   InfLookup.signatureTypes.ItemSelected=this.signatureTypes.ItemSelected
+  InfLookup.signatureTypes.ItemBatteryEmpty=this.signatureTypes.ItemBatteryEmpty
+  InfLookup.signatureTypes.ItemUse=this.signatureTypes.ItemUse
+  InfLookup.signatureTypes.ItemCountEmpty=this.signatureTypes.ItemCountEmpty
+  InfLookup.signatureTypes.SkillStart=this.signatureTypes.SkillStart
+  InfLookup.signatureTypes.SkillEnd=this.signatureTypes.SkillEnd
+  InfLookup.signatureTypes.UavEmpStart=this.signatureTypes.UavEmpStart
+  InfLookup.signatureTypes.UavEmpEnd=this.signatureTypes.UavEmpEnd
+  InfLookup.signatureTypes.OnChargeStart=this.signatureTypes.OnChargeStart
+  InfLookup.signatureTypes.OnChargeLevel=this.signatureTypes.OnChargeLevel
+  InfLookup.signatureTypes.OnChargeShot=this.signatureTypes.OnChargeShot
+  InfLookup.signatureTypes.OnChargeCancel=this.signatureTypes.OnChargeCancel
   InfLookup.signatureTypes.ClipEvent=this.signatureTypes.ClipEvent
   InfLookup.signatureTypes.Throwing=this.signatureTypes.Throwing
+  InfLookup.signatureTypes.ThrowingHit=this.signatureTypes.ThrowingHit
+  InfLookup.signatureTypes.OnRewardReceived=this.signatureTypes.OnRewardReceived
 
   InfLookup.messageSignatures.GameObject=InfLookup.messageSignatures.GameObject or {}
   InfLookup.messageSignatures.Player=InfLookup.messageSignatures.Player or {}
@@ -586,13 +792,19 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Subtitles=InfLookup.messageSignatures.Subtitles or {}
   InfLookup.messageSignatures.UI=InfLookup.messageSignatures.UI or {}
   InfLookup.messageSignatures.Throwing=InfLookup.messageSignatures.Throwing or {}
+  InfLookup.messageSignatures.Mission=InfLookup.messageSignatures.Mission or {}
+  InfLookup.messageSignatures.Placed=InfLookup.messageSignatures.Placed or {}
+  InfLookup.messageSignatures.Dispatch=InfLookup.messageSignatures.Dispatch or {}
 
   InfLookup.messageSignatures.GameObject.HoldupCancelLookToPlayer=this.signatureTypes.holdupCancelLookToPlayer
-  InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.Notice
-  InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.Notice
+  InfLookup.messageSignatures.GameObject.NoticeIndis=this.signatureTypes.NoticeIndis
+  InfLookup.messageSignatures.GameObject.NoticeNoise=this.signatureTypes.NoticeNoise
+  InfLookup.messageSignatures.GameObject.DamageGimmick=this.signatureTypes.DamageGimmick
   InfLookup.messageSignatures.GameObject.AnimalNotice=this.signatureTypes.AnimalNotice
   InfLookup.messageSignatures.GameObject.RequestedHeliTaxi=this.signatureTypes.RequestedHeliTaxi
+  InfLookup.messageSignatures.GameObject.NotifyLifeRate=this.signatureTypes.NotifyLifeRate
   InfLookup.messageSignatures.GameObject.AntiAir=this.signatureTypes.AntiAir
+  InfLookup.messageSignatures.GameObject.InvestigationEnd=this.signatureTypes.InvestigationEnd
   InfLookup.messageSignatures.GameObject.ClipEvent=this.signatureTypes.ClipEvent
   InfLookup.messageSignatures.Player.CrawlSideRoll=this.signatureTypes.CrawlSideRoll
   InfLookup.messageSignatures.Player.OffBinocularsMode=this.signatureTypes.OffBinocularsMode
@@ -603,21 +815,38 @@ function this.RefreshLookups()
   InfLookup.messageSignatures.Player.partsTypeChange=this.signatureTypes.PartsTypeChange
   InfLookup.messageSignatures.Player.FinishHeadMotion=this.signatureTypes.FinishHeadMotion
   InfLookup.messageSignatures.Player.ItemSelected=this.signatureTypes.ItemSelected
+  InfLookup.messageSignatures.Player.ItemBatteryEmpty=this.signatureTypes.ItemBatteryEmpty
+  InfLookup.messageSignatures.Player.ItemUse=this.signatureTypes.ItemUse
+  InfLookup.messageSignatures.Player.ItemCountEmpty=this.signatureTypes.ItemCountEmpty
+  InfLookup.messageSignatures.Player.SkillStart=this.signatureTypes.SkillStart
+  InfLookup.messageSignatures.Player.SkillEnd=this.signatureTypes.SkillEnd
+  InfLookup.messageSignatures.Player.UavEmpStart=this.signatureTypes.UavEmpStart
+  InfLookup.messageSignatures.Player.UavEmpEnd=this.signatureTypes.UavEmpEnd
+  InfLookup.messageSignatures.Player.OnChargeStart=this.signatureTypes.OnChargeStart
+  InfLookup.messageSignatures.Player.OnChargeLevel=this.signatureTypes.OnChargeLevel
+  InfLookup.messageSignatures.Player.OnChargeShot=this.signatureTypes.OnChargeShot
+  InfLookup.messageSignatures.Player.OnChargeCancel=this.signatureTypes.OnChargeCancel
   InfLookup.messageSignatures.UI.TimeCigaretteUi=this.signatureTypes.TimeCigaretteUi
+  InfLookup.messageSignatures.UI.IDroidMenuItemSelected=this.signatureTypes.IDroidMenuItemSelected
   InfLookup.messageSignatures.UI.StopWalkMan=this.signatureTypes.StopWalkMan
   InfLookup.messageSignatures.UI.StartWalkMan=this.signatureTypes.StartWalkMan
   InfLookup.messageSignatures.UI.PauseWalkMan=this.signatureTypes.PauseWalkMan
   InfLookup.messageSignatures.UI.SpeakerWalkMan=this.signatureTypes.SpeakerWalkMan
   InfLookup.messageSignatures.Terminal.CassettePlay=this.signatureTypes.cassettePlay
   InfLookup.messageSignatures.Radio.HeliStart=this.signatureTypes.HeliStart
-  InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliStart
+  InfLookup.messageSignatures.Radio.HeliFinish=this.signatureTypes.HeliFinish
   InfLookup.messageSignatures.HUD.AnnounceLog=this.signatureTypes.AnnounceLog
   InfLookup.messageSignatures.Subtitles.SubtitlesEventMessage=this.signatureTypes.SubtitlesEventMessage
+  InfLookup.messageSignatures.Mission.MissionStateReset=this.signatureTypes.MissionStateReset
   InfLookup.messageSignatures.Throwing.OnThrow=this.signatureTypes.Throwing
   InfLookup.messageSignatures.Throwing.OnActivateThrowing=this.signatureTypes.Throwing
   InfLookup.messageSignatures.Throwing.OnBounceThrowing=this.signatureTypes.Throwing
   InfLookup.messageSignatures.Throwing.OnStopThrowing=this.signatureTypes.Throwing
   InfLookup.messageSignatures.Throwing.OnRemoveThrowing=this.signatureTypes.Throwing
+  InfLookup.messageSignatures.Throwing.OnHitThrowing=this.signatureTypes.ThrowingHit
+  InfLookup.messageSignatures.Placed.OnActivateCustom=this.signatureTypes.Placed
+  InfLookup.messageSignatures.Placed.OnPlaceCustom=this.signatureTypes.Placed
+  InfLookup.messageSignatures.Dispatch.OnRewardReceived=this.signatureTypes.OnRewardReceived
 end
 
 function this.GetMessageSignature(sender,messageId)

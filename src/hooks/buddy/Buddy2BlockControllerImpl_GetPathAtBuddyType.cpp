@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "Buddy2BlockControllerImpl_GetPathAtBuddyType.h"
 
@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "AddressSet.h"
+#include "BattleGearBuddy.h"
 #include "BuddyOutfitRegistry.h"
 #include "FoxPathInternal.h"
 #include "HookUtils.h"
@@ -61,6 +62,16 @@ namespace
     std::uint64_t* __fastcall hkGetPathAtBuddyType(void* self, std::uint64_t* outPath,
                                                    std::int32_t buddyType, void* a4)
     {
+        if (battleGear::IsHostedType(buddyType))
+        {
+            const std::uint64_t pack = battleGear::MainPackPath();
+            if (pack && outPath && g_FoxPath_Path)
+            {
+                g_FoxPath_Path(outPath, pack);
+                return outPath;
+            }
+            return g_Orig(self, outPath, battleGear::kHostBuddyType, a4);
+        }
         buddyoutfit::Kind kind = buddyoutfit::Kind::QuietCostume;
         std::size_t varOff = 0;
         if (outPath && g_FoxPath_Path && MainPackKind(buddyType, kind, varOff)
@@ -108,6 +119,11 @@ bool Install_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook()
     }
     g_Target = target;
     return true;
+}
+
+bool Buddy2BlockControllerImpl_GetPathAtBuddyType_Installed()
+{
+    return g_Target != nullptr;
 }
 
 bool Uninstall_Buddy2BlockControllerImpl_GetPathAtBuddyType_Hook()

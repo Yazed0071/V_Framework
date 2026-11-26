@@ -35,3 +35,12 @@ std::int32_t TppCollection_RegisterType(const char* typeName, const TppCollectio
 bool TppCollection_SetTypeIcon(const char* typeName, std::int32_t typeId, const char* iconPath);
 bool TppCollection_SetTypeLangId(const char* typeName, std::int32_t typeId, std::uint64_t langId);
 std::int32_t TppCollection_FindTypeByName(const char* typeName);
+
+struct TppCollectionMapEntry
+{
+    std::uint32_t index = 0;
+    std::uint8_t  type = 0;
+    bool          collected = false;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+int TppCollection_GetMapCollections(TppCollectionMapEntry* out, int capacity);   // the collectibles the iDroid map shows: Intel-surveyed materials and plants

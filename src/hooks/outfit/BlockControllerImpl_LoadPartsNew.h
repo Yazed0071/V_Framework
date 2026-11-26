@@ -12,8 +12,15 @@ namespace outfit
 
 
     std::uint32_t GetLocalPartsSlot();
+    bool IsLoadingLocalParts();
 
     std::uint8_t GetRealizedLocalHeadSlot();
+
+    void ResetChickenCapTracking();
+
+    void BeginLateFaceLoad(const void* shell);
+    void EndLateFaceLoad();
+    bool ShellCustomHat(const void* shell, std::uint8_t playerType, std::uint64_t* fpk, std::uint64_t* fv2);
 
     void RequestPartsRestream();
     std::uint64_t GetServedColorFpk();

@@ -56,7 +56,6 @@ this.VIP_MISSION_LIST = {
         },
         {
             name ="sol_interrogator",
-            isOfficer = true
         },
     },
     [10195] = {
@@ -107,21 +106,33 @@ end
 
 function this.SetUpEnemy()
     local missionCode = this.GetMissionCode()
-    local pitch = -200
     if this.VIP_MISSION_LIST[missionCode] then
         for _, vipInfo in ipairs(this.VIP_MISSION_LIST[missionCode]) do
             local vipName = GetGameObjectId(vipInfo.name)
             if missionCode == 10121 then
-                SendCommand(vipName, { id = "SetVIPImportant", isOfficer = vipInfo.isOfficer or false, deadBodyLabel = "V_CPRGZ0040" })
+                SendCommand(vipName, { id = "SetDeadBodyLabel", deadBodyLabel = "V_CPRGZ0040" })
             elseif missionCode == 10041 then
-                SendCommand(vipName, { id = "SetVIPImportant", isOfficer = vipInfo.isOfficer or false, deadBodyLabel = "V_CPR0042_KEEP" })
-            else
-                SendCommand(vipName, { id = "SetVIPImportant", isOfficer = vipInfo.isOfficer or false})
+                SendCommand(vipName, { id = "SetDeadBodyLabel", deadBodyLabel = "V_CPR0042_KEEP" })
+            elseif vipInfo.isOfficer then
+                SendCommand(vipName, { id = "SetDeadBodyLabel", deadBodyLabel = "V_CPR0042" })
             end
-            SendCommand(vipName, { id = "SetVoicePitch", pitch = pitch })
         end
+        this.SetVipDeepVoice(Ivars.V_FrameWork_V_Vip_DeepVoice:Get() == 1)
     else
         Fox.Log("No VIP setup for mission " .. tostring(missionCode))
+    end
+end
+
+function this.SetVipDeepVoice(enable)
+    local pitch = 0
+    if enable then
+        pitch = -200
+    end
+    for _, vipInfo in ipairs(this.VIP_MISSION_LIST[this.GetMissionCode()] or {}) do
+        local vipId = GetGameObjectId(vipInfo.name)
+        if vipId ~= NULL_ID then
+            SendCommand(vipId, { id = "SetVoicePitch", pitch = pitch })
+        end
     end
 end
 

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
@@ -83,6 +83,12 @@ void Set_SoldierNoticeIgnoreMask(std::uint32_t gameObjectId, std::uint8_t mask)
     const std::uint32_t slot = gameObjectId & kSoldierIndexMask;
     std::lock_guard<std::mutex> lk(g_mtx);
     g_ignoreMask[slot] = mask;
+}
+
+void Set_EverySoldierNoticeIgnoreMask(std::uint8_t mask)
+{
+    std::lock_guard<std::mutex> lk(g_mtx);
+    g_ignoreMask.fill(mask);
 }
 
 bool SoldierNotice_ShouldDropNotice(std::uint32_t soldierIndex, std::uint8_t noticeType,

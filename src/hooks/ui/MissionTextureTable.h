@@ -32,6 +32,18 @@ public:
         }
     }
 
+    // What a mod's "unset" does: 0 drops only the all-missions default, a mission code only that mission's picture.
+    // A mission's own picture belongs to the mod that set it, so a no-code unset never touches it (Clear(0) does,
+    // for teardown).
+    void Unset(std::uint32_t missionCode)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (missionCode == 0)
+            m_global = 0;
+        else
+            m_perMission.erase(missionCode);
+    }
+
     std::uint64_t Resolve(std::uint32_t missionCode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);

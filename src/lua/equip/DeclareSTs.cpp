@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "DeclareSTs.h"
 
 #include "TppEquipConstRegistry.h"

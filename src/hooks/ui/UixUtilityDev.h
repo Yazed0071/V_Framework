@@ -56,5 +56,7 @@ namespace UixUtilityControl
         constexpr std::size_t IsKeyboardRelease = 0x108, IsKeyboardReleaseByName = 0x110;
         constexpr std::size_t GetMouseMoveXY = 0x158, GetMouseWheel = 0x168, IsMouseButtonDown = 0x170, IsMouseButtonDownByName = 0x178;
         constexpr std::size_t IsMouseButtonPressing = 0x180, IsMouseButtonPressingByName = 0x188, IsMouseButtonUp = 0x190, IsMouseButtonUpByName = 0x198;
+        constexpr std::size_t GetActivePadNo = 0x020, SetColorRGBA = 0x2C8, SetTextureNameByPathCode = 0x4C8;
+        constexpr std::size_t SetScrollTextWithRecord = 0x6B0, UpdateScrollTextRecord = 0x6B8, SetNodeDistanceLine = 0x760;
     }
 }

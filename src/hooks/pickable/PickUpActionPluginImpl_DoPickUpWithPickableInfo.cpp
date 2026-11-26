@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PickUpActionPluginImpl_DoPickUpWithPickableInfo.h"
 
 #include <Windows.h>
@@ -12,7 +12,6 @@
 
 namespace
 {
-    // returns true when picked up; the caller (DoPickUpPickable) only plays the pick-up SE 0x533EB0DA when it gets true
     using DoPickUpWithPickableInfoFn = bool(__fastcall*)(
         void* self, std::int32_t playerIndex, std::uint16_t* info, std::uint32_t a4,
         char a5, char a6, std::uint32_t a7, std::uint8_t a8, char a9,
@@ -28,24 +27,7 @@ namespace
 
     std::uintptr_t DoPickUpWithPickableInfoAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x141209EC0ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.PickUpActionPluginImpl_DoPickUpWithPickableInfo;
     }
 
     bool __fastcall hkDoPickUpWithPickableInfo(
@@ -66,12 +48,15 @@ bool Install_PickUpActionPluginImpl_DoPickUpWithPickableInfo()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: DoPickUpWithPickableInfo prologue mismatch on %s, equipIds above 0x7FF stay off",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: DoPickUpWithPickableInfo", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkDoPickUpWithPickableInfo),
                              reinterpret_cast<void**>(&g_Orig)))
     {

@@ -1,10 +1,13 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 
 #include "AddressSet.h"
+#include "FobPlayerCharacters.h"
+#include "FoxHashes.h"
+#include "FoxPath.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "OutfitRegistry.h"
@@ -45,7 +48,17 @@ namespace
         { 0x80400AFFu, 0xB2788B52u, 0xF5757188u },
         { 0x1BF9CBC1u, 0xC2ED45DEu, 0x0BCE8B94u },
         { 0x5D5262DFu, 0x24CFC5CEu, 0xAD1D7E04u },
+        { kPlayerVoiceTypeEli, 0x57488340u, 0xE76B3178u },   // vox_eli holds one dialogue event; the second stays Snake's, which has no eli lines
     };
+
+    constexpr const char* kEliVoiceFpk = "/Assets/tpp/pack/player/parts/plvoice_liquid.fpk";
+
+    static std::uint32_t BuiltInVoiceTypeFor(std::uint32_t playerType)
+    {
+        if (playerType != fobchars::kPlayerType_Liquid || MissionCodeGuard::ShouldBypassHooks())
+            return outfit::kSoundSwitchUnset;
+        return fox::PathExists(kEliVoiceFpk) ? kPlayerVoiceTypeEli : outfit::kSoundSwitchUnset;
+    }
 
     static const VanillaVoiceEvents* FindVanillaVoiceEvents(std::uint32_t voiceType)
     {
@@ -55,6 +68,7 @@ namespace
         return nullptr;
     }
     constexpr std::size_t kDataTypeTableOff = 0x40;
+    constexpr std::size_t kDataPartsTypeTableOff = 0x48;
 
     constexpr std::uint32_t kMaxPlayerType = 8;
     constexpr std::uint64_t kOverrideArmed = 0x100000000ull;
@@ -83,16 +97,7 @@ namespace
 
     static uintptr_t UpdateVoiceTypeAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1409ce930ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x1409ce830ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x1409cdc80ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x1409cd740ull;
-        default:                                           return 0;
-        }
+        return gAddr.Player2Impl_UpdateVoiceType;
     }
 
     static std::uint32_t ArmedOverrideFor(std::uint32_t playerType)
@@ -110,8 +115,6 @@ namespace
 
     static std::uint32_t ResolveVanillaExtVoiceType(std::uint8_t playerType)
     {
-        if (MissionCodeGuard::ShouldBypassHooks())
-            return outfit::kSoundSwitchUnset;
         if (outfit::ReadLivePlayerType() != playerType)
             return outfit::kSoundSwitchUnset;
 
@@ -119,7 +122,8 @@ namespace
         if (vpt == 0xFF || vpt >= outfit::kCustomPartsTypeStart)
             return outfit::kSoundSwitchUnset;
 
-        if (const std::uint8_t v = outfit::GetActiveVariant(vpt); v != 0)
+        if (const std::uint8_t v = outfit::GetActiveVariant(vpt);
+            v != 0 && !MissionCodeGuard::ShouldBypassHooks())   // suit variants never render in FOB
         {
             if (const outfit::VanillaSuitVariantAsset* var =
                     outfit::VanillaExtGetVariantBridged(vpt, playerType, v))
@@ -133,15 +137,17 @@ namespace
             vpt, playerType, outfit::ReadLiveSelectorCode());
     }
 
-    static std::uint32_t ResolveWornOutfitVoiceType(std::uint8_t playerType)
+    static std::uint32_t ResolveWornOutfitVoiceType(
+        std::uint8_t playerType, std::size_t slot = SIZE_MAX, std::uint8_t liveParts = 0xFF)
     {
-        if (!outfit::shadow::HasCurrentSlot())
-            return ResolveVanillaExtVoiceType(playerType);
+        const bool loading = outfit::shadow::HasCurrentSlot();
 
         outfit::shadow::Slot s;
-        if (!outfit::shadow::Get(outfit::shadow::GetCurrentSlot(), &s))
+        if (!outfit::shadow::Get(loading ? outfit::shadow::GetCurrentSlot() : slot, &s))
             return ResolveVanillaExtVoiceType(playerType);
         if (s.realPlayerType != playerType)
+            return ResolveVanillaExtVoiceType(playerType);
+        if (!loading && s.realPartsType != liveParts)
             return ResolveVanillaExtVoiceType(playerType);
 
         const outfit::OutfitEntry* entry = nullptr;
@@ -160,15 +166,18 @@ namespace
         return ResolveVanillaExtVoiceType(playerType);
     }
 
-    static int ReadPlayerTypeAtIndex_SEH(void* data, std::uint32_t index)
+    static int ReadPlayerTypeAtIndex_SEH(void* data, std::uint32_t index, std::uint8_t* partsType)
     {
         int playerType = -1;
         __try
         {
             auto* typeTable = *reinterpret_cast<std::uint8_t**>(
                 static_cast<std::uint8_t*>(data) + kDataTypeTableOff);
+            auto* partsTable = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(data) + kDataPartsTypeTableOff);
             if (typeTable)
                 playerType = static_cast<int>(typeTable[index]);
+            *partsType = partsTable ? partsTable[index] : 0xFF;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -237,15 +246,18 @@ namespace
         return AccessVoiceSlot_SEH(self, index, values, true);
     }
 
-    static VoiceWrite ResolveVoiceWrite(std::uint32_t playerType)
+    static VoiceWrite ResolveVoiceWrite(std::uint32_t playerType, std::size_t slot, std::uint8_t liveParts)
     {
         VoiceWrite w;
-        w.voiceType = ResolveWornOutfitVoiceType(static_cast<std::uint8_t>(playerType));
+        w.voiceType = ResolveWornOutfitVoiceType(static_cast<std::uint8_t>(playerType), slot, liveParts);
         if (w.voiceType != outfit::kSoundSwitchUnset)
             return w;
         w.voiceType = ArmedOverrideFor(playerType);
         if (w.voiceType == outfit::kSoundSwitchUnset)
+        {
+            w.voiceType = BuiltInVoiceTypeFor(playerType);
             return w;
+        }
         const std::uint64_t events =
             g_OverrideEvents[playerType].load(std::memory_order_acquire);
         w.event1 = static_cast<std::uint32_t>(events >> 32);
@@ -260,10 +272,11 @@ namespace
 
         if (index == 0xFFFFFFFFu || !self || !data)
             return;
-        if (MissionCodeGuard::ShouldBypassHooks())
-            return;
+        if (MissionCodeGuard::ShouldBypassHooks() && index != outfit::GetLocalPartsSlot())
+            return;   // in FOB only your own character's voice changes
 
-        const int playerType = ReadPlayerTypeAtIndex_SEH(data, index);
+        std::uint8_t partsType = 0xFF;
+        const int playerType = ReadPlayerTypeAtIndex_SEH(data, index, &partsType);
         if (playerType < 0 || playerType >= static_cast<int>(kMaxPlayerType))
             return;
 
@@ -282,7 +295,7 @@ namespace
             }
         }
 
-        const VoiceWrite w = ResolveVoiceWrite(static_cast<std::uint32_t>(playerType));
+        const VoiceWrite w = ResolveVoiceWrite(static_cast<std::uint32_t>(playerType), index, partsType);
         if (w.voiceType == outfit::kSoundSwitchUnset)
             return;
 
@@ -292,13 +305,18 @@ namespace
 
     static void ApplyLiveVoice(std::uint32_t playerType)
     {
-        if (playerType >= kMaxPlayerType || MissionCodeGuard::ShouldBypassHooks())
+        if (playerType >= kMaxPlayerType)
             return;
 
-        const VoiceWrite w = ResolveVoiceWrite(playerType);
+        std::size_t slot = SIZE_MAX;
+        {
+            std::lock_guard<std::mutex> lock(g_LiveMutex);
+            slot = g_Live.index;
+        }
+        const VoiceWrite w = ResolveVoiceWrite(playerType, slot, outfit::ReadLivePartsType());
 
         std::lock_guard<std::mutex> lock(g_LiveMutex);
-        if (!g_Live.self || g_Live.playerType != playerType)
+        if (!g_Live.self || g_Live.playerType != playerType || g_Live.index != slot)
             return;
 
         if (w.voiceType != outfit::kSoundSwitchUnset)
@@ -339,8 +357,8 @@ bool Uninstall_PlayerVoiceType_Hook()
 {
     DisableAndRemoveHook(ResolveGameAddress(UpdateVoiceTypeAddr()));
     g_OrigUpdateVoiceType = nullptr;
-    Reset_PlayerVoiceLiveSlot();
     Clear_AllPlayerVoiceTypeOverrides();
+    Reset_PlayerVoiceLiveSlot();
     return true;
 }
 
@@ -401,6 +419,16 @@ std::uint32_t Get_EffectivePlayerVoiceType(std::uint32_t playerType)
     if (v == outfit::kSoundSwitchUnset)
         v = ArmedOverrideFor(playerType);
     if (v == outfit::kSoundSwitchUnset)
+        v = BuiltInVoiceTypeFor(playerType);
+    if (v == outfit::kSoundSwitchUnset)
         v = g_LastSeen[playerType].load(std::memory_order_acquire);
     return v;
+}
+
+
+std::uint64_t Get_BuiltInVoiceFpkForVoiceType(std::uint32_t voiceType)
+{
+    if (voiceType != kPlayerVoiceTypeEli || !fox::PathExists(kEliVoiceFpk))
+        return 0;
+    return FoxHashes::PathCode64Ext(kEliVoiceFpk);
 }

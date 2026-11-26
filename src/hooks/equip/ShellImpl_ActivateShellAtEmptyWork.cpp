@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ShellImpl_ActivateShellAtEmptyWork.h"
 
 #include <Windows.h>

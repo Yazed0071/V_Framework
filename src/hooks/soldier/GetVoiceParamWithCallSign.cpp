@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstddef>
@@ -412,7 +412,7 @@ static std::uint64_t __fastcall hkGetVoiceParamWithCallSign(void* self, std::uin
     auto& soldier = *reinterpret_cast<std::uint16_t*>(entry + kOwnerEntrySoldier);
     const std::uint16_t oldMember  = member;
     const std::uint16_t oldSoldier = soldier;
-    member  = sitrep.member;   // only for this lookup: left there, the call would wait on his voice like an addressed one
+    member  = sitrep.member;
     soldier = sitrep.soldierIndex;
     const std::uint64_t voiceParam = ResolveVoiceParam(self, ownerIndex);
     member  = oldMember;

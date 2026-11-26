@@ -18,3 +18,6 @@ bool PartMotionRows_SetEquipRow(unsigned int equipId, int control,
 void PartMotionRows_ClearEquipRow(unsigned int equipId, int control);
 bool PartMotionRows_AppendNativeRows(const ReceiverPartMotion& motion,
                                      ReceiverPartRowIndices& out);
+bool PartMotionRows_ReadNativeRow(int row, ReceiverPartRowIndices& out);
+bool PartMotionRows_TurnsCylinder(const ReceiverPartRowIndices& row);
+bool PartMotionRows_FitCylinderToChambers(ReceiverPartRowIndices& row, unsigned int chambers);

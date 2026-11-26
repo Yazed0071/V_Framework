@@ -1,9 +1,10 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BuddyServiceImpl_InitBuddyCommandForStatus.h"
 
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 #include "AddressSet.h"
 #include "BuddyCodeCave.h"
@@ -15,6 +16,7 @@ namespace
 {
     BuddyCodeCave g_StatusCave{ "D-Dog gear order for status" };
     BuddyCodeCave g_VariantCave{ "D-Dog gear order variant" };
+    BuddyCodeCave g_LabelCave{ "D-Dog gear order label" };
 
     constexpr std::uint8_t kInitCommandBytes[] =
     {
@@ -28,14 +30,27 @@ namespace
         0x0F, 0xB6, 0xC1, 0x48, 0x8D, 0x0D, 0x9B, 0x94, 0x86, 0x01, 0x8B, 0x04, 0x81, 0x89, 0x43, 0x7C,
         0xC6, 0x83, 0x71, 0x01, 0x00, 0x00, 0x01, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3,
     };
+    constexpr std::uint8_t kCommandForWeaponBytes[] =
+    {
+        0x40, 0x80, 0xFF, 0x08, 0x72, 0x07, 0xB8, 0x0B, 0x00, 0x00, 0x00, 0xEB, 0x15, 0x48, 0x8D, 0x0D,
+        0xC4, 0x9E, 0x86, 0x01, 0x40, 0x0F, 0xB6, 0xC7, 0x8B, 0x04, 0x81, 0xEB, 0x05,
+    };
 
     constexpr std::size_t   kPatchSize       = 12;   // movzx ecx, gear + cmp cl, 8 + jcc8
+    constexpr std::size_t   kLabelPatchSize  = 6;    // cmp dil, 8 + jb
     constexpr std::uint8_t  kKeepBusyCommand = 0x0B;
 
-    std::uintptr_t ResolveWindow(std::uintptr_t siteAbs, const std::uint8_t* bytes, std::size_t size, const char* name)
+    constexpr std::size_t   kInitCommandTableRel      = 40;   // rel32 of lea rcx, order table: differs between EN and JP
+    constexpr std::size_t   kCommandVariantTableRel   = 22;
+    constexpr std::size_t   kCommandForWeaponTableRel = 16;
+
+    std::uintptr_t ResolveWindow(std::uintptr_t siteAbs, const std::uint8_t* bytes, std::size_t size, std::size_t tableRel,
+                                 const char* name)
     {
         const auto* site = static_cast<const std::uint8_t*>(siteAbs ? ResolveGameAddress(siteAbs) : nullptr);
-        if (!site || std::memcmp(site, bytes, size) != 0)
+        std::vector<std::uint8_t> mask(size, 1);
+        std::memset(mask.data() + tableRel, 0, 4);
+        if (!site || CheckHookEntryMasked(site, bytes, mask.data(), size) != HookEntry::Expected)
         {
             LogError("BuddyOutfit: %s code differs on this build, that part is off", name);
             return 0;
@@ -54,7 +69,8 @@ namespace
     bool InstallStatus()
     {
         const std::uintptr_t siteAbs = gAddr.BuddyServiceImpl_InitBuddyCommandForStatus_GearCheck;
-        const std::uintptr_t base = ResolveWindow(siteAbs, kInitCommandBytes, sizeof(kInitCommandBytes), g_StatusCave.name);
+        const std::uintptr_t base = ResolveWindow(siteAbs, kInitCommandBytes, sizeof(kInitCommandBytes), kInitCommandTableRel,
+                                                  g_StatusCave.name);
         if (!base)
             return false;
 
@@ -73,7 +89,8 @@ namespace
     bool InstallVariant()
     {
         const std::uintptr_t siteAbs = gAddr.BuddyServiceImpl_DogCommandVariant_GearCheck;
-        const std::uintptr_t base = ResolveWindow(siteAbs, kCommandVariantBytes, sizeof(kCommandVariantBytes), g_VariantCave.name);
+        const std::uintptr_t base = ResolveWindow(siteAbs, kCommandVariantBytes, sizeof(kCommandVariantBytes),
+                                                  kCommandVariantTableRel, g_VariantCave.name);
         if (!base)
             return false;
         const std::uintptr_t keepDefault = base + 0x43;
@@ -93,17 +110,41 @@ namespace
 
         return InstallBuddyCodeCave(g_VariantCave, siteAbs, kCommandVariantBytes, kPatchSize, c);
     }
+
+    bool InstallLabel()
+    {
+        const std::uintptr_t siteAbs = gAddr.BuddyServiceImpl_GetBuddyCommandForWeapon_GearCheck;
+        const std::uintptr_t base = ResolveWindow(siteAbs, kCommandForWeaponBytes, sizeof(kCommandForWeaponBytes),
+                                                  kCommandForWeaponTableRel, g_LabelCave.name);
+        if (!base)
+            return false;
+
+        CaveCode c;
+        c.Emit({ 0x40, 0x80, 0xFF, 0x08 });                     // cmp dil, 8
+        const std::size_t custom = c.Jcc8(0x73);                // jae custom
+        c.JmpAbs(base + 0x0D);
+        c.Bind8(custom);
+        c.Emit({ 0x40, 0x0F, 0xB6, 0xC7 });                     // movzx eax, dil
+        c.Emit({ 0x48, 0xB9 });                                 // mov rcx, order table
+        c.Imm64(reinterpret_cast<std::uint64_t>(buddyoutfit::DogCommands()));
+        c.Emit({ 0x8B, 0x04, 0x81 });                           // mov eax, [rcx+rax*4]
+        c.JmpAbs(base + 0x22);
+
+        return InstallBuddyCodeCave(g_LabelCave, siteAbs, kCommandForWeaponBytes, kLabelPatchSize, c);
+    }
 }
 
 bool Install_BuddyServiceImpl_InitBuddyCommandForStatus_Patches()
 {
     bool ok = InstallStatus();
     ok &= InstallVariant();
+    ok &= InstallLabel();
     return ok;
 }
 
 bool Uninstall_BuddyServiceImpl_InitBuddyCommandForStatus_Patches()
 {
+    UninstallBuddyCodeCave(g_LabelCave);
     UninstallBuddyCodeCave(g_VariantCave);
     UninstallBuddyCodeCave(g_StatusCave);
     return true;

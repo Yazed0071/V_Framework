@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipControllerImpl_SetEquipState.h"
 
 #include <Windows.h>
@@ -49,24 +49,7 @@ namespace
 
     std::uintptr_t SetEquipStateAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1411AFF30ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.EquipControllerImpl_SetEquipState;
     }
 
     std::size_t VarsCellOffset(std::int32_t slotType, std::uint32_t slotIndex, bool& known)
@@ -152,12 +135,15 @@ bool Install_EquipControllerImpl_SetEquipState()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: SetEquipState prologue mismatch on %s, equipIds above 0x7FF stay off",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: SetEquipState", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkSetEquipState),
                              reinterpret_cast<void**>(&g_Orig)))
     {

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -33,31 +33,32 @@ namespace
 
     const WwiseAddresses* AddressesForBuild()
     {
-        static constexpr WwiseAddresses kEn154 = {
-            0x1403917A0ull, 0x140391940ull, 0x140391FB0ull, 0x14034D6B0ull, 0x14033D090ull,
-            0x142B9EAF0ull, 0x142B9EB70ull, 0x142B9EB78ull, 0x142B9EB98ull };
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return &kEn154;
-        default:
-            return nullptr;
-        }
+        static const WwiseAddresses addresses = {
+            gAddr.CAkParameterNodeBase_SetInitialRTPC,
+            gAddr.CAkParameterNodeBase_SetNodeBaseParams,
+            gAddr.CAkParameterNodeBase_SetRTPC,
+            gAddr.CAkAudioLibIndex_GetNodePtrAndAddRef,
+            gAddr.AK_SetRTPCValue,
+            gAddr.AK_g_pIndex,
+            gAddr.AK_g_pRTPCMgr,
+            gAddr.AK_g_pAudioMgr,
+            gAddr.AK_g_csMain };
+        return &addresses;
     }
 
     struct ExpectedBytes
     {
         std::uintptr_t WwiseAddresses::* field;
+        const char*    name;
         std::uint8_t   bytes[5];
     };
 
     constexpr ExpectedBytes kExpected[] = {
-        { &WwiseAddresses::setInitialRtpc,      { 0x48, 0x89, 0x5C, 0x24, 0x18 } },
-        { &WwiseAddresses::setNodeBaseParams,   { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
-        { &WwiseAddresses::setRtpc,             { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
-        { &WwiseAddresses::getNodePtrAndAddRef, { 0x45, 0x85, 0xC0, 0x74, 0x07 } },
-        { &WwiseAddresses::setRtpcValue,        { 0x48, 0x83, 0xEC, 0x68, 0xF3 } },
+        { &WwiseAddresses::setInitialRtpc,      "AudioVolume: SetInitialRtpc",      { 0x48, 0x89, 0x5C, 0x24, 0x18 } },
+        { &WwiseAddresses::setNodeBaseParams,   "AudioVolume: SetNodeBaseParams",   { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
+        { &WwiseAddresses::setRtpc,             "AudioVolume: SetRtpc",             { 0x48, 0x89, 0x5C, 0x24, 0x08 } },
+        { &WwiseAddresses::getNodePtrAndAddRef, "AudioVolume: GetNodePtrAndAddRef", { 0x45, 0x85, 0xC0, 0x74, 0x07 } },
+        { &WwiseAddresses::setRtpcValue,        "AudioVolume: SetRtpcValue",        { 0x48, 0x83, 0xEC, 0x68, 0xF3 } },
     };
 
     using SetInitialRtpc_t      = std::uint32_t(__fastcall*)(void* node, std::uint8_t** cursor, std::uint32_t* remaining);
@@ -282,7 +283,7 @@ namespace
         const std::uint32_t nodeId = NodeId(node);
         if (g_Targets.count(TargetKey(nodeId, false)) || g_VanillaSoundEffectTops.count(nodeId))
             return result;
-        Bind(node, { kParamVolume, VOLUME_SOUND_EFFECT });   // a mod's own sound group on a sound effect bus
+        Bind(node, { kParamVolume, VOLUME_SOUND_EFFECT });
         return result;
     }
 
@@ -339,21 +340,6 @@ namespace
             }
             g_Saved[type].store(value, std::memory_order_relaxed);
             g_Live[type].store(value, std::memory_order_relaxed);
-        }
-    }
-
-    bool BytesMatch(std::uintptr_t absAddr, const std::uint8_t* expected, std::size_t size)
-    {
-        const void* at = ResolveGameAddress(absAddr);
-        if (!at)
-            return false;
-        __try
-        {
-            return std::memcmp(at, expected, size) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
         }
     }
 
@@ -431,11 +417,15 @@ bool Install_CAkParameterNodeBase_SetInitialRTPC_Hook()
     }
     for (const ExpectedBytes& e : kExpected)
     {
-        if (!BytesMatch(g_Addr->*(e.field), e.bytes, sizeof(e.bytes)))
+        const void* at = ResolveGameAddress(g_Addr->*(e.field));
+        const HookEntry entry = CheckHookEntry(at, e.bytes, sizeof(e.bytes));
+        if (entry == HookEntry::Unknown)
         {
             LogError("AudioVolume: sound engine code differs (another mod patched it?), volume sliders off");
             return false;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop(e.name, at);
     }
 
     g_SetRtpc             = reinterpret_cast<SetRtpc_t>(ResolveGameAddress(g_Addr->setRtpc));

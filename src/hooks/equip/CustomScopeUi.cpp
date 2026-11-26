@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CustomScopeUi.h"
 
 #include <array>
@@ -334,48 +334,41 @@ namespace
         return creation->registered;
     }
 
-    bool BytesMatch(const void* address, const std::uint8_t* bytes, std::size_t size)
-    {
-        __try
-        {
-            return address && std::memcmp(address, bytes, size) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-    bool EntryMatches(const void* address, std::uintptr_t implementation,
-                      const std::uint8_t* bytes, std::size_t size)
+    HookEntry EntryMatches(const void* address, std::uintptr_t implementation,
+                           const std::uint8_t* bytes, std::size_t size)
     {
         if (!address || !implementation)
-            return false;
+            return HookEntry::Unknown;
         __try
         {
             const void* expected = ResolveGameAddress(implementation);
             if (!expected)
-                return false;
+                return HookEntry::Unknown;
             if (address == expected)
-                return BytesMatch(address, bytes, size);
+                return CheckHookEntry(address, bytes, size);
             const auto* code = static_cast<const std::uint8_t*>(address);
-            if (!code || code[0] != 0xe9)
-                return false;
-            std::int32_t displacement = 0;
-            std::memcpy(&displacement, code + 1, sizeof(displacement));
-            const auto target = reinterpret_cast<std::uintptr_t>(code) + 5
-                + static_cast<std::intptr_t>(displacement);
-            return target == reinterpret_cast<std::uintptr_t>(expected);
+            if (code[0] == 0xe9)
+            {
+                std::int32_t displacement = 0;
+                std::memcpy(&displacement, code + 1, sizeof(displacement));
+                const auto target = reinterpret_cast<std::uintptr_t>(code) + 5
+                    + static_cast<std::intptr_t>(displacement);
+                if (target == reinterpret_cast<std::uintptr_t>(expected))
+                    return HookEntry::Expected;
+            }
+            if (EntryHookedByOtherModule(address) && CheckHookEntry(expected, bytes, size) != HookEntry::Unknown)
+                return HookEntry::ForeignHook;
+            return HookEntry::Unknown;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            return false;
+            return HookEntry::Unknown;
         }
     }
 
     bool InstallHook(std::size_t index, void* target, void* detour, void** original)
     {
-        const MH_STATUS created = MH_CreateHook(target, detour, original);
+        const MH_STATUS created = CreateHookTracked(target, detour, original);
         if (created != MH_OK)
         {
             LogError("ScopeUI: hook create failed at %p (%s), custom scope UI off", target, MhStatusName(created));
@@ -424,15 +417,22 @@ namespace CustomScopeUi
         void* findTarget = ResolveGameAddress(gAddr.WindowFactoryCollector_FindWindowFactory);
         void* createTarget = ResolveGameAddress(gAddr.WindowFunction_CreateWindow);
         void* setTarget = ResolveGameAddress(gAddr.CommonDataManager_SetSubjectiveWindowHandle);
-        if (!EntryMatches(findTarget, gAddr.WindowFactoryCollector_FindWindowFactory_Implementation,
-                          findBytes, sizeof(findBytes))
-            || !BytesMatch(createTarget, createBytes, sizeof(createBytes))
-            || !EntryMatches(setTarget, gAddr.CommonDataManager_SetSubjectiveWindowHandle_Implementation,
-                             setBytes, sizeof(setBytes)))
+        const HookEntry findEntry = EntryMatches(findTarget, gAddr.WindowFactoryCollector_FindWindowFactory_Implementation,
+                                                 findBytes, sizeof(findBytes));
+        const HookEntry createEntry = CheckHookEntry(createTarget, createBytes, sizeof(createBytes));
+        const HookEntry setEntry = EntryMatches(setTarget, gAddr.CommonDataManager_SetSubjectiveWindowHandle_Implementation,
+                                                setBytes, sizeof(setBytes));
+        if (findEntry == HookEntry::Unknown || createEntry == HookEntry::Unknown || setEntry == HookEntry::Unknown)
         {
             LogError("ScopeUI: factory hook bytes mismatch on %s, sights keep their borrowed overlay", GetGameBuildName(gGameBuild));
             return false;
         }
+        if (findEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("ScopeUI: WindowFactoryCollector::FindWindowFactory", findTarget);
+        if (createEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("ScopeUI: WindowFunction::CreateWindow", createTarget);
+        if (setEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("ScopeUI: CommonDataManager::SetSubjectiveWindowHandle", setTarget);
         g_NativeCreate = reinterpret_cast<NativeCreateFn>(
             ResolveGameAddress(gAddr.SightCommonFactory_CreateWindow));
         g_NativeDelete = reinterpret_cast<NativeDeleteFn>(

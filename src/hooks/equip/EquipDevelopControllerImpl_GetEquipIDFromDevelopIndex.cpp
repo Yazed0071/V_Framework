@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex.h"
 
 #include <Windows.h>
@@ -67,40 +67,42 @@ namespace
 {
     struct DevelopReadSite
     {
-        std::uintptr_t movzx;       // MOVZX dst, word [record + 0xC]
+        std::uintptr_t AddressSetRuntime::AddressSet::* movzx;   // MOVZX dst, word [record + 0xC]
         std::uint8_t   movzxBytes[6];
         std::uint8_t   movzxLen;
-        std::uintptr_t shr16;       // SHR dst16,4 that goes away when the thunk hands back the id itself, 0 = keep the 32-bit SHR
-        bool           realId;      // the id leaves the develop table (lists, loadouts), so it gets the real id, not the alias
+        std::uintptr_t AddressSetRuntime::AddressSet::* shr16;   // SHR dst16,4 that goes away when the thunk hands back the id itself, null = keep the 32-bit SHR
+        bool           realId;
     };
 
     const std::uint8_t kShrCx4[] = { 0x66, 0xC1, 0xE9, 0x04 };
     const std::uint8_t kShrAx4[] = { 0x66, 0xC1, 0xE8, 0x04 };
 
-    const DevelopReadSite kSitesEn154[] = {
-        { 0x140F658E2ull, { 0x0F, 0xB7, 0x4C, 0x32, 0x0C }, 5, 0x140F658EDull, true  }, // GetAvailableEquipIDArray
-        { 0x140F65A73ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F65B03ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F65B93ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F65C23ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F666B8ull, { 0x44, 0x0F, 0xB7, 0x7C, 0x38, 0x0C }, 6, 0, false },
-        { 0x140F667FCull, { 0x0F, 0xB7, 0x5C, 0x30, 0x0C }, 5, 0, false },
-        { 0x140F68A73ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F69234ull, { 0x0F, 0xB7, 0x44, 0x08, 0x0C }, 5, 0x140F69239ull, true  }, // GetEquipID
-        { 0x140F69254ull, { 0x0F, 0xB7, 0x44, 0x08, 0x0C }, 5, 0x140F69259ull, true  }, // GetEquipIDFromDevelopIndex
-        { 0x140F6926Dull, { 0x0F, 0xB7, 0x5C, 0x08, 0x0C }, 5, 0, false },              // GetEquipPosition
-        { 0x140F69873ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F69953ull, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, 0, false },
-        { 0x140F69EC6ull, { 0x0F, 0xB7, 0x47, 0x0C }, 4, 0x140F69ECAull, true  },       // GetHighestGradeEuipId compare
-        { 0x140F69F12ull, { 0x0F, 0xB7, 0x44, 0x31, 0x0C }, 5, 0x140F69F17ull, true  }, // GetHighestGradeEuipId result
+    using AS = AddressSetRuntime::AddressSet;
+
+    const DevelopReadSite kSites[] = {
+        { &AS::EquipDevelopRow_GetAvailableEquipIDArray_Read, { 0x0F, 0xB7, 0x4C, 0x32, 0x0C }, 5, &AS::EquipDevelopRow_GetAvailableEquipIDArray_Shr, true }, // GetAvailableEquipIDArray
+        { &AS::EquipDevelopRow_Read02_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read03_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read04_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read05_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read06_Read, { 0x44, 0x0F, 0xB7, 0x7C, 0x38, 0x0C }, 6, nullptr, false },
+        { &AS::EquipDevelopRow_Read07_Read, { 0x0F, 0xB7, 0x5C, 0x30, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read08_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_GetEquipID_Read, { 0x0F, 0xB7, 0x44, 0x08, 0x0C }, 5, &AS::EquipDevelopRow_GetEquipID_Shr, true }, // GetEquipID
+        { &AS::EquipDevelopRow_GetEquipIDFromDevelopIndex_Read, { 0x0F, 0xB7, 0x44, 0x08, 0x0C }, 5, &AS::EquipDevelopRow_GetEquipIDFromDevelopIndex_Shr, true }, // GetEquipIDFromDevelopIndex
+        { &AS::EquipDevelopRow_GetEquipPosition_Read, { 0x0F, 0xB7, 0x5C, 0x08, 0x0C }, 5, nullptr, false },              // GetEquipPosition
+        { &AS::EquipDevelopRow_Read12_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_Read13_Read, { 0x0F, 0xB7, 0x54, 0x38, 0x0C }, 5, nullptr, false },
+        { &AS::EquipDevelopRow_GetHighestGradeEuipId_Compare_Read, { 0x0F, 0xB7, 0x47, 0x0C }, 4, &AS::EquipDevelopRow_GetHighestGradeEuipId_Compare_Shr, true },       // GetHighestGradeEuipId compare
+        { &AS::EquipDevelopRow_GetHighestGradeEuipId_Result_Read, { 0x0F, 0xB7, 0x44, 0x31, 0x0C }, 5, &AS::EquipDevelopRow_GetHighestGradeEuipId_Result_Shr, true }, // GetHighestGradeEuipId result
     };
+
 
     using GetHighestGradeEquipIdFn = std::uint16_t(__fastcall*)(void* self, std::uint16_t equipId, std::uint8_t newest);
 
     const std::uint8_t kHighestGradePrologue[] = {
         0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18
     };
-    constexpr std::uintptr_t kHighestGradeEn154 = 0x140F69E70ull;
 
     struct AppliedSite
     {
@@ -146,7 +148,6 @@ namespace
         void imm64(std::uint64_t v) { std::memcpy(out + n, &v, 8); n += 8; }
     };
 
-    // stack slots of the saved volatile registers once RBP is popped: r11 r10 r9 r8 rdx rcx rax
     int SavedSlot(int reg)
     {
         switch (reg)
@@ -224,24 +225,11 @@ namespace
         return true;
     }
 
-    const DevelopReadSite* SitesForBuild(std::size_t& count)
-    {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-            count = sizeof(kSitesEn154) / sizeof(kSitesEn154[0]);
-            return kSitesEn154;
-        default:
-            count = 0;
-            return nullptr;
-        }
-    }
 
     bool PatchSite(const DevelopReadSite& site)
     {
-        auto* at = static_cast<std::uint8_t*>(ResolveGameAddress(site.movzx));
-        auto* shr = site.shr16 ? static_cast<std::uint8_t*>(ResolveGameAddress(site.shr16)) : nullptr;
+        auto* at = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.*site.movzx));
+        auto* shr = site.shr16 ? static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.*site.shr16)) : nullptr;
         const std::uint8_t* shrBytes = (shr && shr[2] == 0xE9) ? kShrCx4 : kShrAx4;
         if (!at || !BytesMatchSEH(at, site.movzxBytes, site.movzxLen)
             || (shr && !BytesMatchSEH(shr, shrBytes, sizeof(kShrAx4))))
@@ -295,10 +283,8 @@ namespace
 
 bool Install_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex()
 {
-    std::size_t count = 0;
-    const DevelopReadSite* sites = SitesForBuild(count);
-    if (!sites)
-        return true;
+    const DevelopReadSite* sites = kSites;
+    const std::size_t count = std::size(kSites);
 
     std::size_t failed = 0;
     for (std::size_t i = 0; i < count; ++i)
@@ -308,11 +294,16 @@ bool Install_EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex()
         LogError("EquipAlias: %zu of %zu develop row readers not patched on %s, weapons from equipId 0x1000 misread in R&D",
             failed, count, GetGameBuildName(gGameBuild));
 
-    void* fn = ResolveGameAddress(kHighestGradeEn154);
-    if (fn && BytesMatchSEH(fn, kHighestGradePrologue, sizeof(kHighestGradePrologue))
+    void* fn = ResolveGameAddress(gAddr.EquipDevelopControllerImpl_GetHighestGradeEuipId);
+    const HookEntry entry = CheckHookEntry(fn, kHighestGradePrologue, sizeof(kHighestGradePrologue));
+    if (entry != HookEntry::Unknown
         && CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkGetHighestGradeEquipId),
                                reinterpret_cast<void**>(&g_OrigHighestGrade)))
+    {
         g_HighestGradeAddr = fn;
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipAlias: GetHighestGradeEuipId", fn);
+    }
     else
     {
         LogError("EquipAlias: GetHighestGradeEuipId hook failed on %s, upgraded wide weapons fall back to their own grade",

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "Loadout_SynchronizeLoadout.h"
 
 #include <Windows.h>
@@ -51,28 +51,7 @@ namespace
 
     std::uintptr_t SynchronizeLoadoutAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x1407F4F90ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x1407F4BC0ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x1407F5BD0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x1407F5D10ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.Loadout_SynchronizeLoadout;
     }
 
     bool CopyLoadoutSEH(const std::uint8_t* info, std::uint8_t* out)
@@ -208,7 +187,8 @@ bool Install_Loadout_SynchronizeLoadout()
     }
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("FobLoadout: SynchronizeLoadout prologue mismatch on %s, custom equipIds not stripped from FOB uploads",
             GetGameBuildName(gGameBuild));
@@ -224,6 +204,8 @@ bool Install_Loadout_SynchronizeLoadout()
     }
 
     g_Addr = fn;
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("FobLoadout: SynchronizeLoadout", fn);
     return true;
 }
 

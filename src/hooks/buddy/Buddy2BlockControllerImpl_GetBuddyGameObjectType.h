@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_Buddy2BlockControllerImpl_GetBuddyGameObjectType_Patches();
+void Uninstall_Buddy2BlockControllerImpl_GetBuddyGameObjectType_Patches();

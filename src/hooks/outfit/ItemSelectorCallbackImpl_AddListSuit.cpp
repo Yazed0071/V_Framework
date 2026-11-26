@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "ItemSelectorCallbackImpl_AddListSuit.h"
 #include "OutfitRegistry.h"
@@ -14,6 +14,7 @@
 #include "../ui/UiPadLock.h"
 #include "../ui/UixUtilityControl.h"
 #include "OutfitPalette.h"
+#include "../vehicle/VehicleSortieRows.h"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +25,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -148,28 +150,6 @@ namespace
         return e.used ? e.labelHash : 0;
     }
 
-    static void SeedVextSwatchFlow(std::uint8_t selector, std::uint8_t sourceCamo)
-    {
-        if (selector < outfit::kCustomSelectorStart) return;
-        using GetQuark_t = void* (__fastcall*)();
-        auto getQuark = reinterpret_cast<GetQuark_t>(
-            ResolveGameAddress(gAddr.GetQuarkSystemTable));
-        if (!getQuark) return;
-        __try
-        {
-            auto* quark = static_cast<std::uint8_t*>(getQuark());
-            if (!quark) return;
-            auto* app = *reinterpret_cast<std::uint8_t**>(quark + 0x98);
-            if (!app) return;
-            auto* tbl = *reinterpret_cast<std::uint8_t**>(app + 0x10);
-            if (!tbl) return;
-            auto* camoToFlow = reinterpret_cast<std::int16_t*>(tbl + 0x19ac);
-            camoToFlow[selector] = camoToFlow[sourceCamo];
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
-    }
-
-
     static constexpr int    kMaxInstallAttempts = 16;
 
 
@@ -187,6 +167,42 @@ namespace
 
     constexpr std::uint8_t kRowCells =
         static_cast<std::uint8_t>(outfit::kNativeVariantCells);
+
+    struct ListedVariants
+    {
+        std::uint8_t index[outfit::kMaxVariantsPerOutfit] = {};
+        std::uint8_t count = 0;
+    };
+
+    static ListedVariants ListVariants(const outfit::OutfitEntry* entry, std::uint8_t playerType)
+    {
+        ListedVariants lv;
+        const std::uint8_t total = playerType != 0xFF
+            ? entry->GetVariantCountFor(playerType) : entry->variantCount;
+        std::uint64_t keyed[4] = {};
+        outfit::GetKeyedVariants(entry->developId, 0xFF, keyed);
+        for (std::uint8_t v = 0; v < total; ++v)
+            if ((keyed[v >> 6] & (1ull << (v & 63))) == 0)
+                lv.index[lv.count++] = v;
+        return lv;
+    }
+
+    static int ListedPosition(const ListedVariants& lv, std::uint8_t variant)
+    {
+        for (int p = 0; p < lv.count; ++p)
+            if (lv.index[p] == variant) return p;
+        return -1;
+    }
+
+    static const outfit::VanillaSuitVariantAsset* VextRowAsset(const outfit::OutfitRowAlias& alias,
+                                                               std::uint8_t playerType)
+    {
+        if (playerType == 0xFF) return nullptr;
+        const std::uint8_t donor =
+            outfit::VanillaExtResolveVariantDonor(alias.vanillaPartsType, playerType);
+        return donor == 0xFF ? nullptr
+            : outfit::VanillaExtGetVariant(alias.vanillaPartsType, donor, alias.variant);
+    }
 
     static std::unordered_map<std::uint16_t, std::uint8_t> g_VariantWindowStart;
 
@@ -223,14 +239,14 @@ namespace
     static void WriteVariantWindow(std::uint8_t* base, std::uint32_t row,
                                    const outfit::OutfitEntry* entry,
                                    std::uint16_t flowIndex,
-                                   std::uint8_t total, std::uint8_t start,
+                                   const ListedVariants& lv, std::uint8_t start,
                                    std::uint8_t shownCell, std::uint8_t rowEnable,
                                    std::uint8_t wornVariant)
     {
-        const std::uint8_t cells = total < kRowCells ? total : kRowCells;
+        const std::uint8_t cells = lv.count < kRowCells ? lv.count : kRowCells;
         for (std::uint8_t c = 0; c < cells; ++c)
         {
-            const std::uint8_t var = static_cast<std::uint8_t>(start + c);
+            const std::uint8_t var = lv.index[start + c];
             const std::size_t cellIndex =
                 static_cast<std::size_t>(row) * 15 + c;
 
@@ -239,8 +255,7 @@ namespace
 
             std::uint8_t* cell = base + 0xCC40 + cellIndex * 12;
             *reinterpret_cast<std::uint32_t*>(cell + 0) =
-                static_cast<std::uint32_t>(
-                    entry->variantSelectorCodes[var]);
+                static_cast<std::uint32_t>(entry->selectorCode);   // every cell shows the outfit's code; the decide puts the look's own code in
             *reinterpret_cast<std::uint32_t*>(cell + 4) =
                 (var == 0) ? 7u : 0u;
             *(cell + 8) = 0;
@@ -259,7 +274,7 @@ namespace
     static void StampVariantRowCells(std::uint8_t* base, std::uint32_t row,
                                      const outfit::OutfitEntry* entry,
                                      std::uint16_t flowIndex,
-                                     std::uint8_t variantsForPT,
+                                     const ListedVariants& lv,
                                      std::uint8_t rowEnable)
     {
         std::uint8_t wornPT = 0, wornSel = 0;
@@ -282,15 +297,17 @@ namespace
             else if (outfit::PeekPendingSupplyDropDevelopId()
                      == entry->developId)
                 displayVar = outfit::PeekPendingSupplyDropVariantIdx();
-            outfit::SetActiveVariant(entry->partsType, displayVar);
         }
-        if (displayVar >= variantsForPT)
-            displayVar = static_cast<std::uint8_t>(variantsForPT - 1);
+        int displayPos = ListedPosition(lv, displayVar);
+        if (displayPos < 0)
+            displayPos = 0;
+        if (!equipped)
+            outfit::SetActiveVariant(entry->partsType, lv.index[displayPos]);
 
-        const std::uint8_t start =
-            PlaceVariantWindow(entry->developId, variantsForPT, displayVar);
-        WriteVariantWindow(base, row, entry, flowIndex, variantsForPT, start,
-                           static_cast<std::uint8_t>(displayVar - start), rowEnable,
+        const std::uint8_t start = PlaceVariantWindow(
+            entry->developId, lv.count, static_cast<std::uint8_t>(displayPos));
+        WriteVariantWindow(base, row, entry, flowIndex, lv, start,
+                           static_cast<std::uint8_t>(displayPos - start), rowEnable,
                            equipped ? displayVar : std::uint8_t{ 0xFF });
     }
 
@@ -300,29 +317,29 @@ namespace
                                           std::uint8_t* record,
                                           const outfit::OutfitEntry* entry,
                                           std::uint16_t flowIndex,
-                                          std::uint8_t variantsForPT,
+                                          const ListedVariants& lv,
                                           std::uint8_t rowEnable)
     {
-        if (variantsForPT <= kRowCells)
+        if (lv.count <= kRowCells)
             return;
 
         const std::uint8_t start = VariantWindowStart(entry->developId);
         const std::uint8_t shown = *(base + 0xC040 + row);
         int newStart = start;
-        if (shown == kRowCells - 1 && start + kRowCells < variantsForPT)
+        if (shown == kRowCells - 1 && start + kRowCells < lv.count)
             ++newStart;
         else if (shown == 0 && start > 0)
             --newStart;
         else
             return;
 
-        const int variant = start + shown;
-        const std::uint8_t newShown = static_cast<std::uint8_t>(variant - newStart);
+        const int position = start + shown;
+        const std::uint8_t newShown = static_cast<std::uint8_t>(position - newStart);
         const std::uint8_t worn = IsWornCustomOutfit(entry)
             ? outfit::GetActiveVariant(entry->partsType) : std::uint8_t{ 0xFF };
 
         g_VariantWindowStart[entry->developId] = static_cast<std::uint8_t>(newStart);
-        WriteVariantWindow(base, row, entry, flowIndex, variantsForPT,
+        WriteVariantWindow(base, row, entry, flowIndex, lv,
                            static_cast<std::uint8_t>(newStart), newShown, rowEnable, worn);
 
         *(base + 0x148 + row) =
@@ -343,6 +360,15 @@ namespace
         std::uint8_t wornPT = 0, wornSel = 0;
         return outfit::GetCurrentEquippedSuitBytes(&wornPT, &wornSel)
             && wornPT == entry->partsType;
+    }
+
+    static bool IsWornCustomRow(const outfit::OutfitEntry* entry, std::uint16_t flowIndex)
+    {
+        if (!IsWornCustomOutfit(entry)) return false;
+        const std::uint8_t worn = outfit::GetActiveVariant(entry->partsType);
+        const std::uint16_t keyedRow = outfit::GetOutfitVariantRow(entry->developId, 0xFF, worn);
+        return keyedRow != 0 ? keyedRow == flowIndex
+                             : !outfit::TryGetOutfitRowAlias(flowIndex, nullptr);
     }
 
     static void __fastcall hkAddRecord(void* thisPtr,
@@ -400,7 +426,7 @@ namespace
                 return;
 
             *(base + 0x425a4 + static_cast<std::size_t>(row) * 15 + cell) =
-                IsWornCustomOutfit(entry) ? std::uint8_t{1} : std::uint8_t{0};
+                IsWornCustomRow(entry, flowIndex) ? std::uint8_t{1} : std::uint8_t{0};
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -427,16 +453,24 @@ namespace
         if (outfit::IsCustomHeadEquipId(flowIndex))
             return;
 
+        outfit::OutfitRowAlias alias{};
+        const bool isAliasRow = outfit::TryGetOutfitRowAlias(flowIndex, &alias);
+
         if (t_InsideSetupPrefab)
         {
+            const std::uint8_t livePT = outfit::ReadLivePlayerType();
             const outfit::OutfitEntry* entry = nullptr;
             if (outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry)
             {
-                const std::uint8_t livePT = outfit::ReadLivePlayerType();
                 if (livePT != 0xFF
                     && !entry->CanBeWornBy(livePT))
                     return;
+                if (isAliasRow && livePT != 0xFF
+                    && alias.variant >= entry->GetVariantCountFor(livePT))
+                    return;
             }
+            if (isAliasRow && alias.ownerDevelopId == 0 && !VextRowAsset(alias, livePT))
+                return;
         }
 
         if (!g_VariantInjectEnabled)
@@ -477,20 +511,29 @@ namespace
         bool isCustom =
             outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
 
-        if (isCustom && entry && !entry->bound)
+        if (isCustom && entry && !entry->bound && !isAliasRow
+            && ListVariants(entry, livePT).count >= 2)
         {
-            const std::uint8_t listVariants = (livePT != 0xFF)
-                ? entry->GetVariantCountFor(livePT)
-                : entry->variantCount;
-            if (listVariants >= 2)
-            {
-                outfit::BindOutfitForVisibleRow(entry->developId);
-                isCustom =
-                    outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
-            }
+            outfit::BindOutfitForVisibleRow(entry->developId);
+            isCustom =
+                outfit::TryGetOutfitByFlowIndex(flowIndex, &entry) && entry;
         }
         if (isCustom && entry)
             outfit::NoteOutfitMenuStamp(entry->developId);
+
+        if (isAliasRow && alias.ownerDevelopId == 0)
+        {
+            const outfit::VanillaSuitVariantAsset* asset = VextRowAsset(alias, livePT);
+            const std::uint8_t sel =
+                outfit::VanillaExtGetVariantSelector(alias.vanillaPartsType, alias.variant);
+            if (sel != 0 && flowIndex < equip::kMaxFlowSlots)
+            {
+                for (std::uint8_t p = 0; p < 15; ++p)
+                    g_VextCellMap[flowIndex][p] = VextCellInfo{};
+                StoreVextCellLabel(flowIndex, 0, sel, asset ? asset->displayNameHash : 0);
+            }
+            return;
+        }
 
         __try
         {
@@ -516,22 +559,20 @@ namespace
                 }
             }
 
-            if (isCustom)
+            if (isCustom && !isAliasRow)
             {
-                const std::uint8_t variantsForPT = (livePT != 0xFF)
-                    ? entry->GetVariantCountFor(livePT)
-                    : entry->variantCount;
-                if (variantsForPT < 2)
+                const ListedVariants lv = ListVariants(entry, livePT);
+                if (lv.count < 2)
                     return;
 
                 if (!entry->bound)
                     return;
 
                 const std::uint8_t rowEnable =
-                    row <= 0x3F ? *(base + 0x548 + static_cast<std::size_t>(row) * 15) : 1;
+                    *(base + 0x548 + static_cast<std::size_t>(row) * 15);
 
                 StampVariantRowCells(base, row, entry, flowIndex,
-                                     variantsForPT, rowEnable);
+                                     lv, rowEnable);
                 return;
             }
         }
@@ -618,25 +659,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-    static std::int32_t ReadCamoToFlow(std::uint8_t idx)
-    {
-        using GetQuark_t = void* (__fastcall*)();
-        auto getQuark = reinterpret_cast<GetQuark_t>(
-            ResolveGameAddress(gAddr.GetQuarkSystemTable));
-        if (!getQuark) return -1;
-        __try
-        {
-            auto* quark = static_cast<std::uint8_t*>(getQuark());
-            if (!quark) return -1;
-            auto* app = *reinterpret_cast<std::uint8_t**>(quark + 0x98);
-            if (!app) return -1;
-            auto* tbl = *reinterpret_cast<std::uint8_t**>(app + 0x10);
-            if (!tbl) return -1;
-            return *reinterpret_cast<std::int16_t*>(tbl + 0x19ac + idx * 2);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
-    }
-
     static void JitRefreshCustomRow(std::uint8_t* base, std::uint32_t row,
                                     std::uint8_t* record)
     {
@@ -661,11 +683,12 @@ namespace
             return;
 
         outfit::NoteOutfitRowRefresh(entry->developId);
+        if (outfit::TryGetOutfitRowAlias(rowFlow, nullptr))
+            return;
 
         const std::uint8_t livePT = outfit::ReadLivePlayerType();
-        const std::uint8_t variantsForPT = (livePT != 0xFF)
-            ? entry->GetVariantCountFor(livePT)
-            : entry->variantCount;
+        const ListedVariants lv = ListVariants(entry, livePT);
+        const std::uint8_t variantsForPT = lv.count;
         if (variantsForPT < 2)
             return;
 
@@ -727,7 +750,7 @@ namespace
         const NativeRowCell0& snap = g_NativeRowCell0[rowFlow];
         const std::uint8_t rowEnable = snap.used
             ? snap.enable
-            : (row <= 0x3F ? *(base + 0x548 + c0) : std::uint8_t{ 1 });
+            : *(base + 0x548 + c0);
 
         const std::uint8_t count = *(base + 0xBC40 + row);
         const std::uint8_t cells =
@@ -738,15 +761,15 @@ namespace
             current = static_cast<std::uint8_t>(
                           *reinterpret_cast<std::uint32_t*>(
                               base + 0xCC40 + (c0 + c) * 12))
-                      == entry->variantSelectorCodes[start + c];
+                      == entry->selectorCode;
         if (current)
         {
             ScrollVariantWindowAtEdge(base, row, record, entry, rowFlow,
-                                      variantsForPT, rowEnable);
+                                      lv, rowEnable);
             return;
         }
 
-        StampVariantRowCells(base, row, entry, rowFlow, variantsForPT,
+        StampVariantRowCells(base, row, entry, rowFlow, lv,
                              rowEnable);
     }
 
@@ -778,13 +801,6 @@ namespace
             s_colourRowFilter = uipad::SetGameButtonFilter(&ColourRowOwnsButton);
         if (thisPtr && !MissionCodeGuard::ShouldBypassHooks())
         {
-            std::uint8_t seedSel[128];
-            std::uint8_t seedSrc[128];
-            const std::uint8_t seedCount =
-                outfit::VanillaExtCollectSelectorSeeds(seedSel, seedSrc, 128);
-            for (std::uint8_t i = 0; i < seedCount; ++i)
-                SeedVextSwatchFlow(seedSel[i], seedSrc[i]);
-
             __try
             {
                 auto* rb = reinterpret_cast<std::uint8_t*>(thisPtr);
@@ -907,6 +923,7 @@ namespace
 
         if (!thisPtr) return;
         if (MissionCodeGuard::ShouldBypassHooks()) return;
+        VehicleSortieRows::AfterRowDrawn(thisPtr);
 
         std::uint64_t variantHash = 0;
         std::uint64_t iconHash    = 0;
@@ -935,14 +952,23 @@ namespace
 
 
             const outfit::OutfitEntry* entry = nullptr;
+            outfit::OutfitRowAlias alias{};
             if (outfit::TryGetOutfitByFlowIndex(selectedId, &entry) && entry)
             {
-                const int variant =
-                    VariantWindowStart(entry->developId) + variantIdx;
-                if (variant >= static_cast<int>(outfit::kMaxVariantsPerOutfit))
-                    return;
-
                 const std::uint8_t livePT = outfit::ReadLivePlayerType();
+                int variant = 0;
+                if (outfit::TryGetOutfitRowAlias(selectedId, &alias))
+                {
+                    variant = alias.variant;
+                }
+                else
+                {
+                    const ListedVariants lv = ListVariants(entry, livePT);
+                    const int position = VariantWindowStart(entry->developId) + variantIdx;
+                    if (position < lv.count)
+                        variant = lv.index[position];
+                }
+
                 const std::uint8_t labelPT =
                     (livePT != 0xFF && entry->IsPlayerTypeSupported(livePT))
                         ? livePT
@@ -1205,13 +1231,45 @@ namespace
         }
     }
 
+    static std::uint8_t SortiePrepOpenTabRows(void* thisPtr)
+    {
+        if (!thisPtr) return 0;
+        __try
+        {
+            const auto base = reinterpret_cast<std::uintptr_t>(thisPtr);
+            const std::uint32_t kind = *reinterpret_cast<const std::uint32_t*>(base + 0x4434);
+            const std::uint32_t tab  = *reinterpret_cast<const std::uint32_t*>(base + 0x4430);
+            switch (kind)
+            {
+            case 0x20:      return equip::kSortiePrepItemRows;
+            case 0x40:      return equip::kSortiePrepType13Rows;
+            case 0x80:      return equip::kSortiePrepType14Rows;
+            case 0x201:     return equip::kSortiePrepHeadOptionRows;
+            case 0x2000000:
+            case 0x2000001: return equip::kSortiePrepType17Rows;
+            case 0x4000000: return equip::kSortiePrepType18Rows;
+            case 0x8000000: return equip::kSortiePrepType19Rows;
+            case 0xFF: // tabs 0-11 are weapons, 12 items, 13 arms (suits when arms are off), 14 suits
+                if (tab == 12) return equip::kSortiePrepItemRows;
+                if (tab == 13) return equip::kSortiePrepType13Rows | equip::kSortiePrepType14Rows;
+                if (tab == 14) return equip::kSortiePrepType14Rows;
+                return 0;
+            default:        return 0;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
     static std::uint32_t __fastcall hkHeadBadgeCategory(void* self,
                                                         std::uint32_t equipId)
     {
         const outfit::CustomHeadEntry* byEquip =
             outfit::TryGetCustomHeadByEquipId(static_cast<std::uint16_t>(equipId));
         if (byEquip)
-            return byEquip->slotByte;
+            return outfit::BorrowCustomHeadSlot(byEquip->equipId, false);
         return g_OrigHeadBadgeCategory
             ? g_OrigHeadBadgeCategory(self, equipId) : 0;
     }
@@ -1359,6 +1417,132 @@ namespace
         }
     }
 
+    constexpr std::uint8_t  kDevelopTypeTool       = 0x16;
+    constexpr std::uint16_t kToolListFirstEquipId  = 0x1F2;   // the Tools list only takes rows with these equipIds itself
+    constexpr std::uint16_t kToolListLastEquipId   = 0x1FB;
+    constexpr std::uint32_t kPanelListRowsMax      = 0x400;
+
+    struct CustomToolFamily
+    {
+        std::uint16_t rootDevelopId = 0;
+        std::uint16_t flowIndex     = 0;
+        std::uint8_t  grade         = 0;
+    };
+
+    static bool IsNativeToolListEquipId(std::uint16_t equipId)
+    {
+        return equipId >= kToolListFirstEquipId && equipId <= kToolListLastEquipId;
+    }
+
+    static bool IsSortiePrepToolsListSEH(std::uint8_t* base)
+    {
+        __try
+        {
+            const std::uint32_t kind = *reinterpret_cast<std::uint32_t*>(base + 0x4434);
+            return *reinterpret_cast<std::uint64_t*>(base + 0x461b8) == 0xb8a0bf169f98ull
+                && *reinterpret_cast<std::int32_t*>(base + 0x461b0) != 1   // the supply drop popup reads its rows by equipId
+                && (kind == 0x20u || kind == 0xFFu)
+                && *(base + 0x4438) == kDevelopTypeTool;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static std::uint32_t CollectCustomToolFamilies(CustomToolFamily* out, std::uint32_t capacity)
+    {
+        std::uint32_t count = 0;
+        const std::uint32_t bound = equip::NativeFlowBound();
+        for (std::uint32_t idx = equip::FirstCustomFlowIndex(); idx < bound; ++idx)
+        {
+            equip::DevelopRowInfo row;
+            if (!equip::TryReadDevelopRow(idx, row) || !row.listed
+                || row.developType != kDevelopTypeTool || IsNativeToolListEquipId(row.equipId))
+                continue;
+
+            std::uint16_t root = row.developId;
+            std::uint16_t parent = row.parentDevelopId;
+            for (int depth = 0; parent != 0 && depth < 16; ++depth)
+            {
+                std::uint16_t parentFlow = 0;
+                equip::DevelopRowInfo parentRow;
+                if (!EquipDevelopAdd::TryGetFlowIndexForDevelopId(parent, parentFlow)
+                    || !equip::TryReadDevelopRow(parentFlow, parentRow)
+                    || parentRow.developType != kDevelopTypeTool
+                    || IsNativeToolListEquipId(parentRow.equipId))
+                    break;
+                root = parentRow.developId;
+                parent = parentRow.parentDevelopId;
+            }
+
+            std::uint32_t f = 0;
+            while (f < count && out[f].rootDevelopId != root)
+                ++f;
+            if (f == count)
+            {
+                if (count == capacity)
+                    continue;
+                out[count++] = CustomToolFamily{ root, static_cast<std::uint16_t>(idx), row.grade };
+            }
+            else if (row.grade >= out[f].grade)
+            {
+                out[f].flowIndex = static_cast<std::uint16_t>(idx);
+                out[f].grade = row.grade;
+            }
+        }
+        return count;
+    }
+
+    static std::uint32_t AppendCustomToolRowsSEH(std::uint8_t* base,
+                                                 const CustomToolFamily* families,
+                                                 std::uint32_t count)
+    {
+        __try
+        {
+            std::uint32_t rows = *reinterpret_cast<std::uint32_t*>(base + 0x442c);
+            std::uint32_t added = 0;
+            for (; added < count && rows < kPanelListRowsMax; ++added, ++rows)
+            {
+                const std::size_t cell0 = static_cast<std::size_t>(rows) * 15;
+                *reinterpret_cast<std::uint16_t*>(base + 0x4440 + cell0 * 2) = families[added].flowIndex;
+                *(base + 0xBC40 + rows) = 1;
+                *(base + 0xC040 + rows) = 0;
+                *(base + 0xC440 + rows) = 0;
+                *(base + 0xC840 + rows) = 0xFF;
+                *(base + 0x548 + cell0) = 1;
+                *(base + 0x425a4 + cell0) = 1;   // EQUIPPED, like the iDROID: a tool goes on every sortie
+            }
+            if (added != 0)
+            {
+                *reinterpret_cast<std::uint32_t*>(base + 0x442c) = rows;
+                *reinterpret_cast<std::uint32_t*>(base + 0x104) = rows;
+            }
+            return added;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static void AppendCustomToolRows(void* thisPtr)
+    {
+        auto* base = static_cast<std::uint8_t*>(thisPtr);
+        if (!base || !IsSortiePrepToolsListSEH(base) || IsPanelFobSortie(base))
+            return;
+
+        std::vector<CustomToolFamily> families(equip::NativeFlowBound());
+        const std::uint32_t count = CollectCustomToolFamilies(families.data(), static_cast<std::uint32_t>(families.size()));
+        if (count == 0)
+            return;
+
+        const std::uint32_t added = AppendCustomToolRowsSEH(base, families.data(), count);
+        static std::atomic<bool> s_warnedFull{ false };
+        if (added < count && !s_warnedFull.exchange(true))
+            LogWarn("CustomToolList: tools list full, %u custom tool row(s) not listed", count - added);
+    }
+
     static void __fastcall hkSetupPrefabListElement(void* thisPtr)
     {
         if (MissionCodeGuard::ShouldBypassHooks())
@@ -1381,17 +1565,24 @@ namespace
         const bool prev = t_InsideSetupPrefab;
         if (!prev)
         {
+            EquipDevelop_DrainIfRestorePending();
             ClearAbandonedNewMarkRow(thisPtr);
             ResetAddedFlowIxBits();
             outfit::ClearOutfitMenuStamps();
             ResetNativeRowCell0();
             g_VariantWindowStart.clear();
+            equip::ArmSortiePrepDevelopList(SortiePrepOpenTabRows(thisPtr));
         }
         t_InsideSetupPrefab = true;
         equip::BeginDevelopVisibilityCache();
         if (g_OrigSetupPrefab) g_OrigSetupPrefab(thisPtr);
         equip::EndDevelopVisibilityCache();
         t_InsideSetupPrefab = prev;
+        if (!prev)
+        {
+            equip::DisarmSortiePrepDevelopList();
+            VehicleSortieRows::AfterListBuilt(thisPtr);
+        }
 
         if (!prev && g_VariantInjectEnabled && !g_HeadBadgeBuildActive)
         {
@@ -1409,7 +1600,7 @@ namespace
                 if (*reinterpret_cast<std::uint64_t*>(base + 0x461b8)
                         == 0xb8a0bf169f98ull
                     && (equipKind == 0x80u || equipKind == 0x100u)
-                    && rowCount != 0 && rowCount <= 0x40)
+                    && rowCount != 0 && rowCount <= outfit::kPanelRowMax + 1u)
                 {
                     const std::uint8_t livePT = outfit::ReadLivePlayerType();
                     const bool fobSortie = IsPanelFobSortie(base);
@@ -1444,6 +1635,8 @@ namespace
                             *reinterpret_cast<std::uint16_t*>(
                                 base + 0x4440
                                 + (static_cast<std::size_t>(row) * 15) * 2);
+                        if (outfit::TryGetOutfitRowAlias(flowIndex, nullptr))
+                            continue;
 
                         if (rawCamo >= outfit::kCustomSelectorStart)
                             *reinterpret_cast<std::uint32_t*>(base + row0CellByte) =
@@ -1462,7 +1655,8 @@ namespace
                              v <= slotCount && appended < 15; ++v)
                         {
                             if (outfit::VanillaExtGetVariantSourceCamo(vpt, v)
-                                    != rowCamo)
+                                    != rowCamo
+                                || outfit::IsOutfitVariantKeyed(0, vpt, v))
                                 continue;
                             const outfit::VanillaSuitVariantAsset* vasset =
                                 (liveDonor == 0xFF)
@@ -1491,7 +1685,6 @@ namespace
                             StoreVextCellLabel(flowIndex,
                                                static_cast<std::uint8_t>(appended),
                                                sel, vasset->displayNameHash);
-                            SeedVextSwatchFlow(sel, rowCamo);
                             ++appended;
                         }
 
@@ -1557,10 +1750,12 @@ namespace
                     const std::uint32_t rowCount =
                         *reinterpret_cast<std::uint32_t*>(base + 0x442c);
 
+                    const std::uint32_t headScanRows = std::min<std::uint32_t>(
+                        rowCount, outfit::kPanelRowMax + 1u);
                     int targetRow = -1;
                     if (wornEquipId != 0)
                     {
-                        for (std::uint32_t r = 0; r < rowCount && r < 64; ++r)
+                        for (std::uint32_t r = 0; r < headScanRows; ++r)
                             if (*reinterpret_cast<std::uint16_t*>(
                                     base + 0x4440 + r * 0x1e) == wornEquipId)
                             { targetRow = static_cast<int>(r); break; }
@@ -1568,7 +1763,7 @@ namespace
 
                     if (targetRow >= 0)
                     {
-                        for (std::uint32_t r = 0; r < rowCount && r < 64; ++r)
+                        for (std::uint32_t r = 0; r < headScanRows; ++r)
                             *(base + 0x425a4 + r * 0xf) =
                                 (static_cast<int>(r) == targetRow) ? 1 : 0;
                     }
@@ -1603,28 +1798,30 @@ namespace
                         *reinterpret_cast<std::uint32_t*>(base + 0x442c),
                         outfit::kPanelRowMax + 1u);
 
+                    const std::uint8_t worn = outfit::GetActiveVariant(entry->partsType);
+                    const std::uint16_t keyedRow =
+                        outfit::GetOutfitVariantRow(entry->developId, 0xFF, worn);
+                    const std::uint16_t wornRow = keyedRow != 0 ? keyedRow : entry->flowIndex;
+
                     int row = -1;
                     for (std::uint32_t r = 0; r < scanRows && row < 0; ++r)
                         if (*reinterpret_cast<std::uint16_t*>(
                                 base + 0x4440
                                 + (static_cast<std::size_t>(r) * 15) * 2)
-                            == entry->flowIndex)
+                            == wornRow)
                             row = static_cast<int>(r);
 
-                    const std::uint8_t vcount = (ppt != 0xFF)
-                        ? entry->GetVariantCountFor(ppt) : entry->variantCount;
-                    if (vcount >= 2)
+                    const ListedVariants lv = ListVariants(entry, ppt);
+                    if (keyedRow == 0 && lv.count >= 2)
                     {
-                        const std::uint8_t worn =
-                            outfit::GetActiveVariant(entry->partsType);
                         const int start = VariantWindowStart(entry->developId);
                         if (row >= 0)
                         {
-                            for (std::uint8_t c = 0; c < vcount && c < kRowCells; ++c)
+                            for (std::uint8_t c = 0; c < lv.count && c < kRowCells; ++c)
                             {
                                 const std::size_t cell =
                                     static_cast<std::size_t>(row) * 15 + c;
-                                const bool on = (start + c == worn);
+                                const bool on = (lv.index[start + c] == worn);
                                 *(base + 0x425a4 + cell) = on ? 1 : 0;
                                 *(base + 0x548   + cell) = on ? 0 : 1;
                             }
@@ -1653,7 +1850,10 @@ namespace
         g_HeadBadgeBuildActive = prevBadge;
 
         if (!prev)
+        {
+            AppendCustomToolRows(thisPtr);
             ApplyFobAvailabilityToCustomRows(thisPtr);
+        }
     }
 
     struct CursorCell
@@ -1902,19 +2102,39 @@ namespace outfit
         const std::uint8_t livePT = ReadLivePlayerType();
         const std::uint8_t variants = livePT != 0xFF
             ? entry->GetVariantCountFor(livePT) : entry->variantCount;
-        int variant = variants >= 2 && !entry->bound ? entry->defaultVariant : 0;
-        if (variants >= 2 && entry->bound)
-            for (int v = 0; v < variants && v < static_cast<int>(kMaxVariantsPerOutfit); ++v)
-                if (entry->variantSelectorCodes[v] == cell.selector)
-                {
-                    variant = v;
-                    break;
-                }
+        std::uint8_t variant = variants >= 2 && !entry->bound ? entry->defaultVariant : 0;
         if (variant >= variants)
-            variant = variants > 0 ? variants - 1 : 0;
-        out.variant = static_cast<std::uint8_t>(variant);
-        out.worn = IsWornCustomOutfit(entry)
+            variant = variants > 0 ? static_cast<std::uint8_t>(variants - 1) : std::uint8_t{ 0 };
+        if (entry->bound || TryGetOutfitRowAlias(cell.flowIndex, nullptr))
+            ResolveSortieCellVariant(cell.flowIndex, cell.shownCell, &variant);
+        out.variant = variant;
+        out.worn = IsWornCustomRow(entry, cell.flowIndex)
             && (variants < 2 || GetActiveVariant(entry->partsType) == out.variant);
+        return true;
+    }
+
+    bool ResolveSortieCellVariant(std::uint16_t flowIndex, std::uint8_t cellPos,
+                                  std::uint8_t* outVariant)
+    {
+        const OutfitEntry* entry = nullptr;
+        if (!outVariant || !TryGetOutfitByFlowIndex(flowIndex, &entry) || !entry)
+            return false;
+        OutfitRowAlias alias{};
+        if (TryGetOutfitRowAlias(flowIndex, &alias))
+        {
+            *outVariant = alias.variant;
+            return true;
+        }
+        const ListedVariants lv = ListVariants(entry, ReadLivePlayerType());
+        if (lv.count < 2)
+        {
+            *outVariant = lv.count == 1 ? lv.index[0] : std::uint8_t{ 0 };
+            return true;
+        }
+        const int position = VariantWindowStart(entry->developId) + cellPos;
+        if (position >= lv.count)
+            return false;
+        *outVariant = lv.index[position];
         return true;
     }
 

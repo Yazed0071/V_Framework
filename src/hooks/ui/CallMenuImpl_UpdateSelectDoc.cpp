@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CallMenuImpl_UpdateSelectDoc.h"
 
 #include <cstddef>
@@ -210,9 +210,7 @@ namespace
         if (!drawn.gameRepeatKnown)
         {
             drawn.gameRepeatKnown = ReadBaseUvRepeat(mesh, drawn.gameRepeat);
-            if (drawn.gameRepeatKnown)
-                LogInfo("CallMenu: logo UV repeat read as (%.3f, %.3f)", drawn.gameRepeat[0], drawn.gameRepeat[1]);
-            else
+            if (!drawn.gameRepeatKnown)
             {
                 if (!g_WarnedRepeat)
                 {
@@ -256,7 +254,6 @@ namespace
         if (drawn.texture == texture && !stillBound && !g_LoggedRebind)
         {
             g_LoggedRebind = true;
-            LogInfo("CallMenu: a logo came back from being hidden with another texture, its picture was bound again");
         }
 
         VirtualAt<PrefetchTexture_t>(ui, kPrefetchTextureVtblIndex)(ui, texture, 2);

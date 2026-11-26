@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_SoldierDamageActionImpl_State_DamageReaction_Hook();
+void Uninstall_SoldierDamageActionImpl_State_DamageReaction_Hook();

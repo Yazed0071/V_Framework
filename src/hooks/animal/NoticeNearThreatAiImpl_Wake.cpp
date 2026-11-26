@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -129,15 +129,11 @@ namespace
         if (!guard.entered)
             return;
 
-        const unsigned long luaTid = V_FrameWork_LuaOwnerThreadId();
-        if (luaTid == 0 || GetCurrentThreadId() != luaTid)
-            return;
-
         std::uint32_t objId = 0;
         if (!ResolveAnimalObjId(self, animalIndex, objId))
             return;
 
-        if (!AllowNotice(animalIndex))
+        if (!AllowNotice(objId))
             return;
 
         V_FrameWork::EmitMessage("GameObject", kAnimalNoticeMessage, objId, kind);

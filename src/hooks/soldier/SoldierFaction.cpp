@@ -1,8 +1,9 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -14,7 +15,10 @@
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "SoldierFaction.h"
+#include "SoldierFactionAntiAir.h"
+#include "SoldierFactionHeli.h"
 #include "log.h"
+#include "../heli/HeliKey.h"
 
 namespace
 {
@@ -29,18 +33,17 @@ namespace
 
     constexpr std::uint8_t  kSightKindSoldier     = 2u;
     constexpr std::uint8_t  kNoticeTypeWalkerGear = 0x0Cu;
-    constexpr std::uint8_t  kNoticeLevelSighted   = 1u;
+    constexpr std::uint8_t  kNoticeTypeAntiAir    = 7u;
+    constexpr std::uint8_t  kNoticeLevelSighted  = 1u;
     constexpr std::uint32_t kMaxSightEntries      = 64u;
 
     constexpr std::uint64_t kRivalLostMs     = 30000u;
     constexpr std::uint64_t kNodeWakeGraceMs = 2000u;
     constexpr std::uint64_t kNodeStalledMs   = 15000u;
-    constexpr std::uint64_t kRefusalLogMs    = 3000u;
 
     constexpr std::uint64_t kGunfireHeardMs = 3000u;
     constexpr std::uint64_t kScanIntervalMs = 200u;
     constexpr std::uint64_t kNoticeRepushMs = 1000u;
-    constexpr std::uint64_t kPerfWindowMs   = 10000u;
 
     constexpr float kFightRangeSq        = 80.0f * 80.0f;
     constexpr float kNoticeRadiusSq      = 20.0f * 20.0f;
@@ -78,6 +81,37 @@ namespace
     constexpr std::size_t   kSoldierCoreVehicles  = 0x48;
     constexpr std::size_t   kIsArmoredCrewSlot    = 0xE0 / sizeof(void*);
     constexpr std::uint8_t  kMemberStateNoCombat  = 6u;
+
+    constexpr std::uint16_t kCommonWalkerGearCategory = 0x2Du;
+    constexpr std::uint16_t kVehicleCategory          = 0x32u;
+    constexpr std::size_t   kGetRideTargetSlot        = 0xA8 / sizeof(void*);   // RouteAiImpl::CheckVehicleAndWalkerGearExist reads all four
+    constexpr std::size_t   kGetVehicleInfoSlot       = 0xB0 / sizeof(void*);
+    constexpr std::size_t   kGetWalkerGearInfoSlot    = 0xB8 / sizeof(void*);
+    constexpr std::size_t   kGetVehicleSeatSlot       = 0xC0 / sizeof(void*);
+    constexpr std::size_t   kVehicleSeats             = 0x30;
+    constexpr std::uint8_t  kMaxVehicleSeats          = 4u;
+    constexpr std::size_t   kWalkerGearPilot          = 0x2C8;
+    constexpr std::size_t   kWalkerGearRideState      = 0x55C;
+    constexpr std::uint64_t kRideCheckMs              = 500u;
+
+    constexpr std::uint16_t kEnemyHeliCategory    = 0x0Fu;   // TppEnemyHeli, then TppOtherHeli, TppOtherHeli2; 0x0E is the player's support heli
+    constexpr std::uint32_t kMaxFactionHelis      = 16u;
+    constexpr std::size_t   kHeliType             = 0x130;
+    constexpr std::size_t   kFlightControllerHeli = 0x48;
+    constexpr std::size_t   kHeliShared           = 0x28;   // position table +0x20 {x,y,z,yaw}, count +0x40, as the GetPosition command reads it
+    constexpr std::size_t   kHeliPositions        = 0x20;
+    constexpr std::size_t   kHeliCount            = 0x40;
+    constexpr std::size_t   kHeliPositionStride   = 0x10;
+    constexpr std::size_t   kHeliLives            = 0xC8;   // +8 array, 0x10 per heli, life first
+    constexpr std::size_t   kHeliLifeStride       = 0x10;
+    constexpr std::size_t   kHeliStates           = 0x60;   // +8 array, 0x18 per heli, the u64 state the Unrealize command clears 0x1000 in
+    constexpr std::size_t   kHeliStateStride      = 0x18;
+    constexpr std::uint64_t kHeliStateRealized    = 0x1000u;
+    constexpr std::uint64_t kHeliFreshMs          = 1000u;
+    constexpr float         kHeliNoticeRadiusSq   = 50.0f * 50.0f;    // horizontal, the range vanilla soldiers report the support heli at
+    constexpr float         kHeliFightRangeSq     = 150.0f * 150.0f;
+    constexpr float         kShotAtHeliRadiusSq   = 6.0f * 6.0f;
+    constexpr float         kShotAtHeliHeight     = 6.0f;
 
     constexpr std::size_t kSoldierCoreSightLists = 0xB8;
     constexpr std::size_t kSightListCounts       = 0x08;
@@ -154,7 +188,6 @@ namespace
     constexpr std::size_t   kMessageSize           = 0x40;
     constexpr std::size_t   kMessageResult         = 0x08;
     constexpr std::uint64_t kCorpseOwnerRefreshMs  = 5000u;
-    constexpr std::uint64_t kIgnoredLogMs          = 10000u;
 
     struct SightEntry
     {
@@ -190,6 +223,9 @@ namespace
     using AddNoticeInfo_t = bool(__fastcall*)(void* noticeInterface, std::uint32_t soldierIndex, const void* notice);
     using GetNoticeInfo_t = const std::uint8_t*(__fastcall*)(void* noticeInterface, std::uint32_t soldierIndex);
     using IsArmoredCrew_t = bool(__fastcall*)(void* vehicleInterface, std::uint32_t soldierIndex);
+    using GetRideTarget_t = const std::uint16_t*(__fastcall*)(void* vehicleInterface, std::uint16_t* mountId, std::uint32_t soldierIndex);
+    using GetRideInfo_t   = const std::uint8_t*(__fastcall*)(void* vehicleInterface, std::uint32_t soldierIndex);
+    using GetSeat_t       = std::uint8_t(__fastcall*)(void* vehicleInterface, std::uint32_t soldierIndex);
     using GetQuarkSystemTable_t = std::uint8_t*(__fastcall*)();
     using SendGameObjectMessage_t = const std::uint32_t*(__fastcall*)(void* gameObjects, std::uint32_t* result,
                                                                       std::uint32_t gameObjectId, void* message);
@@ -203,30 +239,36 @@ namespace
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_rivalSeenMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_rivalAliveMs{};
     std::array<std::atomic<bool>, kSoldierSlotCount>          g_rivalNodeWoke{};
-    std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_lastRefusalLogMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_lastShotMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_nextScanMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_nextRepushMs{};
     std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_mount{};
-    std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_loggedMountShot{};
     std::array<std::atomic<std::uint16_t>, kGameObjectIdCount> g_mountRider{};
+    std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_rideMount{};
+    std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_nextRideCheckMs{};
+
+    struct HeliSeen
+    {
+        std::atomic<float>         x{ 0.0f };
+        std::atomic<float>         y{ 0.0f };
+        std::atomic<float>         z{ 0.0f };
+        std::atomic<std::uint64_t> ms{ 0 };
+    };
+
+    std::array<std::atomic<std::uint16_t>, HeliKey::kCount>   g_heliFaction{};
+    std::array<HeliSeen, HeliKey::kCount>                     g_heliSeen{};
+    std::array<std::atomic<std::uint16_t>, kMaxFactionHelis>  g_factionHelis{};
+    std::atomic<std::uint32_t>                                g_factionHeliCount{ 0 };
     std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_neutralizedBy{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_rivalHitMs{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_taint{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_downMs{};
     std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_corpseOwner{};
     std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_corpseOwnerMs{};
-    std::array<std::atomic<std::uint16_t>, kSoldierSlotCount> g_lastIgnored{};
-    std::array<std::atomic<std::uint64_t>, kSoldierSlotCount> g_lastIgnoredLogMs{};
     thread_local std::uint32_t                                t_ignoredNotices = 0;
     std::atomic<bool>                                         g_anyFaction{ false };
-
-    std::atomic<std::uint64_t> g_perfWindowStartMs{ 0 };
-    std::atomic<std::uint32_t> g_perfChecks{ 0 };
-    std::atomic<std::uint32_t> g_perfScans{ 0 };
-    std::atomic<std::int64_t>  g_perfTicks{ 0 };
-    std::atomic<std::int64_t>  g_perfLastCallTicks{ 0 };
-    std::atomic<std::int64_t>  g_perfMaxGapTicks{ 0 };
+    std::atomic<bool>                                         g_moduleActive{ false };
+    std::atomic<const void*>                                  g_soldierCore{ nullptr };   // every soldier shares it, any sight check hands it out
 
     bool IsSoldierId(std::uint16_t gameObjectId)
     {
@@ -244,7 +286,7 @@ namespace
     void ClearMount(std::uint32_t soldierIndex)
     {
         const std::uint16_t mount = g_mount[soldierIndex].exchange(kNoMount, std::memory_order_relaxed);
-        if (mount == kNoMount)
+        if (mount == kNoMount || g_rideMount[soldierIndex].load(std::memory_order_relaxed) == mount)   // still aboard: keep him on it
             return;
         std::uint16_t rider = static_cast<std::uint16_t>(0x400u | soldierIndex);
         g_mountRider[mount].compare_exchange_strong(rider, kNoMount, std::memory_order_relaxed);
@@ -267,19 +309,52 @@ namespace
         return static_cast<std::uint16_t>(g_factionNames.size());
     }
 
-    std::string FactionNameOf(std::uint16_t factionId)
-    {
-        std::lock_guard<std::mutex> lk(g_namesMtx);
-        if (factionId == kNoFaction || factionId > g_factionNames.size())
-            return "none";
-        return g_factionNames[factionId - 1];
-    }
-
     bool AreHostile(std::uint32_t soldierIndex, std::uint32_t otherIndex)
     {
         const std::uint16_t mine   = FactionOf(soldierIndex);
         const std::uint16_t theirs = FactionOf(otherIndex);
         return mine != kNoFaction && theirs != kNoFaction && mine != theirs;
+    }
+
+    bool IsEnemyHeliId(std::uint16_t gameObjectId)
+    {
+        const std::uint16_t category = gameObjectId >> 9;
+        return category >= kEnemyHeliCategory && category <= HeliKey::kLastType;
+    }
+
+    std::uint16_t FactionOfId(std::uint16_t gameObjectId)
+    {
+        if (IsSoldierId(gameObjectId))
+            return FactionOf(gameObjectId);
+        if (IsEnemyHeliId(gameObjectId))
+            return g_heliFaction[HeliKey::OfGameObjectId(gameObjectId)].load(std::memory_order_relaxed);
+        return kNoFaction;
+    }
+
+    bool AreHostileIds(std::uint16_t gameObjectId, std::uint16_t otherGameObjectId)
+    {
+        const std::uint16_t mine   = FactionOfId(gameObjectId);
+        const std::uint16_t theirs = FactionOfId(otherGameObjectId);
+        return mine != kNoFaction && theirs != kNoFaction && mine != theirs;
+    }
+
+    float HorizontalDistanceSq(const SoldierPoint& a, const SoldierPoint& b)
+    {
+        const float dx = a.x - b.x;
+        const float dz = a.z - b.z;
+        return dx * dx + dz * dz;
+    }
+
+    bool ReadHeliPoint(std::uint16_t heliId, std::uint64_t now, SoldierPoint* out)   // gone, destroyed or unrealized helis stop being published
+    {
+        const HeliSeen& seen = g_heliSeen[HeliKey::OfGameObjectId(heliId)];
+        const std::uint64_t ms = seen.ms.load(std::memory_order_acquire);
+        if (ms == 0 || now - ms > kHeliFreshMs)
+            return false;
+        out->x = seen.x.load(std::memory_order_relaxed);
+        out->y = seen.y.load(std::memory_order_relaxed);
+        out->z = seen.z.load(std::memory_order_relaxed);
+        return true;
     }
 
     bool ReadSoldierPoint(const void* soldierCore, std::uint32_t soldierIndex, SoldierPoint* out)
@@ -465,12 +540,12 @@ namespace
         }
     }
 
-    bool PushWalkerGearNotice(void* noticeController, std::uint32_t soldierIndex, std::uint16_t rivalId)
+    bool PushNotice(void* noticeController, std::uint32_t soldierIndex, std::uint8_t type, std::uint16_t targetId)
     {
         alignas(16) std::uint8_t notice[16] = {};
-        notice[0] = kNoticeTypeWalkerGear;
+        notice[0] = type;
         notice[1] = kNoticeLevelSighted;
-        std::memcpy(notice + 2, &rivalId, sizeof(rivalId));
+        std::memcpy(notice + 2, &targetId, sizeof(targetId));
 
         __try
         {
@@ -484,6 +559,11 @@ namespace
         }
     }
 
+    bool PushWalkerGearNotice(void* noticeController, std::uint32_t soldierIndex, std::uint16_t rivalId)
+    {
+        return PushNotice(noticeController, soldierIndex, kNoticeTypeWalkerGear, rivalId);
+    }
+
     bool WidenFactionBulletSEH(void* bullet3, std::uint32_t requestIndex, std::uint16_t* ownerOut)
     {
         __try
@@ -494,7 +574,7 @@ namespace
             std::uint8_t* request = requests + requestIndex * kBulletRequestStride;
             const std::uint16_t owner = *reinterpret_cast<const std::uint16_t*>(request + kBulletRequestOwner);
             const std::uint16_t shooter = RiderOrSelf(owner);
-            if (!IsSoldierId(shooter) || FactionOf(shooter) == kNoFaction)
+            if (FactionOfId(shooter) == kNoFaction)   // a faction soldier, or a faction heli whose gun only searches outside ENEMY
                 return false;
             std::uint16_t* shooterGroups = reinterpret_cast<std::uint16_t*>(request + kBulletRequestMask);
             *shooterGroups = static_cast<std::uint16_t>(*shooterGroups & ~kGroupEnemy);
@@ -505,71 +585,6 @@ namespace
         {
             return false;
         }
-    }
-
-    void LogMountShotOnce(std::uint16_t owner, std::uint16_t shooter)
-    {
-        const std::uint32_t rider = shooter & kSoldierIndexMask;
-        const std::uint16_t mount = owner == shooter ? g_mount[rider].load(std::memory_order_relaxed) : owner;
-        if (mount == kNoMount || g_loggedMountShot[rider].exchange(mount, std::memory_order_relaxed) == mount)
-            return;
-        if (owner == shooter)
-            LogInfo("SoldierFaction: soldier %u fired from walker gear or vehicle 0x%04X, shots count as the soldier's",
-                rider, mount);
-        else
-            LogInfo("SoldierFaction: walker gear or vehicle 0x%04X fired for soldier %u, shots now hit rivals",
-                mount, rider);
-    }
-
-    std::int64_t PerfNow()
-    {
-        LARGE_INTEGER ticks;
-        QueryPerformanceCounter(&ticks);
-        return ticks.QuadPart;
-    }
-
-    double PerfTicksPerMs()
-    {
-        static const double ticksPerMs = [] {
-            LARGE_INTEGER frequency;
-            QueryPerformanceFrequency(&frequency);
-            return static_cast<double>(frequency.QuadPart) / 1000.0;
-        }();
-        return ticksPerMs;
-    }
-
-    void NotePerfGap(std::int64_t start)
-    {
-        const std::int64_t last = g_perfLastCallTicks.exchange(start, std::memory_order_relaxed);
-        if (last == 0 || start <= last)
-            return;
-        const std::int64_t gap = start - last;
-        std::int64_t longest = g_perfMaxGapTicks.load(std::memory_order_relaxed);
-        while (gap > longest && !g_perfMaxGapTicks.compare_exchange_weak(longest, gap, std::memory_order_relaxed))
-        {
-        }
-    }
-
-    void FlushPerfWindow(std::uint64_t now)
-    {
-        std::uint64_t windowStart = g_perfWindowStartMs.load(std::memory_order_relaxed);
-        if (windowStart == 0)
-        {
-            g_perfWindowStartMs.compare_exchange_strong(windowStart, now, std::memory_order_relaxed);
-            return;
-        }
-        if (now - windowStart < kPerfWindowMs)
-            return;
-        if (!g_perfWindowStartMs.compare_exchange_strong(windowStart, now, std::memory_order_relaxed))
-            return;
-
-        const std::uint32_t checks = g_perfChecks.exchange(0, std::memory_order_relaxed);
-        const std::uint32_t scans  = g_perfScans.exchange(0, std::memory_order_relaxed);
-        const std::int64_t  ticks  = g_perfTicks.exchange(0, std::memory_order_relaxed);
-        const std::int64_t  gap    = g_perfMaxGapTicks.exchange(0, std::memory_order_relaxed);
-        LogInfo("SoldierFaction: last %llu s: %u notice checks, %u rival scans, %.2f ms in faction code, slowest frame %.0f ms",
-            static_cast<unsigned long long>((now - windowStart) / 1000u), checks, scans,
-            static_cast<double>(ticks) / PerfTicksPerMs(), static_cast<double>(gap) / PerfTicksPerMs());
     }
 
     float DistanceSq(const SoldierPoint& a, const SoldierPoint& b)
@@ -689,6 +704,16 @@ namespace
         if (pending == kNoRival)
             return kNoRival;
 
+        if (IsEnemyHeliId(pending))
+        {
+            SoldierPoint self{};
+            SoldierPoint heli{};
+            const bool reachable = AreHostileIds(static_cast<std::uint16_t>(0x400u | soldierIndex), pending)
+                && ReadSoldierPoint(soldierCore, soldierIndex, &self) && ReadHeliPoint(pending, GetTickCount64(), &heli)
+                && HorizontalDistanceSq(self, heli) <= kHeliFightRangeSq;
+            return reachable ? pending : kNoRival;
+        }
+
         const std::uint32_t pendingIndex = pending & kSoldierIndexMask;
         if (!AreHostile(soldierIndex, pendingIndex) || !IsSoldierStanding(soldierCore, pendingIndex))
             return kNoRival;
@@ -713,16 +738,6 @@ namespace
                 return true;
         }
         return false;
-    }
-
-    void LogRefusal(std::uint32_t soldierIndex, std::uint16_t rival, std::uint64_t now)
-    {
-        const std::uint64_t last = g_lastRefusalLogMs[soldierIndex].load(std::memory_order_relaxed);
-        if (last != 0 && now - last < kRefusalLogMs)
-            return;
-        g_lastRefusalLogMs[soldierIndex].store(now, std::memory_order_relaxed);
-        LogInfo("SoldierFaction: soldier %u sees rival %u but AddNoticeInfo refused the fight notice",
-            soldierIndex, rival & kSoldierIndexMask);
     }
 
     bool IsNeutralizedSEH(const void* soldierCore, std::uint32_t soldierIndex)
@@ -922,44 +937,11 @@ namespace
         g_taint[soldierIndex].store(0, std::memory_order_relaxed);
     }
 
-    bool RecordSaysFactionCaused(std::uint32_t soldierIndex)
-    {
-        if (g_downMs[soldierIndex].load(std::memory_order_acquire) == 0 || g_taint[soldierIndex].load(std::memory_order_relaxed) != 0)
-            return false;
-        const std::uint16_t causer = g_neutralizedBy[soldierIndex].load(std::memory_order_relaxed);
-        return IsSoldierId(causer) && AreHostile(soldierIndex, causer & kSoldierIndexMask);
-    }
-
-    void DescribeTaint(std::uint64_t taint, char* out, std::size_t size)
-    {
-        const std::uint16_t who      = static_cast<std::uint16_t>(taint & 0xFFFFu);
-        const std::uint16_t attackId = static_cast<std::uint16_t>((taint >> 16) & 0xFFFFu);
-        if (who == kPlayerId)
-            std::snprintf(out, size, "the player (attack 0x%X)", attackId);
-        else if (who == kTaintHoldUp)
-            std::snprintf(out, size, "a hold-up");
-        else if (who == kUnknownAttacker)
-            std::snprintf(out, size, "an unknown source (attack 0x%X)", attackId);
-        else if (IsSoldierId(who))
-            std::snprintf(out, size, "soldier %u (attack 0x%X)", who & kSoldierIndexMask, attackId);
-        else
-            std::snprintf(out, size, "0x%04X (attack 0x%X)", who, attackId);
-    }
-
-    void TaintNeutralization(std::uint32_t soldierIndex, std::uint16_t who, std::uint16_t attackId, bool down)
+    void TaintNeutralization(std::uint32_t soldierIndex, std::uint16_t who, std::uint16_t attackId)
     {
         std::uint64_t expected = 0;
         const std::uint64_t taint = kTaintSet | (static_cast<std::uint64_t>(attackId) << 16) | who;
-        if (!g_taint[soldierIndex].compare_exchange_strong(expected, taint, std::memory_order_relaxed))
-            return;
-        if (!down)
-            return;
-        const std::uint16_t causer = g_neutralizedBy[soldierIndex].load(std::memory_order_relaxed);
-        if (!IsSoldierId(causer) || !AreHostile(soldierIndex, causer & kSoldierIndexMask))
-            return;
-        char source[64];
-        DescribeTaint(taint, source, sizeof(source));
-        LogInfo("SoldierFaction: downed soldier %u hit by %s, rivals react to his body", soldierIndex, source);
+        g_taint[soldierIndex].compare_exchange_strong(expected, taint, std::memory_order_relaxed);
     }
 
     bool FactionCausedNeutralization(const void* soldierCore, std::uint32_t soldierIndex)
@@ -972,7 +954,7 @@ namespace
         if (g_taint[soldierIndex].load(std::memory_order_relaxed) != 0)
             return false;
         const std::uint16_t causer = g_neutralizedBy[soldierIndex].load(std::memory_order_relaxed);
-        return IsSoldierId(causer) && AreHostile(soldierIndex, causer & kSoldierIndexMask);
+        return AreHostileIds(static_cast<std::uint16_t>(0x400u | soldierIndex), causer);
     }
 
     bool IgnoreBody(const void* soldierCore, std::uint32_t observerIndex, std::uint16_t bodyId, bool needNeutralized,
@@ -1000,16 +982,6 @@ namespace
             && FactionOf(observerIndex) != kNoFaction;
     }
 
-    void NoteIgnored(std::uint32_t observerIndex, std::uint16_t soldierId, const char* how)
-    {
-        const std::uint64_t now = GetTickCount64();
-        const std::uint16_t last = g_lastIgnored[observerIndex].exchange(soldierId, std::memory_order_relaxed);
-        if (last == soldierId && now - g_lastIgnoredLogMs[observerIndex].load(std::memory_order_relaxed) < kIgnoredLogMs)
-            return;
-        g_lastIgnoredLogMs[observerIndex].store(now, std::memory_order_relaxed);
-        LogInfo("SoldierFaction: soldier %u ignores downed rival %u (%s)", observerIndex, soldierId & kSoldierIndexMask, how);
-    }
-
     void PurgeBodyTableSEH(const void* soldierCore, std::uint32_t observerIndex, std::uint8_t* bodyTable)
     {
         __try
@@ -1027,7 +999,6 @@ namespace
                 std::memcpy(&bodyCount, bodyTable + kBodyTableCount, sizeof(bodyCount));
                 bodyCount = static_cast<std::uint16_t>(bodyCount + kNoBody);
                 std::memcpy(bodyTable + kBodyTableCount, &bodyCount, sizeof(bodyCount));
-                NoteIgnored(observerIndex, soldier, "forgotten");
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1067,7 +1038,6 @@ namespace
                 hidden->entries[hidden->count] = entry;
                 hidden->ids[hidden->count]     = bodyId;
                 ++hidden->count;
-                NoteIgnored(observerIndex, soldier, "seen");
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1107,7 +1077,6 @@ namespace
             hidden->noiseSlot = slot;
             hidden->noise     = *slot;
             *slot = nullptr;
-            NoteIgnored(observerIndex, soldier, "heard");
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1148,7 +1117,6 @@ namespace
             if (kind == SoldierFactionBodyNode::DownComrade)
                 knowledge[kDownComradeInTable] = static_cast<std::uint8_t>(knowledge[kDownComradeInTable] & ~kDownComradeInTableBit);
             std::memcpy(knowledge + bodyField, &kNoBody, sizeof(kNoBody));
-            LogInfo("SoldierFaction: soldier %u stops checking downed rival %u", soldierIndex, soldier & kSoldierIndexMask);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1156,15 +1124,189 @@ namespace
             return false;
         }
     }
+
+    void PublishRider(std::uint16_t mountId, std::uint16_t rider)
+    {
+        std::uint16_t none = kNoMount;
+        g_mountRider[mountId].compare_exchange_strong(none, rider, std::memory_order_relaxed);
+    }
+
+    std::uint16_t ReadRideMountSEH(const void* soldierCore, std::uint32_t soldierIndex, std::uint64_t record)
+    {
+        __try
+        {
+            void* vehicles = *reinterpret_cast<void* const*>(static_cast<const std::uint8_t*>(soldierCore) + kSoldierCoreVehicles);
+            if (!vehicles)
+                return kNoMount;
+            void* const* slots = *reinterpret_cast<void* const* const*>(vehicles);
+            std::uint16_t mountId = kNoMountInNode;
+            reinterpret_cast<GetRideTarget_t>(slots[kGetRideTargetSlot])(vehicles, &mountId, soldierIndex);
+            const std::uint16_t rider    = static_cast<std::uint16_t>(0x400u | soldierIndex);
+            const std::uint16_t category = mountId >> 9;
+            if (category == kVehicleCategory && (record & kRecordInVehicle) != 0)
+            {
+                const std::uint8_t* info = reinterpret_cast<GetRideInfo_t>(slots[kGetVehicleInfoSlot])(vehicles, soldierIndex);
+                const std::uint8_t  seat = reinterpret_cast<GetSeat_t>(slots[kGetVehicleSeatSlot])(vehicles, soldierIndex);
+                if (!info || seat >= kMaxVehicleSeats)
+                    return kNoMount;
+                std::uint16_t seated = kNoMountInNode;
+                std::memcpy(&seated, info + kVehicleSeats + seat * sizeof(std::uint16_t), sizeof(seated));
+                return seated == rider ? mountId : kNoMount;
+            }
+            if (category == kCommonWalkerGearCategory && (record & kRecordOnWalkerGear) != 0)
+            {
+                const std::uint8_t* info = reinterpret_cast<GetRideInfo_t>(slots[kGetWalkerGearInfoSlot])(vehicles, soldierIndex);
+                if (!info)
+                    return kNoMount;
+                std::uint16_t pilot = kNoMountInNode;
+                std::memcpy(&pilot, info + kWalkerGearPilot, sizeof(pilot));
+                const std::uint8_t state = info[kWalkerGearRideState];
+                return pilot == rider && (state == 1u || state == 2u) ? mountId : kNoMount;   // GetWalkerGearType counts both as ridden
+            }
+            return kNoMount;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return kNoMount;
+        }
+    }
+
+    void SetRideMount(std::uint32_t soldierIndex, std::uint16_t mountId)
+    {
+        const std::uint16_t rider = static_cast<std::uint16_t>(0x400u | soldierIndex);
+        const std::uint16_t old   = g_rideMount[soldierIndex].exchange(mountId, std::memory_order_relaxed);
+        if (old == mountId)
+        {
+            if (mountId != kNoMount)
+                PublishRider(mountId, rider);
+            return;
+        }
+        if (old != kNoMount)
+        {
+            std::uint16_t expected = rider;
+            if (g_mount[soldierIndex].load(std::memory_order_relaxed) != old)
+                g_mountRider[old].compare_exchange_strong(expected, kNoMount, std::memory_order_relaxed);
+        }
+        if (mountId == kNoMount)
+            return;
+        PublishRider(mountId, rider);
+    }
+
+    void UpdateRideMount(const void* soldierCore, std::uint32_t soldierIndex, std::uint64_t now)
+    {
+        if (now < g_nextRideCheckMs[soldierIndex].load(std::memory_order_relaxed))
+            return;
+        g_nextRideCheckMs[soldierIndex].store(now + kRideCheckMs, std::memory_order_relaxed);
+
+        const std::uint64_t record = ReadRecordSEH(soldierCore, soldierIndex);
+        const bool aboard = (record & (kRecordInVehicle | kRecordOnWalkerGear)) != 0 && IsSoldierStanding(soldierCore, soldierIndex);
+        SetRideMount(soldierIndex, aboard ? ReadRideMountSEH(soldierCore, soldierIndex, record) : kNoMount);
+    }
+
+
+    bool HeliInNoticeRange(const void* soldierCore, std::uint32_t soldierIndex, std::uint16_t heliId, std::uint64_t now)
+    {
+        SoldierPoint self{};
+        SoldierPoint heli{};
+        return ReadSoldierPoint(soldierCore, soldierIndex, &self) && ReadHeliPoint(heliId, now, &heli)
+            && HorizontalDistanceSq(self, heli) <= kHeliNoticeRadiusSq;
+    }
+
+    std::uint16_t PickSensedHeli(const void* soldierCore, std::uint32_t soldierIndex, std::uint64_t now)
+    {
+        SoldierPoint self{};
+        if (!ReadSoldierPoint(soldierCore, soldierIndex, &self))
+            return kNoRival;
+        const std::uint16_t soldierId = static_cast<std::uint16_t>(0x400u | soldierIndex);
+        std::uint16_t best       = kNoRival;
+        float         bestDistSq = 0.0f;
+        const std::uint32_t count = g_factionHeliCount.load(std::memory_order_acquire);
+        for (std::uint32_t i = 0; i < count && i < kMaxFactionHelis; ++i)
+        {
+            const std::uint16_t heliId = g_factionHelis[i].load(std::memory_order_relaxed);
+            SoldierPoint heli{};
+            if (!AreHostileIds(soldierId, heliId) || !ReadHeliPoint(heliId, now, &heli))
+                continue;
+            const float distSq = HorizontalDistanceSq(self, heli);
+            if (distSq > kHeliNoticeRadiusSq || (best != kNoRival && distSq >= bestDistSq))
+                continue;
+            best       = heliId;
+            bestDistSq = distSq;
+        }
+        return best;
+    }
+
+    void RememberFactionHeli(std::uint16_t heliId)
+    {
+        std::lock_guard<std::mutex> lk(g_namesMtx);
+        const std::uint32_t count = g_factionHeliCount.load(std::memory_order_relaxed);
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            if (g_factionHelis[i].load(std::memory_order_relaxed) == heliId)
+                return;
+        }
+        if (count >= kMaxFactionHelis)
+        {
+            LogWarn("SetFaction: more than %u helis have a faction, heli 0x%04X is ignored by soldiers", kMaxFactionHelis, heliId);
+            return;
+        }
+        g_factionHelis[count].store(heliId, std::memory_order_relaxed);
+        g_factionHeliCount.store(count + 1, std::memory_order_release);
+    }
+
+    std::uint32_t RefreshHelisSEH(const std::uint8_t* flightController, std::uint64_t now, std::uint8_t** heliOut,
+                                  std::uint16_t* published, std::uint32_t capacity)
+    {
+        std::uint32_t publishedCount = 0;
+        __try
+        {
+            std::uint8_t* heli = *reinterpret_cast<std::uint8_t* const*>(flightController + kFlightControllerHeli);
+            if (!heli)
+                return 0;
+            const std::uint16_t type = *reinterpret_cast<const std::uint16_t*>(heli + kHeliType);
+            if (type < kEnemyHeliCategory || type > HeliKey::kLastType)
+                return 0;
+            const std::uint8_t* shared    = *reinterpret_cast<const std::uint8_t* const*>(heli + kHeliShared);
+            const std::uint8_t* positions = *reinterpret_cast<const std::uint8_t* const*>(shared + kHeliPositions);
+            const std::uint32_t count     = *reinterpret_cast<const std::uint32_t*>(shared + kHeliCount);
+            const std::uint8_t* lives     = *reinterpret_cast<const std::uint8_t* const*>(*reinterpret_cast<const std::uint8_t* const*>(heli + kHeliLives) + 8);
+            const std::uint8_t* states    = *reinterpret_cast<const std::uint8_t* const*>(*reinterpret_cast<const std::uint8_t* const*>(heli + kHeliStates) + 8);
+            if (!positions || !lives || !states)
+                return 0;
+            *heliOut = heli;
+            for (std::uint32_t i = 0; i < count && i <= kSoldierIndexMask; ++i)
+            {
+                const std::uint32_t key = HeliKey::Of(type, i);
+                if (g_heliFaction[key].load(std::memory_order_relaxed) == kNoFaction)
+                    continue;
+                const std::int32_t  life  = *reinterpret_cast<const std::int32_t*>(lives + i * kHeliLifeStride);
+                const std::uint64_t state = *reinterpret_cast<const std::uint64_t*>(states + i * kHeliStateStride);
+                if (life <= 0 || (state & kHeliStateRealized) == 0)
+                    continue;
+                const float* point = reinterpret_cast<const float*>(positions + i * kHeliPositionStride);
+                HeliSeen& seen = g_heliSeen[key];
+                seen.x.store(point[0], std::memory_order_relaxed);
+                seen.y.store(point[1], std::memory_order_relaxed);
+                seen.z.store(point[2], std::memory_order_relaxed);
+                seen.ms.store(now != 0 ? now : 1, std::memory_order_release);
+                if (publishedCount < capacity)
+                    published[publishedCount++] = static_cast<std::uint16_t>(i);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+        return publishedCount;
+    }
 }
 
 void Set_SoldierFaction(std::uint32_t gameObjectId, const char* factionName)
 {
-    if (!gAddr.CombatAntiBuddyWalkerGearAiImpl_UpdatePrimaryTarget)
+    if (!g_moduleActive.load(std::memory_order_relaxed))
     {
         static std::atomic<bool> warned{ false };
         if (!warned.exchange(true))
-            LogWarn("SetFaction: not supported on this game build yet, soldiers keep vanilla behaviour");
+            LogWarn("SetFaction: the SoldierFaction module is not installed (disabled or unsupported build), soldiers keep vanilla behaviour");
         return;
     }
 
@@ -1174,37 +1316,126 @@ void Set_SoldierFaction(std::uint32_t gameObjectId, const char* factionName)
     const std::uint16_t factionId = name.empty() ? kNoFaction : InternFactionName(name);
     if (factionId != kNoFaction)
         g_anyFaction.store(true, std::memory_order_relaxed);
-    g_faction[slot].store(factionId, std::memory_order_relaxed);
+    const std::uint16_t previous = g_faction[slot].exchange(factionId, std::memory_order_relaxed);
+}
+
+void Set_HeliFaction(std::uint32_t heliKey, const char* factionName)
+{
+    if (!g_moduleActive.load(std::memory_order_relaxed))
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+            LogWarn("SetFaction: the SoldierFaction module is not installed (disabled or unsupported build), helis keep vanilla behaviour");
+        return;
+    }
+    if (heliKey >= HeliKey::kCount)
+        return;
+
+    const std::uint16_t heliId = static_cast<std::uint16_t>(HeliKey::GameObjectIdOf(heliKey));
+    const std::string name = factionName ? factionName : "";
+    const std::uint16_t factionId = name.empty() ? kNoFaction : InternFactionName(name);
+    if (factionId != kNoFaction)
+    {
+        g_anyFaction.store(true, std::memory_order_relaxed);
+        RememberFactionHeli(heliId);
+    }
+    const std::uint16_t previous = g_heliFaction[heliKey].exchange(factionId, std::memory_order_relaxed);
+}
+
+void SoldierFaction_RefreshHelis(void* flightController)
+{
+    if (!flightController || !g_anyFaction.load(std::memory_order_relaxed) || g_factionHeliCount.load(std::memory_order_relaxed) == 0)
+        return;
+    const std::uint64_t now = GetTickCount64();
+    std::uint8_t* heli = nullptr;
+    std::uint16_t published[kMaxFactionHelis];
+    const std::uint32_t count = RefreshHelisSEH(static_cast<const std::uint8_t*>(flightController), now, &heli,
+                                                published, kMaxFactionHelis);
+    for (std::uint32_t i = 0; i < count; ++i)
+        SoldierFactionHeli_Update(heli, published[i], now);
+}
+
+bool SoldierFaction_IsEnemyHeliId(std::uint16_t gameObjectId)
+{
+    return IsEnemyHeliId(gameObjectId);
+}
+
+bool SoldierFaction_HasFaction(std::uint16_t gameObjectId)
+{
+    return FactionOfId(gameObjectId) != kNoFaction;
+}
+
+bool SoldierFaction_AreHostileIds(std::uint16_t gameObjectId, std::uint16_t otherGameObjectId)
+{
+    return AreHostileIds(gameObjectId, otherGameObjectId);
+}
+
+void SoldierFaction_OnHeliDamages(std::uint16_t heliId, void* damages, std::uint32_t count)
+{
+    if (!g_anyFaction.load(std::memory_order_relaxed) || !damages || FactionOfId(heliId) == kNoFaction)
+        return;
+    std::uint8_t* damage = static_cast<std::uint8_t*>(damages);
+    for (std::uint32_t i = 0; i < count; ++i, damage += kDamageStride)
+    {
+        std::uint16_t attacker = 0;
+        std::uint16_t attackId = 0;
+        std::memcpy(&attacker, damage + kDamageAttacker, sizeof(attacker));
+        std::memcpy(&attackId, damage + kDamageAttackId, sizeof(attackId));
+        const std::uint16_t shooter = RiderOrSelf(attacker);
+        if (AreHostileIds(shooter, heliId))   // fights last: the heli handler zeroes its life on this bit
+            damage[kDamageFlags] = static_cast<std::uint8_t>(damage[kDamageFlags] & ~kDamageFlagInstantKill);
+        SoldierFactionHeli_OnHit(heliId, shooter, attackId);
+    }
 }
 
 void Clear_AllSoldierFactions()
 {
     g_anyFaction.store(false, std::memory_order_relaxed);
+    g_soldierCore.store(nullptr, std::memory_order_relaxed);
+    SoldierFactionHeli_Clear();
+    SoldierFactionAntiAir_Clear();
     for (std::uint32_t i = 0; i < kSoldierSlotCount; ++i)
     {
         g_faction[i].store(kNoFaction, std::memory_order_relaxed);
         g_rival[i].store(kNoRival, std::memory_order_relaxed);
         g_pendingRival[i].store(kNoRival, std::memory_order_relaxed);
         g_mount[i].store(kNoMount, std::memory_order_relaxed);
-        g_loggedMountShot[i].store(kNoMount, std::memory_order_relaxed);
         g_neutralizedBy[i].store(kNoRival, std::memory_order_relaxed);
         g_rivalHitMs[i].store(0, std::memory_order_relaxed);
         g_taint[i].store(0, std::memory_order_relaxed);
         g_downMs[i].store(0, std::memory_order_relaxed);
         g_corpseOwner[i].store(kNoBody, std::memory_order_relaxed);
         g_corpseOwnerMs[i].store(0, std::memory_order_relaxed);
-        g_lastIgnored[i].store(kNoBody, std::memory_order_relaxed);
-        g_lastIgnoredLogMs[i].store(0, std::memory_order_relaxed);
+        g_rideMount[i].store(kNoMount, std::memory_order_relaxed);
+        g_nextRideCheckMs[i].store(0, std::memory_order_relaxed);
     }
     for (std::uint32_t i = 0; i < kGameObjectIdCount; ++i)
         g_mountRider[i].store(kNoMount, std::memory_order_relaxed);
+    for (std::uint32_t i = 0; i < HeliKey::kCount; ++i)
+    {
+        g_heliFaction[i].store(kNoFaction, std::memory_order_relaxed);
+        g_heliSeen[i].ms.store(0, std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> lk(g_namesMtx);
+    g_factionHeliCount.store(0, std::memory_order_relaxed);
     g_factionNames.clear();
+}
+
+void SoldierFaction_SetModuleActive(bool active)
+{
+    g_moduleActive.store(active, std::memory_order_relaxed);
+    if (!active)
+        Clear_AllSoldierFactions();
 }
 
 bool SoldierFaction_AnyFaction()
 {
     return g_anyFaction.load(std::memory_order_relaxed);
+}
+
+bool SoldierFaction_IsModuleActive()
+{
+    return g_moduleActive.load(std::memory_order_relaxed);
 }
 
 bool SoldierFaction_IsFactionSoldier(std::uint16_t gameObjectId)
@@ -1219,12 +1450,64 @@ bool SoldierFaction_AreHostileSoldiers(std::uint16_t gameObjectId, std::uint16_t
     return AreHostile(gameObjectId & kSoldierIndexMask, otherGameObjectId & kSoldierIndexMask);
 }
 
+bool SoldierFaction_ReadSoldierTarget(std::uint16_t soldierId, float* position, bool* standing, bool* riding)
+{
+    const void* soldierCore = g_soldierCore.load(std::memory_order_relaxed);
+    if (!soldierCore || !IsSoldierId(soldierId))
+        return false;
+    const std::uint32_t soldierIndex = soldierId & kSoldierIndexMask;
+    SoldierPoint point{};
+    if (!ReadSoldierPoint(soldierCore, soldierIndex, &point))
+        return false;
+    position[0] = point.x;
+    position[1] = point.y;
+    position[2] = point.z;
+    *standing = IsSoldierStanding(soldierCore, soldierIndex);
+    *riding   = g_rideMount[soldierIndex].load(std::memory_order_relaxed) != kNoMount;
+    return true;
+}
+
+bool SoldierFaction_ReadHeliPoint(std::uint16_t heliId, float* position)
+{
+    SoldierPoint point{};
+    if (!IsEnemyHeliId(heliId) || !ReadHeliPoint(heliId, GetTickCount64(), &point))
+        return false;
+    position[0] = point.x;
+    position[1] = point.y;
+    position[2] = point.z;
+    return true;
+}
+
+std::uint32_t SoldierFaction_FactionHeliCount()
+{
+    const std::uint32_t count = g_factionHeliCount.load(std::memory_order_acquire);
+    return count < kMaxFactionHelis ? count : kMaxFactionHelis;
+}
+
+std::uint16_t SoldierFaction_FactionHeliAt(std::uint32_t index)
+{
+    return index < kMaxFactionHelis ? g_factionHelis[index].load(std::memory_order_relaxed) : kNoRival;
+}
+
+void SoldierFaction_SetGunOperator(std::uint16_t gunId, std::uint16_t soldierId)
+{
+    g_mountRider[gunId].store(IsSoldierId(soldierId) ? soldierId : kNoMount, std::memory_order_relaxed);   // its bullets count as his
+}
+
+bool SoldierFaction_PushNotice(void* noticeController, std::uint32_t soldierIndex, std::uint8_t type, std::uint16_t targetId)
+{
+    return noticeController && PushNotice(noticeController, soldierIndex, type, targetId);
+}
+
 static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, std::uint64_t now)
 {
     if (soldierIndex >= kSoldierSlotCount)
         return false;
     if (FactionOf(soldierIndex) == kNoFaction)
     {
+        SoldierFactionAntiAir_Forget(soldierIndex, "soldier has no faction");
+        if (g_rideMount[soldierIndex].load(std::memory_order_relaxed) != kNoMount)
+            SetRideMount(soldierIndex, kNoMount);
         if (g_rival[soldierIndex].load(std::memory_order_relaxed) != kNoRival)
             SoldierFaction_EndRivalFight(soldierIndex, "soldier has no faction");
         return false;
@@ -1235,8 +1518,18 @@ static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, st
                 sizeof(soldierCore));
     if (!soldierCore)
         return false;
+    g_soldierCore.store(soldierCore, std::memory_order_relaxed);
+
+    UpdateRideMount(soldierCore, soldierIndex, now);
 
     const std::uint16_t current = g_rival[soldierIndex].load(std::memory_order_relaxed);
+    if (SoldierFactionAntiAir_OnSightCheck(noticeController, soldierCore, soldierIndex, now))   // on an anti-air gun, not in a rival fight
+    {
+        g_pendingRival[soldierIndex].store(kNoRival, std::memory_order_relaxed);
+        if (current != kNoRival)
+            SoldierFaction_EndRivalFight(soldierIndex, "soldier mans an anti-air gun");
+        return false;
+    }
     if (const char* blocked = WhyCannotFight(soldierCore, soldierIndex))
     {
         g_pendingRival[soldierIndex].store(kNoRival, std::memory_order_relaxed);
@@ -1250,8 +1543,10 @@ static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, st
     if (current != kNoRival)
     {
         const std::uint32_t count = ReadSightEntries(soldierCore, soldierIndex, entries);
-        if (RivalInSight(current, entries, count)
-            || RivalSensed(soldierCore, soldierIndex, current & kSoldierIndexMask, now))
+        const bool sensed = IsEnemyHeliId(current)
+            ? HeliInNoticeRange(soldierCore, soldierIndex, current, now)
+            : RivalInSight(current, entries, count) || RivalSensed(soldierCore, soldierIndex, current & kSoldierIndexMask, now);
+        if (sensed)
             g_rivalSeenMs[soldierIndex].store(now, std::memory_order_relaxed);
 
         if (now >= g_nextRepushMs[soldierIndex].load(std::memory_order_relaxed))
@@ -1282,6 +1577,7 @@ static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, st
     }
 
     bool scanned = false;
+    std::uint32_t sightCount = 0;
     const char* how = "fights back against";
     std::uint16_t rival = TakePendingRival(soldierCore, soldierIndex);
     if (rival == kNoRival)
@@ -1291,23 +1587,19 @@ static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, st
         g_nextScanMs[soldierIndex].store(now + kScanIntervalMs, std::memory_order_relaxed);
         scanned = true;
 
-        const std::uint32_t count = ReadSightEntries(soldierCore, soldierIndex, entries);
+        sightCount = ReadSightEntries(soldierCore, soldierIndex, entries);
         how = "spotted";
-        rival = PickRival(soldierCore, soldierIndex, entries, count);
+        rival = PickRival(soldierCore, soldierIndex, entries, sightCount);
         if (rival == kNoRival)
         {
             how = "sensed";
             rival = PickSensedRival(soldierCore, soldierIndex, now);
         }
+        if (rival == kNoRival)
+            rival = PickSensedHeli(soldierCore, soldierIndex, now);
     }
-    if (rival == kNoRival)
+    if (rival == kNoRival || !PushWalkerGearNotice(noticeController, soldierIndex, rival))
         return scanned;
-
-    if (!PushWalkerGearNotice(noticeController, soldierIndex, rival))
-    {
-        LogRefusal(soldierIndex, rival, now);
-        return scanned;
-    }
 
     g_rivalSeenMs[soldierIndex].store(now, std::memory_order_relaxed);
     g_rivalAliveMs[soldierIndex].store(now, std::memory_order_relaxed);
@@ -1315,12 +1607,8 @@ static bool RunSightCheck(void* noticeController, std::uint32_t soldierIndex, st
     g_rival[soldierIndex].store(rival, std::memory_order_relaxed);
     g_nextRepushMs[soldierIndex].store(now + kNoticeRepushMs, std::memory_order_relaxed);
 
-    const std::uint32_t rivalIndex = rival & kSoldierIndexMask;
-    AskRivalToFightBack(rivalIndex, static_cast<std::uint16_t>(0x400u | soldierIndex));
-
-    LogInfo("SoldierFaction: soldier %u (%s) %s rival %u (%s), engaging",
-        soldierIndex, FactionNameOf(FactionOf(soldierIndex)).c_str(), how,
-        rivalIndex, FactionNameOf(FactionOf(rivalIndex)).c_str());
+    if (IsSoldierId(rival))
+        AskRivalToFightBack(rival & kSoldierIndexMask, static_cast<std::uint16_t>(0x400u | soldierIndex));
     return scanned;
 }
 
@@ -1329,15 +1617,7 @@ void SoldierFaction_OnSightCheck(void* noticeController, std::uint32_t soldierIn
     if (!g_anyFaction.load(std::memory_order_relaxed) || !noticeController)
         return;
 
-    const std::int64_t start = PerfNow();
-    NotePerfGap(start);
-    const std::uint64_t now = GetTickCount64();
-
-    if (RunSightCheck(noticeController, soldierIndex, now))
-        g_perfScans.fetch_add(1, std::memory_order_relaxed);
-    g_perfChecks.fetch_add(1, std::memory_order_relaxed);
-    g_perfTicks.fetch_add(PerfNow() - start, std::memory_order_relaxed);
-    FlushPerfWindow(now);
+    RunSightCheck(noticeController, soldierIndex, GetTickCount64());
 }
 
 void SoldierFaction_WidenBulletRequest(void* bullet3, std::uint32_t requestIndex)
@@ -1350,12 +1630,13 @@ void SoldierFaction_WidenBulletRequest(void* bullet3, std::uint32_t requestIndex
         return;
 
     const std::uint16_t shooter = RiderOrSelf(owner);
+    if (!IsSoldierId(shooter))
+        return;
     const std::uint32_t shooterIndex = shooter & kSoldierIndexMask;
     if (g_mount[shooterIndex].load(std::memory_order_relaxed) == kNoMount)
         return;
     if (g_rival[shooterIndex].load(std::memory_order_relaxed) != kNoRival)
         g_lastShotMs[shooterIndex].store(GetTickCount64(), std::memory_order_relaxed);
-    LogMountShotOnce(owner, shooter);
 }
 
 void SoldierFaction_SetMount(std::uint32_t soldierIndex, std::uint16_t mountId)
@@ -1365,14 +1646,17 @@ void SoldierFaction_SetMount(std::uint32_t soldierIndex, std::uint16_t mountId)
     if (mountId == kNoMountInNode || IsSoldierId(mountId))
         mountId = kNoMount;
     if (g_mount[soldierIndex].load(std::memory_order_relaxed) == mountId)
+    {
+        if (mountId != kNoMount)   // a second rider of the same vehicle may have cleared it when his fight ended
+            PublishRider(mountId, static_cast<std::uint16_t>(0x400u | soldierIndex));
         return;
+    }
 
     ClearMount(soldierIndex);
     if (mountId == kNoMount)
         return;
     g_mount[soldierIndex].store(mountId, std::memory_order_relaxed);
     g_mountRider[mountId].store(static_cast<std::uint16_t>(0x400u | soldierIndex), std::memory_order_relaxed);
-    LogInfo("SoldierFaction: soldier %u fights from walker gear or vehicle 0x%04X", soldierIndex, mountId);
 }
 
 std::uint16_t SoldierFaction_RiderOrSelf(std::uint16_t gameObjectId)
@@ -1380,10 +1664,38 @@ std::uint16_t SoldierFaction_RiderOrSelf(std::uint16_t gameObjectId)
     return RiderOrSelf(gameObjectId);
 }
 
+bool SoldierFaction_IsMountId(std::uint16_t gameObjectId)
+{
+    const std::uint16_t category = gameObjectId >> 9;
+    return category == kCommonWalkerGearCategory || category == kVehicleCategory;
+}
+
+bool SoldierFaction_OnMountShot(std::uint16_t shooterId, std::uint16_t mountId, std::uint64_t targetGroups, bool vanillaHit)
+{
+    if (!g_anyFaction.load(std::memory_order_relaxed) || !IsSoldierId(shooterId) || !SoldierFaction_IsMountId(mountId))
+        return false;
+
+    const std::uint32_t shooterIndex = shooterId & kSoldierIndexMask;
+    const std::uint16_t mapped       = g_mountRider[mountId].load(std::memory_order_relaxed);
+    bool hostile = false;
+    for (std::uint32_t i = 0; i < kSoldierSlotCount; ++i)
+    {
+        const bool aboard = g_rideMount[i].load(std::memory_order_relaxed) == mountId
+            || (IsSoldierId(mapped) && (mapped & kSoldierIndexMask) == i);
+        if (!aboard || i == shooterIndex)
+            continue;
+        if (!AreHostile(shooterIndex, i))
+            continue;
+        hostile = true;
+        AskRivalToFightBack(i, shooterId);
+    }
+    return hostile;
+}
+
 void SoldierFaction_BeginShotScope(std::uint32_t shooterIndex, std::uint16_t rivalId)
 {
     t_shotScope.shooterIndex = shooterIndex & kSoldierIndexMask;
-    t_shotScope.rivalIndex   = rivalId & kSoldierIndexMask;
+    t_shotScope.rivalIndex   = IsSoldierId(rivalId) ? (rivalId & kSoldierIndexMask) : kSoldierSlotCount;   // a heli rival is no soldier slot
     t_shotScope.active       = true;
 }
 
@@ -1431,7 +1743,7 @@ void SoldierFaction_OnSoldierDamages(void* damageHandler, std::uint32_t victimIn
             continue;
 
         const std::uint16_t source = AttributeAttacker(soldierCore, attacker, attackId);
-        if (!self && IsSoldierId(source) && AreHostile(victimIndex, source & kSoldierIndexMask))
+        if (!self && AreHostileIds(victimId, source))   // a hostile soldier, or a hostile faction heli
         {
             damage[kDamageFlags] = static_cast<std::uint8_t>(damage[kDamageFlags] & ~kDamageFlagInstantKill);
             AskRivalToFightBack(victimIndex, source);
@@ -1441,11 +1753,11 @@ void SoldierFaction_OnSoldierDamages(void* damageHandler, std::uint32_t victimIn
         }
         if (!self && IsSoldierId(source) && (down || IsSoldierHarmlessAttack(attackId)))
             continue;
-        TaintNeutralization(victimIndex, source, attackId, down);
+        TaintNeutralization(victimIndex, source, attackId);
     }
 
     if (soldierCore && IsHeldUp(soldierCore, victimIndex))
-        TaintNeutralization(victimIndex, kTaintHoldUp, 0, down);
+        TaintNeutralization(victimIndex, kTaintHoldUp, 0);
     if (rivalCause != kNoRival && !down)
     {
         g_neutralizedBy[victimIndex].store(rivalCause, std::memory_order_relaxed);
@@ -1476,43 +1788,21 @@ void SoldierFaction_OnLifeStatusChanged(void* lifeController, std::uint32_t sold
             ResetNeutralization(soldierIndex);
         const void* soldierCore = lifeController ? ReadCorePointerSEH(lifeController, kLifeControllerCore) : nullptr;
         if (soldierCore && IsHeldUp(soldierCore, soldierIndex))
-            TaintNeutralization(soldierIndex, kTaintHoldUp, 0, false);
+            TaintNeutralization(soldierIndex, kTaintHoldUp, 0);
 
         const std::uint64_t now = GetTickCount64();
         const std::uint16_t causer = g_neutralizedBy[soldierIndex].load(std::memory_order_relaxed);
-        if (IsSoldierId(causer) && now - g_rivalHitMs[soldierIndex].load(std::memory_order_relaxed) > kCauseFreshMs)
+        const bool rivalCause = IsSoldierId(causer) || IsEnemyHeliId(causer);
+        if (rivalCause && now - g_rivalHitMs[soldierIndex].load(std::memory_order_relaxed) > kCauseFreshMs)
         {
             g_neutralizedBy[soldierIndex].store(kCauseStale, std::memory_order_relaxed);
-            LogInfo("SoldierFaction: soldier %u downed too long after rival %u's hit, vanilla reactions",
-                soldierIndex, causer & kSoldierIndexMask);
         }
         g_downMs[soldierIndex].store(now != 0 ? now : 1, std::memory_order_release);
-
-        if (RecordSaysFactionCaused(soldierIndex))
-        {
-            LogInfo("SoldierFaction: soldier %u downed by rival %u, rivals ignore his body",
-                soldierIndex, causer & kSoldierIndexMask);
-        }
-        else if (IsSoldierId(causer))
-        {
-            const std::uint64_t taint = g_taint[soldierIndex].load(std::memory_order_relaxed);
-            if (taint != 0)
-            {
-                char source[64];
-                DescribeTaint(taint, source, sizeof(source));
-                LogInfo("SoldierFaction: soldier %u downed by rival %u but also hit by %s, vanilla reactions",
-                    soldierIndex, causer & kSoldierIndexMask, source);
-            }
-        }
         return;
     }
 
     if (oldStatus != kLifeStatusAlive && status == kLifeStatusAlive)
-    {
-        if (RecordSaysFactionCaused(soldierIndex))
-            LogInfo("SoldierFaction: soldier %u is up again, rival kill record cleared", soldierIndex);
         ResetNeutralization(soldierIndex);
-    }
 }
 
 std::uint16_t SoldierFaction_GetRivalTarget(std::uint32_t soldierIndex)
@@ -1535,6 +1825,22 @@ const char* SoldierFaction_WhyRivalLost(const void* soldierCore, std::uint32_t s
     const std::uint16_t rival = SoldierFaction_GetRivalTarget(soldierIndex);
     if (rival == kNoRival || !soldierCore)
         return "no rival";
+
+    const std::uint64_t now = GetTickCount64();
+    if (IsEnemyHeliId(rival))
+    {
+        SoldierPoint self{};
+        SoldierPoint heli{};
+        if (!AreHostileIds(static_cast<std::uint16_t>(0x400u | soldierIndex), rival))
+            return "heli is no longer hostile";
+        if (!ReadHeliPoint(rival, now, &heli))
+            return "heli is gone, destroyed or unrealized";
+        if (!ReadSoldierPoint(soldierCore, soldierIndex, &self) || HorizontalDistanceSq(self, heli) > kHeliFightRangeSq)
+            return "heli is more than 150 m away";
+        if (now - g_rivalSeenMs[soldierIndex].load(std::memory_order_relaxed) > kRivalLostMs)
+            return "heli out of range for 30 s";
+        return nullptr;
+    }
 
     const std::uint32_t rivalIndex = rival & kSoldierIndexMask;
     if (!AreHostile(soldierIndex, rivalIndex))
@@ -1559,6 +1865,15 @@ void SoldierFaction_MarkFiring(std::uint32_t shooterIndex)
 bool SoldierFaction_ReadRivalAimPoint(const void* soldierCore, std::uint16_t rivalId, float* aimPoint)
 {
     SoldierPoint rival{};
+    if (IsEnemyHeliId(rivalId))
+    {
+        if (!ReadHeliPoint(rivalId, GetTickCount64(), &rival))
+            return false;
+        aimPoint[0] = rival.x;
+        aimPoint[1] = rival.y;
+        aimPoint[2] = rival.z;
+        return true;
+    }
     if (!soldierCore || !ReadSoldierPoint(soldierCore, rivalId & kSoldierIndexMask, &rival))
         return false;
     aimPoint[0] = rival.x;
@@ -1574,13 +1889,16 @@ bool SoldierFaction_IsShotAtRival(const void* soldierCore, std::uint32_t shooter
         return false;
 
     SoldierPoint rival{};
-    if (!ReadSoldierPoint(soldierCore, rivalId & kSoldierIndexMask, &rival))
+    const bool heli = IsEnemyHeliId(rivalId);
+    if (heli ? !ReadHeliPoint(rivalId, GetTickCount64(), &rival) : !ReadSoldierPoint(soldierCore, rivalId & kSoldierIndexMask, &rival))
         return false;
 
     const float dx = shotTarget[0] - rival.x;
     const float dz = shotTarget[2] - rival.z;
     const float dy = shotTarget[1] - rival.y;
-    return dx * dx + dz * dz <= kShotAtRivalRadiusSq && dy > -kShotAtRivalHeight && dy < kShotAtRivalHeight;
+    const float radiusSq = heli ? kShotAtHeliRadiusSq : kShotAtRivalRadiusSq;
+    const float height   = heli ? kShotAtHeliHeight : kShotAtRivalHeight;
+    return dx * dx + dz * dz <= radiusSq && dy > -height && dy < height;
 }
 
 void SoldierFaction_EndRivalFight(std::uint32_t soldierIndex, const char* reason)
@@ -1588,11 +1906,7 @@ void SoldierFaction_EndRivalFight(std::uint32_t soldierIndex, const char* reason
     if (soldierIndex >= kSoldierSlotCount)
         return;
     ClearMount(soldierIndex);
-    const std::uint16_t rival = g_rival[soldierIndex].exchange(kNoRival, std::memory_order_relaxed);
-    if (rival == kNoRival)
-        return;
-    LogInfo("SoldierFaction: soldier %u stopped fighting rival %u, %s",
-        soldierIndex, rival & kSoldierIndexMask, reason);
+    g_rival[soldierIndex].store(kNoRival, std::memory_order_relaxed);
 }
 
 void SoldierFaction_HideDownedRivals(void* noticeController, std::uint32_t soldierIndex, void* bodyTable,
@@ -1640,8 +1954,16 @@ bool SoldierFaction_ShouldDropNotice(void* noticeInterface, std::uint32_t soldie
         return false;
 
     ++t_ignoredNotices;
-    NoteIgnored(soldierIndex, soldier, "reported");
     return true;
+}
+
+bool SoldierFaction_IsRivalNotice(std::uint32_t soldierIndex, std::uint8_t noticeType, const void* notice)
+{
+    if ((noticeType != kNoticeTypeWalkerGear && noticeType != kNoticeTypeAntiAir) || !notice || !ObserverHasFaction(soldierIndex))
+        return false;
+    std::uint16_t target = kNoRival;
+    std::memcpy(&target, static_cast<const std::uint8_t*>(notice) + kNoticeTarget, sizeof(target));
+    return (IsSoldierId(target) || IsEnemyHeliId(target)) && AreHostileIds(static_cast<std::uint16_t>(0x400u | soldierIndex), target);
 }
 
 std::uint32_t SoldierFaction_IgnoredNoticeCount()
@@ -1662,8 +1984,6 @@ bool SoldierFaction_ShouldIgnoreNoise(void* noticeController, std::uint32_t sold
     std::uint16_t soldier = kNoBody;
     if (!soldierCore || !IsSoldierId(source) || !IgnoreBody(soldierCore, soldierIndex, source, true, &soldier))
         return false;
-
-    NoteIgnored(soldierIndex, soldier, "heard");
     return true;
 }
 

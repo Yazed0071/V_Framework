@@ -1,20 +1,6 @@
 #pragma once
 
-#include <cstdint>
-
-
-void Add_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer);
-
-
-void Remove_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId);
-
-
-void Clear_VIPHoldupImportantGameObjectIds();
-
-
-bool IsVIPHoldupImportantSoldierIndex(std::uint16_t soldierIndex, bool* outIsOfficer);
-
-void Reset_CustomNonVipRecoveryTracking();
+void VIPHoldup_ClearForReload();   // recovery cooldowns and latches, keeps the VIP list
 
 
 bool Install_VIPHoldup_Hook();

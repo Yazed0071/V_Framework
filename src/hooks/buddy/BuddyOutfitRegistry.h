@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace buddyoutfit
 {
@@ -12,12 +13,14 @@ namespace buddyoutfit
         HorseTack,
         DogGear,
         QuietWeapon,
+        WalkerSidearm,
         Count
     };
 
-    constexpr std::uint8_t kBuddyTypeHorse = 1;
-    constexpr std::uint8_t kBuddyTypeDog   = 2;
-    constexpr std::uint8_t kBuddyTypeQuiet = 3;
+    constexpr std::uint8_t kBuddyTypeHorse  = 1;
+    constexpr std::uint8_t kBuddyTypeDog    = 2;
+    constexpr std::uint8_t kBuddyTypeQuiet  = 3;
+    constexpr std::uint8_t kBuddyTypeWalker = 4;
 
     constexpr std::size_t kValueBitWords     = 256 / 32;
     constexpr std::size_t kDevelopIdBitWords = 65536 / 32;
@@ -28,7 +31,10 @@ namespace buddyoutfit
     constexpr std::size_t kVarHorseTack    = 0x2E61;
     constexpr std::size_t kVarMissionCode  = 0x12;
 
-    constexpr std::int32_t kDevTypeQuiet = 23;
+    constexpr std::int32_t kDevTypeQuiet      = 23;
+    constexpr std::int32_t kDevTypeWalkerGear = 26;
+
+    constexpr std::uint8_t kWalkerSlotSidearm = 2;
 
     constexpr std::uint8_t  kHorseVanillaTackCount = 7;
     constexpr std::uint16_t kHorseKeepDamageRate   = 0xFFFF;
@@ -86,6 +92,9 @@ namespace buddyoutfit
     bool TryGetByValue(Kind kind, std::uint8_t value, Entry* out);
     bool TryGetByKey(const char* key, Entry* out);
     bool HasEntries();
+
+    std::vector<std::int32_t> NonBuddyRowEquipIds();
+    std::uint32_t             DevelopRowsGeneration();
 
     std::uint32_t* ValueBits(Kind kind);
     std::uint32_t* DevelopIdBits(Kind kind);

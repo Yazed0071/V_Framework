@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "WeaponPartsDevelopControllerImpl_GetLangEnhanceInfoMessageIdArray.h"
 
 #include <Windows.h>
@@ -118,7 +118,7 @@ namespace
             const std::uint32_t nc = g_customCount.load(std::memory_order_acquire);
             for (std::uint32_t i = 0; i < count; ++i)
             {
-                if (perPart[i * 0x28] != partId)
+                if (perPart[i * 0x28] != static_cast<std::uint8_t>(partId)) // partId is a signed char, ids go to 0xEA
                     continue;
                 for (std::uint32_t b = 0; b < 6; ++b)
                 {

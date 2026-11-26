@@ -1,8 +1,9 @@
-#include "pch.h"
+#include <pch.h>
 #include "GameOverMusic.h"
 
 #include <Windows.h>
 #include <cstring>
+#include <unordered_map>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -10,6 +11,15 @@
 
 namespace
 {
+    struct PatchSite
+    {
+        std::uint8_t written[sizeof(unsigned int)] = {};
+        bool         ours   = false;
+        bool         warned = false;
+    };
+
+    std::unordered_map<uintptr_t, PatchSite> g_Sites;
+
     bool TogglePatch(bool isEnable,
                      uintptr_t pointer,
                      SIZE_T dwSize,
@@ -31,6 +41,38 @@ namespace
             return false;
         }
 
+        PatchSite& site = g_Sites[pointer];
+        std::uint8_t live[sizeof(site.written)] = {};
+        if (dwSize > sizeof(live) || !ReadEntryBytesSEH(target, live, dwSize))
+        {
+            LogWarn("GameOverMusic: site 0x%llX unreadable, game-over music unchanged",
+                    static_cast<unsigned long long>(pointer));
+            return false;
+        }
+
+        const bool holdsVanilla = std::memcmp(live, originalBytes, dwSize) == 0;
+        const bool holdsNew     = std::memcmp(live, enabledBytes, dwSize) == 0;
+        const bool holdsOurs    = site.ours && std::memcmp(live, site.written, dwSize) == 0;
+
+        if (isEnable ? holdsNew : holdsVanilla)
+        {
+            site.ours = isEnable;
+            if (isEnable)
+                std::memcpy(site.written, enabledBytes, dwSize);
+            return true;
+        }
+
+        if (!holdsVanilla && !holdsOurs)
+        {
+            if (!site.warned)
+            {
+                site.warned = true;
+                LogWarn("GameOverMusic: another module changed the site 0x%llX, this part of the game-over music is off",
+                        static_cast<unsigned long long>(pointer));
+            }
+            return false;
+        }
+
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, dwSize, PAGE_EXECUTE_READWRITE, &oldProtect))
         {
@@ -41,6 +83,9 @@ namespace
 
         const std::uint8_t* src = isEnable ? enabledBytes : originalBytes;
         std::memcpy(target, src, dwSize);
+        site.ours = isEnable;
+        if (isEnable)
+            std::memcpy(site.written, enabledBytes, dwSize);
 
         DWORD restored = 0;
         VirtualProtect(target, dwSize, oldProtect, &restored);

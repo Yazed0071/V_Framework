@@ -17,3 +17,7 @@ void Reset_PlayerVoiceLiveSlot();
 
 
 std::uint32_t Get_EffectivePlayerVoiceType(std::uint32_t playerType);
+
+constexpr std::uint32_t kPlayerVoiceTypeEli = 0x2192FF2Fu;   // "eli"
+
+std::uint64_t Get_BuiltInVoiceFpkForVoiceType(std::uint32_t voiceType);

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_HostageRideVehicleActionImpl_State_GetInAction_Hooks();
+void Uninstall_HostageRideVehicleActionImpl_State_GetInAction_Hooks();

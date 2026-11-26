@@ -1,13 +1,15 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
     #include "lauxlib.h"
 }
 
+#include <algorithm>
 #include <cstdint>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "V_TppCollectionLib.h"
 #include "../hooks/collection/TppCollectionRuntime.h"
@@ -210,7 +212,7 @@ namespace
 
         std::uint64_t langId = 0;
         if (LuaIsNumber(L, 2))
-            langId = static_cast<std::uint64_t>(static_cast<std::int64_t>(GetLuaNumber(L, 2)));
+            langId = GetLuaInt64(L, 2);
         else if (const char* key = GetLuaString(L, 2))
             if (*key)
                 langId = FoxHashes::StrCode64(key);
@@ -220,6 +222,45 @@ namespace
     }
 
 
+    static void SetNumberField(lua_State* L, const char* key, double value)
+    {
+        g_lua_pushstring(L, const_cast<char*>(key));
+        g_lua_pushnumber(L, value);
+        g_lua_settable(L, -3);
+    }
+
+    // {index, type, collected, x, y, z} for every collectible the iDroid map shows
+    static int __cdecl l_GetMapCollections(lua_State* L)
+    {
+        constexpr std::size_t kTableRows = 0x4000;   // the most rows TppCollection_GetMapCollections reads
+        std::vector<TppCollectionMapEntry> entries(512);
+        int count = TppCollection_GetMapCollections(entries.data(), static_cast<int>(entries.size()));
+        while (count == static_cast<int>(entries.size()) && entries.size() < kTableRows)
+        {
+            entries.resize((std::min)(entries.size() * 4, kTableRows));
+            count = TppCollection_GetMapCollections(entries.data(), static_cast<int>(entries.size()));
+        }
+        if (count < 0)
+            return 0;
+        g_lua_createtable(L, count, 0);
+        for (int i = 0; i < count; ++i)
+        {
+            const TppCollectionMapEntry& e = entries[i];
+            g_lua_pushnumber(L, static_cast<double>(i + 1));
+            g_lua_createtable(L, 0, 6);
+            SetNumberField(L, "index", e.index);
+            SetNumberField(L, "type", e.type);
+            g_lua_pushstring(L, const_cast<char*>("collected"));
+            g_lua_pushboolean(L, e.collected ? 1 : 0);
+            g_lua_settable(L, -3);
+            SetNumberField(L, "x", e.x);
+            SetNumberField(L, "y", e.y);
+            SetNumberField(L, "z", e.z);
+            g_lua_settable(L, -3);
+        }
+        return 1;
+    }
+
     static luaL_Reg g_VTppCollectionLib[] =
     {
         { "AddCollection",            l_AddCollection },
@@ -227,6 +268,7 @@ namespace
         { "RegisterCollectionType",   l_RegisterCollectionType },
         { "SetCollectionTypeIcon",    l_SetCollectionTypeIcon },
         { "SetCollectionTypeLangId",  l_SetCollectionTypeLangId },
+        { "GetMapCollections",        l_GetMapCollections },
 
         { nullptr, nullptr }
     };

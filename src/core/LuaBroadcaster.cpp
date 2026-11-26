@@ -1,10 +1,12 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
 }
 
+#include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <vector>
 
@@ -14,6 +16,7 @@ extern "C" {
 #include "log.h"
 #include "LuaBroadcaster.h"
 #include "../lua/FrameCallbacks.h"
+#include "../lua/WindowPages.h"
 
 namespace EquipDevelopAdd
 {
@@ -30,8 +33,20 @@ namespace SupportStockLease
     void Pump();
 }
 
+namespace battleGear
+{
+    void Pump();
+}
+
+void EquipParam_SaveBulletLanes();
 void AudioVolume_Pump();
 void FieldTaxi_PumpUi();
+void HeliSearchLight_Pump();
+void SoldierRideHeli_Pump();
+void SoldierThrow_Pump();
+void FobRadio_Pump();
+void MotherBaseMapCommonData_IsDangerLandingZone_Watch();
+void EquipParam_EnforceFobVanilla();
 
 namespace
 {
@@ -47,8 +62,27 @@ namespace
     using lua_tolstring_t = const char* (__fastcall*)(lua_State*, int, size_t*);
     using lua_pushvalue_t = void (__fastcall*)(lua_State*, int);
     using lua_rawset_t    = void (__fastcall*)(lua_State*, int);
+    using LuaPushVector3_t = void (__fastcall*)(lua_State*, const float*);   // fox::LuaPushVector3, reads 16 aligned bytes
 
     static constexpr int LUA_GLOBALSINDEX_51 = -10002;
+
+    constexpr std::uint8_t kLuaPushVector3Entry[] = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x50, 0x0F, 0x29, 0x74, 0x24, 0x40, 0x0F,
+                                                      0x29, 0x7C, 0x24, 0x30, 0x0F, 0x28, 0x3A, 0xBA, 0x0C, 0x00, 0x00, 0x00 };
+
+    LuaPushVector3_t LuaPushVector3()   // no Lua call inside: safe in the SEH push below
+    {
+        static const LuaPushVector3_t pushVector3 = []() -> LuaPushVector3_t
+        {
+            void* target = gAddr.Fox_LuaPushVector3 ? ResolveGameAddress(gAddr.Fox_LuaPushVector3) : nullptr;
+            if (!target || CheckHookEntry(target, kLuaPushVector3Entry, sizeof(kLuaPushVector3Entry)) == HookEntry::Unknown)
+            {
+                LogWarn("LuaBroadcast: fox::LuaPushVector3 missing or different on this build, Vector3 message arguments arrive as nil");
+                return nullptr;
+            }
+            return reinterpret_cast<LuaPushVector3_t>(target);
+        }();
+        return pushVector3;
+    }
 
     template <typename Fn>
     static Fn ResolveLua(uintptr_t resolvedAddr)
@@ -115,6 +149,17 @@ namespace
     }
 
     thread_local int g_luaPcallDepth = 0;
+    thread_local bool g_inPumps = false;
+    thread_local const char* g_deliveredCategory = nullptr;   // the message EmitInline is handing to Lua on this thread
+    thread_local const char* g_deliveredMsg = nullptr;
+    thread_local int g_deliveredFirstArg = 0;
+
+    struct PumpWindow
+    {
+        bool outer = g_inPumps;
+        PumpWindow() { g_inPumps = true; }
+        ~PumpWindow() { g_inPumps = outer; }
+    };
 
     struct DeferredBroadcast
     {
@@ -128,9 +173,7 @@ namespace
 
     static bool SafeToEmitInline()
     {
-        if (GetCurrentThreadId() != V_FrameWork_LuaOwnerThreadId())
-            return false;
-        return g_luaPcallDepth == 0;
+        return g_inPumps && g_luaPcallDepth == 0;   // the pumps after the owner thread's outermost lua_pcall; job workers queue
     }
 
     static void EnqueueDeferredBroadcast(const char* category,
@@ -155,7 +198,7 @@ namespace
     static constexpr std::size_t kLuaStateStackLastOffset = 0x38;
     static constexpr std::size_t kCallInfoTopOffset       = 0x10;
     static constexpr std::size_t kLuaTValueSize           = 0x10;
-    static constexpr int         kBroadcastPushSlots      = 9;
+    static constexpr int         kBroadcastPushSlots      = 10;   // 9 pushed, +1 while a Vector3 gets its metatable
     static constexpr int         kImplausibleFreeSlots    = 1000000;
     static constexpr int         kMaxHazardLogLines       = 20;
 
@@ -296,6 +339,19 @@ namespace
             lua.pushstring(L, const_cast<char*>(arg.stringValue.c_str()));
             return true;
         }
+
+        case Type::Vector3:
+        {
+            const LuaPushVector3_t pushVector3 = LuaPushVector3();
+            if (!pushVector3)
+            {
+                lua.pushnil(L);
+                return true;
+            }
+            alignas(16) const float value[4] = { arg.vector[0], arg.vector[1], arg.vector[2], 0.0f };
+            pushVector3(L, value);
+            return true;
+        }
         }
 
         return false;
@@ -322,7 +378,6 @@ namespace
 
 }
 
-// swaps the game's message resend counter; false when it cannot be read
 static bool ExchangeCounterSEH(volatile std::uint32_t* counter, std::uint32_t value, std::uint32_t& old)
 {
     __try
@@ -334,8 +389,6 @@ static bool ExchangeCounterSEH(volatile std::uint32_t* counter, std::uint32_t va
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-// pushes TppMain.OnMessage and its 7 arguments; false when there is no OnMessage or a push faults (the caller puts
-// the stack back)
 static bool PushBroadcastSEH(lua_State* L, const LuaApi& lua, int top, const char* category, const char* msg,
     const V_FrameWork::LuaBroadcastArg* args, int argCount)
 {
@@ -410,6 +463,8 @@ static void EmitInline(const char* category,
     if (!BroadcastStackHasRoom(L, category, msg))
         return;
 
+    LuaPushVector3();   // its first call sets up a static, kept outside the SEH push
+
     static thread_local int s_dispatchDepth = 0;
     if (s_dispatchDepth >= 8)
     {
@@ -429,29 +484,42 @@ static void EmitInline(const char* category,
     std::uint32_t savedCounter = 0;
     const bool counterSet = counter && ExchangeCounterSEH(counter, 0xFFFFu, savedCounter);
 
-    // the call itself is outside any __try: a fault unwound through the hooked lua_pcall would skip ExitLuaPcall and
-    // Lua's own state restore, so it has to reach the game's crash handler instead
-    if (PushBroadcastSEH(L, lua, savedTop, category, msg, args, argCount) && lua.pcall(L, 7, 0, 0) != 0)
+    const char* const outerCategory = g_deliveredCategory;
+    const char* const outerMsg = g_deliveredMsg;
+    const int outerFirstArg = g_deliveredFirstArg;
+    g_deliveredCategory = category;
+    g_deliveredMsg = msg;
+    g_deliveredFirstArg = args && argCount > 0 && args[0].type == V_FrameWork::LuaBroadcastArg::Type::Number
+        ? static_cast<int>(args[0].number) : 0;
+
+    __try
     {
-        static int s_errLines = 0;
-        if (s_errLines < kMaxHazardLogLines)
+        if (PushBroadcastSEH(L, lua, savedTop, category, msg, args, argCount) && lua.pcall(L, 7, 0, 0) != 0)
         {
-            ++s_errLines;
-            const char* errMsg =
-                lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
-            LogWarn("LuaBroadcast: %s.%s: TppMain.OnMessage error: %s",
-                category, msg, errMsg ? errMsg : "(no message)");
+            static int s_errLines = 0;
+            if (s_errLines < kMaxHazardLogLines)
+            {
+                ++s_errLines;
+                const char* errMsg =
+                    lua.tolstring ? lua.tolstring(L, -1, nullptr) : nullptr;
+                LogWarn("LuaBroadcast: %s.%s: TppMain.OnMessage error: %s",
+                    category, msg, errMsg ? errMsg : "(no message)");
+            }
         }
+        lua.settop(L, savedTop);
     }
-
-    if (counterSet)
+    __finally   // also on a fault or longjmp out of the handlers: the resend counter and the depth come back
     {
-        std::uint32_t ignored = 0;
-        ExchangeCounterSEH(counter, savedCounter, ignored);
+        if (counterSet)
+        {
+            std::uint32_t ignored = 0;
+            ExchangeCounterSEH(counter, savedCounter, ignored);
+        }
+        g_deliveredCategory = outerCategory;
+        g_deliveredMsg = outerMsg;
+        g_deliveredFirstArg = outerFirstArg;
+        --s_dispatchDepth;
     }
-    lua.settop(L, savedTop);
-
-    --s_dispatchDepth;
 }
 
 void V_FrameWork::EmitMessageValues(const char* category,
@@ -506,6 +574,40 @@ void V_FrameWork::EnterLuaPcall()
     ++g_luaPcallDepth;
 }
 
+void V_FrameWork::AbandonLuaPcall()
+{
+    if (g_luaPcallDepth > 0)
+        --g_luaPcallDepth;
+}
+
+bool V_FrameWork::DeliveringMessage(const char* category, const char* msg, int& firstArg)
+{
+    if (!g_deliveredCategory || !g_deliveredMsg || std::strcmp(g_deliveredCategory, category) != 0
+        || std::strcmp(g_deliveredMsg, msg) != 0)
+        return false;
+    firstArg = g_deliveredFirstArg;
+    return true;
+}
+
+bool V_FrameWork::InsideGameLua()
+{
+    return g_luaPcallDepth > 0 || g_inPumps;
+}
+
+bool V_FrameWork::OnLuaOwnerThread()
+{
+    const unsigned long owner = V_FrameWork_LuaOwnerThreadId();
+    const unsigned long self = GetCurrentThreadId();
+    if (owner == 0 || owner == self)
+        return true;
+
+    static std::atomic<int> s_logged{ 0 };
+    if (s_logged.fetch_add(1, std::memory_order_relaxed) < 4)
+        LogWarn("LuaPump: a game lua_pcall ended on job worker %lu, not the Lua owner thread %lu; "
+            "its pumps and registrations wait for the owner thread", self, owner);
+    return false;
+}
+
 bool V_FrameWork::LuaStackHasRoom(lua_State* L, int slots)
 {
     LuaStackHeadroom room{};
@@ -519,12 +621,24 @@ void V_FrameWork::ExitLuaPcall()
     if (--g_luaPcallDepth <= 0)
     {
         g_luaPcallDepth = 0;
+        if (!OnLuaOwnerThread())   // a mission block script on a job worker: the pumps drive main-thread game state
+            return;
+        const PumpWindow window;
+        EquipParam_EnforceFobVanilla();
         DrainDeferredBroadcasts();
         EquipDevelopAdd::PumpDevelopMenuWork();
         RankLimitedItems::Pump();
+        battleGear::Pump();
         SupportStockLease::Pump();
+        EquipParam_SaveBulletLanes();
         AudioVolume_Pump();
         FieldTaxi_PumpUi();
+        HeliSearchLight_Pump();
+        SoldierRideHeli_Pump();
+        SoldierThrow_Pump();
+        FobRadio_Pump();
+        MotherBaseMapCommonData_IsDangerLandingZone_Watch();
         FrameCallbacks::Run();
+        WindowPages::Run();
     }
 }

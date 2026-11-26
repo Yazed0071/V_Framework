@@ -5,6 +5,7 @@
 namespace CallComradeCommand
 {
     void          Initialize();
+    void          ClearForReload();   // an order in flight at the checkpoint
     bool          Exec(std::uint8_t* execParam, std::uint8_t* block);
     std::uint64_t Label();
     std::uint64_t Help();

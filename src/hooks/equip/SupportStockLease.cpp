@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "SupportStockLease.h"
 
 #include <Windows.h>
@@ -587,6 +587,12 @@ namespace SupportStockLease
     bool IsReservedStockByte(int value)
     {
         return IsPoolByte(value);
+    }
+
+    bool IsStockIdHeld(int stock)
+    {
+        const std::uint8_t* vars = GoneEquipCleanup::ScriptVars();
+        return !vars || stock <= 0 || stock > 0xFF || StockHeldSafely(vars, static_cast<std::uint8_t>(stock));
     }
 
     std::int32_t EquipOfLentByte(std::uint8_t stock)

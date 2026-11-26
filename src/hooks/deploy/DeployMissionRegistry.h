@@ -124,6 +124,7 @@ namespace deployMission
 
     bool RewardRowFor(std::uint16_t id, std::uint8_t& row);
     void EnsureRewardRowsWritten();
+    bool VanillaRewardMaximums(std::int32_t& gmp, std::int32_t& staff, std::int32_t& resources);   // the largest any vanilla dispatch reward pays: FOB-safe caps
 
     ScriptAddResult AddScriptMission(const char* key);
     void            MarkCompleted(std::uint16_t id);

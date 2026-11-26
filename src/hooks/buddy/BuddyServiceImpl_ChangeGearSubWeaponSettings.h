@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BuddyServiceImpl_ChangeGearSubWeaponSettings_Patch();
+bool Uninstall_BuddyServiceImpl_ChangeGearSubWeaponSettings_Patch();

@@ -3,43 +3,45 @@
 #include <cstdint>
 
 
+enum class CpPhaseTimer : std::uint8_t
+{
+    Caution,
+    Evasion,
+    Alert,
+};
+
+
 bool Install_CautionStepNormalTimerHook();
 
 
 bool Uninstall_CautionStepNormalTimerHook();
 
 
-void Set_CautionStepNormalDurationSeconds(float seconds);
+void Set_CpPhaseDurationSeconds(CpPhaseTimer phase, float seconds);
 
 
-float Get_CautionStepNormalDurationSeconds();
+void Unset_CpPhaseDurationSeconds(CpPhaseTimer phase);
 
 
-void Unset_CautionStepNormalDurationSeconds();
+float Get_CpPhaseDurationSeconds(CpPhaseTimer phase);
 
 
-void Set_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex, float seconds);
+void Set_CpPhaseDurationSecondsForCp(CpPhaseTimer phase, std::uint32_t cpIndex, float seconds);
 
 
-void Unset_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex);
+void Unset_CpPhaseDurationSecondsForCp(CpPhaseTimer phase, std::uint32_t cpIndex);
 
 
-void Clear_AllCautionStepNormalDurationOverrides();
+float Get_CpPhaseDurationSecondsForCp(CpPhaseTimer phase, std::uint32_t cpIndex);
 
 
-void Set_PendingCautionDurationForCp(float seconds);
+float Get_CpPhaseRemainingSecondsForCp(CpPhaseTimer phase, std::uint32_t cpIndex);
 
 
-float Get_CautionStepNormalRemainingSeconds();
+void Clear_AllCpPhaseDurationOverrides();
 
 
-void Arm_CautionCpCapture();
+void Arm_CpIndexCapture();
 
 
-std::uint32_t Take_CautionCpIndex();
-
-
-float Get_CautionStepNormalDurationSecondsForCp(std::uint32_t cpIndex);
-
-
-float Get_CautionStepNormalRemainingSecondsForCp(std::uint32_t cpIndex);
+std::uint32_t Take_CapturedCpIndex();

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "EquipDevelopControllerImpl_GetItemNameMessageId.h"
 
@@ -299,6 +299,7 @@ namespace outfit
             if (!CreateAndEnableHook(g_Slots[i].target, DetourFor(i),
                                      reinterpret_cast<void**>(&g_Slots[i].orig)))
             {
+                DisableAndRemoveHook(g_Slots[i].target);   // drop a half-made hook so a retry starts clean
                 g_Slots[i].orig = nullptr;
                 LogError("UniqueOwnSuit: %s accessor hook failed at %p, own-suit rows "
                          "keep the vanilla label", g_Slots[i].what, g_Slots[i].target);
@@ -309,7 +310,14 @@ namespace outfit
 
         if (hooked != kLabelCount)
         {
-            Uninstall_OwnSuitRowLabel_Hooks();
+            for (LabelSlot& slot : g_Slots)
+            {
+                if (!slot.orig) continue;
+                DisableAndRemoveHook(slot.target);
+                slot.orig   = nullptr;
+                slot.target = nullptr;
+            }
+            g_GaveUpLogged.store(true, std::memory_order_relaxed);   // keep the scan counter so the retry cap still applies
             return false;
         }
 

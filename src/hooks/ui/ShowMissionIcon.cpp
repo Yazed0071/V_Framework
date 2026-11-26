@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ShowMissionIcon.h"
 
 #include <Windows.h>
@@ -14,8 +14,10 @@ namespace
 {
     static bool          g_Installed       = false;
     static std::uint8_t* g_Thunk           = nullptr;
-    static std::uint8_t  g_OrigCallBytes[6]{};
+    static bool          g_ThunkFromArena  = false;   // arena pages are not allocation bases, VirtualFree would fail on them
+    static std::uint8_t  g_PatchBytes[6]{};
     static void*         g_PatchedCallSite = nullptr;
+    static constexpr std::uint8_t kVanillaCall[6] = { 0xFF, 0x93, 0x50, 0x07, 0x00, 0x00 };   // call [rbx+0x750], the call the thunk replays
     static std::mutex    g_OverrideMutex;
 
     static constexpr std::size_t kThunkSize          = 64;
@@ -25,8 +27,12 @@ namespace
 
     static void* AllocateThunkNear(std::uintptr_t nearAddr, std::size_t size)
     {
+        g_ThunkFromArena = false;
         if (void* arena = HookArena::AllocateNear(nearAddr, size))
+        {
+            g_ThunkFromArena = true;
             return arena;
+        }
         SYSTEM_INFO si{};
         GetSystemInfo(&si);
         const std::uintptr_t granularity = si.dwAllocationGranularity;
@@ -143,6 +149,13 @@ bool Install_ShowMissionIcon_Hook()
         return false;
     }
 
+    std::uint8_t live[6]{};
+    if (!ReadEntryBytesSEH(callSite, live, sizeof(live)) || std::memcmp(live, kVanillaCall, sizeof(live)) != 0)
+    {
+        LogWarn("ShowMissionIcon: title call site is not the game's original call (another module changed it), title override off");
+        return false;
+    }
+
     g_Thunk = reinterpret_cast<std::uint8_t*>(
         AllocateThunkNear(reinterpret_cast<std::uintptr_t>(callSite), 0x1000));
     if (!g_Thunk)
@@ -162,7 +175,8 @@ bool Install_ShowMissionIcon_Hook()
     if (rel < INT32_MIN || rel > INT32_MAX)
     {
         LogError("ShowMissionIcon: thunk out of rel32 range, title override off");
-        VirtualFree(g_Thunk, 0, MEM_RELEASE);
+        if (!g_ThunkFromArena)
+            VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         return false;
     }
@@ -177,12 +191,13 @@ bool Install_ShowMissionIcon_Hook()
     if (!VirtualProtect(callSite, 6, PAGE_EXECUTE_READWRITE, &oldProtect))
     {
         LogError("ShowMissionIcon: call site VirtualProtect failed, title override off");
-        VirtualFree(g_Thunk, 0, MEM_RELEASE);
+        if (!g_ThunkFromArena)
+            VirtualFree(g_Thunk, 0, MEM_RELEASE);
         g_Thunk = nullptr;
         return false;
     }
 
-    std::memcpy(g_OrigCallBytes, callSite, 6);
+    std::memcpy(g_PatchBytes, patch, 6);
     std::memcpy(callSite, patch, 6);
 
     DWORD tmp = 0;
@@ -199,15 +214,25 @@ bool Uninstall_ShowMissionIcon_Hook()
 {
     if (!g_Installed) return true;
 
+    bool restored = !g_PatchedCallSite;
     if (g_PatchedCallSite)
     {
-        DWORD oldProtect = 0;
-        if (VirtualProtect(g_PatchedCallSite, 6, PAGE_EXECUTE_READWRITE, &oldProtect))
+        std::uint8_t live[6]{};
+        if (!ReadEntryBytesSEH(g_PatchedCallSite, live, sizeof(live)) || std::memcmp(live, g_PatchBytes, sizeof(live)) != 0)
         {
-            std::memcpy(g_PatchedCallSite, g_OrigCallBytes, 6);
-            DWORD tmp = 0;
-            VirtualProtect(g_PatchedCallSite, 6, oldProtect, &tmp);
-            FlushInstructionCache(GetCurrentProcess(), g_PatchedCallSite, 6);
+            LogWarn("ShowMissionIcon: title call site no longer holds our jump (another module changed it), left as it is and the thunk stays in place");
+        }
+        else
+        {
+            DWORD oldProtect = 0;
+            if (VirtualProtect(g_PatchedCallSite, 6, PAGE_EXECUTE_READWRITE, &oldProtect))
+            {
+                std::memcpy(g_PatchedCallSite, kVanillaCall, 6);
+                DWORD tmp = 0;
+                VirtualProtect(g_PatchedCallSite, 6, oldProtect, &tmp);
+                FlushInstructionCache(GetCurrentProcess(), g_PatchedCallSite, 6);
+                restored = true;
+            }
         }
         g_PatchedCallSite = nullptr;
     }
@@ -216,7 +241,17 @@ bool Uninstall_ShowMissionIcon_Hook()
         std::lock_guard<std::mutex> lock(g_OverrideMutex);
         if (g_Thunk)
         {
-            VirtualFree(g_Thunk, 0, MEM_RELEASE);
+            if (restored)
+            {
+                if (!g_ThunkFromArena)
+                    VirtualFree(g_Thunk, 0, MEM_RELEASE);
+            }
+            else
+            {
+                g_Thunk[kFlagOffsetInThunk] = 0x00;
+                std::uint64_t zero = 0;
+                std::memcpy(g_Thunk + kHashOffsetInThunk, &zero, 8);
+            }
             g_Thunk = nullptr;
         }
     }

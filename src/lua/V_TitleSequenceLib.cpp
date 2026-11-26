@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <cstdint>
 #include <string>
@@ -23,7 +23,6 @@ namespace
     {
         const std::uint64_t before = AccSeatIdleMotion_Replacement();
         const bool ok = AccSeatIdleMotion_Set(clip);
-        LogInfo("SetMotion: 0x%016llX (was 0x%016llX, ok %d)", clip, before, ok ? 1 : 0);
         if (ok && AccSeatIdleMotion_Replacement() != before)
             AccIDroidPutAway_RequestSeatIdleRestart();
         return ok;

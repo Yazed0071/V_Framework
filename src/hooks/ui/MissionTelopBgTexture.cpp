@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "MissionTelopBgTexture.h"
 
 #include <Windows.h>
@@ -198,7 +198,7 @@ void Set_MissionTelopSplashTexturePath(const char* path, std::uint32_t missionCo
 
 void Unset_MissionTelopSplashTexturePath(std::uint32_t missionCode)
 {
-    g_Textures.Clear(missionCode);
+    g_Textures.Unset(missionCode);
 }
 
 bool Install_MissionTelopBgTexture_Hook()

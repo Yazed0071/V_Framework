@@ -21,10 +21,11 @@ namespace CpRadioResponse
     void          OnSoldierDown(std::uint16_t soldierIndex);   // knocked out, asleep or dead: a line he's saying gets cut
     bool          CpOpensCallTo(std::uint16_t soldierIndex);   // the call he's on was asked by his CP and starts with the CP talking
     bool          CpPhaseOf(std::uint16_t soldierIndex, std::uint32_t& cp, std::int32_t& phase);   // his CP and the phase it is in
+    std::uint32_t ReportMissing(const std::uint16_t* soldierIndices, std::uint32_t count, std::uint32_t team = 0);   // a team taken out: their CP waits on one report from them; team 0 starts a new one, the team is returned
 
     enum class SoldierNode : std::uint8_t
     {
-        Check,   // checking the power, a camera, a noise or something half-seen, he reports back once done
+        Check,
         Held,    // CQC hold or hold-up
     };
     void          OnSoldierNode(std::uint16_t soldierIndex, SoldierNode node, bool awake);

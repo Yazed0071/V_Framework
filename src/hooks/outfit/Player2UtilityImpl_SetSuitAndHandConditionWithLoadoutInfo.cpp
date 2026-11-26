@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h"
 #include "OutfitRegistry.h"
@@ -151,7 +151,7 @@ namespace
                                     outfit::TryGetCustomHeadByEquipId(
                                         pendingHead))
                                 {
-                                    slot = head->slotByte;
+                                    slot = outfit::BorrowCustomHeadSlot(head->equipId, true);
                                     if (liveIsVanillaExt
                                         && !outfit::VanillaExtHasHeadOption(
                                                livePT, pendingHead, liveType,
@@ -688,8 +688,20 @@ namespace
                 return true;
             }
 
+            std::uint8_t wornVariant = resolvedVariantValid ? resolvedVariantIdx
+                : chosen->HasVariants() ? outfit::GetActiveVariant(chosen->partsType) : std::uint8_t{ 0 };
+            const outfit::OutfitEntry* byCode = nullptr;
+            std::uint8_t codeVariant = 0;
+            if (!resolvedVariantValid
+                && camoType >= outfit::kCustomSelectorStart && camoType <= outfit::kCustomSelectorEnd
+                && outfit::TryGetOutfitByVariantSelector(camoType, &byCode, &codeVariant)
+                && byCode == chosen)
+                wornVariant = codeVariant;   // the camo names the look, as a vanilla camo would
+            if (!resolvedVariantValid && chosen->HasVariants())
+                outfit::SetActiveVariant(chosen->partsType, wornVariant);
             base[kInfoOff_PartsType] = chosen->partsType;
-            base[kInfoOff_CamoType]  = chosen->selectorCode;
+            const std::uint8_t wornCode = outfit::EnsureOutfitLookCode(chosen->developId, wornVariant);
+            base[kInfoOff_CamoType]  = wornCode != 0xFF ? wornCode : chosen->GetVariantSelectorCode(wornVariant);
 
 
             if (resolvedVariantValid)
@@ -777,7 +789,7 @@ namespace
             outfit::NoteOutfitApplied(chosen->developId);
             uniquecharpin::RememberCustom(
                 static_cast<std::uint8_t>(effectivePT),
-                chosen->partsType, chosen->selectorCode);
+                chosen->partsType, base[kInfoOff_CamoType]);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -977,7 +989,7 @@ namespace
         if (shouldSuppressSlotApply)
         {
             if (g_Orig)
-                g_Orig(self, info);
+                hkSetSuit(self, info);
 
 
             __try

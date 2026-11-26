@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BasicAction2Impl_State_ChangeStandOrSquat_Hook();
+bool Uninstall_BasicAction2Impl_State_ChangeStandOrSquat_Hook();

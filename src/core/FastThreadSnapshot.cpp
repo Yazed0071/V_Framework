@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "FastThreadSnapshot.h"
 
 #include <Windows.h>
@@ -10,8 +10,6 @@
 // MinHook stops threads by walking a toolhelp snapshot of every thread on the PC: ~180 ms with ~9000 threads, paid on
 // every hook made or removed after startup. Only this process's threads matter to it, so this DLL's own imports of the
 // three toolhelp calls are pointed here, and a thread snapshot lists just our own threads.
-// Callers take and walk snapshots while other threads are stopped, and a stopped thread may hold the heap lock or any
-// other lock, so nothing here allocates or locks: fixed walks claimed with atomics, and only kernel calls.
 
 namespace
 {
@@ -55,7 +53,7 @@ namespace
 
     Walk* Claim(HANDLE token)
     {
-        for (Walk& walk : g_Walks)   // the handle was just made, so a walk still holding its value was left behind
+        for (Walk& walk : g_Walks)
             if (walk.busy.load() && walk.token.load() == token)
                 Release(walk);
 
@@ -67,7 +65,7 @@ namespace
                 if (walk.busy.compare_exchange_strong(idle, 1))
                     return &walk;
             }
-            for (Walk& walk : g_Walks)   // a caller that stopped walking early and closed its handle leaves its walk behind
+            for (Walk& walk : g_Walks)
             {
                 DWORD flags = 0;
                 const HANDLE left = walk.token.load();
@@ -115,7 +113,7 @@ namespace
             walk->next = 0;
         if (!entry || entry->dwSize < sizeof(THREADENTRY32) || walk->next >= walk->count)
         {
-            Release(*walk);   // walked to the end; the handle itself is closed by the caller
+            Release(*walk);
             SetLastError(ERROR_NO_MORE_FILES);
             return FALSE;
         }

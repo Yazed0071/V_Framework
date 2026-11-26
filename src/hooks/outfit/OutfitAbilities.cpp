@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "OutfitAbilities.h"
 #include "OutfitRegistry.h"
@@ -8,6 +8,7 @@
 #include "ShadowState.h"
 #include "AdditionalMotionTable_GetMtarPathId.h"
 #include "MissionCodeGuard.h"
+#include "../player/Player2Impl_CallVoice.h"
 
 #include <atomic>
 #include <cstdint>
@@ -40,6 +41,7 @@ namespace
     constexpr std::uint8_t kCamoByte_BattleDress  = 0x10;
     constexpr std::uint8_t kCamoByte_Plain        = 0x00;
     constexpr std::uint16_t kWornSuitNone         = 0xFFFF;
+    constexpr std::uint32_t kHospitalGownCloth    = outfit::SoundSwitchHash("bony");
     constexpr std::size_t kMaxSlots = outfit::shadow::kMaxSlots;
 
     static std::atomic<bool> g_DonorSwapFaulted{ false };
@@ -52,10 +54,6 @@ namespace
     constexpr std::uint8_t kPrologue_RattleBody[] =
         { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10,
           0x48, 0x89, 0x7C, 0x24, 0x18 };
-    constexpr std::uint8_t kPrologue_RattleThunkEn153[] =
-        { 0xE9, 0x4B, 0x54, 0x80, 0x05 };
-    constexpr std::uint8_t kPrologue_RattleThunkJp153[] =
-        { 0xE9, 0xDB, 0x55, 0x4A, 0x07 };
     constexpr std::uint8_t kPrologue_FootStepBody[] =
         { 0x40, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
           0x57, 0x48, 0x8D, 0xAC, 0x24, 0xC0, 0xFE, 0xFF, 0xFF,
@@ -84,103 +82,6 @@ namespace
         return { items, N };
     }
 
-    constexpr HookCandidate kCalcDamage_En154[] =
-    {
-        { 0x1411f5350ull, kPrologue_CalcDamage, sizeof(kPrologue_CalcDamage) },
-    };
-    constexpr HookCandidate kCalcDamage_Jp154[] =
-    {
-        { 0x1411f5380ull, kPrologue_CalcDamage, sizeof(kPrologue_CalcDamage) },
-    };
-    constexpr HookCandidate kCalcDamage_En153[] =
-    {
-        { 0x1411f5dc0ull, kPrologue_CalcDamage, sizeof(kPrologue_CalcDamage) },
-    };
-    constexpr HookCandidate kCalcDamage_Jp153[] =
-    {
-        { 0x1411f5ed0ull, kPrologue_CalcDamage, sizeof(kPrologue_CalcDamage) },
-    };
-
-    constexpr HookCandidate kUpdateLife_En154[] =
-    {
-        { 0x1411f92d0ull, kPrologue_UpdateLife, sizeof(kPrologue_UpdateLife) },
-    };
-    constexpr HookCandidate kUpdateLife_Jp154[] =
-    {
-        { 0x1411f9300ull, kPrologue_UpdateLife, sizeof(kPrologue_UpdateLife) },
-    };
-    constexpr HookCandidate kUpdateLife_En153[] =
-    {
-        { 0x1411f9d40ull, kPrologue_UpdateLife, sizeof(kPrologue_UpdateLife) },
-    };
-    constexpr HookCandidate kUpdateLife_Jp153[] =
-    {
-        { 0x1411f9e50ull, kPrologue_UpdateLife, sizeof(kPrologue_UpdateLife) },
-    };
-
-    constexpr HookCandidate kRattle_En154[] =
-    {
-        { 0x140984c30ull, kPrologue_RattleBody, sizeof(kPrologue_RattleBody) },
-    };
-    constexpr HookCandidate kRattle_Jp154[] =
-    {
-        { 0x140984b70ull, kPrologue_RattleBody, sizeof(kPrologue_RattleBody) },
-    };
-    constexpr HookCandidate kRattle_En153[] =
-    {
-        { 0x1461891f0ull, kPrologue_RattleBody, sizeof(kPrologue_RattleBody) },
-        { 0x140983da0ull, kPrologue_RattleThunkEn153,
-          sizeof(kPrologue_RattleThunkEn153) },
-    };
-    constexpr HookCandidate kRattle_Jp153[] =
-    {
-        { 0x147e28e70ull, kPrologue_RattleBody, sizeof(kPrologue_RattleBody) },
-        { 0x140983890ull, kPrologue_RattleThunkJp153,
-          sizeof(kPrologue_RattleThunkJp153) },
-    };
-
-    constexpr HookCandidate kFootStep_En154[] =
-    {
-        { 0x140984010ull, kPrologue_FootStepBody,
-          sizeof(kPrologue_FootStepBody) },
-    };
-    constexpr HookCandidate kFootStep_Jp154[] =
-    {
-        { 0x140983f50ull, kPrologue_FootStepBody,
-          sizeof(kPrologue_FootStepBody) },
-    };
-    constexpr HookCandidate kFootStep_En153[] =
-    {
-        { 0x140983180ull, kPrologue_FootStepBody,
-          sizeof(kPrologue_FootStepBody) },
-    };
-    constexpr HookCandidate kFootStep_Jp153[] =
-    {
-        { 0x140982c70ull, kPrologue_FootStepBody,
-          sizeof(kPrologue_FootStepBody) },
-    };
-
-    constexpr HookCandidate kDamageEffect_En154[] =
-    {
-        { 0x141192840ull, kPrologue_DamageEffect,
-          sizeof(kPrologue_DamageEffect) },
-    };
-    constexpr HookCandidate kDamageEffect_Jp154[] =
-    {
-        { 0x1411928c0ull, kPrologue_DamageEffect,
-          sizeof(kPrologue_DamageEffect) },
-    };
-    constexpr HookCandidate kDamageEffect_En153[] =
-    {
-        { 0x141193070ull, kPrologue_DamageEffect,
-          sizeof(kPrologue_DamageEffect) },
-    };
-    constexpr HookCandidate kDamageEffect_Jp153[] =
-    {
-        { 0x141193120ull, kPrologue_DamageEffect,
-          sizeof(kPrologue_DamageEffect) },
-    };
-
     struct AbilitySites
     {
         CandidateList  calcDamage;
@@ -192,43 +93,24 @@ namespace
         std::uintptr_t scriptConditionBits;
     };
 
-    constexpr AbilitySites kSites_En154 =
-    {
-        ListOf(kCalcDamage_En154), ListOf(kUpdateLife_En154),
-        ListOf(kRattle_En154), ListOf(kFootStep_En154),
-        ListOf(kDamageEffect_En154), 0x1423997e0ull, 0x142c1c2aaull
-    };
-    constexpr AbilitySites kSites_Jp154 =
-    {
-        ListOf(kCalcDamage_Jp154), ListOf(kUpdateLife_Jp154),
-        ListOf(kRattle_Jp154), ListOf(kFootStep_Jp154),
-        ListOf(kDamageEffect_Jp154), 0x142399af0ull, 0x142c1c2aaull
-    };
-    constexpr AbilitySites kSites_En153 =
-    {
-        ListOf(kCalcDamage_En153), ListOf(kUpdateLife_En153),
-        ListOf(kRattle_En153), ListOf(kFootStep_En153),
-        ListOf(kDamageEffect_En153), 0x142399940ull, 0x142c1c1baull
-    };
-    constexpr AbilitySites kSites_Jp153 =
-    {
-        ListOf(kCalcDamage_Jp153), ListOf(kUpdateLife_Jp153),
-        ListOf(kRattle_Jp153), ListOf(kFootStep_Jp153),
-        ListOf(kDamageEffect_Jp153), 0x142399970ull, 0x142c1c1baull
-    };
-
     static const AbilitySites* SitesForBuild()
     {
-        switch (gGameBuild)
+        static const HookCandidate calcDamage[] =
+            { { gAddr.Player_CalcDamage, kPrologue_CalcDamage, sizeof(kPrologue_CalcDamage) } };
+        static const HookCandidate updateLife[] =
+            { { gAddr.Player_UpdateLife, kPrologue_UpdateLife, sizeof(kPrologue_UpdateLife) } };
+        static const HookCandidate rattle[] =
+            { { gAddr.Player_RattleBody, kPrologue_RattleBody, sizeof(kPrologue_RattleBody) } };
+        static const HookCandidate footStep[] =
+            { { gAddr.Player_FootStepBody, kPrologue_FootStepBody, sizeof(kPrologue_FootStepBody) } };
+        static const HookCandidate damageEffect[] =
+            { { gAddr.Player_CallDamageEffectWithReaction, kPrologue_DamageEffect, sizeof(kPrologue_DamageEffect) } };
+        static const AbilitySites sites =
         {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return &kSites_En154;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return &kSites_Jp154;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return &kSites_En153;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return &kSites_Jp153;
-        default:                                           return nullptr;
-        }
+            ListOf(calcDamage), ListOf(updateLife), ListOf(rattle), ListOf(footStep), ListOf(damageEffect),
+            gAddr.SuitParamTable, gAddr.ScriptConditionBits
+        };
+        return &sites;
     }
 
     static std::uintptr_t SuitParamTableAddr()
@@ -1079,8 +961,11 @@ namespace
             }
         }
 
+        const std::uint16_t prevAttack = SwapDamageAttack(damage
+            ? *reinterpret_cast<const std::uint16_t*>(static_cast<const std::uint8_t*>(damage) + 0x24) : std::uint16_t{ 0 });   // attack id, read by the death line swap
         const bool r = g_OrigCallDamageEffect(self, slotIndex, damage, param3,
                                               param4, param5);
+        SwapDamageAttack(prevAttack);
 
         if (swapped)
             WriteSeByte_SEH(camoArr, slotIndex, saved);
@@ -1127,7 +1012,13 @@ namespace
         g_OrigConvertFootStep(self, out, stringId, actionOut, groups, values,
                               flags, p8, seParam, p10);
 
-        if (MissionCodeGuard::ShouldBypassHooks() || !seParam || !values)
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            SyncInfiniteAmmoBit(true);
+            SyncQuietStepPatch();
+            return;
+        }
+        if (!seParam || !values)
             return;
 
         bool readOk = false;
@@ -1136,7 +1027,8 @@ namespace
         if (!readOk) return;
 
         const std::uint32_t want = ResolveClothSwitch(seParts, nullptr);
-        if (want == outfit::kSoundSwitchUnset) return;
+        if (want == outfit::kSoundSwitchUnset || want == kHospitalGownCloth)
+            return;   // the game gives this class only to the hospital gown, and outside the hospital its steps play nothing
 
         std::uint32_t vanilla = 0;
         const bool okVanilla = ReadOutParamPP_SEH(values, &vanilla);
@@ -1175,15 +1067,29 @@ namespace
                     what, static_cast<unsigned long long>(addr));
             return false;
         }
-        if (expect && std::memcmp(bytes, expect, expectLen) != 0)
+        if (!expect)
+            return true;
+        switch (CheckHookEntry(reinterpret_cast<const void*>(addr), expect, expectLen))
         {
+        case HookEntry::Expected:
+            return true;
+        case HookEntry::ForeignHook:
+        {
+            char name[96] = {};
+            snprintf(name, sizeof(name), "OutfitAbilities: %s", what);
+            LogHookedOnTop(name, reinterpret_cast<const void*>(addr));
+            return true;
+        }
+        default:
             if (report)
-                LogWarn("OutfitAbilities: %s @ 0x%llX prologue mismatch, "
-                    "candidate skipped",
-                    what, static_cast<unsigned long long>(addr));
+            {
+                char entry[160] = {};
+                DescribeFunctionEntry(reinterpret_cast<const void*>(addr), entry, sizeof(entry));
+                LogWarn("OutfitAbilities: %s @ 0x%llX prologue mismatch (%s), candidate skipped",
+                    what, static_cast<unsigned long long>(addr), entry);
+            }
             return false;
         }
-        return true;
     }
 
     static bool ReadBytes_SEH(std::uintptr_t addr, void* out,
@@ -1197,7 +1103,6 @@ namespace
     constexpr std::uint8_t kStepNoiseQuietSuffix[] = { 0xFF, 0xCE };
     constexpr std::size_t  kStepNoiseQuietWindow   = 9;
 
-    constexpr std::uintptr_t kQuietScanBase  = 0x140900000ull;
     constexpr std::size_t    kQuietScanSize  = 0x100000;
     constexpr std::size_t    kQuietScanChunk = 0x10000;
 
@@ -1233,7 +1138,7 @@ namespace
             const std::size_t want =
                 (kQuietScanSize - off < kQuietScanChunk)
                     ? (kQuietScanSize - off) : kQuietScanChunk;
-            const std::uintptr_t base = kQuietScanBase + off;
+            const std::uintptr_t base = gAddr.OutfitAbilities_QuietScanBase + off;
             if (!ReadBytes_SEH(base, g_QuietScanBuf, want))
                 continue;
             if (want < kStepNoiseQuietWindow)
@@ -1435,6 +1340,11 @@ namespace outfit
     {
         g_LastIdentity.store(kIdentityNone, std::memory_order_relaxed);
         g_AwaitingSettle.store(false, std::memory_order_relaxed);
+        if (g_AmmoBitOwned.exchange(false, std::memory_order_relaxed))
+            RmwAmmoBit_SEH(false);
+        SetQuietStepPatch(false);
+        g_SprintLive.store(kSprintNone, std::memory_order_relaxed);
+        g_SprintSparkLive.store(0, std::memory_order_relaxed);
     }
 
     std::uint32_t SprintLive()

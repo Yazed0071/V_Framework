@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "NativeCallPatch.h"
 
 #include <Windows.h>
@@ -74,10 +74,51 @@ namespace
         }
     }
 
+    bool LookUpFunctionEntry(DWORD64 ip, DWORD64& imageBase, PRUNTIME_FUNCTION& entry)
+    {
+        __try
+        {
+            entry = RtlLookupFunctionEntry(ip, &imageBase, nullptr);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool RunsOnArmHost()   // x64 emulated on ARM64 (Windows on Arm, Wine with FEX): a suspended thread can sit in native code
+    {
+        static const bool emulated = [] {
+            using IsWow64Process2_t = BOOL(WINAPI*)(HANDLE, USHORT*, USHORT*);
+            const auto isWow64Process2 = reinterpret_cast<IsWow64Process2_t>(
+                GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2"));
+            USHORT process = 0;
+            USHORT native = 0;
+            if (isWow64Process2 && isWow64Process2(GetCurrentProcess(), &process, &native) && native == IMAGE_FILE_MACHINE_ARM64)
+                return true;
+            return GetModuleHandleW(L"libarm64ecfex.dll") != nullptr || GetModuleHandleW(L"xtajit64.dll") != nullptr;
+        }();
+        return emulated;
+    }
+
+    bool InGameImage(std::uintptr_t ip)
+    {
+        static const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        static const std::uintptr_t end = [] {
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(begin);
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(begin + dos->e_lfanew);
+            return begin + nt->OptionalHeader.SizeOfImage;
+        }();
+        return ip >= begin && ip < end;
+    }
+
     bool UnwindOneFrame(CONTEXT& context)
     {
         DWORD64 imageBase = 0;
-        const auto entry = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
+        PRUNTIME_FUNCTION entry = nullptr;
+        if (!LookUpFunctionEntry(context.Rip, imageBase, entry))
+            return false;
         if (entry)
             return VirtualUnwindFrame(imageBase, entry, context);
         std::uintptr_t returnAddress = 0;
@@ -98,6 +139,8 @@ namespace
                 return true;
             if (ip >= begin && ip < end)
                 return false;
+            if (RunsOnArmHost() && !InGameImage(ip))
+                return true;   // native frames from here on: x64 unwind data can't walk them, and ARM64EC's lookup faults on the pc it makes up
             const auto previousStack = context.Rsp;
             if (!UnwindOneFrame(context))
                 return false;
@@ -123,6 +166,8 @@ namespace
 
         bool Prepare()
         {
+            RunsOnArmHost();   // first use takes loader locks, so run it before any thread is suspended
+            InGameImage(0);
             currentId = GetCurrentThreadId();
             processId = GetCurrentProcessId();
             std::size_t added = 0;
@@ -194,7 +239,7 @@ namespace
                     {
                         if (!growable && threads.size() == threads.capacity())
                         {
-                            error = ERROR_NOT_READY;   // growing the list takes the heap lock, which a stopped thread may hold
+                            error = ERROR_NOT_READY;
                             okay = false;
                             break;
                         }

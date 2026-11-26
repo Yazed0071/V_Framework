@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <algorithm>
@@ -36,6 +36,8 @@ namespace
     constexpr std::uint32_t kMockHeldComradeLine     = 0x92D098DFu;  // EVR180 "The hell you doing?", non-VIP; VIPs get EVR181
     constexpr std::uint32_t kReassureHeldComradeLine = 0x97D0A0FEu;  // EVR170 "It's OK, he's gone", adult voices only
     constexpr std::uint32_t kStunBlastLine           = 0xA22FC28Eu;  // EVD060
+    constexpr std::uint32_t kHeavyDamageLine         = 0xA72FCAADu;  // EVD030
+    constexpr std::uint32_t kZombieGrunt             = 0x246909E2u;  // zmbdm0, the zombie damage take
     constexpr std::uint32_t kCpRadioEvent            = 0x6B52E59Fu;  // DD_vox_cp_radio
     constexpr std::uint32_t kCallOutTake             = 0x44BAA4D0u;                    // CPI0100_03 "CP, answer! CP!"
     constexpr std::uint32_t kGiveUpTakes[]           = { 0x44BAA4D7u, 0x44BAA4D6u };   // CPI0100_04, _05, right after it (user)
@@ -157,7 +159,7 @@ namespace
         }
     }
 
-    bool HasStunBlastRecording(std::uint32_t voiceType)   // EVD060 has no Soviet or PF recordings
+    bool HasStunBlastRecording(std::uint32_t voiceType)
     {
         switch (voiceType)
         {
@@ -228,7 +230,7 @@ namespace
             && GetTickCount64() < g_StunGruntsUntilMs[slot].load(std::memory_order_relaxed);
     }
 
-    std::uint32_t JammedTakeSpeaker(const std::uint8_t* soldiers, std::uint32_t slot)   // the takes are shouted over gunfire: alert only
+    std::uint32_t JammedTakeSpeaker(const std::uint8_t* soldiers, std::uint32_t slot)
     {
         const std::uint32_t soldierIndex = SoldierRealizedSlot::SoldierIn(soldiers, slot);
         if (soldierIndex == SoldierRealizedSlot::kNotRealized
@@ -238,7 +240,15 @@ namespace
         return soldierIndex;
     }
 
-    std::uint32_t SayJammedTakes(std::uint32_t soldierIndex)   // he only says he can't hear the CP if the CP was talking; the first take, for the log
+    std::uint32_t SayCallOutTakes(std::uint32_t soldierIndex)
+    {
+        const std::uint32_t giveUp = kGiveUpTakes[NextRoll() % kGiveUpTakeCount];
+        SoldierCombatVoice_SayLater(soldierIndex, kCpRadioEvent, kCallOutTake, kJammedTakePriority, kJammedTakeAfterMs, kQuietBeforeTakeMs);
+        SoldierCombatVoice_SayLater(soldierIndex, kCpRadioEvent, giveUp, kJammedTakePriority, kJammedTakeAfterMs + 1, kQuietBetweenTakesMs);
+        return kCallOutTake;
+    }
+
+    std::uint32_t SayJammedTakes(std::uint32_t soldierIndex)
     {
         if (CpRadioResponse::CpOpensCallTo(static_cast<std::uint16_t>(soldierIndex)))
         {
@@ -246,10 +256,7 @@ namespace
             SoldierCombatVoice_SayLater(soldierIndex, kCpRadioEvent, take, kJammedTakePriority, kJammedTakeAfterMs, kQuietBeforeTakeMs);
             return take;
         }
-        const std::uint32_t giveUp = kGiveUpTakes[NextRoll() % kGiveUpTakeCount];
-        SoldierCombatVoice_SayLater(soldierIndex, kCpRadioEvent, kCallOutTake, kJammedTakePriority, kJammedTakeAfterMs, kQuietBeforeTakeMs);
-        SoldierCombatVoice_SayLater(soldierIndex, kCpRadioEvent, giveUp, kJammedTakePriority, kJammedTakeAfterMs + 1, kQuietBetweenTakesMs);   // queued behind the first
-        return kCallOutTake;
+        return SayCallOutTakes(soldierIndex);
     }
 
     bool SayJammedRadioFirst(void* self, std::uint32_t slot, std::uint32_t priority, std::uint32_t line, bool flag, float delay)
@@ -259,15 +266,11 @@ namespace
         if (soldierIndex == SoldierRealizedSlot::kNotRealized)
             return g_OrigCallVoice(self, slot, kEnemyVoiceEvent, priority, line, flag, delay);
 
-        const std::uint32_t take = FirstTakeOfJam(soldierIndex) ? SayJammedTakes(soldierIndex) : 0;
+        if (FirstTakeOfJam(soldierIndex))
+            SayJammedTakes(soldierIndex);
         SoldierCombatVoice_SayLater(soldierIndex, kEnemyVoiceEvent, line, static_cast<int>(priority), kShoutAfterJamMs, kQuietBeforeShoutMs);
-        LogInfo("VoiceDebug: chaff jams soldier %u, radio take 0x%X in %llu ms, shout 0x%X in %llu ms", soldierIndex, take,
-            kJammedTakeAfterMs, line, kShoutAfterJamMs);
         return true;
     }
-
-    std::atomic<std::uint32_t> g_WatchedSlot{ 0xFFFFFFFFu };
-    std::atomic<std::uint64_t> g_WatchUntilMs{ 0 };
 
     bool __fastcall hk_CallVoiceWithoutSync(void* self, std::uint32_t slot, std::uint32_t dialogueEvent,
                                             std::uint32_t priority, std::uint32_t line, bool flag, float delay)
@@ -275,7 +278,6 @@ namespace
         if (line != kStunBlastLine && InStunGruntWindow(slot)
             && (dialogueEvent == kEnemyStateVoiceEvent || (dialogueEvent == kEnemyVoiceEvent && IsDamageGrunt(line))))
         {
-            LogInfo("VoiceDebug: stun window dropped slot %u event 0x%X line 0x%X", slot, dialogueEvent, line);
             return false;
         }
 
@@ -290,8 +292,6 @@ namespace
             const std::uint32_t voiceType = VoiceTypeInSlot(self, slot);
             if (voiceType == SoldierVoiceType::kEneDRu || voiceType == SoldierVoiceType::kEneDAf)
                 line = kWakeVipComradeLine;
-            LogInfo("VoiceDebug: wake VIP slot %u voice 0x%X -> %s", slot, voiceType,
-                line == kWakeVipComradeLine ? "EVR122" : "EVR121");
         }
 
         if (line == kMockHeldComradeLine && dialogueEvent == kEnemyVoiceEvent && !MissionCodeGuard::ShouldBypassHooks())
@@ -299,11 +299,16 @@ namespace
             const std::uint32_t voiceType = VoiceTypeInSlot(self, slot);
             if (SoldierVoiceType::IsAdult(voiceType) && CoinFlip())
                 line = kReassureHeldComradeLine;
-            LogInfo("VoiceDebug: held comrade slot %u voice 0x%X -> %s", slot, voiceType,
-                line == kReassureHeldComradeLine ? "EVR170" : "EVR180");
         }
 
         const std::uint8_t* soundSoldiers = PointerAt(self, kSoundSoldiers);
+        if (line == kHeavyDamageLine && dialogueEvent == kEnemyVoiceEvent && !MissionCodeGuard::ShouldBypassHooks())
+        {
+            const std::uint32_t soldierIndex = SoldierRealizedSlot::SoldierIn(soundSoldiers, slot);
+            if (soldierIndex != SoldierRealizedSlot::kNotRealized && SoldierVoiceType::IsZombie(soundSoldiers, soldierIndex)
+                && SoldierVoiceType::HasZombieGrunt(SoldierVoiceType::Of(soundSoldiers, soldierIndex)))
+                line = kZombieGrunt;
+        }
         line = SoldierCombatVoice_SwapLine(soundSoldiers, slot, dialogueEvent, line);
 
         if (line == kSurprisedFultonLine && dialogueEvent == kEnemyVoiceEvent && !MissionCodeGuard::ShouldBypassHooks())
@@ -316,16 +321,8 @@ namespace
             const bool conscious = known && IsConscious(soldiers, soldierIndex);
             if (heldJustNow || conscious)
                 line = kAngryFultonLine;
-            const bool accepted = g_OrigCallVoice(self, slot, dialogueEvent, priority, line, flag, delay);
-            LogInfo("VoiceDebug: Fulton slot %u soldier %d heldJustNow %d conscious %d -> %s accepted %d", slot,
-                known ? static_cast<int>(soldierIndex) : -1, heldJustNow ? 1 : 0, conscious ? 1 : 0,
-                line == kAngryFultonLine ? "EVR200" : "EVR201", accepted ? 1 : 0);
-            g_WatchedSlot.store(slot, std::memory_order_relaxed);
-            g_WatchUntilMs.store(GetTickCount64() + 3000, std::memory_order_relaxed);
-            return accepted;
+            return g_OrigCallVoice(self, slot, dialogueEvent, priority, line, flag, delay);
         }
-        if (slot == g_WatchedSlot.load(std::memory_order_relaxed) && GetTickCount64() < g_WatchUntilMs.load(std::memory_order_relaxed))
-            LogInfo("VoiceDebug: Fulton slot %u then says event 0x%X line 0x%X prio %u", slot, dialogueEvent, line, priority);
         const bool accepted = g_OrigCallVoice(self, slot, dialogueEvent, priority, line, flag, delay);
         if (accepted)
             SoldierCombatVoice_OnSaid(soundSoldiers, slot, dialogueEvent, line);
@@ -340,6 +337,21 @@ void SoldierVoiceSwap_OnHeld(std::uint16_t soldierIndex, bool held)
     g_HeldUntilMs[soldierIndex].store(held ? kStillHeld : GetTickCount64() + kHeldGraceMs, std::memory_order_relaxed);
 }
 
+void SoldierVoiceSwap_ClearHeld()
+{
+    for (auto& heldUntil : g_HeldUntilMs)
+        heldUntil.store(0, std::memory_order_relaxed);
+}
+
+void SoldierVoiceSwap_ClearForReload()
+{
+    SoldierVoiceSwap_ClearHeld();
+    for (auto& until : g_StunGruntsUntilMs)
+        until.store(0, std::memory_order_relaxed);
+    for (auto& take : g_JammedTakeMs)
+        take.store(0, std::memory_order_relaxed);
+}
+
 bool SoldierVoiceSwap_SayJammedTake(const std::uint8_t* soldiers, std::uint32_t slot)
 {
     const std::uint32_t soldierIndex = soldiers ? JammedTakeSpeaker(soldiers, slot) : SoldierRealizedSlot::kNotRealized;
@@ -348,8 +360,13 @@ bool SoldierVoiceSwap_SayJammedTake(const std::uint8_t* soldiers, std::uint32_t 
     if (!FirstTakeOfJam(soldierIndex))
         return true;   // already asked for when his held call was jammed
     const std::uint32_t take = SayJammedTakes(soldierIndex);
-    LogInfo("VoiceDebug: chaff jams soldier %u (no vanilla shout), radio take 0x%X in %llu ms", soldierIndex, take, kJammedTakeAfterMs);
     return true;
+}
+
+void SoldierVoiceSwap_SayCallOut(std::uint32_t soldierIndex)
+{
+    if (soldierIndex < kSoldierSlotCount && FirstTakeOfJam(soldierIndex))
+        SayCallOutTakes(soldierIndex);
 }
 
 void SoldierVoiceSwap_OnSoldierDamages(void* damageHandler, std::uint32_t soldierIndex, const void* damages, std::uint32_t count)
@@ -365,7 +382,6 @@ void SoldierVoiceSwap_OnSoldierDamages(void* damageHandler, std::uint32_t soldie
     const std::uint32_t voiceType = SoldierVoiceType::Of(soldiers, soldierIndex);
     if (!HasStunBlastRecording(voiceType))
     {
-        LogInfo("VoiceDebug: stun soldier %u voice 0x%X has no EVD060, vanilla kept", soldierIndex, voiceType);
         return;
     }
 
@@ -374,8 +390,7 @@ void SoldierVoiceSwap_OnSoldierDamages(void* damageHandler, std::uint32_t soldie
         return;
 
     g_StunGruntsUntilMs[slot].store(GetTickCount64() + kStunGruntWindowMs, std::memory_order_relaxed);
-    const bool spoke = Speak(soldiers, slot, kStunBlastLine);
-    LogInfo("VoiceDebug: stun soldier %u slot %u voice 0x%X EVD060 speak %d", soldierIndex, slot, voiceType, spoke ? 1 : 0);
+    Speak(soldiers, slot, kStunBlastLine);
 }
 
 bool Install_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook()
@@ -401,6 +416,7 @@ bool Uninstall_Soldier2SoundControllerImpl_CallVoiceWithoutSync_Hook()
     if (target)
         DisableAndRemoveHook(target);
     g_OrigCallVoice = nullptr;
+    SoldierVoiceSwap_ClearHeld();
     for (auto& until : g_StunGruntsUntilMs)
         until.store(0, std::memory_order_relaxed);
     for (auto& take : g_JammedTakeMs)

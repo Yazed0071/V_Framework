@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "Soldier2Impl_ProcessSignal.h"
 
 #include <Windows.h>
@@ -19,7 +19,7 @@
 #include "RadioControllerImpl_StepRadioWaitResponse.h"
 #include "SoldierCommandPost.h"
 #include "SoldierVoiceType.h"
-#include "VIPHoldupHook.h"
+#include "VIPImportant.h"
 
 namespace
 {
@@ -89,7 +89,8 @@ namespace
     constexpr std::uint32_t kInterrogationVoicePriority = 2;
     constexpr float         kRepeatGuardSeconds         = 1.0f;      // the same line can't play again on that soldier for this long
     constexpr std::uint64_t kShoutStartTimeoutMs        = 1500;
-    constexpr std::uint64_t kReplyTimeoutMs             = 6000;      // reply anyway if he never turns
+    constexpr std::uint64_t kReplyTimeoutMs             = 6000;      // by then he has answered or he is not coming
+    constexpr std::size_t   kMostPendingReplies         = 4;
     constexpr std::uint64_t kAbandonCallMs              = 10000;
     constexpr std::uint64_t kDeafToShoutMs              = 2000;      // the summoned comrade doesn't treat the shout as a noise to check
     constexpr float         kMaxCallDistance            = 30.0f;     // as far as GZ soldiers hear the shout
@@ -104,18 +105,22 @@ namespace
         None,
         WaitingForShout,
         Shouting,
-        WaitingForReply,
     };
 
     struct PendingCall
     {
-        CallStage     stage        = CallStage::None;
+        CallStage     stage       = CallStage::None;
+        std::uint8_t* soldier     = nullptr;
+        std::uint32_t callerIndex = 0;
+        std::uint64_t shoutQueued = 0;
+        std::uint64_t abandonAt   = 0;
+    };
+
+    struct PendingReply
+    {
         std::uint8_t* soldier      = nullptr;
-        std::uint32_t callerIndex  = 0;
         std::uint32_t comradeIndex = 0;
-        std::uint64_t shoutQueued  = 0;
         std::uint64_t replyDue     = 0;
-        std::uint64_t abandonAt    = 0;
     };
 
     struct alignas(16) Noise   // what vanilla hands NoiseSystem::AddNoise
@@ -133,6 +138,7 @@ namespace
     IsTranslatable_t        g_IsTranslatable        = nullptr;
     GetQuarkSystemTable_t   g_GetQuarkSystemTable   = nullptr;
     PendingCall             g_PendingCall;
+    PendingReply            g_PendingReplies[kMostPendingReplies];
     CallComrade::HeldAnswer g_Answer                = CallComrade::HeldAnswer::Complies;
     std::uint32_t           g_LineRoll              = 0x2545F491u;
     std::atomic<int>        g_DeafComrade{ -1 };
@@ -180,7 +186,7 @@ namespace
         return (active[soldierIndex >> 3] & (1u << (soldierIndex & 7))) != 0;
     }
 
-    bool VanillaWouldSend(std::uint8_t* soldier, std::uint32_t soldierIndex)   // the checks vanilla's SearchSpecificComrade makes
+    bool VanillaWouldSend(std::uint8_t* soldier, std::uint32_t soldierIndex)
     {
         std::uint8_t* life = At<std::uint8_t*>(At<std::uint8_t*>(soldier, kSoldierLife), kLifeRecords) + soldierIndex * kLifeRecordSize;
         if (At<std::uint8_t>(life, kLifeState) == kLifeStateSkipped || (At<std::uint16_t>(life, kLifeFlags) & kLifeFlagsSkipped) != 0)
@@ -204,14 +210,14 @@ namespace
         return !isInTower(utility, position);
     }
 
-    bool IsHeldUp(std::uint8_t* soldier, std::uint32_t soldierIndex)   // his own hands are up
+    bool IsHeldUp(std::uint8_t* soldier, std::uint32_t soldierIndex)
     {
         std::uint8_t* status = StatusRecordOf(soldier, soldierIndex);
         return (At<std::uint32_t>(status, kStatusSyncFlags) & kSyncHeldUp) || (At<std::uint64_t>(status, 0) & kHeld)
             || FakeSurrender::IsFaking(soldier, soldierIndex);
     }
 
-    float CallReach(std::uint8_t* soldier)   // vanilla's search radius, read from the hearing table of the current weather
+    float CallReach(std::uint8_t* soldier)
     {
         const float* hearing = At<float*>(At<std::uint8_t*>(soldier, kSoldierParams), kParamsHearing);
         const std::uint32_t flags = At<std::uint32_t>(soldier, kSoldierFlags);
@@ -223,11 +229,11 @@ namespace
         return (std::min)(hearing[table + kHearingCallClass] + kSearchRadiusPadding, kMaxCallDistance);
     }
 
-    std::uint16_t FindComradeToCall(std::uint8_t* soldier, std::uint32_t callerIndex)   // the nearest one vanilla would send, minus VIPs
+    std::uint16_t FindComradeToCall(std::uint8_t* soldier, std::uint32_t callerIndex)
     {
         const std::uint8_t cp = SoldierCommandPost::IndexOf(soldier, callerIndex);
         if (cp == SoldierCommandPost::kNone)
-            return kNoComrade;   // no CP of his own: nobody answers him
+            return kNoComrade;
 
         const float* caller = SoldierPosition(soldier, callerIndex);
         const float  reach  = CallReach(soldier);
@@ -242,8 +248,8 @@ namespace
             const float distance = SquaredDistance(caller, SoldierPosition(soldier, index));
             if (distance >= nearestDistance || SoldierCommandPost::IndexOf(soldier, index) != cp || !VanillaWouldSend(soldier, index))
                 continue;
-            if (IsVIPHoldupImportantSoldierIndex(static_cast<std::uint16_t>(index), nullptr))
-                continue;   // VIPs and officers don't come running for a grunt
+            if (IsVIPSoldier(soldier, static_cast<std::uint16_t>(index)))
+                continue;
             if (IsHeldUp(soldier, index))
                 continue;
 
@@ -253,7 +259,7 @@ namespace
         return nearest;
     }
 
-    void MakeNoise(std::uint8_t* soldier, std::uint32_t soldierIndex)   // heard the way vanilla's hands-up cry is
+    void MakeNoise(std::uint8_t* soldier, std::uint32_t soldierIndex)
     {
         if (!g_GetQuarkSystemTable)
             return;
@@ -274,20 +280,20 @@ namespace
         (*reinterpret_cast<AddNoise_t**>(noiseSystem))[0](noiseSystem, &noise);
     }
 
-    void SendComradeToCaller(std::uint16_t comradeId, std::uint32_t callerIndex)
+    void SendComradeToCaller(std::uint8_t* soldier, std::uint16_t comradeId, std::uint32_t callerIndex)
     {
         const auto callerId = static_cast<std::uint16_t>(kSoldierIdBase | (callerIndex & kSoldierIndexMask));
         const std::uint32_t comradeIndex = comradeId & kSoldierIndexMask;
 
         const int phase = PlayerAlertPhase::Read();
+        CallComrade::TurnToCaller(comradeIndex, phase == PlayerAlertPhase::kSneak);
+        if (IsVIPSoldier(soldier, static_cast<std::uint16_t>(callerIndex & kSoldierIndexMask)))
+            CallComrade::HurryToCaller(comradeIndex);
+
         if (phase == PlayerAlertPhase::kCaution)
             CallComrade::DeliverComradeCallOnGuard(comradeIndex, callerId);
         else
             CallComrade::DeliverComradeCallRelaxed(comradeIndex, callerId);
-
-        CallComrade::TurnToCaller(comradeIndex);
-        if (IsVIPHoldupImportantSoldierIndex(static_cast<std::uint16_t>(callerIndex & kSoldierIndexMask), nullptr))
-            CallComrade::HurryToCaller(comradeIndex);
     }
 
     bool StillHeld(std::uint32_t callerIndex)
@@ -322,12 +328,12 @@ namespace
         callVoice(soundController, slot, kEnemyVoiceEvent, kInterrogationVoicePriority, line, kRepeatGuardSeconds);
     }
 
-    bool Understands(std::uint8_t* soldier, std::uint32_t soldierIndex)   // the interpreter Snake needs for his language
+    bool Understands(std::uint8_t* soldier, std::uint32_t soldierIndex)
     {
         return !g_IsTranslatable || g_IsTranslatable(soldier, soldierIndex);
     }
 
-    std::uint32_t RollLineVariant()   // vanilla's xorshift pick between two neighbouring lines
+    std::uint32_t RollLineVariant()
     {
         g_LineRoll ^= g_LineRoll << 13;
         g_LineRoll ^= g_LineRoll >> 7;
@@ -343,7 +349,7 @@ namespace
         return hasOneGuyLine && RollLineVariant() ? kCallOneComradeLine : kCallComradeLine;
     }
 
-    void SayNotUnderstood(std::uint8_t* soldier, std::uint32_t soldierIndex)   // as he answers vanilla's interrogation then
+    void SayNotUnderstood(std::uint8_t* soldier, std::uint32_t soldierIndex)
     {
         if (At<std::uint64_t>(StatusRecordOf(soldier, soldierIndex), sizeof(std::uint64_t)) & kSaysOtherLine)
         {
@@ -382,34 +388,78 @@ namespace
         return phase == PlayerAlertPhase::kAlert || phase == PlayerAlertPhase::kEvasion;
     }
 
+    void AwaitReply(std::uint8_t* soldier, std::uint32_t comradeIndex, std::uint64_t replyDue)
+    {
+        PendingReply* slot = &g_PendingReplies[0];
+        for (PendingReply& reply : g_PendingReplies)
+        {
+            if (!reply.soldier)
+            {
+                slot = &reply;
+                break;
+            }
+            if (reply.replyDue < slot->replyDue)
+                slot = &reply;
+        }
+        slot->soldier      = soldier;
+        slot->comradeIndex = comradeIndex;
+        slot->replyDue     = replyDue;
+    }
+
+    void UpdateReplies(std::uint64_t now)
+    {
+        for (PendingReply& reply : g_PendingReplies)
+        {
+            if (!reply.soldier)
+                continue;
+
+            const bool cued = CallComrade::TakeReplyCue(reply.comradeIndex);
+            if (!cued && now < reply.replyDue)
+                continue;
+
+            if (cued || CallComrade::HasTurned(reply.comradeIndex))
+            {
+                CallVoice(reply.soldier, reply.comradeIndex, kComradeReplyLine);
+                CallComrade::StopTurn(reply.comradeIndex);
+            }
+            else
+            {
+                CallComrade::ForgetComrade(reply.comradeIndex);
+            }
+            reply = PendingReply{};
+        }
+    }
+
+    bool IsReplyPending()
+    {
+        for (const PendingReply& reply : g_PendingReplies)
+        {
+            if (reply.soldier)
+                return true;
+        }
+        return false;
+    }
+
     void SummonComrade(std::uint64_t now)
     {
-        PendingCall& call = g_PendingCall;
+        const PendingCall call = g_PendingCall;
+        g_PendingCall = PendingCall{};
         if (!StillHeld(call.callerIndex))
-        {
-            call = PendingCall{};   // let go or knocked out before his shout ended: nobody heard a call, as in GZ
             return;
-        }
 
         const std::uint16_t comradeId = IsPlayerBeingHunted() ? kNoComrade : FindComradeToCall(call.soldier, call.callerIndex);
         g_DeafComrade.store(comradeId != kNoComrade ? comradeId & kSoldierIndexMask : -1, std::memory_order_release);
-        MakeNoise(call.soldier, call.callerIndex);   // whoever else is near enough hears the shout too
+        MakeNoise(call.soldier, call.callerIndex);
         if (comradeId == kNoComrade)
-        {
-            call = PendingCall{};
             return;
-        }
 
-        SendComradeToCaller(comradeId, call.callerIndex);
-        call.comradeIndex = comradeId & kSoldierIndexMask;
-        call.replyDue     = now + kReplyTimeoutMs;
-        call.stage        = CallStage::WaitingForReply;
+        SendComradeToCaller(call.soldier, comradeId, call.callerIndex);
+        AwaitReply(call.soldier, comradeId & kSoldierIndexMask, now + kReplyTimeoutMs);
     }
 
     void CallComradeOver(std::uint8_t* soldier, std::uint32_t callerIndex)
     {
         g_PendingCall = PendingCall{};
-        CallComrade::StopTurn();
 
         if (callerIndex >= At<std::uint32_t>(soldier, kSoldierCount))
             return;
@@ -435,16 +485,19 @@ namespace
         switch (RequestOf(signal))
         {
         case CallComrade::kCallComradeRequest:
-            CallComradeOver(soldier, soldierIndex);
+            if (StillHeld(soldierIndex))
+                CallComradeOver(soldier, soldierIndex);
             break;
         case CallComrade::kWillComplyRequest:
             g_Answer = AnswerOf(soldier, soldierIndex);
             break;
         case CallComrade::kSayNotUnderstoodRequest:
-            SayNotUnderstood(soldier, soldierIndex);
+            if (StillHeld(soldierIndex))
+                SayNotUnderstood(soldier, soldierIndex);
             break;
         case CallComrade::kSayRefusalRequest:
-            SayRefusal(soldier, soldierIndex);
+            if (StillHeld(soldierIndex) || FakeSurrender::IsFaking(soldier, soldierIndex))
+                SayRefusal(soldier, soldierIndex);
             break;
         default:
             break;
@@ -455,7 +508,7 @@ namespace
 
 bool CallComrade::IsCallPending()
 {
-    return g_PendingCall.stage != CallStage::None;
+    return g_PendingCall.stage != CallStage::None || IsReplyPending();
 }
 
 CallComrade::HeldAnswer CallComrade::TakeAnswer()
@@ -468,10 +521,12 @@ CallComrade::HeldAnswer CallComrade::TakeAnswer()
 void CallComrade::ClearForNewMission()
 {
     g_PendingCall = PendingCall{};
+    for (PendingReply& reply : g_PendingReplies)
+        reply = PendingReply{};
     g_Answer      = HeldAnswer::Complies;
     g_DeafComrade.store(-1, std::memory_order_release);
     g_NoiseUntil.store(0, std::memory_order_release);
-    CallComrade::ForgetComrade();
+    CallComrade::ForgetComrades();
 }
 
 bool CallComrade::IsDeafToNoise(void* noticeController, std::uint32_t soldierIndex, const void* noise)
@@ -480,24 +535,25 @@ bool CallComrade::IsDeafToNoise(void* noticeController, std::uint32_t soldierInd
         return false;
     if (reinterpret_cast<const Noise*>(noise)->source != g_NoiseSource.load(std::memory_order_relaxed))
         return false;
-    if (g_DeafComrade.load(std::memory_order_acquire) == static_cast<int>(soldierIndex))
-        return true;   // he answers the shout rather than checks it
+    if (g_DeafComrade.load(std::memory_order_acquire) == static_cast<int>(soldierIndex) || CallComrade::IsWalkingOver(soldierIndex))
+        return true;
 
     std::uint8_t* soldier = At<std::uint8_t*>(static_cast<std::uint8_t*>(noticeController), kNoticeControllerSoldiers);
-    return soldier && soldierIndex < At<std::uint32_t>(soldier, kSoldierCount) && IsHeldUp(soldier, soldierIndex);   // hands up, they stay up
+    return soldier && soldierIndex < At<std::uint32_t>(soldier, kSoldierCount) && IsHeldUp(soldier, soldierIndex);
 }
 
 void CallComrade::UpdatePendingCall()
 {
+    const std::uint64_t now = GameClock::NowMs();
+    UpdateReplies(now);
+
     PendingCall& call = g_PendingCall;
     if (call.stage == CallStage::None)
         return;
 
-    const std::uint64_t now = GameClock::NowMs();
     if (now >= call.abandonAt)
     {
         call = PendingCall{};
-        CallComrade::StopTurn();
         return;
     }
 
@@ -513,15 +569,6 @@ void CallComrade::UpdatePendingCall()
     case CallStage::Shouting:
         if (!IsSaying(call.soldier, call.callerIndex))
             SummonComrade(now);
-        break;
-
-    case CallStage::WaitingForReply:
-        if (CallComrade::TakeReplyCue() || now >= call.replyDue)
-        {
-            CallVoice(call.soldier, call.comradeIndex, kComradeReplyLine);
-            CallComrade::StopTurn();
-            call = PendingCall{};
-        }
         break;
 
     default:
@@ -573,5 +620,7 @@ void Uninstall_Soldier2Impl_ProcessSignal_Hook()
         g_Orig       = nullptr;
     }
     g_PendingCall = PendingCall{};
-    CallComrade::StopTurn();
+    for (PendingReply& reply : g_PendingReplies)
+        reply = PendingReply{};
+    CallComrade::ForgetComrades();
 }

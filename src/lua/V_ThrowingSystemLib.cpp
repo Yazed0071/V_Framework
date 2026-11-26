@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "V_ThrowingSystemLib.h"
 
 #include <algorithm>
@@ -101,6 +101,54 @@ namespace
     static_assert(offsetof(FlameRequest, grade) == 0x3D, "FlameRequest grade");
     static_assert(offsetof(FlameRequest, handle) == 0x40, "FlameRequest handle");
 
+    struct alignas(16) AttractantRequest
+    {
+        std::uint16_t owner;
+        std::uint8_t  unused0[14];
+        float         position[4];
+        std::uint64_t attachTarget;      // top byte 0x88 = follow a thrown item, 0xFFFF = stay at position
+        std::uint64_t attachPart;
+        float         duration;          // kind 1 lasts 3 s longer
+        std::uint32_t kind;              // 1 any animal, 5 wolves, 6 bears, herbivores ask their own
+        std::uint8_t  endless;           // bit 0
+        std::uint8_t  unused1;
+        std::uint16_t handle;
+        std::uint8_t  unused2[4];
+    };
+    static_assert(sizeof(AttractantRequest) == 0x40, "RequestToAttractant copies up to +0x3B");
+    static_assert(offsetof(AttractantRequest, duration) == 0x30, "AttractantRequest duration");
+    static_assert(offsetof(AttractantRequest, handle) == 0x3A, "AttractantRequest handle");
+
+    struct alignas(16) ElectroRequest
+    {
+        std::uint16_t owner;
+        std::uint8_t  unused0[14];
+        float         position[4];
+        float         rotation[4];       // quaternion of the shock box
+        float         radius;            // the box is radius x 2 m x radius
+        float         duration;
+        std::uint8_t  endless;           // bit 0
+        std::uint8_t  unused1;
+        std::uint16_t handle;
+        std::uint8_t  unused2[4];
+    };
+    static_assert(sizeof(ElectroRequest) == 0x40, "RequestToElectro copies up to +0x3B");
+    static_assert(offsetof(ElectroRequest, radius) == 0x30, "ElectroRequest radius");
+    static_assert(offsetof(ElectroRequest, handle) == 0x3A, "ElectroRequest handle");
+
+    struct ModifyWeatherRequest
+    {
+        std::uint16_t owner;
+        std::uint8_t  unused0[2];
+        std::uint32_t weather;           // TppDefine.WEATHER 0-4, the engine refuses POURING
+        float         duration;
+        std::uint32_t slot;              // 1 the iDroid weather support's slot, 2 a second one
+        std::uint8_t  flags;
+        std::uint8_t  unused1;
+        std::uint16_t handle;
+    };
+    static_assert(sizeof(ModifyWeatherRequest) == 0x14, "RequestToModifyWeather copies 0x14 bytes");
+
     using Throw_t                      = void(__fastcall*)(void* throwingSystem, const ThrowingDesc* desc);
     using GetPredictedPositionAtTime_t = bool(__fastcall*)(void* throwingSystem, std::uint8_t handle, float time, float* out);
     using GetThrowingCount_t           = std::uint32_t(__fastcall*)(void* throwingSystem, std::uint32_t owner, std::uint32_t supportWeaponType);
@@ -127,6 +175,17 @@ namespace
     constexpr std::size_t kChaffQueuedCount               = 0xB8;   // requests queued this frame, the engine reads past 4
     constexpr std::size_t kStunQueuedCount                = 0xC4;
     constexpr std::uint32_t kRangeAttackQueueSize         = 4;
+    constexpr std::size_t kRequestToAttractantSlot        = 0x18 / sizeof(void*);
+    constexpr std::size_t kRequestToElectroSlot           = 0x20 / sizeof(void*);
+    constexpr std::size_t kRequestToModifyWeatherSlot     = 0x30 / sizeof(void*);
+    constexpr std::size_t kAttractantQueuedCount          = 0xBC;
+    constexpr std::size_t kElectroQueuedCount             = 0xC0;
+    constexpr std::size_t kModifyWeatherQueuedCount       = 0xC8;
+    constexpr int         kAttractAnyAnimal               = 1;
+    constexpr int         kAttractLastKind                = 6;
+    constexpr int         kLastWeather                    = 4;      // FOGGY
+    constexpr int         kWeatherSupportSlot             = 1;
+    constexpr int         kWeatherSecondSlot              = 2;
 
     constexpr float         kTicksPerSecond    = 299.7f;
     constexpr std::uint16_t kMaxFuseTicks      = 0xFFFE;
@@ -998,6 +1057,129 @@ namespace
         return PushRangeAttackHandle(L, send(system, &request));
     }
 
+    int l_RequestToAttractant(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE || InOnlineMission("V_RangeAttackSystem.RequestToAttractant"))
+            return 0;
+        void* system = RangeAttackSystem();
+        if (!system)
+            return 0;
+        AttractantRequest request{};
+        if (!ReadVectorField(L, "pos", request.position))
+        {
+            LogWarn("V_RangeAttackSystem.RequestToAttractant: pos = { x, y, z } is required, ignored");
+            return 0;
+        }
+        int owner = 0;
+        int kind = kAttractAnyAnimal;
+        bool endless = false;
+        ReadIntegerField(L, "owner", owner);
+        ReadIntegerField(L, "kind", kind);
+        ReadNumberField(L, "duration", request.duration);
+        ReadBoolField(L, "endless", endless);
+        if (!endless && !(request.duration > 0.0f))
+        {
+            LogWarn("V_RangeAttackSystem.RequestToAttractant: duration must be above 0 (or endless = true), ignored");
+            return 0;
+        }
+        if (kind < kAttractAnyAnimal || kind > kAttractLastKind)
+        {
+            LogWarn("V_RangeAttackSystem.RequestToAttractant: kind must be %d-%d, ignored", kAttractAnyAnimal, kAttractLastKind);
+            return 0;
+        }
+        if (RangeAttackQueueFull(system, kAttractantQueuedCount, "V_RangeAttackSystem.RequestToAttractant"))
+            return 0;
+        request.owner        = static_cast<std::uint16_t>(owner);
+        request.attachTarget = kNoGameObject;
+        request.kind         = static_cast<std::uint32_t>(kind);
+        request.endless      = endless ? 1 : 0;
+        const auto send = reinterpret_cast<RangeAttackRequest_t>(VtableSlot(system, kRequestToAttractantSlot));
+        return PushRangeAttackHandle(L, send(system, &request));
+    }
+
+    int l_RequestToElectro(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE || InOnlineMission("V_RangeAttackSystem.RequestToElectro"))
+            return 0;
+        void* system = RangeAttackSystem();
+        if (!system)
+            return 0;
+        ElectroRequest request{};
+        if (!ReadVectorField(L, "pos", request.position))
+        {
+            LogWarn("V_RangeAttackSystem.RequestToElectro: pos = { x, y, z } is required, ignored");
+            return 0;
+        }
+        request.rotation[3] = 1.0f;
+        LuaGetField(L, 1, "rotation");
+        const int rotationIndex = GetLuaTop(L);
+        if (LuaType(L, rotationIndex) == LUA_TTABLE)
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                LuaRawGetI(L, rotationIndex, i + 1);
+                if (LuaIsNumber(L, -1))
+                    request.rotation[i] = GetLuaNumber(L, -1);
+                LuaPop(L, 1);
+            }
+        }
+        LuaPop(L, 1);
+        int owner = 0;
+        bool endless = false;
+        ReadIntegerField(L, "owner", owner);
+        ReadNumberField(L, "radius", request.radius);
+        ReadNumberField(L, "duration", request.duration);
+        ReadBoolField(L, "endless", endless);
+        if (!(request.radius > 0.0f) || (!endless && !(request.duration > 0.0f)))
+        {
+            LogWarn("V_RangeAttackSystem.RequestToElectro: radius and duration above 0 (or endless = true) are required, ignored");
+            return 0;
+        }
+        if (RangeAttackQueueFull(system, kElectroQueuedCount, "V_RangeAttackSystem.RequestToElectro"))
+            return 0;
+        request.owner   = static_cast<std::uint16_t>(owner);
+        request.endless = endless ? 1 : 0;
+        const auto send = reinterpret_cast<RangeAttackRequest_t>(VtableSlot(system, kRequestToElectroSlot));
+        return PushRangeAttackHandle(L, send(system, &request));
+    }
+
+    int l_RequestToModifyWeather(lua_State* L)
+    {
+        if (LuaType(L, 1) != LUA_TTABLE || InOnlineMission("V_RangeAttackSystem.RequestToModifyWeather"))
+            return 0;
+        void* system = RangeAttackSystem();
+        if (!system)
+            return 0;
+        ModifyWeatherRequest request{};
+        int weather = -1;
+        int slot = kWeatherSupportSlot;
+        int owner = 0;
+        if (!ReadIntegerField(L, "weather", weather) || weather < 0 || weather > kLastWeather)
+        {
+            LogWarn("V_RangeAttackSystem.RequestToModifyWeather: weather must be TppDefine.WEATHER SUNNY to FOGGY (0-%d), ignored", kLastWeather);
+            return 0;
+        }
+        if (!ReadNumberField(L, "duration", request.duration) || !(request.duration > 0.0f))
+        {
+            LogWarn("V_RangeAttackSystem.RequestToModifyWeather: duration above 0 is required, ignored");
+            return 0;
+        }
+        ReadIntegerField(L, "slot", slot);
+        if (slot != kWeatherSupportSlot && slot != kWeatherSecondSlot)
+        {
+            LogWarn("V_RangeAttackSystem.RequestToModifyWeather: slot must be %d or %d, ignored", kWeatherSupportSlot, kWeatherSecondSlot);
+            return 0;
+        }
+        ReadIntegerField(L, "owner", owner);
+        if (RangeAttackQueueFull(system, kModifyWeatherQueuedCount, "V_RangeAttackSystem.RequestToModifyWeather"))
+            return 0;
+        request.owner   = static_cast<std::uint16_t>(owner);
+        request.weather = static_cast<std::uint32_t>(weather);
+        request.slot    = static_cast<std::uint32_t>(slot);
+        const auto send = reinterpret_cast<RangeAttackRequest_t>(VtableSlot(system, kRequestToModifyWeatherSlot));
+        return PushRangeAttackHandle(L, send(system, &request));
+    }
+
     int l_Stop(lua_State* L)                        { return QueueForHandle(L, "V_ThrowingImpl.Stop", ThrowingRequestKind::Stop); }
 
     luaL_Reg g_ThrowingSystemLib[] =
@@ -1043,6 +1225,9 @@ namespace
         { "RequestToStun",                  l_RequestToStun },
         { "RequestToSmoke",                 l_RequestToSmoke },
         { "RequestToFlame",                 l_RequestToFlame },
+        { "RequestToAttractant",            l_RequestToAttractant },
+        { "RequestToElectro",               l_RequestToElectro },
+        { "RequestToModifyWeather",         l_RequestToModifyWeather },
         { nullptr, nullptr }
     };
 

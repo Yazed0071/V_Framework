@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_BuddyQuietDamageHandlerImpl_ProcessDamages_Hook();
+void Uninstall_BuddyQuietDamageHandlerImpl_ProcessDamages_Hook();

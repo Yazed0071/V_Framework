@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "LaserSight_UpdatePrim.h"
 
@@ -60,6 +60,8 @@ namespace
     std::map<int, int>  g_WeaponLaserOption;
 
     std::atomic<void*> g_PlayerCtx{ nullptr };
+    std::atomic<void*> g_PlayerAttack{ nullptr };
+    thread_local bool  t_CreatingPlayerLasers = false;
 
     constexpr std::size_t kCtx_PlayerMgr   = 0x138;
     constexpr std::size_t kPlayerMgr_Parts = 0x60;
@@ -67,6 +69,10 @@ namespace
     constexpr std::size_t kParts_EquipRecs = 0xC0;
     constexpr std::size_t kEquipRecStride  = 0x3A;
     constexpr std::uint32_t kMaxCharSlots  = 64;
+
+    constexpr std::size_t kAttack_LaserController = 0x4F0;
+    constexpr std::size_t kController_Lasers      = 0x30;
+    constexpr std::size_t kController_LaserCount  = 0x38;
 
     constexpr std::size_t kLaserSight_Color     = 0x40;
     constexpr std::size_t kUpdatePrimAnchorBack = 0x7A;
@@ -94,16 +100,7 @@ namespace
 
     std::uintptr_t CreateLaserSightControllerAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x14971E750ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x14A18E8D0ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x14103C750ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x14103C7D0ull;
-        default:                                           return 0;
-        }
+        return gAddr.LaserSight_CreateLaserSightController;
     }
 
     bool LooksLikeCreateLaserSightController(const std::uint8_t* fn)
@@ -201,6 +198,32 @@ namespace
         }
     }
 
+    bool IsPlayerLaserSEH(void* laser)
+    {
+        void* attack = g_PlayerAttack.load(std::memory_order_acquire);
+        if (!attack || !laser)
+            return false;
+        __try
+        {
+            auto* controller = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(attack) + kAttack_LaserController);
+            if (!controller)
+                return false;
+            auto* lasers = *reinterpret_cast<void**const*>(controller + kController_Lasers);
+            const std::uint8_t count = controller[kController_LaserCount];
+            if (!lasers)
+                return false;
+            for (std::uint8_t i = 0; i < count; ++i)
+                if (lasers[i] == laser)
+                    return true;
+            return false;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     struct EngineValues
     {
         LaserColor color{};
@@ -263,9 +286,11 @@ namespace
         return (it != g_WeaponLaserOption.end()) ? it->second : 0;
     }
 
-    void StampInstance(void* self)
+    void StampInstance(void* self, bool creatingPlayerLaser)
     {
         if (!self || !g_Any.load(std::memory_order_acquire))
+            return;
+        if (!creatingPlayerLaser && !IsPlayerLaserSEH(self)) // soldiers' lasers keep their own colour, only the player's follows the drawn weapon
             return;
 
         EngineValues engine{};
@@ -313,7 +338,7 @@ namespace
 
     void __fastcall hkUpdatePrim(void* self)
     {
-        StampInstance(self);
+        StampInstance(self, false);
         g_OrigUpdatePrim(self);
     }
 
@@ -328,7 +353,7 @@ namespace
                 std::lock_guard<std::mutex> lock(g_EngineMutex);
                 g_EngineValues[self] = engine;
             }
-            StampInstance(self);
+            StampInstance(self, t_CreatingPlayerLasers);
         }
         return r;
     }
@@ -347,8 +372,11 @@ namespace
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
             }
+            g_PlayerAttack.store(self, std::memory_order_release);
         }
+        t_CreatingPlayerLasers = true; // the controller builds its lasers inside this call, before it is stored at +0x4F0
         g_OrigCreateLsc(self);
+        t_CreatingPlayerLasers = false;
     }
 }
 
@@ -452,6 +480,15 @@ void LaserColor_NoteWeaponOption(int engineEquipId, int optionId)
         g_WeaponLaserOption.erase(equipId);
 }
 
+int LaserColor_WeaponOption(int equipId)
+{
+    if (equipId <= 0)
+        return 0;
+    std::lock_guard<std::mutex> lock(g_OptionMutex);
+    const auto it = g_WeaponLaserOption.find(equipId);
+    return (it != g_WeaponLaserOption.end()) ? it->second : 0;
+}
+
 bool LaserSight_UpdatePrim_Install()
 {
     const std::uintptr_t createAddr = CreateLaserSightControllerAddr();
@@ -539,6 +576,7 @@ void LaserSight_UpdatePrim_Uninstall()
         g_OrigLaserCtor = nullptr;
     }
     g_PlayerCtx.store(nullptr, std::memory_order_release);
+    g_PlayerAttack.store(nullptr, std::memory_order_release);
     std::lock_guard<std::mutex> lock(g_EngineMutex);
     g_EngineValues.clear();
 }

@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_UnrealRideHeliActionImpl_State_IdleAction_Hook();
+bool Uninstall_UnrealRideHeliActionImpl_State_IdleAction_Hook();

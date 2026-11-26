@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "HeadMotion.h"
 
@@ -173,21 +173,31 @@ namespace
 
     const EngineAddresses* AddressesForBuild()
     {
-        static constexpr EngineAddresses kEn154 = {
-            0x140AEF070ull, 0x141AB7940ull, 0x141AB7360ull, 0x141AB82B0ull,
-            0x141AB8260ull, 0x141E19020ull, 0x141A95AB0ull,
-            0x141B19340ull, 0x140407110ull, 0x141B19460ull, 0x140418280ull, 0x140418100ull,
-            0x140016090ull, 0x1400DDA00ull, 0x140216050ull,
-            0x141B8EA30ull, 0x141B26A00ull, 0x141B40FA0ull, 0x141B40F20ull,
-            0x14033C870ull, 0x14033DB20ull, 0x14033D030ull, 0x14033C050ull };
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return &kEn154;
-        default:
-            return nullptr;
-        }
+        static const EngineAddresses addresses = {
+            gAddr.Fova2ControllerImpl_PutAndActMotion,
+            gAddr.Animx_GetControlSize,
+            gAddr.Animx_SimpleControlCtorPool,
+            gAddr.AnimxControl_SetSpeedRate,
+            gAddr.AnimxControl_SetMotionData,
+            gAddr.AnimxControl_AdvanceMotion,
+            gAddr.Animx_DecodeTracks,
+            gAddr.FoxFxEffect_Create,
+            gAddr.FoxFxEffect_SetWorldMatrix,
+            gAddr.FoxFxEffect_SendDestroy,
+            gAddr.FoxFxEffect_SetVisible,
+            gAddr.FoxFxEffect_SetKillNow,
+            gAddr.FoxSharedPtrBase_Set,
+            gAddr.FoxBlockPackage_GetFile,
+            gAddr.FoxModel_BoneWorldMatrix,
+            gAddr.FoxFxEffectInstance_Update,
+            gAddr.FoxFxEffect_Sync,
+            gAddr.FoxFxEffectContext_Acquire,
+            gAddr.FoxFxEffectContext_Release,
+            gAddr.AK_RegisterGameObj,
+            gAddr.AK_UnregisterGameObj,
+            gAddr.AK_SetPosition,
+            gAddr.AK_PostEvent };
+        return &addresses;
     }
 
     struct ControlDesc
@@ -1627,6 +1637,7 @@ namespace
         bool                                    resolved  = false;
         std::uint64_t                           fv2       = 0;
         void*                                   container = nullptr;
+        bool                                    failed    = false;   // every rest effect failed to start on this container
         char                                    headName[64] = {};
         std::vector<outfit::headmotion::Effect> effects;
     };
@@ -1681,6 +1692,8 @@ namespace
         void* container = FindContainerSEH(work, g_Rest.fv2);
         if (!container)
             return;
+        if (g_Rest.failed && g_Rest.container == container)
+            return;
         if (g_Rest.container)
             for (const NamedEffect& n : g_Named)
                 if (n.automatic && n.live.effect)
@@ -1707,6 +1720,7 @@ namespace
             }
         }
         g_Rest.container = container;
+        g_Rest.failed = !started;
         if (started)
         {
             std::lock_guard<std::mutex> lock(g_EffectRequestMutex);

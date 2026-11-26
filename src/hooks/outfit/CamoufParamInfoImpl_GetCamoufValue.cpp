@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "CamoufParamInfoImpl_GetCamoufValue.h"
 #include "OutfitRegistry.h"
@@ -43,7 +43,8 @@ namespace
         if (materialType >= outfit::kCamoMaterialCount)
             return 0;
 
-        const std::int32_t* row = entry->GetCamoBonusValuesFor(ownerPT);
+        const std::int32_t* row = entry->GetCamoBonusValuesFor(ownerPT,
+            entry->HasVariants() ? outfit::GetActiveVariant(entry->partsType) : std::uint8_t{ 0 });
         if (!row) return 0;
 
         const std::int32_t v = row[materialType];

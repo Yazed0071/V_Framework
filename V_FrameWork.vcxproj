@@ -170,22 +170,67 @@
     <ClInclude Include="src\core\BuiltInModules.h" />
     <ClInclude Include="src\core\MissionCodeGuard.h" />
     <ClInclude Include="src\core\MissionStateReset.h" />
+    <ClInclude Include="src\core\GameCamera.h" />
     <ClInclude Include="src\core\PlayerAlertPhase.h" />
+    <ClInclude Include="src\core\RevengeLevel.h" />
+    <ClInclude Include="src\hooks\player\RespawnActionPluginImpl_PollingImpl.h" />
     <ClInclude Include="src\hooks\soldier\HostageGender.h" />
     <ClInclude Include="src\hooks\soldier\CoreAiImpl_SetSpecialActionParam.h" />
     <ClInclude Include="src\hooks\soldier\SpecialActionImpl_State_SpecialIdle.h" />
     <ClInclude Include="src\hooks\player\PlayerAttachInDemo.h" />
     <ClInclude Include="src\hooks\vehicle\VehicleDemoStopExempt.h" />
+    <ClInclude Include="src\hooks\vehicle\RideVehicleActionImpl_CheckVehicleIconArea.h" />
+    <ClInclude Include="src\hooks\vehicle\VehicleCommunicationInfo_FetchVehicleSeatLocalMatrix.h" />
+    <ClInclude Include="src\hooks\soldier\RideVehicleActionImpl_State_IdleAction.h" />
+    <ClInclude Include="src\hooks\soldier\RideVehicleActionImpl_UpdateShootState.h" />
+    <ClInclude Include="src\hooks\soldier\AttackActionImpl_GetAimState.h" />
+    <ClInclude Include="src\hooks\soldier\InVehicleAiImpl_ShouldWake.h" />
+    <ClInclude Include="src\hooks\vehicle\EffectControllerImpl_CreateEffect.h" />
+    <ClInclude Include="src\hooks\soldier\JeepGunnerSeatMotion.h" />
+    <ClInclude Include="src\hooks\vehicle\JeepGunnerSeat.h" />
+    <ClInclude Include="src\hooks\vehicle\JeepGunEffects.h" />
+    <ClInclude Include="src\hooks\vehicle\CustomVehicles.h" />
+    <ClInclude Include="src\hooks\vehicle\VehicleSortieRows.h" />
+    <ClInclude Include="src\hooks\ui\ResourceManagementCallbackImpl_UpdateState.h" />
+    <ClInclude Include="src\hooks\vehicle\VehicleData.h" />
+    <ClInclude Include="src\hooks\vehicle\BodyData_SetupBody.h" />
+    <ClInclude Include="src\hooks\vehicle\AttachmentData_SetupAttachment.h" />
+    <ClInclude Include="src\hooks\vehicle\ConstantImpl_GetVehicleTypeSpecs.h" />
+    <ClInclude Include="src\hooks\vehicle\VehicleGameObjectImpl_Initialize.h" />
     <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_CheckSightNoticePlayer.h" />
     <ClInclude Include="src\hooks\soldier\SoldierIncomingVoice.h" />
     <ClInclude Include="src\hooks\soldier\SoldierStinkVoice.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierBackupCall.h" />
     <ClInclude Include="src\hooks\soldier\SoldierRealizedSlot.h" />
     <ClInclude Include="src\hooks\soldier\SoldierVoiceType.h" />
     <ClInclude Include="src\hooks\soldier\SoldierCombatVoice.h" />
     <ClInclude Include="src\hooks\soldier\RadioActionImpl_State_RadioChaffEnd.h" />
+    <ClInclude Include="src\hooks\soldier\RouteAiImpl_SetSubActionParamWithNodeEvent.h" />
+    <ClInclude Include="src\hooks\soldier\RouteAiImpl_StepEvent.h" />
+    <ClInclude Include="src\hooks\soldier\AttackActionImpl_ProcessFireControl.h" />
+    <ClInclude Include="src\hooks\soldier\TppPermanentGimmickGatlingGun_SetAimMatrix.h" />
+    <ClInclude Include="src\hooks\soldier\AttackActionImpl_SubState_Idle.h" />
+    <ClInclude Include="src\hooks\soldier\BasicAction2Impl_State_ChangeStandOrSquat.h" />
+    <ClInclude Include="src\hooks\soldier\HoldupAiImpl_StepHoldupStand.h" />
+    <ClInclude Include="src\hooks\soldier\HoldupActionImpl_State_EndStandHoldup.h" />
+    <ClInclude Include="src\hooks\soldier\CommandPost2Impl_RequestInvestigation.h" />
+    <ClInclude Include="src\hooks\soldier\CommandPost2Impl_Initialize.h" />
+    <ClInclude Include="src\hooks\soldier\CommandPost2Impl_GetFreeMemberSlots.h" />
+    <ClInclude Include="src\hooks\soldier\CommandPost2Impl_CreateController.h" />
+    <ClInclude Include="src\hooks\soldier\InvestigateSituationOperatorImpl_GetSituationWithRequest.h" />
+    <ClInclude Include="src\hooks\soldier\EquipPluginImpl_NormalMtevCallback.h" />
+    <ClInclude Include="src\hooks\soldier\RouteGroupImpl_GetEventAimCharacterId.h" />
+    <ClInclude Include="src\hooks\soldier\RouteGroupImpl_GetEventId.h" />
+    <ClInclude Include="src\hooks\soldier\RouteAiImpl_SetSubActionParamWithEdgeEvent.h" />
     <ClInclude Include="src\hooks\soldier\CpRadioVariants.h" />
     <ClInclude Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceWithSync.h" />
     <ClInclude Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceWithoutSync.h" />
+    <ClInclude Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceImpl.h" />
+    <ClInclude Include="src\hooks\soldier\MemberRoleControllerImpl_AssignSelectAlertLost.h" />
+    <ClInclude Include="src\hooks\soldier\InvestigateAiImpl_PreUpdate.h" />
+    <ClInclude Include="src\hooks\soldier\HostageRideVehicleActionImpl_State_GetInAction.h" />
+    <ClInclude Include="src\hooks\soldier\DownActionImpl_State_ToDyingSufferIdle.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierDamageActionImpl_State_DamageReaction.h" />
     <ClInclude Include="src\hooks\soldier\SoldierVehicleAvoid.h" />
     <ClInclude Include="src\hooks\soldier\Soldier2Impl_UpdateMarkers.h" />
     <ClInclude Include="src\hooks\soldier\SoldierFaction.h" />
@@ -204,6 +249,7 @@
     <ClInclude Include="src\hooks\player\CureActionPluginImpl_StateCure.h" />
     <ClInclude Include="src\hooks\player\FobPlayerCharacters.h" />
     <ClInclude Include="src\hooks\player\QuietCqcPatches.h" />
+    <ClInclude Include="src\hooks\player\ActionCoreImpl_ExecPostPutMotion.h" />
     <ClInclude Include="src\hooks\outfit\UniqueCharacterOwnSuit.h" />
     <ClInclude Include="src\hooks\outfit\UniqueCharacterDefaultOutfit.h" />
     <ClInclude Include="src\hooks\outfit\UniqueCharacterPartsTypePin.h" />
@@ -217,6 +263,13 @@
     <!-- Lua bridge -->
     <ClInclude Include="src\lua\V_TppUiCommandLib.h" />
     <ClInclude Include="src\lua\FrameCallbacks.h" />
+    <ClInclude Include="src\lua\V_UixUtilityPrefabList.h" />
+    <ClInclude Include="src\lua\V_UixUtilitySubViewport.h" />
+    <ClInclude Include="src\hooks\ui\PrefabListControl.h" />
+    <ClInclude Include="src\lua\V_UixUtilityIDroid.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcManageEv_CustomPage.h" />
+    <ClInclude Include="src\hooks\ui\MotherBaseDeviceTopMenuTableImpl_CustomItems.h" />
+    <ClInclude Include="src\lua\WindowPages.h" />
     <ClInclude Include="src\lua\V_TppGameObjectConstants.h" />
     <ClInclude Include="src\lua\UiCommandFunctions.h" />
     <ClInclude Include="src\lua\V_TppSoundDaemonLib.h" />
@@ -229,6 +282,16 @@
     <ClInclude Include="src\lua\V_PickableLib.h" />
     <ClInclude Include="src\lua\V_TppCollectionLib.h" />
     <ClInclude Include="src\lua\V_HelicopterLib.h" />
+    <ClInclude Include="src\lua\V_TppDataUtilityLib.h" />
+    <ClInclude Include="src\hooks\core\FoxGrModelMesh.h" />
+    <ClInclude Include="src\hooks\core\VertexStreamPool.h" />
+    <ClInclude Include="src\hooks\core\RendererPools.h" />
+    <ClInclude Include="src\hooks\core\TextureStoragePool.h" />
+    <ClInclude Include="src\hooks\core\TexturePools.h" />
+    <ClInclude Include="src\hooks\core\TexturePackAbort.h" />
+    <ClInclude Include="src\hooks\core\TextureProxyFallback.h" />
+    <ClInclude Include="src\hooks\core\TextureProxyRaise.h" />
+    <ClInclude Include="src\hooks\core\AnimationControllerImpl_SetGameObjectIdToCharaControl.h" />
     <ClInclude Include="src\lua\V_TitleSequenceLib.h" />
     <ClInclude Include="src\lua\V_TppMotherBaseManagementLib.h" />
     <ClInclude Include="src\lua\FoxFunctions.h" />
@@ -248,10 +311,15 @@
     <ClInclude Include="src\hooks\soldier\GetVoiceParamWithCallSign.h" />
     <ClInclude Include="src\hooks\soldier\LostHostageHook.h" />
     <ClInclude Include="src\hooks\soldier\SoldierHairFovaHook.h" />
+    <ClInclude Include="src\hooks\soldier\RealizedSoldier2Impl_ExecuteSerially.h" />
+    <ClInclude Include="src\hooks\soldier\Soldier2CombatUtil_GrenadeUpdate.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierThrowCommand.h" />
     <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_CheckSpecialSaluteVoiceLabel.h" />
     <ClInclude Include="src\hooks\soldier\StepRadioDiscovery.h" />
     <ClInclude Include="src\hooks\soldier\State_EnterStandHoldup1.h" />
     <ClInclude Include="src\hooks\soldier\VIPHoldupHook.h" />
+    <ClInclude Include="src\hooks\soldier\VIPImportant.h" />
     <ClInclude Include="src\hooks\soldier\VIPRadioHook.h" />
     <ClInclude Include="src\hooks\soldier\VIPSleepFaintHook.h" />
     <ClInclude Include="src\hooks\soldier\VIPSoundRecoveryHook.h" />
@@ -261,10 +329,74 @@
     <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyQuietFovaFile.h" />
     <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock.h" />
     <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetPathAtBuddyType.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearBuddy.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearCustomizePage.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearArmory.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearTexts.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearGunMount.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearLoadoutSlots.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearRoofGunSight.h" />
+    <ClInclude Include="src\hooks\ui\CustomizeUtilityImpl_GetBuddyUsageCost.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearCarry.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearAttackActionImpl_State_HoldOnArmWeapon.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearAttackActionImpl_State_FireStunGun.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearBasicActionImpl_CorrectVelocity.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearBasicActionImpl_CheckLowStepOnMove.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearBasicActionImpl_FallCheck.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearDamageActionImpl_CorrectVelocity.h" />
+    <ClInclude Include="src\hooks\buddy\RideWalkerGearActionImpl_ChangeWeapon.h" />
+    <ClInclude Include="src\hooks\buddy\RideWalkerGearActionImpl_SubjectiveCamera.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearEffects.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearBasicActionImpl_Execute.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyCommand_GetBuddyCommandName.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_BuddyGearHead.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGear2Impl_SetUpMainWeapon.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearAnnounce.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_CanSortieBuddyType.h" />
+    <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_CallBuddyInit.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_BuddyEquipSettings.h" />
+    <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyGameObjectType.h" />
+    <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetPathAtSub.h" />
+    <ClInclude Include="src\hooks\buddy\Buddy2BlockControllerImpl_SubBlockSetting.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_InitBuddyCommand.h" />
+    <ClInclude Include="src\hooks\buddy\PluginWalkerGearIk_AdjustLeg.h" />
+    <ClInclude Include="src\hooks\buddy\RealizedWalkerGear2Impl_Execute1.h" />
+    <ClInclude Include="src\hooks\buddy\AnimControl_PoseToBoneMatrices.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearLegs.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearRig.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearCamera.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearWeapons.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_GetBuddyGear.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_SetBuddyGearMainWP.h" />
+    <ClInclude Include="src\hooks\buddy\RideWalkerGearActionImpl_StateDrive.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearAttackActionImpl_GetMuzzleMatrix.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGearAttackActionImpl_RegisterStunGunOffenseTarget.h" />
+    <ClInclude Include="src\hooks\buddy\BulletSystem3Impl_CreateBullet.h" />
+    <ClInclude Include="src\hooks\buddy\BalloonSystemImpl_CreateImpl.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearRoofGun.h" />
+    <ClInclude Include="src\hooks\buddy\BattleGearSound.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcManageEv_UpdateCallBuddyPhaseOpen.h" />
+    <ClInclude Include="src\hooks\ui\MotherBaseDeviceTopMenuTableImpl_ApplyConditionVisibility.h" />
+    <ClInclude Include="src\hooks\ui\CharacterSelectorCallbackImpl_SetupBuddyList.h" />
+    <ClInclude Include="src\hooks\ui\TppModelViewerBuddyCommand_Execute.h" />
+    <ClInclude Include="src\hooks\core\NoticeSensorImpl_CreateController.h" />
+    <ClInclude Include="src\hooks\core\NoticeSensorImpl_Init.h" />
+    <ClInclude Include="src\hooks\ui\MissionPreparationSystemImpl_GetParamBuddyPartsFromVars.h" />
     <ClInclude Include="src\hooks\buddy\BuddyCodeCave.h" />
     <ClInclude Include="src\hooks\buddy\ActionCoreImpl_ExecDefenseCallback.h" />
     <ClInclude Include="src\hooks\buddy\BasicAction2Impl_Execute.h" />
+    <ClInclude Include="src\hooks\buddy\HorseDamageActionImpl_State_Whiii.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyQuiet2SoundControllerImpl_CallVoice.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyQuietDamageHandlerImpl_ProcessDamages.h" />
     <ClInclude Include="src\hooks\buddy\BuddyDog2Impl_Initialize.h" />
+    <ClInclude Include="src\hooks\buddy\EquipDevelopControllerImpl_GetDWalkerParts.h" />
+    <ClInclude Include="src\hooks\buddy\WalkerGear_SubWeaponEquipId.h" />
+    <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_ChangeGearSubWeaponSettings.h" />
+    <ClInclude Include="src\hooks\buddy\EquipBlockController2_StartLoadingToEquipMissionBlock.h" />
+    <ClInclude Include="src\hooks\buddy\EquipDataSystemAccessorImpl_GetBlock.h" />
+    <ClInclude Include="src\hooks\buddy\RideWalkerGearActionImpl_GetVehicleEquipId.h" />
+    <ClInclude Include="src\hooks\buddy\UiUtility_GetVehicleEquipNameText.h" />
+    <ClInclude Include="src\hooks\equip\CustomizeSelectorCallbackImpl_SetupItemList.h" />
     <ClInclude Include="src\hooks\buddy\BuddyDogDamageHandlerImpl_ProcessDamages.h" />
     <ClInclude Include="src\hooks\buddy\BuddyServiceImpl_InitBuddyCommandForStatus.h" />
     <ClInclude Include="src\hooks\buddy\EquipControllerImpl_InitCurrentSlot.h" />
@@ -294,6 +426,7 @@
     <ClInclude Include="src\hooks\player\TimeCigaretteUiHook.h" />
     <ClInclude Include="src\hooks\player\UiControllerImpl_HideBinocle.h" />
     <ClInclude Include="src\hooks\player\AttackActionImpl_IsWeaponNoUseInPlaceAction.h" />
+    <ClInclude Include="src\hooks\player\AttackActionImpl_UpdateShootingByPad.h" />
     <ClInclude Include="src\hooks\player\CallMenuCommandSet_UpdateState.h" />
     <ClInclude Include="src\hooks\player\CallComradeCommand.h" />
     <ClInclude Include="src\hooks\player\FalseRadioResponseCommand.h" />
@@ -303,6 +436,8 @@
     <ClInclude Include="src\hooks\soldier\SoldierCommandPost.h" />
     <ClInclude Include="src\hooks\player\CallMenuManagerImpl_UpdateInShowing.h" />
     <ClInclude Include="src\hooks\soldier\Soldier2Impl_ProcessSignal.h" />
+    <ClInclude Include="src\hooks\soldier\Soldier2Impl_RealizeRealizedSoldier.h" />
+    <ClInclude Include="src\hooks\player\Fova2ControllerImpl_ApplyPlayerFova.h" />
     <ClInclude Include="src\hooks\soldier\NoticeControllerImpl_CheckForceNotice.h" />
     <ClInclude Include="src\hooks\player\CallMenuManagerImpl_ShowCallMenu.h" />
     <ClInclude Include="src\hooks\ui\CallMenuImpl_UpdateSelectDoc.h" />
@@ -310,8 +445,21 @@
     <ClInclude Include="src\hooks\soldier\NoticeNoiseAiImpl_StepMovePause.h" />
     <ClInclude Include="src\hooks\soldier\NoticeNoiseAiImpl_CheckTargetPositionUpdate.h" />
     <ClInclude Include="src\hooks\soldier\NoticeNoiseAiImpl_StepWaitReach.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeNoiseAiImpl_StepPreAware.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeDownComradeAiImpl_StepPreRadio.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeAiImpl_StepRadio.h" />
+    <ClInclude Include="src\hooks\soldier\TppPermanentGimmickUnit_CallNoise.h" />
+    <ClInclude Include="src\hooks\soldier\UavLifeControllerImpl_SendStatusMessage.h" />
     <ClInclude Include="src\hooks\soldier\ComradeTurn.h" />
     <ClInclude Include="src\hooks\soldier\ActionController_SetCommand.h" />
+    <ClInclude Include="src\hooks\soldier\RideHeliActionImpl_State_GetInAction.h" />
+    <ClInclude Include="src\hooks\soldier\RideHeliActionImpl_State_IdleAction.h" />
+    <ClInclude Include="src\hooks\soldier\CcRootAdjustAction_Exec.h" />
+    <ClInclude Include="src\hooks\soldier\UnrealRideHeliActionImpl_State_IdleAction.h" />
+    <ClInclude Include="src\hooks\soldier\RideHeliActionImpl_State_GetOutAction.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierAttackActionImpl_Execute.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierAttackActionImpl_RequestFire.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierDamageActionImpl_Execute.h" />
     <!-- Hooks: Sound -->
     <ClInclude Include="src\hooks\sound\GetTapeTrackDirectPlayId.h" />
     <ClInclude Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.h" />
@@ -319,7 +467,9 @@
     <ClInclude Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.h" />
     <ClInclude Include="src\hooks\sound\CustomTapeOwnership.h" />
     <ClInclude Include="src\hooks\sound\SubtitlesEventMessage.h" />
+    <ClInclude Include="src\hooks\sound\SpeechSystemImpl_FindSpeechSequenceIndex.h" />
     <ClInclude Include="src\hooks\sound\CustomRadioCassette.h" />
+    <ClInclude Include="src\hooks\sound\AkSoundEngine_PostEvent.h" />
     <ClInclude Include="src\hooks\sound\AkMemoryMgr_Malloc.h" />
     <ClInclude Include="src\hooks\sound\CassetteTrackPaging.h" />
     <ClInclude Include="src\hooks\sound\Control_PostExternalEvent.h" />
@@ -351,6 +501,7 @@
     <ClInclude Include="src\hooks\outfit\AdditionalMotionTable_GetMtarPathId.h" />
     <ClInclude Include="src\hooks\outfit\EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h" />
     <ClInclude Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.h" />
+    <ClInclude Include="src\hooks\outfit\TppVarInit_InitializeForNewMission.h" />
     <ClInclude Include="src\hooks\outfit\PlayerAppearance_LoadPlayerFv2s.h" />
     <ClInclude Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.h" />
     <ClInclude Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.h" />
@@ -365,14 +516,24 @@
     <ClInclude Include="src\hooks\equip\EquipDevelop_AddToEquipDevelopTable.h" />
     <ClInclude Include="src\hooks\equip\BulletLockOn.h" />
     <ClInclude Include="src\hooks\equip\SoldierSuppressedShot.h" />
-    <ClInclude Include="src\hooks\equip\SimplePartsEffectControllerImpl_CreateEffectImpl.h" />
     <ClInclude Include="src\hooks\equip\SupportWeaponRegistry.h" />
     <ClInclude Include="src\hooks\equip\EquipIdTableImpl_GetSupportWeaponTypeId.h" />
     <ClInclude Include="src\hooks\equip\EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.h" />
+    <ClInclude Include="src\hooks\equip\SimplePartsControllerImpl_Create.h" />
     <ClInclude Include="src\hooks\equip\ThrowingImpl_GetBlastParamByEquipId.h" />
     <ClInclude Include="src\hooks\equip\ThrowingImpl_UpdateAction.h" />
     <ClInclude Include="src\hooks\equip\ThrowingImpl_UpdateStatus.h" />
     <ClInclude Include="src\hooks\equip\ThrowingImpl_AddReboundNoise.h" />
+    <ClInclude Include="src\hooks\equip\ThrowingImpl_OnOffenseHit.h" />
+    <ClInclude Include="src\hooks\equip\ThrowingImpl_UpdateNextPosition.h" />
+    <ClInclude Include="src\hooks\equip\ThrowingImpl_CalcInitialVelocityByAngle.h" />
+    <ClInclude Include="src\hooks\equip\ThrowingImpl_DrawLocusLineImpl.h" />
+    <ClInclude Include="src\hooks\equip\ItemSelectorCallbackImpl_IsParentEquip.h" />
+    <ClInclude Include="src\hooks\equip\DecoyResourceManagerImpl_InitializePlayerDecoyModel.h" />
+    <ClInclude Include="src\hooks\equip\DecoySystemImpl_Realize.h" />
+    <ClInclude Include="src\hooks\equip\PlacedSystemImpl_CreateCorrelation.h" />
+    <ClInclude Include="src\hooks\equip\AttackActionImpl_CalcThrowingVelocity.h" />
+    <ClInclude Include="src\hooks\gimmick\PermanentGimmickDefenseCallback_Exec.h" />
     <ClInclude Include="src\hooks\equip\ThrowingSystemLayout.h" />
     <ClInclude Include="src\hooks\equip\ThrowingSystemImpl_ExecuteSerially.h" />
     <ClInclude Include="src\hooks\equip\ThrowingImpl_ActivateThrowingAtEmptyWork.h" />
@@ -389,8 +550,12 @@
     <ClInclude Include="src\hooks\equip\PlacedSystemImpl_RestorationPlace.h" />
     <ClInclude Include="src\hooks\equip\PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon.h" />
     <ClInclude Include="src\hooks\equip\PlacedSystemImpl_CreateByLocators.h" />
+    <ClInclude Include="src\hooks\equip\PlacedImpl_ExecuteAfter.h" />
+    <ClInclude Include="src\hooks\equip\EquipIdTableImpl_GetEquipIdFromStrCode32Impl.h" />
     <ClInclude Include="src\hooks\equip\SupplyCboxGameObjectImpl_RestoreRequestFromSVars.h" />
     <ClInclude Include="src\lua\V_ThrowingSystemLib.h" />
+    <ClInclude Include="src\lua\V_PlacedSystemLib.h" />
+    <ClInclude Include="src\lua\V_VehicleLib.h" />
     <ClInclude Include="src\hooks\equip\BulletMultiShot.h" />
     <ClInclude Include="src\hooks\equip\TppEquipConstRegistry.h" />
     <ClInclude Include="src\hooks\equip\TppEquip_RegisterConstant.h" />
@@ -451,11 +616,58 @@
     <!-- Hooks: Heli -->
     <ClInclude Include="src\hooks\heli\FieldTaxiMenu.h" />
     <ClInclude Include="src\hooks\heli\HeliSoundController.h" />
+    <ClInclude Include="src\hooks\heli\LightActionImpl_Execute.h" />
+    <ClInclude Include="src\hooks\heli\GunActionImpl_Execute.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliBuiltInWeapons.h" />
+    <ClInclude Include="src\hooks\heli\TppHeli2_Allocate.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliParts.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliCustomizeMenu.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliOutfit.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliDevelopTab.h" />
+    <ClInclude Include="src\hooks\heli\GunActionImpl_FireBarrel.h" />
+    <ClInclude Include="src\hooks\heli\BlastSystemImpl_Blast.h" />
+    <ClInclude Include="src\hooks\heli\ShellImpl_UpdateAction.h" />
+    <ClInclude Include="src\hooks\heli\ShellImpl_RequestSmokeCloud.h" />
+    <ClInclude Include="src\hooks\heli\CustomizeSelectorCallbackImpl_HoverHeliPart.h" />
+    <ClInclude Include="src\hooks\heli\EquipDetailsCallbackImpl_SetupHeliCustomizeDetails.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliWeapon.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliHookInstall.h" />
+    <ClInclude Include="src\hooks\heli\EquipDevelopControllerImpl_GetHeliPartsId.h" />
+    <ClInclude Include="src\hooks\heli\CustomizeSelectorCallbackImpl_DecideActWindowPartHelicopter.h" />
+    <ClInclude Include="src\hooks\heli\SupportHeliCustomizeCodec.h" />
+    <ClInclude Include="src\hooks\heli\CustomizeControllerImpl_SetSubWeaponAmmo.h" />
+    <ClInclude Include="src\hooks\heli\LauncherActionImpl_Execute.h" />
+    <ClInclude Include="src\hooks\heli\SupportCombatAiImpl_StepAttack.h" />
+    <ClInclude Include="src\hooks\heli\ShellSystemImpl_Fire.h" />
+    <ClInclude Include="src\hooks\heli\TppHeli2_LuaCommands.h" />
+    <ClInclude Include="src\hooks\heli\HeliLineOfSight.h" />
+    <ClInclude Include="src\hooks\heli\CpControllerImpl_GetTargetPosition.h" />
+    <ClInclude Include="src\hooks\heli\EnemyCombatAiImpl_Execute.h" />
+    <ClInclude Include="src\hooks\heli\HeliInterest_SetLookAt.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierFactionHeli.h" />
+    <ClInclude Include="src\hooks\soldier\SoldierFactionAntiAir.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeTurretAiImpl_ShouldSleep.h" />
+    <ClInclude Include="src\hooks\heli\ActionCoreImpl_Execute.h" />
+    <ClInclude Include="src\hooks\heli\DamageHandlerImpl_ProcessQueuedDamages.h" />
+    <ClInclude Include="src\hooks\heli\MechaActionImpl_StateOnPassenger.h" />
+    <ClInclude Include="src\hooks\heli\HeliKey.h" />
     <!-- Hooks: UI -->
     <ClInclude Include="src\hooks\ui\DataBaseCallbackImpl_RefreshPrefabList.h" />
     <ClInclude Include="src\hooks\ui\EquipBgTexture.h" />
     <ClInclude Include="src\hooks\ui\FontData_SearchGlyphData.h" />
+    <ClInclude Include="src\hooks\ui\TppUIBinoSubjectiveImpl_Act.h" />
+    <ClInclude Include="src\hooks\core\MainPadSlot.h" />
+    <ClInclude Include="src\hooks\core\SonyPadLayout.h" />
+    <ClInclude Include="src\hooks\ui\ButtonIconSheet.h" />
+    <ClInclude Include="src\hooks\ui\ModelNodeMesh_Destruct.h" />
+    <ClInclude Include="src\hooks\ui\ControllerAssignMenu.h" />
+    <ClInclude Include="src\hooks\ui\ControlTypePageAssign.h" />
+    <ClInclude Include="src\hooks\player\PadAssign.h" />
+    <ClInclude Include="src\hooks\ui\TextIcons.h" />
+    <ClInclude Include="src\hooks\ui\ButtonMapper_SetDefaultButtonMap.h" />
+    <ClInclude Include="src\hooks\ui\UiDepend_ActHudChecking.h" />
     <ClInclude Include="src\hooks\ui\UixUtilityControl.h" />
+    <ClInclude Include="src\hooks\ui\WindowLayoutCount.h" />
     <ClInclude Include="src\hooks\ui\UiPadLock.h" />
     <ClInclude Include="src\hooks\ui\UixUtilityDev.h" />
     <ClInclude Include="src\hooks\ui\CallMenuImpl_UpdateCallMenu.h" />
@@ -464,6 +676,7 @@
     <ClInclude Include="src\hooks\ui\MissionTelopBgTexture.h" />
     <ClInclude Include="src\hooks\ui\LoadingSplash.h" />
     <ClInclude Include="src\hooks\ui\GameOverSplash.h" />
+    <ClInclude Include="src\hooks\ui\TppBonusPopupImpl_SetBgTexture.h" />
     <ClInclude Include="src\hooks\ui\RewardPopupBgTexture.h" />
     <ClInclude Include="src\hooks\ui\MissionTextureTable.h" />
     <ClInclude Include="src\hooks\ui\utility_GetIconFtexPath.h" />
@@ -472,14 +685,35 @@
     <ClInclude Include="src\hooks\ui\ShowMissionIcon.h" />
     <ClInclude Include="src\hooks\ui\AnnounceLogHook.h" />
     <ClInclude Include="src\hooks\ui\ChangeLocationMenu.h" />
+    <ClInclude Include="src\hooks\ui\LocationIconRegistry.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcMissionListRecordCallFunc_Start.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcMapCallbackBaseImpl_UpdateLocationInfoView.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcSideOpsRecordCallFunc_StartBody.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcMissionListCallbackImpl_ActivatePrefabTablistParameter.h" />
     <ClInclude Include="src\hooks\ui\UniqueStaffRegistry.h" />
     <ClInclude Include="src\hooks\ui\DataBaseNewFlag.h" />
+    <ClInclude Include="src\hooks\ui\MbTopMenuStickyHide.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcSoundControllerImpl_RequestVoice.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcSoundControllerImpl_Update.h" />
+    <ClInclude Include="src\hooks\ui\BaseControllerImpl_CompletePlatformDeck.h" />
+    <ClInclude Include="src\hooks\ui\MbDvcMapCallbackControlImpl_RendezvousOperation.h" />
+    <ClInclude Include="src\hooks\fox\gm\SimpleMissionBlockController_ReceiveMessage.h" />
+    <ClInclude Include="src\hooks\fox\gs\RouteGroupImpl_Destructor.h" />
+    <ClInclude Include="src\hooks\ui\FobMission2CallbackImpl_Update.h" />
+    <ClInclude Include="src\hooks\ui\MotherBaseMapCommonData_IsDangerLandingZone.h" />
+    <ClInclude Include="src\hooks\fox\path\PathHashCode.h" />
+    <ClInclude Include="src\core\LoadWatch.h" />
     <ClInclude Include="src\hooks\ui\GetPhotoAdditionalTextLangId.h" />
     <ClInclude Include="src\hooks\ui\BarrierEffectLoadPatch.h" />
     <ClInclude Include="src\hooks\ui\BarrierEffectSpawn.h" />
     <ClInclude Include="src\hooks\ui\UiControllerImpl_UpdateEquipHud.h" />
     <ClInclude Include="src\hooks\core\LuaErrorThrow.h" />
     <ClInclude Include="src\hooks\core\ServerManager_BufferRelease.h" />
+    <ClInclude Include="src\hooks\core\Block_Reload.h" />
+    <ClInclude Include="src\hooks\core\luaG_errormsg.h" />
+    <ClInclude Include="src\hooks\fox\geo\FoxGeo_CheckSphere.h" />
+    <ClInclude Include="src\hooks\fox\gm\MessageArgs_GetValueAsDouble.h" />
+    <ClInclude Include="src\hooks\fox\gm\ScriptUpdater_ReceiveMessage.h" />
     <ClInclude Include="src\hooks\core\CmdSyncMotherBaseOption_Pack.h" />
     <ClInclude Include="src\hooks\core\CmdSyncSoldierBinOption_Pack.h" />
     <ClInclude Include="src\hooks\core\CmdSyncSoldierDiffOption_Pack.h" />
@@ -488,9 +722,17 @@
     <ClInclude Include="src\hooks\core\MotherBaseSecurityShadow.h" />
     <ClInclude Include="src\hooks\core\StaffServerSanitize.h" />
     <ClInclude Include="src\hooks\ui\SupportAttackCrashGuard.h" />
-    <ClInclude Include="src\hooks\ui\Reticle_InitHandGunAsset.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectSendCommand.h" />
+    <ClInclude Include="src\hooks\fox\gm\GameObjectReinitialize.h" />
+    <ClInclude Include="src\hooks\soldier\SecurityCamera2Impl_ProcessLuaCommand.h" />
+    <ClInclude Include="src\hooks\soldier\UavImpl_ProcessLuaCommand.h" />
+    <ClInclude Include="src\hooks\soldier\Soldier2Impl_ProcessLuaCommand.h" />
+    <ClInclude Include="src\hooks\soldier\Hostage2Impl_ProcessLuaCommand.h" />
+    <ClInclude Include="src\hooks\vehicle\TppVehicle2_LuaCommands.h" />
+    <ClInclude Include="src\hooks\vehicle\WalkerGear2Impl_ProcessLuaCommand.h" />
+    <ClInclude Include="src\hooks\sahelan\TppSahelan2_LuaCommands.h" />
     <ClInclude Include="src\hooks\fox\gm\GameObjectPosition.h" />
+    <ClInclude Include="src\hooks\fox\gm\GameObjectInstance.h" />
     <ClInclude Include="src\hooks\animal\AnimalInstance.h" />
     <!-- Hooks: Bullet -->
     <ClInclude Include="src\hooks\bullet\Bullet3Impl_ActivateBulletAtEmptyWorkPatch.h" />
@@ -527,6 +769,46 @@
     <ClInclude Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_SetMenuHelp.h" />
     <!-- Hooks: Notice -->
     <ClInclude Include="src\hooks\equip\PartIdWiden.h" />
+    <ClInclude Include="src\hooks\equip\MissionPreparationSystemImpl_CalcEquipWeaponItemCostFromLoadout.h" />
+    <ClInclude Include="src\hooks\equip\EquipSystemImpl_SetAmmoCount.h" />
+    <ClInclude Include="src\hooks\ui\ItemSelectorCallbackImpl_IsGetLatestItemTool.h" />
+    <ClInclude Include="src\hooks\ui\EquipDevelopCallbackImpl_IsLatestItemTool.h" />
+    <ClInclude Include="src\hooks\equip\EquipControllerImpl_UpdateBattery.h" />
+    <ClInclude Include="src\hooks\ui\UiUtilityImpl_GetBatteryLevel.h" />
+    <ClInclude Include="src\hooks\ui\TppUIWeaponNumImpl_SetPanelInfo.h" />
+    <ClInclude Include="src\hooks\core\FobTarget_RequestSneakCommon.h" />
+    <ClInclude Include="src\hooks\core\GetFobStatusCallback_AnnounceDefense.h" />
+    <ClInclude Include="src\hooks\soldier\EquipPluginImpl_Execute.h" />
+    <ClInclude Include="src\hooks\soldier\EquipControllerImpl_DropEquip.h" />
+    <ClInclude Include="src\hooks\equip\LaserSightSwitch.h" />
+    <ClInclude Include="src\hooks\equip\EquipControllerImpl_SetUpPartsStateForGun.h" />
+    <ClInclude Include="src\hooks\player\AttackActionImpl_SetVisibleLaserSight.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossLaserBox.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_SetPrimaryOptionPanel.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_PrimaryOptionSelect.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_SecondaryOptionSelect.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_ItemToggleChange.h" />
+    <ClInclude Include="src\hooks\ui\EquipCrossEvCall_SpecialItemAct.h" />
+    <ClInclude Include="src\hooks\equip\ItemCount.h" />
+    <ClInclude Include="src\hooks\equip\ShieldParams.h" />
+    <ClInclude Include="src\hooks\pickable\PickUpActionPluginImpl_PickUpAmmoBox.h" />
+    <ClInclude Include="src\hooks\player\PlayerSkill.h" />
+    <ClInclude Include="src\hooks\ui\TppUIWeaponNumImpl_ShowItemPanel.h" />
+    <ClInclude Include="src\hooks\player\ItemParameter.h" />
+    <ClInclude Include="src\hooks\pickable\PickUpActionPluginImpl_CheckLoadableForAmmo.h" />
+    <ClInclude Include="src\hooks\player\LifeControllerImpl_UpdateHost.h" />
+    <ClInclude Include="src\hooks\player\Player2Impl_CallVoice.h" />
+    <ClInclude Include="src\hooks\player\RideHorseActionPluginImpl_State_Idle.h" />
+    <ClInclude Include="src\hooks\player\RideHeliActionPluginImpl_ExecActionButtonFunction.h" />
+    <ClInclude Include="src\hooks\player\CqcActionPluginImpl_CompleteContinueCqcTarget.h" />
+    <ClInclude Include="src\hooks\player\EquipControllerImpl_OnShieldHit.h" />
+    <ClInclude Include="src\hooks\player\IdroidVoiceLines.h" />
+    <ClInclude Include="src\hooks\player\SightManagerImpl_UpdateEspionageRadio.h" />
+    <ClInclude Include="src\hooks\soldier\HostageVoiceLines.h" />
+    <ClInclude Include="src\hooks\player\AnimLoader_GetMotionData.h" />
+    <ClInclude Include="src\hooks\soldier\NoticeActionImpl_Wake.h" />
+    <ClInclude Include="src\hooks\core\CmdSendBootOption_Pack.h" />
+    <ClInclude Include="src\hooks\ui\Reticle_ResetLayout.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core -->
@@ -542,10 +824,9 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\core\AddressSet_day3800.cpp" />
+    <ClCompile Include="src\core\AddressSet.cpp" />
     <ClCompile Include="src\core\AddressSet_day3900.cpp" />
     <ClCompile Include="src\core\V_FrameWorkState.cpp" />
-    <ClCompile Include="src\core\AddressSet_day1820.cpp" />
     <ClCompile Include="src\core\BuiltInModules.cpp" />
     <ClCompile Include="src\core\FeatureModule.cpp" />
     <ClCompile Include="src\core\FoxPath.cpp" />
@@ -558,6 +839,7 @@
     <ClCompile Include="src\hooks\outfit\CustomFaceTable.cpp" />
     <ClCompile Include="src\hooks\outfit\StaffControllerImpl_AddStaff.cpp" />
     <ClCompile Include="src\hooks\outfit\FaceIdRegistry.cpp" />
+    <ClCompile Include="src\hooks\player\RespawnActionPluginImpl_PollingImpl.cpp" />
     <ClCompile Include="src\lua\V_TppSoldierFaceLib.cpp" />
     <ClCompile Include="src\hooks\outfit\OutfitAbilities.cpp" />
     <ClCompile Include="src\hooks\outfit\PlayerInfoInterfaceImpl_GetPartsType.cpp" />
@@ -566,6 +848,7 @@
     <ClCompile Include="src\hooks\outfit\AdditionalMotionTable_GetMtarPathId.cpp" />
     <ClCompile Include="src\hooks\outfit\EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.cpp" />
     <ClCompile Include="src\hooks\outfit\BlockControllerImpl_LoadPartsNew.cpp" />
+    <ClCompile Include="src\hooks\outfit\TppVarInit_InitializeForNewMission.cpp" />
     <ClCompile Include="src\hooks\outfit\PlayerAppearance_LoadPlayerFv2s.cpp" />
     <ClCompile Include="src\hooks\outfit\Player2UtilityImpl_SetSuitAndHandConditionWithLoadoutInfo.cpp" />
     <ClCompile Include="src\hooks\outfit\ItemSelectorCallbackImpl_DecideActMissionPreparationSetEquipMode.cpp" />
@@ -587,14 +870,24 @@
     <ClCompile Include="src\hooks\equip\MenuDevelopGridExpand.cpp" />
     <ClCompile Include="src\hooks\equip\BulletLockOn.cpp" />
     <ClCompile Include="src\hooks\equip\SoldierSuppressedShot.cpp" />
-    <ClCompile Include="src\hooks\equip\SimplePartsEffectControllerImpl_CreateEffectImpl.cpp" />
     <ClCompile Include="src\hooks\equip\SupportWeaponRegistry.cpp" />
     <ClCompile Include="src\hooks\equip\EquipIdTableImpl_GetSupportWeaponTypeId.cpp" />
     <ClCompile Include="src\hooks\equip\EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.cpp" />
+    <ClCompile Include="src\hooks\equip\SimplePartsControllerImpl_Create.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_GetBlastParamByEquipId.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_UpdateAction.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_UpdateStatus.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_AddReboundNoise.cpp" />
+    <ClCompile Include="src\hooks\equip\ThrowingImpl_OnOffenseHit.cpp" />
+    <ClCompile Include="src\hooks\equip\ThrowingImpl_UpdateNextPosition.cpp" />
+    <ClCompile Include="src\hooks\equip\ThrowingImpl_CalcInitialVelocityByAngle.cpp" />
+    <ClCompile Include="src\hooks\equip\ThrowingImpl_DrawLocusLineImpl.cpp" />
+    <ClCompile Include="src\hooks\equip\ItemSelectorCallbackImpl_IsParentEquip.cpp" />
+    <ClCompile Include="src\hooks\equip\DecoyResourceManagerImpl_InitializePlayerDecoyModel.cpp" />
+    <ClCompile Include="src\hooks\equip\DecoySystemImpl_Realize.cpp" />
+    <ClCompile Include="src\hooks\equip\PlacedSystemImpl_CreateCorrelation.cpp" />
+    <ClCompile Include="src\hooks\equip\AttackActionImpl_CalcThrowingVelocity.cpp" />
+    <ClCompile Include="src\hooks\gimmick\PermanentGimmickDefenseCallback_Exec.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingSystemImpl_ExecuteSerially.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_ActivateThrowingAtEmptyWork.cpp" />
     <ClCompile Include="src\hooks\equip\ThrowingImpl_UpdateDeactivation.cpp" />
@@ -610,8 +903,12 @@
     <ClCompile Include="src\hooks\equip\PlacedSystemImpl_RestorationPlace.cpp" />
     <ClCompile Include="src\hooks\equip\PlacedSystemImpl_CopyToScriptVarsPlayerPlacedWeapon.cpp" />
     <ClCompile Include="src\hooks\equip\PlacedSystemImpl_CreateByLocators.cpp" />
+    <ClCompile Include="src\hooks\equip\PlacedImpl_ExecuteAfter.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipIdTableImpl_GetEquipIdFromStrCode32Impl.cpp" />
     <ClCompile Include="src\hooks\equip\SupplyCboxGameObjectImpl_RestoreRequestFromSVars.cpp" />
     <ClCompile Include="src\lua\V_ThrowingSystemLib.cpp" />
+    <ClCompile Include="src\lua\V_PlacedSystemLib.cpp" />
+    <ClCompile Include="src\lua\V_VehicleLib.cpp" />
     <ClCompile Include="src\hooks\equip\BulletMultiShot.cpp" />
     <ClCompile Include="src\hooks\equip\TppEquipConstRegistry.cpp" />
     <ClCompile Include="src\hooks\equip\TppEquip_RegisterConstant.cpp" />
@@ -673,12 +970,15 @@
     <ClCompile Include="src\core\MissionCodeGuard.cpp" />
     <ClCompile Include="src\core\DeployGuard.cpp" />
     <ClCompile Include="src\core\MissionStateReset.cpp" />
+    <ClCompile Include="src\core\GameCamera.cpp" />
     <ClCompile Include="src\core\PlayerAlertPhase.cpp" />
+    <ClCompile Include="src\core\RevengeLevel.cpp" />
     <ClCompile Include="src\hooks\soldier\HostageGender.cpp" />
     <ClCompile Include="src\hooks\soldier\CoreAiImpl_SetSpecialActionParam.cpp" />
     <ClCompile Include="src\hooks\soldier\SpecialActionImpl_State_SpecialIdle.cpp" />
     <ClCompile Include="src\hooks\player\PlayerAttachInDemo.cpp" />
     <ClCompile Include="src\hooks\vehicle\VehicleDemoStopExempt.cpp" />
+    <ClCompile Include="src\hooks\vehicle\RideVehicleActionImpl_CheckVehicleIconArea.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_CheckSightNoticePlayer.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierVehicleAvoid.cpp" />
     <ClCompile Include="src\hooks\soldier\Soldier2Impl_UpdateMarkers.cpp" />
@@ -694,6 +994,22 @@
     <ClCompile Include="src\hooks\soldier\NoticeDownComradeAiImpl_ShouldSleep.cpp" />
     <ClCompile Include="src\hooks\soldier\VehicleNoticeDownComradeAiImpl_ShouldSleep.cpp" />
     <ClCompile Include="src\hooks\soldier\RideVehicleActionImpl_HasOtherSoldierOnVec.cpp" />
+    <ClCompile Include="src\hooks\vehicle\VehicleCommunicationInfo_FetchVehicleSeatLocalMatrix.cpp" />
+    <ClCompile Include="src\hooks\soldier\RideVehicleActionImpl_State_IdleAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\RideVehicleActionImpl_UpdateShootState.cpp" />
+    <ClCompile Include="src\hooks\soldier\AttackActionImpl_GetAimState.cpp" />
+    <ClCompile Include="src\hooks\soldier\InVehicleAiImpl_ShouldWake.cpp" />
+    <ClCompile Include="src\hooks\vehicle\EffectControllerImpl_CreateEffect.cpp" />
+    <ClCompile Include="src\hooks\soldier\JeepGunnerSeatMotion.cpp" />
+    <ClCompile Include="src\hooks\vehicle\JeepGunnerSeat.cpp" />
+    <ClCompile Include="src\hooks\vehicle\JeepGunEffects.cpp" />
+    <ClCompile Include="src\hooks\vehicle\CustomVehicles.cpp" />
+    <ClCompile Include="src\hooks\vehicle\VehicleSortieRows.cpp" />
+    <ClCompile Include="src\hooks\ui\ResourceManagementCallbackImpl_UpdateState.cpp" />
+    <ClCompile Include="src\hooks\vehicle\BodyData_SetupBody.cpp" />
+    <ClCompile Include="src\hooks\vehicle\AttachmentData_SetupAttachment.cpp" />
+    <ClCompile Include="src\hooks\vehicle\ConstantImpl_GetVehicleTypeSpecs.cpp" />
+    <ClCompile Include="src\hooks\vehicle\VehicleGameObjectImpl_Initialize.cpp" />
     <ClCompile Include="src\hooks\soldier\LifeControllerImpl_SendStatusMessage.cpp" />
     <ClCompile Include="src\hooks\soldier\CombatAntiBuddyWalkerGearAiImpl_CheckGrenade.cpp" />
     <ClCompile Include="src\hooks\soldier\Soldier2Util_SearchActiveMember.cpp" />
@@ -713,6 +1029,7 @@
     <ClCompile Include="src\hooks\player\CureActionPluginImpl_StateCure.cpp" />
     <ClCompile Include="src\hooks\player\FobPlayerCharacters.cpp" />
     <ClCompile Include="src\hooks\player\QuietCqcPatches.cpp" />
+    <ClCompile Include="src\hooks\player\ActionCoreImpl_ExecPostPutMotion.cpp" />
     <ClCompile Include="src\hooks\outfit\UniqueCharacterOwnSuit.cpp" />
     <ClCompile Include="src\hooks\outfit\UniqueCharacterDefaultOutfit.cpp" />
     <ClCompile Include="src\hooks\outfit\UniqueCharacterPartsTypePin.cpp" />
@@ -723,13 +1040,29 @@
     <ClCompile Include="src\core\FastThreadSnapshot.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GetGameObjectIdWithIndex.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GameObjectSendCommand.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\GameObjectReinitialize.cpp" />
+    <ClCompile Include="src\hooks\soldier\SecurityCamera2Impl_ProcessLuaCommand.cpp" />
+    <ClCompile Include="src\hooks\soldier\UavImpl_ProcessLuaCommand.cpp" />
+    <ClCompile Include="src\hooks\soldier\Soldier2Impl_ProcessLuaCommand.cpp" />
+    <ClCompile Include="src\hooks\soldier\Hostage2Impl_ProcessLuaCommand.cpp" />
+    <ClCompile Include="src\hooks\vehicle\TppVehicle2_LuaCommands.cpp" />
+    <ClCompile Include="src\hooks\vehicle\WalkerGear2Impl_ProcessLuaCommand.cpp" />
+    <ClCompile Include="src\hooks\sahelan\TppSahelan2_LuaCommands.cpp" />
     <ClCompile Include="src\hooks\fox\gm\GameObjectPosition.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\GameObjectInstance.cpp" />
     <ClCompile Include="src\hooks\bullet\Bullet3Impl_ActivateBulletAtEmptyWorkPatch.cpp" />
     <!-- Lua bridge -->
     <ClCompile Include="src\lua\LuaApi.cpp" />
     <ClCompile Include="src\lua\SetLuaFunctions.cpp" />
     <ClCompile Include="src\lua\V_TppUiCommandLib.cpp" />
     <ClCompile Include="src\lua\FrameCallbacks.cpp" />
+    <ClCompile Include="src\lua\V_UixUtilityPrefabList.cpp" />
+    <ClCompile Include="src\lua\V_UixUtilitySubViewport.cpp" />
+    <ClCompile Include="src\hooks\ui\PrefabListControl.cpp" />
+    <ClCompile Include="src\lua\V_UixUtilityIDroid.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcManageEv_CustomPage.cpp" />
+    <ClCompile Include="src\hooks\ui\MotherBaseDeviceTopMenuTableImpl_CustomItems.cpp" />
+    <ClCompile Include="src\lua\WindowPages.cpp" />
     <ClCompile Include="src\lua\V_TppGameObjectConstants.cpp" />
     <ClCompile Include="src\lua\V_TppSoundDaemonLib.cpp" />
     <ClCompile Include="src\lua\V_TppCassetteLib.cpp" />
@@ -738,6 +1071,16 @@
     <ClCompile Include="src\lua\V_PickableLib.cpp" />
     <ClCompile Include="src\lua\V_TppCollectionLib.cpp" />
     <ClCompile Include="src\lua\V_HelicopterLib.cpp" />
+    <ClCompile Include="src\lua\V_TppDataUtilityLib.cpp" />
+    <ClCompile Include="src\hooks\core\FoxGrModelMesh.cpp" />
+    <ClCompile Include="src\hooks\core\VertexStreamPool.cpp" />
+    <ClCompile Include="src\hooks\core\RendererPools.cpp" />
+    <ClCompile Include="src\hooks\core\TextureStoragePool.cpp" />
+    <ClCompile Include="src\hooks\core\TexturePools.cpp" />
+    <ClCompile Include="src\hooks\core\TexturePackAbort.cpp" />
+    <ClCompile Include="src\hooks\core\TextureProxyFallback.cpp" />
+    <ClCompile Include="src\hooks\core\TextureProxyRaise.cpp" />
+    <ClCompile Include="src\hooks\core\AnimationControllerImpl_SetGameObjectIdToCharaControl.cpp" />
     <ClCompile Include="src\lua\V_TitleSequenceLib.cpp" />
     <ClCompile Include="src\lua\V_TppMotherBaseManagementLib.cpp" />
     <!-- Hooks: Soldier -->
@@ -747,16 +1090,183 @@
     <ClCompile Include="src\hooks\soldier\GetVoiceParamWithCallSign.cpp" />
     <ClCompile Include="src\hooks\soldier\LostHostageHook.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierHairFovaHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\RealizedSoldier2Impl_ExecuteSerially.cpp" />
+    <ClCompile Include="src\hooks\soldier\Soldier2CombatUtil_GrenadeUpdate.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierThrowCommand.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_GetOccasionalChat.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_CheckSpecialSaluteVoiceLabel.cpp" />
     <ClCompile Include="src\hooks\animal\NoticeNearThreatAiImpl_Wake.cpp" />
     <ClCompile Include="src\hooks\animal\AnimalInstance.cpp" />
     <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyQuietFovaFile.cpp" />
     <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyQuietWeaponFileFromBuddyBlock.cpp" />
     <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetPathAtBuddyType.cpp" />
+    <ClCompile Include="src\hooks\buddy\BattleGearBuddy.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearCustomizePage.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearArmory.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearGunMount.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearLoadoutSlots.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearReleaseStandIns.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Debug'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearRoofGunSight.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\ui\CustomizeUtilityImpl_GetBuddyUsageCost.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearCarry.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearAttackActionImpl_State_HoldOnArmWeapon.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearAttackActionImpl_State_FireStunGun.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearBasicActionImpl_CorrectVelocity.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearBasicActionImpl_CheckLowStepOnMove.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearBasicActionImpl_FallCheck.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearDamageActionImpl_CorrectVelocity.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\RideWalkerGearActionImpl_ChangeWeapon.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\RideWalkerGearActionImpl_SubjectiveCamera.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearEffects.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearBasicActionImpl_Execute.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyCommand_GetBuddyCommandName.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_BuddyGearHead.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGear2Impl_SetUpMainWeapon.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearAnnounce.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_CanSortieBuddyType.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_CallBuddyInit.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_BuddyEquipSettings.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetBuddyGameObjectType.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_GetPathAtSub.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\Buddy2BlockControllerImpl_SubBlockSetting.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_InitBuddyCommand.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\PluginWalkerGearIk_AdjustLeg.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\RealizedWalkerGear2Impl_Execute1.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\AnimControl_PoseToBoneMatrices.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearLegs.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearCamera.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearWeapons.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_GetBuddyGear.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_SetBuddyGearMainWP.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\RideWalkerGearActionImpl_StateDrive.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearAttackActionImpl_GetMuzzleMatrix.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\WalkerGearAttackActionImpl_RegisterStunGunOffenseTarget.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BulletSystem3Impl_CreateBullet.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BalloonSystemImpl_CreateImpl.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearRoofGun.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\buddy\BattleGearSound.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\ui\MbDvcManageEv_UpdateCallBuddyPhaseOpen.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\ui\MotherBaseDeviceTopMenuTableImpl_ApplyConditionVisibility.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\ui\CharacterSelectorCallbackImpl_SetupBuddyList.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\ui\TppModelViewerBuddyCommand_Execute.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\hooks\core\NoticeSensorImpl_CreateController.cpp" />
+    <ClCompile Include="src\hooks\core\NoticeSensorImpl_Init.cpp" />
+    <ClCompile Include="src\hooks\ui\MissionPreparationSystemImpl_GetParamBuddyPartsFromVars.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)'=='Release'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="src\hooks\buddy\BuddyCodeCave.cpp" />
     <ClCompile Include="src\hooks\buddy\ActionCoreImpl_ExecDefenseCallback.cpp" />
     <ClCompile Include="src\hooks\buddy\BasicAction2Impl_Execute.cpp" />
+    <ClCompile Include="src\hooks\buddy\HorseDamageActionImpl_State_Whiii.cpp" />
+    <ClCompile Include="src\hooks\buddy\BuddyQuiet2SoundControllerImpl_CallVoice.cpp" />
+    <ClCompile Include="src\hooks\buddy\BuddyQuietDamageHandlerImpl_ProcessDamages.cpp" />
     <ClCompile Include="src\hooks\buddy\BuddyDog2Impl_Initialize.cpp" />
+    <ClCompile Include="src\hooks\buddy\EquipDevelopControllerImpl_GetDWalkerParts.cpp" />
+    <ClCompile Include="src\hooks\buddy\WalkerGear_SubWeaponEquipId.cpp" />
+    <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_ChangeGearSubWeaponSettings.cpp" />
+    <ClCompile Include="src\hooks\buddy\EquipBlockController2_StartLoadingToEquipMissionBlock.cpp" />
+    <ClCompile Include="src\hooks\buddy\EquipDataSystemAccessorImpl_GetBlock.cpp" />
+    <ClCompile Include="src\hooks\buddy\RideWalkerGearActionImpl_GetVehicleEquipId.cpp" />
+    <ClCompile Include="src\hooks\buddy\UiUtility_GetVehicleEquipNameText.cpp" />
+    <ClCompile Include="src\hooks\equip\CustomizeSelectorCallbackImpl_SetupItemList.cpp" />
     <ClCompile Include="src\hooks\buddy\BuddyDogDamageHandlerImpl_ProcessDamages.cpp" />
     <ClCompile Include="src\hooks\buddy\BuddyServiceImpl_InitBuddyCommandForStatus.cpp" />
     <ClCompile Include="src\hooks\buddy\EquipControllerImpl_InitCurrentSlot.cpp" />
@@ -777,15 +1287,40 @@
     <ClCompile Include="src\hooks\soldier\IdleActingActionImpl_CallVoice.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierIncomingVoice.cpp" />
     <ClCompile Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceWithoutSync.cpp" />
+    <ClCompile Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceImpl.cpp" />
+    <ClCompile Include="src\hooks\soldier\MemberRoleControllerImpl_AssignSelectAlertLost.cpp" />
+    <ClCompile Include="src\hooks\soldier\InvestigateAiImpl_PreUpdate.cpp" />
+    <ClCompile Include="src\hooks\soldier\HostageRideVehicleActionImpl_State_GetInAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\DownActionImpl_State_ToDyingSufferIdle.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierDamageActionImpl_State_DamageReaction.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierStinkVoice.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierBackupCall.cpp" />
     <ClCompile Include="src\hooks\soldier\SoldierCombatVoice.cpp" />
     <ClCompile Include="src\hooks\soldier\RadioActionImpl_State_RadioChaffEnd.cpp" />
+    <ClCompile Include="src\hooks\soldier\RouteAiImpl_SetSubActionParamWithNodeEvent.cpp" />
+    <ClCompile Include="src\hooks\soldier\RouteAiImpl_StepEvent.cpp" />
+    <ClCompile Include="src\hooks\soldier\AttackActionImpl_ProcessFireControl.cpp" />
+    <ClCompile Include="src\hooks\soldier\TppPermanentGimmickGatlingGun_SetAimMatrix.cpp" />
+    <ClCompile Include="src\hooks\soldier\AttackActionImpl_SubState_Idle.cpp" />
+    <ClCompile Include="src\hooks\soldier\BasicAction2Impl_State_ChangeStandOrSquat.cpp" />
+    <ClCompile Include="src\hooks\soldier\HoldupAiImpl_StepHoldupStand.cpp" />
+    <ClCompile Include="src\hooks\soldier\HoldupActionImpl_State_EndStandHoldup.cpp" />
+    <ClCompile Include="src\hooks\soldier\CommandPost2Impl_RequestInvestigation.cpp" />
+    <ClCompile Include="src\hooks\soldier\CommandPost2Impl_Initialize.cpp" />
+    <ClCompile Include="src\hooks\soldier\CommandPost2Impl_GetFreeMemberSlots.cpp" />
+    <ClCompile Include="src\hooks\soldier\CommandPost2Impl_CreateController.cpp" />
+    <ClCompile Include="src\hooks\soldier\InvestigateSituationOperatorImpl_GetSituationWithRequest.cpp" />
+    <ClCompile Include="src\hooks\soldier\EquipPluginImpl_NormalMtevCallback.cpp" />
+    <ClCompile Include="src\hooks\soldier\RouteGroupImpl_GetEventAimCharacterId.cpp" />
+    <ClCompile Include="src\hooks\soldier\RouteGroupImpl_GetEventId.cpp" />
+    <ClCompile Include="src\hooks\soldier\RouteAiImpl_SetSubActionParamWithEdgeEvent.cpp" />
     <ClCompile Include="src\hooks\soldier\CpRadioVariants.cpp" />
     <ClCompile Include="src\hooks\soldier\Soldier2SoundControllerImpl_CallVoiceWithSync.cpp" />
     <ClCompile Include="src\hooks\soldier\StepRadioDiscovery.cpp" />
     <ClCompile Include="src\hooks\soldier\State_EnterStandHoldup1.cpp" />
     <ClCompile Include="src\hooks\soldier\State_StandHoldupCancelLookToPlayer.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPHoldupHook.cpp" />
+    <ClCompile Include="src\hooks\soldier\VIPImportant.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPRadioHook.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPSleepFaintHook.cpp" />
     <ClCompile Include="src\hooks\soldier\VIPSoundRecoveryHook.cpp" />
@@ -805,6 +1340,7 @@
     <ClCompile Include="src\hooks\player\TimeCigaretteUiHook.cpp" />
     <ClCompile Include="src\hooks\player\UiControllerImpl_HideBinocle.cpp" />
     <ClCompile Include="src\hooks\player\AttackActionImpl_IsWeaponNoUseInPlaceAction.cpp" />
+    <ClCompile Include="src\hooks\player\AttackActionImpl_UpdateShootingByPad.cpp" />
     <ClCompile Include="src\hooks\player\CallMenuCommandSet_UpdateState.cpp" />
     <ClCompile Include="src\hooks\player\CallComradeCommand.cpp" />
     <ClCompile Include="src\hooks\player\FalseRadioResponseCommand.cpp" />
@@ -814,6 +1350,8 @@
     <ClCompile Include="src\hooks\soldier\SoldierCommandPost.cpp" />
     <ClCompile Include="src\hooks\player\CallMenuManagerImpl_UpdateInShowing.cpp" />
     <ClCompile Include="src\hooks\soldier\Soldier2Impl_ProcessSignal.cpp" />
+    <ClCompile Include="src\hooks\soldier\Soldier2Impl_RealizeRealizedSoldier.cpp" />
+    <ClCompile Include="src\hooks\player\Fova2ControllerImpl_ApplyPlayerFova.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeControllerImpl_CheckForceNotice.cpp" />
     <ClCompile Include="src\hooks\player\CallMenuManagerImpl_ShowCallMenu.cpp" />
     <ClCompile Include="src\hooks\ui\CallMenuImpl_UpdateSelectDoc.cpp" />
@@ -821,8 +1359,21 @@
     <ClCompile Include="src\hooks\soldier\NoticeNoiseAiImpl_StepMovePause.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeNoiseAiImpl_CheckTargetPositionUpdate.cpp" />
     <ClCompile Include="src\hooks\soldier\NoticeNoiseAiImpl_StepWaitReach.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeNoiseAiImpl_StepPreAware.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeDownComradeAiImpl_StepPreRadio.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeAiImpl_StepRadio.cpp" />
+    <ClCompile Include="src\hooks\soldier\TppPermanentGimmickUnit_CallNoise.cpp" />
+    <ClCompile Include="src\hooks\soldier\UavLifeControllerImpl_SendStatusMessage.cpp" />
     <ClCompile Include="src\hooks\soldier\ComradeTurn.cpp" />
     <ClCompile Include="src\hooks\soldier\ActionController_SetCommand.cpp" />
+    <ClCompile Include="src\hooks\soldier\RideHeliActionImpl_State_GetInAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\RideHeliActionImpl_State_IdleAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\CcRootAdjustAction_Exec.cpp" />
+    <ClCompile Include="src\hooks\soldier\UnrealRideHeliActionImpl_State_IdleAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\RideHeliActionImpl_State_GetOutAction.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierAttackActionImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierAttackActionImpl_RequestFire.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierDamageActionImpl_Execute.cpp" />
     <!-- Hooks: Sound -->
     <ClCompile Include="src\hooks\sound\GetTapeTrackDirectPlayId.cpp" />
     <ClCompile Include="src\hooks\sound\SoundSystemImpl_BeginSoundSystem.cpp" />
@@ -830,7 +1381,9 @@
     <ClCompile Include="src\hooks\sound\MbDvcCassetteTapeCallbackImpl_PlayOrPauseSelectedTrack.cpp" />
     <ClCompile Include="src\hooks\sound\CustomTapeOwnership.cpp" />
     <ClCompile Include="src\hooks\sound\SubtitlesEventMessage.cpp" />
+    <ClCompile Include="src\hooks\sound\SpeechSystemImpl_FindSpeechSequenceIndex.cpp" />
     <ClCompile Include="src\hooks\sound\CustomRadioCassette.cpp" />
+    <ClCompile Include="src\hooks\sound\AkSoundEngine_PostEvent.cpp" />
     <ClCompile Include="src\hooks\sound\AkMemoryMgr_Malloc.cpp" />
     <ClCompile Include="src\hooks\sound\CassetteTrackPaging.cpp" />
     <ClCompile Include="src\hooks\sound\Control_PostExternalEvent.cpp" />
@@ -845,11 +1398,56 @@
     <!-- Hooks: Heli -->
     <ClCompile Include="src\hooks\heli\FieldTaxiMenu.cpp" />
     <ClCompile Include="src\hooks\heli\HeliSoundController.cpp" />
+    <ClCompile Include="src\hooks\heli\LightActionImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\heli\GunActionImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliBuiltInWeapons.cpp" />
+    <ClCompile Include="src\hooks\heli\TppHeli2_Allocate.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliParts.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliCustomizeMenu.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliOutfit.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliDevelopTab.cpp" />
+    <ClCompile Include="src\hooks\heli\GunActionImpl_FireBarrel.cpp" />
+    <ClCompile Include="src\hooks\heli\BlastSystemImpl_Blast.cpp" />
+    <ClCompile Include="src\hooks\heli\ShellImpl_UpdateAction.cpp" />
+    <ClCompile Include="src\hooks\heli\ShellImpl_RequestSmokeCloud.cpp" />
+    <ClCompile Include="src\hooks\heli\CustomizeSelectorCallbackImpl_HoverHeliPart.cpp" />
+    <ClCompile Include="src\hooks\heli\EquipDetailsCallbackImpl_SetupHeliCustomizeDetails.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliWeapon.cpp" />
+    <ClCompile Include="src\hooks\heli\EquipDevelopControllerImpl_GetHeliPartsId.cpp" />
+    <ClCompile Include="src\hooks\heli\CustomizeSelectorCallbackImpl_DecideActWindowPartHelicopter.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportHeliCustomizeCodec.cpp" />
+    <ClCompile Include="src\hooks\heli\CustomizeControllerImpl_SetSubWeaponAmmo.cpp" />
+    <ClCompile Include="src\hooks\heli\LauncherActionImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\heli\SupportCombatAiImpl_StepAttack.cpp" />
+    <ClCompile Include="src\hooks\heli\ShellSystemImpl_Fire.cpp" />
+    <ClCompile Include="src\hooks\heli\TppHeli2_LuaCommands.cpp" />
+    <ClCompile Include="src\hooks\heli\HeliLineOfSight.cpp" />
+    <ClCompile Include="src\hooks\heli\CpControllerImpl_GetTargetPosition.cpp" />
+    <ClCompile Include="src\hooks\heli\EnemyCombatAiImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\heli\HeliInterest_SetLookAt.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierFactionHeli.cpp" />
+    <ClCompile Include="src\hooks\soldier\SoldierFactionAntiAir.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeTurretAiImpl_ShouldSleep.cpp" />
+    <ClCompile Include="src\hooks\heli\ActionCoreImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\heli\DamageHandlerImpl_ProcessQueuedDamages.cpp" />
+    <ClCompile Include="src\hooks\heli\MechaActionImpl_StateOnPassenger.cpp" />
     <!-- Hooks: UI -->
     <ClCompile Include="src\hooks\ui\DataBaseCallbackImpl_RefreshPrefabList.cpp" />
     <ClCompile Include="src\hooks\ui\EquipBgTexture.cpp" />
     <ClCompile Include="src\hooks\ui\FontData_SearchGlyphData.cpp" />
+    <ClCompile Include="src\hooks\ui\TppUIBinoSubjectiveImpl_Act.cpp" />
+    <ClCompile Include="src\hooks\core\MainPadSlot.cpp" />
+    <ClCompile Include="src\hooks\core\SonyPadLayout.cpp" />
+    <ClCompile Include="src\hooks\ui\ButtonIconSheet.cpp" />
+    <ClCompile Include="src\hooks\ui\ModelNodeMesh_Destruct.cpp" />
+    <ClCompile Include="src\hooks\ui\ControllerAssignMenu.cpp" />
+    <ClCompile Include="src\hooks\ui\ControlTypePageAssign.cpp" />
+    <ClCompile Include="src\hooks\player\PadAssign.cpp" />
+    <ClCompile Include="src\hooks\ui\TextIcons.cpp" />
+    <ClCompile Include="src\hooks\ui\ButtonMapper_SetDefaultButtonMap.cpp" />
+    <ClCompile Include="src\hooks\ui\UiDepend_ActHudChecking.cpp" />
     <ClCompile Include="src\hooks\ui\UixUtilityControl.cpp" />
+    <ClCompile Include="src\hooks\ui\WindowLayoutCount.cpp" />
     <ClCompile Include="src\hooks\ui\UiPadLock.cpp" />
     <ClCompile Include="src\hooks\ui\CallMenuImpl_UpdateCallMenu.cpp" />
     <ClCompile Include="src\hooks\ui\UiTexturePrefetch.cpp" />
@@ -857,6 +1455,7 @@
     <ClCompile Include="src\hooks\ui\MissionTelopBgTexture.cpp" />
     <ClCompile Include="src\hooks\ui\LoadingSplash.cpp" />
     <ClCompile Include="src\hooks\ui\GameOverSplash.cpp" />
+    <ClCompile Include="src\hooks\ui\TppBonusPopupImpl_SetBgTexture.cpp" />
     <ClCompile Include="src\hooks\ui\RewardPopupBgTexture.cpp" />
     <ClCompile Include="src\hooks\ui\utility_GetIconFtexPath.cpp" />
     <ClCompile Include="src\hooks\ui\EnemyLangIdOverride.cpp" />
@@ -864,14 +1463,35 @@
     <ClCompile Include="src\hooks\ui\ShowMissionIcon.cpp" />
     <ClCompile Include="src\hooks\ui\AnnounceLogHook.cpp" />
     <ClCompile Include="src\hooks\ui\ChangeLocationMenu.cpp" />
+    <ClCompile Include="src\hooks\ui\LocationIconRegistry.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcMissionListRecordCallFunc_Start.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcMapCallbackBaseImpl_UpdateLocationInfoView.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcSideOpsRecordCallFunc_StartBody.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcMissionListCallbackImpl_ActivatePrefabTablistParameter.cpp" />
     <ClCompile Include="src\hooks\ui\UniqueStaffRegistry.cpp" />
     <ClCompile Include="src\hooks\ui\DataBaseNewFlag.cpp" />
+    <ClCompile Include="src\hooks\ui\MbTopMenuStickyHide.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcSoundControllerImpl_RequestVoice.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcSoundControllerImpl_Update.cpp" />
+    <ClCompile Include="src\hooks\ui\BaseControllerImpl_CompletePlatformDeck.cpp" />
+    <ClCompile Include="src\hooks\ui\MbDvcMapCallbackControlImpl_RendezvousOperation.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\SimpleMissionBlockController_ReceiveMessage.cpp" />
+    <ClCompile Include="src\hooks\fox\gs\RouteGroupImpl_Destructor.cpp" />
+    <ClCompile Include="src\hooks\ui\FobMission2CallbackImpl_Update.cpp" />
+    <ClCompile Include="src\hooks\ui\MotherBaseMapCommonData_IsDangerLandingZone.cpp" />
+    <ClCompile Include="src\hooks\fox\path\PathHashCode.cpp" />
+    <ClCompile Include="src\core\LoadWatch.cpp" />
     <ClCompile Include="src\hooks\ui\GetPhotoAdditionalTextLangId.cpp" />
     <ClCompile Include="src\hooks\ui\BarrierEffectLoadPatch.cpp" />
     <ClCompile Include="src\hooks\ui\BarrierEffectSpawn.cpp" />
     <ClCompile Include="src\hooks\ui\UiControllerImpl_UpdateEquipHud.cpp" />
     <ClCompile Include="src\hooks\core\LuaErrorThrow.cpp" />
     <ClCompile Include="src\hooks\core\ServerManager_BufferRelease.cpp" />
+    <ClCompile Include="src\hooks\core\Block_Reload.cpp" />
+    <ClCompile Include="src\hooks\core\luaG_errormsg.cpp" />
+    <ClCompile Include="src\hooks\fox\geo\FoxGeo_CheckSphere.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\MessageArgs_GetValueAsDouble.cpp" />
+    <ClCompile Include="src\hooks\fox\gm\ScriptUpdater_ReceiveMessage.cpp" />
     <ClCompile Include="src\hooks\core\CmdSyncMotherBaseOption_Pack.cpp" />
     <ClCompile Include="src\hooks\core\CmdSyncSoldierBinOption_Pack.cpp" />
     <ClCompile Include="src\hooks\core\CmdSyncSoldierDiffOption_Pack.cpp" />
@@ -880,7 +1500,6 @@
     <ClCompile Include="src\hooks\core\MotherBaseSecurityShadow.cpp" />
     <ClCompile Include="src\hooks\core\StaffServerSanitize.cpp" />
     <ClCompile Include="src\hooks\ui\SupportAttackCrashGuard.cpp" />
-    <ClCompile Include="src\hooks\ui\Reticle_InitHandGunAsset.cpp" />
     <!-- Hooks: Pickable -->
     <ClCompile Include="src\hooks\pickable\TppPickableRuntime.cpp" />
     <ClCompile Include="src\hooks\collection\TppCollectionRuntime.cpp" />
@@ -914,6 +1533,46 @@
     <ClCompile Include="src\hooks\menupopup\MbDvcMissionListCallbackImpl_SetMenuHelp.cpp" />
     <!-- Hooks: Notice -->
     <ClCompile Include="src\hooks\equip\PartIdWiden.cpp" />
+    <ClCompile Include="src\hooks\equip\MissionPreparationSystemImpl_CalcEquipWeaponItemCostFromLoadout.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipSystemImpl_SetAmmoCount.cpp" />
+    <ClCompile Include="src\hooks\ui\ItemSelectorCallbackImpl_IsGetLatestItemTool.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipDevelopCallbackImpl_IsLatestItemTool.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipControllerImpl_UpdateBattery.cpp" />
+    <ClCompile Include="src\hooks\ui\UiUtilityImpl_GetBatteryLevel.cpp" />
+    <ClCompile Include="src\hooks\ui\TppUIWeaponNumImpl_SetPanelInfo.cpp" />
+    <ClCompile Include="src\hooks\core\FobTarget_RequestSneakCommon.cpp" />
+    <ClCompile Include="src\hooks\core\GetFobStatusCallback_AnnounceDefense.cpp" />
+    <ClCompile Include="src\hooks\soldier\EquipPluginImpl_Execute.cpp" />
+    <ClCompile Include="src\hooks\soldier\EquipControllerImpl_DropEquip.cpp" />
+    <ClCompile Include="src\hooks\equip\LaserSightSwitch.cpp" />
+    <ClCompile Include="src\hooks\equip\EquipControllerImpl_SetUpPartsStateForGun.cpp" />
+    <ClCompile Include="src\hooks\player\AttackActionImpl_SetVisibleLaserSight.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossLaserBox.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_SetPrimaryOptionPanel.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_PrimaryOptionSelect.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_SecondaryOptionSelect.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_ItemToggleChange.cpp" />
+    <ClCompile Include="src\hooks\ui\EquipCrossEvCall_SpecialItemAct.cpp" />
+    <ClCompile Include="src\hooks\equip\ItemCount.cpp" />
+    <ClCompile Include="src\hooks\equip\ShieldParams.cpp" />
+    <ClCompile Include="src\hooks\pickable\PickUpActionPluginImpl_PickUpAmmoBox.cpp" />
+    <ClCompile Include="src\hooks\player\PlayerSkill.cpp" />
+    <ClCompile Include="src\hooks\ui\TppUIWeaponNumImpl_ShowItemPanel.cpp" />
+    <ClCompile Include="src\hooks\player\ItemParameter.cpp" />
+    <ClCompile Include="src\hooks\pickable\PickUpActionPluginImpl_CheckLoadableForAmmo.cpp" />
+    <ClCompile Include="src\hooks\player\LifeControllerImpl_UpdateHost.cpp" />
+    <ClCompile Include="src\hooks\player\Player2Impl_CallVoice.cpp" />
+    <ClCompile Include="src\hooks\player\RideHorseActionPluginImpl_State_Idle.cpp" />
+    <ClCompile Include="src\hooks\player\RideHeliActionPluginImpl_ExecActionButtonFunction.cpp" />
+    <ClCompile Include="src\hooks\player\CqcActionPluginImpl_CompleteContinueCqcTarget.cpp" />
+    <ClCompile Include="src\hooks\player\EquipControllerImpl_OnShieldHit.cpp" />
+    <ClCompile Include="src\hooks\player\IdroidVoiceLines.cpp" />
+    <ClCompile Include="src\hooks\player\SightManagerImpl_UpdateEspionageRadio.cpp" />
+    <ClCompile Include="src\hooks\soldier\HostageVoiceLines.cpp" />
+    <ClCompile Include="src\hooks\player\AnimLoader_GetMotionData.cpp" />
+    <ClCompile Include="src\hooks\soldier\NoticeActionImpl_Wake.cpp" />
+    <ClCompile Include="src\hooks\core\CmdSendBootOption_Pack.cpp" />
+    <ClCompile Include="src\hooks\ui\Reticle_ResetLayout.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\libMinHook.x64.lib" />

@@ -1,7 +1,6 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
-#include <array>
 #include <cstdint>
 #include <cstring>
 
@@ -18,21 +17,8 @@ namespace
                                                      void* ray);
 
     constexpr std::size_t   kAttackActionSoldierCore = 0x78;
-    constexpr std::uint32_t kSoldierSlotCount        = 0x200u;
 
     HasOtherSoldierOnVec_t g_OrigHasOtherSoldierOnVec = nullptr;
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedShotRival{};
-
-    void LogFirstShotAtRival(std::uint32_t shooterIndex)
-    {
-        if (shooterIndex >= kSoldierSlotCount)
-            return;
-        const std::uint16_t rivalId = SoldierFaction_GetRivalTarget(shooterIndex);
-        if (g_loggedShotRival[shooterIndex] == rivalId)
-            return;
-        g_loggedShotRival[shooterIndex] = rivalId;
-        LogInfo("SoldierFaction: soldier %u is firing at rival %u", shooterIndex, rivalId & 0x1FFu);
-    }
 
     bool __fastcall hk_HasOtherSoldierOnVec(void* self, std::uint32_t shooterIndex, const float* muzzle,
                                             const float* shotTarget, const float* direction, float length, void* ray)
@@ -48,7 +34,6 @@ namespace
             return g_OrigHasOtherSoldierOnVec(self, shooterIndex, muzzle, shotTarget, direction, length, ray);
 
         SoldierFaction_MarkFiring(shooterIndex);
-        LogFirstShotAtRival(shooterIndex);
         return false;
     }
 }

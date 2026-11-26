@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BuddyCodeCave.h"
 
@@ -97,6 +97,22 @@ void UninstallBuddyCodeCave(BuddyCodeCave& cave)
 {
     if (!cave.installed || !cave.site)
         return;
+    std::uint8_t ours[sizeof(cave.original)];
+    std::memset(ours, 0x90, sizeof(ours));
+    ours[0] = 0xE9;
+    const std::int32_t rel32 = static_cast<std::int32_t>(reinterpret_cast<std::intptr_t>(cave.thunk)
+                                                       - reinterpret_cast<std::intptr_t>(cave.site + 5));
+    std::memcpy(ours + 1, &rel32, sizeof(rel32));
+
+    std::uint8_t live[sizeof(cave.original)]{};
+    if (!ReadEntryBytesSEH(cave.site, live, cave.size) || std::memcmp(live, ours, cave.size) != 0)
+    {
+        LogWarn("BuddyOutfit: %s site no longer holds our jump (another module changed it), left as it is", cave.name);
+        cave.installed = false;
+        cave.site = nullptr;
+        return;
+    }
+
     DWORD old = 0;
     if (VirtualProtect(cave.site, cave.size, PAGE_EXECUTE_READWRITE, &old))
     {

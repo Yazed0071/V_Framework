@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CmdSyncSoldierBinOption_Pack.h"
 
 #include <Windows.h>
@@ -26,11 +26,6 @@ namespace
         0x48, 0x8B, 0xC4, 0x55, 0x57, 0x41, 0x56, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x70,
         0x48, 0xC7, 0x45, 0xC0, 0xFE, 0xFF, 0xFF, 0xFF, 0x48, 0x89, 0x58, 0x18, 0x48, 0x89, 0x70, 0x20
     };
-    const std::uint8_t kPrologue153[] = {
-        0x48, 0x89, 0xE0, 0x55, 0x57, 0x41, 0x56, 0x48, 0x89, 0xE5, 0x48, 0x83, 0xEC, 0x70,
-        0x48, 0xC7, 0x85, 0xC0, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF,
-        0x48, 0x89, 0x58, 0x18, 0x48, 0x89, 0x70, 0x20
-    };
 
     struct PackTarget
     {
@@ -44,16 +39,7 @@ namespace
 
     PackTarget Target()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return { 0x145B0B710ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return { 0x1474E11F0ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return { 0x1408132A0ull, kPrologue154, sizeof(kPrologue154) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return { 0x1408132F0ull, kPrologue154, sizeof(kPrologue154) };
-        default:                                           return {};
-        }
+        return { gAddr.CmdSyncSoldierBinOption_Pack, kPrologue154, sizeof(kPrologue154) };
     }
 
     bool PrologueMatchesSEH(const void* fn, const PackTarget& target)
@@ -140,10 +126,14 @@ bool Install_CmdSyncSoldierBinOption_Pack()
     }
 
     void* fn = ResolveGameAddress(target.addr);
-    if (!fn || !PrologueMatchesSEH(fn, target))
+    char entry[160] = {};
+    const bool matches = fn && PrologueMatchesSEH(fn, target);
+    const bool onTop   = fn && !matches && EntryHookedByOtherModule(fn);
+    if (!matches && !onTop)
     {
-        LogError("StaffSyncGuard: CMD_SYNC_SOLDIER_BIN pack prologue mismatch on %s, custom unique staff reach the server",
-            GetGameBuildName(gGameBuild));
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogError("StaffSyncGuard: CMD_SYNC_SOLDIER_BIN pack prologue mismatch on %s (%s), custom unique staff reach the server",
+            GetGameBuildName(gGameBuild), entry);
         return false;
     }
 
@@ -155,6 +145,11 @@ bool Install_CmdSyncSoldierBinOption_Pack()
         return false;
     }
 
+    if (onTop)
+    {
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogInfo("StaffSyncGuard: CMD_SYNC_SOLDIER_BIN pack already hooked (%s), guard installed on top", entry);
+    }
     g_Addr = fn;
     return true;
 }

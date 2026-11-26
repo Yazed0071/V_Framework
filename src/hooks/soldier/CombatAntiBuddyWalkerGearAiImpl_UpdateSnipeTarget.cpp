@@ -1,7 +1,6 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
-#include <array>
 #include <cstdint>
 #include <cstring>
 
@@ -15,14 +14,9 @@ namespace
 {
     using UpdateSnipeTarget_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, std::uint8_t* knowledge);
 
-    constexpr std::size_t   kKnowledgeFlags       = 0x48;
     constexpr std::size_t   kKnowledgeTargetId    = 0x50;
-    constexpr std::uint32_t kFlagWalkerGearRider  = 0x00800000u;
-    constexpr std::uint32_t kFlagClearShot        = 0x00200000u;
-    constexpr std::uint32_t kSoldierSlotCount     = 0x200u;
 
     UpdateSnipeTarget_t g_OrigUpdateSnipeTarget = nullptr;
-    std::array<std::uint16_t, kSoldierSlotCount> g_loggedClearShot{};
 
     void __fastcall hk_UpdateSnipeTarget(void* self, std::uint32_t soldierIndex, std::uint8_t* knowledge)
     {
@@ -46,16 +40,6 @@ namespace
         SoldierFaction_BeginShotScope(soldierIndex, rivalId);
         g_OrigUpdateSnipeTarget(self, soldierIndex, knowledge);
         SoldierFaction_EndShotScope();
-
-        std::uint32_t flags = 0;
-        std::memcpy(&flags, knowledge + kKnowledgeFlags, sizeof(flags));
-        if ((flags & kFlagClearShot) != 0 && soldierIndex < kSoldierSlotCount
-            && g_loggedClearShot[soldierIndex] != rivalId)
-        {
-            g_loggedClearShot[soldierIndex] = rivalId;
-            LogInfo("SoldierFaction: soldier %u has a clear %s shot at rival %u", soldierIndex,
-                (flags & kFlagWalkerGearRider) != 0 ? "walker gear" : "aimed", rivalId & 0x1FFu);
-        }
     }
 }
 

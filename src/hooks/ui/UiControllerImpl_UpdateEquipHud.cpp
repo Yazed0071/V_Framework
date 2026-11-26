@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "UiControllerImpl_UpdateEquipHud.h"
 
 #include <Windows.h>
@@ -10,6 +10,7 @@
 #include "BarrierEffectSpawn.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "../player/PlayerSkill.h"
 #include "log.h"
 
 namespace
@@ -38,16 +39,7 @@ namespace
 
     std::uintptr_t UpdateEquipHudAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return 0x140FE9C50ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return 0x140FE9D20ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140FE9430ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return 0x140FE9450ull;
-        default:                                           return 0;
-        }
+        return gAddr.UiControllerImpl_UpdateEquipHud;
     }
 
     bool GateBytesMatchSEH(const void* fn)
@@ -139,13 +131,17 @@ namespace
         std::uint32_t* playerFlags = singlePlayer ? PlayerFlagsSEH(self) : nullptr;
         const std::uint32_t savedFlags = playerFlags ? *playerFlags : 0;
         if (playerFlags)
-            *playerFlags &= ~kFobPlayerFlag; // held by the Energy Wall / wormhole in single-player; the HUD would lock the cigar, stealth camo, reflex medicine and parasite items like in FOB
+            *playerFlags &= ~kFobPlayerFlag;
         g_OrigUpdateEquipHud(self);
         if (playerFlags)
             *playerFlags = (*playerFlags & ~kFobPlayerFlag) | (savedFlags & kFobPlayerFlag);
 
         if (!self)
             return;
+        if (singlePlayer)
+            PlayerSkill::OnUpdateEquipHud(self);
+        else
+            PlayerSkill::DropRequests();
         void* info = EquipHud_ResolveInfo(self);
         if (!info)
             return;
@@ -212,6 +208,11 @@ void* EquipHud_ResolveInfo(void* uiController)
     {
         return nullptr;
     }
+}
+
+void* EquipHud_CachedInfo()
+{
+    return g_EquipHudInfo.load(std::memory_order_acquire);
 }
 
 bool EquipHud_IsItemUsable(int equipId)

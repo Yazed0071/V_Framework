@@ -1,5 +1,6 @@
-#include "pch.h"
+#include <pch.h>
 
+#include "../buddy/BattleGearWeapons.h"
 #include "../outfit/AdditionalMotionTable_GetMtarPathId.h"
 #include "../player/AnimControl_GetAnimFileFromGaniPath.h"
 #include "../shell/RemoteMissile.h"
@@ -8,8 +9,11 @@
 #include "EquipPartParams.h"
 #include "CustomScopeUi.h"
 #include "LaserSight_UpdatePrim.h"
+#include "LaserSightSwitch.h"
 
 #include <Windows.h>
+#include <array>
+#include <intrin.h>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -44,6 +48,7 @@
 #include "TppEquip_ReloadEquipIdTable.h"
 #include "TppEquipConstRegistry.h"
 #include "../../core/V_FrameWorkState.h"
+#include "../../core/MissionCodeGuard.h"
 #include "../buddy/EquipControllerImpl_InitCurrentSlot.h"
 #include "SupportStockLease.h"
 
@@ -113,7 +118,11 @@ namespace
     static std::set<int> g_SharedMagazineLanes;
     static std::set<int> g_LooseMagazineLanes;
     static PartBuffer g_Option   = { "option",   0x30, 1, 9,  255, {}, false, 10,  {}, kVanillaSpace_Option };
-    static PartBuffer g_Bullet   = { "bullet",   0x50, 14, 112, 255, {}, false, 113, {}, -1 };
+    static PartBuffer g_Bullet   = { "bullet",   0x50, 14, 112, 65535, {}, false, 113, {}, -1 };   // declared ids; the engine table only has the one-byte lanes below
+    constexpr int kBulletLaneRows  = 255;
+    constexpr int kNoBulletLane    = 255;   // the engine reads this byte as "no bullet"
+    constexpr int kFirstBulletLane = 113;
+    constexpr int kLastBulletLane  = 254;
 
     static std::recursive_mutex g_Mutex;
 
@@ -171,8 +180,9 @@ namespace
 
         std::uint8_t* stockBuf = ReadPtrSEH(loc);
 
+        const int shadowRows = (&pb == &g_Bullet) ? kBulletLaneRows : pb.maxId;
         if (pb.shadow.empty())
-            pb.shadow.assign(static_cast<size_t>(pb.maxId) * pb.stride, 0);
+            pb.shadow.assign(static_cast<size_t>(shadowRows) * pb.stride, 0);
 
         if (InitShadowSEH(loc, pb.shadow.data(),
                           static_cast<size_t>(pb.stockCount) * pb.stride) != 1)
@@ -327,6 +337,8 @@ namespace
         return WideMagazine_IsPlanned() && PartIdWiden_IsPlanned();
     }
 
+    static std::set<int> g_RcvClaimed;
+
     static bool PartIdTakenThisSession(const PartBuffer& pb, int id)
     {
         for (const auto& kv : pb.nameToId)
@@ -341,6 +353,8 @@ namespace
             return false;
         if (pb.space >= 0 && pb.space < kVanillaSpace_Count
             && g_WideParts[pb.space].count(id) != 0)
+            return false;
+        if (pb.space == kVanillaSpace_Receiver && g_RcvClaimed.count(id) != 0)
             return false;
         return !PartIdTakenThisSession(pb, id);
     }
@@ -401,7 +415,9 @@ namespace
             }
             if (pb.persistReserved.count(pb.nextId) != 0
                 || PartIdTakenThisSession(pb, pb.nextId)
-                || (&pb == &g_Bullet && SupportStockLease::IsReservedStockByte(pb.nextId)))
+                || (pb.space == kVanillaSpace_Receiver && g_RcvClaimed.count(pb.nextId) != 0)
+                || (&pb == &g_Bullet
+                    && (pb.nextId == kNoBulletLane || SupportStockLease::IsReservedStockByte(pb.nextId))))
             {
                 ++pb.nextId;
                 continue;
@@ -636,6 +652,24 @@ namespace
         {
             *basePtr  = newBase;
             *countPtr = newCount;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static void RestoreTrailShadowSEH(std::uint64_t** basePtr, std::uint32_t* countPtr)
+    {
+        __try
+        {
+            std::uint64_t* base  = *basePtr;
+            const std::uint32_t count = *countPtr;
+            if (!base || base == g_TrailShadow.data() || count == 0 || count > 0x1000)
+                return;
+            const size_t keep = count < g_TrailShadow.size() ? count : g_TrailShadow.size();
+            std::memcpy(g_TrailShadow.data(), base, keep * sizeof(std::uint64_t));
+            *basePtr  = g_TrailShadow.data();
+            *countPtr = static_cast<std::uint32_t>(g_TrailShadow.size());
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -913,7 +947,7 @@ namespace
     {
         __try
         {
-            outIdx = rbuf[static_cast<std::size_t>(receiverId) * kReceiverStride
+            outIdx = rbuf[static_cast<std::size_t>(receiverId - 1) * kReceiverStride
                           + g_Snd.rowByteOffset];
             return true;
         }
@@ -927,6 +961,8 @@ namespace
     {
         out.clear();
         if (donorReceiverId <= 0 || donorReceiverId > kReceiverMaxId)
+            return false;
+        if (donorReceiverId > kReceiverCapacity && !g_RcvIdBuf.active)
             return false;
 
         const std::uint8_t* rbuf = PartCurrentBuf(g_RcvIdBuf);
@@ -1081,6 +1117,26 @@ namespace
         EnsureOnePoolRelocated(g_Option);
         EnsureOnePoolRelocated(g_BarrelBase.pb);
         EnsureOnePoolRelocated(g_BulletBase.pb);
+        if (g_TrailShadowActive)
+        {
+            if (auto* impl = static_cast<std::uint8_t*>(
+                    ResolveGameAddress(gAddr.EquipParameterTablesImpl_Instance)))
+                RestoreTrailShadowSEH(reinterpret_cast<std::uint64_t**>(impl + 0x88),
+                                      reinterpret_cast<std::uint32_t*>(impl + 0x90));
+        }
+    }
+
+    static std::atomic<bool> g_FobVanillaParts{ false };   // FOB runs on the game's own part rows; the side tables below skip vanilla ids
+
+    static bool FobVanillaReceiver(int receiverId)
+    {
+        return g_FobVanillaParts.load(std::memory_order_acquire)
+            && receiverId > 0 && receiverId <= kReceiverCapacity && !g_RcvClaimed.count(receiverId);
+    }
+
+    static bool FobVanillaPart(const PartBuffer& table, int id)
+    {
+        return g_FobVanillaParts.load(std::memory_order_acquire) && id > 0 && id <= table.stockCount;
     }
 
     constexpr int kPoolDirectMax     = 253;
@@ -1103,7 +1159,6 @@ namespace
     static std::set<int> g_ReceiverWrittenUntyped;
 
     static std::map<std::string, int> g_RcvNameToId;
-    static std::set<int> g_RcvClaimed;
     static void LaneWindow_BindForBuild(void* desc, unsigned int equipId);
 
     static std::uint8_t* ReceiverTypeTable()
@@ -1144,13 +1199,19 @@ namespace
     static GetReceiverType_t g_OrigGetReceiverType = nullptr;
 
     unsigned int PartCode_TapReceiverType(unsigned int receiverId, unsigned int result);
+    bool PartCode_KindDonorType(int part, unsigned int& type);
 
     static unsigned int __fastcall hkGetReceiverType(void* self, unsigned int receiverId)
     {
         if (!g_RcvTypeExtReady)
             EnsureRcvTypeExt();
+        unsigned int kindDonorType = 0;
+        if (PartCode_KindDonorType(0, kindDonorType))
+            return kindDonorType;
         unsigned int r;
-        if (g_RcvTypeExtReady && receiverId < kPartTypeExtCount)
+        if (FobVanillaReceiver(static_cast<int>(receiverId)) && g_OrigGetReceiverType)
+            r = g_OrigGetReceiverType(self, receiverId);
+        else if (g_RcvTypeExtReady && receiverId < kPartTypeExtCount)
             r = g_RcvTypeExt[receiverId];
         else
             r = g_OrigGetReceiverType ? g_OrigGetReceiverType(self, receiverId) : 0;
@@ -1246,6 +1307,8 @@ namespace
     {
         if (!g_UbTypeExtReady)
             EnsureUbTypeExt();
+        if (FobVanillaPart(g_UnderBarrel, static_cast<int>(underBarrelId)) && g_OrigGetUnderBarrelType)
+            return g_OrigGetUnderBarrelType(self, underBarrelId);
         if (g_UbTypeExtReady && underBarrelId < kPartTypeExtCount)
             return g_UbTypeExt[underBarrelId];
         return g_OrigGetUnderBarrelType ? g_OrigGetUnderBarrelType(self, underBarrelId) : 0;
@@ -1299,6 +1362,11 @@ namespace
         EnsurePartTypeExt(g_BarrelTypeExt, g_BarrelTypeExtReady,
                           gAddr.MotionLoaderImpl_BarrelTypeTable,
                           kBarrelTypeVanillaRows);
+        unsigned int kindDonorType = 0;
+        if (PartCode_KindDonorType(1, kindDonorType))
+            return kindDonorType;
+        if (FobVanillaPart(g_Barrel, static_cast<int>(barrelId)) && g_OrigGetBarrelType)
+            return g_OrigGetBarrelType(self, barrelId);
         if (g_BarrelTypeExtReady && barrelId < kPartTypeExtCount)
         {
             const unsigned int t = g_BarrelTypeExt[barrelId];
@@ -1313,6 +1381,11 @@ namespace
         EnsurePartTypeExt(g_MagazineTypeExt, g_MagazineTypeExtReady,
                           gAddr.MotionLoaderImpl_MagazineTypeTable,
                           kMagazineTypeVanillaRows);
+        unsigned int kindDonorType = 0;
+        if (PartCode_KindDonorType(2, kindDonorType))
+            return kindDonorType;
+        if (FobVanillaPart(g_Magazine, static_cast<int>(magazineId)) && g_OrigGetMagazineType)
+            return g_OrigGetMagazineType(self, magazineId);
         if (g_MagazineTypeExtReady && magazineId < kPartTypeExtCount)
         {
             const unsigned int t = g_MagazineTypeExt[magazineId];
@@ -1372,6 +1445,11 @@ namespace
         EnsurePartTypeExt(g_StockTypeExt, g_StockTypeExtReady,
                           gAddr.MotionLoaderImpl_StockTypeTable,
                           kStockTypeVanillaRows);
+        unsigned int kindDonorType = 0;
+        if (PartCode_KindDonorType(3, kindDonorType))
+            return kindDonorType;
+        if (FobVanillaPart(g_Stock, static_cast<int>(stockId)) && g_OrigGetStockType)
+            return g_OrigGetStockType(self, stockId);
         if (g_StockTypeExtReady && stockId < kPartTypeExtCount)
         {
             const unsigned int t = g_StockTypeExt[stockId];
@@ -1867,6 +1945,18 @@ namespace
         {
             const int v = static_cast<int>(g_lua_tointeger(L, -1));
             g_lua_settop(L, -2);
+            RcvPool& np = PoolFor(kind);
+            if (!EnsureRcvPoolShadow(np))
+            {
+                LogWarn("SetReceiver: %s pool unavailable, not written", field);
+                return -2;
+            }
+            if (v < 0 || v >= np.pb.nextId || v == kPoolScratch1 || v == kPoolScratch0)
+            {
+                LogWarn("SetReceiver: %s row %d does not exist (valid 0..%d), not written",
+                    field, v, np.pb.nextId - 1);
+                return -2;
+            }
             return v;
         }
         if (t == LUA_TSTRING && kind == POOL_SND)
@@ -2053,6 +2143,272 @@ namespace
         }
         return idx;
     }
+
+    static int SpecialAmmoClass(int bulletId);
+    static int PartRowByte(const PartBuffer& pb, int id, int byteOff);
+
+    constexpr int kBulletRowBytes      = 14;
+    constexpr int kBulletTypeByte      = 0x0A;
+    constexpr int kBulletLethalByte    = 0x0D;   // bit 0
+    constexpr int kMagazineBulletField = 6;      // u16 in the 8-byte magazine row
+    constexpr const char* kBulletLaneSaveTag = "BLLANE";
+
+    struct BulletLaneUse
+    {
+        std::uint32_t mission = 0;
+        std::uint64_t tick = 0;
+    };
+
+    static std::map<int, std::array<std::uint8_t, kBulletRowBytes>> g_CustomBulletRows;
+    static std::map<int, int> g_MagazineCustomBullet;
+    static std::map<int, int> g_CustomBulletLane;
+    static std::map<int, int> g_CustomBulletLaneSaved;
+    static std::atomic<std::uint16_t> g_LaneCustomBullet[256] = {};
+    static BulletLaneUse g_BulletLaneUse[256];
+    static std::uint32_t g_BulletMission = 2;   // lanes the state file restores count as unused for two missions
+    static bool g_BulletLanesRestored = false;
+    static std::set<int> g_BulletOverflowWarned;
+    static std::vector<std::pair<int, int>> g_BulletLanesToSave;
+    static std::atomic<bool> g_BulletLanesToSaveAny{ false };
+
+    static bool IsCustomBulletLane(int lane)
+    {
+        return lane >= kFirstBulletLane && lane <= kLastBulletLane
+            && !SupportStockLease::IsReservedStockByte(lane);
+    }
+
+    static void SaveBulletLaneLocked(int bullet, int lane)
+    {
+        const auto saved = g_CustomBulletLaneSaved.find(bullet);
+        if (saved != g_CustomBulletLaneSaved.end() && saved->second == lane)
+            return;
+        g_CustomBulletLaneSaved[bullet] = lane;
+        g_BulletLanesToSave.emplace_back(bullet, lane);
+        g_BulletLanesToSaveAny.store(true, std::memory_order_release);
+    }
+
+    static void RestoreSavedBulletLane(const char* name, std::int32_t lane)
+    {
+        const int bullet = std::atoi(name);
+        if (bullet <= g_Bullet.stockCount || bullet > g_Bullet.maxId || lane <= 0)
+            return;
+        if (!IsCustomBulletLane(lane) || g_CustomBulletLane.count(bullet) != 0
+            || g_LaneCustomBullet[lane].load(std::memory_order_relaxed) != 0)
+        {
+            SaveBulletLaneLocked(bullet, 0);
+            return;
+        }
+        g_CustomBulletLane[bullet] = lane;
+        g_LaneCustomBullet[lane].store(static_cast<std::uint16_t>(bullet), std::memory_order_release);
+    }
+
+    static void EnsureBulletLanesRestoredLocked()
+    {
+        if (g_BulletLanesRestored)
+            return;
+        g_BulletLanesRestored = true;
+        V_FrameWorkState::ForEachPersistedConstant(kBulletLaneSaveTag, &RestoreSavedBulletLane);
+    }
+
+    static int CustomBulletLaneLocked(int bullet)
+    {
+        EnsureBulletLanesRestoredLocked();
+        const auto it = g_CustomBulletLane.find(bullet);
+        return it != g_CustomBulletLane.end() ? it->second : 0;
+    }
+
+    static int CopyBulletRowSEH(std::uint8_t* dst, const std::uint8_t* src)
+    {
+        __try
+        {
+            std::memcpy(dst, src, kBulletRowBytes);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static int EngineBulletByteSEH(const std::uint8_t* table, int lane, int offset)
+    {
+        __try
+        {
+            return table[static_cast<size_t>(lane - 1) * kBulletRowBytes + offset];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static int WriteMagazineBulletSEH(std::uint8_t* row, int stamp)
+    {
+        __try
+        {
+            *reinterpret_cast<std::uint16_t*>(row + kMagazineBulletField) = static_cast<std::uint16_t>(stamp);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    static void WriteCustomBulletToLaneLocked(int bullet, int lane)
+    {
+        if (!g_Bullet.active || g_Bullet.shadow.size() < static_cast<size_t>(kBulletLaneRows) * kBulletRowBytes)
+            return;
+        std::array<std::uint8_t, kBulletRowBytes> row{};
+        const auto it = g_CustomBulletRows.find(bullet);
+        if (it != g_CustomBulletRows.end())
+            row = it->second;
+        CopyBulletRowSEH(g_Bullet.shadow.data() + static_cast<size_t>(lane - 1) * kBulletRowBytes, row.data());
+    }
+
+    static int VanillaStandInLaneLocked(int bullet)   // the vanilla bullet of the same type a laneless custom bullet's magazines point at
+    {
+        const std::uint8_t* table = PartCurrentBuf(g_Bullet);
+        const auto it = g_CustomBulletRows.find(bullet);
+        if (!table || it == g_CustomBulletRows.end())
+            return 1;
+        const int type = it->second[kBulletTypeByte];
+        const int lethal = it->second[kBulletLethalByte] & 1;
+        int best = 0;
+        int bestScore = -1;
+        for (int lane = 1; lane <= g_Bullet.stockCount; ++lane)
+        {
+            if (EngineBulletByteSEH(table, lane, kBulletTypeByte) != type)
+                continue;
+            const int flags = EngineBulletByteSEH(table, lane, kBulletLethalByte);
+            const int score = ((flags >= 0 && (flags & 1) == lethal) ? 2 : 0) + (SpecialAmmoClass(lane) == 0 ? 1 : 0);
+            if (score > bestScore)
+            {
+                best = lane;
+                bestScore = score;
+            }
+        }
+        return best ? best : 1;
+    }
+
+    static int MagazineBulletStampLocked(int bullet)   // what a magazine row holds: the bullet's lane, else its vanilla stand-in
+    {
+        if (bullet <= g_Bullet.stockCount)
+            return bullet;
+        const int lane = CustomBulletLaneLocked(bullet);
+        return lane ? lane : VanillaStandInLaneLocked(bullet);
+    }
+
+    static void StampMagazineRowLocked(int ammoId, int stamp)
+    {
+        if (ammoId >= kWideIdBase)
+        {
+            WidePartState* w = WideStateFor(kVanillaSpace_Magazine, ammoId);
+            if (!w || !w->rowSet || w->row.size() != static_cast<size_t>(g_Magazine.stride))
+                return;
+            WriteMagazineBulletSEH(w->row.data(), stamp);
+            SyncWideRowToAlias(g_Magazine, ammoId);
+            return;
+        }
+        std::uint8_t* rows = PartCurrentBuf(g_Magazine);
+        const bool ours = g_Magazine.active && rows == g_Magazine.shadow.data();
+        if (rows && ammoId > 0 && ammoId <= (ours ? g_Magazine.maxId : g_Magazine.stockCount))
+            WriteMagazineBulletSEH(rows + static_cast<size_t>(ammoId - 1) * g_Magazine.stride, stamp);
+    }
+
+    static void StampCustomBulletMagazinesLocked(int bullet)
+    {
+        const int stamp = MagazineBulletStampLocked(bullet);
+        for (const auto& entry : g_MagazineCustomBullet)
+            if (entry.second == bullet)
+                StampMagazineRowLocked(entry.first, stamp);
+    }
+
+    static int ReclaimBulletLaneLocked()   // the longest-unused lane nothing holds: unused this mission and the last, not in saved or supply-drop ammo
+    {
+        int oldest = 0;
+        for (int lane = kFirstBulletLane; lane <= kLastBulletLane; ++lane)
+        {
+            if (!IsCustomBulletLane(lane) || g_LaneCustomBullet[lane].load(std::memory_order_relaxed) == 0)
+                continue;
+            const BulletLaneUse& use = g_BulletLaneUse[lane];
+            if (use.mission + 2 > g_BulletMission || SupportStockLease::IsStockIdHeld(lane))
+                continue;
+            if (!oldest || use.mission < g_BulletLaneUse[oldest].mission
+                || (use.mission == g_BulletLaneUse[oldest].mission && use.tick < g_BulletLaneUse[oldest].tick))
+                oldest = lane;
+        }
+        if (!oldest)
+            return 0;
+        const int previous = g_LaneCustomBullet[oldest].load(std::memory_order_relaxed);
+        g_LaneCustomBullet[oldest].store(0, std::memory_order_release);
+        g_CustomBulletLane.erase(previous);
+        SaveBulletLaneLocked(previous, 0);
+        StampCustomBulletMagazinesLocked(previous);
+        return oldest;
+    }
+
+    static int BindCustomBulletLocked(int bullet)   // the lane a weapon built now fires this bullet through
+    {
+        if (!EnsurePartShadow(g_Bullet))   // the vanilla table stops at bullet 112
+            return VanillaStandInLaneLocked(bullet);
+        int lane = CustomBulletLaneLocked(bullet);
+        if (!lane)
+        {
+            if (IsCustomBulletLane(bullet) && g_LaneCustomBullet[bullet].load(std::memory_order_relaxed) == 0)
+                lane = bullet;   // a declared id keeps its own number when it can, so older saves still match
+            for (int candidate = kFirstBulletLane; !lane && candidate <= kLastBulletLane; ++candidate)
+                if (IsCustomBulletLane(candidate) && g_LaneCustomBullet[candidate].load(std::memory_order_relaxed) == 0)
+                    lane = candidate;
+            if (!lane)
+                lane = ReclaimBulletLaneLocked();
+            if (!lane)
+            {
+                const int standIn = VanillaStandInLaneLocked(bullet);
+                if (g_BulletOverflowWarned.insert(bullet).second)
+                    LogWarn("SetBullet bulletId=%d: every custom bullet slot is in use this mission, it fires as vanilla bullet %d",
+                        bullet, standIn);
+                return standIn;
+            }
+            g_CustomBulletLane[bullet] = lane;
+            WriteCustomBulletToLaneLocked(bullet, lane);
+            g_LaneCustomBullet[lane].store(static_cast<std::uint16_t>(bullet), std::memory_order_release);
+            StampCustomBulletMagazinesLocked(bullet);
+        }
+        g_BulletLaneUse[lane].mission = g_BulletMission;
+        g_BulletLaneUse[lane].tick = GetTickCount64();
+        SaveBulletLaneLocked(bullet, lane);
+        return lane;
+    }
+
+    static int MagazineBulletLocked(int ammoId)   // the bullet a magazine was given, whatever lane its row points at now
+    {
+        const auto it = g_MagazineCustomBullet.find(ammoId);
+        if (it != g_MagazineCustomBullet.end())
+            return it->second;
+        if (ammoId >= kWideIdBase)
+        {
+            const WidePartState* w = WideStateFor(kVanillaSpace_Magazine, ammoId);
+            return (w && w->rowSet && w->row.size() == static_cast<size_t>(g_Magazine.stride))
+                ? w->row[kMagazineBulletField] : 0;
+        }
+        return PartRowByte(g_Magazine, ammoId, kMagazineBulletField);
+    }
+
+    static void BindMagazineBulletLocked(int ammoId)
+    {
+        const auto it = g_MagazineCustomBullet.find(ammoId);
+        if (it != g_MagazineCustomBullet.end())
+            BindCustomBulletLocked(it->second);
+    }
+
+    static int UnderBarrelMagazineLocked(int underBarrelId)
+    {
+        if (underBarrelId <= 0)
+            return 0;
+        const auto it = g_UnderBarrelMagazine.find(underBarrelId);
+        return it != g_UnderBarrelMagazine.end() ? it->second : PartRowByte(g_UnderBarrel, underBarrelId, 1);
+    }
 }
 
 int EquipParam_AllocateMagazineSlotForName(const char* name)
@@ -2206,7 +2562,7 @@ static void ApplyLaserColorField(lua_State* L, int tableIdx, int optionId)
 
 int __cdecl l_SetOption(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -2235,6 +2591,10 @@ int __cdecl l_SetOption(lua_State* L)
         if (tweakName && ReadNamedFloat(L, 1, tweakName, tweakValue))
             LaserTweak_SetForOption(optionId, lt, static_cast<float>(tweakValue));
     }
+
+    const std::string iconFtexPath = ReadNamedStringOrTable1(L, 1, "iconFtexPath");
+    if (!iconFtexPath.empty())
+        LaserSightSwitch::SetOptionIcon(optionId, iconFtexPath);
 
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
 
@@ -2279,7 +2639,7 @@ int __cdecl l_SetOption(lua_State* L)
 
 int __cdecl l_SetUnderBarrel(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -2413,7 +2773,7 @@ int __cdecl l_SetUnderBarrel(lua_State* L)
 
 int __cdecl l_SetBarrel(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -2581,7 +2941,7 @@ int __cdecl l_SetBarrel(lua_State* L)
 
 int __cdecl l_SetMagazine(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -2621,9 +2981,12 @@ int __cdecl l_SetMagazine(lua_State* L)
     if (eqpAmmoId < 0 || eqpAmmoId > 0xFFFF)
         LogWarn("SetMagazine ammoId=%d: equipAmmoId=%d out of 0..65535, wraps to %d",
             ammoId, eqpAmmoId, eqpAmmoId & 0xFFFF);
-    if (bulletId < 0 || bulletId > 0xFF)
-        LogWarn("SetMagazine ammoId=%d: bulletId=%d out of 0..255, wraps to %d",
-            ammoId, bulletId, bulletId & 0xFF);
+    if (bulletId < 0 || bulletId > g_Bullet.maxId)
+    {
+        LogWarn("SetMagazine ammoId=%d: bulletId=%d out of 0..%d, wraps to %d",
+            ammoId, bulletId, g_Bullet.maxId, bulletId & 0xFFFF);
+        bulletId &= 0xFFFF;
+    }
 
     std::unique_lock<std::recursive_mutex> lock(g_Mutex);
 
@@ -2638,9 +3001,9 @@ int __cdecl l_SetMagazine(lua_State* L)
     if (ammoId >= kWideIdBase && WideStateFor(kVanillaSpace_Magazine, ammoId))
     {
         const WidePartState* existing = WideStateFor(kVanillaSpace_Magazine, ammoId);
-        if (existing->rowSet && existing->row.size() == 8
+        if (!WideMagazinesPlanned() && existing->rowSet && existing->row.size() == 8
             && (existing->magazineDonor > 0 || g_SharedMagazineLanes.count(existing->alias))
-            && ((!existing->looseDonor && existing->row[6] != static_cast<std::uint8_t>(bulletId & 0xFF))
+            && ((!existing->looseDonor && MagazineBulletLocked(ammoId) != bulletId)
                 || (magazineType > 0 && magazineType != existing->motionType)))
         {
             LogWarn("SetMagazine ammoId=%d: bullet/motion already bound, rejected until restart", ammoId);
@@ -2662,8 +3025,7 @@ int __cdecl l_SetMagazine(lua_State* L)
 
     const bool bulletLockedLane = g_SharedMagazineLanes.count(ammoId) != 0;
     if (!wideRow && (bulletLockedLane || g_LooseMagazineLanes.count(ammoId))
-        && ((bulletLockedLane
-             && buf[static_cast<size_t>(ammoId - 1) * 8 + 6] != static_cast<std::uint8_t>(bulletId & 0xFF))
+        && ((bulletLockedLane && MagazineBulletLocked(ammoId) != bulletId)
             || (magazineType > 0 && g_MagazineTypeExt[ammoId] != magazineType)))
     {
         LogWarn("SetMagazine ammoId=%d: bullet/motion shared by wide magazines, rejected until restart", ammoId);
@@ -2675,10 +3037,16 @@ int __cdecl l_SetMagazine(lua_State* L)
     if (vanillaRow)
         EquipParam_VanillaPreWrite(kVanillaSpace_Magazine, ammoId, rowPtr, 8);
 
-    WriteMagazineSEH(buf, writeId, eqpAmmoId, capacity, totalCarry, bulletId);
+    if (bulletId > g_Bullet.stockCount)
+        g_MagazineCustomBullet[ammoId] = bulletId;
+    else
+        g_MagazineCustomBullet.erase(ammoId);
+    WriteMagazineSEH(buf, writeId, eqpAmmoId, capacity, totalCarry, MagazineBulletStampLocked(bulletId));
 
     if (vanillaRow)
         EquipParam_VanillaPostWrite(kVanillaSpace_Magazine, ammoId, rowPtr, 8);
+    if (vanillaRow && bulletId > g_Bullet.stockCount)
+        EquipParam_VanillaForceTaint(kVanillaSpace_Magazine, ammoId, "a custom bullet");
     if (wideRow)
         SyncWideRowToAlias(g_Magazine, ammoId);
 
@@ -2732,13 +3100,15 @@ int __cdecl l_SetMagazine(lua_State* L)
     lock.unlock();
     if (wideRow)
         GunBasic_ReplayPendingForMagazine(ammoId);
+    GunBasic_RefreshBorrowedParts(ammoId, 0, 0);
+    EquipParam_RefreshUnderBarrelMagazines(ammoId);
 
     return 0;
 }
 
 int __cdecl l_SetBullet(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -2893,14 +3263,22 @@ int __cdecl l_SetBullet(lua_State* L)
     }
 
     const bool vanillaRow = bulletId <= g_Bullet.stockCount;
-    const std::uint8_t* rowPtr = buf + static_cast<size_t>(bulletId - 1) * 14;
     if (vanillaRow)
+    {
+        const std::uint8_t* rowPtr = buf + static_cast<size_t>(bulletId - 1) * 14;
         EquipParam_VanillaPreWrite(kVanillaSpace_Bullet, bulletId, rowPtr, 14);
-
-    WriteBulletRowSEH(buf, bulletId, u16v, u8v, unk11, eqpType);
-
-    if (vanillaRow)
+        WriteBulletRowSEH(buf, bulletId, u16v, u8v, unk11, eqpType);
         EquipParam_VanillaPostWrite(kVanillaSpace_Bullet, bulletId, rowPtr, 14);
+    }
+    else
+    {
+        WriteBulletRowSEH(g_CustomBulletRows[bulletId].data(), 1, u16v, u8v, unk11, eqpType);
+        const int lane = CustomBulletLaneLocked(bulletId);
+        if (lane)
+            WriteCustomBulletToLaneLocked(bulletId, lane);
+        else
+            StampCustomBulletMagazinesLocked(bulletId);   // the vanilla stand-in follows the bullet type
+    }
 
     bool lockOnGiven = false;
     int lockBulletType = -1;
@@ -2952,7 +3330,7 @@ int __cdecl l_SetBullet(lua_State* L)
 
 int __cdecl l_SetStock(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -3016,7 +3394,7 @@ int __cdecl l_SetStock(lua_State* L)
 
 int __cdecl l_SetMuzzle(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -3083,7 +3461,7 @@ int __cdecl l_SetMuzzle(lua_State* L)
 
 int __cdecl l_SetSight(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -3210,6 +3588,9 @@ static bool BuildReferencedReceiverIds(std::set<int>& out)
 
 static bool ReceiverIdHeldByName(int receiverId)
 {
+    EnsurePartPersistLoaded(g_RcvIdBuf);
+    if (g_RcvIdBuf.persistReserved.count(receiverId) != 0)
+        return true;
     for (const auto& named : g_RcvIdBuf.nameToId)
         if (named.second == receiverId)
             return true;
@@ -3326,7 +3707,7 @@ int EquipParam_AllocateReceiverSlotForName(const char* name)
 
 int __cdecl l_SetReceiver(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     ChimeraMotion_EnsureWrapInstalled(L);
@@ -3362,6 +3743,17 @@ int __cdecl l_SetReceiver(lua_State* L)
         if (!rowBuf)
             return 0;
         wideRow = true;
+    }
+    else if (receiverId > kReceiverCapacity && receiverId <= kReceiverMaxId)
+    {
+        rowBuf = EnsurePartShadow(g_RcvIdBuf) ? PartCurrentBuf(g_RcvIdBuf) : nullptr;
+        if (!rowBuf)
+        {
+            LogWarn("SetReceiver: receiverId=%d out of range 1..%d, not written",
+                receiverId, kReceiverCapacity);
+            return 0;
+        }
+        rbuf = rowBuf;
     }
     else if (receiverId > kReceiverMaxId)
     {
@@ -3495,6 +3887,7 @@ int __cdecl l_SetReceiver(lua_State* L)
                     g_ReceiverMotionDonor[receiverId] = motionFrom;
             }
             GunBasic_ReNarrowReceiverRows(receiverId);
+            GunBasic_RefreshBorrowedParts(0, receiverId, 0);
         }
     }
 
@@ -3641,8 +4034,86 @@ namespace
         w.magazineDonor = donor;
         w.looseDonor = true;
         g_LooseMagazineLanes.insert(donor);
-        LogInfo("EquipParam: magazine id %d shares lane %d (no lane with its bullet left)", id, donor);
         return donor;
+    }
+
+    static int SpecialAmmoClass(int bulletId)   // ChimeraSystemImpl::SetUp flags the magazine part for bullets 5/6, 15 and 16
+    {
+        if (bulletId == 5 || bulletId == 6)
+            return 1;
+        if (bulletId == 15)
+            return 2;
+        if (bulletId == 16)
+            return 3;
+        return 0;
+    }
+
+    static int MagazineLaneBullet(const std::uint8_t* rows, int lane)
+    {
+        const auto custom = g_MagazineCustomBullet.find(lane);
+        return custom != g_MagazineCustomBullet.end() ? custom->second : rows[static_cast<size_t>(lane - 1) * 8 + 6];
+    }
+
+    static bool LaneCarriesMagazineType(const std::uint8_t* rows, int lane, int type)
+    {
+        return lane >= 1 && lane <= g_Magazine.stockCount
+            && MagazineLaneBullet(rows, lane) != 0 && g_MagazineTypeExt[lane] == type;
+    }
+
+    static int SameBulletMagazineTypeLocked(const std::uint8_t* rows, int bulletId)
+    {
+        for (int lane = 1; lane <= g_Magazine.stockCount; ++lane)
+            if (MagazineLaneBullet(rows, lane) == bulletId && g_MagazineTypeExt[lane] > 0)
+                return g_MagazineTypeExt[lane];
+        return 0;
+    }
+
+    static int PickBorrowedMagazineLaneLocked(const std::uint8_t* rows, int type, int bulletId, int gunMagazine)
+    {
+        const int ammoClass = SpecialAmmoClass(bulletId);
+        if (LaneCarriesMagazineType(rows, gunMagazine, type)
+            && SpecialAmmoClass(MagazineLaneBullet(rows, gunMagazine)) == ammoClass)
+            return gunMagazine;
+        int sameClass = 0;
+        int anyLane = 0;
+        for (int lane = 1; lane <= g_Magazine.stockCount; ++lane)
+        {
+            if (!LaneCarriesMagazineType(rows, lane, type))
+                continue;
+            const int laneBullet = MagazineLaneBullet(rows, lane);
+            if (laneBullet == bulletId)
+                return lane;
+            if (!sameClass && SpecialAmmoClass(laneBullet) == ammoClass)
+                sameClass = lane;
+            if (!anyLane)
+                anyLane = lane;
+        }
+        return sameClass ? sameClass : anyLane;
+    }
+
+    static int BorrowMagazineLaneLocked(int ammoId, int gunMagazine)
+    {
+        EnsurePartTypeExt(g_MagazineTypeExt, g_MagazineTypeExtReady,
+                          gAddr.MotionLoaderImpl_MagazineTypeTable,
+                          kMagazineTypeVanillaRows);
+        const auto* rows = (EnsurePartShadow(g_Magazine) && g_MagazineTypeExtReady)
+            ? PartCurrentBuf(g_Magazine) : nullptr;
+        const WidePartState* w = WideStateFor(kVanillaSpace_Magazine, ammoId);
+        if (!rows || !w)
+            return 0;
+        const bool rowKnown = w->rowSet && w->row.size() == 8;
+        const int bulletId = rowKnown ? MagazineBulletLocked(ammoId) : 0;
+        int type = 0;
+        if (g_MagazineTypeDeclaredLane.count(ammoId))
+            type = g_MagazineTypeExt[ammoId];
+        else if (gunMagazine > 0 && gunMagazine < kPartTypeExtCount)
+            type = g_MagazineTypeExt[gunMagazine];
+        else if (rowKnown)
+            type = SameBulletMagazineTypeLocked(rows, bulletId);
+        int lane = PickBorrowedMagazineLaneLocked(rows, type, bulletId, gunMagazine);
+        if (!lane && type != 0)
+            lane = PickBorrowedMagazineLaneLocked(rows, 0, bulletId, 0);
+        return lane;
     }
 
     static int ResolvePartByteLocked(int space, int id)
@@ -3670,44 +4141,14 @@ namespace
         if (w->looseDonor && w->magazineDonor > 0)
             return w->magazineDonor;
 
-        if (space == kVanillaSpace_Magazine && WideMagazinesPlanned()
-            && w->rowSet && w->row.size() == 8)
+        if (space == kVanillaSpace_Magazine && WideMagazinesPlanned())
         {
-            EnsurePartTypeExt(g_MagazineTypeExt, g_MagazineTypeExtReady,
-                              gAddr.MotionLoaderImpl_MagazineTypeTable,
-                              kMagazineTypeVanillaRows);
-            const auto* rows = (EnsurePartShadow(g_Magazine) && g_MagazineTypeExtReady)
-                ? PartCurrentBuf(g_Magazine) : nullptr;
-            bool compatibleLanes[256]{};
-            CollectMagazineDonorLanesLocked(compatibleLanes);
-            int typed = 0;
-            int untyped = 0;
-            for (int donor = 1; rows && donor <= 255; ++donor)
+            const int lane = BorrowMagazineLaneLocked(id, 0);
+            if (lane)
             {
-                if (!compatibleLanes[donor]
-                    || rows[static_cast<size_t>(donor - 1) * 8 + 6] != w->row[6])
-                    continue;
-                const int laneType = g_MagazineTypeExt[donor];
-                if (w->motionType > 0)
-                {
-                    if (laneType != w->motionType)
-                        continue;
-                    typed = donor;
-                    break;
-                }
-                if (laneType > 0 && !typed)
-                    typed = donor;
-                else if (laneType == 0 && !untyped)
-                    untyped = donor;
-            }
-            const int donor = typed ? typed : untyped;
-            if (donor)
-            {
-                if (w->motionType <= 0 && g_MagazineTypeExt[donor] > 0)
-                    w->motionType = g_MagazineTypeExt[donor];
-                w->magazineDonor = donor;
-                g_SharedMagazineLanes.insert(donor);
-                return donor;
+                if (w->rowSet)
+                    w->magazineDonor = lane;
+                return lane;
             }
         }
 
@@ -3726,7 +4167,8 @@ namespace
         if (!alias)
         {
             static std::set<long long> noLaneLogged;
-            if ((space != kVanillaSpace_Magazine || w->rowSet) && noLaneLogged.size() < 32
+            const bool gunLends = PartIdWiden_IsPlanned() && space != kVanillaSpace_Receiver;
+            if (!gunLends && (space != kVanillaSpace_Magazine || w->rowSet) && noLaneLogged.size() < 32
                 && noLaneLogged.insert((static_cast<long long>(space) << 32) | id).second)
                 LogWarn("EquipParam: %s id %d: no free engine lane, weapon gets part 0",
                     pb ? pb->name : "part", id);
@@ -3797,6 +4239,8 @@ int EquipParam_ResolvePartByte(int space, int id)
 
 bool EquipParam_SetReceiverMotionType(int receiverId, int receiverType)
 {
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return false;
     if (receiverId <= 0 || receiverId >= kPartTypeExtCount)
     {
         LogWarn("ReceiverMotion: receiverId=%d is invalid, receiverType %d ignored", receiverId, receiverType);
@@ -4006,25 +4450,21 @@ bool Install_UiController_UiSightTypeHook()
         return true;
     }
 
-    __try
+    const HookEntry entry = CheckHookEntry(target, kUiSightTypePrologue, sizeof(kUiSightTypePrologue));
+    if (entry == HookEntry::Unknown)
     {
-        if (std::memcmp(target, kUiSightTypePrologue,
-                        sizeof(kUiSightTypePrologue)) != 0)
-        {
-            LogError("EquipParam: GetUiSightTypeBySightId prologue mismatch at %p, custom sights have no scope UI",
-                target);
-            return true;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        LogError("EquipParam: GetUiSightTypeBySightId at %p unreadable, custom sights have no scope UI", target);
+        char found[160] = {};
+        DescribeFunctionEntry(target, found, sizeof(found));
+        LogError("EquipParam: GetUiSightTypeBySightId prologue mismatch at %p (%s), custom sights have no scope UI",
+            target, found);
         return true;
     }
 
     const bool ok = CreateAndEnableHook(
         target, &hkGetUiSightTypeBySightId,
         reinterpret_cast<void**>(&g_OrigGetUiSightTypeBySightId));
+    if (ok && entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipParam: GetUiSightTypeBySightId", target);
     InstallSightWindowObservers();
     if (ok)
         CustomScopeUi::Install();
@@ -4081,6 +4521,9 @@ namespace
     using GetAttackId_t = unsigned short(__fastcall*)(void* self, int equipId);
     static GetAttackId_t g_OrigGetAttackId = nullptr;
 
+    constexpr int            kWalkerZeev     = 13;     // EQP_WP_West_sm_010_WG, the walker-only ZE'EV: the Battle Gear's heavy MG
+    constexpr unsigned short kRoofMg         = 0x133;  // ATK_Tankgun_12_7mmHeavyMachineGun_West, the tank roof MG
+
     static int SehAvOnly(unsigned long code)
     {
         return (code == EXCEPTION_ACCESS_VIOLATION)
@@ -4089,6 +4532,8 @@ namespace
 
     static unsigned short __fastcall hkGetAttackIdByEquipId(void* self, int equipId)
     {
+        if (equipId == kWalkerZeev && battleGearWeapons::LoadoutApplies())
+            return kRoofMg;
         const std::uint32_t supportWeapon = SupportWeapon::RunningItem(static_cast<std::uint32_t>(equipId));
         const std::uint32_t familyFrom    = SupportWeapon::FamilyFrom(supportWeapon);
         if (familyFrom != 0)
@@ -4209,6 +4654,8 @@ namespace
                                   PoolSwapState& st)
     {
         (void)sndSlot;
+        if (FobVanillaReceiver(rcId))
+            return;
         const auto it = g_RcvOverflow.find(rcId);
         if (it == g_RcvOverflow.end())
             return;
@@ -4221,6 +4668,8 @@ namespace
             if (idx < 0)
                 continue;
             RcvPool& rp = PoolFor(static_cast<RcvPoolKind>(k));
+            if (!rp.pb.active)
+                continue;
             std::uint8_t* pool = PartCurrentBuf(rp.pb);
             if (!pool)
                 continue;
@@ -4256,6 +4705,8 @@ namespace
 
     static void SwapBarrelPool(int barrelId, PoolSwapState& st)
     {
+        if (FobVanillaPart(g_Barrel, barrelId))
+            return;
         const auto it = g_BarrelOverflow.find(barrelId);
         if (it == g_BarrelOverflow.end())
             return;
@@ -4275,22 +4726,23 @@ namespace
         }
     }
 
-    static void PrepareGunInfoSwap(void* desc, PoolSwapState& st)
+    static void PrepareGunInfoSwap(void* desc, PoolSwapState& st, const int* wideIds)
     {
         if (!desc)
             return;
         if (g_RcvOverflow.empty() && g_BarrelOverflow.empty())
             return;
-        const int rc = ReadByteAtSEH(desc, 0);
-        const int ba = ReadByteAtSEH(desc, 1);
-        const int ub = ReadByteAtSEH(desc, 10);
+        const int rc = wideIds ? wideIds[0] : ReadByteAtSEH(desc, 0);
+        const int ba = wideIds ? wideIds[1] : ReadByteAtSEH(desc, 1);
+        const int ub = wideIds ? wideIds[8] : ReadByteAtSEH(desc, 10);
         if (rc > 0)
             SwapReceiverPools(rc, kPoolScratch0, 0, st);
         int ubRc = 0;
         if (ub > 0)
         {
-            std::uint8_t* ubuf = ImplBufPtr(0x48);
-            if (ubuf)
+            if (wideIds)
+                ubRc = PartRowByte(g_UnderBarrel, ub, 0);
+            else if (std::uint8_t* ubuf = ImplBufPtr(0x48))
                 ubRc = ReadByteAtSEH(ubuf, static_cast<size_t>(ub - 1) * 3);
         }
         if (ubRc > 0 && ubRc != rc)
@@ -4454,7 +4906,8 @@ namespace
     }
 
     static void ApplyUnderbarrelMagazine(void* gunInfo, void* ammoEquipId,
-                                         const MagazineParameters& magazine)
+                                         const MagazineParameters& magazine,
+                                         const std::uint8_t* bulletRow)
     {
         __try
         {
@@ -4464,6 +4917,13 @@ namespace
                 static_cast<std::uint16_t>(magazine.capacity + ((flags & 0x20) ? 1 : 0));
             *reinterpret_cast<std::uint16_t*>(info + 0x66) = magazine.carryMax;
             *reinterpret_cast<std::uint8_t*>(info + 0x7D) = static_cast<std::uint8_t>(magazine.bulletId);
+            if (bulletRow)
+            {
+                info[0x7F] = bulletRow[0x0A];
+                *reinterpret_cast<std::uint16_t*>(info + 0x8A) = static_cast<std::uint16_t>(
+                    (*reinterpret_cast<const std::uint16_t*>(info + 0x8A) & ~0x8u)
+                    | ((~bulletRow[0x0D] & 1u) << 3));   // set when the bullet row's byte 0x0D bit 0 is clear, as the engine does
+            }
             if (ammoEquipId)
                 *static_cast<std::uint32_t*>(ammoEquipId) = magazine.equipId;
         }
@@ -4496,6 +4956,16 @@ namespace
         }
     }
 
+    static void WriteGunInfoOutDefaults(void* a5, void* a8, void* a9)
+    {
+        if (a5)
+            WriteOutIdSEH(static_cast<std::uint32_t*>(a5), 1);   // what the original writes first
+        if (a8)
+            WriteOutIdSEH(static_cast<std::uint32_t*>(a8), 0);
+        if (a9)
+            WriteOutIdSEH(static_cast<std::uint32_t*>(a9), 0);
+    }
+
     static void HandAmmoAliasToEngine(std::uint32_t* equipAmmoOut, unsigned int gunEngineId)
     {
         std::uint32_t ammoId = 0;
@@ -4508,14 +4978,57 @@ namespace
         equip::NoteAmmoAliasFor(static_cast<std::int32_t>(gunEngineId), engineId);
     }
 
-    static void __fastcall hkSetUpGunInfo(void* self, void* desc,
-                                          unsigned int equipId, void* gunInfo,
-                                          void* a5, void* a6, void* a7,
-                                          void* a8, void* a9)
+    constexpr std::size_t  kGunInfoMagazineCapacity  = 0x60;   // u16, the under barrel's is the next one
+    constexpr std::size_t  kGunInfoPartMotionRow     = 0x7A;   // the under barrel's is the next byte
+    constexpr std::size_t  kGunInfoFlags             = 0x8A;
+    constexpr std::uint8_t kGunInfoPlusOneChamber[2] = { 0x10, 0x20 };   // receiver, under barrel: the capacity holds one round in the chamber
+
+    static std::atomic<bool> g_PartMotionSpinsCylinder[0x800] = {};
+
+    static bool FitCylinderSpin(unsigned int equipId, void* gunInfo, int control, int receiverId)
     {
-        PartIdWidenReadGuard widthGuard;
-        if (!widthGuard)
+        const int ownRow = control == 0 ? kPartMotionRowReceiver : kPartMotionRowUnderBarrel;
+        const int rowByte = ReadByteAtSEH(gunInfo, kGunInfoPartMotionRow + control);
+        ReceiverPartRowIndices row;
+        if (rowByte == ownRow)
+            return ReceiverMotion_GetPartRowIndices(receiverId, row) && PartMotionRows_TurnsCylinder(row);   // a declared partMotion keeps its own angle
+        if (!PartMotionRows_ReadNativeRow(rowByte, row) || !PartMotionRows_TurnsCylinder(row))
+            return false;
+        if (MissionCodeGuard::ShouldBypassHooks()
+            || !V_FrameWorkState::IsClaimedEquipId(equip::FromEngine(static_cast<std::int32_t>(equipId))))
+            return true;
+
+        const int low = ReadByteAtSEH(gunInfo, kGunInfoMagazineCapacity + control * 2);
+        const int high = ReadByteAtSEH(gunInfo, kGunInfoMagazineCapacity + control * 2 + 1);
+        const int flags = ReadByteAtSEH(gunInfo, kGunInfoFlags);
+        if (low < 0 || high < 0 || flags < 0)
+            return true;
+        const int chambers = (low | (high << 8)) - ((flags & kGunInfoPlusOneChamber[control]) ? 1 : 0);
+        if (chambers >= 2 && PartMotionRows_FitCylinderToChambers(row, static_cast<unsigned int>(chambers))
+            && PartMotionRows_SetEquipRow(equipId, control, row.motion, row.pose, row.flags))
+            WriteByteAtSEH(gunInfo, kGunInfoPartMotionRow + control, static_cast<std::uint8_t>(ownRow));
+        return true;
+    }
+
+    static void BindBuildBullets(void* desc, const int* wideIds)   // a weapon built now holds its bullets' engine lanes
+    {
+        if (!desc || MissionCodeGuard::ShouldBypassHooks())
             return;
+        const int magazine = wideIds ? wideIds[2] : ReadByteAtSEH(desc, 2);
+        const int underBarrel = wideIds ? wideIds[8] : ReadByteAtSEH(desc, 10);
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        if (g_MagazineCustomBullet.empty())
+            return;
+        BindMagazineBulletLocked(magazine);
+        BindMagazineBulletLocked(UnderBarrelMagazineLocked(underBarrel));
+    }
+
+    static void SetUpGunInfoWidthHeld(void* self, void* desc,
+                                      unsigned int equipId, void* gunInfo,
+                                      void* a5, void* a6, void* a7,
+                                      void* a8, void* a9)
+    {
+        EquipParam_SyncFobPartRows();   // a gun built in FOB reads the game's own part rows
         EnsureShadowsRelocated();
         FillCustomMotionEntriesEarly();
 
@@ -4575,8 +5088,9 @@ namespace
             passDesc = wideDesc;
         }
 
+        BindBuildBullets(desc, (widen && haveWideIds) ? wideIds : nullptr);
         PoolSwapState st;
-        PrepareGunInfoSwap(desc, st);
+        PrepareGunInfoSwap(desc, st, (widen && haveWideIds) ? wideIds : nullptr);
         const int ok = CallOrigGunInfoSEH(self, passDesc, equipId, gunInfo,
                                           a5, a6, a7, a8, a9);
         RestoreGunInfoSwap(st);
@@ -4585,6 +5099,8 @@ namespace
             HandAmmoAliasToEngine(static_cast<std::uint32_t*>(a8), equipId);
             HandAmmoAliasToEngine(static_cast<std::uint32_t*>(a9), equipId);
         }
+        else
+            WriteGunInfoOutDefaults(a5, a8, a9);
 
         if (ok == 1 && gunInfo && EquipParam_WideMagazinesReady())
         {
@@ -4598,7 +5114,12 @@ namespace
             }
             MagazineParameters magazine{};
             if (magazineId >= kWideIdBase && EquipParam_GetMagazineParameters(magazineId, magazine))
-                ApplyUnderbarrelMagazine(gunInfo, a9, magazine);
+            {
+                const std::uint8_t* bullets = magazine.bulletId > 0 ? PartCurrentBuf(g_Bullet) : nullptr;
+                ApplyUnderbarrelMagazine(gunInfo, a9, magazine,
+                    bullets ? bullets + static_cast<size_t>(magazine.bulletId - 1) * 14 : nullptr);
+                HandAmmoAliasToEngine(static_cast<std::uint32_t*>(a9), equipId);   // the magazine row holds the wide id
+            }
         }
 
         if (substituted)
@@ -4607,7 +5128,7 @@ namespace
         if (ok == 1 && gunInfo && !g_BarrelExtraMult.empty())
         {
             const int ba = (widen && haveWideIds) ? wideIds[1] : ReadByteAtSEH(desc, 1);
-            if (ba > 0)
+            if (ba > 0 && !FobVanillaPart(g_Barrel, ba))
             {
                 const auto it = g_BarrelExtraMult.find(ba);
                 if (it != g_BarrelExtraMult.end()
@@ -4640,7 +5161,7 @@ namespace
                 laserOpt = opt1;
             LaserColor_NoteWeaponOption(static_cast<int>(equipId), laserOpt);
 
-            if (rc > 0)
+            if (rc > 0 && !FobVanillaReceiver(rc))
             {
                 ReceiverMotion_EnsurePartRowsPublished(rc);
                 const int rowVal = ReceiverRowByteFor(rc);
@@ -4663,7 +5184,7 @@ namespace
             }
 
             bool ubOwnRow = false;
-            if (ubRc > 0)
+            if (ubRc > 0 && !FobVanillaReceiver(ubRc))
             {
                 ReceiverMotion_EnsurePartRowsPublished(ubRc);
                 ReceiverPartRowIndices ubOwn;
@@ -4676,7 +5197,7 @@ namespace
                     ubOwnRow = true;
             }
 
-            if (!ubOwnRow && ubRc > 0 && !g_ReceiverMotionDonor.empty())
+            if (!ubOwnRow && ubRc > 0 && !FobVanillaReceiver(ubRc) && !g_ReceiverMotionDonor.empty())
             {
                 const auto it = g_ReceiverMotionDonor.find(ubRc);
                 if (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 256
@@ -4694,6 +5215,30 @@ namespace
                         equipId, rc,
                         stamped ? "wide id without donor, stamped receiver 1" : "left 0 by engine");
             }
+
+            const bool spins = FitCylinderSpin(equipId, gunInfo, 0, rc);
+            const bool underBarrelSpins = ubRc > 0 && FitCylinderSpin(equipId, gunInfo, 1, ubRc);
+            if (equipId < 0x800)
+                g_PartMotionSpinsCylinder[equipId].store(spins || underBarrelSpins, std::memory_order_relaxed);
+        }
+    }
+
+    static void __fastcall hkSetUpGunInfo(void* self, void* desc,
+                                          unsigned int equipId, void* gunInfo,
+                                          void* a5, void* a6, void* a7,
+                                          void* a8, void* a9)
+    {
+        const bool usable = PartIdWiden_BeginRead();
+        __try
+        {
+            if (usable)
+                SetUpGunInfoWidthHeld(self, desc, equipId, gunInfo, a5, a6, a7, a8, a9);
+            else
+                WriteGunInfoOutDefaults(a5, a8, a9);
+        }
+        __finally
+        {
+            PartIdWiden_EndRead();   // also when BuildLoadoutGunInfoOnMissSEH catches a fault: a held read refuses every widen install/remove
         }
     }
 }
@@ -4704,22 +5249,25 @@ namespace
     static std::uint8_t  g_BulletSwapSaved = 0;
 }
 
-int EquipParam_BulletFalloffSwapBegin(int bulletId)
+int EquipParam_BulletFalloffSwapBegin(int lane)
 {
-    if (bulletId <= 0 || g_BulletBaseOverflow.empty())
+    if (lane <= 0 || lane >= kBulletLaneRows || g_BulletBaseOverflow.empty())
         return 0;
     if (g_BulletSwapLoc)
+        return 0;
+    const int bulletId = EquipParam_LogicalBulletForLane(lane);
+    if (FobVanillaPart(g_Bullet, bulletId))
         return 0;
     const auto it = g_BulletBaseOverflow.find(bulletId);
     if (it == g_BulletBaseOverflow.end())
         return 0;
     std::uint8_t* pool = PartCurrentBuf(g_BulletBase.pb);
     std::uint8_t* bbuf = PartCurrentBuf(g_Bullet);
-    if (!pool || !bbuf)
+    if (!pool || !bbuf || (lane > g_Bullet.stockCount && bbuf != g_Bullet.shadow.data()))
         return 0;
     if (CopyPoolRowSEH(pool, kPoolScratch0, it->second, g_BulletBase.pb.stride) != 1)
         return 0;
-    std::uint8_t* loc = bbuf + static_cast<size_t>(bulletId - 1) * 14 + 6;
+    std::uint8_t* loc = bbuf + static_cast<size_t>(lane - 1) * 14 + 6;
     if (SwapByteSEH(loc, static_cast<std::uint8_t>(kPoolScratch0),
                     &g_BulletSwapSaved) != 1)
         return 0;
@@ -4779,20 +5327,37 @@ namespace
     static std::map<std::uint32_t, std::uint32_t> g_FamilyFrom;
     static std::atomic<bool> g_HasSwaps{ false };
     static std::set<std::uint32_t> g_FamilyLogged;
+
+    struct KindDonor   // the game gun of its own kind a custom gun animates like when its receiver belongs to another gun kind
+    {
+        std::uint32_t equipId = 0;
+        std::uint8_t receiver = 0;
+        std::uint8_t type[4] = {};   // motion types of its receiver, barrel, magazine, stock
+    };
+    static std::map<std::uint32_t, KindDonor> g_KindDonor;
+    static std::atomic<bool> g_HasKindDonors{ false };
+    static thread_local std::uint32_t g_TlsViewedGun = 0;   // the gun whose part types this thread is being asked for, 0 = none
+    static thread_local KindDonor g_TlsViewedGunDonor;
+
+    static void ViewGunAsItsKind(std::uint32_t engineOrRealId)   // this thread's part type lookups now answer for that gun
+    {
+        g_TlsViewedGun = 0;
+        if (engineOrRealId == 0 || !g_HasKindDonors.load(std::memory_order_acquire) || MissionCodeGuard::ShouldBypassHooks())
+            return;
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        const auto it = g_KindDonor.find(
+            static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(engineOrRealId))));
+        if (it == g_KindDonor.end())
+            return;
+        g_TlsViewedGunDonor = it->second;
+        g_TlsViewedGun = engineOrRealId;
+    }
+
     static std::map<std::uint32_t, void*> g_TemplateByEquipId;
 
     static uintptr_t SetupWeaponInfoAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x14105fdb0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x14105fe20ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1410605f0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141060640ull;
-        default:                                          return 0;
-        }
+        return gAddr.EquipPartParams_SetupWeaponInfo;
     }
 
     static std::uint32_t MapEquipId(std::uint32_t equipId)
@@ -4869,7 +5434,7 @@ namespace
         {
             V_ExtendedEquipRow ext{};
             if (TppEquip_GetExtendedEquipRow(static_cast<int>(equipId), &ext)
-                && ext.subId > 0 && ext.subId <= 0x3FF)
+                && ext.subId > 0 && ext.subId <= 0xFFFF)
             {
                 f.subId = static_cast<std::uint16_t>(ext.subId);
                 if (GunBasic_ReadRowBytes(f.subId, f.gb))
@@ -4982,6 +5547,60 @@ int EquipParam_GetReceiverForEquipId(int equipId)
     return GunBasic_GetLogicalPart(sub, kVanillaSpace_Receiver);
 }
 
+static int GunRootIdSEH(std::uint32_t engineEquipId)
+{
+    using GetQuark_t = std::uint8_t*(__fastcall*)();
+    using GetRootParameterId_t = std::uint16_t(__fastcall*)(void* equipIdTable, std::uint32_t equipId);
+    auto* getQuark = reinterpret_cast<GetQuark_t>(ResolveGameAddress(gAddr.GetQuarkSystemTable));
+    void* getRoot = ResolveGameAddress(gAddr.EquipIdTable_GetRootParameterId);
+    if (!getQuark || !getRoot)
+        return 0;
+    __try
+    {
+        std::uint8_t* quark = getQuark();
+        std::uint8_t* app = quark ? *reinterpret_cast<std::uint8_t**>(quark + 0x98) : nullptr;
+        std::uint8_t* equipSystem = app ? *reinterpret_cast<std::uint8_t**>(app + 0x1e8) : nullptr;
+        void* equipIdTable = equipSystem ? *reinterpret_cast<void**>(equipSystem + 0x8) : nullptr; // what SetUpGunInfoFromGunPartsDesc asks for the root id
+        if (!equipIdTable)
+            return 0;
+        void* const* vtable = *reinterpret_cast<void* const* const*>(equipIdTable);
+        if (vtable[0x10 / sizeof(void*)] != getRoot)
+            return 0;
+        return reinterpret_cast<GetRootParameterId_t>(getRoot)(equipIdTable, engineEquipId);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return 0;
+    }
+}
+
+int EquipParam_GetBarrelLengthForEquipId(int equipId)
+{
+    constexpr int kBarrelLengthMiddle = 1; // what the engine gives a gun without a barrel
+    const int rootId = GunRootIdSEH(static_cast<std::uint32_t>(equip::ToEngine(equipId)));
+    unsigned char row[12] = {};
+    int barrelId = (rootId > 0 && GunBasic_ReadRowBytes(rootId, row)) ? row[1] : 0;
+    const int sub = TppEquip_GetSubIdForEquipId(equipId);
+    if (sub > 0)
+    {
+        const int logical = GunBasic_GetLogicalPart(sub, kVanillaSpace_Barrel);
+        if (logical > 0)
+            barrelId = logical;
+    }
+    if (barrelId <= 0)
+        return kBarrelLengthMiddle;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    int tableId = barrelId;
+    if (const WidePartState* w = WideStateFor(kVanillaSpace_Barrel, barrelId))
+    {
+        if (w->rowSet && !w->row.empty())
+            return w->row[0] & 0x0F;
+        tableId = w->alias;
+    }
+    return tableId > 0 ? (PartRowByte(g_Barrel, tableId, 0) & 0x0F) : kBarrelLengthMiddle;
+}
+
 int EquipParam_GetDeclaredWeaponAttackId(int equipId)
 {
     const int logical = EquipParam_GetReceiverForEquipId(equipId);
@@ -5081,16 +5700,7 @@ namespace
 
     static uintptr_t GetAnimFileFromGaniPathAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141a6c300ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141a6c270ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x141a6c590ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141a6c6b0ull;
-        default:                                          return 0;
-        }
+        return gAddr.AnimControl_GetAnimFileFromGaniPath;
     }
 
     using RealizedEquipRealize_t =
@@ -5100,16 +5710,7 @@ namespace
 
     static uintptr_t RealizedEquipRealizeAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141307d70ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141307d90ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x141308860ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x1413089a0ull;
-        default:                                          return 0;
-        }
+        return gAddr.RealizedEquipObjectImpl_Realize;
     }
 
     static constexpr std::uint8_t kRealizePrologue[20] = {
@@ -5263,16 +5864,7 @@ namespace
 
     static uintptr_t PostPutMotionAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141307150ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141307170ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x141307c50ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141307d80ull;
-        default:                                          return 0;
-        }
+        return gAddr.RealizedEquipObjectImpl_PostPutMotion;
     }
 
     static unsigned ReadRecWord(void* base, int slot, int off)
@@ -5298,6 +5890,7 @@ namespace
     static thread_local int t_cylSlot = 0;
     static thread_local void* t_cylModel = nullptr;
     static thread_local unsigned t_cylAmmo = 0;
+    static thread_local unsigned t_cylChamberBits = 0;
     static thread_local int t_roundCount = 0;
 
     static void FeedCylinderVisibilitySEH(void* self)
@@ -5350,6 +5943,7 @@ namespace
                     t_cylSlot = slot;
                     t_cylModel = model;
                     t_cylAmmo = ammo;
+                    t_cylChamberBits = (*reinterpret_cast<std::uint16_t*>(rec + 6) >> 6) & 0x3Fu;
                     const unsigned mc = *reinterpret_cast<std::uint16_t*>(
                         static_cast<std::uint8_t*>(model) + 0x1E8);
                     void* harr = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(model) + 0x180);
@@ -5390,34 +5984,69 @@ namespace
         }
     }
 
-    struct RoundMeshList { unsigned hash[16]; int count; };
+    static const unsigned kChamberMeshes[] = {
+        0x92924D7Eu,   // MESH_AMO_IV
+        0x857B8E84u,   // MESH_AMO_2ND_IV
+        0x328EAEE7u,   // MESH_AMO_3ND_IV
+        0x5AEC469Cu,   // MESH_AMO_4ND_IV
+        0x1017C37Fu,   // MESH_AMO_5ND_IV
+        0x3F5D29EEu,   // MESH_AMO_6ND_IV
+    };
+
+    static int ChamberOfMesh(unsigned hash)
+    {
+        for (int chamber = 0; chamber < 6; ++chamber)
+            if (kChamberMeshes[chamber] == hash)
+                return chamber;
+        return -1;
+    }
+
+    struct RoundMeshList { unsigned hash[16]; int count; unsigned owner; int bones; bool byChamber; };
     static std::mutex g_roundsMeshMx;
     static std::map<void*, RoundMeshList> g_roundsMesh;
     static void DriveCylinderRounds()
     {
         t_roundCount = 0;
         if (!t_cylCtrl || t_meshCount <= 0) return;
+        const unsigned owner = t_probeSub[t_cylSlot];
+        const int bones = t_probeBones[t_cylSlot];
         RoundMeshList rl;
         {
             std::lock_guard<std::mutex> lock(g_roundsMeshMx);
             auto it = g_roundsMesh.find(t_cylModel);
-            if (it != g_roundsMesh.end())
+            if (it != g_roundsMesh.end() && it->second.owner == owner && it->second.bones == bones)
             {
                 rl = it->second;
             }
             else
             {
+                rl.owner = owner;
+                rl.bones = bones;
                 rl.count = 0;
                 for (int i = 0; i < t_meshCount && rl.count < 16; ++i)
-                    if (t_meshFA[i] == 0xFF)
+                    if (ChamberOfMesh(t_meshHash[i]) >= 0)
                         rl.hash[rl.count++] = t_meshHash[i];
+                rl.byChamber = rl.count > 1;
+                if (!rl.byChamber)
+                {
+                    rl.count = 0;
+                    for (int i = 0; i < t_meshCount && rl.count < 16; ++i)
+                        if (t_meshFA[i] == 0xFF)
+                            rl.hash[rl.count++] = t_meshHash[i];
+                }
                 g_roundsMesh[t_cylModel] = rl;
             }
         }
         const int show = t_cylAmmo > 16u ? 16 : static_cast<int>(t_cylAmmo);
         for (int i = 0; i < rl.count; ++i)
+        {
+            const int chamber = rl.byChamber ? (ChamberOfMesh(rl.hash[i]) + rl.count - 1) % rl.count : 0;   // the round being loaded lights the chamber one before the model's loading chamber
+            const bool visible = rl.byChamber
+                ? ((t_cylChamberBits >> chamber) & 1u) != 0   // each loop clip turns the cylinder back while the game moves these bits one chamber over, so the rounds look still
+                : i < show;
             DriveMeshSEH(t_cylCtrl, static_cast<unsigned>(t_cylSlot),
-                         static_cast<unsigned long long>(rl.hash[i]), i < show ? 1 : 0);
+                         static_cast<unsigned long long>(rl.hash[i]), visible ? 1 : 0);
+        }
         t_roundCount = rl.count;
     }
 
@@ -5435,6 +6064,8 @@ namespace
 
     struct CylRotState
     {
+        unsigned owner = 0;
+        int bones = -1;
         int boneIdx = -2;
         unsigned chambers = 5;
         double stepRad = 0.0;
@@ -5467,6 +6098,8 @@ namespace
     {
         __try
         {
+            if (idx < 0 || idx >= *reinterpret_cast<std::int16_t*>(static_cast<std::uint8_t*>(model) + 0xF8))
+                return false;
             void* pose = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(model) + 0xE0);
             if (!pose) return false;
             memcpy(out16, static_cast<std::uint8_t*>(pose) + static_cast<size_t>(idx) * 0x40, 0x40);
@@ -5482,6 +6115,8 @@ namespace
     {
         __try
         {
+            if (idx < 0 || idx >= *reinterpret_cast<std::int16_t*>(static_cast<std::uint8_t*>(model) + 0xF8))
+                return false;
             void* pose = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(model) + 0xE0);
             if (!pose) return false;
             memcpy(static_cast<std::uint8_t*>(pose) + static_cast<size_t>(idx) * 0x40, in16, 0x40);
@@ -5496,10 +6131,18 @@ namespace
     static void DriveCylinderRotation()
     {
         if (!t_cylCtrl || !t_cylModel) return;
+        if (t_probeSub[t_cylSlot] < 0x800 && g_PartMotionSpinsCylinder[t_probeSub[t_cylSlot]].load(std::memory_order_relaxed))
+            return;   // the gun's part motion turns this cylinder already
         std::lock_guard<std::mutex> lock(g_cylRotMx);
+        const unsigned owner = t_probeSub[t_cylSlot];
+        const int bones = t_probeBones[t_cylSlot];
         CylRotState& st = g_cylRot[t_cylModel];
+        if (st.boneIdx != -2 && (st.owner != owner || st.bones != bones))
+            st = CylRotState{}; // the old model was freed and another one took its address
         if (st.boneIdx == -2)
         {
+            st.owner = owner;
+            st.bones = bones;
             st.boneIdx = -1;
             for (const auto& cand : kCylBoneCandidates)
             {
@@ -5650,16 +6293,7 @@ namespace
 
     static std::uintptr_t MotionEntryIndexSiteAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x141307ef2ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x141307f12ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1413089e2ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x141308b22ull;
-        default:                                          return 0;
-        }
+        return gAddr.RealizedEquipObjectImpl_MotionEntryIndexSite;
     }
 
     static std::mutex g_MotionShadowArmMutex;
@@ -5850,16 +6484,7 @@ namespace
 
     static uintptr_t MotionEntryTableVtblAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x1422a0f18ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x1422a0ed8ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1422a0de8ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x1422a0d68ull;
-        default:                                          return 0;
-        }
+        return gAddr.EquipMotionEntryTable_Vtable;
     }
 
     static void* MotionEntryEngineTable()
@@ -6115,6 +6740,15 @@ namespace
 
     static void* __fastcall hkGetAnimFile(void* mtar, unsigned long long clip)
     {
+        const auto mtarAddress = reinterpret_cast<std::uintptr_t>(mtar);
+        if (mtarAddress < 0x10000 || mtarAddress >= 0x0000800000000000ull)   // null or a "none" marker like -1, not a loaded mtar
+        {
+            static std::atomic<int> s_warned{ 0 };
+            if (s_warned.fetch_add(1, std::memory_order_relaxed) < 4)
+                LogWarn("MotionClip: clip %016llX asked from mtar %p, which is not a loaded archive, clip skipped (caller %p)",
+                    clip, mtar, _ReturnAddress());
+            return nullptr;
+        }
         NoteLiveMtar(mtar);
         if (void* quiet = QuietWeaponMotion_GetAnimFile(mtar, clip, reinterpret_cast<void*>(g_OrigGetAnimFile)))
             return quiet;
@@ -6184,6 +6818,225 @@ namespace
         return !af || reinterpret_cast<uintptr_t>(af) == 1;
     }
 
+    struct SkeletonList
+    {
+        const std::int32_t* hashes;
+        int count;
+        int stride;
+    };
+
+    static const std::int32_t* FindDataNode(const std::int32_t* node, std::uint32_t hash, int depth)
+    {
+        for (int sibling = 0; node && sibling < 4096; ++sibling)
+        {
+            if (static_cast<std::uint32_t>(node[0]) == hash)
+                return node;
+            if (node[6] != 0 && depth < 32)
+                if (const std::int32_t* hit = FindDataNode(reinterpret_cast<const std::int32_t*>(
+                        reinterpret_cast<const std::uint8_t*>(node) + node[6]), hash, depth + 1))
+                    return hit;
+            if (node[8] == 0)
+                return nullptr;
+            node = reinterpret_cast<const std::int32_t*>(reinterpret_cast<const std::uint8_t*>(node) + node[8]);
+        }
+        return nullptr;
+    }
+
+    static SkeletonList ArchiveSkeletonListSEH(const void* mtar)
+    {
+        SkeletonList list{ nullptr, 0, 1 };
+        __try
+        {
+            const std::uint8_t* dir = *reinterpret_cast<const std::uint8_t* const*>(
+                static_cast<const std::uint8_t*>(mtar) + 0x98);
+            if (!dir || (*reinterpret_cast<const std::uint16_t*>(dir + 0x12) & 0x4000) == 0)
+                return list;
+            const std::uint32_t first = *reinterpret_cast<const std::uint32_t*>(dir + 0x14);
+            if (first == 0)
+                return list;
+            const std::uint8_t* chunk = dir + first;
+            for (int i = 0; i < 64; ++i)
+            {
+                if (*reinterpret_cast<const std::uint32_t*>(chunk) == 0x91E4534B) // the chunk AnimFile::GetSkeletonList2 returns
+                {
+                    const auto* data = reinterpret_cast<const std::int32_t*>(chunk + 0x10);
+                    list.count = data[0];
+                    list.hashes = data + 1;
+                    return list;
+                }
+                const std::uint32_t next = *reinterpret_cast<const std::uint32_t*>(chunk + 8);
+                if (next == 0)
+                    return list;
+                chunk += next;
+            }
+            return list;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return SkeletonList{ nullptr, 0, 1 };
+        }
+    }
+
+    static SkeletonList AnimFileSkeletonListSEH(const void* af)
+    {
+        __try
+        {
+            const std::uint8_t* file = static_cast<const std::uint8_t*>(af);
+            const void* mtar = *reinterpret_cast<void* const*>(file + 8);
+            if ((file[0x20] & 0xf) == 3 && mtar)
+            {
+                const SkeletonList archive = ArchiveSkeletonListSEH(mtar);
+                if (archive.hashes)
+                    return archive;
+            }
+            const std::uint8_t* data = *reinterpret_cast<const std::uint8_t* const*>(file + 0x10);
+            if (!data || *reinterpret_cast<const std::uint32_t*>(data + 4) == 0)
+                return SkeletonList{ nullptr, 0, 2 };
+            const std::int32_t* node = FindDataNode(reinterpret_cast<const std::int32_t*>(
+                data + *reinterpret_cast<const std::uint32_t*>(data + 4)), 0x91E4534B, 0);
+            if (!node || node[2] != 0 || node[3] == 0)
+                return SkeletonList{ nullptr, 0, 2 };
+            const auto* list = reinterpret_cast<const std::int32_t*>(
+                reinterpret_cast<const std::uint8_t*>(node) + static_cast<std::uint32_t>(node[3]));
+            return SkeletonList{ list + 1, list[0], 2 }; // a clip's own list pairs each bone hash with a spare int
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return SkeletonList{ nullptr, 0, 2 };
+        }
+    }
+
+    static int ModelBoneIndex(const void* model, std::int32_t hash)
+    {
+        const std::uint8_t* skeleton = static_cast<const std::uint8_t*>(model) + 0xa0;
+        const int bones = *reinterpret_cast<const std::int16_t*>(skeleton + 0x58);
+        const std::int32_t* boneHashes = *reinterpret_cast<const std::int32_t* const*>(skeleton + 0x48);
+        if (!boneHashes)
+            return -1;
+        for (int b = 0; b < bones; ++b)
+            if (boneHashes[b] == hash)
+                return b;
+        return -1;
+    }
+
+    static int ModelBoneCountSEH(const void* model)
+    {
+        __try
+        {
+            return *reinterpret_cast<const std::int16_t*>(static_cast<const std::uint8_t*>(model) + 0xa0 + 0x58);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static bool TracksBindByIndexSEH(const SkeletonList& list, const void* model)
+    {
+        __try
+        {
+            if (!list.hashes || list.count <= 0)
+                return false;
+            for (int t = 0; t < list.count; ++t)
+                if (ModelBoneIndex(model, list.hashes[t * list.stride]) != t)
+                    return false;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool TracksLandElsewhereSEH(const SkeletonList& list, const void* model)
+    {
+        __try
+        {
+            for (int t = 0; list.hashes && t < list.count; ++t)
+            {
+                const int b = ModelBoneIndex(model, list.hashes[t * list.stride]);
+                if (b >= 0 && b != t)
+                    return true;
+            }
+            return false;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool ListFitsBindTable(const SkeletonList& list, int need, const void* model, bool keepIndexBinding)
+    {
+        if (!list.hashes || list.count > need - 1) // the by-name table is filled from this list and holds need-1 bones
+            return false;
+        if (!keepIndexBinding)
+            return true;
+        return list.count == need - 1 && ModelBoneCountSEH(model) > list.count && TracksBindByIndexSEH(list, model);
+    }
+
+    static bool ArchiveListsFitBindTableSEH(void* mtar, int need, const void* model, bool keepIndexBinding)
+    {
+        const SkeletonList archive = ArchiveSkeletonListSEH(mtar);
+        if (archive.hashes)
+            return ListFitsBindTable(archive, need, model, keepIndexBinding);
+        __try
+        {
+            const std::uint8_t* dir = *reinterpret_cast<const std::uint8_t* const*>(
+                static_cast<std::uint8_t*>(mtar) + 0x98);
+            if (!dir || (*reinterpret_cast<const std::uint16_t*>(dir + 0x12) & 0x1000) != 0)
+                return false;
+            const std::uint32_t clips = *reinterpret_cast<const std::uint32_t*>(dir + 4);
+            const std::uint8_t* animFiles = *reinterpret_cast<const std::uint8_t* const*>(
+                static_cast<std::uint8_t*>(mtar) + 0x88);
+            if (!animFiles || clips == 0 || clips > 4096)
+                return false;
+            for (std::uint32_t i = 0; i < clips; ++i) // old-format archives keep the list in every clip
+                if (!ListFitsBindTable(AnimFileSkeletonListSEH(animFiles + i * 0x28), need, model, keepIndexBinding))
+                    return false;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void* SlotModelSEH(void* ctl, unsigned int slot)
+    {
+        void* models = ReadPtrAtSEH(ctl, 0x58);
+        return models ? ReadPtrAtSEH(models, static_cast<size_t>(slot) * 8) : nullptr;
+    }
+
+    static int SlotBindCapacitySEH(void* ctl, unsigned int slot)
+    {
+        __try
+        {
+            std::uint8_t* control = static_cast<std::uint8_t*>(
+                (*reinterpret_cast<void***>(static_cast<std::uint8_t*>(ctl) + 0x60))[slot]);
+            if (!control)
+                return -1;
+            const std::uint8_t* inner = control + *reinterpret_cast<const std::uint32_t*>(control + 0xc);
+            if (*reinterpret_cast<const std::uint32_t*>(inner + 0x30) == 0)
+                return -1;
+            return *reinterpret_cast<const std::int16_t*>(inner + 0xc);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static bool ClipBindsToSameBonesSEH(void* af, void* ctl, unsigned int slot, int dataTracks)
+    {
+        const SkeletonList list = AnimFileSkeletonListSEH(af);
+        const int bindCapacity = SlotBindCapacitySEH(ctl, slot);
+        if (bindCapacity >= 0) // the engine reads the clip's skeleton list without a null check, then bind[0..dataTracks-2]
+            return list.hashes && list.count <= bindCapacity && dataTracks - 1 <= bindCapacity;
+        void* model = SlotModelSEH(ctl, slot);
+        return !list.hashes || !model || !TracksLandElsewhereSEH(list, model);
+    }
+
     using AnimGetDataInfoFn_t = void(__fastcall*)(void*, void*);
 
     static bool CallGetDataInfoSEH(void* fn, void* animFile, void* out)
@@ -6219,6 +7072,13 @@ namespace
             static std::atomic<int> budget{ 8 };
             if (budget.fetch_sub(1) > 0)
                 LogWarn("WeaponKey: cross-archive clip refused, %d tracks but model has %d bones", tracks, cap);
+            return false;
+        }
+        if (!ClipBindsToSameBonesSEH(af, ctl, slot, tracks))
+        {
+            static std::atomic<int> budget{ 8 };
+            if (budget.fetch_sub(1) > 0)
+                LogWarn("WeaponKey: cross-archive clip refused, its bones sit at other places in this part model");
             return false;
         }
         return true;
@@ -6618,15 +7478,10 @@ namespace
     {
         if (!g_ClipFallbackVtbl || g_ClipFallbackSlot < 0 || !g_OrigClipSetByPath)
             return;
-        DWORD prot = 0;
-        if (VirtualProtect(&g_ClipFallbackVtbl[g_ClipFallbackSlot], sizeof(void*),
-                           PAGE_READWRITE, &prot))
-        {
-            g_ClipFallbackVtbl[g_ClipFallbackSlot] =
-                reinterpret_cast<void*>(g_OrigClipSetByPath);
-            VirtualProtect(&g_ClipFallbackVtbl[g_ClipFallbackSlot], sizeof(void*),
-                           prot, &prot);
-        }
+        RestoreVtableSlot(&g_ClipFallbackVtbl[g_ClipFallbackSlot],
+            reinterpret_cast<void*>(g_OrigClipSetByPath), reinterpret_cast<void*>(&hkClipArchiveFallback));
+        if (g_ClipFallbackVtbl[g_ClipFallbackSlot] != reinterpret_cast<void*>(g_OrigClipSetByPath))
+            return;   // another DLL hooked on top of us, its chain still runs through our hook and needs the original
         g_ClipFallbackVtbl = nullptr;
         g_ClipFallbackSlot = -1;
         g_OrigClipSetByPath = nullptr;
@@ -6727,7 +7582,8 @@ namespace
         static const std::uint8_t kTopOfStack[] = { 0x83, 0xCA, 0xFF };
         static const char kField[] = "packageInfos";
         const auto va = reinterpret_cast<std::uintptr_t>(target);
-        if (!va || !MotionBytesMatchSEH(va, kPrologue, sizeof(kPrologue))
+        const HookEntry entry = CheckHookEntry(target, kPrologue, sizeof(kPrologue));
+        if (entry == HookEntry::Unknown
             || !MotionBytesMatchSEH(va + 0x1b, kTopOfStack, sizeof(kTopOfStack)))
             return false;
         std::uint8_t disp[4] = {};
@@ -6736,8 +7592,11 @@ namespace
         std::int32_t rel = 0;
         std::memcpy(&rel, disp, sizeof(rel));
         const std::uintptr_t field = va + 0x1b + static_cast<std::intptr_t>(rel);
-        return MotionBytesMatchSEH(field,
-            reinterpret_cast<const std::uint8_t*>(kField), sizeof(kField));
+        if (!MotionBytesMatchSEH(field, reinterpret_cast<const std::uint8_t*>(kField), sizeof(kField)))
+            return false;
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipParam: ReloadChimeraPartsInfoTable", target);
+        return true;
     }
 
     static int __fastcall hkReloadChimeraPartsInfoTable(lua_State* L)
@@ -7022,8 +7881,127 @@ namespace
         }
     }
 
+    static const char* const kGunKinds[9] = {
+        "", "assault rifle", "handgun", "submachine gun", "sniper rifle",
+        "shotgun", "machine gun", "grenade launcher", "missile launcher" };
+
+    static std::uint32_t GunKindOfReceiverType(std::uint32_t receiverType)   // the game's gun motion tables answer each receiver type under one gun kind only
+    {
+        if (receiverType < 1)   return 0;
+        if (receiverType <= 4)  return 1;
+        if (receiverType <= 17) return 2;
+        if (receiverType <= 20) return 6;
+        if (receiverType <= 26) return 5;
+        if (receiverType <= 29) return 3;
+        if (receiverType <= 38) return 4;
+        if (receiverType <= 42) return 7;
+        if (receiverType <= 46) return 8;
+        return 0;
+    }
+
+    static void PickKindDonors()   // a custom gun on a receiver of another gun kind animates like a game gun of its own kind
+    {
+        static std::atomic<unsigned long long> s_allCheckedAtMs{ 0 };   // every custom gun was checked then; look for new ones a second later
+        const unsigned long long now = GetTickCount64();
+        const unsigned long long allCheckedAt = s_allCheckedAtMs.load(std::memory_order_relaxed);
+        if (allCheckedAt != 0 && now - allCheckedAt < 1000)
+            return;
+        static std::mutex picking;
+        std::unique_lock<std::mutex> lock(picking, std::try_to_lock);
+        if (!lock.owns_lock() || MissionCodeGuard::ShouldBypassHooks())
+            return;
+        static std::set<std::uint32_t> s_checked;
+        std::vector<int> custom;
+        TppEquip_GetCustomWeaponEquipIds(custom);
+        if (custom.empty())
+            return;
+        if (s_checked.size() >= custom.size())
+        {
+            s_allCheckedAtMs.store(now, std::memory_order_relaxed);
+            return;
+        }
+        EnsureRcvTypeExt();
+        EnsurePartTypeExt(g_BarrelTypeExt, g_BarrelTypeExtReady, gAddr.MotionLoaderImpl_BarrelTypeTable, kBarrelTypeVanillaRows);
+        EnsurePartTypeExt(g_MagazineTypeExt, g_MagazineTypeExtReady, gAddr.MotionLoaderImpl_MagazineTypeTable, kMagazineTypeVanillaRows);
+        EnsurePartTypeExt(g_StockTypeExt, g_StockTypeExtReady, gAddr.MotionLoaderImpl_StockTypeTable, kStockTypeVanillaRows);
+        const std::uint8_t* vanillaTypes = ReceiverTypeTable();
+        if (!g_RcvTypeExtReady || !g_BarrelTypeExtReady || !g_MagazineTypeExtReady || !g_StockTypeExtReady || !vanillaTypes)
+            return;
+        for (const int id : custom)
+        {
+            const auto equipId = static_cast<std::uint32_t>(id);
+            if (id <= 0 || s_checked.count(equipId))
+                continue;
+            FamilyGb gun;
+            if (!GetGbForEquipId(equipId, gun) || gun.gb[0] == 0)
+                continue;
+            s_checked.insert(equipId);
+            std::uint32_t familyFrom = 0;
+            {
+                std::lock_guard<std::mutex> familyLock(g_WeaponKeyMutex);
+                const auto it = g_FamilyFrom.find(equipId);
+                if (it != g_FamilyFrom.end())
+                    familyFrom = it->second;
+            }
+            const std::uint32_t ownKind = GetEquipTypeForEquipId(equipId) & 0x1F;
+            const std::uint32_t gunKind = familyFrom ? GetEquipTypeForEquipId(familyFrom) & 0x1F : ownKind;   // the kind the engine treats it as
+            if (gunKind != ownKind && gunKind >= 1 && gunKind <= 8 && ownKind >= 1 && ownKind <= 8)
+                LogWarn("WeaponKey: equipId=%u: SetWeaponHandling changes its gun kind from '%s' to '%s'. In testing such a gun could "
+                        "no longer aim; remove the call unless that is what you want",
+                    equipId, kGunKinds[ownKind], kGunKinds[gunKind]);
+            const std::uint32_t receiverType = g_RcvTypeExt[gun.gb[0]];
+            const std::uint32_t receiverKind = GunKindOfReceiverType(receiverType);
+            if (gunKind < 1 || gunKind > 8 || receiverKind == 0 || receiverKind == gunKind)
+                continue;
+
+            KindDonor donor;
+            int donorRank = 0;   // 4 the SetWeaponHandling donor, 3 shares the gun's barrel, 2 its stock, 1 the first game gun of the kind
+            for (std::uint32_t v = 1; v != 0 && donorRank < (familyFrom ? 4 : 3); v = NextDonorCandidate(v))
+            {
+                if ((GetEquipTypeForEquipId(v) & 0x1F) != gunKind || TppEquip_GetSubIdForEquipId(static_cast<int>(v)) != 0)
+                    continue;
+                FamilyGb game;
+                if (!GetGbForEquipId(v, game) || game.gb[0] == 0)
+                    continue;
+                const int gameReceiverType = ReadVanillaReceiverTypeSEH(vanillaTypes, game.gb[0]);
+                if (gameReceiverType <= 0 || GunKindOfReceiverType(static_cast<std::uint32_t>(gameReceiverType)) != gunKind)
+                    continue;
+                const int rank = (v == familyFrom) ? 4
+                               : (gun.gb[1] != 0 && game.gb[1] == gun.gb[1]) ? 3
+                               : (gun.gb[3] != 0 && game.gb[3] == gun.gb[3]) ? 2 : 1;
+                if (rank <= donorRank)
+                    continue;
+                donorRank = rank;
+                donor.equipId = v;
+                donor.receiver = game.gb[0];
+                donor.type[0] = static_cast<std::uint8_t>(gameReceiverType);
+                donor.type[1] = g_BarrelTypeExt[game.gb[1]];
+                donor.type[2] = g_MagazineTypeExt[game.gb[2]];
+                donor.type[3] = g_StockTypeExt[game.gb[3]];
+            }
+            if (donor.equipId == 0)
+            {
+                LogWarn("WeaponKey: equipId=%u: gun kind '%s', receiver kind '%s' (type %u). The game has no %s motions for that receiver, "
+                        "so the gun cannot reload. Point the receiver's motionFrom at a %s receiver, or register the gun as %s",
+                    equipId, kGunKinds[gunKind], kGunKinds[receiverKind], receiverType, kGunKinds[gunKind],
+                    kGunKinds[gunKind], kGunKinds[receiverKind]);
+                continue;
+            }
+            {
+                std::lock_guard<std::mutex> familyLock(g_WeaponKeyMutex);
+                g_KindDonor[equipId] = donor;
+                g_HasKindDonors.store(true, std::memory_order_release);
+            }
+            LogInfo("WeaponKey: equipId=%u: gun kind '%s', receiver kind '%s' (type %u): it animates like the game's equipId=%u "
+                    "(receiver type %u, magazine type %u). Point the receiver's motionFrom at a %s receiver to pick the animations yourself",
+                equipId, kGunKinds[gunKind], kGunKinds[receiverKind], receiverType, donor.equipId,
+                static_cast<unsigned>(donor.type[0]), static_cast<unsigned>(donor.type[2]), kGunKinds[gunKind]);
+        }
+    }
+
     static void FillCustomMotionEntriesTable()
     {
+        PickKindDonors();
         std::vector<std::uint32_t> ids;
         if (g_MotionShadowActive.load(std::memory_order_acquire))
         {
@@ -7071,8 +8049,11 @@ namespace
             {
                 std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
                 auto it = g_FamilyFrom.find(eq);
+                const auto kind = g_KindDonor.find(eq);
                 if (it != g_FamilyFrom.end())
                     donor = it->second;
+                else if (kind != g_KindDonor.end())
+                    donor = kind->second.equipId;
             }
             if (!MotionEntryHasSlot(donor) && subId < 514)
             {
@@ -7181,6 +8162,13 @@ namespace
                         : 0;
                     rcRaw = (dlogical > 0) ? dlogical : cus.gb[0];
                     rcRes = rcRaw;
+                    if (rcRes >= kWideIdBase)
+                    {
+                        WidePartState* w =
+                            WideStateFor(kVanillaSpace_Receiver, rcRes);
+                        if (w && w->motionFrom > 0)
+                            rcRes = w->motionFrom;
+                    }
                     if (rcRes >= 234)
                     {
                         const auto itd = g_ReceiverMotionDonor.find(rcRes);
@@ -7342,16 +8330,7 @@ namespace
 
     static uintptr_t AddMtarBlockPackagePathsAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4: return 0x140a02290ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4: return 0x140a020a0ull;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3: return 0x1463bb3c0ull;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3: return 0x140a013c0ull;
-        default:                                          return 0;
-        }
+        return gAddr.AddMtarBlockPackagePaths;
     }
 
     static void __fastcall hkAddMtarBlockPackagePaths(void* arr, std::uint32_t engineOrRealId)
@@ -7810,14 +8789,17 @@ namespace
             return nullptr;
         void* target = ReadPtrAtSEH(vtbl, 0x10);
         const auto addr = reinterpret_cast<uintptr_t>(target);
-        if (!PartsSlotTargetInImage(addr)
-            || !MotionBytesMatchSEH(addr, kPartsCtlCreateSlotPrologue,
-                                    sizeof(kPartsCtlCreateSlotPrologue)))
+        const HookEntry entry = PartsSlotTargetInImage(addr)
+            ? CheckHookEntry(target, kPartsCtlCreateSlotPrologue, sizeof(kPartsCtlCreateSlotPrologue))
+            : HookEntry::Unknown;
+        if (entry == HookEntry::Unknown)
         {
             LogError("EquipParam: parts-controller create slot %p mismatch on %s, bad part models can crash",
                 target, GetGameBuildName(gGameBuild));
             return nullptr;
         }
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipParam: parts-controller create slot", target);
         return target;
     }
 
@@ -7928,10 +8910,13 @@ namespace
             p.helpBone = nullptr;
             if (descFlags & 1)
             {
-                void* hb = *reinterpret_cast<void**>(
-                    static_cast<std::uint8_t*>(model) + 0xe0);
-                if (hb)
-                    p.helpBone = hb;
+                std::uint8_t resource = (*reinterpret_cast<std::uint8_t**>(ctl + 0x10))[idx];
+                if (resource >= *reinterpret_cast<std::uint32_t*>(ctl + 8))
+                    resource = 0; // a slot set up straight from a model file keeps SetUp's index 0
+                void** resources = *reinterpret_cast<void***>(ctl + 0xa0);
+                if (resources && resources[resource])
+                    p.helpBone = *reinterpret_cast<void**>(
+                        static_cast<std::uint8_t*>(resources[resource]) + 0xe0);
             }
             const std::uint64_t size =
                 reinterpret_cast<std::uint64_t(__fastcall*)(void*)>(f.size)(&p);
@@ -8073,7 +9058,11 @@ namespace
         const int cap = (idx >= 0) ? ModelBoneCapSEH(ctl, idx) : -1;
         if (idx < 0 || !mtar)
             return;
-        if (need <= 0 || cap < 0 || cap >= need - 1)
+        if (need <= 0 || cap < 0)
+            return;
+        void* model = SlotModelSEH(ctl, static_cast<unsigned int>(idx));
+        // cap >= need-1: extra bones belong to another part's clips (a GZ rifle's built-in under-barrel); by-name binding must keep this archive's bones where they are
+        if (!model || !ArchiveListsFitBindTableSEH(mtar, need, model, cap >= need - 1))
             return;
         std::uint32_t eq = 0;
         {
@@ -8133,7 +9122,7 @@ namespace
         FillCustomMotionEntries(self);
         const unsigned long long r = g_OrigRealizedEquipRealize(self, a, b);
         CaptureEquipDataProvider(self);
-        if (r == 0)
+        if ((r & 0xFF) == 0)   // bool in AL, upper bits are leftovers
         {
             unsigned failBase = 0;
             for (int i = 0; i < 4; ++i)
@@ -8158,25 +9147,25 @@ namespace
         st.n = 0;
         if (!self || !g_HasSwaps.load(std::memory_order_relaxed))
             return;
-        std::uint32_t fromIds[8], donors[8];
-        int m = 0;
+        std::vector<std::uint32_t> fromIds, donors;
         {
             std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            fromIds.reserve(g_FamilyFrom.size());
+            donors.reserve(g_FamilyFrom.size());
             for (const auto& kv : g_FamilyFrom)
             {
-                if (m >= 8)
-                    break;
-                fromIds[m] = kv.first;
-                donors[m] = kv.second;
-                ++m;
+                const std::int32_t alias = equip::CurrentAliasOf(static_cast<std::int32_t>(kv.first)); // key words hold the alias of a wide id
+                fromIds.push_back(alias ? static_cast<std::uint32_t>(alias) : kv.first);
+                donors.push_back(kv.second);
             }
         }
+        const int m = static_cast<int>(fromIds.size());
         if (m == 0)
             return;
-        std::uint32_t toTypes[8];
+        std::vector<std::uint32_t> toTypes(m);
         for (int i = 0; i < m; ++i)
             toTypes[i] = GetEquipTypeForEquipId(donors[i]) & 0x1F;
-        SwapKeyWordsSEH(self, slot, fromIds, toTypes, m, &st);
+        SwapKeyWordsSEH(self, slot, fromIds.data(), toTypes.data(), m, &st);
     }
 
     static std::uint32_t PartCodeCommon(int slot, void* self, std::uint32_t partId)
@@ -8256,6 +9245,7 @@ namespace
         if (g_InSetupWeaponInfo)
         {
             g_TlsSetupEquip = equipId;
+            ViewGunAsItsKind(equipId);
             const std::uint32_t vanilla = MapEquipId(equipId);
             if (vanilla != equipId)
             {
@@ -8512,7 +9502,7 @@ namespace
                 }
                 else
                 {
-                    cs = MH_CreateHook(mB, kPartCodeDetours[k],
+                    cs = CreateHookTracked(mB, kPartCodeDetours[k],
                                        reinterpret_cast<void**>(&g_OrigPartCode[k]));
                     es = (cs == MH_OK) ? MH_EnableHook(mB) : -9;
                     if (cs == MH_OK && (es == MH_OK || es == MH_ERROR_ENABLED))
@@ -8526,6 +9516,14 @@ namespace
                 LogError("WeaponKey: part-code slot%d hook failed (cs=%d es=%d), donor part swap incomplete",
                     k, cs, es);
         }
+    }
+
+    bool PartCode_KindDonorType(int part, unsigned int& type)
+    {
+        if (g_TlsViewedGun == 0)
+            return false;
+        type = g_TlsViewedGunDonor.type[part];
+        return true;
     }
 
     unsigned int PartCode_DonorPartType(int gbByte, unsigned int partId,
@@ -8627,6 +9625,7 @@ namespace
         g_InSetupWeaponInfo = true;
         g_OrigSetupWeaponInfo(self, work, slot);
         g_InSetupWeaponInfo = false;
+        g_TlsViewedGun = 0;
         const std::uint32_t setupEquip = g_TlsSetupEquip;
         g_TlsSetupEquip = 0;
         if (setupEquip != 0)
@@ -8657,8 +9656,16 @@ namespace
                     int rowVal = rc;
                     if (rc > 233)
                     {
+                        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
                         const auto it = g_ReceiverMotionDonor.find(rc);
                         rowVal = (it != g_ReceiverMotionDonor.end()) ? it->second : 0;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+                        const auto kind = g_KindDonor.find(
+                            static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(mintEq))));
+                        if (kind != g_KindDonor.end())
+                            rowVal = kind->second.receiver;
                     }
                     if (rowVal > 0 && rowVal <= 233)
                         WriteByteAtSEH(wim, 0x7a, static_cast<std::uint8_t>(rowVal));
@@ -8699,18 +9706,23 @@ void EquipParam_BindAliasMotion(int aliasId, int wideId)
 
 void EquipParam_SetWeaponHandling(std::uint32_t equipId, std::uint32_t familyFrom)
 {
-    if (equipId == 0)
+    if (equipId == 0 || MissionCodeGuard::ShouldBypassHooks())
         return;
     {
         std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
         g_GbByEquipId.clear();
         g_FamilyLogged.erase(equipId);
     }
+    const int weaponId = TppEquip_GetSubIdForEquipId(static_cast<int>(equipId));
     if (familyFrom == 0 || familyFrom == equipId)
     {
-        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
-        g_FamilyFrom.erase(equipId);
-        g_HasSwaps.store(!g_FamilyFrom.empty(), std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+            g_FamilyFrom.erase(equipId);
+            g_HasSwaps.store(!g_FamilyFrom.empty(), std::memory_order_relaxed);
+        }
+        if (weaponId > 0)
+            GunBasic_RefreshBorrowedParts(0, 0, weaponId);
         return;
     }
     FamilyGb van, cus;
@@ -8729,6 +9741,8 @@ void EquipParam_SetWeaponHandling(std::uint32_t equipId, std::uint32_t familyFro
         g_HasSwaps.store(true, std::memory_order_relaxed);
     }
     EnsureRcvTypeExt();
+    if (weaponId > 0)
+        GunBasic_RefreshBorrowedParts(0, 0, weaponId);
 }
 
 unsigned int EquipParam_GetWeaponHandlingDonor(unsigned int equipId)
@@ -8737,6 +9751,92 @@ unsigned int EquipParam_GetWeaponHandlingDonor(unsigned int equipId)
     const auto it = g_FamilyFrom.find(
         static_cast<std::uint32_t>(equip::FromEngine(static_cast<std::int32_t>(equipId))));
     return it == g_FamilyFrom.end() ? 0 : it->second;
+}
+
+unsigned int EquipParam_GetWeaponHandlingFamily(int weaponId)
+{
+    if (weaponId <= 0 || !g_HasSwaps.load(std::memory_order_relaxed))
+        return 0;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> swaps;
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        swaps.assign(g_FamilyFrom.begin(), g_FamilyFrom.end());
+    }
+    for (const auto& swap : swaps)   // subId lookups take the equip table lock, not g_WeaponKeyMutex
+        if (TppEquip_GetSubIdForEquipId(static_cast<int>(swap.first)) == weaponId)
+            return swap.second;
+    return 0;
+}
+
+bool EquipParam_GetEquipGunBasicRow(unsigned int equipId, unsigned char out12[12])
+{
+    FamilyGb gun;
+    if (!GetGbForEquipId(equipId, gun))
+        return false;
+    std::memcpy(out12, gun.gb, 12);
+    return true;
+}
+
+int EquipParam_GetReceiverMotionFrom(int receiverId)
+{
+    if (receiverId <= 0)
+        return 0;
+    if (receiverId < 234)
+        return receiverId;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (const WidePartState* w = WideStateFor(kVanillaSpace_Receiver, receiverId))
+        if (w->motionFrom > 0 && w->motionFrom < 234)
+            return w->motionFrom;
+    const auto it = g_ReceiverMotionDonor.find(receiverId);
+    return (it != g_ReceiverMotionDonor.end() && it->second > 0 && it->second < 234) ? it->second : 0;
+}
+
+bool EquipParam_WideMagazinesPlanned()
+{
+    return WideMagazinesPlanned();
+}
+
+int EquipParam_GetSightScopeDonor(int sightId)
+{
+    return (sightId > 0 && sightId < kPartTypeExtCount) ? g_UiSightDonor[sightId] : 0;
+}
+
+int EquipParam_MagazineLaneForWeapon(int ammoId, int gunMagazine)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const WidePartState* w = WideStateFor(kVanillaSpace_Magazine, ammoId);
+    if (!w || !w->rowSet || w->row.size() != 8)
+        return 0;
+    return BorrowMagazineLaneLocked(ammoId, gunMagazine);
+}
+
+void EquipParam_RefreshUnderBarrelMagazines(int ammoId)
+{
+    if (ammoId < kWideIdBase || !WideMagazinesPlanned())
+        return;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    for (const auto& entry : g_UnderBarrelMagazine)
+    {
+        if (entry.second != ammoId)
+            continue;
+        const int lane = ResolvePartByteLocked(kVanillaSpace_Magazine, ammoId);
+        if (lane <= 0)
+            continue;
+        if (WidePartState* underBarrel = WideStateFor(kVanillaSpace_UnderBarrel, entry.first))
+        {
+            if (underBarrel->rowSet && underBarrel->row.size() == 3 && underBarrel->row[1] != lane)
+            {
+                underBarrel->row[1] = static_cast<std::uint8_t>(lane);   // under-barrel row: receiver, magazine, grade
+                SyncWideRowToAlias(g_UnderBarrel, entry.first);
+            }
+        }
+        else if (entry.first > g_UnderBarrel.stockCount && entry.first <= g_UnderBarrel.maxId)
+        {
+            if (std::uint8_t* buf = PartCurrentBuf(g_UnderBarrel))
+                WriteByteAtSEH(buf, static_cast<size_t>(entry.first - 1) * 3 + 1,
+                               static_cast<std::uint8_t>(lane));
+        }
+    }
 }
 
 bool Install_WeaponKeyLog()
@@ -8758,8 +9858,8 @@ bool Install_WeaponKeyLog()
     if (realizeAddr)
     {
         g_RealizeAddr = ResolveGameAddress(realizeAddr);
-        if (!MotionBytesMatchSEH(reinterpret_cast<std::uintptr_t>(g_RealizeAddr),
-                                 kRealizePrologue, sizeof(kRealizePrologue)))
+        const HookEntry realizeEntry = CheckHookEntry(g_RealizeAddr, kRealizePrologue, sizeof(kRealizePrologue));
+        if (realizeEntry == HookEntry::Unknown)
         {
             LogError("WeaponKey: Realize prologue mismatch at %p, custom equipIds get no motion entry",
                 g_RealizeAddr);
@@ -8775,6 +9875,8 @@ bool Install_WeaponKeyLog()
                 LogError("WeaponKey: Realize hook failed, custom weapons get no anim control");
                 g_RealizeAddr = nullptr;
             }
+            else if (realizeEntry == HookEntry::ForeignHook)
+                LogHookedOnTop("WeaponKey: Realize", g_RealizeAddr);
         }
     }
 
@@ -8801,7 +9903,7 @@ bool Install_WeaponKeyLog()
         else
         {
             g_GetAnimFromGaniAddr = ganiTarget;
-            const bool ganiOk = AnimControl_GetAnimFileFromGaniPath_Watch(&outfit::NoteAnimControl);   // shares FrameWorkMotionArchive's hook: one MinHook per target
+            const bool ganiOk = AnimControl_GetAnimFileFromGaniPath_Watch(&outfit::NoteAnimControl);
             if (!ganiOk)
             {
                 LogError("WeaponKey: GetAnimFileFromGaniPath hook failed, outfit revert may miss anim controls");
@@ -8814,8 +9916,8 @@ bool Install_WeaponKeyLog()
     if (ppmAddr)
     {
         g_PostPutMotionAddr = ResolveGameAddress(ppmAddr);
-        if (!MotionBytesMatchSEH(reinterpret_cast<std::uintptr_t>(g_PostPutMotionAddr),
-                                 kPostPutMotionPrologue, sizeof(kPostPutMotionPrologue)))
+        const HookEntry ppmEntry = CheckHookEntry(g_PostPutMotionAddr, kPostPutMotionPrologue, sizeof(kPostPutMotionPrologue));
+        if (ppmEntry == HookEntry::Unknown)
         {
             LogError("WeaponKey: PostPutMotionExecute prologue mismatch at %p, revolver cylinders static",
                 g_PostPutMotionAddr);
@@ -8831,6 +9933,8 @@ bool Install_WeaponKeyLog()
                 LogError("WeaponKey: PostPutMotionExecute hook failed, revolver cylinders static");
                 g_PostPutMotionAddr = nullptr;
             }
+            else if (ppmEntry == HookEntry::ForeignHook)
+                LogHookedOnTop("WeaponKey: PostPutMotionExecute", g_PostPutMotionAddr);
         }
     }
 #endif
@@ -9282,6 +10386,13 @@ namespace
                                              haveSup);
                 if (!handled && origRan)
                     handled = true;
+            }
+            else if (spec.text.size() > 40) // engine builds the name in a 64-byte buffer
+            {
+                static std::atomic<bool> s_LongNameWarned{ false };
+                if (!s_LongNameWarned.exchange(true))
+                    LogWarn("SetReceiver: fire-sound name '%s' is longer than 40 characters, vanilla sound kept",
+                        spec.text.c_str());
             }
             else
             {
@@ -9994,6 +11105,9 @@ namespace
 
     static std::vector<std::uint8_t> g_CustomDamageBuffer;
 
+    static std::uint8_t g_VanillaDamageTable[kDamageCapacity * kDamageStride];   // the rows DamageParameterTables.lua loaded, all FOB ever reads
+    static std::atomic<bool> g_VanillaDamageTableSaved{ false };
+
     static bool DamageIdIsCustom(int id)
     {
         return id >= kDamageCustomBase && id < kDamageCustomBase + kDamageCustomCap;
@@ -10036,6 +11150,55 @@ namespace
         return inst + 8;
     }
 
+    static bool DamageTableLoadedSEH(const std::uint8_t* buf)
+    {
+        __try
+        {
+            for (int k = 0; k < kDamageCapacity * kDamageStride; ++k)
+                if (buf[k] != 0)
+                    return true;
+            return false;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool CopyDamageTableSEH(std::uint8_t* dst, const std::uint8_t* buf)
+    {
+        __try
+        {
+            memcpy(dst, buf, kDamageCapacity * kDamageStride);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static void SaveVanillaDamageTable(const std::uint8_t* buf)
+    {
+        if (!buf || g_VanillaDamageTableSaved.load(std::memory_order_acquire))
+            return;
+        if (CopyDamageTableSEH(g_VanillaDamageTable, buf))
+            g_VanillaDamageTableSaved.store(true, std::memory_order_release);
+    }
+
+    static int FirstVanillaDamageRowId()
+    {
+        for (const auto& r : g_DamageRows)
+            if (r.damageId < kDamageCustomBase)
+                return r.damageId;
+        return 0;
+    }
+
+    static bool TableHoldsOnlyGameRows(const std::uint8_t* buf)
+    {
+        return FirstVanillaDamageRowId() == 0 && DamageTableLoadedSEH(buf);
+    }
+
     static void WriteDamageRowSEH(std::uint8_t* buf, const DamageRow& r)
     {
         std::uint8_t* p = CustomDamageRowPtrGrow(r.damageId);
@@ -10073,14 +11236,17 @@ namespace
 
     static void ReapplyDamageRows()
     {
+        std::uint8_t* buf = DamageBufBase();
         std::vector<DamageRow> snapshot;
         {
             std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+            SaveVanillaDamageTable(buf);
             snapshot = g_DamageRows;
         }
-        std::uint8_t* buf = DamageBufBase();
+        const bool fob = MissionCodeGuard::ShouldBypassHooks();
         for (const auto& r : snapshot)
-            WriteDamageRowSEH(buf, r);
+            if (!fob || r.damageId >= kDamageCustomBase)   // FOB keeps the vanilla rows the reload just wrote
+                WriteDamageRowSEH(buf, r);
     }
 
     static int __fastcall hkReloadDamageParameter(lua_State* L)
@@ -10095,6 +11261,11 @@ namespace
 
     static std::uint8_t g_DamageZeroRow[kDamageStride] = {};
 
+    static bool FobReadsVanillaDamage()
+    {
+        return g_VanillaDamageTableSaved.load(std::memory_order_acquire) && g_OrigGetDamageParameter;
+    }
+
     static std::uint8_t* __fastcall hkGetDamageParameter(std::uint8_t* self, int attackId)
     {
         std::uint8_t* custom = CustomDamageRowPtr(attackId);
@@ -10103,10 +11274,45 @@ namespace
 
         if (DamageIdIsCustom(attackId))
             return g_DamageZeroRow;
+        if (attackId >= 0 && attackId < kDamageCapacity
+            && FobReadsVanillaDamage() && MissionCodeGuard::ShouldBypassHooks())
+            return g_VanillaDamageTable + static_cast<size_t>(attackId) * kDamageStride;
         if (g_OrigGetDamageParameter)
             return g_OrigGetDamageParameter(self, attackId);
         return self + 8 + static_cast<size_t>(static_cast<unsigned>(attackId)) * kDamageStride;
     }
+}
+
+namespace
+{
+    constexpr std::size_t kDamageRowLethal = 0x00;
+    constexpr std::size_t kDamageRowFlags  = 0x14;
+
+    bool ReadDamageKindSEH(const std::uint8_t* row, std::uint16_t& lethalDamage, std::uint16_t& flags)
+    {
+        __try
+        {
+            lethalDamage = *reinterpret_cast<const std::uint16_t*>(row + kDamageRowLethal);
+            flags        = *reinterpret_cast<const std::uint16_t*>(row + kDamageRowFlags);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+}
+
+bool EquipParam_GetDamageKind(int attackId, std::uint16_t& lethalDamage, std::uint16_t& flags)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* row = CustomDamageRowPtr(attackId);
+    if (!row && attackId >= 0 && attackId < kDamageCapacity)
+    {
+        const std::uint8_t* rows = DamageBufBase();
+        row = rows ? rows + static_cast<std::size_t>(attackId) * kDamageStride : nullptr;
+    }
+    return row && ReadDamageKindSEH(row, lethalDamage, flags);
 }
 
 int EquipParam_AllocateDamageSlotForName(const char* name)
@@ -10136,7 +11342,7 @@ int EquipParam_AllocateDamageSlotForName(const char* name)
 
 int __cdecl l_SetDamage(lua_State* L)
 {
-    if (!ResolveLuaApi())
+    if (!ResolveLuaApi() || MissionCodeGuard::ShouldBypassHooks())
         return 0;
 
     if (g_lua_type(L, 1) != LUA_TTABLE)
@@ -10163,7 +11369,7 @@ int __cdecl l_SetDamage(lua_State* L)
     ReadNamedInt(L, 1, "lethalDamage",   r.lethalDamage);
     ReadNamedInt(L, 1, "staminaDamage",  r.staminaDamage);
     ReadNamedInt(L, 1, "impactForce",    r.impactForce);
-    ReadNamedInt(L, 1, "lethalDamageUI", r.oldLethalDamageVsSoldier);   // old names keep the stored value as given
+    ReadNamedInt(L, 1, "lethalDamageUI", r.oldLethalDamageVsSoldier);
     ReadNamedInt(L, 1, "unk3", r.oldLethalDamageVsPlayer);
     ReadNamedInt(L, 1, "unk4", r.oldLethalDamageVsVehicle);
     ReadNamedInt(L, 1, "unk12", r.injureRate);
@@ -10251,25 +11457,16 @@ int __cdecl l_SetDamage(lua_State* L)
         return 0;
     }
 
+    if (damageId < kDamageCustomBase && TableHoldsOnlyGameRows(buf))
+        SaveVanillaDamageTable(buf);
+
     bool replaced = false;
     for (auto& e : g_DamageRows)
         if (e.damageId == damageId) { e = r; replaced = true; break; }
     if (!replaced)
         g_DamageRows.push_back(r);
 
-    const bool vanillaRow = damageId < kDamageCustomBase;
-    const std::uint8_t* rowPtr = (buf && vanillaRow)
-        ? buf + static_cast<size_t>(damageId) * kDamageStride : nullptr;
-    if (vanillaRow)
-        EquipParam_VanillaPreWrite(kVanillaSpace_Damage, damageId, rowPtr,
-                                   kDamageStride);
-
     WriteDamageRowSEH(buf, r);
-
-    if (vanillaRow)
-        EquipParam_VanillaPostWrite(kVanillaSpace_Damage, damageId, rowPtr,
-                                    kDamageStride);
-
     return 0;
 }
 
@@ -10324,6 +11521,69 @@ int __cdecl l_DeclareDamages(lua_State* L)
     return 1;
 }
 
+namespace
+{
+    bool ReadDamageRowSEH(const std::uint8_t* p, DamageRow& r)
+    {
+        __try
+        {
+            r.lethalDamage              = *reinterpret_cast<const std::uint16_t*>(p + 0x00);
+            r.staminaDamage             = *reinterpret_cast<const std::uint16_t*>(p + 0x02);
+            r.impactForce               = *reinterpret_cast<const std::uint16_t*>(p + 0x04);
+            r.oldLethalDamageVsSoldier  = *reinterpret_cast<const std::uint16_t*>(p + 0x06);
+            r.oldLethalDamageVsPlayer   = *reinterpret_cast<const std::uint16_t*>(p + 0x08);
+            r.oldLethalDamageVsVehicle  = *reinterpret_cast<const std::uint16_t*>(p + 0x0a);
+            r.oldStaminaDamageVsSoldier = *reinterpret_cast<const std::uint16_t*>(p + 0x0c);
+            r.oldStaminaDamageVsPlayer  = *reinterpret_cast<const std::uint16_t*>(p + 0x0e);
+            r.blowPower                 = *reinterpret_cast<const std::uint16_t*>(p + 0x10);
+            r.shieldDamage              = *reinterpret_cast<const std::uint16_t*>(p + 0x12);
+            r.flags                     = *reinterpret_cast<const std::uint16_t*>(p + 0x14);
+            r.damageSource              = p[0x16];
+            r.injureType                = p[0x17] & 0xF;
+            r.injurePart                = p[0x17] >> 4;
+            r.injureMaxDistance         = p[0x18];
+            r.injureRate                = p[0x19];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+}
+
+int EquipParam_DeclareScaledDamage(const char* name, int baseAttackId, float lethalScale, float forceScale, int addFlags)
+{
+    if (!name || !name[0] || !g_OrigGetDamageParameter || baseAttackId <= 0 || baseAttackId >= kDamageCapacity)
+        return 0;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* rows = DamageBufBase();
+    DamageRow r{};
+    if (!rows || !ReadDamageRowSEH(rows + static_cast<std::size_t>(baseAttackId) * kDamageStride, r)
+        || (r.lethalDamage == 0 && r.impactForce == 0 && r.blowPower == 0))   // DamageParameterTables.lua has not loaded yet
+        return 0;
+    const int id = EquipParam_AllocateDamageSlotForName(name);
+    if (id <= 0)
+        return 0;
+    auto scaled = [](int value, float scale) { return static_cast<int>(static_cast<float>(value) * scale + 0.5f); };
+    r.damageId = id;
+    r.lethalDamage = scaled(r.lethalDamage, lethalScale);
+    r.oldLethalDamageVsSoldier = scaled(r.oldLethalDamageVsSoldier, lethalScale);
+    r.oldLethalDamageVsPlayer = scaled(r.oldLethalDamageVsPlayer, lethalScale);
+    r.impactForce = scaled(r.impactForce, forceScale);
+    r.oldLethalDamageVsVehicle = scaled(r.oldLethalDamageVsVehicle, forceScale);
+    r.blowPower = scaled(r.blowPower, forceScale);
+    r.shieldDamage = scaled(r.shieldDamage, forceScale);
+    r.flags |= addFlags;
+    bool replaced = false;
+    for (auto& e : g_DamageRows)
+        if (e.damageId == id) { e = r; replaced = true; break; }
+    if (!replaced)
+        g_DamageRows.push_back(r);
+    WriteDamageRowSEH(nullptr, r);
+    return id;
+}
+
 bool Install_DamageParameter_Hook()
 {
     bool ok = true;
@@ -10376,6 +11636,7 @@ namespace
 {
     static std::mutex g_VanillaTaintMutex;
     static std::set<int> g_VanillaTaint[kVanillaSpace_Count];
+    static std::set<int> g_VanillaForced[kVanillaSpace_Count];
     static std::map<int, std::vector<std::uint8_t>> g_VanillaPreImage[kVanillaSpace_Count];
     static bool g_VanillaTaintAny = false;
 
@@ -10384,7 +11645,7 @@ namespace
     static const char* const kVanillaSpaceNames[kVanillaSpace_Count] =
     {
         "receiver", "barrel", "magazine", "bullet", "stock", "muzzleOption",
-        "sight", "underBarrel", "option", "gunBasic weapon", "damage"
+        "sight", "underBarrel", "option", "gunBasic weapon"
     };
 
     static int CopyBytesSEH(const std::uint8_t* src, std::uint8_t* dst, int n)
@@ -10401,18 +11662,13 @@ namespace
         }
     }
 
-    static bool VanillaTaintHas(int space, int id)
+    static bool VanillaTaintUnrestorable(int space, int id)   // forced taints are undone by their FOB gates, rows by their pre-image
     {
         if (id <= 0)
             return false;
         std::lock_guard<std::mutex> lock(g_VanillaTaintMutex);
-        return g_VanillaTaint[space].find(id) != g_VanillaTaint[space].end();
-    }
-
-    static bool VanillaTaintSpaceUsed(int space)
-    {
-        std::lock_guard<std::mutex> lock(g_VanillaTaintMutex);
-        return !g_VanillaTaint[space].empty();
+        return g_VanillaTaint[space].count(id) != 0 && g_VanillaForced[space].count(id) == 0
+            && g_VanillaPreImage[space].count(id) == 0;
     }
 
     static void* ResolveEquipIdTableObj()
@@ -10498,28 +11754,15 @@ namespace
         return v;
     }
 
-    static unsigned short SafeGetAttackIdSEH(void* self, int equipId)
-    {
-        if (GunBasic_WeaponHasNoRow(equipId))
-            return 0;
-        __try
-        {
-            return g_OrigGetAttackId(self, equipId);
-        }
-        __except (SehAvOnly(GetExceptionCode()))
-        {
-            return 0;
-        }
-    }
-
     static bool MagazineChainTainted(int ammoId)
     {
         if (ammoId <= 0)
             return false;
-        if (VanillaTaintHas(kVanillaSpace_Magazine, ammoId))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Magazine, ammoId))
             return true;
-        const int bulletId = PartRowByte(g_Magazine, ammoId, 6);
-        return bulletId > 0 && VanillaTaintHas(kVanillaSpace_Bullet, bulletId);
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        const int bulletId = MagazineBulletLocked(ammoId);
+        return bulletId > 0 && VanillaTaintUnrestorable(kVanillaSpace_Bullet, bulletId);
     }
 
     static int ReadChimeraDescSEH(const std::uint8_t* table, int slot,
@@ -10540,28 +11783,28 @@ namespace
 
     static bool PartsBytesTainted(const unsigned char* b)
     {
-        if (VanillaTaintHas(kVanillaSpace_Receiver, b[0]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Receiver, b[0]))
             return true;
-        if (VanillaTaintHas(kVanillaSpace_Barrel, b[1]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Barrel, b[1]))
             return true;
-        if (VanillaTaintHas(kVanillaSpace_Stock, b[3]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Stock, b[3]))
             return true;
-        if (VanillaTaintHas(kVanillaSpace_MuzzleOption, b[5]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_MuzzleOption, b[5]))
             return true;
-        if (VanillaTaintHas(kVanillaSpace_Sight, b[6])
-            || VanillaTaintHas(kVanillaSpace_Sight, b[7]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Sight, b[6])
+            || VanillaTaintUnrestorable(kVanillaSpace_Sight, b[7]))
             return true;
-        if (VanillaTaintHas(kVanillaSpace_Option, b[8])
-            || VanillaTaintHas(kVanillaSpace_Option, b[9]))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Option, b[8])
+            || VanillaTaintUnrestorable(kVanillaSpace_Option, b[9]))
             return true;
         if (MagazineChainTainted(b[2]))
             return true;
         if (b[10])
         {
-            if (VanillaTaintHas(kVanillaSpace_UnderBarrel, b[10]))
+            if (VanillaTaintUnrestorable(kVanillaSpace_UnderBarrel, b[10]))
                 return true;
             const int ubReceiver = PartRowByte(g_UnderBarrel, b[10], 0);
-            if (ubReceiver > 0 && VanillaTaintHas(kVanillaSpace_Receiver, ubReceiver))
+            if (ubReceiver > 0 && VanillaTaintUnrestorable(kVanillaSpace_Receiver, ubReceiver))
                 return true;
             if (MagazineChainTainted(PartRowByte(g_UnderBarrel, b[10], 1)))
                 return true;
@@ -10573,6 +11816,14 @@ namespace
 void EquipParam_RefillMotionEntries()
 {
     FillCustomMotionEntriesEarly();
+}
+
+unsigned int EquipParam_ViewGunAsItsKind(unsigned int equipId)
+{
+    const unsigned int viewedBefore = g_TlsViewedGun;
+    PickKindDonors();
+    ViewGunAsItsKind(equipId);
+    return viewedBefore;
 }
 
 void EquipParam_VanillaPreWrite(int space, int id, const unsigned char* row, int stride)
@@ -10621,7 +11872,7 @@ void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, in
             g_VanillaTaint[space].insert(id);
             transition = 1;
         }
-        else if (matchesVanilla && was)
+        else if (matchesVanilla && was && g_VanillaForced[space].count(id) == 0) // forced taints stay: the row diff cannot see them
         {
             g_VanillaTaint[space].erase(id);
             transition = -1;
@@ -10636,7 +11887,7 @@ void EquipParam_VanillaPostWrite(int space, int id, const unsigned char* row, in
     }
 
     if (transition > 0)
-        LogWarn("FobGuard: vanilla %s id %d modified, weapons using it blocked from FOB",
+        LogWarn("FobGuard: vanilla %s id %d modified, FOB uses the game's own values",
             kVanillaSpaceNames[space], id);
 }
 
@@ -10649,11 +11900,194 @@ void EquipParam_VanillaForceTaint(int space, int id, const char* why)
     {
         std::lock_guard<std::mutex> lock(g_VanillaTaintMutex);
         inserted = g_VanillaTaint[space].insert(id).second;
+        g_VanillaForced[space].insert(id);
         g_VanillaTaintAny = true;
     }
     if (inserted)
-        LogWarn("FobGuard: vanilla %s id %d given %s, weapons using it blocked from FOB",
+        LogWarn("FobGuard: vanilla %s id %d given %s, FOB uses the game's own behavior",
             kVanillaSpaceNames[space], id, why ? why : "modified behavior");
+}
+
+namespace
+{
+    static std::map<int, std::vector<std::uint8_t>> g_FobModRows[kVanillaSpace_Count];   // the mod's bytes of each vanilla row while FOB shows the game's own
+    static std::map<std::uint32_t, std::uint32_t> g_FobFamilyFrom;                      // vanilla equipIds' handling swaps put away while FOB runs
+    static std::atomic<bool> g_FobHandlingOff{ false };
+
+    static std::uint8_t* VanillaRowInTable(int space, int id, std::size_t stride)
+    {
+        if (id <= 0)
+            return nullptr;
+        std::uint8_t* buf = nullptr;
+        switch (space)
+        {
+        case kVanillaSpace_Receiver:     buf = ImplBufPtr(kReceiverImplOffset); break;
+        case kVanillaSpace_Barrel:       buf = PartCurrentBuf(g_Barrel); break;
+        case kVanillaSpace_Magazine:     buf = PartCurrentBuf(g_Magazine); break;
+        case kVanillaSpace_Bullet:       buf = PartCurrentBuf(g_Bullet); break;
+        case kVanillaSpace_Stock:        buf = PartCurrentBuf(g_Stock); break;
+        case kVanillaSpace_MuzzleOption: buf = PartCurrentBuf(g_Muzzle); break;
+        case kVanillaSpace_Sight:        buf = PartCurrentBuf(g_Sight); break;
+        case kVanillaSpace_UnderBarrel:  buf = PartCurrentBuf(g_UnderBarrel); break;
+        case kVanillaSpace_Option:       buf = PartCurrentBuf(g_Option); break;
+        case kVanillaSpace_Weapon:       return GunBasic_RowForFob(id);
+        default:                         return nullptr;
+        }
+        return buf ? buf + static_cast<std::size_t>(id - 1) * stride : nullptr;
+    }
+
+    static bool SwapRowBytesSEH(std::uint8_t* row, const std::uint8_t* in, std::uint8_t* out, std::size_t n)
+    {
+        __try
+        {
+            for (std::size_t k = 0; k < n; ++k)
+            {
+                out[k] = row[k];
+                row[k] = in[k];
+            }
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+}
+
+void EquipParam_SyncFobPartRows()
+{
+    const bool fob = MissionCodeGuard::ShouldBypassHooks();
+    if (g_FobVanillaParts.load(std::memory_order_acquire) == fob)
+        return;
+
+    std::size_t rows = 0;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        if (g_FobVanillaParts.load(std::memory_order_acquire) == fob)
+            return;
+        std::lock_guard<std::mutex> taintLock(g_VanillaTaintMutex);
+        if (fob)
+        {
+            for (int s = 0; s < kVanillaSpace_Count; ++s)
+                for (const int id : g_VanillaTaint[s])
+                {
+                    const auto pre = g_VanillaPreImage[s].find(id);
+                    if (pre == g_VanillaPreImage[s].end())
+                        continue;
+                    std::uint8_t* row = VanillaRowInTable(s, id, pre->second.size());
+                    std::vector<std::uint8_t> mod(pre->second.size());
+                    if (row && SwapRowBytesSEH(row, pre->second.data(), mod.data(), mod.size()))
+                    {
+                        g_FobModRows[s][id] = std::move(mod);
+                        ++rows;
+                    }
+                }
+            g_FobVanillaParts.store(true, std::memory_order_release);
+        }
+        else
+        {
+            g_FobVanillaParts.store(false, std::memory_order_release);
+            for (int s = 0; s < kVanillaSpace_Count; ++s)
+            {
+                for (const auto& kv : g_FobModRows[s])
+                    if (std::uint8_t* row = VanillaRowInTable(s, kv.first, kv.second.size()))
+                        CopyBytesSEH(kv.second.data(), row, static_cast<int>(kv.second.size()));
+                g_FobModRows[s].clear();
+            }
+        }
+    }
+    if (fob && rows)
+        LogInfo("FobGuard: %zu vanilla part row(s) a mod changed use the game's own values in FOB", rows);
+}
+
+bool EquipParam_FobVanillaPartsOn()
+{
+    return g_FobVanillaParts.load(std::memory_order_acquire);
+}
+
+bool EquipParam_FobVanillaBullet(int bulletId)
+{
+    return FobVanillaPart(g_Bullet, bulletId);
+}
+
+void EquipParam_EnforceFobVanilla()
+{
+    TppEquip_EnforceFobVanillaRows();
+    EquipParam_SyncFobPartRows();
+
+    const bool fob = MissionCodeGuard::ShouldBypassHooks();
+    if (g_FobHandlingOff.load(std::memory_order_acquire) == fob)
+        return;
+    std::vector<std::uint32_t> keys;
+    if (fob)
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        for (const auto& swap : g_FamilyFrom)
+            keys.push_back(swap.first);
+    }
+    std::vector<std::uint32_t> vanilla;
+    for (const std::uint32_t equipId : keys)   // claim check outside g_WeaponKeyMutex, it takes the state lock
+        if (equipId < static_cast<std::uint32_t>(EquipIdCompression::kExtendedAllocFirst)
+            && !V_FrameWorkState::IsClaimedEquipId(static_cast<std::int32_t>(equipId)))
+            vanilla.push_back(equipId);
+
+    std::size_t moved = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_WeaponKeyMutex);
+        if (g_FobHandlingOff.load(std::memory_order_acquire) == fob)
+            return;
+        g_FobHandlingOff.store(fob, std::memory_order_release);
+        if (fob)
+        {
+            for (const std::uint32_t equipId : vanilla)
+            {
+                const auto it = g_FamilyFrom.find(equipId);
+                if (it == g_FamilyFrom.end())
+                    continue;
+                g_FobFamilyFrom[equipId] = it->second;
+                g_FamilyFrom.erase(it);
+                ++moved;
+            }
+        }
+        else
+        {
+            for (const auto& kv : g_FobFamilyFrom)
+                g_FamilyFrom[kv.first] = kv.second;
+            g_FobFamilyFrom.clear();
+        }
+        g_HasSwaps.store(!g_FamilyFrom.empty(), std::memory_order_relaxed);
+        g_GbByEquipId.clear();
+    }
+    if (fob && moved)
+        LogInfo("FobGuard: %zu weapon handling swap(s) on vanilla weapons are off in FOB", moved);
+}
+
+bool EquipParam_FindModifiedVanillaRow(const char** what, int* id)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_VanillaTaintMutex);
+        for (int s = 0; g_VanillaTaintAny && s < kVanillaSpace_Count; ++s)
+            for (const int taintedId : g_VanillaTaint[s])
+                if (g_VanillaForced[s].count(taintedId) == 0 && g_VanillaPreImage[s].count(taintedId) == 0)
+                {
+                    *what = kVanillaSpaceNames[s];
+                    *id = taintedId;
+                    return true;
+                }
+    }
+
+    if (!FobReadsVanillaDamage())
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        const int damageId = FirstVanillaDamageRowId();
+        if (damageId != 0)
+        {
+            *what = "damage";
+            *id = damageId;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot)
@@ -10663,21 +12097,7 @@ bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot)
         if (!g_VanillaTaintAny)
             return false;
     }
-    if (equipId == 0)
-        return false;
-
-    if (VanillaTaintSpaceUsed(kVanillaSpace_Damage))
-    {
-        void* self = ResolveGameAddress(gAddr.EquipParameterTablesImpl_Instance);
-        if (self && g_OrigGetAttackId)
-        {
-            const int attackId = SafeGetAttackIdSEH(self, static_cast<int>(equipId));
-            if (attackId > 0 && VanillaTaintHas(kVanillaSpace_Damage, attackId))
-                return true;
-        }
-    }
-
-    if (!isWeaponSlot)
+    if (equipId == 0 || !isWeaponSlot)
         return false;
 
     unsigned char b[12] = {};
@@ -10703,7 +12123,7 @@ bool EquipParam_IsEquipIdFobTainted(unsigned int equipId, int isWeaponSlot)
         if (weaponId <= 0)
             return false;
 
-        if (VanillaTaintHas(kVanillaSpace_Weapon, weaponId))
+        if (VanillaTaintUnrestorable(kVanillaSpace_Weapon, weaponId))
             return true;
 
         if (!GunBasic_ReadRowBytes(weaponId, b))
@@ -10773,13 +12193,11 @@ bool EquipParam_GetMagazineParameters(int ammoId, MagazineParameters& parameters
     return true;
 }
 
-bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
-                                   MagazineParameters& underbarrel)
+static bool ReadWeaponMagazines(int equipId, bool wideOnly, MagazineParameters& primary,
+                                MagazineParameters& underbarrel)
 {
     primary = {};
     underbarrel = {};
-    if (!EquipParam_WideMagazinesReady())
-        return false;
     const int weaponId = TppEquip_GetSubIdForEquipId(equipId);
     int parts[11]{};
     if (weaponId <= 0 || !GunBasic_GetLogicalParts(weaponId, parts))
@@ -10794,7 +12212,7 @@ bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
                 ? it->second : PartRowByte(g_UnderBarrel, parts[8], 1);
         }
     }
-    if (parts[2] < kWideIdBase && secondaryId < kWideIdBase)
+    if (wideOnly && parts[2] < kWideIdBase && secondaryId < kWideIdBase)
         return false;
     if (parts[2] > 0 && !EquipParam_GetMagazineParameters(parts[2], primary))
         return false;
@@ -10803,14 +12221,63 @@ bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
     return true;
 }
 
+bool EquipParam_GetWeaponMagazines(int equipId, MagazineParameters& primary,
+                                   MagazineParameters& underbarrel)
+{
+    primary = {};
+    underbarrel = {};
+    return EquipParam_WideMagazinesReady() && ReadWeaponMagazines(equipId, true, primary, underbarrel);
+}
+
+bool EquipParam_GetWeaponMagazinesAnyWidth(int equipId, MagazineParameters& primary,
+                                           MagazineParameters& underbarrel)
+{
+    return ReadWeaponMagazines(equipId, false, primary, underbarrel);
+}
+
+int EquipParam_LogicalMagazineForUnderBarrelRow(const std::uint8_t* underBarrelRow)
+{
+    const int narrow = underBarrelRow ? ReadByteAtSEH(underBarrelRow, 1) : 0;
+    if (narrow <= 0)
+        return 0;
+
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* buf = PartCurrentBuf(g_UnderBarrel);
+    if (!buf || underBarrelRow < buf)
+        return narrow;
+    const std::size_t offset = static_cast<std::size_t>(underBarrelRow - buf);
+    if (offset % static_cast<std::size_t>(g_UnderBarrel.stride) != 0)
+        return narrow;
+    const int underBarrelId = static_cast<int>(offset / g_UnderBarrel.stride) + 1;
+    if (underBarrelId > g_UnderBarrel.maxId)
+        return narrow;
+    const auto it = g_UnderBarrelMagazine.find(underBarrelId);
+    return (it != g_UnderBarrelMagazine.end() && it->second >= kWideIdBase) ? it->second : narrow;
+}
+
+int EquipParam_LogicalUnderBarrelMagazineForWeapon(int weaponId, int narrowMagazine)
+{
+    unsigned char row[12] = {};
+    if (weaponId <= 0 || narrowMagazine <= 0 || !GunBasic_ReadRowBytes(weaponId, row) || row[10] == 0)
+        return narrowMagazine; // gunBasic row byte 10 is the under-barrel id, its table row byte 1 the magazine
+    const std::uint8_t* underBarrelRow = nullptr;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        const std::uint8_t* buf = PartCurrentBuf(g_UnderBarrel);
+        if (buf)
+            underBarrelRow = buf + static_cast<std::size_t>(row[10] - 1) * g_UnderBarrel.stride;
+    }
+    if (!underBarrelRow || ReadByteAtSEH(underBarrelRow, 1) != narrowMagazine)
+        return narrowMagazine;
+    return EquipParam_LogicalMagazineForUnderBarrelRow(underBarrelRow);
+}
+
 int EquipParam_GetMagazineBulletId(int ammoId)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
-    std::uint8_t* row = MagazineRowPtr(ammoId);
-    if (!row)
+    if (!MagazineRowPtr(ammoId))
         return 0;
-    const int b = ReadByteAtSEH(row, 6);
-    return b < 0 ? 0 : b;
+    return MagazineBulletLocked(ammoId);
 }
 
 int EquipParam_GetBulletType(int bulletId)
@@ -10818,13 +12285,82 @@ int EquipParam_GetBulletType(int bulletId)
     if (bulletId <= 0)
         return -1;
     std::lock_guard<std::recursive_mutex> lock(g_Mutex);
-    const int rows = g_Bullet.active ? g_Bullet.maxId : g_Bullet.stockCount;
-    if (bulletId > rows)
+    if (bulletId > g_Bullet.stockCount)
+    {
+        const auto it = g_CustomBulletRows.find(bulletId);
+        return it != g_CustomBulletRows.end() ? it->second[kBulletTypeByte] : -1;
+    }
+    const std::uint8_t* table = PartCurrentBuf(g_Bullet);
+    return table ? EngineBulletByteSEH(table, bulletId, kBulletTypeByte) : -1;
+}
+
+int EquipParam_GetLaneBulletType(int lane)
+{
+    if (lane <= 0 || lane >= kNoBulletLane)
         return -1;
-    std::uint8_t* buf = PartCurrentBuf(g_Bullet);
-    if (!buf)
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    const std::uint8_t* table = PartCurrentBuf(g_Bullet);
+    if (!table || (lane > g_Bullet.stockCount && table != g_Bullet.shadow.data()))
         return -1;
-    return ReadByteAtSEH(buf + static_cast<size_t>(bulletId - 1) * 14, 0x0A); // bullet row byte 0x0A is the bullet type
+    return EngineBulletByteSEH(table, lane, kBulletTypeByte);
+}
+
+int EquipParam_LogicalBulletForLane(int lane)
+{
+    if (lane < kFirstBulletLane || lane > kLastBulletLane)
+        return lane;
+    const int bullet = g_LaneCustomBullet[lane].load(std::memory_order_acquire);
+    return bullet ? bullet : lane;
+}
+
+int EquipParam_BulletLaneForUse(int bulletId)
+{
+    if (bulletId <= 0)
+        return 0;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (bulletId <= g_Bullet.stockCount)
+        return bulletId;
+    if (MissionCodeGuard::ShouldBypassHooks())
+        return MagazineBulletStampLocked(bulletId);
+    return BindCustomBulletLocked(bulletId);
+}
+
+void EquipParam_BindBulletsForEquip(int equipId)
+{
+    if (equipId <= 0 || MissionCodeGuard::ShouldBypassHooks())
+        return;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        if (g_MagazineCustomBullet.empty())
+            return;
+    }
+    const int weaponId = TppEquip_GetSubIdForEquipId(equipId);
+    int parts[11]{};
+    if (weaponId <= 0 || !GunBasic_GetLogicalParts(weaponId, parts))
+        return;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    BindMagazineBulletLocked(parts[2]);
+    BindMagazineBulletLocked(UnderBarrelMagazineLocked(parts[8]));
+}
+
+void EquipParam_BulletLanesNewMission()
+{
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    ++g_BulletMission;
+}
+
+void EquipParam_SaveBulletLanes()
+{
+    if (!g_BulletLanesToSaveAny.load(std::memory_order_acquire))
+        return;
+    std::vector<std::pair<int, int>> pending;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+        pending.swap(g_BulletLanesToSave);
+        g_BulletLanesToSaveAny.store(false, std::memory_order_release);
+    }
+    for (const auto& entry : pending)
+        V_FrameWorkState::SetPersistedConstant(kBulletLaneSaveTag, std::to_string(entry.first).c_str(), entry.second);
 }
 
 bool EquipParam_IsSuppressorMuzzleOption(int muzzleOptionId)
@@ -10847,6 +12383,26 @@ bool EquipParam_IsSuppressorMuzzleOption(int muzzleOptionId)
     return b > 0 && (b & 1) != 0;
 }
 
+int EquipParam_GetMuzzleOptionDurability(int muzzleOptionId)
+{
+    if (muzzleOptionId <= 0)
+        return 0;
+    std::lock_guard<std::recursive_mutex> lock(g_Mutex);
+    if (muzzleOptionId >= kWideIdBase)
+    {
+        const WidePartState* w = WideStateFor(kVanillaSpace_MuzzleOption, muzzleOptionId);
+        return (w && w->rowSet && w->row.size() >= 2) ? w->row[1] : 0;
+    }
+    const int rows = g_Muzzle.active ? g_Muzzle.maxId : g_Muzzle.stockCount;
+    if (muzzleOptionId > rows)
+        return 0;
+    std::uint8_t* buf = PartCurrentBuf(g_Muzzle);
+    if (!buf)
+        return 0;
+    const int b = ReadByteAtSEH(buf + static_cast<size_t>(muzzleOptionId - 1) * 3, 1);
+    return b > 0 ? b : 0;
+}
+
 int EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId)
 {
     if (bulletId <= 0)
@@ -10859,10 +12415,9 @@ int EquipParam_FindVanillaMagazineByBullet(int bulletId, int excludeAmmoId)
     {
         if (id == excludeAmmoId)
             continue;
-        std::uint8_t* row = MagazineRowPtr(id);
-        if (!row)
+        if (!MagazineRowPtr(id))
             continue;
-        if (ReadByteAtSEH(row, 6) == bulletId)
+        if (MagazineBulletLocked(id) == bulletId)
             return id;
     }
     return 0;

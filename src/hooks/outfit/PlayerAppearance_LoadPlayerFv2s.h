@@ -29,9 +29,14 @@ namespace outfit::ddheadlayers
                                   const std::uint8_t* nativeTypeInfo,
                                   const std::uint8_t* visualTypeInfo);
 
+    void* PartsShell(void* impl, std::uint32_t implSlot);
     bool ForgetShellTypeInfo(void* impl, std::uint32_t implSlot, const std::uint8_t* typeInfo);
 
     PartsLoadProbe BeginPartsLoad(void* impl, std::uint32_t implSlot,
                                   const std::uint8_t* typeInfo);
     void EndPartsLoad(const PartsLoadProbe& probe, const std::uint8_t* typeInfo);
+
+    PartsLoadProbe BeginHatLoad(void* impl, std::uint32_t implSlot,
+                                const std::uint8_t* typeInfo);
+    void EndHatLoad(const PartsLoadProbe& probe, const std::uint8_t* typeInfo, std::uint64_t fpk);
 }

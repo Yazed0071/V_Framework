@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+﻿#include <pch.h>
 #include "EquipDevelop_AddToEquipDevelopTable.h"
 #include "../outfit/UniqueCharacterDefaultOutfit.h"
 
@@ -44,8 +44,9 @@ namespace
 
 namespace
 {
-    using RegCstDev_t = void(__fastcall*)(lua_State* L);
-    using RegFlwDev_t = void(__fastcall*)(lua_State* L);
+    using RegCstDev_t = int(__fastcall*)(lua_State* L);
+    using RegFlwDev_t = int(__fastcall*)(lua_State* L);
+    using RegisterPriorityTable_t = int(__cdecl*)(lua_State* L);
 
     struct FieldValue
     {
@@ -92,6 +93,34 @@ namespace
 
     bool g_RegCstDevHookInstalled = false;
     bool g_RegFlwDevHookInstalled = false;
+
+    RegisterPriorityTable_t g_OrigRegisterPriorityTable = nullptr;
+    bool g_SettleHookInstalled = false;
+
+    using ScriptVarsSlot_t = int(__cdecl*)(lua_State* L);
+    ScriptVarsSlot_t g_OrigLoadVarsFromSlot = nullptr;
+    ScriptVarsSlot_t g_OrigSaveVarsToSlot   = nullptr;
+    ScriptVarsSlot_t g_OrigWriteSlotToFile  = nullptr;
+    void* g_LoadVarsFromSlotTarget = nullptr;
+    void* g_SaveVarsToSlotTarget   = nullptr;
+    void* g_WriteSlotToFileTarget  = nullptr;
+    bool  g_SlotHooksInstalled     = false;
+
+    enum class LayoutSave : std::uint8_t
+    {
+        Done,          // nothing to migrate, or the cleaned rows reached TPP_GAME_DATA
+        ClearOnLoad,   // the save on disk may still hold old custom-row flags in the moved rows
+        Cleared,       // live vars cleaned after a load, the MB slot may still be old
+        SlotClean,     // the MB slot was stored from cleaned vars, waiting for the file write
+    };
+    std::atomic<LayoutSave> g_LayoutSave{ LayoutSave::Done };
+    std::atomic<std::int32_t> g_PendingLayoutFirst{ 0 };
+    std::atomic<std::int32_t> g_PendingLayoutHash{ 0 };
+
+    constexpr int kScriptVarsGroupVars        = 0x01;
+    constexpr int kScriptVarsCategoryMbManage = 0x20;
+    std::atomic<DWORD> g_LastNativeRegTick{ 0 };
+    bool g_SettleRefused = false;
 
     struct DevelopNameLangId
     {
@@ -144,7 +173,7 @@ namespace
         case DevelopInjectRefusal::BandFull:
             return "no develop record was free";
         case DevelopInjectRefusal::VanillaBandPopulating:
-            return "the first free develop row was still inside the vanilla band";
+            return "the game's own R&D rows were not all registered yet";
         case DevelopInjectRefusal::TabRootCap:
             return "its R&D tab already holds the menu's maximum top-level rows";
         case DevelopInjectRefusal::TabRowCap:
@@ -350,10 +379,10 @@ namespace
     static int EvalOneGateSEH(lua_State* L, std::uint16_t flowIndex,
                               const char* key)
     {
-        int flippedVisible = 0;
+        int top = 0;
         __try
         {
-            const int top = g_lua_gettop(L);
+            top = g_lua_gettop(L);
             if (!luaguard::HasStackRoom(L, 4))
             {
                 return 0;
@@ -371,28 +400,30 @@ namespace
                 g_lua_settop(L, top);
                 return 0;
             }
-            const int err = g_lua_pcall(L, 0, 1, 0);
-            if (err == 0)
-            {
-                const bool visible   = g_lua_toboolean(L, -1) != 0;
-                const bool wasHidden = outfit::IsDevelopHidden(flowIndex);
-                outfit::SetDevelopHidden(flowIndex, !visible);
-                if (wasHidden != !visible)
-                {
-                    if (visible)
-                        flippedVisible = 1;
-                }
-            }
-            else
-            {
-                NoteGateError(key, g_lua_tolstring
-                    ? g_lua_tolstring(L, -1, nullptr) : nullptr);
-            }
-            g_lua_settop(L, top);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
+            return 0;
         }
+        int flippedVisible = 0;
+        const int err = g_lua_pcall(L, 0, 1, 0);   // outside __try: a fault caught through lua_pcall leaves L->errorJmp on a dead frame
+        if (err == 0)
+        {
+            const bool visible   = g_lua_toboolean(L, -1) != 0;
+            const bool wasHidden = outfit::IsDevelopHidden(flowIndex);
+            outfit::SetDevelopHidden(flowIndex, !visible);
+            if (wasHidden != !visible)
+            {
+                if (visible)
+                    flippedVisible = 1;
+            }
+        }
+        else
+        {
+            NoteGateError(key, g_lua_tolstring
+                ? g_lua_tolstring(L, -1, nullptr) : nullptr);
+        }
+        g_lua_settop(L, top);
         return flippedVisible;
     }
 
@@ -1017,6 +1048,7 @@ namespace
     }
     std::vector<PendingDevelopRequest> g_PendingRequests;
     bool g_IsFlushingPending = false;
+    std::unordered_map<std::uint16_t, bool> g_SeededStaticHide;   // developId -> hide value its registration last set
 
     std::uint32_t g_NextDevelopId = 0;
     std::uint32_t g_NextFlowIndex = 0;
@@ -1303,11 +1335,9 @@ namespace
     static bool FindFirstEmptyRecordIndex(void* controller,
                                           std::uint16_t& outIndex);
 
-    constexpr std::uint16_t kVanillaDevelopRowCount = 922;
-
     static bool CanInjectRowsNow_NoLock()
     {
-        if (!g_OrigRegCstDev || !g_OrigRegFlwDev)
+        if (!g_OrigRegCstDev || !g_OrigRegFlwDev || !equip::IsDevelopLayoutSettled())
             return false;
         void* controller = EquipDevelop_ResolveDevelopController();
         if (!controller)
@@ -1315,7 +1345,7 @@ namespace
         std::uint16_t firstEmpty = 0;
         if (!FindFirstEmptyRecordIndex(controller, firstEmpty))
             return true;
-        return firstEmpty >= kVanillaDevelopRowCount;
+        return firstEmpty >= equip::FirstCustomFlowIndex();
     }
 
     static void RequestRotationIfBandHasRoom(bool directFillOnly)
@@ -1324,8 +1354,9 @@ namespace
         if (!controller)
             return;
         std::uint16_t freeIdx = 0;
-        if (!FindFirstEmptyRecordIndex(controller, freeIdx)
-            || freeIdx < kVanillaDevelopRowCount)
+        if (!equip::IsDevelopLayoutSettled()
+            || !FindFirstEmptyRecordIndex(controller, freeIdx)
+            || freeIdx < equip::FirstCustomFlowIndex())
             return;
         if (!directFillOnly)
             g_FullRotateRequested.store(true, std::memory_order_release);
@@ -1999,7 +2030,7 @@ namespace
             else if (field.type == FieldValue::Type::Boolean)
                 SetIntField(L, tableIndex, field.name.c_str(), field.boolValue ? 1 : 0);
         }
-        SetIntField(L, tableIndex, "p36", 1);   // keeps custom rows out of cumulative_grade in CMD_SYNC_RESOURCE
+        SetIntField(L, tableIndex, "p36", 1);
     }
 
     static void BuildFlowRowTable(
@@ -2058,7 +2089,7 @@ namespace
             ParkKeyForPaging(req.key);
             return refuse(DevelopInjectRefusal::BandFull);
         }
-        if (appendIdx < kVanillaDevelopRowCount)
+        if (!equip::IsDevelopLayoutSettled() || appendIdx < equip::FirstCustomFlowIndex())
         {
             return refuse(DevelopInjectRefusal::VanillaBandPopulating);
         }
@@ -2357,14 +2388,26 @@ namespace
         }
         else
         {
+            bool boolRow = false;
             for (const FieldValue& f : req.constFields)
             {
                 if (f.name != "p05")
                     continue;
                 if (f.type == FieldValue::Type::Boolean)
                 {
-                    outfit::SetDevelopHidden(flowIndex, !f.boolValue);
-                    outfit::NoteStaticDevelopHidden(developId, !f.boolValue);
+                    boolRow = true;
+                    const bool registeredHidden = !f.boolValue;
+                    bool firstSeed = false;
+                    bool changed = false;
+                    {
+                        std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+                        auto seeded = g_SeededStaticHide.find(developId);
+                        firstSeed = seeded == g_SeededStaticHide.end();
+                        changed = !firstSeed && seeded->second != registeredHidden;
+                        g_SeededStaticHide[developId] = registeredHidden;
+                    }
+                    if (changed || (firstSeed && registeredHidden))   // a hide a script issued at runtime survives the row paging out and back in
+                        outfit::NoteStaticDevelopHidden(developId, registeredHidden);
                 }
                 else if (IsBluePrintKeyField(f))
                 {
@@ -2372,6 +2415,10 @@ namespace
                 }
                 break;
             }
+            if (outfit::IsStaticDevelopHidden(developId))
+                outfit::SetDevelopHidden(flowIndex, true);
+            else if (boolRow)
+                outfit::SetDevelopHidden(flowIndex, false);
         }
 
         g_Deps.LuaSetTop(L, 0);
@@ -2438,29 +2485,14 @@ namespace
             work = g_PendingRequests;
         }
 
-        std::size_t developedCount = 0;
         std::stable_partition(
             work.begin(), work.end(),
-            [&developedCount](const PendingDevelopRequest& req)
+            [](const PendingDevelopRequest& req)
             {
                 const std::int32_t dev =
                     V_FrameWorkState::GetDevelopIdByKey(req.key.c_str());
-                const bool developed = dev > 0
-                    && V_FrameWorkState::GetDevelopedByDevelopId(dev);
-                if (developed)
-                    ++developedCount;
-                return developed;
+                return dev > 0 && V_FrameWorkState::GetDevelopedByDevelopId(dev);
             });
-        if (developedCount > 102)
-        {
-            static bool s_warned = false;
-            if (!s_warned)
-            {
-                s_warned = true;
-                LogWarn("EquipDevelop: %zu developed custom items exceed the 102-slot band, overflow hidden while parked",
-                    developedCount);
-            }
-        }
 
         {
             std::vector<int> weaponEquipIds;
@@ -2526,8 +2558,286 @@ namespace
         }
     }
 
-    static void __fastcall hkRegCstDev(lua_State* L)
+    static void RebuildNativeRowOrder_NoLock(void* controller, std::uint16_t firstCustomRow)
     {
+        g_NativeOrderDevelopId.clear();
+        for (std::uint32_t row = 0; row < firstCustomRow; ++row)
+        {
+            if (equip::IsReservedFlowRow(row))
+                continue;
+            std::uint16_t dev = 0;
+            if (!ReadRecordDevelopId(controller, static_cast<std::uint16_t>(row), dev) || dev == 0)
+                continue;
+            g_NativeOrderDevelopId[row] = dev;
+            if (g_NativeFlow[row].seen)
+                g_NativeFlowByDevelopId[dev] = g_NativeFlow[row];
+        }
+        g_NativeConstOrder = firstCustomRow;
+    }
+
+    static std::int32_t NativeRowsPastVanillaHash(void* controller, std::uint16_t firstCustomRow)
+    {
+        std::uint32_t h = 2166136261u;
+        for (std::uint32_t row = equip::TrueVanillaRowCount(); row < firstCustomRow; ++row)
+        {
+            std::uint16_t dev = 0;
+            ReadRecordDevelopId(controller, static_cast<std::uint16_t>(row), dev);
+            h = (h ^ (dev & 0xFFu)) * 16777619u;
+            h = (h ^ (dev >> 8)) * 16777619u;
+        }
+        return static_cast<std::int32_t>(h);
+    }
+
+    static void SettleNativeDevelopRows(lua_State* L)
+    {
+        if (equip::IsDevelopLayoutSettled() || g_SettleRefused)
+            return;
+        void* controller = EquipDevelop_ResolveDevelopController();
+        std::uint16_t firstEmpty = 0;
+        if (!controller || !FindFirstEmptyRecordIndex(controller, firstEmpty))
+            return;
+        const std::uint32_t trueVanilla = equip::TrueVanillaRowCount();
+        if (firstEmpty < trueVanilla)
+            return;
+
+        const std::int32_t first = static_cast<std::int32_t>(firstEmpty);
+        const std::int32_t hash = NativeRowsPastVanillaHash(controller, firstEmpty);
+        const std::int32_t savedFirst = V_FrameWorkState::GetPersistedConstant("DevelopLayout", "firstCustomRow");
+        const std::int32_t savedHash = V_FrameWorkState::GetPersistedConstant("DevelopLayout", "nativeRowsHash");
+        std::uint32_t clearFrom = trueVanilla; // rows that may still hold a custom row's flags in the save start here
+        if (savedFirst >= static_cast<std::int32_t>(trueVanilla) && savedFirst <= first
+            && NativeRowsPastVanillaHash(controller, static_cast<std::uint16_t>(savedFirst)) == savedHash)
+            clearFrom = static_cast<std::uint32_t>(savedFirst);
+        const bool moved = firstEmpty > clearFrom;
+        equip::SettleDevelopLayout(firstEmpty, moved ? clearFrom : 0, moved ? firstEmpty : 0);
+        if (moved && g_SlotHooksInstalled)
+        {
+            equip::UseSaveSlotHooksForDevelopLayout();
+            g_PendingLayoutFirst.store(first, std::memory_order_relaxed);
+            g_PendingLayoutHash.store(hash, std::memory_order_relaxed);
+            g_LayoutSave.store(LayoutSave::ClearOnLoad, std::memory_order_release); // stored only once the cleaned rows are written to TPP_GAME_DATA
+        }
+        else if (moved)
+            equip::PersistDevelopLayoutAfterSaveLoad(first, hash); // no slot hooks on this build: stored at the first save load instead
+        else
+        {
+            V_FrameWorkState::SetPersistedConstant("DevelopLayout", "firstCustomRow", first);
+            V_FrameWorkState::SetPersistedConstant("DevelopLayout", "nativeRowsHash", hash);
+        }
+        std::string repeatedRows;
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
+            RebuildNativeRowOrder_NoLock(controller, firstEmpty);
+            if (g_LastNativeRegTick.load(std::memory_order_relaxed) != 0)
+            {
+                std::unordered_set<std::uint16_t> seenDevelopIds;
+                for (std::uint32_t row = 0; row < firstEmpty; ++row)
+                {
+                    if (equip::IsReservedFlowRow(row))
+                        continue;
+                    std::uint16_t dev = 0;
+                    if (!ReadRecordDevelopId(controller, static_cast<std::uint16_t>(row), dev) || dev == 0)
+                        continue;
+                    if (seenDevelopIds.insert(dev).second || g_NativeFlow[row].seen)
+                        continue;
+                    outfit::SetDevelopHidden(static_cast<unsigned short>(row), true);
+                    repeatedRows += (repeatedRows.empty() ? "" : ", ") + std::to_string(row)
+                        + " (developId " + std::to_string(dev) + ")";
+                }
+            }
+        }
+        if (!repeatedRows.empty())
+            LogWarn("EquipDevelop: R&D rows %s repeat an earlier developId and never got flow data, hidden (two scripts registered the same row)",
+                    repeatedRows.c_str());
+
+        EquipDevelop_RequestDevelopRestore();
+        if (L)
+        {
+            const int top = g_Deps.GetLuaTop(L);
+            FlushPendingRegistrations(L);
+            g_Deps.LuaSetTop(L, top);
+        }
+    }
+
+    static int __cdecl hkRegisterPriorityTable(lua_State* L)
+    {
+        const int results = g_OrigRegisterPriorityTable ? g_OrigRegisterPriorityTable(L) : 0;
+        if (!equip::IsDevelopLayoutSettled() && L && EnsureLuaReady())
+            SettleNativeDevelopRows(L);
+        return results;
+    }
+
+    static lua_State* TrySettleWithoutSignal()
+    {
+        if (g_SettleRefused)
+            return nullptr;
+        static DWORD s_lastTry = 0;
+        static DWORD s_tableStableSince = 0;
+        static std::uint16_t s_lastFirstEmpty = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastTry < 250)
+            return nullptr;
+        s_lastTry = now;
+
+        if (g_MenuFillDepth.load(std::memory_order_relaxed) != 0 || !ResolveLuaApi())
+            return nullptr;
+        lua_State* L = V_FrameWork_AnyLuaState();
+        if (!V_FrameWork::InsideGameLua() || !L || !EnsureLuaReady())
+            return nullptr;
+        void* controller = EquipDevelop_ResolveDevelopController();
+        std::uint16_t firstEmpty = 0;
+        if (!controller || !FindFirstEmptyRecordIndex(controller, firstEmpty))
+            return nullptr;
+        if (s_tableStableSince == 0 || firstEmpty != s_lastFirstEmpty)
+        {
+            s_lastFirstEmpty = firstEmpty;
+            s_tableStableSince = now;
+            return nullptr;
+        }
+
+        const DWORD lastNative = g_LastNativeRegTick.load(std::memory_order_relaxed);
+        const DWORD quietMs = (lastNative != 0 && g_SettleHookInstalled) ? 30000 : 3000; // the hook should have settled already; this covers a boot that never reaches RadioParameterTable
+        if (now - s_tableStableSince < quietMs || (lastNative != 0 && now - lastNative < quietMs))
+            return nullptr;
+        if (firstEmpty < equip::TrueVanillaRowCount())
+        {
+            if (lastNative == 0)
+                return nullptr;
+            g_SettleRefused = true;
+            LogError("EquipDevelop: the game's R&D table ends at row %u, below the %u stock and Infinite Heaven rows, custom R&D rows stay off",
+                     static_cast<unsigned>(firstEmpty), equip::TrueVanillaRowCount());
+            return nullptr;
+        }
+        if (lastNative != 0 && g_SettleHookInstalled)
+            LogWarn("EquipDevelop: RegisterPriorityTable never ran after the game's R&D scripts, custom R&D rows placed after %u quiet ms",
+                    static_cast<unsigned>(now - lastNative));
+        return L;
+    }
+
+    static int OptionalLuaInt(lua_State* L, int index, int fallback)
+    {
+        return g_Deps.LuaType(L, index) == LUA_TNUMBER_CONST ? g_Deps.GetLuaInt(L, index) : fallback;
+    }
+
+    static bool CallLoadsOrStoresMbVars(lua_State* L)
+    {
+        return L && EnsureLuaReady()
+            && (OptionalLuaInt(L, 2, 0xF) & kScriptVarsGroupVars) != 0
+            && (OptionalLuaInt(L, 3, 0xFF) & kScriptVarsCategoryMbManage) != 0;
+    }
+
+    static int __cdecl hkLoadVarsFromSlot(lua_State* L)
+    {
+        const bool mbVars = CallLoadsOrStoresMbVars(L);
+        const int results = g_OrigLoadVarsFromSlot(L);
+        const LayoutSave state = g_LayoutSave.load(std::memory_order_acquire);
+        if (mbVars && (state == LayoutSave::ClearOnLoad || state == LayoutSave::Cleared))
+        {
+            equip::ClearDevelopLayoutRowsNow();
+            g_LayoutSave.store(LayoutSave::Cleared, std::memory_order_release);
+        }
+        return results;
+    }
+
+    static int __cdecl hkSaveVarsToSlot(lua_State* L)
+    {
+        const bool mbVars = CallLoadsOrStoresMbVars(L);
+        const int results = g_OrigSaveVarsToSlot(L);
+        LayoutSave expected = LayoutSave::Cleared;
+        if (mbVars)
+            g_LayoutSave.compare_exchange_strong(expected, LayoutSave::SlotClean, std::memory_order_acq_rel);
+        return results;
+    }
+
+    static int __cdecl hkWriteSlotToFile(lua_State* L)
+    {
+        const char* fileName = (L && EnsureLuaReady() && IsLuaString(L, 2)) ? g_Deps.GetLuaString(L, 2) : nullptr;
+        const bool gameData = fileName && std::strncmp(fileName, "TPP_GAME_DATA", 13) == 0;
+        const int results = g_OrigWriteSlotToFile(L);
+        if (gameData && results >= 1 && g_LayoutSave.load(std::memory_order_acquire) == LayoutSave::SlotClean
+            && OptionalLuaInt(L, -1, 1) == 0)
+        {
+            V_FrameWorkState::SetPersistedConstant("DevelopLayout", "firstCustomRow",
+                g_PendingLayoutFirst.load(std::memory_order_relaxed));
+            V_FrameWorkState::SetPersistedConstant("DevelopLayout", "nativeRowsHash",
+                g_PendingLayoutHash.load(std::memory_order_relaxed));
+            g_LayoutSave.store(LayoutSave::Done, std::memory_order_release);
+        }
+        return results;
+    }
+
+    static void InstallSaveSlotHooks()
+    {
+        static const std::uint8_t kLoadPrologue[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x45, 0x33, 0xC0, 0x48 };
+        static const std::uint8_t kSavePrologue[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x45, 0x33, 0xC0, 0x48 };
+        static const std::uint8_t kWritePrologue[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x20, 0x56, 0x48, 0x83, 0xEC, 0x30, 0x45, 0x33, 0xC0, 0x48, 0x8B, 0xD9 };
+
+        void* load  = ResolveGameAddress(gAddr.ScriptVars_LoadVarsFromSlot);
+        void* save  = ResolveGameAddress(gAddr.ScriptVars_SaveVarsToSlot);
+        void* write = ResolveGameAddress(gAddr.ScriptVars_WriteSlotToFile);
+        const HookEntry loadEntry = CheckHookEntry(load, kLoadPrologue, sizeof(kLoadPrologue));
+        const HookEntry saveEntry = CheckHookEntry(save, kSavePrologue, sizeof(kSavePrologue));
+        const HookEntry writeEntry = CheckHookEntry(write, kWritePrologue, sizeof(kWritePrologue));
+        if (loadEntry == HookEntry::Unknown || saveEntry == HookEntry::Unknown || writeEntry == HookEntry::Unknown)
+        {
+            LogWarn("EquipDevelop: TppScriptVars slot functions missing on %s, an R&D layout change is recorded at the first save load",
+                    GetGameBuildName(gGameBuild));
+            return;
+        }
+        if (loadEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipDevelop: ScriptVars_LoadVarsFromSlot", load);
+        if (saveEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipDevelop: ScriptVars_SaveVarsToSlot", save);
+        if (writeEntry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipDevelop: ScriptVars_WriteSlotToFile", write);
+        if (CreateAndEnableHook(load, reinterpret_cast<void*>(&hkLoadVarsFromSlot),
+                                reinterpret_cast<void**>(&g_OrigLoadVarsFromSlot)))
+            g_LoadVarsFromSlotTarget = load;
+        if (CreateAndEnableHook(save, reinterpret_cast<void*>(&hkSaveVarsToSlot),
+                                reinterpret_cast<void**>(&g_OrigSaveVarsToSlot)))
+            g_SaveVarsToSlotTarget = save;
+        if (CreateAndEnableHook(write, reinterpret_cast<void*>(&hkWriteSlotToFile),
+                                reinterpret_cast<void**>(&g_OrigWriteSlotToFile)))
+            g_WriteSlotToFileTarget = write;
+        g_SlotHooksInstalled = g_LoadVarsFromSlotTarget && g_SaveVarsToSlotTarget && g_WriteSlotToFileTarget;
+        if (!g_SlotHooksInstalled)
+            LogWarn("EquipDevelop: TppScriptVars slot hooks failed, an R&D layout change is recorded at the first save load");
+    }
+
+    static void UninstallSaveSlotHooks()
+    {
+        if (g_LoadVarsFromSlotTarget)
+            DisableAndRemoveHook(g_LoadVarsFromSlotTarget);
+        if (g_SaveVarsToSlotTarget)
+            DisableAndRemoveHook(g_SaveVarsToSlotTarget);
+        if (g_WriteSlotToFileTarget)
+            DisableAndRemoveHook(g_WriteSlotToFileTarget);
+        g_LoadVarsFromSlotTarget = g_SaveVarsToSlotTarget = g_WriteSlotToFileTarget = nullptr;
+        g_SlotHooksInstalled = false;
+    }
+
+    static HookEntry RegisterPriorityTableEntry(const void* target)
+    {
+        static const std::uint8_t kPrologue[] = {
+            0x40, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF };
+        const HookEntry entry = CheckHookEntry(target, kPrologue, sizeof(kPrologue));
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("EquipDevelop: RadioCommand_RegisterPriorityTable", target);
+        return entry;
+    }
+
+    static void NoteNativeRegistration()
+    {
+        g_LastNativeRegTick.store(GetTickCount() | 1u, std::memory_order_relaxed);
+    }
+
+    static int __fastcall hkRegCstDev(lua_State* L)
+    {
+        NoteNativeRegistration();
+        const bool settled = equip::IsDevelopLayoutSettled();
         if (L && EnsureLuaReady() && IsLuaTable(L, 1))
         {
             std::int32_t developId = 0;
@@ -2549,24 +2859,34 @@ namespace
                     devType;
                 if (firstSeen)
                 {
-                    g_NativeOrderDevelopId[g_NativeConstOrder++] =
-                        static_cast<std::uint32_t>(developId);
+                    if (!settled)
+                        g_NativeOrderDevelopId[g_NativeConstOrder++] =
+                            static_cast<std::uint32_t>(developId);
                     if (base <= 0)
                         ++g_NativeRootsByType[devType];
                 }
             }
+            if (settled)
+            {
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    LogWarn("EquipDevelop: a script registered R&D row developId %d with RegCstDev after the custom rows were placed, it lands after them",
+                            developId);
+                }
+            }
         }
 
-        if (g_OrigRegCstDev)
-            g_OrigRegCstDev(L);
+        const int results = g_OrigRegCstDev ? g_OrigRegCstDev(L) : 0;
         equip::InvalidateDevelopLookupIndex();
         outfit::NoteDevelopRowsMoved();
-
-        FlushPendingRegistrations(L);
+        return results;
     }
 
-    static void __fastcall hkRegFlwDev(lua_State* L)
+    static int __fastcall hkRegFlwDev(lua_State* L)
     {
+        NoteNativeRegistration();
         if (L && EnsureLuaReady() && IsLuaTable(L, 1))
         {
             std::int32_t flowIndex = 0;
@@ -2598,15 +2918,20 @@ namespace
                     && !uniquedefaultoutfit::IsRegisteringFobAllowedRow())
                 {
                     SetIntField(L, 1, "p74", 0);
+                    static bool s_warned = false;
+                    if (!s_warned)
+                    {
+                        s_warned = true;
+                        LogWarn("EquipDevelop: a script wrote RegFlwDev p50=%d onto a custom R&D row, that card shows the script's values",
+                                flowIndex);
+                    }
                 }
             }
         }
 
-        if (g_OrigRegFlwDev)
-            g_OrigRegFlwDev(L);
+        const int results = g_OrigRegFlwDev ? g_OrigRegFlwDev(L) : 0;
         equip::InvalidateDevelopLookupIndex();
-
-        FlushPendingRegistrations(L);
+        return results;
     }
 
     std::unordered_set<std::uint32_t> g_ParkedDevelopIds;
@@ -3093,7 +3418,7 @@ namespace EquipDevelopAdd
                 *refusal = DevelopInjectRefusal::BandFull;
             return false;
         }
-        if (freeIdx < kVanillaDevelopRowCount)
+        if (!equip::IsDevelopLayoutSettled() || freeIdx < equip::FirstCustomFlowIndex())
         {
             if (refusal)
                 *refusal = DevelopInjectRefusal::VanillaBandPopulating;
@@ -3743,6 +4068,46 @@ namespace EquipDevelopAdd
             RequestRotationIfBandHasRoom(true);
     }
 
+    enum class OwnFrameWork { Settle, Rotate, Flush };
+    static OwnFrameWork g_OwnFrameWork = OwnFrameWork::Flush;
+    static bool         g_OwnFrameDirectFillOnly = false;
+
+    static int __cdecl OwnFrameThunk(lua_State* L)
+    {
+        switch (g_OwnFrameWork)
+        {
+        case OwnFrameWork::Settle: SettleNativeDevelopRows(L); break;
+        case OwnFrameWork::Rotate: RotateDevelopWindow(L, g_OwnFrameDirectFillOnly); break;
+        case OwnFrameWork::Flush:  FlushPendingRegistrations(L); break;
+        }
+        return 0;
+    }
+
+    // The row injection empties the Lua stack frame it runs in, so the pump work gets a frame of its own
+    static bool RunOnOwnLuaFrame(lua_State* L, OwnFrameWork work, bool directFillOnly = false)
+    {
+        if (!g_lua_pushcclosure || !g_lua_pcall || !luaguard::HasStackRoom(L, 2))
+            return false;
+        g_OwnFrameWork = work;
+        g_OwnFrameDirectFillOnly = directFillOnly;
+        g_lua_pushcclosure(L, OwnFrameThunk, 0);
+        V_FrameWork::EnterLuaPcall();   // keeps the pcall hook from pumping again while this runs
+        const int err = g_lua_pcall(L, 0, 0, 0);
+        V_FrameWork::AbandonLuaPcall();
+        if (err != 0)
+        {
+            static bool s_errorLogged = false;
+            if (!s_errorLogged)
+            {
+                s_errorLogged = true;
+                LogError("EquipDevelop: R&D row work failed (%s)",
+                    g_lua_tolstring ? g_lua_tolstring(L, -1, nullptr) : "no message");
+            }
+            g_lua_settop(L, g_lua_gettop(L) - 1);
+        }
+        return true;
+    }
+
     static void TryRunPendingRotation()
     {
         if (!g_RotateRequested.load(std::memory_order_acquire))
@@ -3751,8 +4116,7 @@ namespace EquipDevelopAdd
             return;
         if (g_MenuFillDepth.load(std::memory_order_relaxed) != 0)
             return;
-        const unsigned long luaTid = V_FrameWork_LuaOwnerThreadId();
-        if (luaTid == 0 || GetCurrentThreadId() != luaTid)
+        if (!V_FrameWork::InsideGameLua())
             return;
         if (!ResolveLuaApi())
             return;
@@ -3763,7 +4127,12 @@ namespace EquipDevelopAdd
         const bool fullRotation =
             g_FullRotateRequested.exchange(false, std::memory_order_acquire);
         g_RotationInProgress.store(true, std::memory_order_relaxed);
-        RotateDevelopWindow(L, !fullRotation);
+        if (!RunOnOwnLuaFrame(L, OwnFrameWork::Rotate, !fullRotation))
+        {
+            if (fullRotation)
+                g_FullRotateRequested.store(true, std::memory_order_release);
+            g_RotateRequested.store(true, std::memory_order_release);
+        }
         g_RotationInProgress.store(false, std::memory_order_relaxed);
     }
 
@@ -3800,6 +4169,11 @@ namespace EquipDevelopAdd
 
     void PumpDevelopMenuWork()
     {
+        if (!equip::IsDevelopLayoutSettled())
+        {
+            if (lua_State* settleState = TrySettleWithoutSignal())
+                RunOnOwnLuaFrame(settleState, OwnFrameWork::Settle);
+        }
         equip::SyncDevelopFlagsWithSave();
         if (g_AnyBluePrintGate.load(std::memory_order_relaxed))
             bluePrint::KeepReservedDataBaseBits();
@@ -3817,11 +4191,9 @@ namespace EquipDevelopAdd
                 if (g_MenuFillDepth.load(std::memory_order_relaxed) == 0
                     && ResolveLuaApi())
                 {
-                    const unsigned long luaTid = V_FrameWork_LuaOwnerThreadId();
                     lua_State* L = V_FrameWork_AnyLuaState();
-                    if (luaTid != 0 && GetCurrentThreadId() == luaTid
-                        && L && EnsureLuaReady())
-                        FlushPendingRegistrations(L);
+                    if (V_FrameWork::InsideGameLua() && L && EnsureLuaReady())
+                        RunOnOwnLuaFrame(L, OwnFrameWork::Flush);
                 }
             }
         }
@@ -3833,7 +4205,9 @@ namespace EquipDevelopAdd
                                    const NativeDevelopString* constStrs,
                                    std::size_t constStrCount,
                                    const NativeDevelopNumber* flowNums,
-                                   std::size_t flowNumCount)
+                                   std::size_t flowNumCount,
+                                   const NativeDevelopBool* constBools,
+                                   std::size_t constBoolCount)
     {
         if (!key || !key[0]) return false;
 
@@ -3855,6 +4229,14 @@ namespace EquipDevelopAdd
             f.name = constStrs[i].name;
             f.type = FieldValue::Type::String;
             f.stringValue = constStrs[i].value;
+            constFields.push_back(f);
+        }
+        for (std::size_t i = 0; i < constBoolCount; ++i)
+        {
+            FieldValue f;
+            f.name = constBools[i].name;
+            f.type = FieldValue::Type::Boolean;
+            f.boolValue = constBools[i].value;
             constFields.push_back(f);
         }
         for (std::size_t i = 0; i < flowNumCount; ++i)
@@ -3898,6 +4280,8 @@ namespace EquipDevelopAdd
 
     bool IsManagedFlowIndex(std::uint16_t flowIndex)
     {
+        if (flowIndex == 0)
+            return false;
         std::lock_guard<std::recursive_mutex> lock(g_StateMutex);
 
         for (const auto& kv : g_KeyRegistry)
@@ -3911,8 +4295,7 @@ namespace EquipDevelopAdd
     {
         if (!g_AnyDynamicGate.load(std::memory_order_relaxed))
             return;
-        const unsigned long luaTid = V_FrameWork_LuaOwnerThreadId();
-        if (luaTid == 0 || GetCurrentThreadId() != luaTid)
+        if (!V_FrameWork::InsideGameLua())
         {
             g_GateRefreshRequested.store(true, std::memory_order_release);
             return;
@@ -4026,6 +4409,22 @@ namespace EquipDevelopAdd
             g_RegFlwDevHookInstalled = true;
         }
 
+        if (!g_SettleHookInstalled)
+        {
+            void* settleTarget = ResolveGameAddress(gAddr.RadioCommand_RegisterPriorityTable);
+            if (RegisterPriorityTableEntry(settleTarget) != HookEntry::Unknown && CreateAndEnableHook(
+                    settleTarget,
+                    reinterpret_cast<void*>(&hkRegisterPriorityTable),
+                    reinterpret_cast<void**>(&g_OrigRegisterPriorityTable)))
+                g_SettleHookInstalled = true;
+            else
+                LogWarn("EquipDevelop: RegisterPriorityTable hook unavailable on %s, custom R&D rows wait for the game's R&D scripts to go quiet",
+                        GetGameBuildName(gGameBuild));
+        }
+
+        if (!g_SlotHooksInstalled)
+            InstallSaveSlotHooks();
+
         return true;
     }
 
@@ -4048,6 +4447,17 @@ namespace EquipDevelopAdd
             g_RegFlwDevHookInstalled = false;
             g_OrigRegFlwDev = nullptr;
         }
+
+        if (g_SettleHookInstalled)
+        {
+            if (void* target = ResolveGameAddress(gAddr.RadioCommand_RegisterPriorityTable))
+                DisableAndRemoveHook(target);
+
+            g_SettleHookInstalled = false;
+            g_OrigRegisterPriorityTable = nullptr;
+        }
+
+        UninstallSaveSlotHooks();
 
         return true;
     }

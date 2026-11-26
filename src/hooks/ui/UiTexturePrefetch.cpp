@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "UiTexturePrefetch.h"
 
 #include <Windows.h>
@@ -34,21 +34,7 @@ namespace
 
     LookupAddrs LookupAddrsForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return { 0x141DA70B0ull, 0x141DBBEE0ull };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            return { 0x141DA6F90ull, 0x141DBBF40ull };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return { 0x141DA6C50ull, 0x141DBB930ull };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return { 0x141DA6B00ull, 0x141DBB970ull };
-        default:
-            return { 0, 0 };
-        }
+        return { gAddr.UiTexturePrefetch_GetController, gAddr.UiTexturePrefetch_IsPrefetch };
     }
 
     bool ReleaseVerified()
@@ -56,9 +42,7 @@ namespace
         switch (gGameBuild)
         {
         case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
         case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
             return true;
         default:
             return false;
@@ -92,7 +76,6 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
-    // 1 = already in the game's prefetch list, 0 = not, -1 = can't tell on this build
     int IsAlreadyPrefetchedSEH(std::uint64_t textureHash)
     {
         const LookupAddrs a = LookupAddrsForBuild();

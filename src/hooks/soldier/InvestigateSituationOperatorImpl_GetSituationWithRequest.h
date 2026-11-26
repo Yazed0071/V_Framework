@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_InvestigateSituationOperatorImpl_GetSituationWithRequest_Hook();
+bool Uninstall_InvestigateSituationOperatorImpl_GetSituationWithRequest_Hook();

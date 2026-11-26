@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "NoticeNoiseAiImpl_CheckTargetPositionUpdate.h"
 
 #include <cstdint>
@@ -16,23 +16,10 @@ namespace
     CheckTargetPositionUpdate_t g_Orig       = nullptr;
     void*                       g_HookTarget = nullptr;
 
-    std::uintptr_t AddressFor(AddressSetRuntime::GameBuild build)   // 15.3 bodies are re-encoded; not found there yet
-    {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (build)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x14151E850ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x14151EB80ull;
-        default:               return 0;
-        }
-    }
-
     bool __fastcall hk_CheckTargetPositionUpdate(std::uint8_t* noticeNoiseAi, std::uint32_t soldierIndex, void* knowledge)
     {
         if (!MissionCodeGuard::ShouldBypassHooks() && CallComrade::IsWalkingOver(soldierIndex))
-            return false;   // he heads for where the shout came from, not after the caller
+            return false;
         return g_Orig(noticeNoiseAi, soldierIndex, knowledge);
     }
 }
@@ -42,7 +29,7 @@ bool Install_NoticeNoiseAiImpl_CheckTargetPositionUpdate_Hook()
     if (g_HookTarget)
         return true;
 
-    const std::uintptr_t address = AddressFor(gGameBuild);
+    const std::uintptr_t address = gAddr.NoticeNoiseAiImpl_CheckTargetPositionUpdate;
     if (!address)
     {
         LogWarn("CallComradeCommand: NoticeNoiseAiImpl::CheckTargetPositionUpdate unknown for %s, called comrades follow the caller",

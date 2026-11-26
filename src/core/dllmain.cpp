@@ -1,10 +1,16 @@
-#include "pch.h"
+#include <pch.h>
 #include "../hooks/outfit/UniqueCharacterDefaultOutfit.h"
+#include "../hooks/heli/SupportHeliBuiltInWeapons.h"
 #include "../hooks/equip/TppEquip_ReloadEquipIdTable.h"
 #include "../hooks/equip/EquipPartParams.h"
 #include "../hooks/outfit/FaceFovaWiden.h"
 #include "../hooks/outfit/StaffControllerImpl_AddStaff.h"
 #include "../hooks/outfit/OutfitPalette.h"
+#include "../hooks/core/VertexStreamPool.h"
+#include "../hooks/core/RendererPools.h"
+#include "../hooks/core/TextureStoragePool.h"
+#include "../hooks/core/TexturePools.h"
+#include "../hooks/core/TextureProxyRaise.h"
 #include <Windows.h>
 #include <atomic>
 #include <cstdio>
@@ -19,7 +25,7 @@
 #include "HookUtils.h"
 #include "FastThreadSnapshot.h"
 
-bool g_HookBatchMode = false;
+std::atomic<bool> g_HookBatchMode{ false };
 
 bool Install_SetLuaFunctions_Hook();
 void V_FrameWork_NoteSecondCopy();
@@ -143,11 +149,12 @@ static DWORD WINAPI InitThread(LPVOID)
 
     g_HookBatchMode = true;
     uniquedefaultoutfit::QueueDevelopRowsEarly();
+    SupportHeliBuiltInWeapons::RegisterEarly();
     LetLuaIn(true);
 
     const bool allOk = FeatureModuleRegistry::Instance().InstallAll(hGame);
     g_HookBatchMode = false;
-    const MH_STATUS applySt = MH_ApplyQueued();
+    const MH_STATUS applySt = ApplyQueuedHooks();
     outfit::NoteStaffHooksApplied(applySt == MH_OK);
     if (applySt == MH_OK)
     {
@@ -199,9 +206,7 @@ static void UninstallAll(bool processTerminating)
         V_FrameWorkState::SaveOnProcessExit();
         V_FrameWorkState::AbandonFlusherThread();
 
-        fflush(stdout);
-        fflush(stderr);
-        CloseLog();
+        CloseLogAtExit();
 
         if (gConsoleReady.load())
             FreeConsole();
@@ -211,7 +216,10 @@ static void UninstallAll(bool processTerminating)
     V_FrameWorkState::FlushPendingSaves();
 
     FeatureModuleRegistry::Instance().UninstallAll();
-    MH_Uninitialize();
+    if (UnhookAllSafely())
+        LogWarn("Shutdown: another module hooked on top of some of our hooks, those stay as pass-throughs and MinHook stays initialised");
+    else
+        MH_Uninitialize();
 
     fflush(stdout);
     fflush(stderr);
@@ -231,7 +239,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         DisableThreadLibraryCalls(hModule);
         if (!ClaimFirstCopy(hModule))
         {
-            gSecondCopy = true;   // another loader mapped a renamed copy; that one owns every hook
+            gSecondCopy = true;
             return TRUE;
         }
         FastThreadSnapshot::Install();
@@ -243,9 +251,20 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         const bool supportedGame = ResolveAddressSet(GetModuleHandleW(nullptr));
         TppEquip_ReserveInfoListMirrorEarly();
         HookArena::ReserveEarly();
-        equip::PreApplyDevelopArrayGrowPatches();
+        if (supportedGame && !FeatureIsDisabled("DevelopArrayGrow"))   // its patches are only safe together with the module's hooks
+            equip::PreApplyDevelopArrayGrowPatches();
+        if (supportedGame && !FeatureIsDisabled("VertexStreamPool"))   // the renderer builds this pool before InitThread runs
+            PreApplyVertexStreamPoolPatch();
+        if (supportedGame && !FeatureIsDisabled("RendererPools"))   // the renderer builds these managers before InitThread runs
+            PreApplyRendererPoolsPatch();
+        if (supportedGame && !FeatureIsDisabled("TextureStoragePool"))   // the renderer builds texture pool 0 once, after these managers
+            PreApplyTextureStoragePoolPatch();
+        if (supportedGame && !FeatureIsDisabled("TexturePools"))   // needs pool 0's size, so after TextureStoragePool
+            PreApplyTexturePoolsPatch();
         if (supportedGame && !FeatureIsDisabled("LuaBridge") && MH_Initialize() == MH_OK)
             Install_SetLuaFunctions_Hook();
+        if (supportedGame && !FeatureIsDisabled("TexturePools"))   // hooks the texture streamer's constructors, so after MinHook is up
+            PreApplyTextureProxyRaise();
 
         gLuaMayRun = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         HANDLE hThread = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);

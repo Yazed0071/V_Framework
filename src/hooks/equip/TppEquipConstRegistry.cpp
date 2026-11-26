@@ -1,11 +1,19 @@
-#include "pch.h"
+#include <pch.h>
 #include "TppEquipConstRegistry.h"
 
+#include <Windows.h>
+#include <cctype>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "log.h"
+#include "FoxHashes.h"
 #include "V_FrameWorkState.h"
 #include "LuaApi.h"
 #include "GunBasicInject.h"
@@ -82,6 +90,7 @@ namespace
 
     static std::mutex g_Mutex;
     static std::map<std::string, std::int32_t> g_Constants;
+    static std::unordered_map<std::uint32_t, std::int32_t> g_EquipIdByNameHash;   // FoxStrHash32 of an EQP_ name, as fox2 locators carry it
 
     static bool TakesWideEquipId(const char* name)
     {
@@ -302,9 +311,12 @@ bool TppEquipConst_Declare(
         return false;
     }
 
+    const std::uint32_t nameHash = spaceIndex == kSpaceEqp ? FoxHashes::StrCode32(name) : 0;
     {
         std::lock_guard<std::mutex> lock(g_Mutex);
         g_Constants[name] = value;
+        if (nameHash != 0)
+            g_EquipIdByNameHash[nameHash] = value;
     }
 
     if (L && ResolveLuaApi())
@@ -373,6 +385,300 @@ void TppEquipConst_ResetRuntimeState()
     std::lock_guard<std::mutex> lock(g_Mutex);
     g_Constants.clear();
     g_DamageConstants.clear();
+    g_EquipIdByNameHash.clear();
+}
+
+bool TppEquipConst_FindEquipIdByNameHash(std::uint32_t nameHash, std::int32_t& equipId)
+{
+    std::lock_guard<std::mutex> lock(g_Mutex);
+    const auto it = g_EquipIdByNameHash.find(nameHash);
+    if (it == g_EquipIdByNameHash.end())
+        return false;
+    equipId = it->second;
+    return true;
+}
+
+namespace
+{
+    constexpr int kSpaceDamage = -1;
+    constexpr int kNoSpace     = -2;
+
+    struct DeclareFunction
+    {
+        const char* name;
+        int         space;
+    };
+
+    constexpr DeclareFunction kDeclareFunctions[] =
+    {
+        { "RegisterConstantEquipId", 0 },  { "DeclareEQPTypes", 1 },      { "DeclareSWPTypes", 2 },
+        { "DeclareEQPBlocks", 3 },         { "DeclareSWPs", 4 },          { "DeclareBLs", 5 },
+        { "DeclareBLAs", 6 },              { "DeclareCasings", 7 },       { "DeclareMZs", 8 },
+        { "DeclareLTLS", 9 },              { "DeclareWPs", 10 },          { "DeclareMOs", 11 },
+        { "DeclareUBs", 12 },              { "DeclareAMs", 13 },          { "DeclareSTs", 14 },
+        { "DeclareRCs", 15 },              { "DeclareBAs", 16 },          { "DeclareSKs", 17 },
+        { "DeclareReticleUIs", 18 },       { "DeclareScopeUIs", 19 },     { "DeclareBarrelLengths", 20 },
+        { "DeclareRicochetSizes", 21 },    { "DeclareBulletTypes", 22 },  { "DeclarePenetrateLevels", 23 },
+        { "DeclareTriggers", 24 },         { "DeclareWeaponPaints", 25 }, { "DeclareDamages", kSpaceDamage },
+    };
+
+    int DeclareSpaceOf(const std::string& function)
+    {
+        for (const DeclareFunction& f : kDeclareFunctions)
+            if (function == f.name)
+                return f.space;
+        return kNoSpace;
+    }
+
+    struct LuaToken
+    {
+        enum class Kind : std::uint8_t { Name, String, Punct } kind;
+        std::string text;
+    };
+
+    std::size_t LongBracketOpen(const std::string& s, std::size_t at)
+    {
+        std::size_t i = at + 1;
+        while (i < s.size() && s[i] == '=')
+            ++i;
+        return (i < s.size() && s[i] == '[') ? i - at + 1 : 0;
+    }
+
+    std::size_t SkipLongBracket(const std::string& s, std::size_t at, std::size_t open, std::string* body)
+    {
+        const std::string close = "]" + std::string(open - 2, '=') + "]";
+        const std::size_t start = at + open;
+        const std::size_t end = s.find(close, start);
+        if (end == std::string::npos)
+        {
+            if (body)
+                *body = s.substr(start);
+            return s.size();
+        }
+        if (body)
+            *body = s.substr(start, end - start);
+        return end + close.size();
+    }
+
+    std::vector<LuaToken> TokenizeLua(const std::string& s)
+    {
+        std::vector<LuaToken> tokens;
+        std::size_t i = 0;
+        while (i < s.size())
+        {
+            const char c = s[i];
+            if (c == '-' && i + 1 < s.size() && s[i + 1] == '-')
+            {
+                if (i + 2 < s.size() && s[i + 2] == '[')
+                    if (const std::size_t open = LongBracketOpen(s, i + 2))
+                    {
+                        i = SkipLongBracket(s, i + 2, open, nullptr);
+                        continue;
+                    }
+                const std::size_t eol = s.find('\n', i);
+                i = eol == std::string::npos ? s.size() : eol + 1;
+                continue;
+            }
+            if (c == '"' || c == '\'')
+            {
+                std::string text;
+                std::size_t j = i + 1;
+                while (j < s.size() && s[j] != c && s[j] != '\n')
+                {
+                    if (s[j] == '\\' && j + 1 < s.size())
+                    {
+                        text += s[j + 1];
+                        j += 2;
+                        continue;
+                    }
+                    text += s[j++];
+                }
+                tokens.push_back({ LuaToken::Kind::String, text });
+                i = j + 1;
+                continue;
+            }
+            if (c == '[')
+                if (const std::size_t open = LongBracketOpen(s, i))
+                {
+                    std::string text;
+                    i = SkipLongBracket(s, i, open, &text);
+                    tokens.push_back({ LuaToken::Kind::String, text });
+                    continue;
+                }
+            if (std::isalpha(static_cast<unsigned char>(c)) || c == '_')
+            {
+                std::size_t j = i + 1;
+                while (j < s.size() && (std::isalnum(static_cast<unsigned char>(s[j])) || s[j] == '_'))
+                    ++j;
+                tokens.push_back({ LuaToken::Kind::Name, s.substr(i, j - i) });
+                i = j;
+                continue;
+            }
+            if (!std::isspace(static_cast<unsigned char>(c)))
+                tokens.push_back({ LuaToken::Kind::Punct, std::string(1, c) });
+            ++i;
+        }
+        return tokens;
+    }
+
+    bool IsPunct(const LuaToken& t, const char* text)
+    {
+        return t.kind == LuaToken::Kind::Punct && t.text == text;
+    }
+
+    void CollectDeclaredNames(const std::string& source, std::unordered_map<std::string, int>& out)
+    {
+        const std::vector<LuaToken> t = TokenizeLua(source);
+        for (std::size_t i = 0; i + 3 < t.size(); ++i)
+        {
+            if (t[i].kind != LuaToken::Kind::Name || t[i].text != "V_TppEquip" || !IsPunct(t[i + 1], ".")
+                || t[i + 2].kind != LuaToken::Kind::Name)
+                continue;
+            const int space = DeclareSpaceOf(t[i + 2].text);
+            if (space == kNoSpace || !(IsPunct(t[i + 3], "{") || IsPunct(t[i + 3], "(")))
+                continue;
+            int depth = 0;
+            std::size_t j = i + 3;
+            for (; j < t.size(); ++j)
+            {
+                if (IsPunct(t[j], "{") || IsPunct(t[j], "("))
+                    ++depth;
+                else if (IsPunct(t[j], "}") || IsPunct(t[j], ")"))
+                {
+                    if (--depth == 0)
+                        break;
+                }
+                else if (t[j].kind == LuaToken::Kind::String && IsValidConstantName(t[j].text.c_str()))
+                    out.emplace(t[j].text, space);
+            }
+            i = j;
+        }
+    }
+
+    std::once_flag                       g_ForwardScanOnce;
+    std::unordered_map<std::string, int> g_ForwardNames;
+
+    void ScanInstalledModules()
+    {
+        char path[MAX_PATH]{};
+        if (!GetModuleFileNameA(nullptr, path, MAX_PATH))
+            return;
+        char* lastSlash = std::strrchr(path, '\\');
+        if (!lastSlash)
+            return;
+        *(lastSlash + 1) = '\0';
+        const std::string folder = std::string(path) + "mod\\modules\\";
+        WIN32_FIND_DATAA found{};
+        const HANDLE find = FindFirstFileA((folder + "*.lua").c_str(), &found);
+        if (find == INVALID_HANDLE_VALUE)
+            return;
+        do
+        {
+            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                continue;
+            std::ifstream in(folder + found.cFileName, std::ios::binary);
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            CollectDeclaredNames(text, g_ForwardNames);
+        } while (FindNextFileA(find, &found));
+        FindClose(find);
+    }
+
+    int ForwardDeclare(lua_State* L, bool damageTable)
+    {
+        const char* name = g_lua_type(L, 2) == LUA_TSTRING ? g_lua_tolstring(L, 2, nullptr) : nullptr;
+        if (!name)
+        {
+            g_lua_pushnil(L);
+            return 1;
+        }
+        std::call_once(g_ForwardScanOnce, ScanInstalledModules);
+        const auto it = g_ForwardNames.find(name);
+        if (it == g_ForwardNames.end() || (it->second == kSpaceDamage) != damageTable)
+        {
+            g_lua_pushnil(L);
+            return 1;
+        }
+        std::uint32_t value = 0;
+        if (damageTable)
+        {
+            const int id = EquipParam_AllocateDamageSlotForName(name);
+            if (id <= 0)
+            {
+                g_lua_pushnil(L);
+                return 1;
+            }
+            value = static_cast<std::uint32_t>(id);
+            TppDamageConst_SetValue(name, value, L);
+        }
+        else if (!TppEquipConst_Declare(it->second, name, value, L))
+        {
+            g_lua_pushnil(L);
+            return 1;
+        }
+        g_lua_pushnumber(L, static_cast<lua_Number>(value));
+        return 1;
+    }
+
+    int __cdecl l_ForwardDeclareEquip(lua_State* L)
+    {
+        return ForwardDeclare(L, false);
+    }
+
+    int __cdecl l_ForwardDeclareDamage(lua_State* L)
+    {
+        return ForwardDeclare(L, true);
+    }
+
+    std::atomic<bool> g_ForwardWarned{ false };
+
+    void InstallForwardIndex(lua_State* L, const char* tableName, lua_CFunction index)
+    {
+        const int top = g_lua_gettop(L);
+        g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>(tableName));
+        const int table = g_lua_gettop(L);
+        if (g_lua_type(L, table) != LUA_TTABLE)
+        {
+            g_lua_settop(L, top);
+            return;
+        }
+        g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("getmetatable"));
+        g_lua_pushvalue(L, table);
+        if (g_lua_pcall(L, 1, 1, 0) != 0 || g_lua_type(L, -1) != LUA_TNIL)
+        {
+            bool ours = false;
+            if (g_lua_type(L, -1) == LUA_TTABLE)
+            {
+                g_lua_getfield(L, -1, const_cast<char*>("__vfwForward"));
+                ours = g_lua_toboolean(L, -1) != 0;
+            }
+            if (!ours && !g_ForwardWarned.exchange(true))
+                LogWarn("TppEquipConst: %s already has a metatable, names used before their module loads stay nil", tableName);
+            g_lua_settop(L, top);
+            return;
+        }
+        g_lua_settop(L, table);
+        g_lua_getfield(L, LUA_GLOBALSINDEX_51, const_cast<char*>("setmetatable"));
+        g_lua_pushvalue(L, table);
+        g_lua_createtable(L, 0, 2);
+        g_lua_pushstring(L, const_cast<char*>("__index"));
+        g_lua_pushcclosure(L, index, 0);
+        g_lua_settable(L, -3);
+        g_lua_pushstring(L, const_cast<char*>("__vfwForward"));
+        g_lua_pushboolean(L, 1);
+        g_lua_settable(L, -3);
+        if (g_lua_pcall(L, 2, 0, 0) != 0 && !g_ForwardWarned.exchange(true))
+            LogWarn("TppEquipConst: could not hook %s, names used before their module loads stay nil", tableName);
+        g_lua_settop(L, top);
+    }
+}
+
+void TppEquipConst_InstallForwardDeclarations(lua_State* L)
+{
+    if (!L || !ResolveLuaApi() || !g_lua_pcall || !g_lua_pushcclosure || !g_lua_createtable || !g_lua_pushboolean
+        || !g_lua_toboolean || !g_lua_pushvalue || !g_lua_pushnil || !g_lua_tolstring)
+        return;
+    InstallForwardIndex(L, "TppEquip", &l_ForwardDeclareEquip);
+    InstallForwardIndex(L, "TppDamage", &l_ForwardDeclareDamage);
 }
 
 int TppEquipDeclareForSpace(lua_State* L, int spaceIndex)

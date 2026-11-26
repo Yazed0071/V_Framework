@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipParameterTablesImpl_ReloadEquipParameterTablesImpl.h"
 
 #include <Windows.h>
@@ -52,8 +52,9 @@ namespace
     std::map<std::uint32_t, SupportWeaponRow> g_CustomSupportWeaponRows;
     std::map<std::uint32_t, BlastRow>         g_CustomBlastRows;
     BlastRow                                  g_BlastTable[EquipParameterTables::kBlastRowCount];
+    BlastRow*                                 g_EngineBlastRowsPtr = nullptr;   // the engine's own rows, put back on uninstall
     std::uint32_t                             g_EngineBlastRows = kVanillaBlastRows;
-    std::atomic<bool>                         g_BlastTableLive{ false };
+    std::atomic<bool>                        g_BlastTableLive{ false };
     std::atomic<std::int8_t>                  g_DamageTypePlusOne[EquipParameterTables::kSupportWeaponRowCount] = {};
     std::map<std::uint32_t, EquipParameterTables::SupportWeaponBars> g_SupportWeaponBars;
 
@@ -139,6 +140,7 @@ namespace
             return;
         if (engineRows != g_BlastTable)
         {
+            g_EngineBlastRowsPtr = engineRows;
             std::memset(g_BlastTable, 0, sizeof(g_BlastTable));
             const std::uint32_t rows = g_EngineBlastRows < EquipParameterTables::kBlastRowCount
                                            ? g_EngineBlastRows : EquipParameterTables::kBlastRowCount;
@@ -299,6 +301,17 @@ void Uninstall_EquipParameterTablesImpl_ReloadEquipParameterTablesImpl_Hook()
     g_Orig   = nullptr;
 
     std::lock_guard<std::mutex> lock(g_Mutex);
+    if (g_EngineBlastRowsPtr)
+    {
+        if (std::uint8_t* tables = Tables())
+        {
+            BlastRow*& engineRows = TablePointer<BlastRow>(tables, kBlastTablePointer);
+            if (engineRows == g_BlastTable)
+                engineRows = g_EngineBlastRowsPtr;
+        }
+    }
+    g_EngineBlastRowsPtr = nullptr;
+    g_BlastTableLive.store(false, std::memory_order_release);
     if (g_SupportWeaponBlockGrown)
         ShrinkSupportWeaponBlock();
     g_SupportWeaponBlockGrown = false;

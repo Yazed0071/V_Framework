@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -285,9 +285,9 @@ bool Uninstall_MissionDeployWarning_Hook()
     if (gAddr.MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter)
         DisableAndRemoveHook(ResolveGameAddress(
             gAddr.MbDvcMissionListCallbackImpl_ActivatePrefabPopupParameter));
-    RestoreVtableSlot(g_GateBSlot, reinterpret_cast<void*>(g_OrigGateB));
-    RestoreVtableSlot(g_GateCSlot, reinterpret_cast<void*>(g_OrigGateC));
-    RestoreVtableSlot(g_LangSlot, reinterpret_cast<void*>(g_OrigGetLang));
+    RestoreVtableSlot(g_GateBSlot, reinterpret_cast<void*>(g_OrigGateB), reinterpret_cast<void*>(&hk_GateB));
+    RestoreVtableSlot(g_GateCSlot, reinterpret_cast<void*>(g_OrigGateC), reinterpret_cast<void*>(&hk_GateC));
+    RestoreVtableSlot(g_LangSlot, reinterpret_cast<void*>(g_OrigGetLang), reinterpret_cast<void*>(&hk_GetLangText));
 
     g_OrigActivate = nullptr;
     g_OrigGateB = nullptr;

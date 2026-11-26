@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <list>
 
@@ -28,7 +28,7 @@ unsigned long long __thiscall hkGetPhotoAdditionalTextLangId(MotherBaseMissionCo
         if (i.MissionCode == missionCode && i.PhotoId == photoId && i.PhotoType == photoType)
         {
             *ret = i.TargetTypeLangId;
-            return *ret;
+            return reinterpret_cast<unsigned long long>(ret);   // callers read the id through the returned pointer
         }
     }
 

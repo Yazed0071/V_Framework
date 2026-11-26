@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipIdTableImpl_GetEquipIdFromStrCode32Impl_Hook();
+bool Uninstall_EquipIdTableImpl_GetEquipIdFromStrCode32Impl_Hook();

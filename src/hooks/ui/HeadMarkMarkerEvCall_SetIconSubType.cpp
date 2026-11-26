@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "HeadMarkMarkerEvCall_SetIconSubType.h"
 
 #include <Windows.h>
@@ -12,6 +12,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "MissionCodeGuard.h"
+#include "FeatureSwitch.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "FoxHashes.h"
 #include "MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon.h"
@@ -45,6 +46,7 @@ namespace
 
     constexpr std::size_t   kConstBlockToEntry   = 0x212;
 
+    constexpr std::size_t   kMarker_Model        = 0x00;
     constexpr std::size_t   kMarker_Element      = 0xA8;
     constexpr std::size_t   kMarker_Type         = 0xBC;
     constexpr std::size_t   kMarker_SubType      = 0xC0;
@@ -63,6 +65,9 @@ namespace
     constexpr int           kThunkHopLimit       = 4;
     constexpr std::size_t   kVtblSlotLimit       = 0x1000;
     constexpr std::size_t   kNode_Colour         = 0x50;
+    constexpr std::size_t   kModel_NodeCount     = 0x90;   // a fox::ui::Model lists its own nodes: how many, then where
+    constexpr std::size_t   kModel_Nodes         = 0x98;
+    constexpr std::uint32_t kModelNodeLimit      = 0x1000;
 
     constexpr std::uint32_t kMarkerType_Soldier  = 0x01;
     constexpr std::uint32_t kMarkerType_Soldier2 = 0x33;
@@ -78,21 +83,20 @@ namespace
     constexpr std::uint32_t kColour_ProbeA       = 0xC2315D97;
     constexpr std::uint32_t kColour_ProbeB       = 0xCD82183C;
 
-    constexpr std::uint8_t  kMaxStops            = 6;
     constexpr float         kDefaultSpeed        = 1.0f;
 
     constexpr std::uint16_t kInvalidMarkerId     = 0xFFFFu;
     constexpr std::uint32_t kSoldierBand         = 0x0400u;
     constexpr std::uint32_t kSoldierBandMask     = 0xFE00u;
     constexpr std::uint32_t kSoldierIndexMask    = 0x01FFu;
+    constexpr std::uint16_t kWholeTypeIndex      = 0x01FFu;   // an id with this index stands for every object of its type
 
     struct StateColour
     {
-        std::uint8_t       count;
-        bool               blend;
-        float              speed;
-        float              fade;
-        HeadMarkColourStop stop[kMaxStops];
+        std::vector<HeadMarkColourStop> stop;
+        bool                            blend = false;
+        float                           speed = 0.0f;
+        float                           fade  = 0.0f;
     };
 
     StateColour g_GlobalState[kSubTypeCount] = {};
@@ -108,7 +112,7 @@ namespace
     void InitGlobalDefaults()
     {
         StateColour& dying = g_GlobalState[kSubType_Dying];
-        dying.count            = 1;
+        dying.stop.assign(1, HeadMarkColourStop{});
         dying.blend            = true;
         dying.speed            = kDefaultSpeed;
         dying.fade             = 0.0f;
@@ -116,13 +120,28 @@ namespace
         dying.stop[0].paletteId= kColour_EnemyDying;
     }
 
+    bool GlobalStateOn(std::uint8_t state)   // the default dying colour is the DyingMarkerColour feature; per-soldier colours stay
+    {
+        return !g_GlobalState[state].stop.empty()
+            && (state != kSubType_Dying || FeatureSwitch::IsOn(FeatureSwitch::Feature::DyingMarkerColour));
+    }
+
+    const StateColour* EntityStateLocked(std::uint16_t systemId, std::uint8_t state)
+    {
+        auto it = g_EntityColours.find(systemId);
+        if (it == g_EntityColours.end() || it->second.state[state].stop.empty())
+            it = g_EntityColours.find(static_cast<std::uint16_t>(systemId | kWholeTypeIndex));
+        if (it == g_EntityColours.end() || it->second.state[state].stop.empty())
+            return nullptr;
+        return &it->second.state[state];
+    }
+
     bool EntityWantsState(std::uint16_t systemId, std::uint8_t state)
     {
         if (systemId == kInvalidMarkerId)
             return false;
         std::lock_guard<std::mutex> lock(g_EntityMutex);
-        auto it = g_EntityColours.find(systemId);
-        return it != g_EntityColours.end() && it->second.state[state].count != 0;
+        return EntityStateLocked(systemId, state) != nullptr;
     }
 
     bool LookupState(std::uint16_t systemId, std::uint8_t state, StateColour& out)
@@ -130,15 +149,15 @@ namespace
         if (systemId != kInvalidMarkerId)
         {
             std::lock_guard<std::mutex> lock(g_EntityMutex);
-            auto it = g_EntityColours.find(systemId);
-            if (it != g_EntityColours.end() && it->second.state[state].count != 0)
+            const StateColour* own = EntityStateLocked(systemId, state);
+            if (own)
             {
-                out = it->second.state[state];
+                out = *own;
                 return true;
             }
         }
 
-        if (g_GlobalState[state].count == 0)
+        if (!GlobalStateOn(state))
             return false;
 
         out = g_GlobalState[state];
@@ -172,10 +191,12 @@ namespace
     using IsFobMode_t      = bool(__fastcall*)();
 
     SetIconSubType_t g_Orig      = nullptr;
+    void*            g_Target    = nullptr;
     IsFobMode_t      g_IsFobMode = nullptr;
     bool             g_Installed = false;
 
     bool g_ColourFailureLogged   = false;
+    bool g_StrayElementLogged    = false;
     bool g_RgbProbeDone          = false;
     bool g_HashProbeDone         = false;
     int  g_Readback              = 0;
@@ -381,7 +402,7 @@ namespace
         return IsIndexDying(index);
     }
 
-    bool ResolveTargetsSeh(void* self, void* marker, void*& outManager, void*& outElement,
+    bool ResolveTargetsSeh(void* self, void* marker, void*& outManager, void*& outModel, void*& outElement,
                            void**& outVtbl)
     {
         __try
@@ -391,6 +412,9 @@ namespace
             if (!outManager)
                 return false;
 
+            outModel =
+                *reinterpret_cast<void**>(static_cast<std::uint8_t*>(marker) + kMarker_Model);
+
             outElement =
                 *reinterpret_cast<void**>(static_cast<std::uint8_t*>(marker) + kMarker_Element);
             if (!outElement)
@@ -398,6 +422,32 @@ namespace
 
             outVtbl = *reinterpret_cast<void***>(outManager);
             return outVtbl != nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool ModelOwnsNodeSeh(const void* model, const void* node)
+    {
+        if (!model)
+            return false;
+
+        __try
+        {
+            auto base = static_cast<const std::uint8_t*>(model);
+            const std::uint32_t count = *reinterpret_cast<const std::uint32_t*>(base + kModel_NodeCount);
+            const void* const* nodes  = *reinterpret_cast<const void* const* const*>(base + kModel_Nodes);
+            if (!nodes || count > kModelNodeLimit)
+                return false;
+
+            for (std::uint32_t i = 0; i < count; ++i)
+            {
+                if (nodes[i] == node)
+                    return true;
+            }
+            return false;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -590,18 +640,20 @@ namespace
 
     HeadMarkColourStop SampleState(const StateColour& sc)
     {
-        if (sc.count <= 1)
+        const std::size_t count = sc.stop.size();
+        if (count == 0)
+            return HeadMarkColourStop{};
+        if (count == 1)
             return sc.stop[0];
 
         const double speed = (sc.speed > 0.0f) ? static_cast<double>(sc.speed)
                                                : static_cast<double>(kDefaultSpeed);
-        const double ring  = NowSeconds() * speed * static_cast<double>(sc.count);
+        const double ring  = NowSeconds() * speed * static_cast<double>(count);
         const double floorRing = (ring >= 0.0) ? static_cast<double>(static_cast<long long>(ring))
                                                : 0.0;
 
-        const std::uint8_t index = static_cast<std::uint8_t>(
-            static_cast<unsigned long long>(floorRing) % sc.count);
-        const std::uint8_t next  = static_cast<std::uint8_t>((index + 1) % sc.count);
+        const std::size_t index = static_cast<std::size_t>(static_cast<unsigned long long>(floorRing) % count);
+        const std::size_t next  = (index + 1) % count;
 
         const HeadMarkColourStop& from = sc.stop[index];
         if (!sc.blend || !from.isRgb || !sc.stop[next].isRgb)
@@ -699,9 +751,20 @@ namespace
         }
 
         void*  manager = nullptr;
+        void*  model   = nullptr;
         void*  element = nullptr;
         void** vtbl    = nullptr;
-        const bool haveTargets = ResolveTargetsSeh(self, marker, manager, element, vtbl);
+        bool   haveTargets = ResolveTargetsSeh(self, marker, manager, model, element, vtbl);
+
+        if (haveTargets && !ModelOwnsNodeSeh(model, element))   // a freed or foreign pointer would take the colour as raw bytes
+        {
+            haveTargets = false;
+            if (!g_StrayElementLogged)
+            {
+                g_StrayElementLogged = true;
+                LogWarn("HeadMarkDying: a marker's colour node is not one of its model's nodes, that marker keeps vanilla colour");
+            }
+        }
 
         float      outgoing[4] = {};
         const bool outgoingOk  = haveTargets && g_Readback == 1 &&
@@ -717,7 +780,7 @@ namespace
         {
             flags &= ~kSubTypeSelectBit;
 
-            const bool dyingWanted = g_GlobalState[kSubType_Dying].count != 0 ||
+            const bool dyingWanted = GlobalStateOn(kSubType_Dying) ||
                                      EntityWantsState(systemId, kSubType_Dying);
 
             if (dyingWanted &&
@@ -795,7 +858,7 @@ namespace
             return;
         }
 
-        if (have && sc.count == 1 && !slot.fading &&
+        if (have && sc.stop.size() == 1 && !slot.fading &&
             after == before.subType && slot.painted)
             return;
 
@@ -944,23 +1007,6 @@ namespace
         {
         }
     }
-
-    bool PrologueMatchesSeh(std::uint8_t* at)
-    {
-        __try
-        {
-            for (std::size_t i = 0; i < sizeof(kPrologue); ++i)
-            {
-                if (kPrologueMask[i] && at[i] != kPrologue[i])
-                    return false;
-            }
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
 }
 
 bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
@@ -984,11 +1030,14 @@ bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
     }
 
     std::uint8_t* entry = sites[0] - kConstBlockToEntry;
-    if (!PrologueMatchesSeh(entry))
+    const HookEntry prologue = CheckHookEntryMasked(entry, kPrologue, kPrologueMask, sizeof(kPrologue));
+    if (prologue == HookEntry::Unknown)
     {
         LogError("HeadMarkDying: SetIconSubType prologue mismatch, dying marker colour off");
         return false;
     }
+    if (prologue == HookEntry::ForeignHook)
+        LogHookedOnTop("HeadMarkDying: HeadMarkMarkerEvCall::SetIconSubType", entry);
 
     InitGlobalDefaults();
 
@@ -1003,6 +1052,7 @@ bool Install_HeadMarkMarkerEvCall_SetIconSubType_Patch()
         return false;
     }
 
+    g_Target = entry;
     g_Installed = true;
     Install_MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon_Patch();
 
@@ -1013,6 +1063,8 @@ void Uninstall_HeadMarkMarkerEvCall_SetIconSubType_Patch()
 {
     Uninstall_MbDvcMapCallbackIconImpl_DispOnNewMarkerIcon_Patch();
     g_Installed = false;
+    DisableAndRemoveHook(g_Target);
+    g_Target = nullptr;
     g_Orig = nullptr;
     g_IsFobMode = nullptr;
 }
@@ -1114,7 +1166,7 @@ bool HeadMarkShowsDying(std::uint16_t systemId)
 {
     if (!g_Installed || systemId == kInvalidMarkerId || IsOnlineSession())
         return false;
-    const bool dyingWanted = g_GlobalState[kSubType_Dying].count != 0 ||
+    const bool dyingWanted = GlobalStateOn(kSubType_Dying) ||
                              EntityWantsState(systemId, kSubType_Dying);
     return dyingWanted && SoldierIndexFromSystemId(systemId) != kNoSoldierIndex && IsSoldierDying(systemId);
 }
@@ -1131,18 +1183,14 @@ bool SetHeadMarkEntityColour(std::uint32_t gameObjectId, int state,
     if (key == kInvalidMarkerId)
         return false;
 
-    if (count > kMaxStops)
-        count = kMaxStops;
     if (!stops)
         count = 0;
 
     StateColour built{};
-    built.count = static_cast<std::uint8_t>(count);
+    built.stop.assign(stops, stops + count);
     built.blend = blend;
     built.speed = (speed > 0.0f) ? speed : kDefaultSpeed;
     built.fade  = (fade  > 0.0f) ? fade  : 0.0f;
-    for (unsigned i = 0; i < count; ++i)
-        built.stop[i] = stops[i];
 
     std::lock_guard<std::mutex> lock(g_EntityMutex);
 
@@ -1164,7 +1212,7 @@ bool SetHeadMarkEntityColour(std::uint32_t gameObjectId, int state,
     e.state[state] = built;
 
     for (std::uint8_t i = 0; i < kSubTypeCount; ++i)
-        if (e.state[i].count != 0)
+        if (!e.state[i].stop.empty())
             return true;
 
     g_EntityColours.erase(key);

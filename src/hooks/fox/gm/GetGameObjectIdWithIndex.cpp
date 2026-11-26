@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
@@ -99,7 +99,7 @@ namespace
         const char* instanceName,
         std::uint32_t& gameObjectIdOut)
     {
-        if (GetCurrentThreadId() != V_FrameWork_LuaOwnerThreadId())
+        if (!V_FrameWork::InsideGameLua())
             return false;
         lua_State* L = V_FrameWork_AnyLuaState();
         if (!L)
@@ -117,11 +117,11 @@ namespace
             !gettop || !settop)
             return false;
 
-        bool ok = false;
+        int savedTop = 0;
 
         __try
         {
-            const int savedTop = gettop(L);
+            savedTop = gettop(L);
 
             if (!luaguard::HasStackRoom(L, 6))
                 return false;
@@ -142,20 +142,6 @@ namespace
 
             pushstring(L, const_cast<char*>(typeName));
             pushstring(L, const_cast<char*>(instanceName));
-
-            const int err = pcall(L, 2, 1, 0);
-            if (err == 0 && luatype(L, -1) == LUA_TNUMBER)
-            {
-                const std::uint32_t id =
-                    static_cast<std::uint32_t>(tointeger(L, -1)) & 0x1FFFFu;
-                if (id != 0xFFFFu)
-                {
-                    gameObjectIdOut = id;
-                    ok = true;
-                }
-            }
-
-            settop(L, savedTop);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -169,6 +155,20 @@ namespace
             return false;
         }
 
+        bool ok = false;
+        const int err = pcall(L, 2, 1, 0);   // outside __try: a fault caught through lua_pcall leaves L->errorJmp on a dead frame
+        if (err == 0 && luatype(L, -1) == LUA_TNUMBER)
+        {
+            const std::uint32_t id =
+                static_cast<std::uint32_t>(tointeger(L, -1)) & 0x1FFFFu;
+            if (id != 0xFFFFu)
+            {
+                gameObjectIdOut = id;
+                ok = true;
+            }
+        }
+
+        settop(L, savedTop);
         return ok;
     }
 

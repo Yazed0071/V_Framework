@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <tlhelp32.h>
@@ -178,1783 +178,458 @@ namespace equip
             std::uint8_t   immOff;
         };
 
-        namespace tbl_en154
+        using AddrField = std::uintptr_t AddressSetRuntime::AddressSet::*;
+        using AS = AddressSetRuntime::AddressSet;
+
+        struct CtlDispSiteField
         {
-        static const CtlDispSite kCtlDispSites[] = {
-            { 0x140F64993ull, 0x1E028u, 255, 3 },
-            { 0x140F6499Aull, 0x1E030u, 255, 3 },
-            { 0x140F649A1ull, 0x1E038u, 255, 3 },
-            { 0x140F649C3ull, 0x1FE58u, 255, 3 },
-            { 0x140F649CAull, 0x1FE60u, 255, 3 },
-            { 0x140F649D1ull, 0x1FE68u, 255, 3 },
-            { 0x140F649D8ull, 0x1FE70u, 255, 3 },
-            { 0x140F649DFull, 0x1FE78u, 255, 3 },
-            { 0x140F649E6ull, 0x1FE80u, 255, 3 },
-            { 0x140F649EDull, 0x1FE88u, 255, 3 },
-            { 0x140F649F4ull, 0x1FE90u, 255, 3 },
-            { 0x140F649FBull, 0x1FE98u, 255, 3 },
-            { 0x140F64A02ull, 0x1FEA0u, 255, 3 },
-            { 0x140F64A09ull, 0x1FEA8u, 255, 3 },
-            { 0x140F64A10ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64A17ull, 0x1FEB8u, 255, 3 },
-            { 0x140F64A1Eull, 0x1FEC0u, 255, 3 },
-            { 0x140F64A25ull, 0x1FEC8u, 255, 3 },
-            { 0x140F64A2Cull, 0x1FFC5u, 255, 4 },
-            { 0x140F64A34ull, 0x1FFC7u, 255, 3 },
-            { 0x140F64A3Bull, 0x1FFC8u, 255, 3 },
-            { 0x140F64A4Aull, 0x1E038u, 255, 3 },
-            { 0x140F64A56ull, 0x1FED0u, 255, 3 },
-            { 0x140F64A6Cull, 0x1FF50u, 255, 3 },
-            { 0x140F64A73ull, 0x1FF58u, 255, 3 },
-            { 0x140F64A7Aull, 0x1FF60u, 255, 3 },
-            { 0x140F64A81ull, 0x1FF68u, 255, 3 },
-            { 0x140F64A88ull, 0x1FF70u, 255, 3 },
-            { 0x140F64A8Full, 0x1FF78u, 255, 3 },
-            { 0x140F64A96ull, 0x1FF80u, 255, 3 },
-            { 0x140F64A9Dull, 0x1FF88u, 255, 3 },
-            { 0x140F64AA4ull, 0x1FF90u, 255, 3 },
-            { 0x140F64AABull, 0x1FF98u, 2, 2 },
-            { 0x140F64AB1ull, 0x1FF9Cu, 255, 3 },
-            { 0x140F64AC2ull, 0x1FF9Eu, 255, 3 },
-            { 0x140F64AC9ull, 0x1FFA6u, 255, 3 },
-            { 0x140F64AD0ull, 0x1FFAEu, 255, 3 },
-            { 0x140F64AD7ull, 0x1FFB6u, 255, 3 },
-            { 0x140F64ADEull, 0x1FFBEu, 2, 2 },
-            { 0x140F64AE4ull, 0x1FFC2u, 255, 3 },
-            { 0x140F64AEBull, 0x1FFC4u, 2, 2 },
-            { 0x140F64B11ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64B7Bull, 0x1FEC0u, 255, 3 },
-            { 0x140F64BF2ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64C92ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64E10ull, 0x1FFA8u, 255, 3 },
-            { 0x140F64E20ull, 0x1E018u, 255, 3 },
-            { 0x140F64E6Cull, 0x1E008u, 255, 3 },
-            { 0x140F64E81ull, 0x1FE90u, 255, 3 },
-            { 0x140F64EC0ull, 0x1FE78u, 255, 3 },
-            { 0x140F64EE0ull, 0x1FE78u, 255, 3 },
-            { 0x140F64EF0ull, 0x1FE88u, 255, 3 },
-            { 0x140F64EF7ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64F13ull, 0x1FE90u, 255, 3 },
-            { 0x140F64F26ull, 0x1FE90u, 255, 3 },
-            { 0x140F64F3Full, 0x1FE90u, 255, 3 },
-            { 0x140F64F46ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64F64ull, 0x1E008u, 255, 3 },
-            { 0x140F6502Cull, 0x1E010u, 255, 3 },
-            { 0x140F6532Eull, 0x1E008u, 255, 3 },
-            { 0x140F653A5ull, 0x1E028u, 255, 3 },
-            { 0x140F65487ull, 0x1E028u, 255, 3 },
-            { 0x140F6551Aull, 0x1E028u, 255, 3 },
-            { 0x140F65675ull, 0x1E008u, 255, 3 },
-            { 0x140F65711ull, 0x1E008u, 255, 3 },
-            { 0x140F65783ull, 0x1E008u, 255, 3 },
-            { 0x140F65835ull, 0x1E008u, 255, 3 },
-            { 0x140F658D5ull, 0x1E008u, 255, 3 },
-            { 0x140F65982ull, 0x1E008u, 255, 3 },
-            { 0x140F659E1ull, 0x1E008u, 255, 3 },
-            { 0x140F661C0ull, 0x1E030u, 255, 3 },
-            { 0x140F66200ull, 0x1E030u, 255, 3 },
-            { 0x140F66298ull, 0x1FE60u, 255, 4 },
-            { 0x140F662B3ull, 0x1FE60u, 255, 3 },
-            { 0x140F66DD2ull, 0x1E008u, 255, 3 },
-            { 0x140F66E13ull, 0x1E008u, 255, 3 },
-            { 0x140F66E76ull, 0x1E008u, 255, 3 },
-            { 0x140F66F3Full, 0x1E008u, 255, 3 },
-            { 0x140F671B0ull, 0x1FE50u, 255, 3 },
-            { 0x140F671E5ull, 0x1FE50u, 255, 3 },
-            { 0x140F67213ull, 0x1FE48u, 255, 3 },
-            { 0x140F6724Dull, 0x1FE58u, 255, 3 },
-            { 0x140F674BAull, 0x1FE40u, 255, 3 },
-            { 0x140F674E0ull, 0x1FE40u, 255, 3 },
-            { 0x140F6750Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67556ull, 0x1FE48u, 255, 3 },
-            { 0x140F67566ull, 0x1FE48u, 255, 3 },
-            { 0x140F67576ull, 0x1FE48u, 255, 3 },
-            { 0x140F67586ull, 0x1FE48u, 255, 3 },
-            { 0x140F67596ull, 0x1FE48u, 255, 3 },
-            { 0x140F675A6ull, 0x1FE48u, 255, 3 },
-            { 0x140F675ECull, 0x1FE48u, 255, 3 },
-            { 0x140F675FCull, 0x1FE48u, 255, 3 },
-            { 0x140F6760Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6761Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6762Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6763Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67675ull, 0x1FE50u, 255, 3 },
-            { 0x140F676BAull, 0x1FE50u, 255, 3 },
-            { 0x140F676F0ull, 0x1FE48u, 255, 3 },
-            { 0x140F67733ull, 0x1FE58u, 255, 3 },
-            { 0x140F6778Cull, 0x1FE70u, 255, 3 },
-            { 0x140F67D70ull, 0x1FE40u, 255, 4 },
-            { 0x140F67D89ull, 0x1FE40u, 255, 3 },
-            { 0x140F68040ull, 0x1FEA8u, 255, 4 },
-            { 0x140F68091ull, 0x1FE80u, 255, 3 },
-            { 0x140F680A7ull, 0x1FFA6u, 2, 2 },
-            { 0x140F680ADull, 0x1FF7Eu, 255, 4 },
-            { 0x140F680B7ull, 0x1FF30u, 255, 4 },
-            { 0x140F681E3ull, 0x1FF30u, 255, 5 },
-            { 0x140F681F6ull, 0x1FF7Eu, 255, 5 },
-            { 0x140F6823Cull, 0x1E008u, 255, 3 },
-            { 0x140F682C7ull, 0x1E008u, 255, 3 },
-            { 0x140F68327ull, 0x1E008u, 255, 3 },
-            { 0x140F6837Full, 0x1E028u, 255, 3 },
-            { 0x140F683D3ull, 0x1E008u, 255, 3 },
-            { 0x140F68406ull, 0x1FE40u, 255, 4 },
-            { 0x140F68450ull, 0x1FE40u, 255, 3 },
-            { 0x140F684D0ull, 0x1E008u, 255, 3 },
-            { 0x140F685EBull, 0x1E010u, 255, 3 },
-            { 0x140F686ABull, 0x1E008u, 255, 3 },
-            { 0x140F68838ull, 0x1E030u, 255, 3 },
-            { 0x140F68920ull, 0x1FE48u, 255, 3 },
-            { 0x140F6893Dull, 0x1FE48u, 255, 3 },
-            { 0x140F6895Aull, 0x1FE48u, 255, 3 },
-            { 0x140F68977ull, 0x1FE48u, 255, 3 },
-            { 0x140F68994ull, 0x1FE48u, 255, 3 },
-            { 0x140F689B1ull, 0x1FE48u, 255, 3 },
-            { 0x140F689CEull, 0x1FE48u, 255, 3 },
-            { 0x140F689EBull, 0x1FE48u, 255, 3 },
-            { 0x140F68E6Cull, 0x1FE40u, 255, 3 },
-            { 0x140F68ECCull, 0x1FE48u, 255, 3 },
-            { 0x140F68F18ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F28ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F38ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F48ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F58ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F68ull, 0x1FE48u, 255, 3 },
-            { 0x140F68FBAull, 0x1FE48u, 255, 3 },
-            { 0x140F68FCAull, 0x1FE48u, 255, 3 },
-            { 0x140F68FDAull, 0x1FE48u, 255, 3 },
-            { 0x140F68FEAull, 0x1FE48u, 255, 3 },
-            { 0x140F68FFAull, 0x1FE48u, 255, 3 },
-            { 0x140F6900Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6904Full, 0x1FE50u, 255, 3 },
-            { 0x140F6909Eull, 0x1FE50u, 255, 3 },
-            { 0x140F690DBull, 0x1FE48u, 255, 3 },
-            { 0x140F69124ull, 0x1FE58u, 255, 3 },
-            { 0x140F69178ull, 0x1FE70u, 255, 3 },
-            { 0x140F69340ull, 0x1E008u, 255, 3 },
-            { 0x140F6954Cull, 0x1FE50u, 255, 3 },
-            { 0x140F69588ull, 0x1FE50u, 255, 3 },
-            { 0x140F695C9ull, 0x1FE50u, 255, 3 },
-            { 0x140F695F7ull, 0x1FE50u, 255, 3 },
-            { 0x140F696A3ull, 0x1FE50u, 255, 3 },
-            { 0x140F696E9ull, 0x1FE50u, 255, 3 },
-            { 0x140F69725ull, 0x1FE50u, 255, 3 },
-            { 0x140F69759ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E22ull, 0x1E008u, 255, 3 },
-            { 0x140F6A569ull, 0x1E028u, 255, 3 },
-            { 0x140F6A5FCull, 0x1E028u, 255, 3 },
-            { 0x140F6A692ull, 0x1E028u, 255, 3 },
-            { 0x140F6A730ull, 0x1E028u, 255, 3 },
-            { 0x140F6A8ADull, 0x1FE40u, 255, 3 },
-            { 0x140F6AC4Eull, 0x1E010u, 255, 3 },
-            { 0x140F6AC75ull, 0x1E010u, 255, 3 },
-            { 0x140F6AD2Eull, 0x1E018u, 255, 3 },
-            { 0x140F6ADA0ull, 0x1FE18u, 255, 3 },
-            { 0x140F6ADD0ull, 0x1E018u, 255, 3 },
-            { 0x140F6AE30ull, 0x1E018u, 255, 3 },
-            { 0x140F6BDCEull, 0x1FE50u, 255, 3 },
-            { 0x140F6BE16ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BE49ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BEEEull, 0x1FE50u, 255, 3 },
-            { 0x140F6BF33ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BF67ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C209ull, 0x1FE40u, 255, 3 },
-            { 0x140F6C26Dull, 0x1FE50u, 255, 3 },
-            { 0x140F6C2A7ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C2CDull, 0x1FE50u, 255, 3 },
-            { 0x140F6C364ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C39Bull, 0x1FE50u, 255, 3 },
-            { 0x140F6C3C2ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C770ull, 0x1FEACu, 255, 3 },
-            { 0x140F6C7B5ull, 0x1E008u, 255, 3 },
-            { 0x140F6C869ull, 0x1E030u, 255, 3 },
-            { 0x140F6C876ull, 0x1E028u, 255, 3 },
-            { 0x140F6C8C3ull, 0x1E008u, 255, 3 },
-            { 0x140F6C927ull, 0x1E028u, 255, 3 },
-            { 0x140F6CAB3ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CAD9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB19ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB37ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CBC0ull, 0x1FEADu, 255, 3 },
-            { 0x140F6CC31ull, 0x1E008u, 255, 3 },
-            { 0x140F6CD65ull, 0x1FE78u, 255, 3 },
-            { 0x140F6CD8Bull, 0x1FE68u, 255, 3 },
-            { 0x140F6CDB0ull, 0x1E008u, 255, 3 },
-            { 0x140F6CDD0ull, 0x1E008u, 255, 3 },
-            { 0x140F6CDF0ull, 0x1E008u, 255, 3 },
-            { 0x140F6CE20ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6CEFAull, 0x1E008u, 255, 3 },
-            { 0x140F6CF4Aull, 0x1FE40u, 255, 3 },
-            { 0x140F6CFB1ull, 0x1E008u, 255, 3 },
-            { 0x140F6CFF2ull, 0x1E008u, 255, 3 },
-            { 0x140F6D130ull, 0x1E008u, 255, 3 },
-            { 0x140F6D1B1ull, 0x1FE58u, 255, 3 },
-            { 0x140F6D21Aull, 0x1FE58u, 255, 3 },
-            { 0x140F6D283ull, 0x1FE48u, 255, 3 },
-            { 0x140F6D3B1ull, 0x1FFC6u, 255, 3 },
-            { 0x140F6D452ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6D4B6ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6D4E0ull, 0x1FFA5u, 255, 3 },
-            { 0x140F6D5E3ull, 0x1E010u, 255, 3 },
-            { 0x140F6D838ull, 0x1E010u, 255, 3 },
-            { 0x140F6D9C0ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6DA80ull, 0x1E018u, 255, 3 },
-            { 0x140F6DAF2ull, 0x1FFA7u, 255, 3 },
-            { 0x140F6DAFBull, 0x1E008u, 255, 3 },
-            { 0x140F6DB8Dull, 0x1FE40u, 255, 3 },
-            { 0x140F6DC8Full, 0x1FE50u, 255, 4 },
-            { 0x140F6DEF8ull, 0x1E008u, 255, 3 },
-            { 0x140F6E07Cull, 0x1E008u, 255, 3 },
-            { 0x140F6E0E2ull, 0x1FEACu, 2, 2 },
-            { 0x140F6E0EAull, 0x1FEACu, 2, 2 },
-            { 0x140F6E160ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E170ull, 0x1E008u, 255, 3 },
-            { 0x140F6E540ull, 0x1FEADu, 2, 2 },
-            { 0x140F6E60Full, 0x1E008u, 255, 3 },
-            { 0x140F6E65Bull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E680ull, 0x1FE68u, 255, 3 },
-            { 0x140F6E69Cull, 0x1FE68u, 255, 3 },
-            { 0x140F6E6BBull, 0x1FE68u, 255, 3 },
-            { 0x140F6E6D0ull, 0x1FE60u, 255, 3 },
-            { 0x140F6E6F8ull, 0x1E008u, 255, 3 },
-            { 0x140F6E707ull, 0x1E008u, 255, 3 },
-            { 0x140F6E720ull, 0x1E008u, 255, 3 },
-            { 0x140F6E757ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6E798ull, 0x1E008u, 255, 3 },
-            { 0x140F6E7A8ull, 0x1E008u, 255, 3 },
-            { 0x140F6E7C0ull, 0x1FF7Eu, 255, 3 },
-            { 0x140F6E7C7ull, 0x1FF86u, 255, 3 },
-            { 0x140F6E7CEull, 0x1FF8Eu, 255, 3 },
-            { 0x140F6E7D5ull, 0x1FF96u, 255, 3 },
-            { 0x140F6E7DCull, 0x1FF9Eu, 255, 3 },
-            { 0x140F6E7E3ull, 0x1FFA2u, 255, 4 },
-            { 0x140F6E7EBull, 0x1FFA4u, 255, 3 },
-            { 0x140F6E814ull, 0x1E008u, 255, 3 },
-            { 0x140F6E849ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E878ull, 0x1E008u, 255, 3 },
-            { 0x140F6E887ull, 0x1E008u, 255, 3 },
-            { 0x140F6E94Full, 0x1E030u, 255, 3 },
-            { 0x140F6EA93ull, 0x1E030u, 255, 3 },
-            { 0x140F6EAB2ull, 0x1E030u, 255, 3 },
-            { 0x140F6EAE0ull, 0x1FFA5u, 2, 2 },
-            { 0x140F6EE30ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EE3Aull, 0x1FE38u, 255, 6 },
-            { 0x140F6EE4Bull, 0x1FE38u, 255, 3 },
-            { 0x140F6EE5Aull, 0x1FE18u, 255, 4 },
-            { 0x140F6EE62ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EE69ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EE77ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EE86ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EE8Eull, 0x1FE38u, 255, 3 },
-            { 0x140F6EE95ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EEA3ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEB2ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EEBAull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEC1ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EECFull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEDEull, 0x1FE18u, 255, 4 },
-            { 0x140F6EEE6ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEEDull, 0x1FE48u, 255, 3 },
-            { 0x140F6EEFBull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF0Aull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF12ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF19ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF27ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF36ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF3Eull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF45ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF53ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF62ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF6Aull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF71ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF7Full, 0x1FE38u, 255, 3 },
-            { 0x140F6EF8Eull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF96ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF9Dull, 0x1FE48u, 255, 3 },
-            { 0x140F6EFB5ull, 0x1FE3Cu, 255, 3 },
-            { 0x140F6F007ull, 0x1E030u, 255, 3 },
-            { 0x140F6F0A6ull, 0x1E030u, 255, 3 },
-            { 0x140F6F122ull, 0x1E030u, 255, 3 },
-            { 0x140F6F1CEull, 0x1E030u, 255, 3 },
-            { 0x140F6F671ull, 0x1E028u, 255, 3 },
-            { 0x140F6F6C0ull, 0x1FE40u, 255, 3 },
-            { 0x140F6F6CEull, 0x1FE48u, 255, 3 },
-            { 0x140F6F6DCull, 0x1FE50u, 255, 3 },
-            { 0x140F6F6EAull, 0x1FE58u, 255, 3 },
-            { 0x140F6F6F8ull, 0x1FE60u, 255, 3 },
-            { 0x140F6F703ull, 0x1FE68u, 255, 3 },
-            { 0x140F6F711ull, 0x1FE70u, 255, 3 },
-            { 0x140F6F72Aull, 0x1FE78u, 255, 3 },
-            { 0x140F6F739ull, 0x1FE80u, 255, 3 },
-            { 0x140F6F749ull, 0x1FE88u, 255, 3 },
-            { 0x140F6F758ull, 0x1FE90u, 255, 3 },
-            { 0x140F6F770ull, 0x1FE80u, 255, 3 },
-            { 0x140F6F777ull, 0x1FE98u, 255, 3 },
-            { 0x140F6F78Cull, 0x1FFA6u, 2, 2 },
-            { 0x140F6F7FEull, 0x1FECEu, 255, 3 },
-            { 0x140F6F80Eull, 0x1FEC8u, 255, 5 },
-            { 0x140F6F824ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F858ull, 0x1FE98u, 255, 3 },
-            { 0x140F6F87Dull, 0x1FE98u, 255, 3 },
-            { 0x140F6F889ull, 0x1FEA8u, 255, 3 },
-            { 0x140F6F890ull, 0x1FED0u, 255, 3 },
-            { 0x140F6F8ACull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F8C2ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F8DBull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F8E2ull, 0x1FED0u, 255, 3 },
-            { 0x140F6F90Bull, 0x1FECEu, 255, 3 },
-            { 0x140F6F9BFull, 0x1FEA8u, 255, 5 },
-            { 0x140F6FA66ull, 0x1FEAEu, 255, 4 },
-            { 0x140F6FA76ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FA9Dull, 0x1FE78u, 255, 3 },
-            { 0x140F6FAC0ull, 0x1FE78u, 255, 3 },
-            { 0x140F6FAD0ull, 0x1FE88u, 255, 3 },
-            { 0x140F6FAD7ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6FAF3ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FB06ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FB1Full, 0x1FE90u, 255, 3 },
-            { 0x140F6FB26ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6FB60ull, 0x1FEAEu, 255, 4 },
-            { 0x140F6FBA9ull, 0x1FE40u, 255, 3 },
-            { 0x140F6FBEAull, 0x1FEA8u, 255, 3 },
-            { 0x140F6FC19ull, 0x1FE40u, 255, 3 },
-            { 0x140F6FC2Eull, 0x1FFA5u, 255, 3 },
-            { 0x140F6FC35ull, 0x1FFA7u, 2, 2 },
-            { 0x140F6FC3Dull, 0x1FEADu, 255, 3 },
-            { 0x140F6FC44ull, 0x1FEA8u, 255, 4 },
-            { 0x140F6FC4Cull, 0x1FEA8u, 255, 4 },
-            { 0x140F6FC9Cull, 0x1E010u, 255, 3 },
-            { 0x140F6FD1Aull, 0x1E010u, 255, 3 },
-            { 0x140F6FD4Bull, 0x1E010u, 255, 3 },
-            { 0x140F6FD5Dull, 0x1E010u, 255, 3 },
-            { 0x140F6FD7Dull, 0x1E010u, 255, 3 },
-            { 0x140F6FD8Cull, 0x1E010u, 255, 3 },
-            { 0x140F6FDB3ull, 0x1E010u, 255, 3 },
-            { 0x140F6FDC5ull, 0x1E010u, 255, 3 },
-            { 0x140F6FDE0ull, 0x1E010u, 255, 3 },
-            { 0x140F6FDEFull, 0x1E010u, 255, 3 },
-            { 0x140F6FF36ull, 0x1E018u, 255, 3 },
-            { 0x140F700F5ull, 0x1FE90u, 255, 3 },
-            { 0x140F7010Full, 0x1FE88u, 255, 3 },
-            { 0x140F70116ull, 0x1FEB0u, 255, 3 },
-            { 0x140F70135ull, 0x1FE90u, 255, 3 },
-            { 0x140F70153ull, 0x1FE90u, 255, 3 },
-            { 0x140F7017Bull, 0x1FE90u, 255, 3 },
-            { 0x140F7018Eull, 0x1FE90u, 255, 3 },
-            { 0x140F70195ull, 0x1FEB0u, 255, 3 },
-            { 0x147F32D65ull, 0x1E008u, 3, 3 },
-            { 0x147F32D87ull, 0x1FE58u, 3, 3 },
-            { 0x147F32DA6ull, 0x1FE58u, 3, 3 },
+            AddrField     addr;
+            std::uint32_t oldDisp;
+            std::uint8_t  dispOff;
+            std::uint8_t  maxOff;
         };
 
-        static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F64DBDull, 1 },
-            { 0x140F652EBull, 1 },
-            { 0x140F655D0ull, 1 },
-            { 0x140F657ABull, 1 },
-            { 0x140F65809ull, 2 },
-            { 0x140F658A9ull, 2 },
-            { 0x140F6594Dull, 2 },
-            { 0x140F65C80ull, 1 },
-            { 0x140F6693Aull, 1 },
-            { 0x140F66DA1ull, 2 },
-            { 0x140F66F8Cull, 1 },
-            { 0x140F6700Aull, 2 },
-            { 0x140F670D0ull, 1 },
-            { 0x140F672C5ull, 1 },
-            { 0x140F6747Eull, 1 },
-            { 0x140F6780Aull, 1 },
-            { 0x140F6792Bull, 1 },
-            { 0x140F67DDAull, 1 },
-            { 0x140F68050ull, 1 },
-            { 0x140F68227ull, 2 },
-            { 0x140F6829Aull, 2 },
-            { 0x140F68317ull, 2 },
-            { 0x140F68362ull, 2 },
-            { 0x140F683BDull, 2 },
-            { 0x140F684DEull, 2 },
-            { 0x140F6854Aull, 1 },
-            { 0x140F68683ull, 2 },
-            { 0x140F68857ull, 2 },
-            { 0x140F68E1Eull, 1 },
-            { 0x140F69202ull, 2 },
-            { 0x140F6931Full, 1 },
-            { 0x140F694CDull, 1 },
-            { 0x140F69CBBull, 2 },
-            { 0x140F69E94ull, 2 },
-            { 0x140F6A26Aull, 1 },
-            { 0x140F6A542ull, 1 },
-            { 0x140F6A62Aull, 1 },
-            { 0x140F6A66Aull, 1 },
-            { 0x140F6A74Aull, 1 },
-            { 0x140F6BD55ull, 1 },
-            { 0x140F6BFC5ull, 1 },
-            { 0x140F6C1E5ull, 1 },
-            { 0x140F6C415ull, 1 },
-            { 0x140F6C5C5ull, 1 },
-            { 0x140F6C79Cull, 2 },
-            { 0x140F6C893ull, 2 },
-            { 0x140F6C8F8ull, 1 },
-            { 0x140F6C993ull, 1 },
-            { 0x140F6CBF0ull, 2 },
-            { 0x140F6CE13ull, 1 },
-            { 0x140F6DD95ull, 1 },
-            { 0x140F6DE4Full, 1 },
-            { 0x140F6E501ull, 1 },
-            { 0x140F6E5D0ull, 1 },
-            { 0x140F6E73Aull, 1 },
-            { 0x140F6EB19ull, 1 },
-            { 0x140F6EB67ull, 2 },
-            { 0x140F6EBCEull, 1 },
-            { 0x140F6EBFFull, 2 },
-            { 0x140F6EC74ull, 1 },
-            { 0x140F6ECBBull, 2 },
-            { 0x140F6ED1Full, 1 },
-            { 0x140F6EDA0ull, 1 },
-            { 0x140F6F652ull, 1 },
-            { 0x140F71002ull, 3 },
-        };
-        }
-
-        namespace tbl_jp154
+        struct BoundImmSiteField
         {
-        static const CtlDispSite kCtlDispSites[] = {
-            { 0x140F649F3ull, 0x1E028u, 255, 3 },
-            { 0x140F649FAull, 0x1E030u, 255, 3 },
-            { 0x140F64A01ull, 0x1E038u, 255, 3 },
-            { 0x140F64A23ull, 0x1FE58u, 255, 3 },
-            { 0x140F64A2Aull, 0x1FE60u, 255, 3 },
-            { 0x140F64A31ull, 0x1FE68u, 255, 3 },
-            { 0x140F64A38ull, 0x1FE70u, 255, 3 },
-            { 0x140F64A3Full, 0x1FE78u, 255, 3 },
-            { 0x140F64A46ull, 0x1FE80u, 255, 3 },
-            { 0x140F64A4Dull, 0x1FE88u, 255, 3 },
-            { 0x140F64A54ull, 0x1FE90u, 255, 3 },
-            { 0x140F64A5Bull, 0x1FE98u, 255, 3 },
-            { 0x140F64A62ull, 0x1FEA0u, 255, 3 },
-            { 0x140F64A69ull, 0x1FEA8u, 255, 3 },
-            { 0x140F64A70ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64A77ull, 0x1FEB8u, 255, 3 },
-            { 0x140F64A7Eull, 0x1FEC0u, 255, 3 },
-            { 0x140F64A85ull, 0x1FEC8u, 255, 3 },
-            { 0x140F64A8Cull, 0x1FFC5u, 255, 4 },
-            { 0x140F64A94ull, 0x1FFC7u, 255, 3 },
-            { 0x140F64A9Bull, 0x1FFC8u, 255, 3 },
-            { 0x140F64AAAull, 0x1E038u, 255, 3 },
-            { 0x140F64AB6ull, 0x1FED0u, 255, 3 },
-            { 0x140F64ACCull, 0x1FF50u, 255, 3 },
-            { 0x140F64AD3ull, 0x1FF58u, 255, 3 },
-            { 0x140F64ADAull, 0x1FF60u, 255, 3 },
-            { 0x140F64AE1ull, 0x1FF68u, 255, 3 },
-            { 0x140F64AE8ull, 0x1FF70u, 255, 3 },
-            { 0x140F64AEFull, 0x1FF78u, 255, 3 },
-            { 0x140F64AF6ull, 0x1FF80u, 255, 3 },
-            { 0x140F64AFDull, 0x1FF88u, 255, 3 },
-            { 0x140F64B04ull, 0x1FF90u, 255, 3 },
-            { 0x140F64B0Bull, 0x1FF98u, 2, 2 },
-            { 0x140F64B11ull, 0x1FF9Cu, 255, 3 },
-            { 0x140F64B22ull, 0x1FF9Eu, 255, 3 },
-            { 0x140F64B29ull, 0x1FFA6u, 255, 3 },
-            { 0x140F64B30ull, 0x1FFAEu, 255, 3 },
-            { 0x140F64B37ull, 0x1FFB6u, 255, 3 },
-            { 0x140F64B3Eull, 0x1FFBEu, 2, 2 },
-            { 0x140F64B44ull, 0x1FFC2u, 255, 3 },
-            { 0x140F64B4Bull, 0x1FFC4u, 2, 2 },
-            { 0x140F64B71ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64BDBull, 0x1FEC0u, 255, 3 },
-            { 0x140F64C52ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64CF2ull, 0x1FEC0u, 255, 3 },
-            { 0x140F64E70ull, 0x1FFA8u, 255, 3 },
-            { 0x140F64E80ull, 0x1E018u, 255, 3 },
-            { 0x140F64ECCull, 0x1E008u, 255, 3 },
-            { 0x140F64EE1ull, 0x1FE90u, 255, 3 },
-            { 0x140F64F20ull, 0x1FE78u, 255, 3 },
-            { 0x140F64F40ull, 0x1FE78u, 255, 3 },
-            { 0x140F64F50ull, 0x1FE88u, 255, 3 },
-            { 0x140F64F57ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64F73ull, 0x1FE90u, 255, 3 },
-            { 0x140F64F86ull, 0x1FE90u, 255, 3 },
-            { 0x140F64F9Full, 0x1FE90u, 255, 3 },
-            { 0x140F64FA6ull, 0x1FEB0u, 255, 3 },
-            { 0x140F64FC4ull, 0x1E008u, 255, 3 },
-            { 0x140F6508Cull, 0x1E010u, 255, 3 },
-            { 0x140F6538Eull, 0x1E008u, 255, 3 },
-            { 0x140F65405ull, 0x1E028u, 255, 3 },
-            { 0x140F654E7ull, 0x1E028u, 255, 3 },
-            { 0x140F6557Aull, 0x1E028u, 255, 3 },
-            { 0x140F656D5ull, 0x1E008u, 255, 3 },
-            { 0x140F65771ull, 0x1E008u, 255, 3 },
-            { 0x140F657E3ull, 0x1E008u, 255, 3 },
-            { 0x140F65895ull, 0x1E008u, 255, 3 },
-            { 0x140F65935ull, 0x1E008u, 255, 3 },
-            { 0x140F659E2ull, 0x1E008u, 255, 3 },
-            { 0x140F65A41ull, 0x1E008u, 255, 3 },
-            { 0x140F66220ull, 0x1E030u, 255, 3 },
-            { 0x140F66260ull, 0x1E030u, 255, 3 },
-            { 0x140F662F8ull, 0x1FE60u, 255, 4 },
-            { 0x140F66313ull, 0x1FE60u, 255, 3 },
-            { 0x140F66E32ull, 0x1E008u, 255, 3 },
-            { 0x140F66E73ull, 0x1E008u, 255, 3 },
-            { 0x140F66ED6ull, 0x1E008u, 255, 3 },
-            { 0x140F66F9Full, 0x1E008u, 255, 3 },
-            { 0x140F67210ull, 0x1FE50u, 255, 3 },
-            { 0x140F67245ull, 0x1FE50u, 255, 3 },
-            { 0x140F67273ull, 0x1FE48u, 255, 3 },
-            { 0x140F672ADull, 0x1FE58u, 255, 3 },
-            { 0x140F6751Aull, 0x1FE40u, 255, 3 },
-            { 0x140F67540ull, 0x1FE40u, 255, 3 },
-            { 0x140F6756Cull, 0x1FE48u, 255, 3 },
-            { 0x140F675B6ull, 0x1FE48u, 255, 3 },
-            { 0x140F675C6ull, 0x1FE48u, 255, 3 },
-            { 0x140F675D6ull, 0x1FE48u, 255, 3 },
-            { 0x140F675E6ull, 0x1FE48u, 255, 3 },
-            { 0x140F675F6ull, 0x1FE48u, 255, 3 },
-            { 0x140F67606ull, 0x1FE48u, 255, 3 },
-            { 0x140F6764Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6765Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6766Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6767Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6768Cull, 0x1FE48u, 255, 3 },
-            { 0x140F6769Cull, 0x1FE48u, 255, 3 },
-            { 0x140F676D5ull, 0x1FE50u, 255, 3 },
-            { 0x140F6771Aull, 0x1FE50u, 255, 3 },
-            { 0x140F67750ull, 0x1FE48u, 255, 3 },
-            { 0x140F67793ull, 0x1FE58u, 255, 3 },
-            { 0x140F677ECull, 0x1FE70u, 255, 3 },
-            { 0x140F67DD0ull, 0x1FE40u, 255, 4 },
-            { 0x140F67DE9ull, 0x1FE40u, 255, 3 },
-            { 0x140F680A0ull, 0x1FEA8u, 255, 4 },
-            { 0x140F680F1ull, 0x1FE80u, 255, 3 },
-            { 0x140F68107ull, 0x1FFA6u, 2, 2 },
-            { 0x140F6810Dull, 0x1FF7Eu, 255, 4 },
-            { 0x140F68117ull, 0x1FF30u, 255, 4 },
-            { 0x140F68243ull, 0x1FF30u, 255, 5 },
-            { 0x140F68256ull, 0x1FF7Eu, 255, 5 },
-            { 0x140F6829Cull, 0x1E008u, 255, 3 },
-            { 0x140F68327ull, 0x1E008u, 255, 3 },
-            { 0x140F68387ull, 0x1E008u, 255, 3 },
-            { 0x140F683DFull, 0x1E028u, 255, 3 },
-            { 0x140F68433ull, 0x1E008u, 255, 3 },
-            { 0x140F68466ull, 0x1FE40u, 255, 4 },
-            { 0x140F684B0ull, 0x1FE40u, 255, 3 },
-            { 0x140F68530ull, 0x1E008u, 255, 3 },
-            { 0x140F6864Bull, 0x1E010u, 255, 3 },
-            { 0x140F6870Bull, 0x1E008u, 255, 3 },
-            { 0x140F68898ull, 0x1E030u, 255, 3 },
-            { 0x140F68980ull, 0x1FE48u, 255, 3 },
-            { 0x140F6899Dull, 0x1FE48u, 255, 3 },
-            { 0x140F689BAull, 0x1FE48u, 255, 3 },
-            { 0x140F689D7ull, 0x1FE48u, 255, 3 },
-            { 0x140F689F4ull, 0x1FE48u, 255, 3 },
-            { 0x140F68A11ull, 0x1FE48u, 255, 3 },
-            { 0x140F68A2Eull, 0x1FE48u, 255, 3 },
-            { 0x140F68A4Bull, 0x1FE48u, 255, 3 },
-            { 0x140F68ECCull, 0x1FE40u, 255, 3 },
-            { 0x140F68F2Cull, 0x1FE48u, 255, 3 },
-            { 0x140F68F78ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F88ull, 0x1FE48u, 255, 3 },
-            { 0x140F68F98ull, 0x1FE48u, 255, 3 },
-            { 0x140F68FA8ull, 0x1FE48u, 255, 3 },
-            { 0x140F68FB8ull, 0x1FE48u, 255, 3 },
-            { 0x140F68FC8ull, 0x1FE48u, 255, 3 },
-            { 0x140F6901Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6902Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6903Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6904Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6905Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6906Aull, 0x1FE48u, 255, 3 },
-            { 0x140F690AFull, 0x1FE50u, 255, 3 },
-            { 0x140F690FEull, 0x1FE50u, 255, 3 },
-            { 0x140F6913Bull, 0x1FE48u, 255, 3 },
-            { 0x140F69184ull, 0x1FE58u, 255, 3 },
-            { 0x140F691D8ull, 0x1FE70u, 255, 3 },
-            { 0x140F693A0ull, 0x1E008u, 255, 3 },
-            { 0x140F695ACull, 0x1FE50u, 255, 3 },
-            { 0x140F695E8ull, 0x1FE50u, 255, 3 },
-            { 0x140F69629ull, 0x1FE50u, 255, 3 },
-            { 0x140F69657ull, 0x1FE50u, 255, 3 },
-            { 0x140F69703ull, 0x1FE50u, 255, 3 },
-            { 0x140F69749ull, 0x1FE50u, 255, 3 },
-            { 0x140F69785ull, 0x1FE50u, 255, 3 },
-            { 0x140F697B9ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E82ull, 0x1E008u, 255, 3 },
-            { 0x140F6A5C9ull, 0x1E028u, 255, 3 },
-            { 0x140F6A65Cull, 0x1E028u, 255, 3 },
-            { 0x140F6A6F2ull, 0x1E028u, 255, 3 },
-            { 0x140F6A790ull, 0x1E028u, 255, 3 },
-            { 0x140F6A90Dull, 0x1FE40u, 255, 3 },
-            { 0x140F6ACAEull, 0x1E010u, 255, 3 },
-            { 0x140F6ACD5ull, 0x1E010u, 255, 3 },
-            { 0x140F6AD8Eull, 0x1E018u, 255, 3 },
-            { 0x140F6AE00ull, 0x1FE18u, 255, 3 },
-            { 0x140F6AE30ull, 0x1E018u, 255, 3 },
-            { 0x140F6AE90ull, 0x1E018u, 255, 3 },
-            { 0x140F6BE2Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6BE76ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BEA9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BF4Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6BF93ull, 0x1FE50u, 255, 3 },
-            { 0x140F6BFC7ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C269ull, 0x1FE40u, 255, 3 },
-            { 0x140F6C2CDull, 0x1FE50u, 255, 3 },
-            { 0x140F6C307ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C32Dull, 0x1FE50u, 255, 3 },
-            { 0x140F6C3C4ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C3FBull, 0x1FE50u, 255, 3 },
-            { 0x140F6C422ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C7D0ull, 0x1FEACu, 255, 3 },
-            { 0x140F6C815ull, 0x1E008u, 255, 3 },
-            { 0x140F6C8C9ull, 0x1E030u, 255, 3 },
-            { 0x140F6C8D6ull, 0x1E028u, 255, 3 },
-            { 0x140F6C923ull, 0x1E008u, 255, 3 },
-            { 0x140F6C987ull, 0x1E028u, 255, 3 },
-            { 0x140F6CB13ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB39ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB79ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB97ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CC20ull, 0x1FEADu, 255, 3 },
-            { 0x140F6CC91ull, 0x1E008u, 255, 3 },
-            { 0x140F6CDC5ull, 0x1FE78u, 255, 3 },
-            { 0x140F6CDEBull, 0x1FE68u, 255, 3 },
-            { 0x140F6CE10ull, 0x1E008u, 255, 3 },
-            { 0x140F6CE30ull, 0x1E008u, 255, 3 },
-            { 0x140F6CE50ull, 0x1E008u, 255, 3 },
-            { 0x140F6CE80ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6CF5Aull, 0x1E008u, 255, 3 },
-            { 0x140F6CFAAull, 0x1FE40u, 255, 3 },
-            { 0x140F6D011ull, 0x1E008u, 255, 3 },
-            { 0x140F6D052ull, 0x1E008u, 255, 3 },
-            { 0x140F6D190ull, 0x1E008u, 255, 3 },
-            { 0x140F6D211ull, 0x1FE58u, 255, 3 },
-            { 0x140F6D27Aull, 0x1FE58u, 255, 3 },
-            { 0x140F6D2E3ull, 0x1FE48u, 255, 3 },
-            { 0x140F6D411ull, 0x1FFC6u, 255, 3 },
-            { 0x140F6D4B2ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6D516ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6D540ull, 0x1FFA5u, 255, 3 },
-            { 0x140F6D643ull, 0x1E010u, 255, 3 },
-            { 0x140F6D898ull, 0x1E010u, 255, 3 },
-            { 0x140F6DA20ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6DAE0ull, 0x1E018u, 255, 3 },
-            { 0x140F6DB52ull, 0x1FFA7u, 255, 3 },
-            { 0x140F6DB5Bull, 0x1E008u, 255, 3 },
-            { 0x140F6DBEDull, 0x1FE40u, 255, 3 },
-            { 0x140F6DCEFull, 0x1FE50u, 255, 4 },
-            { 0x140F6DF58ull, 0x1E008u, 255, 3 },
-            { 0x140F6E0DCull, 0x1E008u, 255, 3 },
-            { 0x140F6E142ull, 0x1FEACu, 2, 2 },
-            { 0x140F6E14Aull, 0x1FEACu, 2, 2 },
-            { 0x140F6E1C0ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E1D0ull, 0x1E008u, 255, 3 },
-            { 0x140F6E5A0ull, 0x1FEADu, 2, 2 },
-            { 0x140F6E66Full, 0x1E008u, 255, 3 },
-            { 0x140F6E6BBull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E6E0ull, 0x1FE68u, 255, 3 },
-            { 0x140F6E6FCull, 0x1FE68u, 255, 3 },
-            { 0x140F6E71Bull, 0x1FE68u, 255, 3 },
-            { 0x140F6E730ull, 0x1FE60u, 255, 3 },
-            { 0x140F6E758ull, 0x1E008u, 255, 3 },
-            { 0x140F6E767ull, 0x1E008u, 255, 3 },
-            { 0x140F6E780ull, 0x1E008u, 255, 3 },
-            { 0x140F6E7B7ull, 0x1FEA0u, 255, 3 },
-            { 0x140F6E7F8ull, 0x1E008u, 255, 3 },
-            { 0x140F6E808ull, 0x1E008u, 255, 3 },
-            { 0x140F6E820ull, 0x1FF7Eu, 255, 3 },
-            { 0x140F6E827ull, 0x1FF86u, 255, 3 },
-            { 0x140F6E82Eull, 0x1FF8Eu, 255, 3 },
-            { 0x140F6E835ull, 0x1FF96u, 255, 3 },
-            { 0x140F6E83Cull, 0x1FF9Eu, 255, 3 },
-            { 0x140F6E843ull, 0x1FFA2u, 255, 4 },
-            { 0x140F6E84Bull, 0x1FFA4u, 255, 3 },
-            { 0x140F6E874ull, 0x1E008u, 255, 3 },
-            { 0x140F6E8A9ull, 0x1FFA8u, 255, 3 },
-            { 0x140F6E8D8ull, 0x1E008u, 255, 3 },
-            { 0x140F6E8E7ull, 0x1E008u, 255, 3 },
-            { 0x140F6E9AFull, 0x1E030u, 255, 3 },
-            { 0x140F6EAF3ull, 0x1E030u, 255, 3 },
-            { 0x140F6EB12ull, 0x1E030u, 255, 3 },
-            { 0x140F6EB40ull, 0x1FFA5u, 2, 2 },
-            { 0x140F6EE90ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EE9Aull, 0x1FE38u, 255, 6 },
-            { 0x140F6EEABull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEBAull, 0x1FE18u, 255, 4 },
-            { 0x140F6EEC2ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEC9ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EED7ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEE6ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EEEEull, 0x1FE38u, 255, 3 },
-            { 0x140F6EEF5ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF03ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF12ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF1Aull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF21ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF2Full, 0x1FE38u, 255, 3 },
-            { 0x140F6EF3Eull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF46ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF4Dull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF5Bull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF6Aull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF72ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF79ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EF87ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EF96ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EF9Eull, 0x1FE38u, 255, 3 },
-            { 0x140F6EFA5ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EFB3ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EFC2ull, 0x1FE18u, 255, 4 },
-            { 0x140F6EFCAull, 0x1FE38u, 255, 3 },
-            { 0x140F6EFD1ull, 0x1FE48u, 255, 3 },
-            { 0x140F6EFDFull, 0x1FE38u, 255, 3 },
-            { 0x140F6EFEEull, 0x1FE18u, 255, 4 },
-            { 0x140F6EFF6ull, 0x1FE38u, 255, 3 },
-            { 0x140F6EFFDull, 0x1FE48u, 255, 3 },
-            { 0x140F6F015ull, 0x1FE3Cu, 255, 3 },
-            { 0x140F6F067ull, 0x1E030u, 255, 3 },
-            { 0x140F6F106ull, 0x1E030u, 255, 3 },
-            { 0x140F6F182ull, 0x1E030u, 255, 3 },
-            { 0x140F6F22Eull, 0x1E030u, 255, 3 },
-            { 0x140F6F6D1ull, 0x1E028u, 255, 3 },
-            { 0x140F6F720ull, 0x1FE40u, 255, 3 },
-            { 0x140F6F72Eull, 0x1FE48u, 255, 3 },
-            { 0x140F6F73Cull, 0x1FE50u, 255, 3 },
-            { 0x140F6F74Aull, 0x1FE58u, 255, 3 },
-            { 0x140F6F758ull, 0x1FE60u, 255, 3 },
-            { 0x140F6F763ull, 0x1FE68u, 255, 3 },
-            { 0x140F6F771ull, 0x1FE70u, 255, 3 },
-            { 0x140F6F78Aull, 0x1FE78u, 255, 3 },
-            { 0x140F6F799ull, 0x1FE80u, 255, 3 },
-            { 0x140F6F7A9ull, 0x1FE88u, 255, 3 },
-            { 0x140F6F7B8ull, 0x1FE90u, 255, 3 },
-            { 0x140F6F7D0ull, 0x1FE80u, 255, 3 },
-            { 0x140F6F7D7ull, 0x1FE98u, 255, 3 },
-            { 0x140F6F7ECull, 0x1FFA6u, 2, 2 },
-            { 0x140F6F85Eull, 0x1FECEu, 255, 3 },
-            { 0x140F6F86Eull, 0x1FEC8u, 255, 5 },
-            { 0x140F6F884ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F8B8ull, 0x1FE98u, 255, 3 },
-            { 0x140F6F8DDull, 0x1FE98u, 255, 3 },
-            { 0x140F6F8E9ull, 0x1FEA8u, 255, 3 },
-            { 0x140F6F8F0ull, 0x1FED0u, 255, 3 },
-            { 0x140F6F90Cull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F922ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F93Bull, 0x1FEB0u, 255, 3 },
-            { 0x140F6F942ull, 0x1FED0u, 255, 3 },
-            { 0x140F6F96Bull, 0x1FECEu, 255, 3 },
-            { 0x140F6FA1Full, 0x1FEA8u, 255, 5 },
-            { 0x140F6FAC6ull, 0x1FEAEu, 255, 4 },
-            { 0x140F6FAD6ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FAFDull, 0x1FE78u, 255, 3 },
-            { 0x140F6FB20ull, 0x1FE78u, 255, 3 },
-            { 0x140F6FB30ull, 0x1FE88u, 255, 3 },
-            { 0x140F6FB37ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6FB53ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FB66ull, 0x1FE90u, 255, 3 },
-            { 0x140F6FB7Full, 0x1FE90u, 255, 3 },
-            { 0x140F6FB86ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6FBC0ull, 0x1FEAEu, 255, 4 },
-            { 0x140F6FC09ull, 0x1FE40u, 255, 3 },
-            { 0x140F6FC4Aull, 0x1FEA8u, 255, 3 },
-            { 0x140F6FC79ull, 0x1FE40u, 255, 3 },
-            { 0x140F6FC8Eull, 0x1FFA5u, 255, 3 },
-            { 0x140F6FC95ull, 0x1FFA7u, 2, 2 },
-            { 0x140F6FC9Dull, 0x1FEADu, 255, 3 },
-            { 0x140F6FCA4ull, 0x1FEA8u, 255, 4 },
-            { 0x140F6FCACull, 0x1FEA8u, 255, 4 },
-            { 0x140F6FCFCull, 0x1E010u, 255, 3 },
-            { 0x140F6FD7Aull, 0x1E010u, 255, 3 },
-            { 0x140F6FDABull, 0x1E010u, 255, 3 },
-            { 0x140F6FDBDull, 0x1E010u, 255, 3 },
-            { 0x140F6FDDDull, 0x1E010u, 255, 3 },
-            { 0x140F6FDECull, 0x1E010u, 255, 3 },
-            { 0x140F6FE13ull, 0x1E010u, 255, 3 },
-            { 0x140F6FE25ull, 0x1E010u, 255, 3 },
-            { 0x140F6FE40ull, 0x1E010u, 255, 3 },
-            { 0x140F6FE4Full, 0x1E010u, 255, 3 },
-            { 0x140F6FF96ull, 0x1E018u, 255, 3 },
-            { 0x140F70155ull, 0x1FE90u, 255, 3 },
-            { 0x140F7016Full, 0x1FE88u, 255, 3 },
-            { 0x140F70176ull, 0x1FEB0u, 255, 3 },
-            { 0x140F70195ull, 0x1FE90u, 255, 3 },
-            { 0x140F701B3ull, 0x1FE90u, 255, 3 },
-            { 0x140F701DBull, 0x1FE90u, 255, 3 },
-            { 0x140F701EEull, 0x1FE90u, 255, 3 },
-            { 0x140F701F5ull, 0x1FEB0u, 255, 3 },
-            { 0x14801E985ull, 0x1E008u, 3, 3 },
-            { 0x14801E9A8ull, 0x1FE58u, 3, 3 },
-            { 0x14801E9C7ull, 0x1FE58u, 3, 3 },
+            AddrField    addr;
+            std::uint8_t immOff;
         };
 
-        static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F64E1Dull, 1 },
-            { 0x140F6534Bull, 1 },
-            { 0x140F65630ull, 1 },
-            { 0x140F6580Bull, 1 },
-            { 0x140F65869ull, 2 },
-            { 0x140F65909ull, 2 },
-            { 0x140F659ADull, 2 },
-            { 0x140F65CE0ull, 1 },
-            { 0x140F6699Aull, 1 },
-            { 0x140F66E01ull, 2 },
-            { 0x140F66FECull, 1 },
-            { 0x140F6706Aull, 2 },
-            { 0x140F67130ull, 1 },
-            { 0x140F67325ull, 1 },
-            { 0x140F674DEull, 1 },
-            { 0x140F6786Aull, 1 },
-            { 0x140F6798Bull, 1 },
-            { 0x140F67E3Aull, 1 },
-            { 0x140F680B0ull, 1 },
-            { 0x140F68287ull, 2 },
-            { 0x140F682FAull, 2 },
-            { 0x140F68377ull, 2 },
-            { 0x140F683C2ull, 2 },
-            { 0x140F6841Dull, 2 },
-            { 0x140F6853Eull, 2 },
-            { 0x140F685AAull, 1 },
-            { 0x140F686E3ull, 2 },
-            { 0x140F688B7ull, 2 },
-            { 0x140F68E7Eull, 1 },
-            { 0x140F69262ull, 2 },
-            { 0x140F6937Full, 1 },
-            { 0x140F6952Dull, 1 },
-            { 0x140F69D1Bull, 2 },
-            { 0x140F69EF4ull, 2 },
-            { 0x140F6A2CAull, 1 },
-            { 0x140F6A5A2ull, 1 },
-            { 0x140F6A68Aull, 1 },
-            { 0x140F6A6CAull, 1 },
-            { 0x140F6A7AAull, 1 },
-            { 0x140F6BDB5ull, 1 },
-            { 0x140F6C025ull, 1 },
-            { 0x140F6C245ull, 1 },
-            { 0x140F6C475ull, 1 },
-            { 0x140F6C625ull, 1 },
-            { 0x140F6C7FCull, 2 },
-            { 0x140F6C8F3ull, 2 },
-            { 0x140F6C958ull, 1 },
-            { 0x140F6C9F3ull, 1 },
-            { 0x140F6CC50ull, 2 },
-            { 0x140F6CE73ull, 1 },
-            { 0x140F6DDF5ull, 1 },
-            { 0x140F6DEAFull, 1 },
-            { 0x140F6E561ull, 1 },
-            { 0x140F6E630ull, 1 },
-            { 0x140F6E79Aull, 1 },
-            { 0x140F6EB79ull, 1 },
-            { 0x140F6EBC7ull, 2 },
-            { 0x140F6EC2Eull, 1 },
-            { 0x140F6EC5Full, 2 },
-            { 0x140F6ECD4ull, 1 },
-            { 0x140F6ED1Bull, 2 },
-            { 0x140F6ED7Full, 1 },
-            { 0x140F6EE00ull, 1 },
-            { 0x140F6F6B2ull, 1 },
-            { 0x140F71062ull, 3 },
-        };
-        }
-
-        namespace tbl_en153
-        {
-        static const CtlDispSite kCtlDispSites[] = {
-            { 0x140F655FCull, 0x1E008u, 255, 3 },
-            { 0x140F65611ull, 0x1FE90u, 255, 3 },
-            { 0x140F65650ull, 0x1FE78u, 255, 3 },
-            { 0x140F65670ull, 0x1FE78u, 255, 3 },
-            { 0x140F65680ull, 0x1FE88u, 255, 3 },
-            { 0x140F65687ull, 0x1FEB0u, 255, 3 },
-            { 0x140F656A3ull, 0x1FE90u, 255, 3 },
-            { 0x140F656B6ull, 0x1FE90u, 255, 3 },
-            { 0x140F656CFull, 0x1FE90u, 255, 3 },
-            { 0x140F656D6ull, 0x1FEB0u, 255, 3 },
-            { 0x140F656F4ull, 0x1E008u, 255, 3 },
-            { 0x140F657BCull, 0x1E010u, 255, 3 },
-            { 0x140F65B35ull, 0x1E028u, 255, 3 },
-            { 0x140F65C17ull, 0x1E028u, 255, 3 },
-            { 0x140F65CAAull, 0x1E028u, 255, 3 },
-            { 0x140F65E05ull, 0x1E008u, 255, 3 },
-            { 0x140F65EA1ull, 0x1E008u, 255, 3 },
-            { 0x140F65F13ull, 0x1E008u, 255, 3 },
-            { 0x140F67562ull, 0x1E008u, 255, 3 },
-            { 0x140F675A3ull, 0x1E008u, 255, 3 },
-            { 0x140F67606ull, 0x1E008u, 255, 3 },
-            { 0x140F676CFull, 0x1E008u, 255, 3 },
-            { 0x140F67940ull, 0x1FE50u, 255, 3 },
-            { 0x140F67975ull, 0x1FE50u, 255, 3 },
-            { 0x140F679A3ull, 0x1FE48u, 255, 3 },
-            { 0x140F679DDull, 0x1FE58u, 255, 3 },
-            { 0x140F67C4Aull, 0x1FE40u, 255, 3 },
-            { 0x140F67C70ull, 0x1FE40u, 255, 3 },
-            { 0x140F67C9Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67CE6ull, 0x1FE48u, 255, 3 },
-            { 0x140F67CF6ull, 0x1FE48u, 255, 3 },
-            { 0x140F67D06ull, 0x1FE48u, 255, 3 },
-            { 0x140F67D16ull, 0x1FE48u, 255, 3 },
-            { 0x140F67D26ull, 0x1FE48u, 255, 3 },
-            { 0x140F67D36ull, 0x1FE48u, 255, 3 },
-            { 0x140F67D7Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67D8Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67D9Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67DACull, 0x1FE48u, 255, 3 },
-            { 0x140F67DBCull, 0x1FE48u, 255, 3 },
-            { 0x140F67DCCull, 0x1FE48u, 255, 3 },
-            { 0x140F67E05ull, 0x1FE50u, 255, 3 },
-            { 0x140F67E4Aull, 0x1FE50u, 255, 3 },
-            { 0x140F67E80ull, 0x1FE48u, 255, 3 },
-            { 0x140F67EC3ull, 0x1FE58u, 255, 3 },
-            { 0x140F67F1Cull, 0x1FE70u, 255, 3 },
-            { 0x140F690B0ull, 0x1FE48u, 255, 3 },
-            { 0x140F690CDull, 0x1FE48u, 255, 3 },
-            { 0x140F690EAull, 0x1FE48u, 255, 3 },
-            { 0x140F69107ull, 0x1FE48u, 255, 3 },
-            { 0x140F69124ull, 0x1FE48u, 255, 3 },
-            { 0x140F69141ull, 0x1FE48u, 255, 3 },
-            { 0x140F6915Eull, 0x1FE48u, 255, 3 },
-            { 0x140F6917Bull, 0x1FE48u, 255, 3 },
-            { 0x140F695FCull, 0x1FE40u, 255, 3 },
-            { 0x140F6965Cull, 0x1FE48u, 255, 3 },
-            { 0x140F696A8ull, 0x1FE48u, 255, 3 },
-            { 0x140F696B8ull, 0x1FE48u, 255, 3 },
-            { 0x140F696C8ull, 0x1FE48u, 255, 3 },
-            { 0x140F696D8ull, 0x1FE48u, 255, 3 },
-            { 0x140F696E8ull, 0x1FE48u, 255, 3 },
-            { 0x140F696F8ull, 0x1FE48u, 255, 3 },
-            { 0x140F6974Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6975Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6976Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6977Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6978Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6979Aull, 0x1FE48u, 255, 3 },
-            { 0x140F697DFull, 0x1FE50u, 255, 3 },
-            { 0x140F6982Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6986Bull, 0x1FE48u, 255, 3 },
-            { 0x140F698B4ull, 0x1FE58u, 255, 3 },
-            { 0x140F69908ull, 0x1FE70u, 255, 3 },
-            { 0x140F69CDCull, 0x1FE50u, 255, 3 },
-            { 0x140F69D18ull, 0x1FE50u, 255, 3 },
-            { 0x140F69D59ull, 0x1FE50u, 255, 3 },
-            { 0x140F69D87ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E33ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E79ull, 0x1FE50u, 255, 3 },
-            { 0x140F69EB5ull, 0x1FE50u, 255, 3 },
-            { 0x140F69EE9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6A5B2ull, 0x1E008u, 255, 3 },
-            { 0x140F6C55Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6C5A6ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C5D9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C67Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6C6C3ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C6F7ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C999ull, 0x1FE40u, 255, 3 },
-            { 0x140F6C9FDull, 0x1FE50u, 255, 3 },
-            { 0x140F6CA37ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CA5Dull, 0x1FE50u, 255, 3 },
-            { 0x140F6CAF4ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB2Bull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB52ull, 0x1FE50u, 255, 3 },
-            { 0x140F6D053ull, 0x1E008u, 255, 3 },
-            { 0x140F6D6DAull, 0x1FE40u, 255, 3 },
-            { 0x140F6D741ull, 0x1E008u, 255, 3 },
-            { 0x140F6D782ull, 0x1E008u, 255, 3 },
-            { 0x140F6D941ull, 0x1FE58u, 255, 3 },
-            { 0x140F6D9AAull, 0x1FE58u, 255, 3 },
-            { 0x140F6DA13ull, 0x1FE48u, 255, 3 },
-            { 0x140F6DD73ull, 0x1E010u, 255, 3 },
-            { 0x140F6DFC8ull, 0x1E010u, 255, 3 },
-            { 0x140F6E688ull, 0x1E008u, 255, 3 },
-            { 0x140F6ED9Full, 0x1E008u, 255, 3 },
-            { 0x140F6EDEBull, 0x1FFA8u, 255, 3 },
-            { 0x140F6EE10ull, 0x1FE68u, 255, 3 },
-            { 0x140F6EE2Cull, 0x1FE68u, 255, 3 },
-            { 0x140F6EE4Bull, 0x1FE68u, 255, 3 },
-            { 0x140F6EE60ull, 0x1FE60u, 255, 3 },
-            { 0x140F6F223ull, 0x1E030u, 255, 3 },
-            { 0x140F6F242ull, 0x1E030u, 255, 3 },
-            { 0x140F6FF8Eull, 0x1FECEu, 255, 3 },
-            { 0x140F6FF9Eull, 0x1FEC8u, 255, 5 },
-            { 0x140F6FFB4ull, 0x1FEB0u, 255, 3 },
-            { 0x140F6FFE8ull, 0x1FE98u, 255, 3 },
-            { 0x140F7000Dull, 0x1FE98u, 255, 3 },
-            { 0x140F70019ull, 0x1FEA8u, 255, 3 },
-            { 0x140F70020ull, 0x1FED0u, 255, 3 },
-            { 0x140F7003Cull, 0x1FEB0u, 255, 3 },
-            { 0x140F70052ull, 0x1FEB0u, 255, 3 },
-            { 0x140F7006Bull, 0x1FEB0u, 255, 3 },
-            { 0x140F70072ull, 0x1FED0u, 255, 3 },
-            { 0x140F7009Bull, 0x1FECEu, 255, 3 },
-            { 0x140F7014Full, 0x1FEA8u, 255, 5 },
-            { 0x140F701F6ull, 0x1FEAEu, 255, 4 },
-            { 0x140F70206ull, 0x1FE90u, 255, 3 },
-            { 0x140F7022Dull, 0x1FE78u, 255, 3 },
-            { 0x140F70250ull, 0x1FE78u, 255, 3 },
-            { 0x140F70260ull, 0x1FE88u, 255, 3 },
-            { 0x140F70267ull, 0x1FEB0u, 255, 3 },
-            { 0x140F70283ull, 0x1FE90u, 255, 3 },
-            { 0x140F70296ull, 0x1FE90u, 255, 3 },
-            { 0x140F702AFull, 0x1FE90u, 255, 3 },
-            { 0x140F702B6ull, 0x1FEB0u, 255, 3 },
-            { 0x140F702F0ull, 0x1FEAEu, 255, 4 },
-            { 0x140F70339ull, 0x1FE40u, 255, 3 },
-            { 0x140F7037Aull, 0x1FEA8u, 255, 3 },
-            { 0x140F706C6ull, 0x1E018u, 255, 3 },
-            { 0x1494F93D3ull, 0x1E028u, 255, 3 },
-            { 0x1494F93DAull, 0x1E030u, 255, 3 },
-            { 0x1494F93E1ull, 0x1E038u, 255, 3 },
-            { 0x1494F9403ull, 0x1FE58u, 255, 3 },
-            { 0x1494F940Aull, 0x1FE60u, 255, 3 },
-            { 0x1494F9411ull, 0x1FE68u, 255, 3 },
-            { 0x1494F9418ull, 0x1FE70u, 255, 3 },
-            { 0x1494F941Full, 0x1FE78u, 255, 3 },
-            { 0x1494F9426ull, 0x1FE80u, 255, 3 },
-            { 0x1494F942Dull, 0x1FE88u, 255, 3 },
-            { 0x1494F9434ull, 0x1FE90u, 255, 3 },
-            { 0x1494F943Bull, 0x1FE98u, 255, 3 },
-            { 0x1494F9442ull, 0x1FEA0u, 255, 3 },
-            { 0x1494F9449ull, 0x1FEA8u, 255, 3 },
-            { 0x1494F9450ull, 0x1FEB0u, 255, 3 },
-            { 0x1494F9457ull, 0x1FEB8u, 255, 3 },
-            { 0x1494F945Eull, 0x1FEC0u, 255, 3 },
-            { 0x1494F9465ull, 0x1FEC8u, 255, 3 },
-            { 0x1494F946Cull, 0x1FFC5u, 255, 4 },
-            { 0x1494F9474ull, 0x1FFC7u, 255, 3 },
-            { 0x1494F947Bull, 0x1FFC8u, 255, 3 },
-            { 0x1494F948Aull, 0x1E038u, 255, 3 },
-            { 0x1494F9496ull, 0x1FED0u, 255, 3 },
-            { 0x1494F94ACull, 0x1FF50u, 255, 3 },
-            { 0x1494F94B3ull, 0x1FF58u, 255, 3 },
-            { 0x1494F94BAull, 0x1FF60u, 255, 3 },
-            { 0x1494F94C1ull, 0x1FF68u, 255, 3 },
-            { 0x1494F94C8ull, 0x1FF70u, 255, 3 },
-            { 0x1494F94CFull, 0x1FF78u, 255, 3 },
-            { 0x1494F94D6ull, 0x1FF80u, 255, 3 },
-            { 0x1494F94DDull, 0x1FF88u, 255, 3 },
-            { 0x1494F94E4ull, 0x1FF90u, 255, 3 },
-            { 0x1494F94EBull, 0x1FF98u, 2, 2 },
-            { 0x1494F94F1ull, 0x1FF9Cu, 255, 3 },
-            { 0x1494F9502ull, 0x1FF9Eu, 255, 3 },
-            { 0x1494F9509ull, 0x1FFA6u, 255, 3 },
-            { 0x1494F9510ull, 0x1FFAEu, 255, 3 },
-            { 0x1494F9517ull, 0x1FFB6u, 255, 3 },
-            { 0x1494F951Eull, 0x1FFBEu, 2, 2 },
-            { 0x1494F9524ull, 0x1FFC2u, 255, 3 },
-            { 0x1494F952Bull, 0x1FFC4u, 2, 2 },
-            { 0x1494F9551ull, 0x1FEC0u, 255, 3 },
-            { 0x1494FA22Bull, 0x1FEC0u, 255, 3 },
-            { 0x1494FA662ull, 0x1FEC0u, 255, 3 },
-            { 0x1494FB942ull, 0x1FEC0u, 255, 3 },
-            { 0x1494FBECBull, 0x1E008u, 255, 3 },
-            { 0x1494FBEE7ull, 0x1FE58u, 255, 3 },
-            { 0x1494FBF06ull, 0x1FE58u, 255, 3 },
-            { 0x1494FC720ull, 0x1FFA8u, 255, 3 },
-            { 0x1494FC960ull, 0x1E018u, 255, 3 },
-            { 0x1494FDF31ull, 0x1E008u, 255, 3 },
-            { 0x1494FE65Bull, 0x1E008u, 255, 3 },
-            { 0x1494FE88Bull, 0x1E008u, 255, 3 },
-            { 0x1494FEB88ull, 0x1E008u, 255, 3 },
-            { 0x1494FEBE7ull, 0x1E008u, 255, 3 },
-            { 0x1495028D0ull, 0x1E030u, 255, 3 },
-            { 0x149502913ull, 0x1E030u, 255, 3 },
-            { 0x1495029ABull, 0x1FE60u, 255, 4 },
-            { 0x1495029C6ull, 0x1FE60u, 255, 3 },
-            { 0x149506C80ull, 0x1FE40u, 255, 4 },
-            { 0x149506C99ull, 0x1FE40u, 255, 3 },
-            { 0x149508CD0ull, 0x1FEA8u, 255, 4 },
-            { 0x149509120ull, 0x1FE80u, 255, 3 },
-            { 0x149509136ull, 0x1FFA6u, 2, 2 },
-            { 0x14950913Cull, 0x1FF7Eu, 255, 4 },
-            { 0x149509146ull, 0x1FF30u, 255, 4 },
-            { 0x149509273ull, 0x1FF30u, 255, 5 },
-            { 0x149509286ull, 0x1FF7Eu, 255, 5 },
-            { 0x14950951Full, 0x1E008u, 255, 3 },
-            { 0x149509907ull, 0x1E008u, 255, 3 },
-            { 0x1495099CAull, 0x1E008u, 255, 3 },
-            { 0x149509E45ull, 0x1E028u, 255, 3 },
-            { 0x14950A146ull, 0x1E008u, 255, 3 },
-            { 0x14950AAE5ull, 0x1FE40u, 255, 4 },
-            { 0x14950AB30ull, 0x1FE40u, 255, 3 },
-            { 0x14950AD20ull, 0x1E008u, 255, 3 },
-            { 0x14950B3C7ull, 0x1E010u, 255, 3 },
-            { 0x14950BB8Bull, 0x1E008u, 255, 3 },
-            { 0x14950BD48ull, 0x1E030u, 255, 3 },
-            { 0x14950E7A0ull, 0x1E008u, 255, 3 },
-            { 0x149513B69ull, 0x1E028u, 255, 3 },
-            { 0x149513BFCull, 0x1E028u, 255, 3 },
-            { 0x149514111ull, 0x1E028u, 255, 3 },
-            { 0x1495141B0ull, 0x1E028u, 255, 3 },
-            { 0x149515A2Dull, 0x1FE40u, 255, 3 },
-            { 0x149517EBDull, 0x1E010u, 255, 3 },
-            { 0x1495180E5ull, 0x1E010u, 255, 3 },
-            { 0x1495187FEull, 0x1E018u, 255, 3 },
-            { 0x149518ED0ull, 0x1FE18u, 255, 3 },
-            { 0x149519230ull, 0x1E018u, 255, 3 },
-            { 0x1495194E0ull, 0x1E018u, 255, 3 },
-            { 0x14951CD90ull, 0x1FEACu, 255, 3 },
-            { 0x14951CEA5ull, 0x1E008u, 255, 3 },
-            { 0x14951D1D8ull, 0x1E030u, 255, 3 },
-            { 0x14951D1E5ull, 0x1E028u, 255, 3 },
-            { 0x14951D447ull, 0x1E028u, 255, 3 },
-            { 0x14951D773ull, 0x1FE50u, 255, 3 },
-            { 0x14951D799ull, 0x1FE50u, 255, 3 },
-            { 0x14951D7D9ull, 0x1FE50u, 255, 3 },
-            { 0x14951D7F7ull, 0x1FE50u, 255, 3 },
-            { 0x14951E4B0ull, 0x1FEADu, 255, 3 },
-            { 0x14951EBB1ull, 0x1E008u, 255, 3 },
-            { 0x14951F4C5ull, 0x1FE78u, 255, 3 },
-            { 0x14951F4EBull, 0x1FE68u, 255, 3 },
-            { 0x14951F860ull, 0x1E008u, 255, 3 },
-            { 0x14951F8D0ull, 0x1E008u, 255, 3 },
-            { 0x14951FC80ull, 0x1E008u, 255, 3 },
-            { 0x1495200B0ull, 0x1FEA0u, 255, 3 },
-            { 0x1495206BAull, 0x1E008u, 255, 3 },
-            { 0x149520A90ull, 0x1E008u, 255, 3 },
-            { 0x149521391ull, 0x1FFC6u, 255, 3 },
-            { 0x149521432ull, 0x1FEA0u, 255, 3 },
-            { 0x149521496ull, 0x1FEA0u, 255, 3 },
-            { 0x149521760ull, 0x1FFA5u, 255, 3 },
-            { 0x1495222B0ull, 0x1FFA8u, 255, 3 },
-            { 0x149522B90ull, 0x1E018u, 255, 3 },
-            { 0x149522DA2ull, 0x1FFA7u, 255, 3 },
-            { 0x149522DABull, 0x1E008u, 255, 3 },
-            { 0x1495231BDull, 0x1FE40u, 255, 3 },
-            { 0x1495236FFull, 0x1FE50u, 255, 4 },
-            { 0x1495249ECull, 0x1E008u, 255, 3 },
-            { 0x149524A5Eull, 0x1FEACu, 2, 2 },
-            { 0x149524A66ull, 0x1FEACu, 2, 2 },
-            { 0x149525420ull, 0x1FFA8u, 255, 3 },
-            { 0x149525610ull, 0x1E008u, 255, 3 },
-            { 0x1495261C0ull, 0x1FEADu, 2, 2 },
-            { 0x149526A18ull, 0x1E008u, 255, 3 },
-            { 0x149526A27ull, 0x1E008u, 255, 3 },
-            { 0x149526B50ull, 0x1E008u, 255, 3 },
-            { 0x1495270F7ull, 0x1FEA0u, 255, 3 },
-            { 0x1495272A8ull, 0x1E008u, 255, 3 },
-            { 0x1495272B8ull, 0x1E008u, 255, 3 },
-            { 0x1495272D0ull, 0x1FF7Eu, 255, 3 },
-            { 0x1495272D7ull, 0x1FF86u, 255, 3 },
-            { 0x1495272DEull, 0x1FF8Eu, 255, 3 },
-            { 0x1495272E5ull, 0x1FF96u, 255, 3 },
-            { 0x1495272ECull, 0x1FF9Eu, 255, 3 },
-            { 0x1495272F3ull, 0x1FFA2u, 255, 4 },
-            { 0x1495272FBull, 0x1FFA4u, 255, 3 },
-            { 0x149527764ull, 0x1E008u, 255, 3 },
-            { 0x149527D38ull, 0x1E008u, 255, 3 },
-            { 0x149527D47ull, 0x1E008u, 255, 3 },
-            { 0x1495280DFull, 0x1E030u, 255, 3 },
-            { 0x149528410ull, 0x1FFA5u, 2, 2 },
-            { 0x1495289A0ull, 0x1FE48u, 255, 3 },
-            { 0x1495289AAull, 0x1FE38u, 255, 6 },
-            { 0x1495289BBull, 0x1FE38u, 255, 3 },
-            { 0x1495289CAull, 0x1FE18u, 255, 4 },
-            { 0x1495289D2ull, 0x1FE38u, 255, 3 },
-            { 0x1495289D9ull, 0x1FE48u, 255, 3 },
-            { 0x1495289E7ull, 0x1FE38u, 255, 3 },
-            { 0x1495289F6ull, 0x1FE18u, 255, 4 },
-            { 0x1495289FEull, 0x1FE38u, 255, 3 },
-            { 0x149528A05ull, 0x1FE48u, 255, 3 },
-            { 0x149528A13ull, 0x1FE38u, 255, 3 },
-            { 0x149528A22ull, 0x1FE18u, 255, 4 },
-            { 0x149528A2Aull, 0x1FE38u, 255, 3 },
-            { 0x149528A31ull, 0x1FE48u, 255, 3 },
-            { 0x149528A3Full, 0x1FE38u, 255, 3 },
-            { 0x149528A4Eull, 0x1FE18u, 255, 4 },
-            { 0x149528A56ull, 0x1FE38u, 255, 3 },
-            { 0x149528A5Dull, 0x1FE48u, 255, 3 },
-            { 0x149528A6Bull, 0x1FE38u, 255, 3 },
-            { 0x149528A7Aull, 0x1FE18u, 255, 4 },
-            { 0x149528A82ull, 0x1FE38u, 255, 3 },
-            { 0x149528A89ull, 0x1FE48u, 255, 3 },
-            { 0x149528A97ull, 0x1FE38u, 255, 3 },
-            { 0x149528AA6ull, 0x1FE18u, 255, 4 },
-            { 0x149528AAEull, 0x1FE38u, 255, 3 },
-            { 0x149528AB5ull, 0x1FE48u, 255, 3 },
-            { 0x149528AC3ull, 0x1FE38u, 255, 3 },
-            { 0x149528AD2ull, 0x1FE18u, 255, 4 },
-            { 0x149528ADAull, 0x1FE38u, 255, 3 },
-            { 0x149528AE1ull, 0x1FE48u, 255, 3 },
-            { 0x149528AEFull, 0x1FE38u, 255, 3 },
-            { 0x149528AFEull, 0x1FE18u, 255, 4 },
-            { 0x149528B06ull, 0x1FE38u, 255, 3 },
-            { 0x149528B0Dull, 0x1FE48u, 255, 3 },
-            { 0x149528B25ull, 0x1FE3Cu, 255, 3 },
-            { 0x149529246ull, 0x1E030u, 255, 3 },
-            { 0x1495294D6ull, 0x1E030u, 255, 3 },
-            { 0x1495298E2ull, 0x1E030u, 255, 3 },
-            { 0x149529D12ull, 0x1E030u, 255, 3 },
-            { 0x14952A0C1ull, 0x1E028u, 255, 3 },
-            { 0x14952A2A0ull, 0x1FE40u, 255, 3 },
-            { 0x14952A2AEull, 0x1FE48u, 255, 3 },
-            { 0x14952A2BCull, 0x1FE50u, 255, 3 },
-            { 0x14952A2CAull, 0x1FE58u, 255, 3 },
-            { 0x14952A2D8ull, 0x1FE60u, 255, 3 },
-            { 0x14952A2E3ull, 0x1FE68u, 255, 3 },
-            { 0x14952A2F1ull, 0x1FE70u, 255, 3 },
-            { 0x14952A30Aull, 0x1FE78u, 255, 3 },
-            { 0x14952A319ull, 0x1FE80u, 255, 3 },
-            { 0x14952A329ull, 0x1FE88u, 255, 3 },
-            { 0x14952A338ull, 0x1FE90u, 255, 3 },
-            { 0x14952A350ull, 0x1FE80u, 255, 3 },
-            { 0x14952A357ull, 0x1FE98u, 255, 3 },
-            { 0x14952A36Cull, 0x1FFA6u, 2, 2 },
-            { 0x14952A678ull, 0x1FE40u, 255, 3 },
-            { 0x14952A68Dull, 0x1FFA5u, 255, 3 },
-            { 0x14952A694ull, 0x1FFA7u, 2, 2 },
-            { 0x14952A69Cull, 0x1FEADu, 255, 3 },
-            { 0x14952A6A3ull, 0x1FEA8u, 255, 4 },
-            { 0x14952A6ABull, 0x1FEA8u, 255, 4 },
-            { 0x14952A89Bull, 0x1E010u, 255, 3 },
-            { 0x14952A919ull, 0x1E010u, 255, 3 },
-            { 0x14952A94Aull, 0x1E010u, 255, 3 },
-            { 0x14952A95Cull, 0x1E010u, 255, 3 },
-            { 0x14952A97Cull, 0x1E010u, 255, 3 },
-            { 0x14952A98Bull, 0x1E010u, 255, 3 },
-            { 0x14952A9B2ull, 0x1E010u, 255, 3 },
-            { 0x14952A9C4ull, 0x1E010u, 255, 3 },
-            { 0x14952A9DFull, 0x1E010u, 255, 3 },
-            { 0x14952A9EEull, 0x1E010u, 255, 3 },
-            { 0x14952AFC4ull, 0x1FE90u, 255, 3 },
-            { 0x14952AFDEull, 0x1FE88u, 255, 3 },
-            { 0x14952AFE5ull, 0x1FEB0u, 255, 3 },
-            { 0x14952B004ull, 0x1FE90u, 255, 3 },
-            { 0x14952B022ull, 0x1FE90u, 255, 3 },
-            { 0x14952B04Aull, 0x1FE90u, 255, 3 },
-            { 0x14952B05Dull, 0x1FE90u, 255, 3 },
-            { 0x14952B064ull, 0x1FEB0u, 255, 3 },
+        static const CtlDispSiteField kCtlDispSiteFields[] = {
+            { &AS::DevelopArrayGrow_CtlDispSite001, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite002, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite003, 0x1E038u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite004, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite005, 0x1FE60u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite006, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite007, 0x1FE70u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite008, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite009, 0x1FE80u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite010, 0x1FE88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite011, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite012, 0x1FE98u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite013, 0x1FEA0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite014, 0x1FEA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite015, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite016, 0x1FEB8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite017, 0x1FEC0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite018, 0x1FEC8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite019, 0x1FFC5u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite020, 0x1FFC7u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite021, 0x1FFC8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite022, 0x1E038u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite023, 0x1FED0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite024, 0x1FF50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite025, 0x1FF58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite026, 0x1FF60u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite027, 0x1FF68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite028, 0x1FF70u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite029, 0x1FF78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite030, 0x1FF80u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite031, 0x1FF88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite032, 0x1FF90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite033, 0x1FF98u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite034, 0x1FF9Cu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite035, 0x1FF9Eu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite036, 0x1FFA6u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite037, 0x1FFAEu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite038, 0x1FFB6u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite039, 0x1FFBEu, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite040, 0x1FFC2u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite041, 0x1FFC4u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite042, 0x1FEC0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite043, 0x1FEC0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite044, 0x1FEC0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite045, 0x1FEC0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite046, 0x1FFA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite047, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite048, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite049, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite050, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite051, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite052, 0x1FE88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite053, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite054, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite055, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite056, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite057, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite058, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite059, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite060, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite061, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite062, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite063, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite064, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite065, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite066, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite067, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite068, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite069, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite070, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite071, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite072, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite073, 0x1FE60u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite074, 0x1FE60u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite075, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite076, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite077, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite078, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite079, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite080, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite081, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite082, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite083, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite084, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite085, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite086, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite087, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite088, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite089, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite090, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite091, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite092, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite093, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite094, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite095, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite096, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite097, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite098, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite099, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite100, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite101, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite102, 0x1FE70u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite103, 0x1FE40u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite104, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite105, 0x1FEA8u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite106, 0x1FE80u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite107, 0x1FFA6u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite108, 0x1FF7Eu, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite109, 0x1FF30u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite110, 0x1FF30u, 255, 5 },
+            { &AS::DevelopArrayGrow_CtlDispSite111, 0x1FF7Eu, 255, 5 },
+            { &AS::DevelopArrayGrow_CtlDispSite112, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite113, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite114, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite115, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite116, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite117, 0x1FE40u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite118, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite119, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite120, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite121, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite122, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite123, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite124, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite125, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite126, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite127, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite128, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite129, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite130, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite131, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite132, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite133, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite134, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite135, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite136, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite137, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite138, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite139, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite140, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite141, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite142, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite143, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite144, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite145, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite146, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite147, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite148, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite149, 0x1FE70u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite150, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite151, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite152, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite153, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite154, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite155, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite156, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite157, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite158, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite159, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite160, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite161, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite162, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite163, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite164, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite165, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite166, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite167, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite168, 0x1FE18u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite169, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite170, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite171, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite172, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite173, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite174, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite175, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite176, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite177, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite178, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite179, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite180, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite181, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite182, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite183, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite184, 0x1FEACu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite185, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite186, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite187, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite188, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite189, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite190, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite191, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite192, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite193, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite194, 0x1FEADu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite195, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite196, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite197, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite198, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite199, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite200, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite201, 0x1FEA0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite202, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite203, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite204, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite205, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite206, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite207, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite208, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite209, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite210, 0x1FFC6u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite211, 0x1FEA0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite212, 0x1FEA0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite213, 0x1FFA5u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite214, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite215, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite216, 0x1FFA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite217, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite218, 0x1FFA7u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite219, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite220, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite221, 0x1FE50u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite222, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite223, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite224, 0x1FEACu, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite225, 0x1FEACu, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite226, 0x1FFA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite227, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite228, 0x1FEADu, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite229, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite230, 0x1FFA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite231, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite232, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite233, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite234, 0x1FE60u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite235, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite236, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite237, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite238, 0x1FEA0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite239, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite240, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite241, 0x1FF7Eu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite242, 0x1FF86u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite243, 0x1FF8Eu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite244, 0x1FF96u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite245, 0x1FF9Eu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite246, 0x1FFA2u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite247, 0x1FFA4u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite248, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite249, 0x1FFA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite250, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite251, 0x1E008u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite252, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite253, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite254, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite255, 0x1FFA5u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite256, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite257, 0x1FE38u, 255, 6 },
+            { &AS::DevelopArrayGrow_CtlDispSite258, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite259, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite260, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite261, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite262, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite263, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite264, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite265, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite266, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite267, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite268, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite269, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite270, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite271, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite272, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite273, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite274, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite275, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite276, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite277, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite278, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite279, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite280, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite281, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite282, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite283, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite284, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite285, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite286, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite287, 0x1FE18u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite288, 0x1FE38u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite289, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite290, 0x1FE3Cu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite291, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite292, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite293, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite294, 0x1E030u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite295, 0x1E028u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite296, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite297, 0x1FE48u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite298, 0x1FE50u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite299, 0x1FE58u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite300, 0x1FE60u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite301, 0x1FE68u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite302, 0x1FE70u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite303, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite304, 0x1FE80u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite305, 0x1FE88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite306, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite307, 0x1FE80u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite308, 0x1FE98u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite309, 0x1FFA6u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite310, 0x1FECEu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite311, 0x1FEC8u, 255, 5 },
+            { &AS::DevelopArrayGrow_CtlDispSite312, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite313, 0x1FE98u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite314, 0x1FE98u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite315, 0x1FEA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite316, 0x1FED0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite317, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite318, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite319, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite320, 0x1FED0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite321, 0x1FECEu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite322, 0x1FEA8u, 255, 5 },
+            { &AS::DevelopArrayGrow_CtlDispSite323, 0x1FEAEu, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite324, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite325, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite326, 0x1FE78u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite327, 0x1FE88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite328, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite329, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite330, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite331, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite332, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite333, 0x1FEAEu, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite334, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite335, 0x1FEA8u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite336, 0x1FE40u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite337, 0x1FFA5u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite338, 0x1FFA7u, 2, 2 },
+            { &AS::DevelopArrayGrow_CtlDispSite339, 0x1FEADu, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite340, 0x1FEA8u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite341, 0x1FEA8u, 255, 4 },
+            { &AS::DevelopArrayGrow_CtlDispSite342, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite343, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite344, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite345, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite346, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite347, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite348, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite349, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite350, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite351, 0x1E010u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite352, 0x1E018u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite353, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite354, 0x1FE88u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite355, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite356, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite357, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite358, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite359, 0x1FE90u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite360, 0x1FEB0u, 255, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite361, 0x1E008u, 3, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite362, 0x1FE58u, 3, 3 },
+            { &AS::DevelopArrayGrow_CtlDispSite363, 0x1FE58u, 3, 3 },
         };
 
-        static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F65D60ull, 1 },
-            { 0x140F65F3Bull, 1 },
-            { 0x140F670CAull, 1 },
-            { 0x140F67531ull, 2 },
-            { 0x140F6771Cull, 1 },
-            { 0x140F67860ull, 1 },
-            { 0x140F67A55ull, 1 },
-            { 0x140F67C0Eull, 1 },
-            { 0x140F67F9Aull, 1 },
-            { 0x140F680BBull, 1 },
-            { 0x140F6856Aull, 1 },
-            { 0x140F695AEull, 1 },
-            { 0x140F69C5Dull, 1 },
-            { 0x140F6C4E5ull, 1 },
-            { 0x140F6C755ull, 1 },
-            { 0x140F6C975ull, 1 },
-            { 0x140F6CBA5ull, 1 },
-            { 0x140F6CD55ull, 1 },
-            { 0x140F6D023ull, 2 },
-            { 0x140F6D123ull, 1 },
-            { 0x140F6D8EAull, 1 },
-            { 0x140F6E5DFull, 1 },
-            { 0x140F71792ull, 3 },
-            { 0x1494FC2CDull, 1 },
-            { 0x1494FDEEBull, 1 },
-            { 0x1494FE629ull, 2 },
-            { 0x1494FE859ull, 2 },
-            { 0x1494FEB4Dull, 2 },
-            { 0x149500D30ull, 1 },
-            { 0x149505E89ull, 2 },
-            { 0x149508EA0ull, 1 },
-            { 0x149509507ull, 2 },
-            { 0x1495098DAull, 2 },
-            { 0x1495099B7ull, 2 },
-            { 0x149509E22ull, 2 },
-            { 0x14950A12Dull, 2 },
-            { 0x14950AD2Eull, 2 },
-            { 0x14950B31Aull, 1 },
-            { 0x14950BB63ull, 2 },
-            { 0x14950BF87ull, 2 },
-            { 0x14950CCD5ull, 2 },
-            { 0x14950CE80ull, 1 },
-            { 0x14950DB70ull, 1 },
-            { 0x14950DCA2ull, 2 },
-            { 0x14950DE80ull, 1 },
-            { 0x14950E77Full, 1 },
-            { 0x1495100FAull, 2 },
-            { 0x149510BD4ull, 2 },
-            { 0x14951231Aull, 1 },
-            { 0x149513B42ull, 1 },
-            { 0x149513C2Aull, 1 },
-            { 0x1495140E9ull, 1 },
-            { 0x1495141CAull, 1 },
-            { 0x14951612Bull, 2 },
-            { 0x149516692ull, 2 },
-            { 0x14951CE8Cull, 2 },
-            { 0x14951D418ull, 1 },
-            { 0x14951EB70ull, 2 },
-            { 0x14951F464ull, 1 },
-            { 0x1495200A3ull, 1 },
-            { 0x149523C55ull, 1 },
-            { 0x149524FC5ull, 1 },
-            { 0x149525E81ull, 1 },
-            { 0x1495264F0ull, 1 },
-            { 0x1495270DAull, 1 },
-            { 0x1495284C9ull, 1 },
-            { 0x149528517ull, 2 },
-            { 0x14952857Eull, 1 },
-            { 0x1495285ABull, 2 },
-            { 0x149528620ull, 1 },
-            { 0x149528667ull, 2 },
-            { 0x1495286CFull, 1 },
-            { 0x149528750ull, 1 },
-            { 0x14952A0A8ull, 1 },
-        };
-        }
-
-        namespace tbl_jp153
-        {
-        static const CtlDispSite kCtlDispSites[] = {
-            { 0x140F656ECull, 0x1E008u, 255, 3 },
-            { 0x140F65701ull, 0x1FE90u, 255, 3 },
-            { 0x140F65740ull, 0x1FE78u, 255, 3 },
-            { 0x140F65760ull, 0x1FE78u, 255, 3 },
-            { 0x140F65770ull, 0x1FE88u, 255, 3 },
-            { 0x140F65777ull, 0x1FEB0u, 255, 3 },
-            { 0x140F65793ull, 0x1FE90u, 255, 3 },
-            { 0x140F657A6ull, 0x1FE90u, 255, 3 },
-            { 0x140F657BFull, 0x1FE90u, 255, 3 },
-            { 0x140F657C6ull, 0x1FEB0u, 255, 3 },
-            { 0x140F657E4ull, 0x1E008u, 255, 3 },
-            { 0x140F65C25ull, 0x1E028u, 255, 3 },
-            { 0x140F65D07ull, 0x1E028u, 255, 3 },
-            { 0x140F65D9Aull, 0x1E028u, 255, 3 },
-            { 0x140F65EF5ull, 0x1E008u, 255, 3 },
-            { 0x140F65F91ull, 0x1E008u, 255, 3 },
-            { 0x140F66003ull, 0x1E008u, 255, 3 },
-            { 0x140F67662ull, 0x1E008u, 255, 3 },
-            { 0x140F676A3ull, 0x1E008u, 255, 3 },
-            { 0x140F67706ull, 0x1E008u, 255, 3 },
-            { 0x140F677CFull, 0x1E008u, 255, 3 },
-            { 0x140F67A40ull, 0x1FE50u, 255, 3 },
-            { 0x140F67A75ull, 0x1FE50u, 255, 3 },
-            { 0x140F67AA3ull, 0x1FE48u, 255, 3 },
-            { 0x140F67ADDull, 0x1FE58u, 255, 3 },
-            { 0x140F67D4Aull, 0x1FE40u, 255, 3 },
-            { 0x140F67D70ull, 0x1FE40u, 255, 3 },
-            { 0x140F67D9Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67DE6ull, 0x1FE48u, 255, 3 },
-            { 0x140F67DF6ull, 0x1FE48u, 255, 3 },
-            { 0x140F67E06ull, 0x1FE48u, 255, 3 },
-            { 0x140F67E16ull, 0x1FE48u, 255, 3 },
-            { 0x140F67E26ull, 0x1FE48u, 255, 3 },
-            { 0x140F67E36ull, 0x1FE48u, 255, 3 },
-            { 0x140F67E7Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67E8Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67E9Cull, 0x1FE48u, 255, 3 },
-            { 0x140F67EACull, 0x1FE48u, 255, 3 },
-            { 0x140F67EBCull, 0x1FE48u, 255, 3 },
-            { 0x140F67ECCull, 0x1FE48u, 255, 3 },
-            { 0x140F67F05ull, 0x1FE50u, 255, 3 },
-            { 0x140F67F4Aull, 0x1FE50u, 255, 3 },
-            { 0x140F67F80ull, 0x1FE48u, 255, 3 },
-            { 0x140F67FC3ull, 0x1FE58u, 255, 3 },
-            { 0x140F6801Cull, 0x1FE70u, 255, 3 },
-            { 0x140F691B0ull, 0x1FE48u, 255, 3 },
-            { 0x140F691CDull, 0x1FE48u, 255, 3 },
-            { 0x140F691EAull, 0x1FE48u, 255, 3 },
-            { 0x140F69207ull, 0x1FE48u, 255, 3 },
-            { 0x140F69224ull, 0x1FE48u, 255, 3 },
-            { 0x140F69241ull, 0x1FE48u, 255, 3 },
-            { 0x140F6925Eull, 0x1FE48u, 255, 3 },
-            { 0x140F6927Bull, 0x1FE48u, 255, 3 },
-            { 0x140F696FCull, 0x1FE40u, 255, 3 },
-            { 0x140F6975Cull, 0x1FE48u, 255, 3 },
-            { 0x140F697A8ull, 0x1FE48u, 255, 3 },
-            { 0x140F697B8ull, 0x1FE48u, 255, 3 },
-            { 0x140F697C8ull, 0x1FE48u, 255, 3 },
-            { 0x140F697D8ull, 0x1FE48u, 255, 3 },
-            { 0x140F697E8ull, 0x1FE48u, 255, 3 },
-            { 0x140F697F8ull, 0x1FE48u, 255, 3 },
-            { 0x140F6984Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6985Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6986Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6987Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6988Aull, 0x1FE48u, 255, 3 },
-            { 0x140F6989Aull, 0x1FE48u, 255, 3 },
-            { 0x140F698DFull, 0x1FE50u, 255, 3 },
-            { 0x140F6992Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6996Bull, 0x1FE48u, 255, 3 },
-            { 0x140F699B4ull, 0x1FE58u, 255, 3 },
-            { 0x140F69A08ull, 0x1FE70u, 255, 3 },
-            { 0x140F69DDCull, 0x1FE50u, 255, 3 },
-            { 0x140F69E18ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E59ull, 0x1FE50u, 255, 3 },
-            { 0x140F69E87ull, 0x1FE50u, 255, 3 },
-            { 0x140F69F33ull, 0x1FE50u, 255, 3 },
-            { 0x140F69F79ull, 0x1FE50u, 255, 3 },
-            { 0x140F69FB5ull, 0x1FE50u, 255, 3 },
-            { 0x140F69FE9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6A6B2ull, 0x1E008u, 255, 3 },
-            { 0x140F6C65Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6C6A6ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C6D9ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C77Eull, 0x1FE50u, 255, 3 },
-            { 0x140F6C7C3ull, 0x1FE50u, 255, 3 },
-            { 0x140F6C7F7ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CA99ull, 0x1FE40u, 255, 3 },
-            { 0x140F6CAFDull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB37ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CB5Dull, 0x1FE50u, 255, 3 },
-            { 0x140F6CBF4ull, 0x1FE50u, 255, 3 },
-            { 0x140F6CC2Bull, 0x1FE50u, 255, 3 },
-            { 0x140F6CC52ull, 0x1FE50u, 255, 3 },
-            { 0x140F6D153ull, 0x1E008u, 255, 3 },
-            { 0x140F6D7DAull, 0x1FE40u, 255, 3 },
-            { 0x140F6D841ull, 0x1E008u, 255, 3 },
-            { 0x140F6D882ull, 0x1E008u, 255, 3 },
-            { 0x140F6DA41ull, 0x1FE58u, 255, 3 },
-            { 0x140F6DAAAull, 0x1FE58u, 255, 3 },
-            { 0x140F6DB13ull, 0x1FE48u, 255, 3 },
-            { 0x140F6DE73ull, 0x1E010u, 255, 3 },
-            { 0x140F6E0C8ull, 0x1E010u, 255, 3 },
-            { 0x140F6E778ull, 0x1E008u, 255, 3 },
-            { 0x140F6F313ull, 0x1E030u, 255, 3 },
-            { 0x140F6F332ull, 0x1E030u, 255, 3 },
-            { 0x140F7007Eull, 0x1FECEu, 255, 3 },
-            { 0x140F7008Eull, 0x1FEC8u, 255, 5 },
-            { 0x140F700A4ull, 0x1FEB0u, 255, 3 },
-            { 0x140F700D8ull, 0x1FE98u, 255, 3 },
-            { 0x140F700FDull, 0x1FE98u, 255, 3 },
-            { 0x140F70109ull, 0x1FEA8u, 255, 3 },
-            { 0x140F70110ull, 0x1FED0u, 255, 3 },
-            { 0x140F7012Cull, 0x1FEB0u, 255, 3 },
-            { 0x140F70142ull, 0x1FEB0u, 255, 3 },
-            { 0x140F7015Bull, 0x1FEB0u, 255, 3 },
-            { 0x140F70162ull, 0x1FED0u, 255, 3 },
-            { 0x140F7018Bull, 0x1FECEu, 255, 3 },
-            { 0x140F7023Full, 0x1FEA8u, 255, 5 },
-            { 0x140F702E6ull, 0x1FEAEu, 255, 4 },
-            { 0x140F702F6ull, 0x1FE90u, 255, 3 },
-            { 0x140F7031Dull, 0x1FE78u, 255, 3 },
-            { 0x140F70340ull, 0x1FE78u, 255, 3 },
-            { 0x140F70350ull, 0x1FE88u, 255, 3 },
-            { 0x140F70357ull, 0x1FEB0u, 255, 3 },
-            { 0x140F70373ull, 0x1FE90u, 255, 3 },
-            { 0x140F70386ull, 0x1FE90u, 255, 3 },
-            { 0x140F7039Full, 0x1FE90u, 255, 3 },
-            { 0x140F703A6ull, 0x1FEB0u, 255, 3 },
-            { 0x140F703E0ull, 0x1FEAEu, 255, 4 },
-            { 0x140F70429ull, 0x1FE40u, 255, 3 },
-            { 0x140F7046Aull, 0x1FEA8u, 255, 3 },
-            { 0x140F707B6ull, 0x1E018u, 255, 3 },
-            { 0x149F14D53ull, 0x1E028u, 255, 3 },
-            { 0x149F14D5Aull, 0x1E030u, 255, 3 },
-            { 0x149F14D61ull, 0x1E038u, 255, 3 },
-            { 0x149F14D83ull, 0x1FE58u, 255, 3 },
-            { 0x149F14D8Aull, 0x1FE60u, 255, 3 },
-            { 0x149F14D91ull, 0x1FE68u, 255, 3 },
-            { 0x149F14D98ull, 0x1FE70u, 255, 3 },
-            { 0x149F14D9Full, 0x1FE78u, 255, 3 },
-            { 0x149F14DA6ull, 0x1FE80u, 255, 3 },
-            { 0x149F14DADull, 0x1FE88u, 255, 3 },
-            { 0x149F14DB4ull, 0x1FE90u, 255, 3 },
-            { 0x149F14DBBull, 0x1FE98u, 255, 3 },
-            { 0x149F14DC2ull, 0x1FEA0u, 255, 3 },
-            { 0x149F14DC9ull, 0x1FEA8u, 255, 3 },
-            { 0x149F14DD0ull, 0x1FEB0u, 255, 3 },
-            { 0x149F14DD7ull, 0x1FEB8u, 255, 3 },
-            { 0x149F14DDEull, 0x1FEC0u, 255, 3 },
-            { 0x149F14DE5ull, 0x1FEC8u, 255, 3 },
-            { 0x149F14DECull, 0x1FFC5u, 255, 4 },
-            { 0x149F14DF4ull, 0x1FFC7u, 255, 3 },
-            { 0x149F14DFBull, 0x1FFC8u, 255, 3 },
-            { 0x149F14E0Aull, 0x1E038u, 255, 3 },
-            { 0x149F14E16ull, 0x1FED0u, 255, 3 },
-            { 0x149F14E2Cull, 0x1FF50u, 255, 3 },
-            { 0x149F14E33ull, 0x1FF58u, 255, 3 },
-            { 0x149F14E3Aull, 0x1FF60u, 255, 3 },
-            { 0x149F14E41ull, 0x1FF68u, 255, 3 },
-            { 0x149F14E48ull, 0x1FF70u, 255, 3 },
-            { 0x149F14E4Full, 0x1FF78u, 255, 3 },
-            { 0x149F14E56ull, 0x1FF80u, 255, 3 },
-            { 0x149F14E5Dull, 0x1FF88u, 255, 3 },
-            { 0x149F14E64ull, 0x1FF90u, 255, 3 },
-            { 0x149F14E6Bull, 0x1FF98u, 2, 2 },
-            { 0x149F14E71ull, 0x1FF9Cu, 255, 3 },
-            { 0x149F14E82ull, 0x1FF9Eu, 255, 3 },
-            { 0x149F14E89ull, 0x1FFA6u, 255, 3 },
-            { 0x149F14E90ull, 0x1FFAEu, 255, 3 },
-            { 0x149F14E97ull, 0x1FFB6u, 255, 3 },
-            { 0x149F14E9Eull, 0x1FFBEu, 2, 2 },
-            { 0x149F14EA4ull, 0x1FFC2u, 255, 3 },
-            { 0x149F14EABull, 0x1FFC4u, 2, 2 },
-            { 0x149F14ED1ull, 0x1FEC0u, 255, 3 },
-            { 0x149F1532Bull, 0x1FEC0u, 255, 3 },
-            { 0x149F159D2ull, 0x1FEC0u, 255, 3 },
-            { 0x149F15ED2ull, 0x1FEC0u, 255, 3 },
-            { 0x149F1613Bull, 0x1E008u, 255, 3 },
-            { 0x149F16157ull, 0x1FE58u, 255, 3 },
-            { 0x149F16176ull, 0x1FE58u, 255, 3 },
-            { 0x149F168D0ull, 0x1FFA8u, 255, 3 },
-            { 0x149F16C10ull, 0x1E018u, 255, 3 },
-            { 0x149F16F0Cull, 0x1E010u, 255, 3 },
-            { 0x149F178C1ull, 0x1E008u, 255, 3 },
-            { 0x149F17E7Bull, 0x1E008u, 255, 3 },
-            { 0x149F1826Bull, 0x1E008u, 255, 3 },
-            { 0x149F18788ull, 0x1E008u, 255, 3 },
-            { 0x149F187E7ull, 0x1E008u, 255, 3 },
-            { 0x149F1B9F0ull, 0x1E030u, 255, 3 },
-            { 0x149F1BA33ull, 0x1E030u, 255, 3 },
-            { 0x149F1BACBull, 0x1FE60u, 255, 4 },
-            { 0x149F1BAE6ull, 0x1FE60u, 255, 3 },
-            { 0x149F1F5E0ull, 0x1FE40u, 255, 4 },
-            { 0x149F1F5F9ull, 0x1FE40u, 255, 3 },
-            { 0x149F21500ull, 0x1FEA8u, 255, 4 },
-            { 0x149F219F0ull, 0x1FE80u, 255, 3 },
-            { 0x149F21A06ull, 0x1FFA6u, 2, 2 },
-            { 0x149F21A0Cull, 0x1FF7Eu, 255, 4 },
-            { 0x149F21A16ull, 0x1FF30u, 255, 4 },
-            { 0x149F21B43ull, 0x1FF30u, 255, 5 },
-            { 0x149F21B56ull, 0x1FF7Eu, 255, 5 },
-            { 0x149F2211Full, 0x1E008u, 255, 3 },
-            { 0x149F22E87ull, 0x1E008u, 255, 3 },
-            { 0x149F2335Aull, 0x1E008u, 255, 3 },
-            { 0x149F23525ull, 0x1E028u, 255, 3 },
-            { 0x149F23956ull, 0x1E008u, 255, 3 },
-            { 0x149F23B95ull, 0x1FE40u, 255, 4 },
-            { 0x149F23BE0ull, 0x1FE40u, 255, 3 },
-            { 0x149F24290ull, 0x1E008u, 255, 3 },
-            { 0x149F244D7ull, 0x1E010u, 255, 3 },
-            { 0x149F24A2Bull, 0x1E008u, 255, 3 },
-            { 0x149F24BB8ull, 0x1E030u, 255, 3 },
-            { 0x149F285F0ull, 0x1E008u, 255, 3 },
-            { 0x149F2CF09ull, 0x1E028u, 255, 3 },
-            { 0x149F2CF9Cull, 0x1E028u, 255, 3 },
-            { 0x149F2D141ull, 0x1E028u, 255, 3 },
-            { 0x149F2D1E0ull, 0x1E028u, 255, 3 },
-            { 0x149F2E9CDull, 0x1FE40u, 255, 3 },
-            { 0x149F3110Dull, 0x1E010u, 255, 3 },
-            { 0x149F315B5ull, 0x1E010u, 255, 3 },
-            { 0x149F3186Eull, 0x1E018u, 255, 3 },
-            { 0x149F31B60ull, 0x1FE18u, 255, 3 },
-            { 0x149F31CC0ull, 0x1E018u, 255, 3 },
-            { 0x149F31F40ull, 0x1E018u, 255, 3 },
-            { 0x149F35790ull, 0x1FEACu, 255, 3 },
-            { 0x149F35A85ull, 0x1E008u, 255, 3 },
-            { 0x149F35D88ull, 0x1E030u, 255, 3 },
-            { 0x149F35D95ull, 0x1E028u, 255, 3 },
-            { 0x149F361C7ull, 0x1E028u, 255, 3 },
-            { 0x149F36323ull, 0x1FE50u, 255, 3 },
-            { 0x149F36349ull, 0x1FE50u, 255, 3 },
-            { 0x149F36389ull, 0x1FE50u, 255, 3 },
-            { 0x149F363A7ull, 0x1FE50u, 255, 3 },
-            { 0x149F37920ull, 0x1FEADu, 255, 3 },
-            { 0x149F384A1ull, 0x1E008u, 255, 3 },
-            { 0x149F394E5ull, 0x1FE78u, 255, 3 },
-            { 0x149F3950Bull, 0x1FE68u, 255, 3 },
-            { 0x149F39670ull, 0x1E008u, 255, 3 },
-            { 0x149F398D0ull, 0x1E008u, 255, 3 },
-            { 0x149F39CF0ull, 0x1E008u, 255, 3 },
-            { 0x149F39EF0ull, 0x1FEA0u, 255, 3 },
-            { 0x149F3B1BAull, 0x1E008u, 255, 3 },
-            { 0x149F3B7C0ull, 0x1E008u, 255, 3 },
-            { 0x149F3C8D1ull, 0x1FFC6u, 255, 3 },
-            { 0x149F3C972ull, 0x1FEA0u, 255, 3 },
-            { 0x149F3C9D6ull, 0x1FEA0u, 255, 3 },
-            { 0x149F3CE30ull, 0x1FFA5u, 255, 3 },
-            { 0x149F3E120ull, 0x1FFA8u, 255, 3 },
-            { 0x149F3EE10ull, 0x1E018u, 255, 3 },
-            { 0x149F3F152ull, 0x1FFA7u, 255, 3 },
-            { 0x149F3F15Bull, 0x1E008u, 255, 3 },
-            { 0x149F3F64Dull, 0x1FE40u, 255, 3 },
-            { 0x149F3FD6Full, 0x1FE50u, 255, 4 },
-            { 0x149F404FCull, 0x1E008u, 255, 3 },
-            { 0x149F4056Eull, 0x1FEACu, 2, 2 },
-            { 0x149F40576ull, 0x1FEACu, 2, 2 },
-            { 0x149F40B70ull, 0x1FFA8u, 255, 3 },
-            { 0x149F40D00ull, 0x1E008u, 255, 3 },
-            { 0x149F41B50ull, 0x1FEADu, 2, 2 },
-            { 0x149F42DFFull, 0x1E008u, 255, 3 },
-            { 0x149F42E51ull, 0x1FFA8u, 255, 3 },
-            { 0x149F42E76ull, 0x1FE68u, 255, 3 },
-            { 0x149F42E92ull, 0x1FE68u, 255, 3 },
-            { 0x149F42EB1ull, 0x1FE68u, 255, 3 },
-            { 0x149F42EC6ull, 0x1FE60u, 255, 3 },
-            { 0x149F43188ull, 0x1E008u, 255, 3 },
-            { 0x149F43197ull, 0x1E008u, 255, 3 },
-            { 0x149F434E0ull, 0x1E008u, 255, 3 },
-            { 0x149F43977ull, 0x1FEA0u, 255, 3 },
-            { 0x149F44898ull, 0x1E008u, 255, 3 },
-            { 0x149F448A8ull, 0x1E008u, 255, 3 },
-            { 0x149F448C0ull, 0x1FF7Eu, 255, 3 },
-            { 0x149F448C7ull, 0x1FF86u, 255, 3 },
-            { 0x149F448CEull, 0x1FF8Eu, 255, 3 },
-            { 0x149F448D5ull, 0x1FF96u, 255, 3 },
-            { 0x149F448DCull, 0x1FF9Eu, 255, 3 },
-            { 0x149F448E3ull, 0x1FFA2u, 255, 4 },
-            { 0x149F448EBull, 0x1FFA4u, 255, 3 },
-            { 0x149F44B84ull, 0x1E008u, 255, 3 },
-            { 0x149F44BC2ull, 0x1FFA8u, 255, 3 },
-            { 0x149F44F48ull, 0x1E008u, 255, 3 },
-            { 0x149F44F57ull, 0x1E008u, 255, 3 },
-            { 0x149F450CFull, 0x1E030u, 255, 3 },
-            { 0x149F45230ull, 0x1FFA5u, 2, 2 },
-            { 0x149F461C0ull, 0x1FE48u, 255, 3 },
-            { 0x149F461CAull, 0x1FE38u, 255, 6 },
-            { 0x149F461DBull, 0x1FE38u, 255, 3 },
-            { 0x149F461EAull, 0x1FE18u, 255, 4 },
-            { 0x149F461F2ull, 0x1FE38u, 255, 3 },
-            { 0x149F461F9ull, 0x1FE48u, 255, 3 },
-            { 0x149F46207ull, 0x1FE38u, 255, 3 },
-            { 0x149F46216ull, 0x1FE18u, 255, 4 },
-            { 0x149F4621Eull, 0x1FE38u, 255, 3 },
-            { 0x149F46225ull, 0x1FE48u, 255, 3 },
-            { 0x149F46233ull, 0x1FE38u, 255, 3 },
-            { 0x149F46242ull, 0x1FE18u, 255, 4 },
-            { 0x149F4624Aull, 0x1FE38u, 255, 3 },
-            { 0x149F46251ull, 0x1FE48u, 255, 3 },
-            { 0x149F4625Full, 0x1FE38u, 255, 3 },
-            { 0x149F4626Eull, 0x1FE18u, 255, 4 },
-            { 0x149F46276ull, 0x1FE38u, 255, 3 },
-            { 0x149F4627Dull, 0x1FE48u, 255, 3 },
-            { 0x149F4628Bull, 0x1FE38u, 255, 3 },
-            { 0x149F4629Aull, 0x1FE18u, 255, 4 },
-            { 0x149F462A2ull, 0x1FE38u, 255, 3 },
-            { 0x149F462A9ull, 0x1FE48u, 255, 3 },
-            { 0x149F462B7ull, 0x1FE38u, 255, 3 },
-            { 0x149F462C6ull, 0x1FE18u, 255, 4 },
-            { 0x149F462CEull, 0x1FE38u, 255, 3 },
-            { 0x149F462D5ull, 0x1FE48u, 255, 3 },
-            { 0x149F462E3ull, 0x1FE38u, 255, 3 },
-            { 0x149F462F2ull, 0x1FE18u, 255, 4 },
-            { 0x149F462FAull, 0x1FE38u, 255, 3 },
-            { 0x149F46301ull, 0x1FE48u, 255, 3 },
-            { 0x149F4630Full, 0x1FE38u, 255, 3 },
-            { 0x149F4631Eull, 0x1FE18u, 255, 4 },
-            { 0x149F46326ull, 0x1FE38u, 255, 3 },
-            { 0x149F4632Dull, 0x1FE48u, 255, 3 },
-            { 0x149F46345ull, 0x1FE3Cu, 255, 3 },
-            { 0x149F464A6ull, 0x1E030u, 255, 3 },
-            { 0x149F466A6ull, 0x1E030u, 255, 3 },
-            { 0x149F46A62ull, 0x1E030u, 255, 3 },
-            { 0x149F46CFEull, 0x1E030u, 255, 3 },
-            { 0x149F47811ull, 0x1E028u, 255, 3 },
-            { 0x149F47E50ull, 0x1FE40u, 255, 3 },
-            { 0x149F47E5Eull, 0x1FE48u, 255, 3 },
-            { 0x149F47E6Cull, 0x1FE50u, 255, 3 },
-            { 0x149F47E7Aull, 0x1FE58u, 255, 3 },
-            { 0x149F47E88ull, 0x1FE60u, 255, 3 },
-            { 0x149F47E93ull, 0x1FE68u, 255, 3 },
-            { 0x149F47EA1ull, 0x1FE70u, 255, 3 },
-            { 0x149F47EBAull, 0x1FE78u, 255, 3 },
-            { 0x149F47EC9ull, 0x1FE80u, 255, 3 },
-            { 0x149F47ED9ull, 0x1FE88u, 255, 3 },
-            { 0x149F47EE8ull, 0x1FE90u, 255, 3 },
-            { 0x149F47F00ull, 0x1FE80u, 255, 3 },
-            { 0x149F47F07ull, 0x1FE98u, 255, 3 },
-            { 0x149F47F1Cull, 0x1FFA6u, 2, 2 },
-            { 0x149F47FE8ull, 0x1FE40u, 255, 3 },
-            { 0x149F47FFDull, 0x1FFA5u, 255, 3 },
-            { 0x149F48004ull, 0x1FFA7u, 2, 2 },
-            { 0x149F4800Cull, 0x1FEADu, 255, 3 },
-            { 0x149F48013ull, 0x1FEA8u, 255, 4 },
-            { 0x149F4801Bull, 0x1FEA8u, 255, 4 },
-            { 0x149F4818Bull, 0x1E010u, 255, 3 },
-            { 0x149F48209ull, 0x1E010u, 255, 3 },
-            { 0x149F4823Aull, 0x1E010u, 255, 3 },
-            { 0x149F4824Cull, 0x1E010u, 255, 3 },
-            { 0x149F4826Cull, 0x1E010u, 255, 3 },
-            { 0x149F4827Bull, 0x1E010u, 255, 3 },
-            { 0x149F482A2ull, 0x1E010u, 255, 3 },
-            { 0x149F482B4ull, 0x1E010u, 255, 3 },
-            { 0x149F482CFull, 0x1E010u, 255, 3 },
-            { 0x149F482DEull, 0x1E010u, 255, 3 },
-            { 0x149F485B4ull, 0x1FE90u, 255, 3 },
-            { 0x149F485CEull, 0x1FE88u, 255, 3 },
-            { 0x149F485D5ull, 0x1FEB0u, 255, 3 },
-            { 0x149F485F4ull, 0x1FE90u, 255, 3 },
-            { 0x149F48612ull, 0x1FE90u, 255, 3 },
-            { 0x149F4863Aull, 0x1FE90u, 255, 3 },
-            { 0x149F4864Dull, 0x1FE90u, 255, 3 },
-            { 0x149F48654ull, 0x1FEB0u, 255, 3 },
+        static const BoundImmSiteField kBoundImmSiteFields[] = {
+            { &AS::DevelopArrayGrow_BoundImmSite01, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite02, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite03, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite04, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite05, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite06, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite07, 2 },
+            { &AS::DevelopArrayGrow_GetBaseId, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite09, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite10, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite11, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite12, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite13, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite14, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite15, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite16, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite17, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite18, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite19, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite20, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite21, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite22, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite23, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite24, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite25, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite26, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite27, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite28, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite29, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite30, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite31, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite32, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite33, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite34, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite35, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite36, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite37, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite38, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite39, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite40, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite41, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite42, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite43, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite44, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite45, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite46, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite47, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite48, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite49, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite50, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite51, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite52, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite53, 1 },
+            { &AS::EquipDevelopCtrl_SetEnableDevelop, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite55, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite56, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite57, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite58, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite59, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite60, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite61, 2 },
+            { &AS::DevelopArrayGrow_BoundImmSite62, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite63, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite64, 1 },
+            { &AS::DevelopArrayGrow_BoundImmSite65, 3 },
         };
 
-        static const BoundImmSite kBoundImmSites[] = {
-            { 0x140F65E50ull, 1 },
-            { 0x140F6602Bull, 1 },
-            { 0x140F671CAull, 1 },
-            { 0x140F67631ull, 2 },
-            { 0x140F6781Cull, 1 },
-            { 0x140F67960ull, 1 },
-            { 0x140F67B55ull, 1 },
-            { 0x140F67D0Eull, 1 },
-            { 0x140F6809Aull, 1 },
-            { 0x140F681BBull, 1 },
-            { 0x140F6866Aull, 1 },
-            { 0x140F696AEull, 1 },
-            { 0x140F69D5Dull, 1 },
-            { 0x140F6C5E5ull, 1 },
-            { 0x140F6C855ull, 1 },
-            { 0x140F6CA75ull, 1 },
-            { 0x140F6CCA5ull, 1 },
-            { 0x140F6CE55ull, 1 },
-            { 0x140F6D123ull, 2 },
-            { 0x140F6D223ull, 1 },
-            { 0x140F6D9EAull, 1 },
-            { 0x140F6E6CFull, 1 },
-            { 0x140F71882ull, 3 },
-            { 0x149F167ADull, 1 },
-            { 0x149F1787Bull, 1 },
-            { 0x149F17E49ull, 2 },
-            { 0x149F18239ull, 2 },
-            { 0x149F1874Dull, 2 },
-            { 0x149F1A8E0ull, 1 },
-            { 0x149F1EA49ull, 2 },
-            { 0x149F217D0ull, 1 },
-            { 0x149F22107ull, 2 },
-            { 0x149F22E5Aull, 2 },
-            { 0x149F23347ull, 2 },
-            { 0x149F23502ull, 2 },
-            { 0x149F2393Dull, 2 },
-            { 0x149F2429Eull, 2 },
-            { 0x149F2442Aull, 1 },
-            { 0x149F24A03ull, 2 },
-            { 0x149F24E07ull, 2 },
-            { 0x149F263C5ull, 2 },
-            { 0x149F269F0ull, 1 },
-            { 0x149F27330ull, 1 },
-            { 0x149F27682ull, 2 },
-            { 0x149F27BE0ull, 1 },
-            { 0x149F285CFull, 1 },
-            { 0x149F2A83Aull, 2 },
-            { 0x149F2ABA4ull, 2 },
-            { 0x149F2C2DAull, 1 },
-            { 0x149F2CEE2ull, 1 },
-            { 0x149F2CFCAull, 1 },
-            { 0x149F2D119ull, 1 },
-            { 0x149F2D1FAull, 1 },
-            { 0x149F2F87Bull, 2 },
-            { 0x149F2FBC2ull, 2 },
-            { 0x149F35A6Cull, 2 },
-            { 0x149F36198ull, 1 },
-            { 0x149F38460ull, 2 },
-            { 0x149F39484ull, 1 },
-            { 0x149F39EE3ull, 1 },
-            { 0x149F401C5ull, 1 },
-            { 0x149F407B5ull, 1 },
-            { 0x149F41561ull, 1 },
-            { 0x149F42BE0ull, 1 },
-            { 0x149F4395Aull, 1 },
-            { 0x149F45439ull, 1 },
-            { 0x149F45487ull, 2 },
-            { 0x149F454EEull, 1 },
-            { 0x149F4551Bull, 2 },
-            { 0x149F45590ull, 1 },
-            { 0x149F455D7ull, 2 },
-            { 0x149F4563Full, 1 },
-            { 0x149F456C0ull, 1 },
-            { 0x149F477F8ull, 1 },
-        };
-        }
-
-        template <std::size_t A, std::size_t B>
-        constexpr std::size_t MaxOf() { return A > B ? A : B; }
-
-        constexpr std::size_t kMaxCtlSites =
-            MaxOf<MaxOf<sizeof(tbl_en154::kCtlDispSites)
-                            / sizeof(tbl_en154::kCtlDispSites[0]),
-                        sizeof(tbl_jp154::kCtlDispSites)
-                            / sizeof(tbl_jp154::kCtlDispSites[0])>(),
-                  MaxOf<sizeof(tbl_en153::kCtlDispSites)
-                            / sizeof(tbl_en153::kCtlDispSites[0]),
-                        sizeof(tbl_jp153::kCtlDispSites)
-                            / sizeof(tbl_jp153::kCtlDispSites[0])>()>();
+        constexpr std::size_t kMaxCtlSites = std::size(kCtlDispSiteFields);
 
         const CtlDispSite*  kCtlDispSites  = nullptr;
         const BoundImmSite* kBoundImmSites = nullptr;
@@ -1967,27 +642,49 @@ namespace equip
         std::intptr_t g_CloneDelta[4]        = {};
         std::size_t   g_CloneDeltaCount      = 0;
 
-        const std::uintptr_t kSweepFpEn154[] = {
-            0x140FE5295, 0x140FFE8C8, 0x14127A055, 0x14127A37E,
-            0x141311057, 0x1413110C5, 0x141A582B5, 0x142643B6D,
-            0x142687645, 0x1426B4C85, 0x142747999, 0x1427480D5,
-            0x14274839D, 0x1430A6147, 0x1430B5DBE, 0x1430BA26F,
-            0x1431034EF, 0x14310566B, 0x14310B923, 0x1434C8182,
-            0x148C7381E, 0x149A7361C, 0x149A7CBC8,
-            0x14308066F, 0x14308C91B, 0x14308F67B, 0x14309FCCF,
-            0x1457E24E7, 0x145AAD062, 0x149C8B054, 0x149CAB88C,
-            0x149CAE708, 0x149CE09D8, 0x149CF0EF8, 0x149CF9170,
-            0x149D7C1C9,
-        };
-
-        const std::uintptr_t kSweepFpJp154[] = {
-            0x140FE52C5, 0x140FFE958, 0x14127A085, 0x14127A3AE,
-            0x141311077, 0x1413110E5, 0x141A58225, 0x1430D9F20,
-            0x1430E52CC, 0x149765F03, 0x149D8C125, 0x149D8EB35,
-            0x149D93671, 0x149DAC5B5, 0x149DB4C35, 0x149DBA015,
-            0x149DC7451, 0x149DD4BF5, 0x149DDE595, 0x149DDFCDD,
-            0x149DE47B9, 0x149DF1899, 0x149E03FE1, 0x149E0CCF5,
-            0x149E99AB5,
+        static const AddrField kSweepFpFields[] = {
+            &AS::DevelopArrayGrow_SweepAllow01,
+            &AS::DevelopArrayGrow_SweepAllow02,
+            &AS::DevelopArrayGrow_SweepAllow03,
+            &AS::DevelopArrayGrow_SweepAllow04,
+            &AS::DevelopArrayGrow_SweepAllow05,
+            &AS::DevelopArrayGrow_SweepAllow06,
+            &AS::DevelopArrayGrow_SweepAllow07,
+            &AS::DevelopArrayGrow_SweepAllow08,
+            &AS::DevelopArrayGrow_SweepAllow09,
+            &AS::DevelopArrayGrow_SweepAllow10,
+            &AS::DevelopArrayGrow_SweepAllow11,
+            &AS::DevelopArrayGrow_SweepAllow12,
+            &AS::DevelopArrayGrow_SweepAllow13,
+            &AS::DevelopArrayGrow_SweepAllow14,
+            &AS::DevelopArrayGrow_SweepAllow15,
+            &AS::DevelopArrayGrow_SweepAllow16,
+            &AS::DevelopArrayGrow_SweepAllow17,
+            &AS::DevelopArrayGrow_SweepAllow18,
+            &AS::DevelopArrayGrow_SweepAllow19,
+            &AS::DevelopArrayGrow_SweepAllow20,
+            &AS::DevelopArrayGrow_SweepAllow21,
+            &AS::DevelopArrayGrow_SweepAllow22,
+            &AS::DevelopArrayGrow_SweepAllow23,
+            &AS::DevelopArrayGrow_SweepAllow24,
+            &AS::DevelopArrayGrow_SweepAllow25,
+            &AS::DevelopArrayGrow_SweepAllow26,
+            &AS::DevelopArrayGrow_SweepAllow27,
+            &AS::DevelopArrayGrow_SweepAllow28,
+            &AS::DevelopArrayGrow_SweepAllow29,
+            &AS::DevelopArrayGrow_SweepAllow30,
+            &AS::DevelopArrayGrow_SweepAllow31,
+            &AS::DevelopArrayGrow_SweepAllow32,
+            &AS::DevelopArrayGrow_SweepAllow33,
+            &AS::DevelopArrayGrow_SweepAllow34,
+            &AS::DevelopArrayGrow_SweepAllow35,
+            &AS::DevelopArrayGrow_SweepAllow36,
+            &AS::DevelopArrayGrow_SweepAllow37,
+            &AS::DevelopArrayGrow_SweepAllow38,
+            &AS::DevelopArrayGrow_SweepAllow39,
+            &AS::DevelopArrayGrow_SweepAllow40,
+            &AS::DevelopArrayGrow_SweepAllow41,
+            &AS::DevelopArrayGrow_SweepAllow42,
         };
 
         struct BuildAddrs
@@ -2023,169 +720,96 @@ namespace equip
             std::size_t           sweepFpCount;
         };
 
-        const BuildAddrs kAddrsEn154 = {
-            { 0x140F65084, 0x140F64908, 0x140F6496F, 0x140F6C82B,
-              0x140F6C83A, 0x140F6C843, 0x140F6E105, 0x140F6E117,
-              0x140F6E135, 0x140F6E140, 0x140F6E14B, 0x140F6E156,
-              0x140F69240, 0x140F6D15A, 0x140F68DF0, 0x140F68CB0,
-              0x140F68C75, 0x140F6AA62, 0x140F6A9BB, 0x140F6CD04,
-              0x140F64AF1, 0x140F64B1A },
-            { 0x140F693DA, 0x140F69400, 0x140F6944C, 0x140F6944F,
-              0x140F6AD5F, 0x140F6FF79 },
-            { { 0x40, 0x32, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
-            0x140F6C820, 0x140F6E600, 0x140F6E800,
-            0x140F68CD0, 0x140F68D00,
-            0x140F65930, 0x140F657E0,
-            0x140F6B020, 0x140F6B430, 0x140F65C80, 0x140F67000,
-            0x140F6A660, 0x140F6D150,
-            0x140BFF0E0,
-            0x14239B460, 0x14239BCD0, 0x14239B530, 0x14239BDA0,
-            0x140F64BC0,
-            tbl_en154::kCtlDispSites,
-            sizeof(tbl_en154::kCtlDispSites)
-                / sizeof(tbl_en154::kCtlDispSites[0]),
-            tbl_en154::kBoundImmSites,
-            sizeof(tbl_en154::kBoundImmSites)
-                / sizeof(tbl_en154::kBoundImmSites[0]),
-            kSweepFpEn154,
-            sizeof(kSweepFpEn154) / sizeof(kSweepFpEn154[0]),
-        };
+        CtlDispSite    g_CtlSites[std::size(kCtlDispSiteFields)]   = {};
+        BoundImmSite   g_BoundSites[std::size(kBoundImmSiteFields)] = {};
+        std::uintptr_t g_SweepFp[std::size(kSweepFpFields)]        = {};
+        BuildAddrs     g_Addrs                                    = {};
 
-        const BuildAddrs kAddrsJp154 = {
-            { 0x140F650E4, 0x140F64968, 0x140F649CF, 0x140F6C88B,
-              0x140F6C89A, 0x140F6C8A3, 0x140F6E165, 0x140F6E177,
-              0x140F6E195, 0x140F6E1A0, 0x140F6E1AB, 0x140F6E1B6,
-              0x140F692A0, 0x140F6D1BA, 0x140F68E50, 0x140F68D10,
-              0x140F68CD5, 0x140F6AAC2, 0x140F6AA1B, 0x140F6CD64,
-              0x140F64B51, 0x140F64B7A },
-            { 0x140F6943A, 0x140F69460, 0x140F694AC, 0x140F694AF,
-              0x140F6ADBF, 0x140F6FFD9 },
-            { { 0x40, 0x32, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
-            0x140F6C880, 0x140F6E660, 0x140F6E860,
-            0x140F68D30, 0x140F68D60,
-            0x140F65990, 0x140F65840,
-            0x140F6B080, 0x140F6B490, 0x140F65CE0, 0x140F67060,
-            0x140F6A6C0, 0x140F6D1B0,
-            0x140BFF060,
-            0x14239B770, 0x14239BFE0, 0x14239B840, 0x14239C0B0,
-            0x140F64C20,
-            tbl_jp154::kCtlDispSites,
-            sizeof(tbl_jp154::kCtlDispSites)
-                / sizeof(tbl_jp154::kCtlDispSites[0]),
-            tbl_jp154::kBoundImmSites,
-            sizeof(tbl_jp154::kBoundImmSites)
-                / sizeof(tbl_jp154::kBoundImmSites[0]),
-            kSweepFpJp154,
-            sizeof(kSweepFpJp154) / sizeof(kSweepFpJp154[0]),
-        };
-
-        const std::uintptr_t kSweepFpEn153[] = {
-            0x140FFF068, 0x14127AA45, 0x14127AD6E, 0x141311B57,
-            0x141311BC5, 0x141A58575, 0x143410E77, 0x143D2D0A5,
-            0x14418BCFE, 0x1449EAFF3, 0x144BC98DE, 0x144E04EF7,
-            0x14546A46A, 0x14563F287, 0x14595A073, 0x145B69C7E,
-            0x145B90678, 0x14610B5ED, 0x1464AABE8, 0x146516E78,
-            0x1465DEA9E, 0x1467D5C61, 0x146D65287, 0x149A04154,
-            0x149D513A2,
-        };
-        const std::uintptr_t kSweepFpJp153[] = {
-            0x140FFF0B8, 0x14127AB75, 0x14127AE9E, 0x141311C97,
-            0x141311D05, 0x141A58675, 0x14335A2A5, 0x143B4F454,
-            0x143F7D9B8, 0x1445E2A1F, 0x1446DBC69, 0x14482529D,
-            0x1452417FE, 0x14538BB2B, 0x1453D5570, 0x14543D05D,
-            0x146F282AD, 0x147F39DE0, 0x14805F6B1, 0x148A6EC4E,
-            0x148BFA15A, 0x148C2F914, 0x148FD2EFD, 0x14942F589,
-            0x14A5BEF2E, 0x14AFFAFFE, 0x14B37258A, 0x14B6B7362,
-            0x14C933470, 0x14CB825E1, 0x14CE50B67, 0x14D372AB4,
-            0x14D6305AB, 0x14DC2AC2F, 0x14DD445BA,
-        };
-
-        const BuildAddrs kAddrsEn153 = {
-            { 0x1494FD523, 0x1494F9348, 0x1494F93AF, 0x14951D19A,
-              0x14951D1A9, 0x14951D1B2, 0,           0x149524FD7,
-              0x149524FF5, 0x149525000, 0x14952500B, 0x149525016,
-              0, 0, 0, 0, 0, 0, 0, 0,
-              0x1494F9531, 0x1494F955A },
-            { 0x14950E83D, 0x14950E860, 0x14950E8AC, 0x14950E8AF,
-              0x14951882F, 0x140F70709 },
-            { { 0x40, 0x30, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
-            0x14951D190, 0x140F6ED90, 0x149527750,
-            0x14950D190, 0x14950D350,
-            0x1494FEB30, 0x1494FE600,
-            0x14951A1E0, 0x14951AF70, 0x149500D30, 0x149505E80,
-            0x1495140E0, 0x140F6D8E0,
-            0x140BFF480,
-            0x14239B5C0, 0x14239BE30, 0x14239B690, 0x14239BF00,
-            0x1494FA630,
-            tbl_en153::kCtlDispSites,
-            sizeof(tbl_en153::kCtlDispSites)
-                / sizeof(tbl_en153::kCtlDispSites[0]),
-            tbl_en153::kBoundImmSites,
-            sizeof(tbl_en153::kBoundImmSites)
-                / sizeof(tbl_en153::kBoundImmSites[0]),
-            kSweepFpEn153,
-            sizeof(kSweepFpEn153) / sizeof(kSweepFpEn153[0]),
-        };
-
-        const BuildAddrs kAddrsJp153 = {
-            { 0x149F17083, 0x149F14CC8, 0x149F14D2F, 0x149F35D4A,
-              0x149F35D59, 0x149F35D62, 0,           0x149F407C7,
-              0x149F407E5, 0x149F407F0, 0x149F407FB, 0x149F40806,
-              0, 0, 0, 0, 0, 0, 0, 0,
-              0x149F14EB1, 0x149F14EDA },
-            { 0x149F2868D, 0x149F286B0, 0x149F286FC, 0x149F286FF,
-              0x149F3189F, 0x140F707F9 },
-            { { 0x40, 0x30, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x40, 0xFE, 0xC6 },   { 0x40, 0x0F, 0xB6, 0xC6 },
-              { 0x73, 0x09 },         { 0x0F, 0x83, 0xFA, 0x00 } },
-            0x149F35D40, 0x149F42DF0, 0x149F44B70,
-            0x149F26DD0, 0x140F69590,
-            0x149F18730, 0x149F17E20,
-            0x149F32A10, 0x149F33EC0, 0x149F1A8E0, 0x149F1EA40,
-            0x149F2D110, 0x140F6D9E0,
-            0x140BFF010,
-            0x14239B5F0, 0x14239BE60, 0x14239B6C0, 0x14239BF30,
-            0x149F159A0,
-            tbl_jp153::kCtlDispSites,
-            sizeof(tbl_jp153::kCtlDispSites)
-                / sizeof(tbl_jp153::kCtlDispSites[0]),
-            tbl_jp153::kBoundImmSites,
-            sizeof(tbl_jp153::kBoundImmSites)
-                / sizeof(tbl_jp153::kBoundImmSites[0]),
-            kSweepFpJp153,
-            sizeof(kSweepFpJp153) / sizeof(kSweepFpJp153[0]),
-        };
+        const BuildAddrs* AddrsFromAddressSet()
+        {
+            static const AddrField kPatchFields[kPatchCount] = {
+                &AS::DevelopArrayGrow_Patch_BlockAllocSize,
+                &AS::DevelopArrayGrow_Patch_CtorLoopCount,
+                &AS::DevelopArrayGrow_Patch_CtorParallelBase,
+                &AS::DevelopArrayGrow_Patch_ResetRecordsSize,
+                &AS::DevelopArrayGrow_Patch_ResetParallelBase,
+                &AS::DevelopArrayGrow_Patch_ResetParallelSize,
+                &AS::DevelopArrayGrow_Patch_RegistScanBound,
+                &AS::DevelopArrayGrow_Patch_RegistProbeDisp,
+                &AS::DevelopArrayGrow_Patch_RegistStoreDisp0,
+                &AS::DevelopArrayGrow_Patch_RegistStoreDisp4,
+                &AS::DevelopArrayGrow_Patch_RegistStoreDisp8,
+                &AS::DevelopArrayGrow_Patch_RegistStoreDispC,
+                &AS::DevelopArrayGrow_Patch_EquipidFromIdxBound,
+                &AS::DevelopArrayGrow_Patch_IsVisibleBound,
+                &AS::DevelopArrayGrow_Patch_GradeGetterBound,
+                &AS::DevelopArrayGrow_Patch_PackedGetterBound,
+                &AS::DevelopArrayGrow_Patch_CountByTypeScanBound,
+                &AS::DevelopArrayGrow_Patch_ProviderCountBound,
+                &AS::DevelopArrayGrow_Patch_ProviderFillBound,
+                &AS::DevelopArrayGrow_Patch_MenuListGateBound,
+                &AS::DevelopArrayGrow_Patch_EquipEquipedBitsAllocWords,
+                &AS::DevelopArrayGrow_Patch_EquipEquipedBitsClearSize,
+            };
+            static const AddrField kByteFixFields[kByteFixCount] = {
+                &AS::DevelopArrayGrow_ByteFix_SiblingRetireLoopIndexInit,
+                &AS::DevelopArrayGrow_ByteFix_SiblingRetireLoopIndexRead,
+                &AS::DevelopArrayGrow_ByteFix_SiblingRetireLoopIndexInc,
+                &AS::DevelopArrayGrow_ByteFix_SiblingRetireLoopIndexTest,
+                &AS::DevelopArrayGrow_ByteFix_DevelopListCountMissBranch,
+                &AS::DevelopArrayGrow_ByteFix_DevelopListApplyMissBranch,
+            };
+            static const std::uint8_t kByteFixOld[kByteFixCount][4] = { { 0x40, 0x32, 0xF6 }, { 0x40, 0x0F, 0xB6, 0xC6 }, { 0x40, 0xFE, 0xC6 }, { 0x40, 0x0F, 0xB6, 0xC6 }, { 0x73, 0x09 }, { 0x0F, 0x83, 0xFA, 0x00 } };
+            const AS& a = gAddr;
+            for (std::size_t i = 0; i < kPatchCount; ++i)
+                g_Addrs.patch[i] = a.*kPatchFields[i];
+            for (std::size_t i = 0; i < kByteFixCount; ++i)
+                g_Addrs.byteFix[i] = a.*kByteFixFields[i];
+            std::memcpy(g_Addrs.byteFixOld, kByteFixOld, sizeof(kByteFixOld));
+            g_Addrs.blockReset                = a.DevelopArrayGrow_BlockReset;
+            g_Addrs.setDeveloped              = a.EquipDevelopCtrl_SetEquipDeveloped;
+            g_Addrs.setUndeveloped            = a.EquipDevelopCtrl_SetEquipUndeveloped;
+            g_Addrs.findByDevId               = a.EquipDevelopCtrl_GetEquipDevelopIndex;
+            g_Addrs.findByEquipId             = a.DevelopArrayGrow_FindByEquipId;
+            g_Addrs.listDevCount              = a.DevelopArrayGrow_ListDevCount;
+            g_Addrs.listDevFill               = a.DevelopArrayGrow_ListDevFill;
+            g_Addrs.equipIdCount              = a.DevelopArrayGrow_EquipIdCount;
+            g_Addrs.equipIdRow                = a.DevelopArrayGrow_EquipIdRow;
+            g_Addrs.getBaseId                 = a.DevelopArrayGrow_GetBaseId;
+            g_Addrs.getDerivationDevelopIndex = a.DevelopArrayGrow_GetDerivationDevelopIndex;
+            g_Addrs.siblingCount              = a.DevelopArrayGrow_SiblingCount;
+            g_Addrs.isVisible                 = a.EquipDevCtrl_IsEquipVisile;
+            g_Addrs.quarkAlloc                = a.Dm_Alloc;
+            g_Addrs.blockVtblA                = a.DevelopArrayGrow_BlockVtblA;
+            g_Addrs.blockVtblB                = a.DevelopArrayGrow_BlockVtblB;
+            g_Addrs.base20VtblA               = a.DevelopArrayGrow_Base20VtblA;
+            g_Addrs.base20VtblB               = a.DevelopArrayGrow_Base20VtblB;
+            g_Addrs.edcDtor                   = a.DevelopArrayGrow_EdcDtor;
+            for (std::size_t i = 0; i < std::size(kCtlDispSiteFields); ++i)
+            {
+                const CtlDispSiteField& f = kCtlDispSiteFields[i];
+                g_CtlSites[i] = { a.*f.addr, f.oldDisp, f.dispOff, f.maxOff };
+            }
+            for (std::size_t i = 0; i < std::size(kBoundImmSiteFields); ++i)
+                g_BoundSites[i] = { a.*kBoundImmSiteFields[i].addr, kBoundImmSiteFields[i].immOff };
+            std::size_t sweep = 0;
+            for (const AddrField f : kSweepFpFields)
+                if (a.*f)   // the EN allow-list is shorter, its spare slots are 0
+                    g_SweepFp[sweep++] = a.*f;
+            g_Addrs.ctl          = g_CtlSites;
+            g_Addrs.ctlCount     = std::size(g_CtlSites);
+            g_Addrs.bnd          = g_BoundSites;
+            g_Addrs.bndCount     = std::size(g_BoundSites);
+            g_Addrs.sweepFp      = g_SweepFp;
+            g_Addrs.sweepFpCount = sweep;
+            return &g_Addrs;
+        }
 
         const BuildAddrs* g_A = nullptr;
 
         bool SelectBuildTables()
         {
-            switch (gGameBuild)
-            {
-            case AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case AddressSetRuntime::GameBuild::En_1_0_15_4:
-                g_A = &kAddrsEn154;
-                break;
-            case AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-                g_A = &kAddrsJp154;
-                break;
-            case AddressSetRuntime::GameBuild::En_1_0_15_3:
-                g_A = &kAddrsEn153;
-                break;
-            case AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-                g_A = &kAddrsJp153;
-                break;
-            default:
-                g_A = nullptr;
-                return false;
-            }
+            g_A = AddrsFromAddressSet();
             for (std::size_t i = 0; i < kPatchCount; ++i)
             {
                 kPatches[i]      = kPatchTemplate[i];
@@ -2223,6 +847,8 @@ namespace equip
         PrePatchState g_PrePatch       = PrePatchState::NotAttempted;
         int           g_PrePatchDetail = -1;
         std::uintptr_t g_GrownBlock    = 0;
+        std::uintptr_t* g_MigratedSlot = nullptr;
+        std::uintptr_t g_MigratedOldBase20 = 0;
         char          g_PreVerifyDetail[192] = {};
 
         bool GrowDisabledByMarker()
@@ -2356,12 +982,27 @@ namespace equip
 #define kAddr_Base20VtblA         (g_A->base20VtblA)
 #define kAddr_Base20VtblB         (g_A->base20VtblB)
 
-        constexpr std::size_t kBlock_FlagsPtrOff  = kNewCtlOff;
-        constexpr std::size_t kBase20_FlagsPtrOff = kNewCtlOff - 0x20;
-        constexpr std::size_t kBase20_RecFieldOff = 0x8;
+        constexpr std::size_t kBlock_FlagsPtrOff        = kNewCtlOff;
+        constexpr std::size_t kBase20_FlagsPtrOff       = kNewCtlOff - 0x20;
+        constexpr std::size_t kBase20_RecFieldOff       = 0x8;
+        constexpr std::size_t kBase20_RecDevelopTypeOff = 0x3E;
 
         constexpr std::uint8_t  kReqAnnouncedBit = 0x4;
-        constexpr std::uint32_t kFirstCustomRow  = 922;
+        constexpr std::uint32_t kTrueVanillaRows = 922; // 920 stock rows + Infinite Heaven's two filler rows
+
+        std::atomic<std::uint32_t> g_FirstCustomRow{ kTrueVanillaRows };
+        std::atomic<bool>          g_LayoutSettled{ false };
+        std::atomic<std::uint32_t> g_ClearLoadedRowsBegin{ 0 };
+        std::atomic<std::uint32_t> g_ClearLoadedRowsEnd{ 0 };
+        std::atomic<bool>          g_LayoutPersistPending{ false };
+        std::atomic<bool>          g_RejectLoadedRows{ true };
+        std::atomic<std::int32_t>  g_PendingFirstCustomRow{ 0 };
+        std::atomic<std::int32_t>  g_PendingNativeRowsHash{ 0 };
+
+        std::uint32_t FirstCustomRow()
+        {
+            return g_FirstCustomRow.load(std::memory_order_acquire);
+        }
 
         std::atomic<std::uint32_t> g_GunsmithClaimMask{ 0 };
 
@@ -2382,23 +1023,22 @@ namespace equip
                 });
         }
 
-        std::uint32_t ResolveAnnouncedRowSEH(std::int32_t developId)
+        bool ServeFromIndex(std::uintptr_t base20, std::uint16_t key,
+                            bool equipField, std::uint16_t& out);
+
+        std::uint32_t ResolveAnnouncedRow(std::int32_t developId)
         {
-            if (!g_OrigFindByDevId || developId <= 0 || developId > 0xFFFF)
+            if (developId <= 0 || developId > 0xFFFF)
                 return 0;
             const std::uintptr_t base20 =
                 g_ArmedBase20.load(std::memory_order_relaxed);
             if (base20 == 0)
                 return 0;
-            __try
-            {
-                return g_OrigFindByDevId(
-                    base20, static_cast<std::uint16_t>(developId));
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return 0;
-            }
+            std::uint16_t row = 0;
+            if (ServeFromIndex(base20, static_cast<std::uint16_t>(developId),
+                               false, row))
+                return row;
+            return 0;
         }
 
         bool RowHoldsDevelopId(std::uint32_t row, std::int32_t developId)
@@ -2426,17 +1066,18 @@ namespace equip
         std::uint32_t AnnouncedRowOf(std::int32_t developId,
                                      std::int32_t persistedFlow)
         {
+            const std::uint32_t first = FirstCustomRow();
             const std::uint32_t persisted =
                 static_cast<std::uint32_t>(persistedFlow);
             const bool persistedUsable =
-                persistedFlow > 0 && persisted >= kFirstCustomRow
+                persistedFlow > 0 && persisted >= first
                 && persisted < kNewRows && !IsReservedFlowRow(persisted);
 
             if (persistedUsable && RowHoldsDevelopId(persisted, developId))
                 return persisted;
 
-            const std::uint32_t live = ResolveAnnouncedRowSEH(developId);
-            if (live >= kFirstCustomRow && live < kNewRows
+            const std::uint32_t live = ResolveAnnouncedRow(developId);
+            if (live >= first && live < kNewRows
                 && !IsReservedFlowRow(live)
                 && RowHoldsDevelopId(live, developId))
                 return live;
@@ -2550,6 +1191,13 @@ namespace equip
                 g_LastSyncTick = now;
             }
             EquipDevelop_RefreshDevelopTimerSnapshot();
+            const std::uint32_t shadowOwnedFrom =
+                g_LayoutSettled.load(std::memory_order_acquire) ? FirstCustomRow() : kOldRows;
+            const std::uint32_t clearLoadedBegin =
+                g_ClearLoadedRowsBegin.load(std::memory_order_relaxed);
+            const std::uint32_t clearLoadedEnd =
+                g_RejectLoadedRows.load(std::memory_order_relaxed)
+                    ? g_ClearLoadedRowsEnd.load(std::memory_order_relaxed) : 0;
             std::uint32_t pulled = 0;
             __try
             {
@@ -2562,9 +1210,15 @@ namespace equip
                         g_SyncMirror[i] = s;
                         continue;
                     }
-                    if (i >= kFirstCustomRow)
+                    if (i >= shadowOwnedFrom)
                     {
                         g_SvarsFlags[i] = h;
+                        g_SyncMirror[i] = h;
+                        continue;
+                    }
+                    if (s != g_SyncMirror[i] && i >= clearLoadedBegin && i < clearLoadedEnd)
+                    {
+                        g_SvarsFlags[i] = h; // the save still holds the flags of the custom row that sat here before the native rows grew
                         g_SyncMirror[i] = h;
                         continue;
                     }
@@ -2596,10 +1250,40 @@ namespace equip
             MarkSilencedRowsAnnounced();
             CaptureGrownAnnouncedBits();
             RestoreGrownAnnouncedBits();
+            if (pulled && g_LayoutPersistPending.exchange(false, std::memory_order_acq_rel))
+            {
+                V_FrameWorkState::SetPersistedConstant("DevelopLayout", "firstCustomRow",
+                    g_PendingFirstCustomRow.load(std::memory_order_relaxed));
+                V_FrameWorkState::SetPersistedConstant("DevelopLayout", "nativeRowsHash",
+                    g_PendingNativeRowsHash.load(std::memory_order_relaxed));
+            }
             if (pulled)
             {
                 InvalidateDevelopVisibilityCache();
                 EquipDevelop_RequestDevelopRestore();
+            }
+        }
+
+        bool         g_OtherThreadsSuspended = false;
+        int          g_DeferredProtectFails  = 0;
+        const char*  g_DeferredProtectWhat   = nullptr;
+        void*        g_DeferredProtectAddr   = nullptr;
+        DWORD        g_DeferredProtectErr    = 0;
+
+        void ReportProtectFailure(const char* what, void* addr, DWORD err)
+        {
+            if (!g_OtherThreadsSuspended)
+            {
+                LogWarn("DevelopArrayGrow: site %s @%p: VirtualProtect failed (%lu)",
+                        what, addr, err);
+                return;
+            }
+            // a suspended thread may hold the log lock, so the warning waits for ResumeOtherThreads
+            if (g_DeferredProtectFails++ == 0)
+            {
+                g_DeferredProtectWhat = what;
+                g_DeferredProtectAddr = addr;
+                g_DeferredProtectErr  = err;
             }
         }
 
@@ -2613,8 +1297,7 @@ namespace equip
             if (!VirtualProtect(addr, p.opLen + 4, PAGE_EXECUTE_READWRITE,
                                 &oldProt))
             {
-                LogWarn("DevelopArrayGrow: site %s @%p: VirtualProtect failed (%lu)",
-                        p.what, static_cast<void*>(addr), GetLastError());
+                ReportProtectFailure(p.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr + p.opLen, &value, 4);
@@ -2660,8 +1343,7 @@ namespace equip
             DWORD oldProt = 0;
             if (!VirtualProtect(addr, 4, PAGE_EXECUTE_READWRITE, &oldProt))
             {
-                LogWarn("DevelopArrayGrow: site @%p: VirtualProtect failed (%lu)",
-                        static_cast<void*>(addr), GetLastError());
+                ReportProtectFailure("displacement", static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr, &value, 4);
@@ -3111,8 +1793,7 @@ namespace equip
             DWORD oldProt = 0;
             if (!VirtualProtect(addr, f.len, PAGE_EXECUTE_READWRITE, &oldProt))
             {
-                LogWarn("DevelopArrayGrow: byte fix %s @%p: VirtualProtect failed (%lu)",
-                        f.what, static_cast<void*>(addr), GetLastError());
+                ReportProtectFailure(f.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr, bytes, f.len);
@@ -3168,7 +1849,7 @@ namespace equip
 
         bool CustomWeaponRowHasNoGunBasic(const void* self, std::uint16_t row)
         {
-            if (row < kFirstCustomRow || row >= kNewRows)
+            if (row < FirstCustomRow() || row >= kNewRows)
                 return false;
             std::uint16_t equipId = 0;
             __try
@@ -3442,7 +2123,7 @@ namespace equip
 
         void RearmNewBadgeOnDevelop(std::uintptr_t base20, std::uint16_t idx)
         {
-            if (idx < kFirstCustomRow)
+            if (idx < FirstCustomRow())
                 return;
             std::uint16_t developId = 0;
             if (!RecordFieldAt(base20, idx, false, developId) || developId == 0)
@@ -3475,7 +2156,7 @@ namespace equip
             }
             void* ctl = reinterpret_cast<void*>(base20);
             const bool timerProof =
-                idx >= kFirstCustomRow && EquipDevelop_WasDevelopTimerActive(idx);
+                idx >= FirstCustomRow() && EquipDevelop_WasDevelopTimerActive(idx);
             if (EquipDevelop_ShouldSuppressNativeDevelop(ctl, idx))
                 return;
             RearmNewBadgeOnDevelop(base20, idx);
@@ -3532,6 +2213,7 @@ namespace equip
             std::memset(g_EquipIdRow, 0xFF, sizeof(g_EquipIdRow));
             std::memset(g_EquipIdRowManaged, 0xFF, sizeof(g_EquipIdRowManaged));
             std::uint64_t vanBits[kEquipIdSlots / 64] = {};
+            const std::uint32_t first = FirstCustomRow();
             const std::uint8_t* base =
                 reinterpret_cast<const std::uint8_t*>(base20);
             for (std::uint32_t i = 0; i < bound; ++i)
@@ -3549,7 +2231,7 @@ namespace equip
                     g_EquipIdRow[eqp] = static_cast<std::uint16_t>(i);
                 if (eqp != 0 && eqp < kEquipIdSlots)
                 {
-                    if (i < kFirstCustomRow)
+                    if (i < first)
                         vanBits[eqp >> 6] |= 1ull << (eqp & 63);
                     else if (g_EquipIdRowManaged[eqp] == 0xFFFF)
                         g_EquipIdRowManaged[eqp] = static_cast<std::uint16_t>(i);
@@ -3742,6 +2424,41 @@ namespace equip
             return flags && (flags[idx] & 1) != 0;
         }
 
+        thread_local bool         t_SortiePrepListArmed  = false;
+        thread_local std::uint8_t t_SortiePrepArmedTab   = 0;
+        thread_local bool         t_SortiePrepRowsFirst  = false;
+        thread_local std::uint8_t t_SortiePrepFillTab    = 0;
+
+        std::uint8_t SortiePrepListsShowingRow(std::uintptr_t base20, std::uint32_t idx)
+        {
+            const auto* rec = reinterpret_cast<const std::uint8_t*>(
+                base20 + static_cast<std::size_t>(idx) * kRecStride);
+            std::uint8_t lists = 0;
+            switch (rec[kBase20_RecDevelopTypeOff])
+            {
+            case 0x13: lists |= kSortiePrepType13Rows; break;
+            case 0x14: lists |= kSortiePrepType14Rows; break;
+            case 0x17: lists |= kSortiePrepType17Rows; break;
+            case 0x18: lists |= kSortiePrepType18Rows; break;
+            case 0x19: lists |= kSortiePrepType19Rows; break;
+            default: break;
+            }
+            if (rec[kBase20_RecDevelopTypeOff + 1] == '[')
+                lists |= kSortiePrepHeadOptionRows;
+            const std::uint16_t equipId = *reinterpret_cast<const std::uint16_t*>(rec + 0xC) >> 4;
+            if (equipId >= 0x1F2 && equipId <= 0x1FB) // the item list picks these by equipId, any type
+                lists |= kSortiePrepItemRows;
+            return lists;
+        }
+
+        int SortiePrepFillTier(std::uintptr_t base20, std::uint32_t idx, std::uint8_t openTab)
+        {
+            const std::uint8_t lists = SortiePrepListsShowingRow(base20, idx);
+            if (lists & openTab)
+                return 0;
+            return lists != 0 ? 1 : 2;
+        }
+
         constexpr std::size_t   kBase20_RecDevelopGmpCostOff = 0x24;
         constexpr std::uint16_t kCboxDsrDevelopId            = 12000;
 
@@ -3790,11 +2507,75 @@ namespace equip
             return developed;
         }
 
+        constexpr std::uint8_t  kDevelopTypeEquip        = 0x12;   // EQP_DEV_TYPE_Equip: items
+        constexpr std::uint32_t kMaxSupersededItemGrades = 256;
+
+        thread_local bool          t_HideSupersededItemGrades = false;
+        thread_local std::uint16_t t_SupersededItemDevelopIds[kMaxSupersededItemGrades];
+        thread_local std::uint32_t t_SupersededItemCount = 0;
+
+        // Sortie Prep lists one grade of an item, the latest, like the game's own items: a custom item row
+        // whose next grade (a custom row naming it as its base) is developed stays out of that list.
+        // Developed, not listed: the game's own row gate can hide a middle grade, which must still count.
+        void CollectSupersededItemGradesSEH(std::uintptr_t base20)
+        {
+            t_SupersededItemCount = 0;
+            __try
+            {
+                const std::uint8_t* developed = *reinterpret_cast<std::uint8_t* const*>(base20 + kBase20_FlagsPtrOff);
+                if (!developed)
+                    return;
+                const std::uint32_t bound = NativeFlowBound();
+                for (std::uint32_t i = FirstCustomFlowIndex(); i < bound; ++i)
+                {
+                    if (IsReservedFlowRow(i))
+                        continue;
+                    const auto* rec = reinterpret_cast<const std::uint8_t*>(
+                        base20 + static_cast<std::size_t>(i) * kRecStride);
+                    const std::uint16_t baseDevelopId = *reinterpret_cast<const std::uint16_t*>(rec + 0xA);
+                    if (rec[kBase20_RecDevelopTypeOff] != kDevelopTypeEquip || baseDevelopId == 0
+                        || (developed[i] & 1) == 0)
+                        continue;
+                    if (t_SupersededItemCount < kMaxSupersededItemGrades)
+                        t_SupersededItemDevelopIds[t_SupersededItemCount++] = baseDevelopId;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                t_SupersededItemCount = 0;
+            }
+        }
+
+        bool IsSupersededItemGrade(std::uintptr_t base20, std::uint32_t idx)
+        {
+            if (!t_HideSupersededItemGrades || t_SupersededItemCount == 0 || idx < FirstCustomFlowIndex())
+                return false;
+            const auto* rec = reinterpret_cast<const std::uint8_t*>(
+                base20 + static_cast<std::size_t>(idx) * kRecStride);
+            if (rec[kBase20_RecDevelopTypeOff] != kDevelopTypeEquip)
+                return false;
+            const std::uint16_t developId = *reinterpret_cast<const std::uint16_t*>(rec + kBase20_RecFieldOff);
+            for (std::uint32_t k = 0; k < t_SupersededItemCount; ++k)
+                if (t_SupersededItemDevelopIds[k] == developId)
+                    return true;
+            return false;
+        }
+
         std::uint16_t __fastcall hkListDevCount(std::uintptr_t base20)
         {
+            const bool sortiePrep = t_SortiePrepListArmed;
+            t_SortiePrepListArmed = false;
+            t_SortiePrepRowsFirst = false;
+            t_SortiePrepFillTab   = sortiePrep ? t_SortiePrepArmedTab : 0;
+            t_HideSupersededItemGrades = false;
             if (!IsGrownBase20(base20))
                 return g_OrigListDevCount(base20);
             SyncFlagsWithSvars(true);
+            if (sortiePrep)
+            {
+                CollectSupersededItemGradesSEH(base20);
+                t_HideSupersededItemGrades = true;
+            }
             __try
             {
                 std::uint32_t n = 0;
@@ -3802,7 +2583,7 @@ namespace equip
                 {
                     if (IsReservedFlowRow(i))
                         continue;
-                    if (RowQualifiesForList(base20, i))
+                    if (RowQualifiesForList(base20, i) && !IsSupersededItemGrade(base20, i))
                         ++n;
                 }
                 if (n == 0)
@@ -3810,7 +2591,18 @@ namespace equip
                 if (n > kOldRows)
                 {
                     static bool logged = false;
-                    if (!logged)
+                    static bool loggedSortiePrep = false;
+                    if (sortiePrep)
+                    {
+                        t_SortiePrepRowsFirst = true;
+                        if (!loggedSortiePrep)
+                        {
+                            loggedSortiePrep = true;
+                            LogWarn("DevelopArrayGrow: %u develop menu entries over the 1024 cap, "
+                                    "Sortie Prep lists the open tab's rows first, then the other kinds it shows", n);
+                        }
+                    }
+                    else if (!logged)
                     {
                         logged = true;
                         LogWarn("DevelopArrayGrow: %u develop menu entries over the "
@@ -3837,8 +2629,12 @@ namespace equip
                                       std::uint16_t maxCount,
                                       std::uint16_t* outBuf)
         {
+            const bool tiered = t_SortiePrepRowsFirst;
+            const std::uint8_t openTab = t_SortiePrepFillTab;
+            t_SortiePrepRowsFirst = false;
             if (!IsGrownBase20(base20))
             {
+                t_HideSupersededItemGrades = false;
                 g_OrigListDevFill(base20, maxCount, outBuf);
                 return;
             }
@@ -3848,13 +2644,16 @@ namespace equip
                 if (!outBuf || maxCount == 0)
                     return;
                 std::uint16_t w = 0;
-                for (std::uint32_t i = 0; i < kNewRows && w < maxCount; ++i)
-                {
-                    if (IsReservedFlowRow(i))
-                        continue;
-                    if (RowQualifiesForList(base20, i))
-                        outBuf[w++] = static_cast<std::uint16_t>(i);
-                }
+                for (int tier = 0; tier < (tiered ? 3 : 1); ++tier)
+                    for (std::uint32_t i = 0; i < kNewRows && w < maxCount; ++i)
+                    {
+                        if (IsReservedFlowRow(i))
+                            continue;
+                        if (tiered && SortiePrepFillTier(base20, i, openTab) != tier)
+                            continue;
+                        if (RowQualifiesForList(base20, i) && !IsSupersededItemGrade(base20, i))
+                            outBuf[w++] = static_cast<std::uint16_t>(i);
+                    }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -3866,6 +2665,7 @@ namespace equip
                             "truncated this pass");
                 }
             }
+            t_HideSupersededItemGrades = false;
         }
 
         std::uint16_t FindLastRowForEquipId(std::uintptr_t base20,
@@ -4028,8 +2828,7 @@ namespace equip
             if (!VirtualProtect(addr, p.opLen + 4, PAGE_EXECUTE_READWRITE,
                                 &oldProt))
             {
-                LogWarn("DevelopArrayGrow: site %s @%p: VirtualProtect failed (%lu)",
-                        p.what, static_cast<void*>(addr), GetLastError());
+                ReportProtectFailure(p.what, static_cast<void*>(addr), GetLastError());
                 return false;
             }
             std::memcpy(addr + p.opLen, &p.newImm, 4);
@@ -4108,6 +2907,7 @@ namespace equip
                 } while (Thread32Next(snap, &te));
             }
             CloseHandle(snap);
+            g_OtherThreadsSuspended = true;
             return n;
         }
 
@@ -4117,6 +2917,15 @@ namespace equip
             {
                 ResumeThread(handles[i]);
                 CloseHandle(handles[i]);
+            }
+            g_OtherThreadsSuspended = false;
+            if (g_DeferredProtectFails != 0)
+            {
+                LogWarn("DevelopArrayGrow: %d patch write(s) failed, first %s @%p: "
+                        "VirtualProtect error %lu", g_DeferredProtectFails,
+                        g_DeferredProtectWhat ? g_DeferredProtectWhat : "?",
+                        g_DeferredProtectAddr, g_DeferredProtectErr);
+                g_DeferredProtectFails = 0;
             }
         }
 
@@ -4478,6 +3287,7 @@ namespace equip
         }
 
         std::atomic<bool> g_IntegrityThreadStarted{ false };
+        std::atomic<bool> g_RetryThreadRunning{ false };
 
         DWORD WINAPI GrowIntegrityThread(LPVOID)
         {
@@ -4573,6 +3383,16 @@ namespace equip
                     return false;
                 }
                 std::memset(nb, 0, kNewAllocSize);
+
+                nSuspended = SuspendOtherThreads(suspended);
+                if (*slot != base20)
+                {
+                    ResumeOtherThreads(suspended, nSuspended);
+                    nSuspended = -1;
+                    NoteVerifyFail("migrate: develop slot changed while "
+                                   "threads were being suspended");
+                    return false;
+                }
                 std::memcpy(nb, reinterpret_cast<const void*>(block), 0x28);
                 std::memcpy(nb + 0x28,
                             reinterpret_cast<const void*>(block + 0x28),
@@ -4593,7 +3413,6 @@ namespace equip
                             reinterpret_cast<const void*>(block + 0x1A028),
                             static_cast<std::size_t>(kOldRows) * kParStride);
 
-                nSuspended = SuspendOtherThreads(suspended);
                 const int applied = ApplyAllPatches();
                 if (applied != TotalPatchCount())
                 {
@@ -4605,7 +3424,9 @@ namespace equip
                     return false;
                 }
                 *slot = reinterpret_cast<std::uintptr_t>(nb + 0x20);
-                g_GrownBlock = reinterpret_cast<std::uintptr_t>(nb);
+                g_GrownBlock         = reinterpret_cast<std::uintptr_t>(nb);
+                g_MigratedSlot       = slot;
+                g_MigratedOldBase20  = base20;
                 ResumeOtherThreads(suspended, nSuspended);
                 nSuspended = -1;
                 return true;
@@ -4619,11 +3440,41 @@ namespace equip
                 return false;
             }
         }
+
+        void RevertPatchesAfterHookFailure()
+        {
+            static HANDLE suspended[kMaxSuspendedThreads];
+            if (g_GrownBlock && g_MigratedSlot
+                && *g_MigratedSlot == g_GrownBlock + 0x20)
+            {
+                // the engine already runs on the migrated block, so it goes back to the old one together with the code
+                const int nSuspended = SuspendOtherThreads(suspended);
+                RevertAllPatches();
+                *g_MigratedSlot = g_MigratedOldBase20;
+                g_GrownBlock    = 0;
+                ResumeOtherThreads(suspended, nSuspended);
+                return;
+            }
+            if (g_GrownBlock || EquipDevelop_ResolveDevelopController())
+            {
+                g_Active = false;
+                g_ArmedBase20.store(0, std::memory_order_relaxed);
+                LogError("DevelopArrayGrow: develop block already built on the grown layout, "
+                         "patches kept so it stays valid");
+                return;
+            }
+            RevertAllPatches();
+        }
     }
 
     bool DevelopArrayGrowActive()
     {
         return g_Active;
+    }
+
+    bool DevelopArrayGrowPending()
+    {
+        return g_RetryThreadRunning.load();
     }
 
 
@@ -4686,6 +3537,20 @@ namespace equip
     {
         g_VisValid = false;
         g_VisSelf  = nullptr;
+    }
+
+    void ArmSortiePrepDevelopList(std::uint8_t openTabRows)
+    {
+        t_SortiePrepListArmed = true;
+        t_SortiePrepArmedTab  = openTabRows;
+    }
+
+    void DisarmSortiePrepDevelopList()
+    {
+        t_SortiePrepListArmed = false;
+        t_SortiePrepArmedTab  = 0;
+        t_SortiePrepRowsFirst = false;
+        t_SortiePrepFillTab   = 0;
     }
 
     void SetCustomBluePrintRow(std::uint32_t row, std::uint16_t developId)
@@ -4780,7 +3645,87 @@ namespace equip
 
     std::uint32_t FirstCustomFlowIndex()
     {
-        return kFirstCustomRow;
+        return FirstCustomRow();
+    }
+
+    std::uint32_t TrueVanillaRowCount()
+    {
+        return kTrueVanillaRows;
+    }
+
+    bool IsDevelopLayoutSettled()
+    {
+        return g_LayoutSettled.load(std::memory_order_acquire);
+    }
+
+    void SettleDevelopLayout(std::uint32_t firstCustomRow, std::uint32_t clearLoadedRowsBegin,
+                             std::uint32_t clearLoadedRowsEnd)
+    {
+        if (firstCustomRow < kTrueVanillaRows)
+            firstCustomRow = kTrueVanillaRows;
+        if (clearLoadedRowsBegin < kTrueVanillaRows)
+            clearLoadedRowsBegin = kTrueVanillaRows;
+        if (clearLoadedRowsEnd > firstCustomRow)
+            clearLoadedRowsEnd = firstCustomRow;
+        if (clearLoadedRowsEnd > kOldRows)
+            clearLoadedRowsEnd = kOldRows;
+        if (clearLoadedRowsBegin >= clearLoadedRowsEnd)
+            clearLoadedRowsBegin = clearLoadedRowsEnd = 0;
+        if (clearLoadedRowsEnd > clearLoadedRowsBegin && g_Active && g_SvarsFlags)
+        {
+            __try
+            {
+                for (std::uint32_t i = clearLoadedRowsBegin; i < clearLoadedRowsEnd; ++i)
+                {
+                    g_FlagsShadow[i] = 0;
+                    g_SvarsFlags[i]  = 0;
+                    g_SyncMirror[i]  = 0;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+        g_ClearLoadedRowsBegin.store(clearLoadedRowsBegin, std::memory_order_relaxed);
+        g_ClearLoadedRowsEnd.store(clearLoadedRowsEnd, std::memory_order_relaxed);
+        g_FirstCustomRow.store(firstCustomRow, std::memory_order_release);
+        g_LayoutSettled.store(true, std::memory_order_release);
+        InvalidateDevelopLookupIndex();
+        InvalidateDevelopVisibilityCache();
+    }
+
+    void UseSaveSlotHooksForDevelopLayout()
+    {
+        g_RejectLoadedRows.store(false, std::memory_order_relaxed);
+        g_LayoutPersistPending.store(false, std::memory_order_relaxed);
+    }
+
+    void ClearDevelopLayoutRowsNow()
+    {
+        const std::uint32_t begin = g_ClearLoadedRowsBegin.load(std::memory_order_relaxed);
+        const std::uint32_t end = g_ClearLoadedRowsEnd.load(std::memory_order_relaxed);
+        if (end <= begin || !g_Active || !g_SvarsFlags)
+            return;
+        __try
+        {
+            for (std::uint32_t i = begin; i < end; ++i)
+            {
+                g_FlagsShadow[i] = 0;
+                g_SvarsFlags[i]  = 0;
+                g_SyncMirror[i]  = 0;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+        InvalidateDevelopVisibilityCache();
+    }
+
+    void PersistDevelopLayoutAfterSaveLoad(std::int32_t firstCustomRow, std::int32_t nativeRowsHash)
+    {
+        g_PendingFirstCustomRow.store(firstCustomRow, std::memory_order_relaxed);
+        g_PendingNativeRowsHash.store(nativeRowsHash, std::memory_order_relaxed);
+        g_LayoutPersistPending.store(true, std::memory_order_release);
     }
 
     bool TryReadRowDevelopId(std::uint32_t index, std::uint32_t& out)
@@ -4796,6 +3741,34 @@ namespace equip
             return false;
         out = dev;
         return true;
+    }
+
+    bool TryReadDevelopRow(std::uint32_t index, DevelopRowInfo& out)
+    {
+        if (index >= NativeFlowBound() || IsReservedFlowRow(index))
+            return false;
+        const std::uintptr_t base20 =
+            g_ArmedBase20.load(std::memory_order_relaxed);
+        if (!base20)
+            return false;
+        __try
+        {
+            const auto* rec = reinterpret_cast<const std::uint8_t*>(
+                base20 + static_cast<std::size_t>(index) * kRecStride);
+            const std::uint16_t equipWord =
+                *reinterpret_cast<const std::uint16_t*>(rec + kRecEquipIdOff);
+            out.developId = *reinterpret_cast<const std::uint16_t*>(rec + kRecDevelopIdOff);
+            out.parentDevelopId = *reinterpret_cast<const std::uint16_t*>(rec + 0xA);
+            out.equipId = static_cast<std::uint16_t>(equipWord >> 4);
+            out.grade = static_cast<std::uint8_t>(equipWord & 0xF);
+            out.developType = rec[kBase20_RecDevelopTypeOff];
+            out.listed = RowQualifiesForList(base20, index);
+            return out.developId != 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     bool DevFlagsTryReadByte(void* controller, std::uint32_t index,
@@ -4876,6 +3849,14 @@ namespace equip
                 return 0;
             }
         }
+
+        std::uint32_t LiveScanBound(std::uintptr_t base20)
+        {
+            const std::uint32_t bound = NativeFlowBound();
+            if (bound > kOldRows && base20 != g_ArmedBase20.load(std::memory_order_relaxed))
+                return kOldRows;
+            return bound;
+        }
     }
 
     bool ScanCustomOnlyDevelopIds(std::uint64_t* bits, std::size_t words)
@@ -4886,13 +3867,11 @@ namespace equip
         const std::uintptr_t base20 = LiveDevelopBase20();
         if (!base20)
             return false;
-        std::uint32_t bound = NativeFlowBound();
-        if (bound > kOldRows && base20 != g_ArmedBase20.load(std::memory_order_relaxed))
-            bound = kOldRows;   // live block not grown yet
+        const std::uint32_t bound = LiveScanBound(base20);
         __try
         {
             const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
-            for (std::uint32_t i = kFirstCustomRow; i < bound; ++i)
+            for (std::uint32_t i = kTrueVanillaRows; i < bound; ++i)
             {
                 if (i == kFlowSentinel)
                     continue;
@@ -4901,7 +3880,7 @@ namespace equip
                 if (dev != 0)
                     bits[dev >> 6] |= 1ull << (dev & 63);
             }
-            for (std::uint32_t i = 0; i < kFirstCustomRow; ++i)
+            for (std::uint32_t i = 0; i < kTrueVanillaRows; ++i)
             {
                 const std::uint16_t dev = *reinterpret_cast<const std::uint16_t*>(
                     base + static_cast<std::size_t>(i) * kRecStride + kBase20_RecFieldOff);
@@ -4916,20 +3895,66 @@ namespace equip
         }
     }
 
+    bool CountDevelopedRowsByType(std::uint32_t* vanillaCounts, std::uint32_t* customCounts,
+                                  std::size_t slots)
+    {
+        if (!vanillaCounts || !customCounts || slots < kDevelopTypeSlots)
+            return false;
+        const std::size_t countBytes = kDevelopTypeSlots * sizeof(std::uint32_t);
+        std::memset(vanillaCounts, 0, countBytes);
+        std::memset(customCounts, 0, countBytes);
+        const std::uintptr_t base20 = LiveDevelopBase20();
+        if (!base20)
+            return false;
+        const IsVisible_t isVisible = reinterpret_cast<IsVisible_t>(
+            ResolveGameAddress(kAddr_IsVisible));
+        if (!isVisible)
+            return false;
+        const std::uint32_t bound = LiveScanBound(base20);
+        void* self = reinterpret_cast<void*>(base20);
+        __try
+        {
+            const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
+            for (std::uint32_t i = 0; i < bound; ++i)
+            {
+                if (i == kFlowSentinel)
+                    continue;
+                const std::uint8_t* rec = base + static_cast<std::size_t>(i) * kRecStride;
+                if (*reinterpret_cast<const std::uint16_t*>(rec + kBase20_RecFieldOff) == 0)
+                    continue;
+                std::uint8_t flags = 0;
+                if (!DevFlagsTryReadByte(self, i, flags) || (flags & 1u) == 0)
+                    continue;
+                if (!isVisible(self, static_cast<std::uint16_t>(i)))
+                    continue;
+                std::uint32_t* counts = i < kTrueVanillaRows ? vanillaCounts : customCounts;
+                ++counts[rec[kBase20_RecDevelopTypeOff]];
+            }
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            std::memset(vanillaCounts, 0, countBytes);
+            std::memset(customCounts, 0, countBytes);
+            return false;
+        }
+    }
+
     std::size_t ScanVanillaDevelopEquipIds(std::uint64_t* bits, std::size_t words)
     {
-        if (!bits || words < kEquipIdSlots / 64)
+        if (!bits || words < kEquipIdSlots / 64 || !IsDevelopLayoutSettled())
             return 0;
         const std::uintptr_t base20 = LiveDevelopBase20();
         if (!base20)
             return 0;
+        const std::uint32_t first = FirstCustomRow();
 
         std::uint64_t local[kEquipIdSlots / 64] = {};
         std::size_t found = 0;
         __try
         {
             const std::uint8_t* base = reinterpret_cast<const std::uint8_t*>(base20);
-            for (std::uint32_t i = 0; i < kFirstCustomRow; ++i)
+            for (std::uint32_t i = 0; i < first; ++i)
             {
                 const std::uint8_t* rec =
                     base + static_cast<std::size_t>(i) * kRecStride;
@@ -5149,10 +4174,9 @@ namespace equip
             && (g_HookGetBaseId = ResolveGameAddress(kAddr_GetBaseId)) != nullptr;
         if (!hooks)
         {
-            LogError("DevelopArrayGrow: hook install failed, patches reverted; "
-                     "develop rows stay 1024");
-            RevertAllPatches();
+            LogError("DevelopArrayGrow: hook install failed, develop rows stay 1024");
             Uninstall_DevelopArrayGrow();
+            RevertPatchesAfterHookFailure();
             return false;
         }
 
@@ -5246,10 +4270,14 @@ namespace equip
                 LogError("DevelopArrayGrow: patch site %d unverified after 15s (%s), "
                          "develop rows stay 1024", g_PrePatchDetail,
                          g_PreVerifyDetail[0] ? g_PreVerifyDetail : "no detail");
+                g_RetryThreadRunning.store(false);
+                EquipDevelop_InstallDevelopSyncHooks();
                 return 0;
             }
             if (LogGrowInstallGate())
                 InstallGrowHooksAndFinalize();
+            g_RetryThreadRunning.store(false);
+            EquipDevelop_InstallDevelopSyncHooks();   // the module install skipped it while the retry was pending
             return 0;
         }
     }
@@ -5264,6 +4292,7 @@ namespace equip
 
         if (g_PrePatch == PrePatchState::RetryPending)
         {
+            g_RetryThreadRunning.store(true);
             HANDLE h = CreateThread(nullptr, 0, &GrowRetryThread, nullptr,
                                     0, nullptr);
             if (h)
@@ -5271,6 +4300,7 @@ namespace equip
                 CloseHandle(h);
                 return true;
             }
+            g_RetryThreadRunning.store(false);
             g_PrePatch = PrePatchState::VerifyFailed;
             LogError("DevelopArrayGrow: retry thread failed to start, develop rows "
                      "stay 1024");

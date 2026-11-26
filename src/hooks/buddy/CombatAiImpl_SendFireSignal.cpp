@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "CombatAiImpl_SendFireSignal.h"
 
@@ -23,8 +23,8 @@ namespace
     void __fastcall hkSendFireSignal(void* self, std::uint32_t buddyIndex, void* gameObjectSystem,
                                      std::uint16_t targetId, std::uint16_t bulletId)
     {
-        if (!MissionCodeGuard::ShouldBypassHooks() && EquipParam_GetBulletType(bulletId) == kBulletTypeShell)
-            return; // her shots normally hit soldiers through this signal, a shell's own blast does it instead
+        if (!MissionCodeGuard::ShouldBypassHooks() && EquipParam_GetLaneBulletType(bulletId) == kBulletTypeShell)
+            return;
         g_Orig(self, buddyIndex, gameObjectSystem, targetId, bulletId);
     }
 }

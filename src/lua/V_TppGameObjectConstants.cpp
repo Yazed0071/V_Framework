@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
@@ -100,6 +100,16 @@ namespace
         {"GrenadeLauncherNormal",     41},
         { nullptr, 0.0 }
     };
+    static const ConstEntry V_PlayerSkill[] = {
+        {"StealthCamo",   4},
+        {"Pentazemin",    8},
+        {"Noctocyanin",   9},
+        {"Acceleramin",   10},
+        {"ParasiteMist",  11},
+        {"ParasiteCamo",  12},
+        {"ParasiteHard",  13},
+        { nullptr, 0.0 }
+    };
     static const ConstEntry V_CallMenuItem[] = {
         {"KNOCK",            CallMenuItems::Knock},
         {"ACTIVE_SONAR",     CallMenuItems::ActiveSonar},
@@ -136,14 +146,14 @@ namespace
         { nullptr, 0.0 }
     };
 
-    static const ConstEntry V_NoticeKind[] = {   // the soldier's own notice types, named after the check that raises them
+    static const ConstEntry V_NoticeKind[] = {   // the soldier's own notice types, named after the AI that reacts to them
         {"DISCOVERED",          0x00},
-        {"SUSPICIOUS_ON_GUARD", 0x05},
+        {"DISCOVERED_ON_GUARD", 0x05},
         {"SAW_HOSTILE_ANIMAL",  0x0A},
-        {"SAW_FULTON",          0x14},
-        {"SUSPICIOUS",          0x19},
+        {"SAW_CARDBOARD_BOX",   0x19},
         {"SAW_DECOY",           0x1B},
         {"SAW_SUPPLY_DROP",     0x24},
+        {"SUSPICIOUS",          0x26},
         {"HEARD_NOISE",         0x32},
         {"CALLED_OVER",         0x33},
         {"CALL_FOR_HELP",       0x34},
@@ -231,6 +241,11 @@ void Register_V_ReceiverTypeConstants(lua_State* L)
 void Register_V_MagazineTypeConstants(lua_State* L)
 {
     RegisterConstantTable(L, "V_MagazineType", V_MagazineType);
+}
+
+void Register_V_PlayerSkillConstants(lua_State* L)
+{
+    RegisterConstantTable(L, "V_PlayerSkill", V_PlayerSkill);
 }
 
 void Register_V_CallMenuConstants(lua_State* L)

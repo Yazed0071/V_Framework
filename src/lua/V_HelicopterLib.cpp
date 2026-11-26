@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <cstdint>
 #include <string>
@@ -10,6 +10,8 @@
 #include "../hooks/sound/HeliVoice.h"
 #include "../hooks/heli/HeliSoundController.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
+#include "../hooks/heli/SupportHeliWeapon.h"
+#include "../hooks/heli/SupportHeliParts.h"
 #include "../hooks/outfit/HeadMotion.h"
 #include "../hooks/player/AccSeatIdleMotion.h"
 
@@ -121,6 +123,14 @@ namespace
         { "ResetTaxiState",                        l_ResetTaxiState },
 
         { "SetPlayerDropSeatPose",                 l_SetPlayerDropSeatPose },
+
+        { "RegisterSupportHeliWeapon",             SupportHeliWeapon::Lua_RegisterSupportHeliWeapon },
+        { "RegisterSupportHeliOutfit",             SupportHeliParts::Lua_RegisterSupportHeliOutfit },
+        { "RegisterSupportHeliGatling",            SupportHeliParts::Lua_RegisterSupportHeliGatling },
+        { "RegisterSupportHeliSideGun",            SupportHeliParts::Lua_RegisterSupportHeliSideGun },
+        { "IsSupportHeliRebuildNeeded",            SupportHeliParts::Lua_IsSupportHeliRebuildNeeded },
+        { "KeepSupportHeliPicks",                  SupportHeliParts::Lua_KeepSupportHeliPicks },
+        { "RestoreSupportHeliPicks",               SupportHeliParts::Lua_RestoreSupportHeliPicks },
 
         { nullptr, nullptr }
     };

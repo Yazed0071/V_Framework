@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
@@ -79,6 +79,47 @@ namespace
         return clip;
     }
 
+    using PadGetInstance_t           = void* (__fastcall*)();
+    using GetPhysicalPadNum_t        = int(__fastcall*)(int logicalPad);
+    using PadListenerGetDeviceType_t = int(__fastcall*)(void* listener);
+
+    constexpr std::size_t kPadListeners = 0x30;   // the listener pointers sit at instance+0x30, one per physical pad
+    constexpr int kPadCount = 4;
+
+    const char* PadDeviceTypeName(int deviceType)
+    {
+        switch (deviceType)
+        {
+        case 0:  return "PAD_DEVICE_TYPE_X360";
+        case 1:  return "PAD_DEVICE_TYPE_PS3";
+        case 2:  return "PAD_DEVICE_TYPE_OTHERS";
+        case 3:  return "PAD_DEVICE_TYPE_PS4";
+        default: return "PAD_DEVICE_TYPE_UNKNOWN";
+        }
+    }
+
+    static int __cdecl l_GetPadDeviceType(lua_State* L)
+    {
+        auto getPad = reinterpret_cast<PadGetInstance_t>(ResolveGameAddress(gAddr.Pad_GetInstance));
+        auto physicalPadNum = reinterpret_cast<GetPhysicalPadNum_t>(ResolveGameAddress(gAddr.PadMapping_GetPhysicalPadNum));
+        auto getDeviceType = reinterpret_cast<PadListenerGetDeviceType_t>(ResolveGameAddress(gAddr.PadListener_GetDeviceType));
+        if (!getPad || !physicalPadNum || !getDeviceType)
+            return 0;
+        const int pad = LuaIsNumber(L, 1) ? GetLuaInt(L, 1) : 0;
+        if (pad < 0 || pad >= kPadCount)
+        {
+            LogWarn("GetPadDeviceType: pad %d is outside 0-%d", pad, kPadCount - 1);
+            return 0;
+        }
+        auto* instance = static_cast<std::uint8_t*>(getPad());
+        const int slot = physicalPadNum(pad);
+        void* listener = (instance && slot >= 0 && slot < kPadCount)
+                             ? *reinterpret_cast<void**>(instance + kPadListeners + slot * sizeof(void*))
+                             : nullptr;
+        PushLuaString(L, PadDeviceTypeName(listener ? getDeviceType(listener) : -1));
+        return 1;
+    }
+
     static int __cdecl l_SwapGani(lua_State* L)
     {
         const std::uint64_t from = GaniArg(L, 1, "SwapGani");
@@ -97,6 +138,7 @@ namespace
     static luaL_Reg g_VFoxLib[] =
     {
         { "FNVHash32",                  l_FNVHash32 },
+        { "GetPadDeviceType",           l_GetPadDeviceType },
         { "ShowConsole",                l_ShowConsole },
         { "SwapGani",                   l_SwapGani },
         { "RestoreGani",                l_RestoreGani },

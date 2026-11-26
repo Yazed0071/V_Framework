@@ -30,6 +30,7 @@ bool LaserTweaks_Resolve(int optionId, LaserTweaks& out);
 bool LaserColor_AnyRegistered();
 
 void LaserColor_NoteWeaponOption(int equipId, int optionId);
+int  LaserColor_WeaponOption(int equipId);
 
 bool LaserSight_UpdatePrim_Install();
 void LaserSight_UpdatePrim_Uninstall();

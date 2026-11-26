@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CallComradeCommand.h"
 
 #include <Windows.h>
@@ -130,7 +130,7 @@ namespace
         g_OrderLockedUntil = GetTickCount64() + kLockoutAfterOrderMs;
         if (g_OrderRequest != CallComrade::kCallComradeRequest)
         {
-            At<std::uint8_t>(block, kBlockState) = kBlockFinished;   // he only says why he won't
+            At<std::uint8_t>(block, kBlockState) = kBlockFinished;
             return;
         }
 
@@ -159,7 +159,7 @@ namespace
                 At<std::uint8_t>(block, kBlockState) = kBlockWaiting;
                 return;
             }
-            g_OrderLockedUntil = 0;   // his line never played: nothing is sent, as in GZ
+            g_OrderLockedUntil = 0;
             At<std::uint8_t>(block, kBlockState) = kBlockFinished;
             return;
         }
@@ -232,7 +232,7 @@ bool CallComradeCommand::Exec(std::uint8_t* execParam, std::uint8_t* block)
     }
 
     const std::uint16_t held = At<std::uint16_t>(execParam, kExecHeldSoldierId);
-    const std::uint32_t excuse = ExcuseOf(held, At<std::uint32_t>(execParam, kExecPlayerIndex));   // asked now: a fake surrender may end before Snake is done talking
+    const std::uint32_t excuse = ExcuseOf(held, At<std::uint32_t>(execParam, kExecPlayerIndex));
     g_OrderRequest = excuse ? excuse : CallComrade::kCallComradeRequest;
 
     g_OrderLockedUntil = GetTickCount64() + kAbandonedOrderMs;
@@ -262,4 +262,13 @@ void CallComradeCommand::Initialize()
     else
         LogError("CallComradeCommand: GetQuarkSystemTable missing for %s, held soldiers will not call comrades",
                  GetGameBuildName(gGameBuild));
+}
+
+void CallComradeCommand::ClearForReload()
+{
+    g_OrderLockedUntil = 0;
+    g_OrderDueTick     = 0;
+    g_LineDeadline     = 0;
+    g_LineStarted      = false;
+    g_OrderRequest     = CallComrade::kCallComradeRequest;
 }

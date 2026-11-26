@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "BlockControllerImpl_LoadPartsNew.h"
 #include "OutfitRegistry.h"
@@ -179,6 +179,112 @@ namespace
 
     static std::atomic<std::uint8_t> g_LastCustomFaceSlot{ 0 };
 
+    constexpr std::uint8_t kCustomFaceEquipStandIn = 1;
+
+    struct ShellHead
+    {
+        std::atomic<const void*>  shell{ nullptr };
+        std::atomic<std::uint8_t> slot{ 0 };
+    };
+    constexpr std::size_t kShellHeadCount = 32;
+    static ShellHead                  g_ShellHeads[kShellHeadCount];
+    static std::atomic<std::uint32_t> g_ShellHeadNext{ 0 };
+
+    static thread_local const void*  t_LateFaceShell      = nullptr;
+    static thread_local bool         t_LateFaceShellKnown = false;
+    static thread_local std::uint8_t t_LateFaceShellSlot  = 0;
+
+    static bool FindShellHead(const void* shell, std::uint8_t* outSlot)
+    {
+        for (const ShellHead& entry : g_ShellHeads)
+        {
+            if (entry.shell.load(std::memory_order_acquire) == shell)
+            {
+                *outSlot = entry.slot.load(std::memory_order_acquire);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void RecordShellHead(const void* shell, std::uint8_t slot)
+    {
+        for (ShellHead& entry : g_ShellHeads)
+        {
+            if (entry.shell.load(std::memory_order_acquire) == shell)
+            {
+                entry.slot.store(slot, std::memory_order_release);
+                return;
+            }
+        }
+        ShellHead& entry = g_ShellHeads[g_ShellHeadNext.fetch_add(1, std::memory_order_relaxed) % kShellHeadCount];
+        entry.slot.store(slot, std::memory_order_release);
+        entry.shell.store(shell, std::memory_order_release);
+    }
+
+    static std::uint8_t RecordedCustomFaceSlot()
+    {
+        return t_LateFaceShellKnown ? t_LateFaceShellSlot
+                                    : g_LastCustomFaceSlot.load(std::memory_order_relaxed);
+    }
+
+    static std::uint8_t LoadingCustomFaceSlot(std::uint8_t faceEquipId)
+    {
+        if (faceEquipId >= outfit::kCustomHeadSlotBase)
+            return faceEquipId;
+        if (t_ActiveCustomFaceSlot != 0)
+            return t_ActiveCustomFaceSlot;
+        if (faceEquipId != kCustomFaceEquipStandIn)
+            return 0;
+        if (t_LateFaceShell && !t_LateFaceShellKnown)
+        {
+            static std::atomic<bool> s_warned{ false };
+            if (!s_warned.exchange(true))
+                LogWarn("OutfitHeadOption: late face load for a parts shell with no recorded head, last loaded head used");
+        }
+        return RecordedCustomFaceSlot();
+    }
+
+    using SetChickenVisibility_t = void (__fastcall*)(void* fova2, std::uint32_t playerIndex, bool visible);
+
+    static SetChickenVisibility_t g_OrigSetChickenVisibility  = nullptr;
+    static bool g_InstalledSetChickenVisibility = false;
+
+    constexpr std::size_t  kP2GO_OffPlayerIndexArr = 0x90;
+    constexpr std::size_t  kP2GO_OffImplIndexArr   = 0x98;
+    constexpr std::size_t  kP2GO_OffImplArr        = 0x398;
+    constexpr std::size_t  kP2Impl_Stride          = 0x6A8;
+    constexpr std::size_t  kP2Impl_OffFova2        = 0x610;
+    constexpr std::size_t  kFova2_OffWorks         = 0x30;
+    constexpr std::size_t  kFova2_OffBaseIndex     = 0x68;
+    constexpr std::size_t  kFova2_OffWorkCount     = 0x69;
+    constexpr std::size_t  kFova2Work_Stride       = 0x160;
+    constexpr std::size_t  kFova2Work_OffOwner     = 0xC0;
+    constexpr std::size_t  kFova2Work_OffChicken   = 0x152;
+    constexpr std::uint8_t kFova2Work_ChickenBit   = 0x04;
+    constexpr std::uint32_t kNoLocalPlayerIndex    = 0xFFFFFFFFu;
+
+    static thread_local bool          t_LoadingLocalParts = false;
+    static std::atomic<std::uint8_t>  g_LocalHatSlot{ 0 };
+    static std::atomic<std::uint32_t> g_LocalPlayerIndex{ kNoLocalPlayerIndex };
+    static std::atomic<bool>          g_VanillaChickenVisible{ false };
+    static std::atomic<bool>          g_ChickenHeldOn{ false };
+    static std::atomic<bool>          g_ChickenForced{ false };
+
+    static std::uint8_t CustomFaceEquipStandIn(std::uint8_t slot, std::uint8_t pt)
+    {
+        const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(slot);
+        outfit::CustomHeadHat hat;
+        if (!head || pt >= outfit::kPlayerTypeMax || !outfit::GetCustomHeadHat(head->name, pt, &hat))
+            return kCustomFaceEquipStandIn;
+        if (head->faceFv2Code[pt] != 0 || head->faceFpkCode[pt] != 0)
+            return kCustomFaceEquipStandIn;
+        for (std::uint32_t s = 0; pt == outfit::kPlayerType_Snake && s < outfit::kSnakeFaceStageCount; ++s)
+            if (outfit::GetCustomHeadSnakeStageFv2(head->name, s) != 0)
+                return kCustomFaceEquipStandIn;
+        return 0;
+    }
+
     static std::atomic<void*>         g_AvatarHideBc{ nullptr };
     static std::atomic<std::uint32_t> g_AvatarHideSlotMask{ 0 };
 
@@ -211,7 +317,7 @@ namespace
                                         std::uint32_t implSlot,
                                         LoadPartsPlayerInfo& visualInfo)
     {
-        if (implSlot != 0 || MissionCodeGuard::ShouldBypassHooks()
+        if (implSlot != 0
             || !outfit::IsDdPlayerType(source.playerType)
             || !outfit::ddheadlayers::IsReady())
             return false;
@@ -236,8 +342,31 @@ namespace
         if (g_CaseDArmTable
             && partsType >= outfit::kCustomPartsTypeStart
             && partsType <= outfit::kCustomPartsTypeEnd)
-            g_CaseDArmTable[partsType - outfit::kCustomPartsTypeStart] =
-                armEnabled ? std::uint8_t{1} : std::uint8_t{0};
+            g_CaseDArmTable[partsType] = armEnabled ? std::uint8_t{1} : std::uint8_t{0};
+    }
+
+    static std::uint32_t g_VanillaArmOffApplied = 0;
+    static std::uint32_t g_VanillaArmLookKey    = 0xFFFFFFFFu;
+    static std::uint32_t g_VanillaArmLookGen    = 0;
+
+    static void RefreshVanillaArmFlags(std::uint8_t playerType, std::uint8_t camo, bool bypass)
+    {
+        if (!g_CaseDArmTable)
+            return;
+        const std::uint32_t lookKey = bypass ? 0xFFFF0000u
+            : (static_cast<std::uint32_t>(playerType) | (static_cast<std::uint32_t>(camo) << 8));
+        const std::uint32_t generation = outfit::VanillaExtSuitArmGeneration();
+        if (lookKey == g_VanillaArmLookKey && generation == g_VanillaArmLookGen)
+            return;
+        g_VanillaArmLookKey = lookKey;
+        g_VanillaArmLookGen = generation;
+        const std::uint32_t armOffMask =
+            bypass ? 0u : outfit::VanillaExtSuitArmOffMask(playerType, camo);
+        if (armOffMask == g_VanillaArmOffApplied)
+            return;
+        for (std::uint8_t pt = 0; pt <= outfit::kVanillaArmPartsTypeLast; ++pt)
+            g_CaseDArmTable[pt] = (armOffMask >> pt) & 1u ? std::uint8_t{0} : std::uint8_t{1};
+        g_VanillaArmOffApplied = armOffMask;
     }
 
     static void* AllocExecNear(std::uintptr_t nearAddr, std::size_t size)
@@ -280,21 +409,21 @@ namespace
               reinterpret_cast<void*>(site)); return false; }
 
         constexpr std::size_t kTableOff  = 0x80;
-        constexpr std::size_t kBandWidth =
-            static_cast<std::size_t>(outfit::kCustomPartsTypeEnd)
-          - static_cast<std::size_t>(outfit::kCustomPartsTypeStart) + 1;
+        constexpr std::size_t kTableSize = static_cast<std::size_t>(outfit::kCustomPartsTypeEnd) + 1;
         constexpr std::size_t kTrampSize = 0x200;
-        static_assert(outfit::kCustomPartsTypeStart <= 0x80,
-            "band start must fit the lea disp8 encoding");
-        static_assert(kTableOff + kBandWidth <= kTrampSize,
+        static_assert(kTableOff + kTableSize <= kTrampSize,
             "arm table overflows the trampoline allocation");
+        static_assert(outfit::kVanillaArmPartsTypeLast == 0x19,
+            "the engine switch at the site covers parts types 0-0x19");
 
         std::uint8_t* tr =
             reinterpret_cast<std::uint8_t*>(AllocExecNear(site, kTrampSize));
         if (!tr) { LogError("CaseDArmUnpin: trampoline alloc failed, arm-type fallback used"); return false; }
         std::memset(tr, 0xCC, kTrampSize);
 
-        std::memset(tr + kTableOff, 0x01, kBandWidth);
+        std::memset(tr + kTableOff, 0x01, kTableSize);
+        std::memset(tr + kTableOff + outfit::kVanillaArmPartsTypeLast + 1, 0x00,
+                    outfit::kCustomPartsTypeStart - outfit::kVanillaArmPartsTypeLast - 1);
 
         std::size_t o = 0;
         const auto emit = [&](std::initializer_list<std::uint8_t> b)
@@ -305,22 +434,20 @@ namespace
           std::memcpy(tr+o,&rel,4); o += 4; };
         const auto emitImm32 = [&](std::uint32_t v)
         { std::memcpy(tr+o,&v,4); o += 4; };
-        emit({0x40,0x0f,0xb6,0xc7});
-        emit({0x8d,0x48,
-              static_cast<std::uint8_t>(0x100u - outfit::kCustomPartsTypeStart)});
-        emit({0x81,0xf9});
-        emitImm32(static_cast<std::uint32_t>(kBandWidth - 1));
-        emit({0x77,0x15});
-        emit({0x48,0x8d,0x05});
+        emit({0x40,0x0f,0xb6,0xc7});                  // movzx eax, dil (partsType)
+        emit({0x3d});                                 // cmp eax, last table entry
+        emitImm32(static_cast<std::uint32_t>(kTableSize - 1));
+        tr[o++]=0x0f; tr[o++]=0x87;                   // ja no-arm case
+        emitRel32To(caseD3);
+        emit({0x48,0x8d,0x0d});                       // lea rcx, table
         emitRel32To(reinterpret_cast<std::uintptr_t>(tr) + kTableOff);
-        emit({0x0f,0xb6,0x04,0x08});
-        emit({0x84,0xc0});
-        tr[o++]=0x0f; tr[o++]=0x84;
+        emit({0x80,0x3c,0x01,0x00});                  // cmp byte [rcx+rax], 0
+        tr[o++]=0x0f; tr[o++]=0x84;                   // je no-arm case
         emitRel32To(caseD3);
-        emit({0xb0,0x01});
-        emit({0x83,0xf8,0x19});
-        tr[o++]=0x0f; tr[o++]=0x87;
-        emitRel32To(caseD3);
+        emit({0x83,0xf8,0x19});                       // cmp eax, 0x19
+        tr[o++]=0x0f; tr[o++]=0x86;                   // jbe engine switch with the vanilla parts type
+        emitRel32To(resume);
+        emit({0xb8,0x01,0x00,0x00,0x00});             // custom suit with an arm: take parts type 1's case
         tr[o++]=0xe9;
         emitRel32To(resume);
 
@@ -347,6 +474,8 @@ namespace
         g_CaseDTrampoline     = tr;
         g_CaseDPatchSite      = reinterpret_cast<void*>(site);
         g_CaseDArmTable       = tr + kTableOff;
+        g_VanillaArmOffApplied = 0;
+        g_VanillaArmLookKey    = 0xFFFFFFFFu;
         g_CaseDArmUnpinActive = true;
         return true;
     }
@@ -556,10 +685,6 @@ namespace
             return nullptr;
         const outfit::CustomHeadEntry* head =
             outfit::TryGetCustomHeadBySlot(faceEquipId);
-        if (!head)
-            head = outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
-        if (!head)
-            head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
         if (!head || pt >= outfit::kPlayerTypeMax)
             return nullptr;
         if (!outfit::VanillaExtHasHeadOption(
@@ -704,6 +829,37 @@ namespace
     static std::atomic<bool> g_RestreamRequested{ false };
     static std::atomic<std::uint32_t> g_ColorReloadSlots{ 0 };
 
+#ifdef _DEBUG   // TEMP ColorProbe: why a colour with its own pack only shows after the next suit load
+    static std::atomic<std::uint64_t> g_ColorProbeUntil{ 0 };
+
+    static bool ColorProbeOn()
+    {
+        return GetTickCount64() < g_ColorProbeUntil.load(std::memory_order_relaxed);
+    }
+
+    static int ColorProbePlayerStateSEH(const std::uint8_t* p2go, std::size_t slot)
+    {
+        __try
+        {
+            const std::uint16_t objectIndex =
+                (*reinterpret_cast<const std::uint16_t* const*>(p2go + kP2GO_OffPlayerIndexArr))[slot];
+            const std::uint8_t implIndex =
+                (*reinterpret_cast<const std::uint8_t* const*>(p2go + kP2GO_OffImplIndexArr))[slot];
+            if (objectIndex == 0xFFFF || implIndex == 0xFF)
+                return -1;
+            const std::uint8_t* impl =
+                *reinterpret_cast<const std::uint8_t* const*>(p2go + kP2GO_OffImplArr) + implIndex * kP2Impl_Stride;
+            const std::uint8_t* owner = *reinterpret_cast<const std::uint8_t* const*>(impl + 0x78);
+            const std::uint8_t* states = *reinterpret_cast<const std::uint8_t* const*>(owner + 0x2D8);   // the byte UpdatePartsStatus compares with 0x16 (EN 0x1409CD212)
+            return states[objectIndex - *reinterpret_cast<const std::int32_t*>(owner + 8)];
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -2;
+        }
+    }
+#endif
+
     static bool FovaModelReadySEH(std::uint8_t* system)
     {
         __try
@@ -763,9 +919,15 @@ namespace
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
             if (const outfit::OutfitColor* color = PackColorToServe(entry, pt, v))
             {
+#ifdef _DEBUG   // TEMP ColorProbe
+                if (ColorProbeOn())
+                    LogDebug("ColorProbe: camo pack asked for parts 0x%02X look %u, colour pack %016llX served (was %016llX)",
+                        static_cast<unsigned>(entry->partsType), static_cast<unsigned>(v),
+                        static_cast<unsigned long long>(color->fpkCode),
+                        static_cast<unsigned long long>(g_ServedColorFpk.load(std::memory_order_relaxed)));
+#endif
                 g_ServedColorFv2.store(color->fv2Code, std::memory_order_relaxed);
-                if (g_ServedColorFpk.exchange(color->fpkCode, std::memory_order_acq_rel) != color->fpkCode)
-                    LogInfo("OutfitColor: camo slot loads '%s'", color->fv2.c_str());
+                g_ServedColorFpk.store(color->fpkCode, std::memory_order_release);
                 return WriteFoxPath(outPath, color->fpkCode);
             }
             g_ServedColorFpk.store(0, std::memory_order_release);
@@ -777,6 +939,11 @@ namespace
                     return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
                 return WriteFoxPath(outPath, camo);
             }
+            if (camo == outfit::kSubAssetUseVanilla && UsesSnakeCamoDonor(playerType, entry)
+                && entry->GetVariantCamoFv2(pt, v) == outfit::kSubAssetUseVanilla)
+                return g_OrigLoadCamoFpk(outPath, outfit::kPlayerType_Snake,
+                                         kCamoDonorVanillaPartsType,
+                                         ClampVanillaCamo(playerCamoType)); // the donor camo fv2 lives in this package
             return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
 
@@ -820,10 +987,6 @@ namespace
                                          VanillaClampPartsType(playerPartsType),
                                          ClampVanillaCamo(src));
         }
-        if (UsesSnakeCamoDonor(playerType, entry))
-            return g_OrigLoadCamoFpk(outPath, outfit::kPlayerType_Snake,
-                                     kCamoDonorVanillaPartsType,
-                                     ClampVanillaCamo(playerCamoType));
         return g_OrigLoadCamoFpk(outPath, playerType, VanillaClampPartsType(playerPartsType),
                                  ClampVanillaCamo(playerCamoType));
     }
@@ -876,7 +1039,7 @@ namespace
 
             const std::uint8_t v = entry->HasVariants()
                 ? outfit::GetActiveVariant(entry->partsType) : 0;
-            if (g_ServedColorFpk.load(std::memory_order_acquire) != 0)   // this load's camo slot holds a colour package
+            if (g_ServedColorFpk.load(std::memory_order_acquire) != 0)
             {
                 if (const std::uint64_t fv2 = g_ServedColorFv2.load(std::memory_order_relaxed))
                     return WriteFoxPath(outPath, fv2);
@@ -1071,12 +1234,8 @@ namespace
             if (!entry->IsHeadEnabled(pt))
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
 
-            const outfit::CustomHeadEntry* head =
-                outfit::TryGetCustomHeadBySlot(static_cast<std::uint8_t>(playerFaceEquipId));
-            if (!head)
-                head = outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
-            if (!head)
-                head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
+            const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(
+                LoadingCustomFaceSlot(static_cast<std::uint8_t>(playerFaceEquipId)));
             if (head && (!entry->IsFaceEnabled(pt)
                          || !entry->HasHeadOptionAnyVariant(head->equipId, pt)))
                 head = nullptr;
@@ -1089,7 +1248,26 @@ namespace
                             head->name, playerFaceId); st != 0)
                         code = st;
                 if (code != 0)
-                    return WriteFoxPath(outPath, code);
+                {
+                    std::uint64_t siblingFpk = head->faceFpkCode[pt];
+                    if (pt == outfit::kPlayerType_Snake)
+                        if (const std::uint64_t st = outfit::GetCustomHeadSnakeStageFpk(
+                                head->name, playerFaceId); st != 0)
+                            siblingFpk = st;
+                    if (!ShouldFallBackOnMissingAsset(code)
+                        && fox::detail::PathExistsByCode(code)
+                        && (siblingFpk == 0
+                            || (!ShouldFallBackOnMissingAsset(siblingFpk)
+                                && fox::detail::PathExistsByCode(siblingFpk))))
+                        return WriteFoxPath(outPath, code);
+
+                    static std::atomic<std::uint64_t> s_loggedMissingCustomFv2{ 0 };
+                    if (s_loggedMissingCustomFv2.exchange(code) != code)
+                        LogWarn("OutfitHeadOption: head '%s' face fv2 0x%016llX or fpk 0x%016llX not installed (playerType %u), using vanilla face",
+                            head->name, static_cast<unsigned long long>(code),
+                            static_cast<unsigned long long>(siblingFpk),
+                            static_cast<unsigned>(pt));
+                }
             }
 
             return g_OrigLoadSnakeFaceFv2(outPath, playerType,
@@ -1106,7 +1284,8 @@ namespace
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
         const outfit::CustomHeadEntry* vextHead = ResolveVanillaSuitCustomHead(
-            pt, playerPartsType, static_cast<std::uint8_t>(playerFaceEquipId));
+            pt, playerPartsType,
+            LoadingCustomFaceSlot(static_cast<std::uint8_t>(playerFaceEquipId)));
         if (const outfit::CustomHeadEntry* head = vextHead)
         {
             std::uint64_t code = head->faceFv2Code[pt];
@@ -1156,15 +1335,8 @@ namespace
             if (!entry->IsHeadEnabled(pt))
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
 
-
-            const std::uint8_t activeSlot = t_ActiveCustomFaceSlot;
-            const outfit::CustomHeadEntry* head =
-                outfit::TryGetCustomHeadBySlot(activeSlot);
-            if (!head)
-                head = outfit::TryGetCustomHeadBySlot(
-                    static_cast<std::uint8_t>(playerFaceEquipId));
-            if (!head)
-                head = outfit::TryGetCustomHeadBySlot(outfit::GetWornCustomHeadSlot());
+            const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(
+                LoadingCustomFaceSlot(static_cast<std::uint8_t>(playerFaceEquipId)));
             if (head && (!entry->IsFaceEnabled(pt)
                          || !entry->HasHeadOptionAnyVariant(head->equipId, pt)))
                 head = nullptr;
@@ -1177,7 +1349,17 @@ namespace
                             head->name, playerFaceId); st != 0)
                         code = st;
                 if (code != 0)
-                    return WriteFoxPath(outPath, code);
+                {
+                    if (!ShouldFallBackOnMissingAsset(code)
+                        && fox::detail::PathExistsByCode(code))
+                        return WriteFoxPath(outPath, code);
+
+                    static std::atomic<std::uint64_t> s_loggedMissingCustomFpk{ 0 };
+                    if (s_loggedMissingCustomFpk.exchange(code) != code)
+                        LogWarn("OutfitHeadOption: head '%s' face fpk 0x%016llX not installed (playerType %u), using vanilla face",
+                            head->name, static_cast<unsigned long long>(code),
+                            static_cast<unsigned>(pt));
+                }
             }
 
             return g_OrigLoadSnakeFaceFpk(outPath, playerType,
@@ -1194,7 +1376,8 @@ namespace
                 return WriteFoxPath(outPath, outfit::kSubAssetDisabled);
         }
         if (const outfit::CustomHeadEntry* head = ResolveVanillaSuitCustomHead(
-                pt, playerPartsType, static_cast<std::uint8_t>(playerFaceEquipId)))
+                pt, playerPartsType,
+                LoadingCustomFaceSlot(static_cast<std::uint8_t>(playerFaceEquipId))))
         {
             std::uint64_t code = head->faceFpkCode[pt];
             if (pt == outfit::kPlayerType_Snake)
@@ -1218,6 +1401,54 @@ namespace
                                       playerFaceId, playerFaceEquipId);
     }
 
+    static bool HeadHidesChickenCap(const outfit::CustomHeadEntry* head)
+    {
+        return head && (outfit::GetCustomHeadStealthAssist(head->name)
+                        || outfit::GetCustomHeadChickCap(head->name));
+    }
+
+    static bool LocalHeadHidesChickenCap()
+    {
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return false;
+        const std::uint16_t worn = outfit::ReadLiveWornHeadCategory();
+        return worn != 0xFFFFu
+            && HeadHidesChickenCap(outfit::TryGetCustomHeadBySlot(static_cast<std::uint8_t>(worn & 0xFFu)));
+    }
+
+    static std::uint8_t HeadHatSlot(std::uint8_t slot, std::uint8_t pt, outfit::CustomHeadHat* hat)
+    {
+        if (MissionCodeGuard::ShouldBypassHooks()
+            || (pt != outfit::kPlayerType_Snake && pt != outfit::kPlayerType_Avatar))
+            return 0;
+        const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(slot);
+        if (!head || !outfit::GetCustomHeadHat(head->name, pt, hat))
+            return 0;
+        if (ShouldFallBackOnMissingAsset(hat->fpk) || ShouldFallBackOnMissingAsset(hat->fv2))
+        {
+            static std::atomic<std::uint64_t> s_loggedMissingHat{ 0 };
+            if (s_loggedMissingHat.exchange(hat->fpk) != hat->fpk)
+                LogWarn("OutfitHeadOption: head '%s' hat fpk 0x%016llX or fv2 0x%016llX not installed (playerType %u), using vanilla",
+                    head->name, static_cast<unsigned long long>(hat->fpk),
+                    static_cast<unsigned long long>(hat->fv2), static_cast<unsigned>(pt));
+            return 0;
+        }
+        return slot;
+    }
+
+    static void __fastcall hkSetChickenVisibility(void* fova2, std::uint32_t playerIndex, bool visible)
+    {
+        const std::uint32_t local = g_LocalPlayerIndex.load(std::memory_order_relaxed);
+        if (local == kNoLocalPlayerIndex || playerIndex == local)
+        {
+            const bool shown = visible && !LocalHeadHidesChickenCap();
+            g_VanillaChickenVisible.store(shown, std::memory_order_relaxed);
+            visible = shown || (g_ChickenHeldOn.load(std::memory_order_relaxed)
+                                && !MissionCodeGuard::ShouldBypassHooks());
+        }
+        g_OrigSetChickenVisibility(fova2, playerIndex, visible);
+    }
+
     using FoxModelFromHandle_t = long long (__fastcall*)(long long handle,
                                                          std::uint32_t idx);
     static FoxModelFromHandle_t g_FoxModelFromHandle = nullptr;
@@ -1231,8 +1462,7 @@ namespace
         const outfit::CustomHeadEntry* head =
             outfit::TryGetCustomHeadBySlot(t_ActiveCustomFaceSlot);
         if (!head)
-            head = outfit::TryGetCustomHeadBySlot(
-                g_LastCustomFaceSlot.load(std::memory_order_relaxed));
+            head = outfit::TryGetCustomHeadBySlot(RecordedCustomFaceSlot());
 
         if (head
             && (head->faceFv2Code[outfit::kPlayerType_Avatar] == 0
@@ -1383,6 +1613,16 @@ namespace
         return orig;
     }
 
+    static bool VanillaSuitArmOff(std::uint8_t partsType, std::uint8_t playerType)
+    {
+        bool armEnable = true;
+        return partsType <= outfit::kVanillaArmPartsTypeLast
+            && !MissionCodeGuard::ShouldBypassHooks()
+            && outfit::VanillaExtGetSuitArm(partsType, playerType,
+                                            outfit::ReadLiveSelectorCode(), &armEnable)
+            && !armEnable;
+    }
+
     static void __fastcall hkSetHandSlotEnabled(void* self_equipController,
                                                 std::uint32_t slot, std::uint8_t enabled)
     {
@@ -1390,6 +1630,8 @@ namespace
         {
             const std::uint8_t livePT        = outfit::ReadLivePlayerType();
             const std::uint8_t livePartsType = outfit::ReadLivePartsType();
+            if (VanillaSuitArmOff(livePartsType, livePT))
+                enabled = 0;
             if (livePartsType >= outfit::kCustomPartsTypeStart
              && livePartsType <= outfit::kCustomPartsTypeEnd)
             {
@@ -1448,6 +1690,10 @@ namespace
                 && entry->IsArmEnabled(ply))
                 return 1;
         }
+        if (playerPartsType <= outfit::kVanillaArmPartsTypeLast
+            && VanillaSuitArmOff(static_cast<std::uint8_t>(playerPartsType),
+                                 static_cast<std::uint8_t>(playerType & 0xFF)))
+            return 0;
         return g_OrigIsArtificialHandEnabled
              ? g_OrigIsArtificialHandEnabled(playerType, playerPartsType) : 0;
     }
@@ -1466,6 +1712,8 @@ namespace
                 && entry->IsArmEnabled(livePT))
                 return 1;
         }
+        if (VanillaSuitArmOff(livePartsType, livePT))
+            return 0;
         return g_OrigIsArtificialHandForCurrent ? g_OrigIsArtificialHandForCurrent() : 0;
     }
 
@@ -1525,7 +1773,7 @@ namespace
         }
 
         if (slot == g_LocalPartsSlot.load(std::memory_order_relaxed))
-            outfit::RequestColorReapply(true);   // the refresh put the outfit's own fv2 textures back
+            outfit::RequestColorReapply(true);
     }
 
 
@@ -1865,6 +2113,99 @@ namespace
         }
     }
 
+    struct LocalFova2
+    {
+        void*         fova2       = nullptr;
+        std::uint8_t* work        = nullptr;
+        std::uint32_t playerIndex = 0;
+    };
+
+    static bool ResolveLocalFova2Seh(void* self, std::uint32_t slot, LocalFova2* out)
+    {
+        __try
+        {
+            auto* p2go = reinterpret_cast<std::uint8_t*>(self);
+            const auto* playerIndices = *reinterpret_cast<std::uint16_t**>(p2go + kP2GO_OffPlayerIndexArr);
+            const auto* implIndices   = *reinterpret_cast<std::uint8_t**>(p2go + kP2GO_OffImplIndexArr);
+            auto* impls               = *reinterpret_cast<std::uint8_t**>(p2go + kP2GO_OffImplArr);
+            if (!playerIndices || !implIndices || !impls
+                || playerIndices[slot] == 0xFFFFu || implIndices[slot] == 0xFFu)
+                return false;
+            std::uint8_t* impl = impls + implIndices[slot] * kP2Impl_Stride;
+            auto* fova2 = *reinterpret_cast<std::uint8_t**>(impl + kP2Impl_OffFova2);
+            if (!fova2)
+                return false;
+            const std::uint32_t row = playerIndices[slot] - fova2[kFova2_OffBaseIndex];
+            auto* works = *reinterpret_cast<std::uint8_t**>(fova2 + kFova2_OffWorks);
+            if (row >= fova2[kFova2_OffWorkCount] || !works)
+                return false;
+            std::uint8_t* work = works + row * kFova2Work_Stride;
+            if (*reinterpret_cast<std::uint8_t**>(work + kFova2Work_OffOwner) != impl)
+                return false;
+            out->fova2       = fova2;
+            out->work        = work;
+            out->playerIndex = playerIndices[slot];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static int ReadChickenBitSeh(const std::uint8_t* work)
+    {
+        __try
+        {
+            return (work[kFova2Work_OffChicken] & kFova2Work_ChickenBit) != 0 ? 1 : 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    static void SyncLocalHat(void* self, const PartsPipeline& pp)
+    {
+        if (!g_OrigSetChickenVisibility || !pp.valid || pp.busy)
+            return;
+        LocalFova2 lf;
+        if (!ResolveLocalFova2Seh(self, pp.slot, &lf))
+            return;
+        g_LocalPlayerIndex.store(lf.playerIndex, std::memory_order_relaxed);
+        if (MissionCodeGuard::ShouldBypassHooks())
+            return;
+
+        const std::uint8_t livePT = outfit::ReadLivePlayerType();
+        const std::uint8_t hatSlot = g_LocalHatSlot.load(std::memory_order_relaxed);
+        bool hideHair = false;
+        if (hatSlot != 0)
+        {
+            const outfit::CustomHeadEntry* head = outfit::TryGetCustomHeadBySlot(hatSlot);
+            outfit::CustomHeadHat hat;
+            hideHair = head && outfit::GetCustomHeadHat(head->name, livePT, &hat) && hat.hideHair;
+        }
+        const bool holdChicken = hideHair;
+        g_ChickenHeldOn.store(holdChicken, std::memory_order_relaxed);
+
+        const bool vanillaChicken = g_VanillaChickenVisible.load(std::memory_order_relaxed);
+        const int chickenBit = ReadChickenBitSeh(lf.work);
+        if (holdChicken && chickenBit == 0)
+        {
+            g_OrigSetChickenVisibility(lf.fova2, lf.playerIndex, true);
+            g_ChickenForced.store(true, std::memory_order_relaxed);
+        }
+        else if (!holdChicken && chickenBit == 1 && LocalHeadHidesChickenCap())
+        {
+            g_OrigSetChickenVisibility(lf.fova2, lf.playerIndex, false);
+        }
+        else if (!holdChicken && g_ChickenForced.exchange(false, std::memory_order_relaxed)
+                 && chickenBit != static_cast<int>(vanillaChicken))
+        {
+            g_OrigSetChickenVisibility(lf.fova2, lf.playerIndex, vanillaChicken);
+        }
+    }
+
     static void __fastcall hkUpdatePartsStatus(void* self)
     {
         PartsPipeline pp;
@@ -1972,6 +2313,8 @@ namespace
 
         ReloadLocalHeadOnceRealizable(self, pp);
 
+        SyncLocalHat(self, pp);
+
         struct SlotOverride { bool active; std::uint8_t restoreValue; };
         SlotOverride  overrides[outfit::shadow::kMaxSlots] = {};
         std::uint8_t* armTypeArr = nullptr;
@@ -2056,8 +2399,6 @@ namespace
                                     mask |= (1u << local);
                                 vextRestream |= mask;
                                 g_ColorReloadSlots.fetch_or(mask, std::memory_order_acq_rel);
-                                LogInfo("OutfitColor: colour package changed, parts slots 0x%X reload%s", mask,
-                                    anyBusy ? " (a slot was still loading)" : "");
                                 s_colorWaitTicks = 0;
                             }
                         }
@@ -2076,6 +2417,48 @@ namespace
                         {
                             s_colorStaleTicks = 0;
                         }
+
+#ifdef _DEBUG   // TEMP ColorProbe
+                        if (ColorProbeOn())
+                        {
+                            static std::uint64_t s_probeSeen[outfit::shadow::kMaxSlots] = {};
+                            static std::uint32_t s_probeFlags = ~0u;
+                            const std::uint32_t dirty = stateChangedBits ? *stateChangedBits : 0u;
+                            const std::uint32_t variant = *reinterpret_cast<std::uint32_t*>(
+                                reinterpret_cast<std::uint8_t*>(perPlayer) + kPP_OffVariantChangedBits);
+                            const std::uint32_t forced = g_ColorReloadSlots.load(std::memory_order_relaxed);
+                            const std::uint32_t flags =
+                                *reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uint8_t*>(self) + 0x224);
+                            if (flags != s_probeFlags)
+                            {
+                                s_probeFlags = flags;
+                                LogDebug("ColorProbe: player object flags 0x%08X (bit 13 %u, bit 14 %u), hold byte 0x%02X, local slot %u",
+                                    flags, (flags >> 13) & 1u, (flags >> 14) & 1u,
+                                    static_cast<unsigned>(*(reinterpret_cast<std::uint8_t*>(self) + 0x284)),
+                                    g_LocalPartsSlot.load(std::memory_order_relaxed));
+                            }
+                            for (std::size_t i = 0; i < outfit::shadow::kMaxSlots; ++i)
+                            {
+                                if (partsTypeArr[i] == 0xFF && stateMachineArr[i] == 0)
+                                    continue;
+                                const int state = ColorProbePlayerStateSEH(reinterpret_cast<const std::uint8_t*>(self), i);
+                                const std::uint64_t seen =
+                                    (static_cast<std::uint64_t>(static_cast<std::uint32_t>(state)) << 32)
+                                    | (static_cast<std::uint64_t>(stateMachineArr[i]) << 24)
+                                    | (static_cast<std::uint64_t>(partsTypeArr[i]) << 16)
+                                    | (static_cast<std::uint64_t>(camoTypeArr ? camoTypeArr[i] : 0) << 8)
+                                    | (((dirty >> i) & 1u) << 2) | (((variant >> i) & 1u) << 1) | ((forced >> i) & 1u);
+                                if (seen == s_probeSeen[i])
+                                    continue;
+                                s_probeSeen[i] = seen;
+                                LogDebug("ColorProbe: slot %zu player state 0x%02X, load state %u, parts 0x%02X camo 0x%02X, dirty %u, variant %u, forced %u",
+                                    i, state, static_cast<unsigned>(stateMachineArr[i]),
+                                    static_cast<unsigned>(partsTypeArr[i]),
+                                    static_cast<unsigned>(camoTypeArr ? camoTypeArr[i] : 0),
+                                    (dirty >> i) & 1u, (variant >> i) & 1u, (forced >> i) & 1u);
+                            }
+                        }
+#endif
 
                         int pending =
                             g_RestreamPendingTicks.load(std::memory_order_relaxed);
@@ -2205,6 +2588,9 @@ namespace
             armTypeArr = nullptr;
         }
 
+        RefreshVanillaArmFlags(outfit::ReadLivePlayerType(), outfit::ReadLiveSelectorCode(),
+                               MissionCodeGuard::ShouldBypassHooks());
+
         g_OrigUpdatePartsStatus(self);
 
         if (armTypeArr && !g_CaseDArmUnpinActive)
@@ -2323,6 +2709,12 @@ namespace
     }
 
 
+    static std::uint8_t WornLookCode(const outfit::OutfitEntry* entry, std::uint8_t variant)
+    {
+        const std::uint8_t code = outfit::EnsureOutfitLookCode(entry->developId, variant);
+        return code != 0xFF ? code : entry->GetVariantSelectorCode(variant);
+    }
+
     static void __fastcall hkLoadPartsNew(
         void* self, std::uint32_t playerIndex,
         LoadPartsPlayerInfo* info, std::uint32_t flags)
@@ -2387,8 +2779,7 @@ namespace
                     {
                         variantIdx = outfit::PeekCrateDeliveredVariantIdx();
                     }
-                    const std::uint8_t persistSel =
-                        entry->GetVariantSelectorCode(variantIdx);
+                    const std::uint8_t persistSel = WornLookCode(entry, variantIdx);
                     info->playerPartsType = entry->partsType;
                     info->playerCamoType  = persistSel;
                     outfit::SetActiveVariant(entry->partsType, variantIdx);
@@ -2424,8 +2815,7 @@ namespace
                     const std::uint8_t pendVar = byPending->HasVariants()
                         ? outfit::GetActiveVariant(byPending->partsType)
                         : std::uint8_t{0};
-                    const std::uint8_t persistSel =
-                        byPending->GetVariantSelectorCode(pendVar);
+                    const std::uint8_t persistSel = WornLookCode(byPending, pendVar);
                     info->playerPartsType = byPending->partsType;
                     info->playerCamoType  = persistSel;
                     if (isRealPlayerSlot)
@@ -2480,8 +2870,7 @@ namespace
                     {
                         variantIdx = outfit::PeekCrateDeliveredVariantIdx();
                     }
-                    const std::uint8_t persistSel =
-                        mixEntry->GetVariantSelectorCode(variantIdx);
+                    const std::uint8_t persistSel = WornLookCode(mixEntry, variantIdx);
                     info->playerPartsType = mixEntry->partsType;
                     info->playerCamoType  = persistSel;
                     outfit::SetActiveVariant(mixEntry->partsType, variantIdx);
@@ -2501,6 +2890,15 @@ namespace
 
         if (isCustom && entry)
         {
+            std::uint8_t namedVariant = 0xFF;   // the look vars.playerCamoType names, as a vanilla camo would
+            const outfit::OutfitEntry* byCode = nullptr;
+            std::uint8_t codeVariant = 0;
+            if (info->playerCamoType >= outfit::kCustomSelectorStart
+                && info->playerCamoType <= outfit::kCustomSelectorEnd
+                && outfit::TryGetOutfitByVariantSelector(info->playerCamoType, &byCode, &codeVariant)
+                && byCode == entry)
+                namedVariant = codeVariant;
+
             if (outfit::PeekPendingSupplyDropDevelopId() == entry->developId)
             {
                 const std::uint8_t orderedVar =
@@ -2511,12 +2909,25 @@ namespace
                 if (isRealPlayerSlot)
                     outfit::ResetAllVanillaExtVariants();
             }
+            else if (namedVariant != 0xFF)
+            {
+                outfit::SetActiveVariant(entry->partsType, namedVariant);
+            }
             else if (outfit::PeekCrateDeliveredDevelopId()
                      == entry->developId)
             {
                 const std::uint8_t deliveredVar =
                     outfit::PeekCrateDeliveredVariantIdx();
                 outfit::SetActiveVariant(entry->partsType, deliveredVar);
+            }
+
+            const std::uint8_t wornCamo = WornLookCode(entry,
+                entry->HasVariants() ? outfit::GetActiveVariant(entry->partsType) : std::uint8_t{ 0 });
+            if (info->playerCamoType != wornCamo)
+            {
+                info->playerCamoType = wornCamo;
+                if (isRealPlayerSlot)
+                    V_WriteOutfitPartsLoad(entry->partsType, wornCamo, info->playerType);
             }
         }
 
@@ -2718,7 +3129,18 @@ namespace
                 LogWarn("OutfitRuntimeParts: head slot 0x%02X has no registered head, loaded without it",
                     static_cast<unsigned>(wornHead));
                 if (!MissionCodeGuard::ShouldBypassHooks())
+                {
                     droppedHead = wornHead;
+                    if (isRealPlayerSlot
+                        && (outfit::ReadLiveWornHeadCategory() & 0xFFu) == wornHead)
+                    {
+                        droppedHead = 0;
+                        outfit::WriteLiveWornHeadCategory(0);
+                        outfit::ClearWornCustomHeadSlot();
+                        LogWarn("OutfitRuntimeParts: saved head slot 0x%02X belongs to no installed head, head set to none",
+                            static_cast<unsigned>(wornHead));
+                    }
+                }
                 info->playerFaceEquipId = 0;
             }
             else if (isCustom && entry
@@ -2758,7 +3180,8 @@ namespace
                 t_ActiveCustomFaceSlot = info->playerFaceEquipId;
                 g_LastCustomFaceSlot.store(info->playerFaceEquipId,
                                            std::memory_order_relaxed);
-                info->playerFaceEquipId = 1;
+                info->playerFaceEquipId = CustomFaceEquipStandIn(
+                    info->playerFaceEquipId, info->playerType);
                 }
             }
             else
@@ -2804,6 +3227,9 @@ namespace
         LoadPartsPlayerInfo staffVisualInfo{};
         LoadPartsPlayerInfo* loadInfo = info;
         outfit::ddheadlayers::PartsLoadProbe layerProbe{};
+        outfit::ddheadlayers::PartsLoadProbe hatProbe{};
+        outfit::CustomHeadHat hat{};
+        std::uint8_t hatSlot = 0;
         void* staffLoadImpl = nullptr;
         std::uint32_t staffLoadSlot = 0;
         {
@@ -2816,30 +3242,56 @@ namespace
                 if (BuildLocalStaffFaceInfo(*info, implSlot, staffVisualInfo))
                     loadInfo = &staffVisualInfo;
                 const std::uint32_t slotBit = playerIndex < 32 ? (1u << playerIndex) : 0u;
-                if (slotBit
-                    && (g_ColorReloadSlots.fetch_and(~slotBit, std::memory_order_acq_rel) & slotBit))
+                const bool colorReload = slotBit
+                    && (g_ColorReloadSlots.fetch_and(~slotBit, std::memory_order_acq_rel) & slotBit);
+                if (colorReload)
                 {
-                    const bool forgot = outfit::ddheadlayers::ForgetShellTypeInfo(
+                    outfit::ddheadlayers::ForgetShellTypeInfo(
                         implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
                     if (playerIndex == g_LocalPartsSlot.load(std::memory_order_relaxed))
                         g_ColorReloadPending.store(false, std::memory_order_relaxed);
-                    LogInfo("OutfitColor: parts slot %u loads again for the colour package (shell %u%s)",
-                        playerIndex, implSlot, forgot ? "" : ", stored type info not reached");
+                }
+#ifdef _DEBUG   // TEMP ColorProbe
+                if (ColorProbeOn())
+                    LogDebug("ColorProbe: parts load runs for slot %u (local slot %u), parts 0x%02X camo 0x%02X, forced reload %s",
+                        playerIndex, g_LocalPartsSlot.load(std::memory_order_relaxed),
+                        static_cast<unsigned>(info->playerPartsType), static_cast<unsigned>(info->playerCamoType),
+                        colorReload ? "yes" : "NO");
+#endif
+                if (!MissionCodeGuard::ShouldBypassHooks())
+                {
+                    if (void* shell = outfit::ddheadlayers::PartsShell(implBc, implSlot))
+                    {
+                        std::uint8_t shellHead = 0;
+                        if (FindShellHead(shell, &shellHead) && shellHead != t_ActiveCustomFaceSlot)
+                            outfit::ddheadlayers::ForgetShellTypeInfo(   // custom heads share one stand-in face id, so the engine would see no change
+                                implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
+                        RecordShellHead(shell, t_ActiveCustomFaceSlot);
+                    }
                 }
                 layerProbe = outfit::ddheadlayers::BeginPartsLoad(
                     implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
+                hatSlot = HeadHatSlot(t_ActiveCustomFaceSlot, info->playerType, &hat);
+                if (hatSlot != 0)
+                    hatProbe = outfit::ddheadlayers::BeginHatLoad(
+                        implBc, implSlot, reinterpret_cast<const std::uint8_t*>(loadInfo));
             }
         }
 
         if (playerIndex == g_LocalPartsSlot.load(std::memory_order_relaxed))
+        {
+            g_LocalHatSlot.store(hatSlot, std::memory_order_relaxed);
             outfit::RequestColorReapply(true);
+        }
 
+        t_LoadingLocalParts = (playerIndex == g_LocalPartsSlot.load(std::memory_order_relaxed));
         __try
         {
             g_OrigLoadPartsNew(self, playerIndex, loadInfo, flags);
         }
         __finally
         {
+            t_LoadingLocalParts = false;
             if (spoofPartsType) outfit::shadow::ClearCurrentSlot();
         }
 
@@ -2848,6 +3300,9 @@ namespace
             reinterpret_cast<const std::uint8_t*>(loadInfo));
         outfit::ddheadlayers::EndPartsLoad(
             layerProbe, reinterpret_cast<const std::uint8_t*>(loadInfo));
+        if (hatSlot != 0)
+            outfit::ddheadlayers::EndHatLoad(
+                hatProbe, reinterpret_cast<const std::uint8_t*>(loadInfo), hat.fpk);
 
         t_ActiveCustomFaceSlot = 0;
 
@@ -3337,6 +3792,11 @@ namespace outfit
     {
         g_ColorReloadPending.store(true, std::memory_order_relaxed);
         g_RestreamRequested.store(true, std::memory_order_release);
+#ifdef _DEBUG   // TEMP ColorProbe
+        g_ColorProbeUntil.store(GetTickCount64() + 180000, std::memory_order_relaxed);
+        LogDebug("ColorProbe: a colour with its own pack was picked, reload asked (pack served now %016llX)",
+            static_cast<unsigned long long>(g_ServedColorFpk.load(std::memory_order_relaxed)));
+#endif
     }
 
     const OutfitColor* GetServablePackColor(const OutfitEntry& entry, std::uint8_t playerType, std::uint8_t variant)
@@ -3379,8 +3839,7 @@ namespace outfit
 
         bool CodeIsSEH(const void* code, const std::uint8_t* expect, std::size_t size)
         {
-            __try { return code && std::memcmp(code, expect, size) == 0; }
-            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+            return CheckHookEntry(code, expect, size) != HookEntry::Unknown;   // another DLL's hook on these is fine, we only call them
         }
 
         const Fns* Resolve()
@@ -3606,7 +4065,6 @@ namespace outfit
                                                   const std::uint64_t* settings, std::uint32_t count, void* out,
                                                   std::uint32_t outCapacity, bool reset, bool resetSim);
 
-        constexpr std::uintptr_t kApplyByGroup_En154 = 0x1404E1ED0ull;
         constexpr std::uint8_t kApplyByGroupCode[] = { 0x48, 0x83, 0xEC, 0x68, 0x48, 0x8B, 0x42, 0x10, 0x4C, 0x8B, 0x52,
                                                        0x28, 0x4D, 0x8B, 0xD8, 0x48, 0x8B, 0x90, 0xB0, 0x00, 0x00, 0x00 };
         constexpr std::uint8_t  kIrisGroup     = 110;
@@ -3621,9 +4079,7 @@ namespace outfit
             const int state = s_state.load(std::memory_order_acquire);
             if (state != 0)
                 return state > 0 ? s_fn : nullptr;
-            ApplyByGroup_t fn = nullptr;
-            if (IsEn154Family(gGameBuild))
-                fn = reinterpret_cast<ApplyByGroup_t>(ResolveGameAddress(kApplyByGroup_En154));
+            const auto fn = reinterpret_cast<ApplyByGroup_t>(ResolveGameAddress(gAddr.FormVariationFile2_ApplyByGroup));
             const bool ok = fn && fv2ontop::CodeIsSEH(reinterpret_cast<void*>(fn), kApplyByGroupCode,
                                                       sizeof(kApplyByGroupCode));
             if (ok)
@@ -3780,7 +4236,7 @@ namespace outfit
             || g_RestreamRequested.load(std::memory_order_relaxed)
             || g_ColorReloadSlots.load(std::memory_order_relaxed) != 0
             || g_RestreamPendingTicks.load(std::memory_order_relaxed) > 0)
-            return false;   // a reload is on its way: whatever is applied now is thrown away, or lands mid-teardown
+            return false;
         auto* system = static_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
         return system && FovaModelReadySEH(system);
     }
@@ -3836,9 +4292,48 @@ namespace outfit
         return g_LocalPartsSlot.load(std::memory_order_relaxed);
     }
 
+    bool IsLoadingLocalParts()
+    {
+        return t_LoadingLocalParts;
+    }
+
     std::uint8_t GetRealizedLocalHeadSlot()
     {
         return g_RealizedLocalHeadSlot.load(std::memory_order_relaxed);
+    }
+
+    void BeginLateFaceLoad(const void* shell)
+    {
+        std::uint8_t slot = 0;
+        t_LateFaceShellKnown = shell && FindShellHead(shell, &slot);
+        t_LateFaceShellSlot  = slot;
+        t_LateFaceShell      = shell;
+    }
+
+    void EndLateFaceLoad()
+    {
+        t_LateFaceShell      = nullptr;
+        t_LateFaceShellKnown = false;
+        t_LateFaceShellSlot  = 0;
+    }
+
+    bool ShellCustomHat(const void* shell, std::uint8_t playerType, std::uint64_t* fpk, std::uint64_t* fv2)
+    {
+        std::uint8_t slot = 0;
+        CustomHeadHat hat{};
+        if (!shell || !FindShellHead(shell, &slot) || HeadHatSlot(slot, playerType, &hat) == 0)
+            return false;
+        *fpk = hat.fpk;
+        *fv2 = hat.fv2;
+        return true;
+    }
+
+    void ResetChickenCapTracking()
+    {
+        g_VanillaChickenVisible.store(false, std::memory_order_relaxed);
+        g_ChickenForced.store(false, std::memory_order_relaxed);
+        g_ChickenHeldOn.store(false, std::memory_order_relaxed);
+        g_LocalPlayerIndex.store(kNoLocalPlayerIndex, std::memory_order_relaxed);
     }
 
     bool Install_OutfitRuntimeParts_Hooks()
@@ -3877,6 +4372,9 @@ namespace outfit
             { ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFpk),
               reinterpret_cast<void*>(&hkLoadPlayerSnakeFaceFpk),
               reinterpret_cast<void**>(&g_OrigLoadSnakeFaceFpk), &g_InstalledSnakeFaceFpk },
+            { ResolveGameAddress(gAddr.Fova2ControllerImpl_SetChickenVisibility),
+              reinterpret_cast<void*>(&hkSetChickenVisibility),
+              reinterpret_cast<void**>(&g_OrigSetChickenVisibility), &g_InstalledSetChickenVisibility },
             { ResolveGameAddress(gAddr.Player2BlockController_LoadPartsNew),
               reinterpret_cast<void*>(&hkLoadPartsNew),
               reinterpret_cast<void**>(&g_OrigLoadPartsNew), &g_InstalledLpn },
@@ -3973,6 +4471,7 @@ namespace outfit
             { &g_InstalledBionicArmFpk,          ResolveGameAddress(gAddr.LoadPlayerBionicArmFpk) },
             { &g_InstalledSnakeFaceFv2,          ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFv2) },
             { &g_InstalledSnakeFaceFpk,          ResolveGameAddress(gAddr.LoadPlayerSnakeFaceFpk) },
+            { &g_InstalledSetChickenVisibility,  ResolveGameAddress(gAddr.Fova2ControllerImpl_SetChickenVisibility) },
             { &g_InstalledAvatarFaceFv2,         ResolveGameAddress(gAddr.LoadAvatarFaceFv2) },
             { &g_InstalledAvatarFaceFpk,         ResolveGameAddress(gAddr.LoadAvatarFaceFpk) },
             { &g_InstalledAvatarFaceEdit,        ResolveGameAddress(gAddr.AvatarFaceEditUpdate) },
@@ -4031,6 +4530,7 @@ namespace outfit
             }
             g_CaseDTrampoline     = nullptr;
             g_CaseDPatchSite      = nullptr;
+            g_CaseDArmTable       = nullptr;
             g_CaseDArmUnpinActive = false;
         }
 
@@ -4044,6 +4544,7 @@ namespace outfit
         g_OrigLoadBionicArmFpk          = nullptr;
         g_OrigLoadSnakeFaceFv2          = nullptr;
         g_OrigLoadSnakeFaceFpk          = nullptr;
+        g_OrigSetChickenVisibility      = nullptr;
         g_OrigLoadAvatarFaceFv2         = nullptr;
         g_OrigLoadAvatarFaceFpk         = nullptr;
         g_OrigLoadAvatarHeadOptionFv2   = nullptr;

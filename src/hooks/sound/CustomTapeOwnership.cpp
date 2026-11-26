@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -1586,7 +1586,7 @@ static void __fastcall hkGetCassetteTapeUnreadInfo(void* menuSystem, std::uint32
             const std::uint16_t tableIndex =
                 static_cast<std::uint16_t>(static_cast<std::uint16_t>(saveIndex) + kVanillaOwnedIndexBias);
 
-            const bool strayCounted = CustomTapeFlagByteOwnedAndNew(liveTable, tableIndex);
+            const bool strayCounted = tableIndex < kVanillaCassetteFlagRegionEndExclusive && CustomTapeFlagByteOwnedAndNew(liveTable, tableIndex); // past the cassette region the byte is not ours
             const bool realCounted = kv.second.owned && kv.second.isNew;
             delta += (realCounted ? 1 : 0) - (strayCounted ? 1 : 0);
 

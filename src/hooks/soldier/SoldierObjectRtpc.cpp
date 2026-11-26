@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -35,6 +35,8 @@ namespace
     constexpr std::uintptr_t kControl_ChildCountOff   = 0x18;
     constexpr std::uintptr_t kControl_ChildArrayOff   = 0x20;
     constexpr std::uint32_t  kCurveLinear             = 4;
+    constexpr std::uint32_t  kSoldierIdBand           = 0x0400;   // TppSoldier2 gameObjectIds are 0x400 + index
+    constexpr std::uint32_t  kSoldierIndexEnd         = 0x1FF;    // 0x1FF itself means the whole type
 
 
     static ConvertParameterID_t g_ConvertParameterID = nullptr;
@@ -291,6 +293,13 @@ bool Set_SoldierVoicePitch(std::uint32_t gameObjectId, float cents)
         g_PendingPitchByGameObjectId[gameObjectId] = cents;
     }
     return applied;
+}
+
+
+void Set_EverySoldierVoicePitch(float cents)
+{
+    for (std::uint32_t soldier = 0; soldier < kSoldierIndexEnd; ++soldier)
+        Set_SoldierVoicePitch(kSoldierIdBand | soldier, cents);
 }
 
 

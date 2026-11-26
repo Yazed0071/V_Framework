@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -9,16 +9,15 @@
 #include <new>
 #include <vector>
 
-#include <string>
-
 #include "AccSeatIdleMotion.h"
 #include "AddressSet.h"
-#include "FoxHashes.h"
 #include "HookArena.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
 #include "NativeCallPatch.h"
 #include "log.h"
+#include "../soldier/RideVehicleActionImpl_State_IdleAction.h"
+#include "../soldier/RouteAiImpl_SetSubActionParamWithNodeEvent.h"
 
 namespace
 {
@@ -50,6 +49,8 @@ namespace
     std::atomic<std::uint64_t> g_WarnedClip{0};
     std::atomic<std::uint64_t> g_WarnedPose{0};
     std::atomic<std::uint64_t> g_WarnedSwap{0};
+    std::atomic<std::uint64_t> g_WarnedSquat{0};
+    std::atomic<std::uint64_t> g_WarnedGunner{0};
     GaniSwap g_GaniSwaps[kMaxGaniSwaps] = {};
     std::atomic<std::size_t> g_GaniSwapCount{0};
     std::mutex g_GaniSwapLock;
@@ -84,56 +85,13 @@ namespace
         }
     }
 
-    std::uint32_t ReadU32(std::uintptr_t p)
-    {
-        __try
-        {
-            return p ? *reinterpret_cast<std::uint32_t*>(p) : 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return 0;
-        }
-    }
-
-    void LogPick(std::uintptr_t animControl, std::uint64_t clip, bool found)
-    {
-        static const std::uint64_t heliPath = FoxHashes::PathCode64Ext("/Assets/tpp/motion/mtar/player2/player2_heli.mtar");
-        const std::uint32_t count = ReadU32(animControl + 0x1C); // how many motion archives this control has
-        const std::uintptr_t base = ReadPtr(animControl + 0x98); // the archive list
-        std::string entries;
-        int heliIndex = -1;
-        bool heliResident = false;
-        for (std::uint32_t i = 0; i < count && i < 64; ++i)
-        {
-            const std::uintptr_t entry = base + static_cast<std::uintptr_t>(i) * 0x30; // each list entry is 0x30 bytes
-            const std::uintptr_t file = ReadPtr(entry + 0x18); // the archive file
-            const std::uint64_t path = ReadPtr(entry + 0x20); // its path hash
-            const bool resident = file && ReadPtr(file + 0x98); // archive data, null while it isn't loaded
-            if (path == heliPath || (file && ReadPtr(file + 0x30) == heliPath))
-            {
-                heliIndex = static_cast<int>(i);
-                heliResident = resident;
-            }
-            char item[40];
-            sprintf_s(item, " %u:%012llX%s", i, path & 0xFFFFFFFFFFFFull, !file ? "-" : (resident ? "" : "*"));
-            entries += item;
-        }
-        LogInfo("SetMotion: pick clip 0x%016llX %s mission %u ac %p entries %u heli %d%s heliPath %016llX |%s",
-                clip, found ? "HIT" : "MISS", MissionCodeGuard::GetCurrentMissionCode(),
-                reinterpret_cast<void*>(animControl), count, heliIndex, heliResident ? " resident" : (heliIndex >= 0 ? " NOT resident" : ""),
-                heliPath, entries.c_str());
-    }
-
     std::uint64_t __fastcall PickSeatIdleClip(std::uint64_t vanillaClip, std::uintptr_t builder)
     {
         const std::uint64_t clip = g_ReplacementClip.load(std::memory_order_acquire);
         if (!clip)
             return vanillaClip;
         void* animControl = reinterpret_cast<void*>(ReadPtr(builder + 0x10)); // the AnimControl this tree is being built for
-        const bool found = animControl && FindClip(animControl, clip);
-        LogPick(reinterpret_cast<std::uintptr_t>(animControl), clip, found);
-        if (found)
+        if (animControl && FindClip(animControl, clip))
             return clip;
         if (g_WarnedClip.exchange(clip, std::memory_order_relaxed) != clip)
             LogWarn("SetMotion: clip 0x%016llX is not in the player's motion archives, ACC idle stays vanilla", clip);
@@ -163,7 +121,6 @@ namespace
             return clip;
         if (animControl && FindClip(animControl, pose))
             return pose;
-        LogPick(reinterpret_cast<std::uintptr_t>(animControl), pose, false);
         if (g_WarnedPose.exchange(pose, std::memory_order_relaxed) != pose)
             LogWarn("SetPlayerDropSeatPose: clip 0x%016llX is not in the player's motion archives, the drop seat pose stays vanilla", pose);
         return clip;
@@ -180,9 +137,32 @@ namespace
         return 0;
     }
 
-    std::uint64_t __fastcall PickLeafClip(std::uint64_t clip, std::uintptr_t builder)
+    std::uint64_t GzSquatClip(std::uint64_t clip, void* animControl)
     {
-        void* animControl = reinterpret_cast<void*>(ReadPtr(builder + 0x10)); // the AnimControl this tree is being built for
+        const std::uint64_t squat = SquatIdleRoute_GzClip(clip, animControl);
+        if (!squat)
+            return clip;
+        if (FindClip(animControl, squat))
+            return squat;
+        if (g_WarnedSquat.exchange(squat, std::memory_order_relaxed) != squat)
+            LogWarn("SquatIdleRoute: clip 0x%016llX is not in V_FrameWork_motion.mtar, TPP's own squat clip plays", squat);
+        return clip;
+    }
+
+    std::uint64_t JeepGunnerClip(std::uint64_t clip, void* animControl)
+    {
+        const std::uint64_t gunner = JeepGunner_Clip(clip, animControl);
+        if (!gunner)
+            return 0;
+        if (FindClip(animControl, gunner))
+            return gunner;
+        if (g_WarnedGunner.exchange(gunner, std::memory_order_relaxed) != gunner)
+            LogWarn("JeepGunner: clip 0x%016llX is not in the soldier's motion archives, the gunner keeps the passenger pose", gunner);
+        return 0;
+    }
+
+    std::uint64_t PickClip(std::uint64_t clip, std::uintptr_t builder, void* animControl)
+    {
         std::uint64_t picked = clip;
         if (clip == kSeatIdleClip)
             picked = PickSeatIdleClip(clip, builder);
@@ -190,14 +170,25 @@ namespace
             picked = PickDropSeatPose(clip, animControl);
         if (picked != clip)
             return picked;
-        const std::uint64_t swapped = SwappedGani(clip);
+        const std::uint64_t gunner = JeepGunnerClip(clip, animControl);
+        if (gunner)
+            return gunner;
+        const std::uint64_t swapped = MissionCodeGuard::ShouldBypassHooks() ? 0 : SwappedGani(clip); // no clip swaps in FOB
         if (!swapped)
-            return clip;
+            return GzSquatClip(clip, animControl);
         if (animControl && FindClip(animControl, swapped))
             return swapped;
         if (g_WarnedSwap.exchange(swapped, std::memory_order_relaxed) != swapped)
             LogWarn("SwapGani: clip 0x%016llX is not in that character's motion archives, 0x%016llX plays unchanged", swapped, clip);
         return clip;
+    }
+
+    std::uint64_t __fastcall PickLeafClip(std::uint64_t clip, std::uintptr_t builder)
+    {
+        void* animControl = reinterpret_cast<void*>(ReadPtr(builder + 0x10)); // the AnimControl this tree is being built for
+        const std::uint64_t picked = PickClip(clip, builder, animControl);
+        SquatIdleRoute_NoteLeafClip(animControl, clip, picked);
+        return picked;
     }
 
     struct Code

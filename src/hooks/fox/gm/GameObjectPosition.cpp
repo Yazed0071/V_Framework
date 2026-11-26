@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "GameObjectPosition.h"
 
 #include <Windows.h>
@@ -50,7 +50,7 @@ namespace
 
 namespace GameObjectPosition
 {
-    bool Read(std::uint32_t gameObjectId, float position[3])
+    bool ReadTransform(std::uint32_t gameObjectId, float position[3], float rotation[4])
     {
         static const GetQuarkSystemTable_t getQuarkSystemTable = gAddr.GetQuarkSystemTable
             ? reinterpret_cast<GetQuarkSystemTable_t>(ResolveGameAddress(gAddr.GetQuarkSystemTable))
@@ -64,9 +64,16 @@ namespace GameObjectPosition
         if (!SendSeh(getQuarkSystemTable, gameObjectId, signal))
             return false;
 
-        position[0] = signal.position[0];
-        position[1] = signal.position[1];
-        position[2] = signal.position[2];
+        for (int i = 0; i < 3; ++i)
+            position[i] = signal.position[i];
+        for (int i = 0; i < 4; ++i)
+            rotation[i] = signal.rotation[i];
         return true;
+    }
+
+    bool Read(std::uint32_t gameObjectId, float position[3])
+    {
+        float rotation[4];
+        return ReadTransform(gameObjectId, position, rotation);
     }
 }

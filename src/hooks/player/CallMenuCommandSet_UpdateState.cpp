@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CallMenuCommandSet_UpdateState.h"
 
 #include <algorithm>
@@ -14,11 +14,13 @@
 #include "CallComradeCommand.h"
 #include "CallMenuManagerImpl_UpdateInShowing.h"
 #include "FalseRadioResponseCommand.h"
+#include "../fox/gm/GameObjectInstance.h"
 #include "HookUtils.h"
 #include "log.h"
 #include "LuaBroadcaster.h"
 #include "MissionCodeGuard.h"
 #include "RadioControllerImpl_StepRadioWaitResponse.h"
+#include "SoldierVoiceType.h"
 #include "V_FrameWorkState.h"
 
 namespace
@@ -65,6 +67,8 @@ namespace
     constexpr std::size_t  kBlockUpdate             = 0x38;
     constexpr std::uint8_t kBlockFinished           = 3;
     constexpr std::uint16_t kNullGameObjectId       = 0xFFFF;
+    constexpr std::uint16_t kGameObjectIndexMask    = 0x1FF;
+    constexpr std::size_t   kSoldier2Part           = 0x20;   // the voice lookup takes this part, not FindSoldier's Soldier2Impl
 
     constexpr std::uint8_t kNoHudItem = 0xFF;
     constexpr std::uint8_t kHudItemOfSlot[CallMenuItems::ColumnCount][kSlotCount] = {  // the game's own row -> HUD item table
@@ -509,10 +513,26 @@ namespace
         }
     }
 
-    void AddHoldingOrderEntry(std::vector<Entry>& entries, bool interrogationOffered, int item, EntryKind kind,
+    bool IsChildSoldier(std::uint16_t gameObjectId)
+    {
+        const std::uint8_t* soldier2Impl = GameObjectInstance::FindSoldier(gameObjectId).object;
+        if (!soldier2Impl)
+            return false;
+
+        switch (SoldierVoiceType::Of(soldier2Impl + kSoldier2Part, gameObjectId & kGameObjectIndexMask))   // only child soldiers get these voices
+        {
+        case SoldierVoiceType::kChildA: case SoldierVoiceType::kChildB:
+        case SoldierVoiceType::kChildC: case SoldierVoiceType::kChildD:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void AddHoldingOrderEntry(std::vector<Entry>& entries, bool ordersOffered, int item, EntryKind kind,
                               std::uint64_t label, std::uint64_t description, bool selectable)
     {
-        if (!g_Holding || !interrogationOffered)
+        if (!ordersOffered)
             return;
 
         Entry entry;
@@ -956,13 +976,14 @@ namespace
             bool interrogationOffered = false;
             CollectVanillaEntries(entries, setParam, sets, fills, interrogationOffered);
             const std::uint16_t held = At<std::uint16_t>(setParam, kSetParamHeldSoldierId);
-            AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::CallComrade, EntryKind::CallComrade,
+            const bool ordersOffered = g_Holding && interrogationOffered && !IsChildSoldier(held);
+            AddHoldingOrderEntry(entries, ordersOffered, CallMenuItems::CallComrade, EntryKind::CallComrade,
                                  CallComradeCommand::Label(), CallComradeCommand::Help(), true);
             if (CpRadioResponse::IsAvailable())
             {
                 bool sitrep = false;
                 const bool waiting = CpRadioResponse::IsWaitingOn(held, sitrep);
-                AddHoldingOrderEntry(entries, interrogationOffered, CallMenuItems::FalseRadioResponse,
+                AddHoldingOrderEntry(entries, ordersOffered, CallMenuItems::FalseRadioResponse,
                                      EntryKind::FalseRadioResponse, FalseRadioResponseCommand::Label(sitrep),
                                      FalseRadioResponseCommand::Help(), waiting);
             }

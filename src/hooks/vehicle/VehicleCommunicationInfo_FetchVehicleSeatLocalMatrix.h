@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_VehicleCommunicationInfo_FetchVehicleSeatLocalMatrix_Hook();
+bool Uninstall_VehicleCommunicationInfo_FetchVehicleSeatLocalMatrix_Hook();

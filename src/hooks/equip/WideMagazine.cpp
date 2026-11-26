@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "WideMagazine.h"
 
 #include <array>
@@ -10,9 +10,15 @@
 
 #include "AddressSet.h"
 #include "DevelopArrayGrow.h"
+#include "EquipDevelopControllerImpl_GetEquipIDFromDevelopIndex.h"
 #include "EquipPartParams.h"
+#include "GunBasicInject.h"
+#include "TppEquip_ReloadEquipIdTable.h"
+#include "HookArena.h"
 #include "HookUtils.h"
+#include "NativeCallPatch.h"
 #include "log.h"
+#include "../buddy/BuddyCodeCave.h"
 
 namespace
 {
@@ -66,6 +72,17 @@ namespace
         }
     }
 
+    HookEntry CheckEntryBytes(const void* entry, const std::uint8_t* expected, std::size_t size,
+                              std::size_t skipAt, std::size_t skipLen)
+    {
+        std::uint8_t mask[64];
+        if (size > sizeof(mask) || skipAt + skipLen > size)
+            return HookEntry::Unknown;
+        std::memset(mask, 1, size);
+        std::memset(mask + skipAt, 0, skipLen);
+        return CheckHookEntryMasked(entry, expected, mask, size);
+    }
+
     bool ReadDevelopEquip(void* self, std::uint16_t index, std::uint16_t& equipId)
     {
         if (!self || !equip::IsValidFlowIndex(index))
@@ -74,8 +91,7 @@ namespace
         {
             const auto* row = static_cast<const std::uint8_t*>(self)
                 + static_cast<std::size_t>(index) * 0x68;
-            equipId = static_cast<std::uint16_t>(
-                *reinterpret_cast<const std::uint16_t*>(row + 0xC) >> 4);
+            equipId = equip::DevelopRecordEquipId(row);
             return equipId != 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -252,6 +268,7 @@ namespace
     void* __fastcall HookAmmoBlock(void* self, void* error, std::uint32_t equipId,
                                    std::uint32_t* output)
     {
+        EquipParam_BindBulletsForEquip(static_cast<int>(equipId));
         void* result = g_AmmoBlock(self, error, equipId, output);
         if (g_Active.load(std::memory_order_acquire))
         {
@@ -275,8 +292,17 @@ namespace
         return result;
     }
 
+    void BindQuietSlotBullets(void* self, std::uint32_t index, bool boss)
+    {
+        std::uint16_t equipId = 0;
+        std::uint8_t* state = nullptr;
+        if (ReadQuietSlot(self, index, boss, equipId, state))
+            EquipParam_BindBulletsForEquip(equipId);
+    }
+
     void __fastcall HookBuddyQuietSlot(void* self, std::uint32_t index)
     {
+        BindQuietSlotBullets(self, index, false);
         g_BuddyQuietSlot(self, index);
         CorrectQuietSlot(self, index, false);
     }
@@ -295,6 +321,7 @@ namespace
 
     void __fastcall HookBossQuietSlot(void* self, std::uint32_t index)
     {
+        BindQuietSlotBullets(self, index, true);
         g_BossQuietSlot(self, index);
         CorrectQuietSlot(self, index, true);
     }
@@ -339,6 +366,9 @@ namespace
 
     std::uint8_t __fastcall HookDevelopType(void* self, std::uint16_t index)
     {
+        std::uint16_t developedEquipId = 0;
+        if (ReadDevelopEquip(self, index, developedEquipId))
+            EquipParam_BindBulletsForEquip(developedEquipId);
         const std::uint8_t result = g_DevelopType(self, index);
         MagazineParameters magazine{};
         std::uint16_t speed = 0;
@@ -386,11 +416,16 @@ namespace
     void __fastcall HookInventoryAmmo(void* self, std::uint32_t slot, std::uint32_t equipId,
         std::uint16_t loadCount, std::uint32_t amount, std::uint32_t* loaded, std::uint32_t* reserve)
     {
+        EquipParam_BindBulletsForEquip(static_cast<int>(equipId));
         g_InventoryAmmo(self, slot, equipId, loadCount, amount, loaded, reserve);
         if (!g_Active.load(std::memory_order_acquire) || equipId - 0x367U < 6)
             return;
+        const bool gameReadsItsRows = equipId - 0x230U < 0x137 || equipId - 0x500U < 0x26;   // any other gun needs a live GunInfo, or the game writes nothing
         MagazineParameters primary{}, underbarrel{};
-        if (!EquipParam_GetWeaponMagazines(static_cast<int>(equipId), primary, underbarrel))
+        const bool found = gameReadsItsRows
+            ? EquipParam_GetWeaponMagazines(static_cast<int>(equipId), primary, underbarrel)
+            : EquipParam_GetWeaponMagazinesAnyWidth(static_cast<int>(equipId), primary, underbarrel);
+        if (!found)
             return;
         const bool secondary = primary.id <= 0;
         const auto& magazine = secondary ? underbarrel : primary;
@@ -478,6 +513,269 @@ namespace
         return hooks;
     }
 
+    struct MagazineReadSite
+    {
+        int           function; // 0 = CalcEquipWeaponItemCostFromLoadout, 1 = CalcEquipWeaponItemReturnResourcesFromLoadout
+        std::uint32_t offset;
+        std::uint8_t  size;
+        std::uint8_t  expected[6];
+        bool          underBarrel;
+        bool          rowInR8;
+        std::uint32_t resumeOffset;
+        bool          testAfter;
+    };
+
+    constexpr MagazineReadSite kMagazineReadSites[] = {
+        { 0, 0x42F,  5, { 0x41, 0x0F, 0xB6, 0x40, 0x02 },       false, true,  0x434,  false },
+        { 0, 0x48E,  6, { 0x0F, 0xB6, 0x40, 0x01, 0x85, 0xC0 }, true,  false, 0x494,  true  },
+        { 0, 0x10E7, 6, { 0x0F, 0xB6, 0x40, 0x02, 0x85, 0xC0 }, false, false, 0x10ED, true  },
+        { 0, 0x1723, 5, { 0x41, 0x0F, 0xB6, 0x40, 0x02 },       false, true,  0x1728, false },
+        { 0, 0x177E, 6, { 0x0F, 0xB6, 0x40, 0x01, 0x85, 0xC0 }, true,  false, 0x1784, true  },
+        { 1, 0x293,  5, { 0x41, 0x0F, 0xB6, 0x40, 0x02 },       false, true,  0x298,  false },
+        { 1, 0x2E0,  6, { 0x0F, 0xB6, 0x40, 0x01, 0x85, 0xC0 }, true,  false, 0x2E6,  true  },
+        { 1, 0x76B,  6, { 0x0F, 0xB6, 0x40, 0x02, 0xEB, 0x1A }, false, false, 0x78B,  false }, // the short jmp lands on a test eax,eax
+        { 1, 0xA1E,  5, { 0x41, 0x0F, 0xB6, 0x40, 0x02 },       false, true,  0xA23,  false },
+        { 1, 0xA6B,  6, { 0x0F, 0xB6, 0x40, 0x01, 0x85, 0xC0 }, true,  false, 0xA71,  true  },
+    };
+    constexpr std::size_t kMagazineReadSiteCount = sizeof(kMagazineReadSites) / sizeof(kMagazineReadSites[0]);
+
+    struct MagazineDescSite
+    {
+        int           function;
+        std::uint32_t offset;       // movzx eax, byte [rbp+desc]; test al,al; je; movzx eax,al - skipped up to the test eax,eax
+        std::uint8_t  expected[6];
+        bool          underBarrel;
+        std::int32_t  equipIdDisp;  // [rbp+disp] of the loadout weapon block's equipId (the base weapon for a customized one)
+        std::int32_t  descDisp;     // [rbp+disp] of the parts desc magazine byte
+        std::uint32_t resumeOffset;
+        bool          reloadR8;     // the span also covers mov r8,[rsp+0x40]
+    };
+
+    constexpr MagazineDescSite kMagazineDescSites[] = {
+        { 0, 0x50B,  { 0x0F, 0xB6, 0x85, 0x3A, 0x01, 0x00 }, false,  0x58, 0x13A, 0x519,  false },
+        { 0, 0x546,  { 0x0F, 0xB6, 0x85, 0x43, 0x01, 0x00 }, true,   0x58, 0x143, 0x554,  false },
+        { 0, 0x1162, { 0x0F, 0xB6, 0x85, 0x4A, 0x01, 0x00 }, false,  0x80, 0x14A, 0x1170, false },
+        { 0, 0x17E4, { 0x0F, 0xB6, 0x85, 0x2A, 0x01, 0x00 }, false,  0x6C, 0x12A, 0x17F2, false },
+        { 0, 0x181F, { 0x0F, 0xB6, 0x85, 0x33, 0x01, 0x00 }, true,   0x6C, 0x133, 0x182D, false },
+        { 1, 0x308,  { 0x0F, 0xB6, 0x45, 0x7A, 0x84, 0xC0 }, false, -0x58, 0x7A,  0x313,  false },
+        { 1, 0x332,  { 0x0F, 0xB6, 0x85, 0x83, 0x00, 0x00 }, true,  -0x58, 0x83,  0x340,  false },
+        { 1, 0x780,  { 0x0F, 0xB6, 0x45, 0x7A, 0x84, 0xC0 }, false, -0x30, 0x7A,  0x78B,  false },
+        { 1, 0xA8F,  { 0x0F, 0xB6, 0x45, 0x7A, 0x4C, 0x8B }, false, -0x44, 0x7A,  0xA9F,  true  },
+        { 1, 0xABE,  { 0x0F, 0xB6, 0x85, 0x83, 0x00, 0x00 }, true,  -0x44, 0x83,  0xACC,  false },
+    };
+    constexpr std::size_t kMagazineDescSiteCount = sizeof(kMagazineDescSites) / sizeof(kMagazineDescSites[0]);
+
+    NativeCodePatch g_MagazineReadPatches[kMagazineReadSiteCount + kMagazineDescSiteCount] = {};
+
+    std::uint32_t __fastcall ResolveRowMagazine(const std::uint8_t* gunBasicRow)
+    {
+        return static_cast<std::uint32_t>(GunBasic_LogicalMagazineForRow(gunBasicRow));
+    }
+
+    std::uint32_t __fastcall ResolveUnderBarrelMagazine(const std::uint8_t* underBarrelRow)
+    {
+        return static_cast<std::uint32_t>(EquipParam_LogicalMagazineForUnderBarrelRow(underBarrelRow));
+    }
+
+    std::uint32_t __fastcall ResolveDescMagazine(std::uint32_t equipId, std::uint32_t narrow)
+    {
+        const int weaponId = TppEquip_GetSubIdForEquipId(static_cast<int>(equipId));
+        return static_cast<std::uint32_t>(GunBasic_LogicalMagazineForWeapon(weaponId, static_cast<int>(narrow)));
+    }
+
+    std::uint32_t __fastcall ResolveDescUnderBarrelMagazine(std::uint32_t equipId, std::uint32_t narrow)
+    {
+        const int weaponId = TppEquip_GetSubIdForEquipId(static_cast<int>(equipId));
+        return static_cast<std::uint32_t>(
+            EquipParam_LogicalUnderBarrelMagazineForWeapon(weaponId, static_cast<int>(narrow)));
+    }
+
+    void EmitDisp32(CaveCode& code, std::int32_t disp)
+    {
+        for (int i = 0; i < 4; ++i)
+            code.Emit({ static_cast<std::uint8_t>(static_cast<std::uint32_t>(disp) >> (i * 8)) });
+    }
+
+    void EmitSaveVolatiles(CaveCode& code)
+    {
+        code.Emit({ 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53 }); // push rcx rdx r8 r9 r10 r11
+        code.Emit({ 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00 });                   // sub rsp,0x80
+        for (std::uint8_t x = 0; x < 6; ++x)
+            code.Emit({ 0xF3, 0x0F, 0x7F, static_cast<std::uint8_t>(0x44 | (x << 3)), 0x24,
+                        static_cast<std::uint8_t>(0x20 + x * 0x10) });               // movdqu [rsp+0x20+x*0x10],xmmx
+    }
+
+    void EmitCallAndRestoreVolatiles(CaveCode& code, std::uintptr_t resolver)
+    {
+        code.Emit({ 0x48, 0xB8 });                                                   // mov rax,resolver
+        code.Imm64(resolver);
+        code.Emit({ 0xFF, 0xD0 });                                                   // call rax
+        for (std::uint8_t x = 0; x < 6; ++x)
+            code.Emit({ 0xF3, 0x0F, 0x6F, static_cast<std::uint8_t>(0x44 | (x << 3)), 0x24,
+                        static_cast<std::uint8_t>(0x20 + x * 0x10) });               // movdqu xmmx,[rsp+0x20+x*0x10]
+        code.Emit({ 0x48, 0x81, 0xC4, 0x80, 0x00, 0x00, 0x00 });                   // add rsp,0x80
+        code.Emit({ 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5A, 0x59 }); // pop r11 r10 r9 r8 rdx rcx
+    }
+
+    CaveCode BuildMagazineDescThunk(const MagazineDescSite& site, std::uintptr_t resume)
+    {
+        CaveCode code;
+        EmitSaveVolatiles(code);
+        code.Emit({ 0x8B, 0x8D });                                                   // mov ecx,[rbp+equipIdDisp]
+        EmitDisp32(code, site.equipIdDisp);
+        code.Emit({ 0x0F, 0xB6, 0x95 });                                             // movzx edx,byte [rbp+descDisp]
+        EmitDisp32(code, site.descDisp);
+        EmitCallAndRestoreVolatiles(code, site.underBarrel
+            ? reinterpret_cast<std::uintptr_t>(&ResolveDescUnderBarrelMagazine)
+            : reinterpret_cast<std::uintptr_t>(&ResolveDescMagazine));
+        if (site.reloadR8)
+            code.Emit({ 0x4C, 0x8B, 0x44, 0x24, 0x40 });                             // mov r8,[rsp+0x40]
+        code.JmpAbs(resume);
+        return code;
+    }
+
+    CaveCode BuildMagazineReadThunk(const MagazineReadSite& site, std::uintptr_t resume)
+    {
+        const std::uintptr_t resolver = site.underBarrel
+            ? reinterpret_cast<std::uintptr_t>(&ResolveUnderBarrelMagazine)
+            : reinterpret_cast<std::uintptr_t>(&ResolveRowMagazine);
+        CaveCode code;
+        code.Emit({ 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53 }); // push rcx rdx r8 r9 r10 r11
+        code.Emit({ 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00 });                   // sub rsp,0x80
+        for (std::uint8_t x = 0; x < 6; ++x)
+            code.Emit({ 0xF3, 0x0F, 0x7F, static_cast<std::uint8_t>(0x44 | (x << 3)), 0x24,
+                        static_cast<std::uint8_t>(0x20 + x * 0x10) });               // movdqu [rsp+0x20+x*0x10],xmmx
+        if (site.rowInR8)
+            code.Emit({ 0x4C, 0x89, 0xC1 });                                         // mov rcx,r8
+        else
+            code.Emit({ 0x48, 0x89, 0xC1 });                                         // mov rcx,rax
+        code.Emit({ 0x48, 0xB8 });                                                   // mov rax,resolver
+        code.Imm64(resolver);
+        code.Emit({ 0xFF, 0xD0 });                                                   // call rax
+        for (std::uint8_t x = 0; x < 6; ++x)
+            code.Emit({ 0xF3, 0x0F, 0x6F, static_cast<std::uint8_t>(0x44 | (x << 3)), 0x24,
+                        static_cast<std::uint8_t>(0x20 + x * 0x10) });               // movdqu xmmx,[rsp+0x20+x*0x10]
+        code.Emit({ 0x48, 0x81, 0xC4, 0x80, 0x00, 0x00, 0x00 });                   // add rsp,0x80
+        code.Emit({ 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5A, 0x59 }); // pop r11 r10 r9 r8 rdx rcx
+        if (site.testAfter)
+            code.Emit({ 0x85, 0xC0 });                                               // test eax,eax
+        code.JmpAbs(resume);
+        return code;
+    }
+
+    void InstallMagazineReadRedirects()
+    {
+        const std::uintptr_t functions[2] = {
+            reinterpret_cast<std::uintptr_t>(ResolveGameAddress(
+                gAddr.MissionPreparationSystemImpl_CalcEquipWeaponItemCostFromLoadout)),
+            reinterpret_cast<std::uintptr_t>(ResolveGameAddress(
+                gAddr.MissionPreparationSystemImpl_CalcEquipWeaponItemReturnResourcesFromLoadout)) };
+        if (!functions[0] || !functions[1])
+        {
+            LogError("WideMagazine: Sortie ammo functions missing on %s, wide magazines start a mission with their donor's ammo",
+                GetGameBuildName(gGameBuild));
+            return;
+        }
+
+        for (std::size_t i = 0; i < kMagazineReadSiteCount; ++i)
+        {
+            const MagazineReadSite& site = kMagazineReadSites[i];
+            const auto* at = reinterpret_cast<const void*>(functions[site.function] + site.offset);
+            if (!BytesMatch(at, site.expected, site.size, 0, 0))
+            {
+                LogError("WideMagazine: Sortie magazine read %zu does not match this build, wide magazines start a mission with their donor's ammo",
+                    i);
+                return;
+            }
+        }
+        for (std::size_t i = 0; i < kMagazineDescSiteCount; ++i)
+        {
+            const MagazineDescSite& site = kMagazineDescSites[i];
+            const auto* at = reinterpret_cast<const void*>(functions[site.function] + site.offset);
+            if (!BytesMatch(at, site.expected, sizeof(site.expected), 0, 0))
+            {
+                LogError("WideMagazine: Sortie customized-weapon magazine read %zu does not match this build, wide magazines start a mission with their donor's ammo",
+                    i);
+                return;
+            }
+        }
+
+        for (std::size_t i = 0; i < kMagazineReadSiteCount; ++i)
+        {
+            const MagazineReadSite& site = kMagazineReadSites[i];
+            const std::uintptr_t at = functions[site.function] + site.offset;
+            const CaveCode code = BuildMagazineReadThunk(site, functions[site.function] + site.resumeOffset);
+            auto* thunk = static_cast<std::uint8_t*>(HookArena::AllocateNear(at, code.bytes.size()));
+            const std::int64_t rel = thunk
+                ? static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(thunk))
+                    - static_cast<std::int64_t>(at + 5)
+                : 0;
+            if (!thunk || rel < INT32_MIN || rel > INT32_MAX)
+            {
+                LogError("WideMagazine: no code page near Sortie magazine read %zu, wide magazines start a mission with their donor's ammo",
+                    i);
+                return;
+            }
+            std::memcpy(thunk, code.bytes.data(), code.bytes.size());
+            FlushInstructionCache(GetCurrentProcess(), thunk, code.bytes.size());
+
+            NativeCodePatch& patch = g_MagazineReadPatches[i];
+            patch.target = reinterpret_cast<void*>(at);
+            patch.size = site.size;
+            std::memcpy(patch.expected, site.expected, site.size);
+            std::memset(patch.replacement, 0x90, sizeof(patch.replacement));
+            patch.replacement[0] = 0xE9;
+            const std::int32_t rel32 = static_cast<std::int32_t>(rel);
+            std::memcpy(patch.replacement + 1, &rel32, sizeof(rel32));
+        }
+
+        for (std::size_t i = 0; i < kMagazineDescSiteCount; ++i)
+        {
+            const MagazineDescSite& site = kMagazineDescSites[i];
+            const std::uintptr_t at = functions[site.function] + site.offset;
+            const CaveCode code = BuildMagazineDescThunk(site, functions[site.function] + site.resumeOffset);
+            auto* thunk = static_cast<std::uint8_t*>(HookArena::AllocateNear(at, code.bytes.size()));
+            const std::int64_t rel = thunk
+                ? static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(thunk))
+                    - static_cast<std::int64_t>(at + 5)
+                : 0;
+            if (!thunk || rel < INT32_MIN || rel > INT32_MAX)
+            {
+                LogError("WideMagazine: no code page near Sortie customized-weapon magazine read %zu, wide magazines start a mission with their donor's ammo",
+                    i);
+                return;
+            }
+            std::memcpy(thunk, code.bytes.data(), code.bytes.size());
+            FlushInstructionCache(GetCurrentProcess(), thunk, code.bytes.size());
+
+            NativeCodePatch& patch = g_MagazineReadPatches[kMagazineReadSiteCount + i];
+            patch.target = reinterpret_cast<void*>(at);
+            patch.size = sizeof(site.expected);
+            std::memcpy(patch.expected, site.expected, sizeof(site.expected));
+            std::memset(patch.replacement, 0x90, sizeof(patch.replacement));
+            patch.replacement[0] = 0xE9;
+            const std::int32_t rel32 = static_cast<std::int32_t>(rel);
+            std::memcpy(patch.replacement + 1, &rel32, sizeof(rel32));
+        }
+
+        constexpr std::size_t kPatchCount = kMagazineReadSiteCount + kMagazineDescSiteCount;
+        for (int attempt = 0; attempt < 50; ++attempt)
+        {
+            if (InstallNativeCodePatches(g_MagazineReadPatches, kPatchCount))
+                return;
+            const DWORD error = GetLastError();
+            if (!NativePatchErrorIsTransient(error))
+            {
+                LogError("WideMagazine: Sortie magazine reads not redirected (%s), wide magazines start a mission with their donor's ammo",
+                    NativePatchErrorName(error));
+                return;
+            }
+            Sleep(4);
+        }
+        LogError("WideMagazine: Sortie magazine reads not redirected (%s), wide magazines start a mission with their donor's ammo",
+            NativePatchErrorName(GetLastError()));
+    }
+
     bool PlanLocked()
     {
         if (g_Planned.load(std::memory_order_acquire))
@@ -500,10 +798,17 @@ namespace
         for (auto& hook : HookTable())
         {
             hook.target = ResolveGameAddress(hook.address);
-            if (!BytesMatch(hook.target, hook.prolog, hook.prologSize, hook.skipAt, hook.skipLen))
+            const HookEntry entry = CheckEntryBytes(hook.target, hook.prolog, hook.prologSize, hook.skipAt, hook.skipLen);
+            if (entry == HookEntry::Unknown)
             {
                 LogError("WideMagazine: %s code does not match this build, wide magazines off", hook.name);
                 return false;
+            }
+            if (entry == HookEntry::ForeignHook)
+            {
+                char name[96] = {};
+                snprintf(name, sizeof(name), "WideMagazine: %s", hook.name);
+                LogHookedOnTop(name, hook.target);
             }
         }
         g_Planned.store(true, std::memory_order_release);
@@ -569,7 +874,7 @@ bool WideMagazine_Install()
     std::array<HookSpec, 10>& hooks = HookTable();
     for (auto& hook : hooks)
     {
-        const MH_STATUS status = MH_CreateHook(hook.target, hook.detour, hook.original);
+        const MH_STATUS status = CreateHookTracked(hook.target, hook.detour, hook.original);
         if (status != MH_OK)
         {
             LogError("WideMagazine: %s hook create failed (%s), wide magazines off",
@@ -598,5 +903,6 @@ bool WideMagazine_Install()
         return false;
     }
     g_Active.store(true, std::memory_order_release);
+    InstallMagazineReadRedirects();
     return true;
 }

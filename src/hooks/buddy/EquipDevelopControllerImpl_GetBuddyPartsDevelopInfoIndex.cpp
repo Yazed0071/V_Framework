@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "EquipDevelopControllerImpl_GetBuddyPartsDevelopInfoIndex.h"
 
@@ -41,7 +41,8 @@ namespace
             return false;
         const std::uint16_t developId = static_cast<std::uint16_t>(
             VtblFn<VtblIdByIndex_t>(base20, kVtblDevelopIdByIndex)(base20, flowIndex));
-        return developId != 0 && buddyoutfit::TryGetByDevelopId(developId, e);
+        return developId != 0 && buddyoutfit::TryGetByDevelopId(developId, e)
+            && e->kind != buddyoutfit::Kind::WalkerSidearm; // D-Walker rows have their own lookups
     }
 
     std::uint64_t __fastcall hkGetBuddyPartsDevelopInfoIndex(void* base20, std::uint8_t buddyType,
@@ -50,6 +51,7 @@ namespace
         buddyoutfit::Kind kind = buddyoutfit::Kind::QuietCostume;
         buddyoutfit::Entry e;
         if (base20 && buddyoutfit::KindFromBuddyType(buddyType, isSuit != 0, &kind)
+            && kind != buddyoutfit::Kind::WalkerSidearm
             && buddyoutfit::TryGetByValue(kind, value, &e))
             return VtblFn<VtblIndexById_t>(base20, kVtblIndexByDevelopId)(base20, e.developId);
         return g_OrigIndex(base20, buddyType, value, isSuit);

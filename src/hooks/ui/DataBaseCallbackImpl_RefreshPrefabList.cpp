@@ -1,23 +1,34 @@
-#include "pch.h"
+#include <pch.h>
 #include "DataBaseCallbackImpl_RefreshPrefabList.h"
 
 #include <Windows.h>
 #include <cstdint>
+#include <cstring>
+#include <iterator>
 #include <vector>
 
 #include "AddressSet.h"
+#include "HookArena.h"
 #include "HookUtils.h"
+#include "NativeCallPatch.h"
 #include "log.h"
 #include "V_FrameWorkState.h"
 #include "../equip/CustomBluePrint.h"
 #include "../equip/DataBaseControllerImpl_AddDataBase.h"
+#include "../buddy/BuddyCodeCave.h"
 
 namespace
 {
     constexpr std::uint8_t kTabDefault    = 2;
     constexpr std::size_t  kRowsOffset    = 0x80;
     constexpr std::size_t  kCountOffset   = 0x284;
-    constexpr std::size_t  kRowsCapacity  = 108;
+    constexpr std::size_t  kRowsCapacity  = 108;      // rows the list object holds itself
+    constexpr std::size_t  kMostRows      = 0x7FFF;   // the list reads its row count as a signed 16-bit number
+
+    std::uint16_t  g_OverflowRows[kMostRows - kRowsCapacity] = {};
+    std::uintptr_t g_OverflowOwner  = 0;                // the list object rows past 108 belong to (read by the caves)
+    std::uint16_t* g_OverflowRowsAt = g_OverflowRows;   // read by the caves
+    bool           g_RowCavesLive   = false;
 
     constexpr std::size_t kRec_ImplOffset = 0x30;
     constexpr std::size_t kRec_NodeOffset = 0x60;
@@ -114,7 +125,7 @@ namespace
         g_CollectTarget->push_back(static_cast<std::uint16_t>(publicId));
     }
 
-    std::size_t AppendRowsSeh(void* self, const std::vector<std::uint16_t>& ids)
+    std::size_t AppendRowsSeh(void* self, const std::vector<std::uint16_t>& ids, std::size_t room)
     {
         __try
         {
@@ -124,15 +135,19 @@ namespace
                 static_cast<std::uint8_t*>(self) + kCountOffset);
 
             std::uint32_t used = *count;
-            if (used >= kRowsCapacity)
+            if (used >= room)
                 return 0;
 
             std::size_t added = 0;
             for (const std::uint16_t id : ids)
             {
-                if (used >= kRowsCapacity)
+                if (used >= room)
                     break;
-                rows[used++] = id;
+                if (used < kRowsCapacity)
+                    rows[used] = id;
+                else
+                    g_OverflowRows[used - kRowsCapacity] = id;
+                ++used;
                 ++added;
             }
 
@@ -356,7 +371,12 @@ namespace
         __try
         {
             if (row >= kRowsCapacity)
-                return 0xFFFF;
+            {
+                if (!g_RowCavesLive || row >= kMostRows
+                    || reinterpret_cast<std::uintptr_t>(self) != g_OverflowOwner)
+                    return 0xFFFF;
+                return g_OverflowRows[row - kRowsCapacity];
+            }
             return *reinterpret_cast<std::uint16_t*>(
                 static_cast<std::uint8_t*>(self) + kRowsOffset + row * sizeof(std::uint16_t));
         }
@@ -531,7 +551,10 @@ namespace
         if (ids.empty())
             return;
 
-        const std::size_t added = AppendRowsSeh(self, ids);
+        const std::size_t room = g_RowCavesLive ? kMostRows : kRowsCapacity;
+        if (g_RowCavesLive)
+            g_OverflowOwner = reinterpret_cast<std::uintptr_t>(self);
+        const std::size_t added = AppendRowsSeh(self, ids, room);
 
         g_TabCustomRows = static_cast<std::uint32_t>(added);
         for (std::size_t i = 0; i < added; ++i)
@@ -546,7 +569,7 @@ namespace
         {
             g_CapacityLogged = true;
             LogWarn("BluePrint: only %zu of %zu custom rows fit DATABASE tab %u (%zu max), "
-                "rest hidden", added, ids.size(), static_cast<unsigned>(tab), kRowsCapacity);
+                "rest hidden", added, ids.size(), static_cast<unsigned>(tab), room);
         }
     }
 
@@ -570,8 +593,219 @@ namespace
         void* target = ResolveGameAddress(address);
         if (!target)
             return;
-        MH_DisableHook(target);
-        MH_RemoveHook(target);
+        DisableAndRemoveHook(target);
+    }
+
+    struct RowRead   // a game read of the list's row array; rows past its own 108 come from g_OverflowRows
+    {
+        const char*  name;
+        int          function;
+        std::size_t  offset;
+        bool         throughPointer;      // reads [ptr + 0x80] with ptr = list + row * 2
+        std::uint8_t length;
+        std::uint8_t original[9];
+        std::uint8_t indexTest[4];        // cmp row, 108; through a pointer: mov r11, ptr
+        std::uint8_t ownerTest[3];        // cmp r11, list; through a pointer: cmp dst, rdi
+        std::uint8_t loadAddress[2];      // through a pointer: mov dst, imm64
+        std::uint8_t loadThrough[3];      // through a pointer: mov dst, [dst]
+        std::uint8_t overflowRead[9];     // movzx dst, word [overflow + row * 2 - 216]
+        std::uint8_t firstRowLength;
+        std::uint8_t firstRow[8];         // movzx dst, word [list + 0x80], for a list the overflow is not for
+    };
+
+    const RowRead kRowReads[] = {
+        { "image record", 0, 0x1B, false, 8, { 0x0F, 0xB7, 0xB4, 0x41, 0x80, 0x00, 0x00, 0x00 },
+          { 0x48, 0x83, 0xF8, 0x6C }, { 0x49, 0x39, 0xCB }, {}, {},
+          { 0x41, 0x0F, 0xB7, 0xB4, 0x43, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0xB1, 0x80, 0x00, 0x00, 0x00 } },
+        { "detail text", 1, 0x70, false, 8, { 0x0F, 0xB7, 0x9C, 0x57, 0x80, 0x00, 0x00, 0x00 },
+          { 0x48, 0x83, 0xFA, 0x6C }, { 0x49, 0x39, 0xFB }, {}, {},
+          { 0x41, 0x0F, 0xB7, 0x9C, 0x53, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0x9F, 0x80, 0x00, 0x00, 0x00 } },
+        { "map layout", 2, 0x23, false, 9, { 0x41, 0x0F, 0xB7, 0x8C, 0x52, 0x80, 0x00, 0x00, 0x00 },
+          { 0x48, 0x83, 0xFA, 0x6C }, { 0x4D, 0x39, 0xD3 }, {}, {},
+          { 0x41, 0x0F, 0xB7, 0x8C, 0x53, 0x28, 0xFF, 0xFF, 0xFF }, 8, { 0x41, 0x0F, 0xB7, 0x8A, 0x80, 0x00, 0x00, 0x00 } },
+        { "view map", 3, 0xA9, false, 8, { 0x0F, 0xB7, 0x94, 0x47, 0x80, 0x00, 0x00, 0x00 },
+          { 0x48, 0x83, 0xF8, 0x6C }, { 0x49, 0x39, 0xFB }, {}, {},
+          { 0x41, 0x0F, 0xB7, 0x94, 0x43, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0x97, 0x80, 0x00, 0x00, 0x00 } },
+        { "view map document", 3, 0xC9, true, 7, { 0x0F, 0xB7, 0x93, 0x80, 0x00, 0x00, 0x00 },
+          { 0x49, 0x89, 0xDB }, { 0x48, 0x39, 0xFA }, { 0x48, 0xBA }, { 0x48, 0x8B, 0x12 },
+          { 0x42, 0x0F, 0xB7, 0x94, 0x1A, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0x97, 0x80, 0x00, 0x00, 0x00 } },
+        { "view map row", 3, 0x224, false, 8, { 0x0F, 0xB7, 0x84, 0x47, 0x80, 0x00, 0x00, 0x00 },
+          { 0x48, 0x83, 0xF8, 0x6C }, { 0x49, 0x39, 0xFB }, {}, {},
+          { 0x41, 0x0F, 0xB7, 0x84, 0x43, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0x87, 0x80, 0x00, 0x00, 0x00 } },
+        { "view map row document", 3, 0x23A, true, 7, { 0x0F, 0xB7, 0xB1, 0x80, 0x00, 0x00, 0x00 },
+          { 0x49, 0x89, 0xCB }, { 0x48, 0x39, 0xFE }, { 0x48, 0xBE }, { 0x48, 0x8B, 0x36 },
+          { 0x42, 0x0F, 0xB7, 0xB4, 0x1E, 0x28, 0xFF, 0xFF, 0xFF }, 7, { 0x0F, 0xB7, 0xB7, 0x80, 0x00, 0x00, 0x00 } },
+    };
+
+    struct LiveRowCave
+    {
+        std::uint8_t*   site = nullptr;
+        NativeCodePatch patches[2]{};
+    };
+
+    LiveRowCave g_RowCaves[std::size(kRowReads)];
+
+    void EmitBytes(CaveCode& code, const std::uint8_t* bytes, std::size_t size)
+    {
+        code.bytes.insert(code.bytes.end(), bytes, bytes + size);
+    }
+
+    CaveCode BuildRowCave(const RowRead& read, std::uintptr_t back)
+    {
+        const auto owner = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&g_OverflowOwner));
+        const auto rows  = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&g_OverflowRowsAt));
+        CaveCode code;
+        if (!read.throughPointer)
+        {
+            EmitBytes(code, read.indexTest, 4);
+            const std::size_t pastOwnRows = code.Jcc8(0x73);
+            EmitBytes(code, read.original, read.length);
+            code.JmpAbs(back);
+            code.Bind8(pastOwnRows);
+            code.Emit({ 0x41, 0x53 });                     // push r11
+            code.Emit({ 0x49, 0xBB }); code.Imm64(owner);  // mov r11, &owner
+            code.Emit({ 0x4D, 0x8B, 0x1B });               // mov r11, [r11]
+            EmitBytes(code, read.ownerTest, 3);
+            const std::size_t otherList = code.Jcc8(0x75);
+            code.Emit({ 0x49, 0xBB }); code.Imm64(rows);
+            code.Emit({ 0x4D, 0x8B, 0x1B });
+            EmitBytes(code, read.overflowRead, 9);
+            code.Emit({ 0x41, 0x5B });                     // pop r11
+            code.JmpAbs(back);
+            code.Bind8(otherList);
+            code.Emit({ 0x41, 0x5B });
+            EmitBytes(code, read.firstRow, read.firstRowLength);
+            code.JmpAbs(back);
+            return code;
+        }
+
+        code.Emit({ 0x41, 0x53 });                         // push r11
+        EmitBytes(code, read.indexTest, 3);
+        code.Emit({ 0x49, 0x29, 0xFB });                   // sub r11, rdi: the row times 2
+        code.Emit({ 0x49, 0x81, 0xFB, 0xD8, 0x00, 0x00, 0x00 });   // cmp r11, 216
+        const std::size_t pastOwnRows = code.Jcc8(0x73);
+        code.Emit({ 0x41, 0x5B });
+        EmitBytes(code, read.original, read.length);
+        code.JmpAbs(back);
+        code.Bind8(pastOwnRows);
+        EmitBytes(code, read.loadAddress, 2); code.Imm64(owner);
+        EmitBytes(code, read.loadThrough, 3);
+        EmitBytes(code, read.ownerTest, 3);
+        const std::size_t otherList = code.Jcc8(0x75);
+        EmitBytes(code, read.loadAddress, 2); code.Imm64(rows);
+        EmitBytes(code, read.loadThrough, 3);
+        EmitBytes(code, read.overflowRead, 9);
+        code.Emit({ 0x41, 0x5B });
+        code.JmpAbs(back);
+        code.Bind8(otherList);
+        code.Emit({ 0x41, 0x5B });
+        EmitBytes(code, read.firstRow, read.firstRowLength);
+        code.JmpAbs(back);
+        return code;
+    }
+
+    std::uintptr_t RowReadFunction(int function)
+    {
+        switch (function)
+        {
+        case 0:  return gAddr.UiMbmDataBase_RefreshImageRecord;
+        case 1:  return gAddr.UiMbmDataBase_RefreshInfoLayout;
+        case 2:  return gAddr.UiMbmDataBase_RefreshMapLayout;
+        default: return gAddr.UiMbmDataBase_RefreshViewMap;
+        }
+    }
+
+    bool SiteMatchesSeh(const std::uint8_t* site, const std::uint8_t* bytes, std::size_t size)
+    {
+        __try
+        {
+            return std::memcmp(site, bytes, size) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void RemoveRowCaves()
+    {
+        g_RowCavesLive = false;
+        for (std::size_t i = 0; i < std::size(kRowReads); ++i)
+        {
+            LiveRowCave& cave = g_RowCaves[i];
+            if (cave.site)
+                RemoveNativeCodePatches(cave.patches, 2, nullptr, cave.site, cave.site + kRowReads[i].length);
+            cave.site = nullptr;
+        }
+    }
+
+    bool InstallRowCaves()
+    {
+        for (std::size_t i = 0; i < std::size(kRowReads); ++i)
+        {
+            const RowRead& read = kRowReads[i];
+            auto* function = static_cast<std::uint8_t*>(ResolveGameAddress(RowReadFunction(read.function)));
+            std::uint8_t* site = function ? function + read.offset : nullptr;
+            if (!site || !SiteMatchesSeh(site, read.original, read.length))
+            {
+                LogError("BluePrint: the DATABASE %s row read is not the known code on %s, tabs keep 108 rows",
+                         read.name, GetGameBuildName(gGameBuild));
+                RemoveRowCaves();
+                return false;
+            }
+
+            const CaveCode code = BuildRowCave(read, reinterpret_cast<std::uintptr_t>(site) + read.length);
+            auto* thunk = static_cast<std::uint8_t*>(
+                HookArena::AllocateNear(reinterpret_cast<std::uintptr_t>(site), code.bytes.size()));
+            const std::int64_t rel = thunk
+                ? static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(thunk))
+                  - static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(site) + 5)
+                : 0;
+            if (!thunk || rel < INT32_MIN || rel > INT32_MAX)
+            {
+                LogError("BluePrint: no code page near the DATABASE %s row read, tabs keep 108 rows", read.name);
+                RemoveRowCaves();
+                return false;
+            }
+            std::memcpy(thunk, code.bytes.data(), code.bytes.size());
+            FlushInstructionCache(GetCurrentProcess(), thunk, code.bytes.size());
+
+            LiveRowCave& cave = g_RowCaves[i];
+            cave.patches[0] = NativeCodePatch{};
+            cave.patches[0].target = site;
+            cave.patches[0].size = 5;
+            std::memcpy(cave.patches[0].expected, read.original, 5);
+            cave.patches[0].replacement[0] = 0xE9;
+            const std::int32_t rel32 = static_cast<std::int32_t>(rel);
+            std::memcpy(cave.patches[0].replacement + 1, &rel32, sizeof(rel32));
+            cave.patches[1] = NativeCodePatch{};
+            cave.patches[1].target = site + 5;
+            cave.patches[1].size = static_cast<unsigned char>(read.length - 5);
+            std::memcpy(cave.patches[1].expected, read.original + 5, read.length - 5u);
+            std::memset(cave.patches[1].replacement, 0x90, read.length - 5u);
+
+            bool done = false;
+            DWORD error = ERROR_SUCCESS;
+            for (int attempt = 0; attempt < 50 && !done; ++attempt)
+            {
+                done = InstallNativeCodePatches(cave.patches, 2, nullptr, site, site + read.length);
+                error = GetLastError();
+                if (!done && !NativePatchErrorIsTransient(error))
+                    break;
+                if (!done)
+                    Sleep(4);
+            }
+            if (!done)
+            {
+                LogError("BluePrint: DATABASE %s row read patch refused (%s), tabs keep 108 rows",
+                         read.name, NativePatchErrorName(error));
+                RemoveRowCaves();
+                return false;
+            }
+            cave.site = site;
+        }
+        g_RowCavesLive = true;
+        return true;
     }
 }
 
@@ -622,6 +856,7 @@ bool Install_DataBaseBluePrintList_Hook()
                                           reinterpret_cast<void**>(&g_OrigCollectionRate),
                                           "collection rate");
 
+    InstallRowCaves();
     return true;
 }
 
@@ -630,6 +865,7 @@ void Uninstall_DataBaseBluePrintList_Hook()
     if (!g_Installed)
         return;
 
+    RemoveRowCaves();
     RemoveOne(gAddr.UiMbmDataBase_RefreshPrefabList);
 
     if (g_NameInstalled)

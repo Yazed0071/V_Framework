@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "ThrowingSystemImpl_ExecuteSerially.h"
 
 #include <Windows.h>
@@ -8,6 +8,7 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "SupportWeaponRegistry.h"
 #include "ThrowingImpl_AddReboundNoise.h"
 #include "ThrowingImpl_UpdateAction.h"
 #include "ThrowingSystemLayout.h"
@@ -124,6 +125,7 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
+            SupportWeapon::SetRunningItem(0);   // a fault inside the smoke action skips its own reset
             return false;
         }
     }

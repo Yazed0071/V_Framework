@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "MissionPreparationCallbackImpl_BgmPatch.h"
 
 #include <Windows.h>
@@ -21,6 +21,17 @@ namespace
     };
 
     constexpr BgmEvents kVanilla{ 0x9FC06F1Au, 0xCA72782Cu };
+
+    struct OperandSite
+    {
+        std::uint32_t written = 0;
+        bool          ours    = false;
+        bool          warned  = false;
+    };
+
+    OperandSite g_playSite;
+    OperandSite g_stopSite;
+    OperandSite g_stopSite2;
 
     constexpr std::size_t kCallbackSystem    = 0x28;
     constexpr std::size_t kSystemMissionName = 0x2D8;
@@ -191,7 +202,7 @@ namespace
         }
     }
 
-    bool WriteEventOperand(uintptr_t site, std::uint32_t eventId)
+    bool WriteEventOperand(uintptr_t site, OperandSite& state, std::uint32_t vanillaId, std::uint32_t eventId)
     {
         static bool s_operandReported = false;
         if (!site)
@@ -216,6 +227,36 @@ namespace
             return false;
         }
 
+        std::uint32_t live = 0;
+        if (!ReadEntryBytesSEH(target, &live, sizeof(live)))
+        {
+            if (!s_operandReported)
+            {
+                s_operandReported = true;
+                LogWarn("MissionPreparationBgm: operand 0x%llx unreadable, operand untouched",
+                    static_cast<unsigned long long>(site));
+            }
+            return false;
+        }
+
+        if (live == eventId)
+        {
+            state.written = eventId;
+            state.ours = true;
+            return true;
+        }
+
+        if (live != vanillaId && !(state.ours && live == state.written))
+        {
+            if (!state.warned)
+            {
+                state.warned = true;
+                LogWarn("MissionPreparationBgm: another module changed the event operand at 0x%llx, this part of the prep music is off",
+                    static_cast<unsigned long long>(site));
+            }
+            return false;
+        }
+
         DWORD oldProtect = 0;
         if (!VirtualProtect(target, sizeof(eventId), PAGE_EXECUTE_READWRITE, &oldProtect))
         {
@@ -229,6 +270,8 @@ namespace
         }
 
         std::memcpy(target, &eventId, sizeof(eventId));
+        state.written = eventId;
+        state.ours = true;
 
         DWORD restored = 0;
         VirtualProtect(target, sizeof(eventId), oldProtect, &restored);
@@ -238,9 +281,9 @@ namespace
 
     bool ApplyEvents(const BgmEvents& events)
     {
-        const bool okPlay  = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Start_PlayBgmEvent, events.play);
-        const bool okStop  = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Update_StopBgmEvent, events.stop);
-        const bool okStop2 = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Update_StopBgmEvent2, events.stop);
+        const bool okPlay  = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Start_PlayBgmEvent, g_playSite, kVanilla.play, events.play);
+        const bool okStop  = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Update_StopBgmEvent, g_stopSite, kVanilla.stop, events.stop);
+        const bool okStop2 = WriteEventOperand(gAddr.MissionPreparationCallbackImpl_Update_StopBgmEvent2, g_stopSite2, kVanilla.stop, events.stop);
         return okPlay && okStop && okStop2;
     }
 

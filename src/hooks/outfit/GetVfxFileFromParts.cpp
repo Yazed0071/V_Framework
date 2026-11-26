@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "GetVfxFileFromParts.h"
 #include "OutfitAbilities.h"
@@ -19,9 +19,6 @@ namespace
 {
     constexpr std::uint64_t kSprintSparkName = 0x1815C5433172ull;
     constexpr std::size_t   kVfxFile_Resource = 0x80;
-
-    constexpr std::uintptr_t kGetVfxFileFromParts_En154 = 0x1407440E0ull;
-    constexpr std::uintptr_t kSparkCallReturn_En154     = 0x140742E02ull;
 
     constexpr std::uint8_t kPrologue[] =
     {
@@ -89,16 +86,19 @@ namespace
 
     static bool SiteMatches(std::uintptr_t fn, std::uintptr_t ret)
     {
-        std::uint8_t body[sizeof(kPrologue)] = {};
-        if (!ReadCode_SEH(fn, body, sizeof(body))
-            || std::memcmp(body, kPrologue, sizeof(kPrologue)) != 0)
+        const HookEntry entry = CheckHookEntry(reinterpret_cast<const void*>(fn), kPrologue, sizeof(kPrologue));
+        if (entry == HookEntry::Unknown)
             return false;
         std::uint8_t call[5] = {};
         if (!ReadCode_SEH(ret - 5, call, sizeof(call)) || call[0] != 0xE8)
             return false;
         std::int32_t rel = 0;
         std::memcpy(&rel, call + 1, sizeof(rel));
-        return ret + static_cast<std::intptr_t>(rel) == fn;
+        if (ret + static_cast<std::intptr_t>(rel) != fn)
+            return false;
+        if (entry == HookEntry::ForeignHook)
+            LogHookedOnTop("OutfitAbilities: GetVfxFileFromParts", reinterpret_cast<const void*>(fn));
+        return true;
     }
 }
 
@@ -108,17 +108,8 @@ namespace outfit
     {
         if (g_Installed) return true;
 
-        if (!IsEn154Family(gGameBuild))
-        {
-            LogError("OutfitAbilities: no GetVfxFileFromParts address for build %s, sprintSpark off",
-                GetGameBuildName(gGameBuild));
-            return false;
-        }
-
-        const auto fn = reinterpret_cast<std::uintptr_t>(
-            ResolveGameAddress(kGetVfxFileFromParts_En154));
-        const auto ret = reinterpret_cast<std::uintptr_t>(
-            ResolveGameAddress(kSparkCallReturn_En154));
+        const auto fn = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.GetVfxFileFromParts));
+        const auto ret = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.GetVfxFileFromParts_SparkCallReturn));
         if (!fn || !ret || !SiteMatches(fn, ret))
         {
             LogError("OutfitAbilities: GetVfxFileFromParts signature mismatch, sprintSpark off");

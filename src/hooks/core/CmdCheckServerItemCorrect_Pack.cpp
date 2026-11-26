@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "CmdCheckServerItemCorrect_Pack.h"
 
 #include <Windows.h>
@@ -36,11 +36,6 @@ namespace
         0x48, 0x89, 0x5C, 0x24, 0x50, 0x48, 0x89, 0x74, 0x24, 0x58, 0x48, 0x8B, 0xD9,
         0x48, 0x8D, 0x71, 0x08
     };
-    const std::uint8_t kPrologue153[] = {
-        0x57, 0x48, 0x83, 0xEC, 0x40, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF,
-        0x48, 0x89, 0x5C, 0x24, 0x50, 0x48, 0x89, 0x74, 0x24, 0x58, 0x48, 0x89, 0xCB,
-        0x48, 0x8D, 0x71, 0x08
-    };
 
     struct PackTarget
     {
@@ -58,16 +53,7 @@ namespace
 
     PackTarget Target()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  return { 0x145B4DE40ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  return { 0x14752AD10ull, kPrologue153, sizeof(kPrologue153) };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return { 0x140835160ull, kPrologue154, sizeof(kPrologue154) };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  return { 0x1408351C0ull, kPrologue154, sizeof(kPrologue154) };
-        default:                                           return {};
-        }
+        return { gAddr.CmdCheckServerItemCorrect_Pack, kPrologue154, sizeof(kPrologue154) };
     }
 
     bool PrologueMatchesSEH(const void* fn, const PackTarget& target)
@@ -93,7 +79,7 @@ namespace
             std::uint8_t loadout[kLoadoutSize] = {};
             const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(holder);
             const auto read = *reinterpret_cast<const ReadLoadout_t*>(vtbl + kSlot_ReadLoadout);
-            read(holder, loadout, 0);   // same object, slot and arguments as the item check builder
+            read(holder, loadout, 0);
             head = loadout[kLoadoutHead];
             return true;
         }
@@ -166,10 +152,14 @@ bool Install_CmdCheckServerItemCorrect_Pack()
     }
 
     void* fn = ResolveGameAddress(target.addr);
-    if (!fn || !PrologueMatchesSEH(fn, target))
+    char entry[160] = {};
+    const bool matches = fn && PrologueMatchesSEH(fn, target);
+    const bool onTop   = fn && !matches && EntryHookedByOtherModule(fn);
+    if (!matches && !onTop)
     {
-        LogError("ItemCheckGuard: CMD_CHECK_SERVER_ITEM_CORRECT pack prologue mismatch on %s, equipped custom items reach the server",
-            GetGameBuildName(gGameBuild));
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogError("ItemCheckGuard: CMD_CHECK_SERVER_ITEM_CORRECT pack prologue mismatch on %s (%s), equipped custom items reach the server",
+            GetGameBuildName(gGameBuild), entry);
         return false;
     }
 
@@ -181,6 +171,11 @@ bool Install_CmdCheckServerItemCorrect_Pack()
         return false;
     }
 
+    if (onTop)
+    {
+        DescribeFunctionEntry(fn, entry, sizeof(entry));
+        LogInfo("ItemCheckGuard: CMD_CHECK_SERVER_ITEM_CORRECT pack already hooked (%s), guard installed on top", entry);
+    }
     g_Addr = fn;
     return true;
 }

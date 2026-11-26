@@ -1,10 +1,12 @@
-#include "pch.h"
+#include <pch.h>
 #include "EquipControllerImpl_InitializePlayerAtIndex.h"
 
 #include <Windows.h>
 #include <cstdint>
 
 #include "AddressSet.h"
+#include "EquipControllerImpl_UpdateBattery.h"
+#include "ItemCount.h"
 #include "GoneEquipCleanup.h"
 #include "HookUtils.h"
 #include "log.h"
@@ -35,6 +37,11 @@ namespace
         if (initialize != 0)
             GoneEquipCleanup::CleanVars(ControllerVars(equipController));
         g_Orig(equipController, playerIndex, initialize);
+        if (initialize != 0)
+        {
+            ItemBattery::RefillAll();
+            ItemCount::RefillAll();
+        }
     }
 }
 

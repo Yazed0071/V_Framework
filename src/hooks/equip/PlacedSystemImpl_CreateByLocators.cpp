@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "PlacedSystemImpl_CreateByLocators.h"
 
 #include <Windows.h>
@@ -37,24 +37,7 @@ namespace
 
     std::uintptr_t CreateByLocatorsAddr()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  return 0x140FC71B0ull;
-        default:                                           return 0;
-        }
-    }
-
-    bool PrologueMatchesSEH(const void* fn)
-    {
-        __try
-        {
-            return std::memcmp(fn, kPrologue, sizeof(kPrologue)) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
+        return gAddr.PlacedSystemImpl_CreateByLocators;
     }
 
     std::uint16_t* OverridesSEH(const std::uint8_t* system)
@@ -134,12 +117,15 @@ bool Install_PlacedSystemImpl_CreateByLocators_Hook()
         return true;
 
     void* fn = ResolveGameAddress(addr);
-    if (!fn || !PrologueMatchesSEH(fn))
+    const HookEntry entry = CheckHookEntry(fn, kPrologue, sizeof(kPrologue));
+    if (entry == HookEntry::Unknown)
     {
         LogError("EquipAlias: PlacedSystem CreateByLocators prologue mismatch on %s, ChangeEquipIdByLocatorName with equipIds above 0x7FF places the wrong item",
             GetGameBuildName(gGameBuild));
         return false;
     }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("EquipAlias: PlacedSystem CreateByLocators", fn);
     if (!CreateAndEnableHook(fn, reinterpret_cast<void*>(&hkCreateByLocators),
                              reinterpret_cast<void**>(&g_Orig)))
     {

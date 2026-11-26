@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "AiControllerImpl_WakeNode.h"
 
 #include <Windows.h>
@@ -8,9 +8,15 @@
 #include "AddressSet.h"
 #include "HookUtils.h"
 #include "log.h"
+#include "../heli/EnemyCombatAiImpl_Execute.h"
+#include "ComradeTurn.h"
+#include "NoticeAiImpl_StepRadio.h"
+#include "NoticeTurretAiImpl_ShouldSleep.h"
+#include "NoticeDownComradeAiImpl_StepPreRadio.h"
 #include "RadioControllerImpl_StepRadioWaitResponse.h"
 #include "Soldier2SoundControllerImpl_CallVoiceWithoutSync.h"
 #include "SoldierStinkVoice.h"
+#include "HoldupAiImpl_StepHoldupStand.h"
 
 namespace
 {
@@ -33,18 +39,19 @@ namespace
     constexpr std::size_t kNodeGetSpec       = 0;      // AiNodeInterface vtable slot
     constexpr std::uint16_t kNoNode          = 0xFFFF;
     constexpr std::uint32_t kMostAgents      = 0x200;  // soldier indices
+    constexpr std::uint64_t kSoldierNoticeNoiseAi = 0x31A59906E993ull;   // hash of the soldier NoticeNoiseAi node's name (real name unknown)
 
     struct WatchedNode
     {
         std::uint64_t name;
-        std::uint32_t knowledge;   // other controllers reuse some names with their own knowledge size
+        std::uint32_t knowledge;
         SoldierNode   kind;
     };
 
     constexpr WatchedNode kWatched[] = {
         { 0x4A5EBCF8D172ull, 0x100040, SoldierNode::Check },   // NoticeLightOffAi: the power check
         { 0x872F44D9BF23ull, 0x100040, SoldierNode::Check },   // NoticeCameraAi
-        { 0x31A59906E993ull, 0x100040, SoldierNode::Check },   // soldier NoticeNoiseAi
+        { kSoldierNoticeNoiseAi, 0x100040, SoldierNode::Check },
         { 0xE13359FA3752ull, 0x100040, SoldierNode::Check },   // NoticeIndisAi: something half-seen
         { 0xCD47A6DAE772ull, 0x80028,  SoldierNode::Held },    // CqcedAi
         { 0xCD47A6DAE772ull, 0x80030,  SoldierNode::Held },    // HoldupAi
@@ -61,10 +68,10 @@ namespace
         return *reinterpret_cast<T*>(base + offset);
     }
 
-    bool KindOf(void* node, SoldierNode& kind)
+    const WatchedNode* WatchedOf(void* node)
     {
         if (!node)
-            return false;
+            return nullptr;
         NodeSpec spec;
         __try
         {
@@ -73,17 +80,14 @@ namespace
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            return false;
+            return nullptr;
         }
         for (const WatchedNode& watched : kWatched)
         {
             if (watched.name == (spec.name & 0xFFFFFFFFFFFFull) && watched.knowledge == spec.knowledge)
-            {
-                kind = watched.kind;
-                return true;
-            }
+                return &watched;
         }
-        return false;
+        return nullptr;
     }
 
     void* NodeAt(std::uint8_t* controller, std::uint32_t node)
@@ -94,33 +98,48 @@ namespace
     void __fastcall hk_WakeNode(std::uint8_t* controller, std::uint32_t agent, std::int32_t level, std::uint32_t node)
     {
         g_OrigWakeNode(controller, agent, level, node);
-
-        SoldierNode kind;
-        if (agent < kMostAgents && node != kNoNode && KindOf(NodeAt(controller, node), kind))
+        if (node != kNoNode)
         {
-            CpRadioResponse::OnSoldierNode(static_cast<std::uint16_t>(agent), kind, true);
-            if (kind == SoldierNode::Held)
+            EnemyCombatAiImpl_OnNodeWake(NodeAt(controller, node));   // faction helis and gunners: their node classes are found here
+            NoticeTurretAiImpl_OnNodeWake(NodeAt(controller, node));
+            NoticeDownComradeAiImpl_StepPreRadio_OnNodeWake(NodeAt(controller, node), agent);
+            NoticeAiImpl_StepRadio_OnNodeWake(NodeAt(controller, node), agent);
+        }
+
+        const WatchedNode* watched = agent < kMostAgents && node != kNoNode ? WatchedOf(NodeAt(controller, node)) : nullptr;
+        if (watched)
+        {
+            CpRadioResponse::OnSoldierNode(static_cast<std::uint16_t>(agent), watched->kind, true);
+            if (watched->kind == SoldierNode::Held)
             {
                 SoldierVoiceSwap_OnHeld(static_cast<std::uint16_t>(agent), true);
                 SoldierStinkVoice_OnHeld(static_cast<std::uint16_t>(agent));
             }
+            if (watched->name == kSoldierNoticeNoiseAi)
+                CallComrade::OnNoiseNode(agent, true);
         }
     }
 
     void __fastcall hk_SleepNode(std::uint8_t* controller, std::uint32_t agent, std::int32_t level, std::int32_t reason)
     {
         const std::uint32_t levels = At<std::uint32_t>(controller, kControllerLevels);
-        const std::uint16_t node = At<std::uint16_t*>(controller, kControllerCurrent)[agent * levels + level];   // gone once it sleeps
-        SoldierNode kind;
-        const bool watched = agent < kMostAgents && node != kNoNode && KindOf(NodeAt(controller, node), kind);
+        const std::uint16_t node = At<std::uint16_t*>(controller, kControllerCurrent)[agent * levels + level];
+        const WatchedNode* watched = agent < kMostAgents && node != kNoNode ? WatchedOf(NodeAt(controller, node)) : nullptr;
 
         g_OrigSleepNode(controller, agent, level, reason);
+        if (node != kNoNode)
+        {
+            HoldupSelfRelease_OnNodeSleep(agent, NodeAt(controller, node));   // a held-up soldier who freed himself calls it in
+            NoticeDownComradeAiImpl_StepPreRadio_OnNodeSleep(NodeAt(controller, node), agent);
+        }
 
         if (watched)
         {
-            CpRadioResponse::OnSoldierNode(static_cast<std::uint16_t>(agent), kind, false);
-            if (kind == SoldierNode::Held)
+            CpRadioResponse::OnSoldierNode(static_cast<std::uint16_t>(agent), watched->kind, false);
+            if (watched->kind == SoldierNode::Held)
                 SoldierVoiceSwap_OnHeld(static_cast<std::uint16_t>(agent), false);
+            if (watched->name == kSoldierNoticeNoiseAi)
+                CallComrade::OnNoiseNode(agent, false);
         }
     }
 

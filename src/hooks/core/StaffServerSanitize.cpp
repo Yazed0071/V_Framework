@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "StaffServerSanitize.h"
 
 #include <Windows.h>
@@ -64,32 +64,19 @@ namespace staffServer
 
         bool PointAddresses(std::uintptr_t (&out)[kPointFunctionCount])
         {
-            static constexpr std::uintptr_t kEn154[] = { 0x1407E8FF0, 0x1407E9170, 0x1407E8E30, 0x1407E9710, 0x1407E9520, 0x1407E9310 };
-            static constexpr std::uintptr_t kJp154[] = { 0x1407E90E0, 0x1407E9260, 0x1407E8F20, 0x1407E9800, 0x1407E9610, 0x1407E9400 };
-            static constexpr std::uintptr_t kEn153[] = { 0x1407E84B0, 0x1407E8630, 0x1407E82F0, 0x1407E8BD0, 0x1407E89E0, 0x1407E87D0 };
-            static constexpr std::uintptr_t kJp153[] = { 0x1407E80E0, 0x1407E8260, 0x1407E7F20, 0x1407E8800, 0x1407E8610, 0x1407E8400 };
-            const std::uintptr_t* table = nullptr;
-            switch (gGameBuild)
-            {
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_3:  table = kEn153; break;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:  table = kJp153; break;
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::En_1_0_15_4:  table = kEn154; break;
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:  table = kJp154; break;
-            default:                                           return false;
-            }
-            for (int i = 0; i < kPointFunctionCount; ++i)
-                out[i] = table[i];
-            return true;
+            out[kCombatPoints]  = gAddr.StaffSection_CombatPoints;
+            out[kDevelopPoints] = gAddr.StaffSection_DevelopPoints;
+            out[kBaseDevPoints] = gAddr.StaffSection_BaseDevPoints;
+            out[kSupportPoints] = gAddr.StaffSection_SupportPoints;
+            out[kSpyPoints]     = gAddr.StaffSection_SpyPoints;
+            out[kMedicalPoints] = gAddr.StaffSection_MedicalPoints;
+            return out[kCombatPoints] != 0;
         }
 
         bool PointBodyMatchesSEH(const std::uint8_t* fn, bool combat)
         {
             __try
             {
-                if (fn[0] == 0xE9)   // 15.3 thunk into the Arxan band
-                    fn = fn + 5 + *reinterpret_cast<const std::int32_t*>(fn + 1);
                 if (combat)
                     return std::memcmp(fn, kCombatPrologue, sizeof(kCombatPrologue)) == 0;
                 if (fn[0] == 0x40)
@@ -361,7 +348,7 @@ namespace staffServer
         }
     }
 
-    std::uint8_t SectionLevelOfSum(const std::uint8_t* ctrl, std::uint32_t sum)   // same scan as UpdateSections, read live
+    std::uint8_t SectionLevelOfSum(const std::uint8_t* ctrl, std::uint32_t sum)
     {
         const auto* lines = reinterpret_cast<const std::uint32_t*>(ctrl + kStaff_LevelLines);
         for (int i = kLevelLineLast; i >= 0; --i)

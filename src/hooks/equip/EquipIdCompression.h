@@ -28,7 +28,7 @@ namespace EquipIdCompression
 
     constexpr std::int32_t kItemBandFirst        = 1;
     constexpr std::int32_t kItemBandLast         = 0x22F;
-    constexpr std::int32_t kSupportWeaponHoleFirst = 0x15A;   // narrow custom support weapons took native holes from here
+    constexpr std::int32_t kSupportWeaponHoleFirst = 0x15A;
     constexpr std::int32_t kWeaponBandFirst      = 0x230;
     constexpr std::int32_t kWeaponBandLastUsable = 0x288;
     static_assert(kWeaponBandLastUsable == kCompressedSlotBound - 1,
@@ -60,7 +60,7 @@ namespace EquipIdCompression
     constexpr std::int32_t kExtendedEquipIdLast  = kNoEquipId - 1;
     constexpr std::int32_t kExtendedAllocFirst   = 0x609;
     constexpr std::int32_t kExtendedAllocLast    = kExtendedEquipIdLast;
-    constexpr std::int32_t kExtendedPreferredFirst = 0x700; // handed out first, so packs that fit here mint the ids they always did
+    constexpr std::int32_t kExtendedPreferredFirst = 0x700;
     constexpr std::int32_t kExtendedChimeraHoleFirst = kChimeraEquipIdFirst + 0x380;
     constexpr std::int32_t kExtendedChimeraHoleLast  = kChimeraEquipIdLast + 0x380;
 

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "UniqueCharacterPartsTypePin.h"
 #include "OutfitAbilities.h"
@@ -218,7 +218,7 @@ namespace uniquecharpin
             std::uint8_t support  = 0;
             std::uint8_t moveMask = 0;
             outfit::VanillaExtPinFlags pf{};
-            if (outfit::VanillaExtGetPinFlags(livePartsType, &pf))
+            if (outfit::VanillaExtGetPinFlags(livePartsType, liveSelector, &pf))
             {
                 if (pf.supported[outfit::kPlayerType_Ocelot])
                     support |= kSupportsOcelot;
@@ -228,8 +228,8 @@ namespace uniquecharpin
                     support |= kQuietMoveOcelot;
                 if (pf.quietMove[outfit::kPlayerType_Quiet])
                     support |= kQuietMoveQuiet;
-                for (std::uint8_t pt = 0; pt < outfit::kPlayerType_Ocelot; ++pt)
-                    if (pf.quietMove[pt])
+                for (std::uint8_t pt = 0; pt < outfit::kPlayerTypeMax; ++pt)
+                    if (pt != outfit::kPlayerType_Quiet && pf.quietMove[pt])
                         moveMask |= static_cast<std::uint8_t>(1u << pt);
                 if (moveMask != 0)
                     g_Tramp[kReadyOff] = 1;
@@ -369,6 +369,7 @@ namespace uniquecharpin
         }
         std::memset(tr, 0xCC, kTrampSize);
         std::memset(tr + kReadyOff, 0x00, 2 + kBandWidth);
+        std::memset(tr + kMaskOff, 0x00, kBandWidth);
 
         std::size_t o = 0;
         const auto emit = [&](std::initializer_list<std::uint8_t> b)

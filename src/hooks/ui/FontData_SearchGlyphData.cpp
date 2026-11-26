@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "FontData_SearchGlyphData.h"
 
 #include <Windows.h>
@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "AddressSet.h"
 #include "HookUtils.h"
@@ -24,14 +25,9 @@ namespace
         std::uintptr_t defaultCharLookups[3];   // the second lookup after a miss, for the font's default char
     };
 
-    constexpr Addresses kEn154 =
+    constexpr std::uint8_t kSearchGlyphDataEntry[] =
     {
-        0x140225B40,
-        {
-            0x140224726,   // FontTextureRender::GetStringWidth
-            0x1402251B5,   // FontTextureRender::RegisterString
-            0x1402252FC,   // FontTextureRender::RegisterStringW
-        },
+        0x48, 0x83, 0xEC, 0x08, 0x0F, 0xB7, 0x41, 0x0E, 0x44, 0x8B, 0xDA, 0x66, 0x85, 0xC0, 0x75, 0x07,
     };
 
     SearchGlyphData_t g_Orig       = nullptr;
@@ -47,6 +43,17 @@ namespace
         return false;
     }
 
+    bool CallsSearchGlyphData(void* returnAddress, void* searchGlyphData)
+    {
+        std::uint8_t call[5] = {};
+        if (!returnAddress || !ReadEntryBytesSEH(static_cast<std::uint8_t*>(returnAddress) - 5, call, sizeof(call))
+            || call[0] != 0xE8)
+            return false;
+        std::int32_t rel = 0;
+        std::memcpy(&rel, call + 1, sizeof(rel));
+        return static_cast<std::uint8_t*>(returnAddress) + rel == searchGlyphData;
+    }
+
     void* __fastcall hk_SearchGlyphData(std::uint8_t* fontData, std::uint32_t code)
     {
         void* glyph = g_Orig(fontData, code);
@@ -58,7 +65,7 @@ namespace
         if (!g_Warned.exchange(true, std::memory_order_relaxed))
             LogWarn("FontGlyphGuard: font %p has neither the character nor its default 0x%X, drawing its first glyph instead",
                     fontData, code & 0x0FFFFFFFu);
-        return *reinterpret_cast<std::uint8_t**>(fontData + kFontGlyphs);   // vanilla reads a null glyph here with the font renderer locked: a freeze if anything catches the fault
+        return *reinterpret_cast<std::uint8_t**>(fontData + kFontGlyphs);
     }
 }
 
@@ -67,17 +74,36 @@ bool Install_FontData_SearchGlyphData_Hook()
     if (g_HookTarget)
         return true;
 
-    if (!AddressSetRuntime::IsEn154Family(gGameBuild))
+    const Addresses addresses =
     {
-        LogWarn("FontGlyphGuard: no addresses for %s, a font missing its default character can still freeze the game",
-                GetGameBuildName(gGameBuild));
-        return true;
+        gAddr.FontData_SearchGlyphData,
+        {
+            gAddr.FontTextureRender_GetStringWidth_DefaultCharLookup,
+            gAddr.FontTextureRender_RegisterString_DefaultCharLookup,
+            gAddr.FontTextureRender_RegisterStringW_DefaultCharLookup,
+        },
+    };
+
+    void* target = ResolveGameAddress(addresses.searchGlyphData);
+    const HookEntry entry = CheckHookEntry(target, kSearchGlyphDataEntry, sizeof(kSearchGlyphDataEntry));
+    if (entry == HookEntry::Unknown)
+    {
+        LogError("FontGlyphGuard: FontData::SearchGlyphData is not the known code on %s, a font missing its default character can freeze the game",
+                 GetGameBuildName(gGameBuild));
+        return false;
     }
-
     for (std::size_t i = 0; i < 3; ++i)
-        g_DefaultCharLookups[i] = ResolveGameAddress(kEn154.defaultCharLookups[i]);
-
-    void* target = ResolveGameAddress(kEn154.searchGlyphData);
+    {
+        g_DefaultCharLookups[i] = ResolveGameAddress(addresses.defaultCharLookups[i]);
+        if (!CallsSearchGlyphData(g_DefaultCharLookups[i], target))
+        {
+            LogError("FontGlyphGuard: default character lookup %zu is not the known code on %s, a font missing its default character can freeze the game",
+                     i, GetGameBuildName(gGameBuild));
+            return false;
+        }
+    }
+    if (entry == HookEntry::ForeignHook)
+        LogHookedOnTop("FontGlyphGuard: FontData::SearchGlyphData", target);
     if (!CreateAndEnableHook(target, reinterpret_cast<void*>(&hk_SearchGlyphData), reinterpret_cast<void**>(&g_Orig)))
     {
         LogError("FontGlyphGuard: FontData::SearchGlyphData hook failed at %p, a font missing its default character can freeze the game", target);

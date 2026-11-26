@@ -10,6 +10,7 @@ local NULL_ID                = GameObject.NULL_ID
 local HOSTAGE_OBJECT_TYPES = { "TppHostage2", "TppHostageUnique", "TppHostageUnique2" }
 
 local function pushEntry(hostage)
+    if mvars.V_LostHostageRemoved ~= nil and mvars.V_LostHostageRemoved[hostage.gameObjectId] then return end   -- a mod removed this one, keep it out
     GameObject.SendCommand(hostage.gameObjectId, { id = "SetLostHostage", hostageType = hostage.gender })   -- no labels: keeps any label a mod already set
 end
 
@@ -30,6 +31,10 @@ function this.SetLostHostage(hostageNameOrId, gender, hostageLostLabel, hostageL
         gender = 0
     end
     
+    if mvars.V_LostHostageRemoved ~= nil then
+        mvars.V_LostHostageRemoved[hostageNameOrId] = nil
+    end
+
     local customLabel = (type(hostageLostLabel) == "string" or type(hostageLostLabel) == "number") and hostageLostLabel or 0
     local customLabelTaken = (type(hostageLostLabelTaken) == "string" or type(hostageLostLabelTaken) == "number") and hostageLostLabelTaken or customLabel
 
@@ -53,6 +58,10 @@ function this.RemoveLostHostage(hostageNameOrId)
         V_FrameWork.Log("V_TppHostage.RemoveLostHostage: hostageId is NULL_ID.")
         return
     end
+    if mvars.V_LostHostageRemoved == nil then
+        mvars.V_LostHostageRemoved = {}
+    end
+    mvars.V_LostHostageRemoved[hostageNameOrId] = true
     GameObject.SendCommand(hostageNameOrId, { id = "RemoveLostHostage" })
 end
 
@@ -114,8 +123,6 @@ function this.BuildHostageList()
             end
         end
     end
-
-    V_FrameWork.Log("[V_TppHostage]: Built V_HostageList with " .. tostring(#mvars.V_HostageList) .. " entries")
 end
 
 function this.AutoSetLostHostage()

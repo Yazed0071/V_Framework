@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "GameObjectLife.h"
 
 #include <Windows.h>
@@ -20,7 +20,8 @@ namespace
     constexpr std::uint32_t kIndexMask   = 0x1FFu;
     constexpr unsigned      kTypeShift   = 9;
     constexpr std::uint32_t kTypeCount   = 128;
-    constexpr std::uint64_t kStaleMs     = 500;    // the life updates run every frame, an older capture may be a freed controller
+    constexpr std::uint64_t kStaleMs     = 500;
+    constexpr std::uint64_t kWriteStaleMs = 100;   // writes need a fresher capture than reads, a stale pointer may already be freed
 
     constexpr std::size_t kSoldier_Count      = 0x80;
     constexpr std::size_t kSoldier_Stride     = 0x40;
@@ -32,7 +33,6 @@ namespace
     constexpr std::size_t kSoldier_SleepKind  = 0x3D;   // 1 sleep, 0 faint, read when stamina reaches 0
     constexpr std::size_t kSoldier_Status     = 0x3E;
 
-    // the life controllers' interface (what their Update gets): +0x08 records, +0x40 owner
     constexpr std::size_t kLc_Records = 0x08;
     constexpr std::size_t kLc_Owner   = 0x40;
 
@@ -87,45 +87,9 @@ namespace
 
     Addrs AddrsForBuild()
     {
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            return {
-                0x1414AA180ull, // tpp::gm::soldier::impl::LifeControllerImpl::Update
-                0x140EC2990ull, // tpp::gm::hostage::impl::LifeControllerImpl::Update
-                0x141348F10ull, // the animals' LifeControllerImpl::Update
-                0x141762410ull, // the walker gears' LifeControllerImpl::Update
-                0x140B33670ull, // tpp::gm::vehicle::impl::GameObjectImpl::ReflectLife
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            return {
-                0x1414AA190ull, // tpp::gm::soldier::impl::LifeControllerImpl::Update
-                0x140EC29C0ull, // tpp::gm::hostage::impl::LifeControllerImpl::Update
-                0x141348F20ull, // the animals' LifeControllerImpl::Update
-                0x1417623D0ull, // the walker gears' LifeControllerImpl::Update
-                0x140B33620ull, // tpp::gm::vehicle::impl::GameObjectImpl::ReflectLife
-            };
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            return {
-                0x1414AB390ull, // tpp::gm::soldier::impl::LifeControllerImpl::Update
-                0x140EC2BB0ull, // tpp::gm::hostage::impl::LifeControllerImpl::Update
-                0x149F14EA0ull, // the animals' LifeControllerImpl::Update
-                0x14A7686D0ull, // the walker gears' LifeControllerImpl::Update
-                0x140B33340ull, // tpp::gm::vehicle::impl::GameObjectImpl::ReflectLife
-            };
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            return {
-                0x1414AB360ull, // tpp::gm::soldier::impl::LifeControllerImpl::Update
-                0x140EC2D30ull, // tpp::gm::hostage::impl::LifeControllerImpl::Update
-                0x14A90E220ull, // the animals' LifeControllerImpl::Update
-                0x14B1BBAA0ull, // the walker gears' LifeControllerImpl::Update
-                0x140B32EC0ull, // tpp::gm::vehicle::impl::GameObjectImpl::ReflectLife
-            };
-        default:
-            return {};
-        }
+        return { gAddr.SoldierLifeControllerImpl_Update, gAddr.HostageLifeControllerImpl_Update,
+                 gAddr.AnimalLifeControllerImpl_Update, gAddr.WalkerGearLifeControllerImpl_Update,
+                 gAddr.VehicleGameObjectImpl_ReflectLife };
     }
 
     using Update_t         = void(__fastcall*)(void* self);
@@ -209,13 +173,14 @@ namespace
             Store(kVehicleType, vehicles, Kind::Vehicle);
     }
 
-    void* Captured(std::uint32_t type, Kind& kind)
+    void* Captured(std::uint32_t type, Kind& kind, std::uint64_t staleMs = kStaleMs)
     {
         kind = Kind::None;
         if (type >= kTypeCount)
             return nullptr;
         const Capture& c = g_ByType[type];
-        if (GetTickCount64() - c.tick.load(std::memory_order_acquire) > kStaleMs)
+        const std::uint64_t tick = c.tick.load(std::memory_order_acquire);
+        if (tick == 0 || GetTickCount64() - tick > staleMs)
             return nullptr;
         kind = c.kind.load(std::memory_order_relaxed);
         return c.object.load(std::memory_order_relaxed);
@@ -253,10 +218,10 @@ namespace
         }
     }
 
-    std::uint8_t* SoldierRecord(std::uint32_t gameObjectId)
+    std::uint8_t* SoldierRecord(std::uint32_t gameObjectId, std::uint64_t staleMs = kStaleMs)
     {
         Kind kind = Kind::None;
-        std::uint8_t* iface = static_cast<std::uint8_t*>(Captured(kSoldierType, kind));
+        std::uint8_t* iface = static_cast<std::uint8_t*>(Captured(kSoldierType, kind, staleMs));
         return iface ? RecordSeh(iface, kSoldier_Count, kSoldier_Stride, gameObjectId & kIndexMask) : nullptr;
     }
 
@@ -342,7 +307,6 @@ namespace
         std::size_t max;
     };
 
-    // writes the current value the next life update reads, clamped to the max; never the status, so the game reacts as usual
     bool WriteU16Seh(std::uint8_t* rec, Field16 field, std::size_t statusOffset, std::uint32_t value, const char** reason)
     {
         __try
@@ -399,7 +363,6 @@ namespace
         }
     }
 
-    // the same write as the vanilla vehicle command SetBodyLife
     bool WriteVehicleLifeSeh(std::uint8_t* vehicles, std::uint32_t index, std::uint32_t value, const char** reason)
     {
         __try
@@ -474,7 +437,7 @@ namespace
 
         if (type == kSoldierType)
         {
-            std::uint8_t* rec = SoldierRecord(gameObjectId);
+            std::uint8_t* rec = SoldierRecord(gameObjectId, kWriteStaleMs);
             if (!rec)
             {
                 *reason = "no soldier has this id";
@@ -490,7 +453,7 @@ namespace
         }
 
         Kind kind = Kind::None;
-        std::uint8_t* object = static_cast<std::uint8_t*>(Captured(type, kind));
+        std::uint8_t* object = static_cast<std::uint8_t*>(Captured(type, kind, kWriteStaleMs));
         if (!object)
         {
             *reason = "it has no life the game updates now";
@@ -572,6 +535,16 @@ namespace
 
 namespace GameObjectLife
 {
+    void ClearCaptures()
+    {
+        for (Capture& c : g_ByType)
+        {
+            c.tick.store(0, std::memory_order_release);
+            c.object.store(nullptr, std::memory_order_relaxed);
+            c.kind.store(Kind::None, std::memory_order_relaxed);
+        }
+    }
+
     bool IsSupportedOnThisBuild()
     {
         return g_Addrs.soldierUpdate != 0;
@@ -641,7 +614,6 @@ bool Uninstall_GameObjectLife_Hooks()
     for (const std::uintptr_t address : targets)
         if (address)
             DisableAndRemoveHook(ResolveGameAddress(address));
-    for (Capture& c : g_ByType)
-        c.tick.store(0, std::memory_order_relaxed);
+    GameObjectLife::ClearCaptures();
     return true;
 }

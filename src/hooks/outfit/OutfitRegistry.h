@@ -110,7 +110,6 @@ namespace outfit
     constexpr std::uint8_t kEyeColorUnits = 32;
 
     constexpr std::size_t kColorChannelCount = 2;
-    constexpr std::size_t kMaxColorsPerChannel = 1024;
 
     struct OutfitColor
     {
@@ -169,6 +168,8 @@ namespace outfit
         std::uint8_t   pendingHeadCount    = 0;
         bool           colorsDeclared      = false;
         OutfitColorList colors[kColorChannelCount];
+        std::uint8_t   camoBonusType       = kCamoBonusTypeUnset;
+        std::vector<std::int32_t> camoBonusValues;   // kCamoMaterialCount values, empty when the look gives none
     };
     struct OutfitPlayerTypeData
     {
@@ -211,9 +212,9 @@ namespace outfit
         std::uint16_t  pendingHeadOrder[kMaxHeadOptionsPerOutfit]      = {};
         std::uint8_t   pendingHeadCount                             = 0;
         std::uint8_t   camoBonusType                              = kCamoBonusTypeUnset;
-        std::uint8_t   camoBonusTypeDeclared                      = kCamoBonusTypeUnset;
         std::int32_t   camoBonusValues[kCamoMaterialCount]        = {};
         bool           hasCamoBonusValues                         = false;
+        std::uint8_t   camoVirtualId                              = kCamoBonusTypeUnset;   // given at bind when this branch or one of its looks has values
         OutfitColorList colors[kColorChannelCount];
 
         const OutfitVariant* Var(std::size_t i) const
@@ -329,9 +330,8 @@ namespace outfit
         std::uint8_t  GetVariantSelectorCode(std::uint8_t variantIdx) const;
 
 
-        std::uint8_t  GetCamoBonusType(std::uint8_t playerType) const;
-        bool          HasCamoBonusValuesFor(std::uint8_t playerType) const;
-        const std::int32_t* GetCamoBonusValuesFor(std::uint8_t playerType) const;
+        std::uint8_t  GetCamoBonusPin(std::uint8_t playerType, std::uint8_t variantIdx) const;
+        const std::int32_t* GetCamoBonusValuesFor(std::uint8_t playerType, std::uint8_t variantIdx) const;
 
         const OutfitColorList* GetColors(std::uint8_t playerType, std::uint8_t variantIdx,
                                          std::size_t channel) const;
@@ -381,6 +381,7 @@ namespace outfit
         std::uint8_t  partsType = 0;
         std::vector<std::uint8_t>  camos;
         std::vector<std::uint64_t> variantNames;
+        std::vector<std::uint8_t>  variantIndex;
     };
     std::vector<OutfitListItem> ListOutfits(std::uint8_t playerType);
 
@@ -419,6 +420,8 @@ namespace outfit
                                        const OutfitEntry** outEntry,
                                        std::uint8_t* outVariantIndex);
 
+    std::uint8_t EnsureOutfitLookCode(std::uint16_t developId, std::uint8_t variant);
+
 
     std::uint64_t GetVariantDisplayNameHash(std::uint8_t partsType,
                                             std::uint8_t playerType,
@@ -447,6 +450,26 @@ namespace outfit
             std::uint16_t developId,
             std::uint8_t  playerType,
             const OutfitEntry** outEntry);
+
+    struct OutfitRowAlias
+    {
+        std::uint16_t developId        = 0;
+        std::uint16_t flowIndex        = 0;
+        std::uint16_t ownerDevelopId   = 0;      // 0 = an extra camo of vanillaPartsType
+        std::uint8_t  vanillaPartsType = 0xFF;
+        std::uint8_t  variant          = 0;
+    };
+
+    bool RegisterOutfitRowAlias(const OutfitRowAlias& alias, const char* key);
+    void ClearOutfitRowAliases(std::uint16_t ownerDevelopId, std::uint8_t vanillaPartsType,
+                               std::uint8_t variant);   // variant 0xFF = every look of that owner
+    void GetKeyedVariants(std::uint16_t ownerDevelopId, std::uint8_t vanillaPartsType,
+                          std::uint64_t (&mask)[4]);
+    bool TryGetOutfitRowAlias(std::uint16_t flowIndex, OutfitRowAlias* out);
+    bool IsOutfitVariantKeyed(std::uint16_t ownerDevelopId, std::uint8_t vanillaPartsType,
+                              std::uint8_t variant);
+    std::uint16_t GetOutfitVariantRow(std::uint16_t ownerDevelopId, std::uint8_t vanillaPartsType,
+                                      std::uint8_t variant);
 
 
     bool TryGetOutfitByCamoVirtualId(std::uint8_t virtualId,
@@ -506,11 +529,17 @@ namespace outfit
         std::uint64_t displayNameHash = 0;
     };
 
-    bool ExtendVanillaSuitVariants(std::uint8_t vanillaPartsType,
-                                   std::uint8_t playerType,
-                                   std::uint8_t sourceCamo,
-                                   const VanillaSuitVariantAsset* variants,
-                                   std::uint8_t count);
+    struct VanillaSuitLook   // one variants[i] of one ExtendVanillaOutfit call
+    {
+        VanillaSuitVariantAsset bodies[kPlayerTypeMax];   // used on the branches that gave this look
+        const char*             key = nullptr;            // the look's key, null when it has none
+    };
+
+    bool ExtendVanillaSuitLooks(std::uint8_t vanillaPartsType,
+                                std::uint8_t sourceCamo,
+                                const VanillaSuitLook* looks,
+                                std::uint8_t count,
+                                std::uint8_t* outVariantIdx);
 
     std::uint8_t VanillaExtVariantCount(std::uint8_t vanillaPartsType,
                                         std::uint8_t playerType);
@@ -532,10 +561,6 @@ namespace outfit
 
     std::uint8_t VanillaExtResolveVariantDonor(std::uint8_t vanillaPartsType,
                                                std::uint8_t playerType);
-
-    std::uint8_t VanillaExtCollectSelectorSeeds(std::uint8_t* outSelectors,
-                                                std::uint8_t* outSourceCamos,
-                                                std::uint8_t maxCount);
 
     std::uint8_t VanillaExtGetVariantSelector(std::uint8_t vanillaPartsType,
                                               std::uint8_t variantIdx);
@@ -598,6 +623,7 @@ namespace outfit
     };
 
     bool VanillaExtGetPinFlags(std::uint8_t vanillaPartsType,
+                               std::uint8_t wornCamo,
                                VanillaExtPinFlags* out);
 
     bool VanillaExtHasAnyAbilities();
@@ -614,6 +640,10 @@ namespace outfit
     bool VanillaExtGetSuitArm(std::uint8_t vanillaPartsType,
                               std::uint8_t playerType,
                               std::uint8_t wornCamo, bool* outEnable);
+
+    constexpr std::uint8_t kVanillaArmPartsTypeLast = 0x19;
+    std::uint32_t VanillaExtSuitArmOffMask(std::uint8_t playerType, std::uint8_t wornCamo);
+    std::uint32_t VanillaExtSuitArmGeneration();
 
     bool VanillaExtGetSuitHead(std::uint8_t vanillaPartsType,
                                std::uint8_t playerType,
@@ -681,6 +711,7 @@ namespace outfit
 
     bool          WriteLiveWornHeadCategory(std::uint16_t category);
     std::uint16_t ReadLiveWornHeadCategory();
+    bool          ReadLiveChickCapRequested();
 
     bool          IsHeadOptionOfferedByLiveSuit(std::uint16_t equipId);
 
@@ -698,12 +729,12 @@ namespace outfit
 
     std::uint32_t GetSavedColor(const char* key, std::uint8_t playerType, std::size_t channel);
     void          SetSavedColor(const char* key, std::uint8_t playerType, std::size_t channel,
-                                std::uint32_t index);   // also drops that channel's preview
+                                std::uint32_t index);
 
     void          SetPreviewColor(const char* key, std::uint8_t playerType, std::size_t channel,
                                   std::uint32_t index);
     std::uint32_t GetEffectiveColor(const char* key, std::uint8_t playerType, std::size_t channel);
-    void          ClearPreviewColors();   // mission change: an unsaved preview never outlives its palette
+    void          ClearPreviewColors();
 
     const OutfitColor* GetPackColor(const OutfitEntry& entry, std::uint8_t playerType, std::uint8_t variantIdx);
 

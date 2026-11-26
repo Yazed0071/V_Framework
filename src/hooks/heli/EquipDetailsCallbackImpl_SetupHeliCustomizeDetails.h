@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_EquipDetailsCallbackImpl_SetupHeliCustomizeDetails_Hook();
+void Uninstall_EquipDetailsCallbackImpl_SetupHeliCustomizeDetails_Hook();

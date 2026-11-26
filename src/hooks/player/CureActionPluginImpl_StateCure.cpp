@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <atomic>
@@ -227,6 +227,7 @@ namespace
         const std::uint8_t state = g_OrigSelectWakeupState(basicAction, index);
         if (index >= kTrackedIndices)
             return state;
+        g_SprayStopPending[index].store(false, std::memory_order_relaxed); // a cure cut short never reached StanceAtCureEnd
         if (g_RightSideCure[index].exchange(false, std::memory_order_relaxed))
             SwapInjuryType(basicAction, index, g_InjuryTypeBeforeCure[index], nullptr);
         if (!g_WakeSupine[index].exchange(false, std::memory_order_relaxed))

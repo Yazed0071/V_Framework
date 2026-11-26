@@ -1,0 +1,4 @@
+#pragma once
+
+bool Install_MemberRoleControllerImpl_AssignSelectAlertLost_Hook();
+void Uninstall_MemberRoleControllerImpl_AssignSelectAlertLost_Hook();

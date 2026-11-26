@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
@@ -24,11 +24,14 @@ extern "C" {
 #include "../hooks/deploy/DeployMissionRegistry.h"
 #include "../hooks/deploy/DeployMissionHooks.h"
 #include "../hooks/deploy/DeployControllerImpl_RegisterDeployMissionParam.h"
+#include "../hooks/vehicle/VehicleSortieRows.h"
 #include "../hooks/deploy/PoolRewardControllerImpl_RegisterPoolRewardParamDeploy.h"
 
+#include <algorithm>
 #include <cstring>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -181,7 +184,7 @@ namespace
 
         LuaGetField(L, 1, field);
         if (LuaIsNumber(L, -1))
-            hash = static_cast<std::uint64_t>(GetLuaInt(L, -1));
+            hash = GetLuaInt64(L, -1);
         else if (const char* text = GetLuaString(L, -1))
             hash = assetPath ? FoxHashes::PathCode64Ext(text) : FoxHashes::StrCode64(text);
 
@@ -437,6 +440,22 @@ namespace
             return 1;
         }
 
+        LuaGetField(L, 1, "faceId");
+        const int faceIdType = LuaType(L, -1);
+        g_lua_settop(L, top);
+        LuaGetField(L, 1, "faceIdForNoFultonStaff");
+        const int noFultonFaceIdType = LuaType(L, -1);
+        g_lua_settop(L, top);
+        if ((faceIdType != LUA_TNIL && faceIdType != LUA_TNUMBER)
+            || (noFultonFaceIdType != LUA_TNIL && noFultonFaceIdType != LUA_TNUMBER))
+        {
+            LogWarn("RegisterUniqueStaff '%s': faceId must be a number, not registered", label);
+            g_lua_pushnil(L);
+            return 1;
+        }
+        if (faceIdType == LUA_TNIL && noFultonFaceIdType == LUA_TNIL)
+            LogWarn("RegisterUniqueStaff '%s': no faceId, the game gives this staff face 0", label);
+
         PushLuaString(L, "uniqueTypeId");
         PushLuaNumber(L, static_cast<float>(typeId));
         g_lua_rawset(L, 1);
@@ -494,6 +513,26 @@ namespace
 
     constexpr float  kCaptureDeployMissionId = 1.0f;
     constexpr float  kCaptureRewardKey       = 254.0f;
+    constexpr int    kMostRewardLineCount    = 999999;
+    constexpr int    kMostVehicleReward      = 99;
+
+    struct PoolTypeName
+    {
+        const char*  name;
+        std::uint8_t type;
+    };
+    constexpr PoolTypeName kPoolTypeNames[] =   // TppMotherBaseManagementConst.POOL_REWARD_TYPE_<name>
+    {
+        { "GMP", 1 },
+        { "STAFF_SPP", 2 }, { "STAFF_SP", 3 }, { "STAFF_S", 4 }, { "STAFF_A", 5 }, { "STAFF_B", 6 },
+        { "STAFF_C", 7 }, { "STAFF_D", 8 }, { "STAFF_E", 9 }, { "STAFF_F", 10 }, { "STAFF_G", 11 },
+        { "COMMON_METAL", 12 }, { "MINOR_METAL", 13 }, { "PRECIOUS_METAL", 14 }, { "FUEL_RESOURCE", 15 }, { "BIOTIC_RESOURCE", 16 },
+        { "GOLDEN_CRESCENT", 17 }, { "AFRICAN_PEACH", 18 }, { "DIGITALIS_P", 19 }, { "DIGITALIS_L", 20 },
+        { "BLACK_CARROT", 21 }, { "WORM_WOOD", 22 }, { "TARRAGON", 23 }, { "HAOMA", 24 },
+    };
+    constexpr int kFirstPoolType = 1;
+    constexpr int kLastPoolType  = 24;
+    constexpr int kLastStaffPoolType = 11;
     constexpr int    kLastRewardSection      = 6;
     constexpr int    kInheritanceDepthLimit  = 6;
     constexpr double kRewardByteMax          = 255.0;
@@ -521,6 +560,118 @@ namespace
             value = GetLuaInt(L, -1);
         g_lua_settop(L, top);
         return isNumber;
+    }
+
+    static bool PoolTypeField(lua_State* L, int table, int& poolType)
+    {
+        if (NumberField(L, table, "type", poolType))
+            return true;
+        const std::string name = StringField(L, table, "type");
+        for (const PoolTypeName& known : kPoolTypeNames)
+        {
+            if (name == known.name)
+            {
+                poolType = known.type;
+                return true;
+            }
+        }
+        if (name.empty())
+            return false;
+        poolType = -1;   // a name we do not know: the caller reports it
+        return true;
+    }
+
+    // rewards = { { vehicle = "NAME", count, chance }, { type = "GMP" | POOL_REWARD_TYPE_*, count, chance, section },
+    //             { name = "MyReward", nameLangId, icon, count, chance } }
+    static bool ReadRewardLines(lua_State* L, int table, const std::string& key, int defaultSection,
+                                std::vector<VehicleSortieRows::DispatchRewardLine>& lines)
+    {
+        using Line = VehicleSortieRows::DispatchRewardLine;
+        const int top = GetLuaTop(L);
+        LuaGetField(L, table, "rewards");
+        const int listType = LuaType(L, -1);
+        if (listType != LUA_TTABLE || !g_lua_objlen || !g_lua_rawgeti)
+        {
+            g_lua_settop(L, top);
+            if (listType != LUA_TNIL)
+                LogWarn("RegisterPoolRewardParam '%s': rewards must be a list of tables, ignored", key.c_str());
+            return false;
+        }
+        const int list = GetLuaTop(L);
+        const int length = static_cast<int>(g_lua_objlen(L, list));
+        for (int i = 1; i <= length; ++i)
+        {
+            g_lua_rawgeti(L, list, i);
+            const int item = GetLuaTop(L);
+            if (LuaType(L, item) != LUA_TTABLE)
+            {
+                LogWarn("RegisterPoolRewardParam '%s': rewards[%d] is not a table, skipped", key.c_str(), i);
+                g_lua_settop(L, list);
+                continue;
+            }
+            Line line;
+            int number = 0;
+            if (NumberField(L, item, "count", number))
+                line.count = number;
+            if (NumberField(L, item, "chance", number))
+                line.chance = static_cast<std::uint8_t>(std::clamp(number, 1, 100));
+            line.vehicle = StringField(L, item, "vehicle");
+            line.name = StringField(L, item, "name");
+            std::string icon = StringField(L, item, "icon");
+            if (!icon.empty() && (icon.size() < 5 || icon.compare(icon.size() - 5, 5, ".ftex") != 0))
+                icon += ".ftex";
+            const std::string nameLangId = StringField(L, item, "nameLangId");
+            line.iconFile = icon.empty() ? 0 : FoxHashes::PathCode64Ext(icon);
+            line.nameLangId = nameLangId.empty() ? 0 : FoxHashes::StrCode64(nameLangId) & 0xFFFFFFFFFFFFull;
+            int poolType = 0;
+            int mostCount = kMostRewardLineCount;
+            if (!line.vehicle.empty())
+            {
+                line.kind = Line::Kind::Vehicle;
+                mostCount = kMostVehicleReward;
+            }
+            else if (PoolTypeField(L, item, poolType))
+            {
+                if (poolType < kFirstPoolType || poolType > kLastPoolType)
+                {
+                    LogWarn("RegisterPoolRewardParam '%s': rewards[%d] type is not GMP, a staff rank or a resource, skipped", key.c_str(), i);
+                    g_lua_settop(L, list);
+                    continue;
+                }
+                line.kind = Line::Kind::Pool;
+                line.poolType = static_cast<std::uint8_t>(poolType);
+                int section = defaultSection;
+                NumberField(L, item, "section", section);
+                line.section = static_cast<std::uint8_t>(poolType <= kLastStaffPoolType ? std::clamp(section, 0, kLastRewardSection) : 0);
+            }
+            else if (!line.name.empty())
+            {
+                line.kind = Line::Kind::Custom;
+            }
+            else
+            {
+                LogWarn("RegisterPoolRewardParam '%s': rewards[%d] needs vehicle, type or name, skipped", key.c_str(), i);
+                g_lua_settop(L, list);
+                continue;
+            }
+            if (line.count < 1 || line.count > mostCount)
+            {
+                LogWarn("RegisterPoolRewardParam '%s': rewards[%d] count must be 1 to %d, skipped", key.c_str(), i, mostCount);
+                g_lua_settop(L, list);
+                continue;
+            }
+            if (lines.size() == VehicleSortieRows::kMostRewardLines)
+            {
+                LogWarn("RegisterPoolRewardParam '%s': more than %u rewards, the rest are ignored", key.c_str(),
+                        static_cast<unsigned>(VehicleSortieRows::kMostRewardLines));
+                g_lua_settop(L, list);
+                break;
+            }
+            lines.push_back(line);
+            g_lua_settop(L, list);
+        }
+        g_lua_settop(L, top);
+        return true;
     }
 
     static bool KeyIsOneOf(lua_State* L, int keyIndex, std::initializer_list<const char*> names)
@@ -960,7 +1111,7 @@ namespace
 
         const int top = GetLuaTop(L);
         InheritanceProblem problem = InheritanceProblem::None;
-        const int copy = CopyTableForVanilla(L, 1, "keyValue1", kCaptureRewardKey, { "keyValue1", "source" }, problem);
+        const int copy = CopyTableForVanilla(L, 1, "keyValue1", kCaptureRewardKey, { "keyValue1", "source", "rewards" }, problem);
         if (copy == 0)
         {
             g_lua_settop(L, top);
@@ -997,7 +1148,14 @@ namespace
             return 1;
         }
 
-        PushLuaBool(L, deployMission::RegisterReward(key.c_str(), reward));
+        const bool registered = deployMission::RegisterReward(key.c_str(), reward);
+        std::vector<VehicleSortieRows::DispatchRewardLine> lines;
+        deployMission::MissionView rewarded;
+        if (registered && ReadRewardLines(L, 1, key, section, lines) && !lines.empty()
+            && (!deployMission::FindMissionByKey(key.c_str(), rewarded) || rewarded.rewardRow == 0
+                || !VehicleSortieRows::SetDispatchRewards(rewarded.rewardRow, key.c_str(), lines)))
+            LogWarn("RegisterPoolRewardParam '%s': the mission has no reward row yet, its rewards list is ignored", key.c_str());
+        PushLuaBool(L, registered);
         return 1;
     }
 

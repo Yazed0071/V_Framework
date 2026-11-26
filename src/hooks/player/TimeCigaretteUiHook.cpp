@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "TimeCigaretteUiHook.h"
 
 #include <Windows.h>
@@ -184,6 +184,11 @@ void TimeCigaretteUi_SetUiController(void* uiController)
 {
     if (uiController)
         g_UiController.store(uiController, std::memory_order_relaxed);
+}
+
+void TimeCigaretteUi_ClearController()
+{
+    g_UiController.store(nullptr, std::memory_order_relaxed);
 }
 
 bool Show_TimeCigaretteUi()

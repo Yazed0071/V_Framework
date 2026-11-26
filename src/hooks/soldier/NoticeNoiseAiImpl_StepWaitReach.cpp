@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "NoticeNoiseAiImpl_StepWaitReach.h"
 
 #include <cstddef>
@@ -25,21 +25,6 @@ namespace
     StepWaitReach_t g_Orig       = nullptr;
     void*           g_HookTarget = nullptr;
 
-    std::uintptr_t AddressFor(AddressSetRuntime::GameBuild build)
-    {
-        using GB = AddressSetRuntime::GameBuild;
-        switch (build)
-        {
-        case GB::En_1_0_15_4:
-        case GB::En_1_0_15_4a: return 0x141523460ull;
-        case GB::Jp_1_0_15_4:
-        case GB::Jp_1_0_15_4a: return 0x141523470ull;
-        case GB::En_1_0_15_3:  return 0x141523D80ull;
-        case GB::Jp_1_0_15_3:  return 0x141523D50ull;
-        default:               return 0;
-        }
-    }
-
     void __fastcall hk_StepWaitReach(std::uint8_t* noticeNoiseAi, std::uint32_t soldierIndex, int stepProc, std::uint8_t* knowledge)
     {
         g_Orig(noticeNoiseAi, soldierIndex, stepProc, knowledge);
@@ -48,11 +33,11 @@ namespace
 
         std::uint8_t& next = knowledge[kKnowledgeStep];
         if (next != kStepWaitReach && next != kStepSearch && next != kStepWaitReport)
-            return;   // a new notice took over
+            return;
         if (!CallComrade::IsWalkingOver(soldierIndex))
             return;
 
-        next = CallComrade::ShouldLeaveOnArrival(soldierIndex) ? kStepEnd : kStepWaitReach;   // no search or report, back to his route as in GZ
+        next = CallComrade::ShouldLeaveOnArrival(soldierIndex) ? kStepEnd : kStepWaitReach;
     }
 }
 
@@ -61,7 +46,7 @@ bool Install_NoticeNoiseAiImpl_StepWaitReach_Hook()
     if (g_HookTarget)
         return true;
 
-    const std::uintptr_t address = AddressFor(gGameBuild);
+    const std::uintptr_t address = gAddr.NoticeNoiseAiImpl_StepWaitReach;
     if (!address)
     {
         LogWarn("CallComradeCommand: NoticeNoiseAiImpl::StepWaitReach unknown for %s, called comrades search after arriving",

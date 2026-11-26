@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -12,6 +12,7 @@
 #include "LuaBroadcaster.h"
 #include "SoldierFaction.h"
 #include "SoldierRealizedSlot.h"
+#include "../fox/gm/GameObjectPosition.h"
 
 
 using StepFn_t = void(__fastcall*)(void* self, std::uint32_t soldierIndex, int stepProc, void* knowledge);
@@ -33,6 +34,36 @@ static thread_local bool g_spreadFromSight = false;
 static std::unordered_map<std::uint64_t, std::uint64_t> g_SpeakCooldown;
 static std::uint64_t g_lastSpeakTick = 0;
 static std::mutex g_Mutex;
+
+static constexpr std::uint32_t kNoticeSoldiers   = 0x200;
+static constexpr int           kRecentNotices    = 4;
+static constexpr std::uint8_t  kBlobSighted      = 1;      // AddNoticeInfo blob: the noticed object's id at +2
+static constexpr std::uint8_t  kBlobNoise        = 2;      // AddNoticeInfo blob: a fox::gs::Noise at +8
+static constexpr std::uint16_t kNoObject         = 0xFFFF;
+static constexpr std::uint64_t kRecentMs         = 3000;
+static constexpr std::uint64_t kUnplacedSightMs  = 1000;
+static constexpr float         kNoiseMatchSq     = 4.0f;   // 2 m
+static constexpr float         kSightMatchSq     = 36.0f;  // 6 m
+
+struct SightedObject
+{
+    std::uint16_t objectId = kNoObject;
+    std::uint64_t tickMs   = 0;
+};
+
+struct HeardNoise
+{
+    float         position[3] = {};
+    std::uint8_t  type        = 0;
+    std::uint16_t maker       = kNoObject;
+    std::uint64_t tickMs      = 0;
+};
+
+static SightedObject g_Sighted[kNoticeSoldiers][kRecentNotices];
+static HeardNoise    g_Heard[kNoticeSoldiers][kRecentNotices];
+static std::uint8_t  g_SightedNext[kNoticeSoldiers] = {};
+static std::uint8_t  g_HeardNext[kNoticeSoldiers]   = {};
+static std::mutex    g_RecentMutex;
 
 
 static __forceinline std::uintptr_t ReadQwordNoThrow(std::uintptr_t addr)
@@ -58,11 +89,178 @@ static void MakeSoldierSpeakViaOwner(std::uintptr_t owner, std::uint32_t soldier
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-static void EmitNotice(const char* msg, std::uint32_t soldierIndex)
+static bool ReadNoticeBlobSeh(const void* blob, std::uint8_t& payload, std::uint16_t& objectId, const std::uint8_t*& data)
 {
-    std::uint32_t objId = 0;
-    if (GetSoldierGameObjectIdWithIndex(soldierIndex, objId))
-        V_FrameWork::EmitMessage("GameObject", msg, objId);
+    __try
+    {
+        const auto* bytes = static_cast<const std::uint8_t*>(blob);
+        payload  = bytes[1];
+        objectId = *reinterpret_cast<const std::uint16_t*>(bytes + 2);
+        data     = *reinterpret_cast<const std::uint8_t* const*>(bytes + 8);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool ReadNoiseSeh(const std::uint8_t* noise, HeardNoise& out)
+{
+    __try
+    {
+        out.position[0] = *reinterpret_cast<const float*>(noise + 0x00);
+        out.position[1] = *reinterpret_cast<const float*>(noise + 0x04);
+        out.position[2] = *reinterpret_cast<const float*>(noise + 0x08);
+        out.type        = noise[0x10];
+        out.maker       = *reinterpret_cast<const std::uint16_t*>(noise + 0x12);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool ReadKnowledgeSpotSeh(const void* knowledge, float spot[3])   // both notice AIs keep the noticed spot at +0
+{
+    __try
+    {
+        const auto* floats = static_cast<const float*>(knowledge);
+        spot[0] = floats[0];
+        spot[1] = floats[1];
+        spot[2] = floats[2];
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static float DistanceSq(const float a[3], const float b[3])
+{
+    const float dx = a[0] - b[0];
+    const float dy = a[1] - b[1];
+    const float dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
+}
+
+static std::uint16_t SightedAt(std::uint32_t soldierIndex, const float spot[3])
+{
+    SightedObject recent[kRecentNotices];
+    {
+        std::lock_guard<std::mutex> lock(g_RecentMutex);
+        for (int i = 0; i < kRecentNotices; ++i)
+            recent[i] = g_Sighted[soldierIndex][i];
+    }
+    const std::uint64_t now = GetTickCount64();
+    std::uint16_t closest = kNoObject;
+    float closestSq = kSightMatchSq;
+    std::uint16_t newest = kNoObject;
+    std::uint64_t newestMs = 0;
+    bool anyPlaced = false;
+    for (const SightedObject& seen : recent)
+    {
+        if (seen.tickMs == 0 || now - seen.tickMs > kRecentMs)
+            continue;
+        if (seen.tickMs > newestMs)
+        {
+            newest = seen.objectId;
+            newestMs = seen.tickMs;
+        }
+        float position[3] = {};
+        if (!GameObjectPosition::Read(seen.objectId, position))
+            continue;
+        anyPlaced = true;
+        const float distanceSq = DistanceSq(position, spot);
+        if (distanceSq <= closestSq)
+        {
+            closest = seen.objectId;
+            closestSq = distanceSq;
+        }
+    }
+    if (closest != kNoObject || anyPlaced)
+        return closest;
+    return now - newestMs <= kUnplacedSightMs ? newest : kNoObject;   // nothing had a readable position: the latest one, if fresh
+}
+
+static bool HeardAt(std::uint32_t soldierIndex, const float spot[3], HeardNoise& out)
+{
+    HeardNoise recent[kRecentNotices];
+    {
+        std::lock_guard<std::mutex> lock(g_RecentMutex);
+        for (int i = 0; i < kRecentNotices; ++i)
+            recent[i] = g_Heard[soldierIndex][i];
+    }
+    const std::uint64_t now = GetTickCount64();
+    float closestSq = kNoiseMatchSq;
+    bool found = false;
+    for (const HeardNoise& noise : recent)
+    {
+        if (noise.tickMs == 0 || now - noise.tickMs > kRecentMs)
+            continue;
+        const float distanceSq = DistanceSq(noise.position, spot);
+        if (distanceSq <= closestSq)
+        {
+            out = noise;
+            closestSq = distanceSq;
+            found = true;
+        }
+    }
+    return found;
+}
+
+static V_FrameWork::LuaBroadcastArg IdOrNil(std::uint16_t objectId)
+{
+    return objectId != kNoObject ? V_FrameWork::LuaBroadcastArg(static_cast<std::uint32_t>(objectId)) : V_FrameWork::LuaBroadcastArg(nullptr);
+}
+
+static V_FrameWork::LuaBroadcastArg SpotOrNil(bool known, const float spot[3])
+{
+    return known ? V_FrameWork::LuaBroadcastArg(V_FrameWork::Vector3Arg{ spot[0], spot[1], spot[2] }) : V_FrameWork::LuaBroadcastArg(nullptr);
+}
+
+static void EmitNoticeIndis(std::uint32_t soldierIndex, const void* knowledge)
+{
+    std::uint32_t soldierId = 0;
+    if (soldierIndex >= kNoticeSoldiers || !GetSoldierGameObjectIdWithIndex(soldierIndex, soldierId))
+        return;
+    float spot[3] = {};
+    const bool known = ReadKnowledgeSpotSeh(knowledge, spot);
+    const std::uint16_t targetId = known ? SightedAt(soldierIndex, spot) : kNoObject;
+    V_FrameWork::EmitMessage("GameObject", "NoticeIndis", soldierId, IdOrNil(targetId), SpotOrNil(known, spot));
+}
+
+static void EmitNoticeNoise(std::uint32_t soldierIndex, const void* knowledge)
+{
+    std::uint32_t soldierId = 0;
+    if (soldierIndex >= kNoticeSoldiers || !GetSoldierGameObjectIdWithIndex(soldierIndex, soldierId))
+        return;
+    float spot[3] = {};
+    const bool known = ReadKnowledgeSpotSeh(knowledge, spot);
+    HeardNoise noise{};
+    const bool heard = known && HeardAt(soldierIndex, spot, noise);
+    V_FrameWork::EmitMessage("GameObject", "NoticeNoise", soldierId,
+        heard ? V_FrameWork::LuaBroadcastArg(static_cast<std::uint32_t>(noise.type)) : V_FrameWork::LuaBroadcastArg(nullptr),
+        IdOrNil(heard ? noise.maker : kNoObject), SpotOrNil(known, spot));
+}
+
+void SoldierNotice_NoteAccepted(std::uint32_t soldierIndex, const void* noticeBlob)   // from the shared AddNoticeInfo hook
+{
+    if (soldierIndex >= kNoticeSoldiers || !noticeBlob)
+        return;
+    std::uint8_t payload = 0;
+    std::uint16_t objectId = kNoObject;
+    const std::uint8_t* data = nullptr;
+    if (!ReadNoticeBlobSeh(noticeBlob, payload, objectId, data))
+        return;
+    const std::uint64_t now = GetTickCount64();
+    if (payload == kBlobSighted && objectId != kNoObject)
+    {
+        std::lock_guard<std::mutex> lock(g_RecentMutex);
+        g_Sighted[soldierIndex][g_SightedNext[soldierIndex]++ % kRecentNotices] = { objectId, now };
+        return;
+    }
+    if (payload != kBlobNoise || !data)
+        return;
+    HeardNoise noise{};
+    if (!ReadNoiseSeh(data, noise))
+        return;
+    noise.tickMs = now;
+    std::lock_guard<std::mutex> lock(g_RecentMutex);
+    g_Heard[soldierIndex][g_HeardNext[soldierIndex]++ % kRecentNotices] = noise;
 }
 
 
@@ -131,7 +329,7 @@ static void __fastcall hk_NoiseAware(void* self, std::uint32_t soldierIndex, int
 
     g_OrigNoiseAware(self, soldierIndex, stepProc, knowledge);
     if (stepProc == STEP_ENTER)
-        EmitNotice("NoticeNoise", soldierIndex);
+        EmitNoticeNoise(soldierIndex, knowledge);
 }
 
 static void __fastcall hk_IndisAware(void* self, std::uint32_t soldierIndex, int stepProc, void* knowledge)
@@ -141,7 +339,7 @@ static void __fastcall hk_IndisAware(void* self, std::uint32_t soldierIndex, int
 
     g_OrigIndisAware(self, soldierIndex, stepProc, knowledge);
     if (stepProc == STEP_ENTER)
-        EmitNotice("NoticeIndis", soldierIndex);
+        EmitNoticeIndis(soldierIndex, knowledge);
 }
 
 

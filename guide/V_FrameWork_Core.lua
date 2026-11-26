@@ -29,41 +29,13 @@ _G.V_FrameWork_Core = this
 
 this.VFW = VFW
 
-this.registerMenus = {
-    "V_FrameWork",
-}
+if Vehicle and Vehicle.subType then
+    rawset(Vehicle.subType, "EASTERN_LIGHT_VEHICLE_MACHINE_GUN", 1)
+    rawset(Vehicle.subType, "WESTERN_LIGHT_VEHICLE_MACHINE_GUN", 1)
+end
 
 this.registerIvars = {
     "V_FrameWork_V_TppHelicopter_SetTaxiRidePose",
-    "V_FrameWork_V_Quiet_QuietHoldCQC",
-    "V_FrameWork_V_Quiet_QuietInterr",
-    "V_FrameWork_V_ACC_iDroidClose",
-}
-
--- Infinite Heaven menu definition
-this.V_FrameWork = {
-    parentRefs = {"InfMenuDefs.safeSpaceMenu", "InfMenuDefs.inMissionMenu"},
-    options = {
-        "Ivars.V_FrameWork_V_Quiet_QuietHoldCQC",
-        "Ivars.V_FrameWork_V_Quiet_QuietInterr",
-        "Ivars.V_FrameWork_V_ACC_iDroidClose",
-    }
-}
-
-this.langStrings = {
-    eng = {
-        V_FrameWork = "V_FrameWork",
-        V_FrameWork_V_Quiet_QuietHoldCQC = "Enables Quiet to hold with CQC",
-        V_FrameWork_V_Quiet_QuietInterr = "Enables Quiet to Interrogate",
-        V_FrameWork_V_ACC_iDroidClose = "Play close iDroid animation while in the ACC.",
-    },
-    help = {
-        eng = {
-            V_FrameWork = "Toggle individual options for V_FrameWork mod.",
-            V_FrameWork_V_Quiet_QuietHoldCQC = "Enables Quiet to hold with CQC.",
-            V_FrameWork_V_Quiet_QuietInterr = "Enables Quiet to Interrogate enemies",
-        },
-    },
 }
 
 -- not in the IH menu: the Taxi pose call menu options set it, and the save keeps the last pick
@@ -74,35 +46,6 @@ this.V_FrameWork_V_TppHelicopter_SetTaxiRidePose = {
         this.SetTaxiRidePose(setting + 1)
     end,
     default = 0,
-}
-
-this.V_FrameWork_V_Quiet_QuietHoldCQC = {
-    save = IvarProc.CATEGORY_EXTERNAL,
-    range = Ivars.switchRange,
-    settingNames = "set_switch",
-    default = 0,
-    OnChange = function(self, setting)
-        this._SetQuietHoldCqc(setting)
-    end
-}
-
-this.V_FrameWork_V_Quiet_QuietInterr = {
-    save = IvarProc.CATEGORY_EXTERNAL,
-    range = Ivars.switchRange,
-    settingNames = "set_switch",
-    default = 0,
-    OnChange = function(self, setting)
-        this._SetQuietInterrogate(setting)
-    end
-}
-this.V_FrameWork_V_ACC_iDroidClose = {
-    save = IvarProc.CATEGORY_EXTERNAL,
-    range = Ivars.switchRange,
-    settingNames = "set_switch",
-    default = 1,
-    OnChange = function(self, setting)
-        this._SetPlayIDroidEndMotion(setting)
-    end
 }
 
 local TAXI_RIDE_POSE_STATES = { 0x03, 0x08, 0x0A, 0x06 }   -- 1 = StateAtk, 2 = StateInside, 3 = StateInsideBackSeatStart, 4 = StateInsideStart (inside, door left open)
@@ -159,28 +102,6 @@ function this._RestoreTaxiPoseClip()
     this.taxiPoseSwapped = nil
 end
 
-function this._SetQuietHoldCqc(enable)
-	if  enable == 1 then
-		V_Player.SetQuietHoldCqc(true)
-	else
-		V_Player.SetQuietHoldCqc(false)
-	end
-end
-function this._SetQuietInterrogate(enable)
-	if  enable == 1 then
-		V_Player.SetQuietInterrogate(true)
-	else
-		V_Player.SetQuietInterrogate(false)
-	end
-end
-function this._SetPlayIDroidEndMotion(enable)
-	if  enable == 1 then
-		V_title_sequence.SetPlayIDroidEndMotion(true)
-	else
-		V_title_sequence.SetPlayIDroidEndMotion(false)
-	end
-end
-
 -- IH Appearance: custom heads in Headgear, custom outfits in Suit with their variants in Camo; rebuilt each time a menu opens
 local function RefreshHeadgear()
     local list = InfFova.playerFaceEquipIdInfo
@@ -206,6 +127,14 @@ end
 local customOutfits = {}
 local customOutfitOrder = {}
 
+local function WornOutfit()
+    for _, outfit in pairs(customOutfits) do
+        if outfit.partsType ~= 0 and outfit.partsType == vars.playerPartsType then
+            return outfit
+        end
+    end
+end
+
 local function RefreshOutfits()
     customOutfits = {}
     customOutfitOrder = {}
@@ -214,19 +143,10 @@ local function RefreshOutfits()
     end
     local checkDeveloped = Ivars.skipDevelopChecks:Is(0)
     for _, outfit in ipairs(V_Player.GetOutfits(vars.playerType) or {}) do
-        if not checkDeveloped or outfit.developId == 0
+        customOutfits[outfit.key] = outfit
+        if not checkDeveloped or outfit.developId == 0 or outfit.partsType == vars.playerPartsType
             or TppMotherBaseManagement.IsEquipDevelopedFromDevelopID{ equipDevelopID = outfit.developId } then
-            customOutfits[outfit.key] = outfit
             customOutfitOrder[#customOutfitOrder + 1] = outfit.key
-        end
-    end
-end
-
-local function WornOutfit()
-    for _, key in ipairs(customOutfitOrder) do
-        local outfit = customOutfits[key]
-        if outfit.partsType ~= 0 and outfit.partsType == vars.playerPartsType then
-            return outfit
         end
     end
 end
@@ -251,7 +171,7 @@ local function ParseCamoSetting(setting)
 end
 
 local function WearOutfit(outfit, variant)
-    local partsType, camoType = V_Player.GetOutfitInfo(outfit.key, variant - 1)
+    local partsType, camoType = V_Player.GetOutfitInfo(outfit.key, outfit.variants[variant].variant or variant - 1)
     if partsType then
         vars.playerPartsType = partsType
         vars.playerCamoType = camoType
@@ -295,11 +215,13 @@ local function WrapAppearanceMenus()
         if #settings == 0 then
             return
         end
-        IvarProc.SetSettings(self, settings)
+        SetSilently(self, IvarProc.SetSettings, settings)
         local worn = WornOutfit()
         local current = worn and worn.key or InfFova.playerPartsTypes[vars.playerPartsType + 1]
         if current and self.enum[current] then
             self:Set(self.enum[current])
+        else
+            ivars[self.name] = 0
         end
     end
     suit.GetSettingText = function(self, setting)
@@ -324,17 +246,24 @@ local function WrapAppearanceMenus()
     camo.OnSelect = function(self)
         RefreshOutfits()
         local outfit = WornOutfit()
-        if not outfit then
+        if not outfit and InfFova.playerPartsTypes[vars.playerPartsType + 1] then
             return camoSelect(self)
+        end
+        if not outfit then
+            IvarProc.SetSettings(self, {})
+            ivars[self.name] = 0
+            return
         end
         local settings = {}
         for i in ipairs(outfit.variants) do
             settings[i] = CamoSetting(outfit.key, i)
         end
-        IvarProc.SetSettings(self, settings)
+        SetSilently(self, IvarProc.SetSettings, settings)
         local current = WornVariant(outfit)
         if current then
             self:Set(current - 1)
+        else
+            ivars[self.name] = 0
         end
     end
     camo.GetSettingText = function(self, setting)
@@ -365,18 +294,32 @@ function this.LoadSave()
 end
 
 function this.OnAllocate(missionTable)
+    -- MISSIONS LIST LOCATION TABS
+    this._RefreshMissionListLocationTabs()
+
     -- HELI TAXI POSE
     local taxiSetting = Ivars.V_FrameWork_V_TppHelicopter_SetTaxiRidePose:Get()
     local taxiRidePose = (tonumber(taxiSetting) or 0) + 1
     
     this.SetTaxiRidePose(taxiRidePose)
+end
 
-    -- QUIET
-    this._SetQuietHoldCqc(Ivars.V_FrameWork_V_Quiet_QuietHoldCQC:Get())
-    this._SetQuietInterrogate(Ivars.V_FrameWork_V_Quiet_QuietInterr:Get())
-
-    -- IDROID END
-    this._SetPlayIDroidEndMotion(Ivars.V_FrameWork_V_ACC_iDroidClose:Get())
+function this._RefreshMissionListLocationTabs()
+    if not V_TppUiCommand or not V_TppUiCommand.SetMissionListLocationTabVisible then
+        return
+    end
+    local hasOpenMission = {}
+    for locationName, locationId in pairs(TppDefine.LOCATION_ID) do
+        hasOpenMission[locationId] = hasOpenMission[locationId] or false
+        for _, missionCode in ipairs(TppDefine.LOCATION_HAVE_MISSION_LIST[locationName] or {}) do
+            if missionCode < 30000 and TppStory.IsMissionOpen(missionCode) then
+                hasOpenMission[locationId] = true
+            end
+        end
+    end
+    for locationId, visible in pairs(hasOpenMission) do
+        V_TppUiCommand.SetMissionListLocationTabVisible(locationId, visible)
+    end
 end
 
 function this.Messages()
@@ -429,6 +372,12 @@ function this.Messages()
             },
         },
     }
+end
+
+function this.Update()
+    if Ivars.V_FrameWork_V_ACC_iDroidClose:Get() == 1 and TppMission.IsHelicopterSpace(vars.missionCode) then
+        TppDataUtility.InvisibleMeshFromIdentifier("HeliModelIdentifier","uth0_intr0_def_0000","MESH_IDOROID")
+    end
 end
 
 function this._ShowTaxiPoseCallMenu()
@@ -518,12 +467,17 @@ function this.OnMessage(sender, messageId, arg0, arg1, arg2, arg3, strLogText)
 end
 
 function this.AddMissionPacks(missionCode, packPaths)
-    if (TppMission.IsFOBMission(missionCode)) and missionCode < 5 then
+    if TppMission.IsFOBMission(missionCode) then
         return
     end
 
     packPaths[#packPaths + 1] = "/Assets/tpp/pack/V_FrameWork/V_FrameWork_Common.fpk"
     packPaths[#packPaths + 1] = "/Assets/tpp/pack/mission2/online/o50050/o50050_additional.fpk"
+    if TppLocation.IsAfghan() then
+        packPaths[#packPaths + 1] = "/Assets/tpp/pack/V_FrameWork/V_ArmedJeep_afgh.fpk"
+    elseif TppLocation.IsMiddleAfrica() then
+        packPaths[#packPaths + 1] = "/Assets/tpp/pack/V_FrameWork/V_ArmedJeep_mafr.fpk"
+    end
 end
 
 return this

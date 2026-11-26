@@ -1,6 +1,7 @@
-#include "pch.h"
+#include <pch.h>
 #include "CqcActionPluginImpl_StateHoldMove.h"
 #include "PlayerSpaceQuery.h"
+#include "LifeControllerImpl_UpdateHost.h"
 #include "QuietCqcPatches.h"
 extern "C" {
     #include "lua.h"
@@ -27,6 +28,8 @@ extern "C" {
 #include "MissionTelopBgTexture.h"
 #include "LoadingSplash.h"
 #include "GameOverSplash.h"
+#include "TppBonusPopupImpl_SetBgTexture.h"
+#include "AnnounceLogHook.h"
 #include "VIPSleepFaintHook.h"
 #include "VIPHoldupHook.h"
 #include "VIPRadioHook.h"
@@ -36,6 +39,7 @@ extern "C" {
 #include "../core/V_FrameWorkState.h"
 #include "../core/LuaBroadcaster.h"
 #include "FrameCallbacks.h"
+#include "FeatureSwitch.h"
 #include "StepRadioDiscovery.h"
 #include "ActionCoreImpl_UpdateOptCamo.h"
 #include "HeadMarkMarkerEvCall_SetIconSubType.h"
@@ -47,6 +51,9 @@ extern "C" {
 #include "SoundSystemImpl_BeginSoundSystem.h"
 #include "CustomRadioCassette.h"
 #include "TppPickableRuntime.h"
+#include "../hooks/equip/EquipControllerImpl_UpdateBattery.h"
+#include "../hooks/equip/ItemCount.h"
+#include "../hooks/player/PlayerSkill.h"
 
 #include "AddressSet.h"
 #include "LuaApi.h"
@@ -71,8 +78,10 @@ extern "C" {
 #include "../hooks/ui/MissionEmergencyHook.h"
 #include "../hooks/ui/ShowMissionIcon.h"
 #include "../hooks/ui/BarrierEffectSpawn.h"
+#include "../hooks/ui/MbDvcSoundControllerImpl_Update.h"
 #include "MissionCodeGuard.h"
 #include "../hooks/heli/FieldTaxiMenu.h"
+#include "../hooks/heli/SupportHeliCustomizeCodec.h"
 #include "../hooks/player/TimeCigaretteUiHook.h"
 #include "../hooks/equip/EquipDevelop_AddToEquipDevelopTable.h"
 
@@ -85,6 +94,11 @@ extern "C" {
 #include "CassetteFunctions.h"
 #include "V_PlayerLib.h"
 #include "../hooks/outfit/UniqueCharacterDefaultOutfit.h"
+#include "../hooks/outfit/TppVarInit_InitializeForNewMission.h"
+#include "../hooks/equip/LaserSightSwitch.h"
+#include "../hooks/player/PadAssign.h"
+#include "../hooks/buddy/BattleGearBuddy.h"
+#include "../hooks/buddy/BattleGearCamera.h"
 #include "PlayerFunctions.h"
 #include "../hooks/player/PlayerAttachInDemo.h"
 #include "V_FoxLib.h"
@@ -97,6 +111,9 @@ extern "C" {
 #include "V_UixUtilityLib.h"
 #include "V_TppMotionLib.h"
 #include "V_ThrowingSystemLib.h"
+#include "V_PlacedSystemLib.h"
+#include "V_TppDataUtilityLib.h"
+#include "V_VehicleLib.h"
 #include "FoxFunctions.h"
 
 
@@ -629,6 +646,35 @@ int __cdecl l_ClearGameOverSplashTextures(lua_State* L)
 }
 
 
+int __cdecl l_SetBonusScreenPopupTexturePath(lua_State* L)
+{
+    const char* rawPath = GetLuaString(L, 1);
+    if (!rawPath || !*rawPath)
+        return 0;
+
+    BonusPopup_SetLogoTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
+    return 0;
+}
+
+
+int __cdecl l_SetReportScreenPopupTexturePath(lua_State* L)
+{
+    const char* rawPath = GetLuaString(L, 1);
+    if (!rawPath || !*rawPath)
+        return 0;
+
+    BonusPopup_SetPhotoTexture(TextureHashFromPath(rawPath), OptionalMissionCode(L, 2));
+    return 0;
+}
+
+
+int __cdecl l_ClearBonusPopupTextures(lua_State* L)
+{
+    BonusPopup_ClearTextures(OptionalMissionCode(L, 1));
+    return 0;
+}
+
+
 int __cdecl l_SetPlayerVoiceFpkPathForType(lua_State* L)
 {
     const int playerType = GetLuaInt(L, 1);
@@ -848,7 +894,6 @@ int __cdecl l_IsBarrierActive(lua_State* L)
 
 namespace
 {
-    // record of the local player in the player LifeControllerImpl: float life, float max life
     float* GetLocalPlayerLifeRecord()
     {
         auto* sys = reinterpret_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
@@ -875,7 +920,7 @@ namespace
     }
 }
 
-int __cdecl l_GetPlayerHealth(lua_State* L)
+int __cdecl l_GetPlayerLife(lua_State* L)
 {
     float* rec = GetLocalPlayerLifeRecord();
     if (!rec)
@@ -887,7 +932,7 @@ int __cdecl l_GetPlayerHealth(lua_State* L)
     return 1;
 }
 
-int __cdecl l_SetPlayerHealth(lua_State* L)
+int __cdecl l_SetPlayerLife(lua_State* L)
 {
     if (!Barrier_InSinglePlayer())
         return 0;
@@ -895,7 +940,13 @@ int __cdecl l_SetPlayerHealth(lua_State* L)
     float* rec = GetLocalPlayerLifeRecord();
     if (!rec)
     {
-        LogWarn("SetPlayerHealth: player life unreachable on %s", GetGameBuildName(gGameBuild));
+        LogWarn("SetPlayerLife: player life unreachable on %s", GetGameBuildName(gGameBuild));
+        return 0;
+    }
+
+    if (!LuaIsNumber(L, 1))
+    {
+        LogWarn("SetPlayerLife: value must be a number, life unchanged");
         return 0;
     }
 
@@ -903,6 +954,101 @@ int __cdecl l_SetPlayerHealth(lua_State* L)
     if (life < 0.0f)   life = 0.0f;
     if (life > rec[1]) life = rec[1];
     rec[0] = life;
+    return 0;
+}
+
+namespace
+{
+    constexpr float kLifeRecoveryRateScale = 0.5f; // the life controller keeps half of TppPlayer2Parameter.lifeRecoveryPerSecond
+
+    float* GetLocalPlayerLifeRecoveryRate()
+    {
+        auto* sys = reinterpret_cast<std::uint8_t*>(ResolveGameAddress(gAddr.Player2System));
+        if (!sys)
+            return nullptr;
+        __try
+        {
+            auto* impl = *reinterpret_cast<std::uint8_t**>(sys + 0x8);
+            if (!impl)
+                return nullptr;
+            auto* ctrl = *reinterpret_cast<std::uint8_t**>(impl + 0xC0);
+            if (!ctrl)
+                return nullptr;
+            return reinterpret_cast<float*>(ctrl + 0x44);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    bool CanChangeLifeRecovery()
+    {
+        return !MissionCodeGuard::ShouldBypassHooks() && Barrier_InSinglePlayer();
+    }
+}
+
+int __cdecl l_GetLifeRecoveryPerSecond(lua_State* L)
+{
+    float* rate = GetLocalPlayerLifeRecoveryRate();
+    if (!rate)
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, *rate / kLifeRecoveryRateScale);
+    return 1;
+}
+
+int __cdecl l_SetLifeRecoveryPerSecond(lua_State* L)
+{
+    if (!CanChangeLifeRecovery())
+        return 0;
+    if (!LuaIsNumber(L, 1))
+    {
+        LogWarn("SetLifeRecoveryPerSecond: value must be a number, life recovery unchanged");
+        return 0;
+    }
+
+    float* rate = GetLocalPlayerLifeRecoveryRate();
+    if (!rate)
+    {
+        LogWarn("SetLifeRecoveryPerSecond: player life unreachable on %s", GetGameBuildName(gGameBuild));
+        return 0;
+    }
+
+    float value = GetLuaNumber(L, 1);
+    if (value < 0.0f) value = 0.0f;
+    *rate = value * kLifeRecoveryRateScale;
+    return 0;
+}
+
+int __cdecl l_GetLifeRecoveryCooldownTimer(lua_State* L)
+{
+    float seconds = 0.0f;
+    if (!LifeRecoveryCooldown_Get(seconds))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, seconds);
+    return 1;
+}
+
+int __cdecl l_SetLifeRecoveryCooldownTimer(lua_State* L)
+{
+    if (!CanChangeLifeRecovery())
+        return 0;
+    if (!LuaIsNumber(L, 1))
+    {
+        LogWarn("SetLifeRecoveryCooldownTimer: seconds must be a number, life recovery delay unchanged");
+        return 0;
+    }
+
+    float seconds = GetLuaNumber(L, 1);
+    if (seconds < 0.0f) seconds = 0.0f;
+    if (!LifeRecoveryCooldown_Set(seconds))
+        LogWarn("SetLifeRecoveryCooldownTimer: life recovery delay unreachable on %s", GetGameBuildName(gGameBuild));
     return 0;
 }
 
@@ -1053,6 +1199,141 @@ int __cdecl l_ResupplyFulton(lua_State* L)
         return 1;
     }
     return SetFultonCountClamped(L, "ResupplyFulton", static_cast<int>(kUnlimitedAmmoStock));
+}
+
+int __cdecl l_GetItemBattery(lua_State* L)
+{
+    float fraction = 0.0f;
+    if (!LuaIsNumber(L, 1) || !ItemBattery::GetCharge(static_cast<std::uint16_t>(GetLuaInt(L, 1)), fraction))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, fraction);
+    return 1;
+}
+
+int __cdecl l_SetItemBattery(lua_State* L)
+{
+    if (!ItemBattery::IsActiveHere() || !LuaIsNumber(L, 1) || !LuaIsNumber(L, 2))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    const std::uint16_t equipId = static_cast<std::uint16_t>(GetLuaInt(L, 1));
+    float fraction = 0.0f;
+    if (!ItemBattery::SetCharge(equipId, GetLuaNumber(L, 2)) || !ItemBattery::GetCharge(equipId, fraction))
+    {
+        LogWarn("SetItemBattery: equipId %d has no battery from V_TppEquip.SetItemBattery, unchanged", GetLuaInt(L, 1));
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, fraction);
+    return 1;
+}
+
+int __cdecl l_SetItemOn(lua_State* L)
+{
+    if (!LuaIsNumber(L, 1))
+        return 0;
+    const int state = LuaType(L, 2) == 1 ? (GetLuaBool(L, 2) ? 1 : 0) : -1;   // 1 = LUA_TBOOLEAN; nil goes back to "drains while selected"
+    ItemBattery::SetOn(static_cast<std::uint16_t>(GetLuaInt(L, 1)), state);
+    return 0;
+}
+
+int __cdecl l_IsItemOn(lua_State* L)
+{
+    const int state = LuaIsNumber(L, 1) ? ItemBattery::IsOn(static_cast<std::uint16_t>(GetLuaInt(L, 1))) : -1;
+    if (state < 0)
+        PushLuaNil(L);
+    else
+        PushLuaBool(L, state == 1);
+    return 1;
+}
+
+int __cdecl l_GetItemCount(lua_State* L)
+{
+    int count = 0;
+    int max = 0;
+    if (!LuaIsNumber(L, 1) || !ItemCount::Get(static_cast<std::uint16_t>(GetLuaInt(L, 1)), count, max))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, static_cast<float>(count));
+    PushLuaNumber(L, static_cast<float>(max));
+    return 2;
+}
+
+int __cdecl l_SetItemCount(lua_State* L)
+{
+    if (!ItemBattery::IsActiveHere() || !LuaIsNumber(L, 1) || !LuaIsNumber(L, 2))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    const std::uint16_t equipId = static_cast<std::uint16_t>(GetLuaInt(L, 1));
+    int count = 0;
+    int max = 0;
+    if (!ItemCount::SetCount(equipId, GetLuaInt(L, 2)) || !ItemCount::Get(equipId, count, max))
+    {
+        LogWarn("SetItemCount: equipId %d has no count from V_TppEquip.SetItemCount, unchanged", GetLuaInt(L, 1));
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, static_cast<float>(count));
+    return 1;
+}
+
+int __cdecl l_StartSkill(lua_State* L)
+{
+    const int skill = LuaIsNumber(L, 1) ? GetLuaInt(L, 1) : -1;
+    if (!PlayerSkill::IsUsable(skill))
+    {
+        LogWarn("StartSkill: argument #1 is not a V_PlayerSkill value, ignored");
+        PushLuaBool(L, false);
+        return 1;
+    }
+    const int   level   = LuaIsNumber(L, 2) ? GetLuaInt(L, 2) : 1;
+    const float seconds = LuaIsNumber(L, 3) ? GetLuaNumber(L, 3) : 0.0f;
+    if (seconds > 0.0f && skill == PlayerSkill::kAcceleramin)
+        LogWarn("StartSkill: seconds is ignored for Acceleramin, its length follows the level");
+    int usedItem = 0;
+    if (!V_FrameWork::DeliveringMessage("Player", "ItemUse", usedItem))
+        usedItem = 0;
+    PushLuaBool(L, ItemBattery::IsActiveHere() && PlayerSkill::Start(skill, level, seconds, usedItem));
+    return 1;
+}
+
+int __cdecl l_StopSkill(lua_State* L)
+{
+    const int skill = LuaIsNumber(L, 1) ? GetLuaInt(L, 1) : -1;
+    if (!PlayerSkill::IsUsable(skill))
+    {
+        LogWarn("StopSkill: argument #1 is not a V_PlayerSkill value, ignored");
+        PushLuaBool(L, false);
+        return 1;
+    }
+    PushLuaBool(L, ItemBattery::IsActiveHere() && PlayerSkill::Stop(skill));
+    return 1;
+}
+
+int __cdecl l_IsSkillActive(lua_State* L)
+{
+    PushLuaBool(L, LuaIsNumber(L, 1) && PlayerSkill::IsActive(GetLuaInt(L, 1)));
+    return 1;
+}
+
+int __cdecl l_GetSkillTime(lua_State* L)
+{
+    float seconds = 0.0f;
+    if (!LuaIsNumber(L, 1) || !PlayerSkill::GetTime(GetLuaInt(L, 1), seconds))
+    {
+        PushLuaNil(L);
+        return 1;
+    }
+    PushLuaNumber(L, seconds);
+    return 1;
 }
 
 int __cdecl l_PlayCassetteTapeByTrackId(lua_State* L)
@@ -1227,8 +1508,11 @@ int __cdecl l_RegisterRadioCassette(lua_State* L)
     const std::uint32_t trackNameId =
         (fileName && *fileName) ? FoxHashes::StrCode32(fileName) : 0u;
     const std::uint32_t nameHash = FoxHashes::StrCode32(gimmickName);
+    // A radio unit's key is (fox2 path code << 32 | StrCode32(locator name)); the path half is the low 32 bits of
+    // the game's path code (what the .lba dataSet field holds and what vanilla Gimmick.RegisterCassetteToRadio gets
+    // from fox::Path), not StrCode32 of the path string, which never matched and left the radio silent.
     const std::uint32_t fox2PathHash =
-        (fox2Path && *fox2Path) ? FoxHashes::StrCode32(fox2Path) : 0u;
+        (fox2Path && *fox2Path) ? static_cast<std::uint32_t>(FoxHashes::PathCode64Ext(fox2Path)) : 0u;
 
     const bool ok = Register_CustomRadioCassette(nameHash, fox2PathHash, wwiseEventId, trackNameId, fileName);
 
@@ -1245,7 +1529,11 @@ int __cdecl l_SetEquipIconFtexPath(lua_State* L)
     if (!rawPath || !*rawPath)
         return 0;
 
-    EquipIcon_SetEquipIdIconFtexPath(equipId, FoxHashes::PathCode64Ext(rawPath));
+    std::string path(rawPath);
+    const std::size_t slash = path.find_last_of("/\\");
+    if (path.find('.', slash == std::string::npos ? 0 : slash + 1) == std::string::npos)
+        path += ".ftex";
+    EquipIcon_SetEquipIdIconFtexPath(equipId, FoxHashes::PathCode64Ext(path));
     return 0;
 }
 
@@ -1849,51 +2137,64 @@ int __cdecl l_HideTimeCigaretteUi(lua_State* L)
 }
 
 
-std::uint32_t Set_AnnounceLogSE(const char* announceLabel, std::uint32_t seId);
-std::uint32_t Set_AnnounceLogEvent(const char* announceLabel, const char* eventName);
-std::uint32_t Set_AnnounceLogVoice(const char* announceLabel, const char* voiceName);
-std::uint32_t Set_AnnounceLogDialogue(const char* announceLabel, std::uint32_t condition,
-                                      std::uint32_t chara, std::uint32_t dialogueEvent);
-std::uint32_t Set_AnnounceLogSfx(const char* announceLabel, const char* eventName);
-bool Register_AnnounceLogSfx(const char* eventName);
-bool IsAnnounceLogSfxRegistered(const char* eventName);
-bool Unset_AnnounceLogSE(const char* announceLabel);
-bool Unregister_AnnounceLogSfx(const char* eventName);
-
 int __cdecl l_SetAnnounceLogSE(lua_State* L)
 {
     const char* label = GetLuaString(L, 1);
     std::uint32_t announceType = 0u;
 
-    if (label && *label)
+    if (!label || !*label)
     {
-        if (GetLuaTop(L) >= 2 && LuaIsNumber(L, 2))
+        LogWarn("SetAnnounceLogSE: needs an announce langId");
+    }
+    else
+    {
+        AnnounceLogSound sound;
+        int extraArg = 3;
+        if (LuaType(L, 2) == LUA_TNUMBER)
         {
             const std::uint32_t n = static_cast<std::uint32_t>(GetLuaInt64(L, 2));
             if (n > 0xFFu)
             {
-                const std::uint32_t chara = (GetLuaTop(L) >= 3 && LuaIsNumber(L, 3))
-                                          ? static_cast<std::uint32_t>(GetLuaInt64(L, 3)) : 0u;
-                const std::uint32_t dlgEv = (GetLuaTop(L) >= 4 && LuaIsNumber(L, 4))
-                                          ? static_cast<std::uint32_t>(GetLuaInt64(L, 4)) : 0u;
-                announceType = Set_AnnounceLogDialogue(label, n, chara, dlgEv);
+                sound.condition     = n;
+                sound.chara         = GetLuaFnvHash32Arg(L, 3);
+                sound.dialogueEvent = GetLuaFnvHash32Arg(L, 4);
+                extraArg = 5;
             }
             else
             {
-                announceType = Set_AnnounceLogSE(label, n);
+                sound.se = n;
             }
         }
-        else if (GetLuaTop(L) >= 2 && LuaIsString(L, 2))
+        else if (LuaType(L, 2) == LUA_TSTRING)
         {
-            const char* s = GetLuaString(L, 2);
-            const bool isVoice = s && s[0] == 'V' && s[1] == 'O' && s[2] == 'I' &&
-                                 s[3] == 'C' && s[4] == 'E' && s[5] == '_';
-            announceType = isVoice ? Set_AnnounceLogVoice(label, s)
-                         : IsAnnounceLogSfxRegistered(s) ? Set_AnnounceLogSfx(label, s)
-                                   : Set_AnnounceLogEvent(label, s);
+            sound.name = GetLuaString(L, 2);
         }
+        else if (LuaType(L, 2) == LUA_TTABLE)
+        {
+            LuaGetField(L, 2, "condition");
+            sound.condition = GetLuaFnvHash32Arg(L, -1);
+            LuaPop(L, 1);
+            LuaGetField(L, 2, "chara");
+            sound.chara = GetLuaFnvHash32Arg(L, -1);
+            LuaPop(L, 1);
+            LuaGetField(L, 2, "event");
+            sound.dialogueEvent = GetLuaFnvHash32Arg(L, -1);
+            LuaPop(L, 1);
+        }
+
+        const int extraType = LuaType(L, extraArg);
+        sound.hasExtra = extraType != LUA_TNIL && extraType != LUA_TNONE;
+        if (extraType == LUA_TNUMBER)
+            sound.extraSe = static_cast<std::uint32_t>(GetLuaInt64(L, extraArg));
+        else if (extraType == LUA_TSTRING)
+            sound.extraName = GetLuaString(L, extraArg);
+
+        if (LuaType(L, 2) == LUA_TTABLE && sound.condition == 0)
+            LogWarn("SetAnnounceLogSE: %s: the dialogue table needs a condition", label);
+        else if (sound.hasExtra && extraType != LUA_TNUMBER && extraType != LUA_TSTRING)
+            LogWarn("SetAnnounceLogSE: %s: the extra sound must be a number or a name", label);
         else
-            announceType = Set_AnnounceLogSE(label, 0u);
+            announceType = Set_AnnounceLogSE(label, sound);
     }
 
     ResolveLuaApi();
@@ -1930,6 +2231,90 @@ int __cdecl l_UnregisterAnnounceLogSfx(lua_State* L)
 }
 
 
+int __cdecl l_SetAnnounceLogTypingSpeed(lua_State* L)
+{
+    bool ok = false;
+    if (LuaType(L, 1) == LUA_TNUMBER)
+        ok = Set_AnnounceLogTypingSpeed(GetLuaNumber(L, 1));
+    else
+        LogWarn("SetAnnounceLogTypingSpeed: needs a number (1 = the game's own speed, 2 = twice as fast)");
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_SetAnnounceLogHoldTime(lua_State* L)
+{
+    bool ok = false;
+    if (LuaType(L, 1) == LUA_TNUMBER)
+        ok = Set_AnnounceLogHoldTime(GetLuaNumber(L, 1));
+    else
+        LogWarn("SetAnnounceLogHoldTime: needs a number of seconds (the game's own is 1.5)");
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_SetAnnounceLogPriority(lua_State* L)
+{
+    const char* label    = GetLuaString(L, 1);
+    const char* priority = LuaType(L, 2) == LUA_TSTRING ? GetLuaString(L, 2) : nullptr;
+    bool ok = false;
+    if (!label || !*label)
+        LogWarn("SetAnnounceLogPriority: needs an announce langId");
+    else if (!priority)
+        LogWarn("SetAnnounceLogPriority: %s: needs \"high\", \"normal\", \"low\" or \"default\"", label);
+    else if (std::strcmp(priority, "high") == 0)
+        ok = Set_AnnounceLogPriority(label, AnnounceLogPriority::High);
+    else if (std::strcmp(priority, "normal") == 0)
+        ok = Set_AnnounceLogPriority(label, AnnounceLogPriority::Normal);
+    else if (std::strcmp(priority, "low") == 0)
+        ok = Set_AnnounceLogPriority(label, AnnounceLogPriority::Low);
+    else if (!*priority || std::strcmp(priority, "default") == 0 || std::strcmp(priority, "none") == 0)
+        ok = Set_AnnounceLogPriority(label, AnnounceLogPriority::Default);
+    else
+        LogWarn("SetAnnounceLogPriority: %s: \"%s\" is not \"high\", \"normal\", \"low\" or \"default\"", label, priority);
+    PushLuaBool(L, ok);
+    return 1;
+}
+
+
+int __cdecl l_RequestMbSoundControllerDialogue(lua_State* L)
+{
+    std::uint32_t condition     = 0;
+    std::uint32_t chara         = 0;
+    std::uint32_t dialogueEvent = 0;
+    if (LuaType(L, 1) == LUA_TTABLE)
+    {
+        LuaGetField(L, 1, "condition");
+        condition = GetLuaFnvHash32Arg(L, -1);
+        LuaPop(L, 1);
+        LuaGetField(L, 1, "chara");
+        chara = GetLuaFnvHash32Arg(L, -1);
+        LuaPop(L, 1);
+        LuaGetField(L, 1, "event");
+        dialogueEvent = GetLuaFnvHash32Arg(L, -1);
+        LuaPop(L, 1);
+    }
+    else
+    {
+        condition     = GetLuaFnvHash32Arg(L, 1);
+        chara         = GetLuaFnvHash32Arg(L, 2);
+        dialogueEvent = GetLuaFnvHash32Arg(L, 3);
+    }
+
+    bool queued = false;
+    if (!condition)
+        LogWarn("RequestMbSoundControllerDialogue: needs an iDroid dialogue condition");
+    else if (!IdroidVoice_IsReady())
+        LogWarn("RequestMbSoundControllerDialogue: the iDroid voice queue is not running, see the hook errors above");
+    else
+        queued = IdroidVoice_Request(condition, chara, dialogueEvent);
+    PushLuaBool(L, queued);
+    return 1;
+}
+
+
 int __cdecl l_SetMissionTelopSplashTexturePath(lua_State* L)
 {
     const char* rawPath = GetLuaString(L, 1);
@@ -1959,9 +2344,48 @@ static int __cdecl l_Log(lua_State* L)
     return 0;
 }
 
-// SetFrameCallback(name, fn): fn(seconds) runs once per frame on the Lua thread, also while a mission loads (when
-// Infinite Heaven's Update does not run); seconds = real time since the game started. A new fn under the same name
-// replaces the old one, nil removes it. Returns true when stored.
+static int __cdecl l_LogDebug(lua_State* L)
+{
+    const char* msg = GetLuaString(L, 1);
+    if (msg && *msg)
+        LogDebug("%s", msg);
+    return 0;
+}
+
+static constexpr const char* kVFrameWorkVersion = "2.0.0"; // bump on every release
+
+static int __cdecl l_GetVersion(lua_State* L)
+{
+    g_lua_pushstring(L, const_cast<char*>(kVFrameWorkVersion));
+    return 1;
+}
+
+static int __cdecl l_SetFeatureEnabled(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    const int feature = FeatureSwitch::IndexOf(name);
+    if (feature < 0 || LuaType(L, 2) != LUA_TBOOLEAN)
+    {
+        LogWarn("V_FrameWork.SetFeatureEnabled: needs (feature name, true or false), got %s", name ? name : "no name");
+        return 0;
+    }
+    FeatureSwitch::g_Off[feature].store(!GetLuaBool(L, 2), std::memory_order_relaxed);
+    return 0;
+}
+
+static int __cdecl l_IsFeatureEnabled(lua_State* L)
+{
+    const char* name = GetLuaString(L, 1);
+    const int feature = FeatureSwitch::IndexOf(name);
+    if (feature < 0)
+    {
+        LogWarn("V_FrameWork.IsFeatureEnabled: %s is not a feature name", name ? name : "no name");
+        return 0;
+    }
+    PushLuaBool(L, !FeatureSwitch::g_Off[feature].load(std::memory_order_relaxed));
+    return 1;
+}
+
 static int __cdecl l_SetFrameCallback(lua_State* L)
 {
     const char* name = GetLuaString(L, 1);
@@ -2301,7 +2725,11 @@ int __cdecl l_SetNewFlagCassetteTape(lua_State* L)
 static luaL_Reg g_VFrameWorkLib[] =
 {
     { "Log",                                    l_Log },
+    { "LogDebug",                               l_LogDebug },
     { "SetFrameCallback",                       l_SetFrameCallback },
+    { "SetFeatureEnabled",                      l_SetFeatureEnabled },
+    { "IsFeatureEnabled",                       l_IsFeatureEnabled },
+    { "GetVersion",                             l_GetVersion },
     { nullptr, nullptr }
 };
 
@@ -2327,6 +2755,7 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_TppDataBaseConstants(L);
         Register_V_ReceiverTypeConstants(L);
         Register_V_MagazineTypeConstants(L);
+        Register_V_PlayerSkillConstants(L);
         Register_V_CallMenuConstants(L);
         Register_V_NoticeConstants(L);
         Register_V_DogCommandConstants(L);
@@ -2344,6 +2773,9 @@ static void RegisterAllUiLuaLibraries(lua_State* L)
         Register_V_UixUtilityLibrary(L);
         Register_V_TppMotionLibrary(L);
         Register_V_ThrowingSystemLibrary(L);
+        Register_V_PlacedSystemLibrary(L);
+        Register_V_TppDataUtilityLibrary(L);
+        Register_V_VehicleLibrary(L);
         TrackLuaState(L);
     }
 }
@@ -2364,7 +2796,6 @@ bool StartupLetsLuaIn();
 HMODULE V_FrameWork_FirstCopyIfSecond();
 void V_FrameWork_NoteSecondCopy();
 
-// V_FrameWork_Core.lua loads the DLL itself when no DLL loader (IHHook) did at boot.
 extern "C" __declspec(dllexport) int __cdecl luaopen_V_FrameWork(lua_State* L)
 {
     if (const HMODULE first = V_FrameWork_FirstCopyIfSecond())
@@ -2390,13 +2821,30 @@ static int __fastcall hkLuaPcallPump(lua_State* L, int nargs, int nresults,
 {
     V_FrameWork_NoteLiveLuaState(L);
     V_FrameWork::EnterLuaPcall();
-    const int r = g_OrigLuaPcallPump
-        ? g_OrigLuaPcallPump(L, nargs, nresults, errfunc)
-        : 0;
+    int r = 0;
+    __try
+    {
+        r = g_OrigLuaPcallPump
+            ? g_OrigLuaPcallPump(L, nargs, nresults, errfunc)
+            : 0;
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+            V_FrameWork::AbandonLuaPcall();   // a fault a __try above us catches, or a longjmp past us: drop the depth, run no pumps
+    }
     V_FrameWork_NoteLiveLuaState(L);
     V_FrameWork::ExitLuaPcall();
+    if (!V_FrameWork::OnLuaOwnerThread())   // the work below writes game state too (outfit colours, the heli codec)
+        return r;
     uniquedefaultoutfit::EnsureRegistered(L);
+    SupportHeliCustomizeCodec_SwapWhenReady();
     OutfitLua_ApplyPendingColors(L);
+    LaserSightSwitch::EnsureKeysRegistered(L);
+    padassign::ApplySavedNameButtons();
+    outfit::headabilities::EnsureLuaWrapsInstalled(L);
+    battleGear::EnsureLuaWraps(L);
+    battleGearCamera::Update(L);
     return r;
 }
 

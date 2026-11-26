@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <array>
@@ -36,7 +36,8 @@ namespace
     constexpr std::uint64_t kSoldierCooldownMs      = 60000;
     constexpr std::uint64_t kAnySoldierCooldownMs   = 8000;
     constexpr std::uint64_t kNoticeAfterEwMs        = 1500;
-    constexpr std::uint32_t kSoldierSlotCount       = 0x200;
+    constexpr std::uint64_t kNoticeStaleMs          = 2000;
+    constexpr std::uint32_t kSoldierSlotCount      = 0x200;
     constexpr std::size_t   kQuarkApplication       = 0x98;
     constexpr std::size_t   kApplicationPlayerVars  = 0x10;
     constexpr std::size_t   kSecondsSinceShower     = 0x64;
@@ -194,9 +195,10 @@ namespace
         if (due == 0 || now < due)
             return;
         g_NoticeDueMs[soldierIndex].store(0, std::memory_order_relaxed);
-        const bool noticed = SoldierNotice::Add(soldierIndex, SoldierNotice::kCalledForHelp, SoldierNotice::kNoTarget,
-                                                g_NoticeAt[soldierIndex].data());
-        LogInfo("VoiceDebug: soldier %u smell notice %d", soldierIndex, noticed ? 1 : 0);
+        if (now - due > kNoticeStaleMs)  // soldier was out of sight checks too long, Snake's spot is old
+            return;
+        SoldierNotice::Add(soldierIndex, SoldierNotice::kCalledForHelp, SoldierNotice::kNoTarget,
+                           g_NoticeAt[soldierIndex].data());
     }
 }
 
@@ -228,8 +230,6 @@ void SoldierStinkVoice_OnSightCheck(void* noticeController, std::uint32_t soldie
     const bool spoke = SayEw(soldiers, soldierIndex, kCloseStinkDelay, now);
     g_NoticeAt[soldierIndex] = { snake[0], snake[1], snake[2] };
     g_NoticeDueMs[soldierIndex].store(now + kNoticeAfterEwMs, std::memory_order_release);
-    LogInfo("VoiceDebug: soldier %u smells Snake (phase %d), EVR130 speak %d, notice in %llu ms",
-        soldierIndex, phase, spoke ? 1 : 0, kNoticeAfterEwMs);
 }
 
 void SoldierStinkVoice_OnHeld(std::uint16_t soldierIndex)
@@ -245,6 +245,18 @@ void SoldierStinkVoice_OnHeld(std::uint16_t soldierIndex)
     if (soldiers && IsAwake(soldiers, soldierIndex))
     {
         const bool spoke = SayEw(soldiers, soldierIndex, kHeldStinkDelay, now);
-        LogInfo("VoiceDebug: held soldier %u smells Snake, EVR130 speak %d", soldierIndex, spoke ? 1 : 0);
     }
+}
+
+void SoldierStinkVoice_ClearForReload()
+{
+    g_SnakeStinks.store(false, std::memory_order_relaxed);
+    g_StinkCheckedMs.store(0, std::memory_order_relaxed);
+    g_AnySoldierSpokeMs.store(0, std::memory_order_relaxed);
+    for (auto& spoke : g_SoldierSpokeMs)
+        spoke.store(0, std::memory_order_relaxed);
+    for (auto& checked : g_SoldierCheckedMs)
+        checked.store(0, std::memory_order_relaxed);
+    for (auto& due : g_NoticeDueMs)
+        due.store(0, std::memory_order_relaxed);
 }

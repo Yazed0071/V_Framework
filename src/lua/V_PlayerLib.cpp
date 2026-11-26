@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 extern "C" {
     #include "lua.h"
@@ -26,12 +26,28 @@ namespace
         { "ClearAllPlayerVoiceTypeOverrides",         l_ClearAllPlayerVoiceTypeOverrides },
 
         { "IsBarrierActive",                          l_IsBarrierActive },
-        { "GetPlayerHealth",                          l_GetPlayerHealth },
-        { "SetPlayerHealth",                          l_SetPlayerHealth },
+        { "GetPlayerLife",                            l_GetPlayerLife },
+        { "SetPlayerLife",                            l_SetPlayerLife },
+        { "GetLifeRecoveryPerSecond",                 l_GetLifeRecoveryPerSecond },
+        { "SetLifeRecoveryPerSecond",                 l_SetLifeRecoveryPerSecond },
+        { "GetLifeRecoveryCooldownTimer",             l_GetLifeRecoveryCooldownTimer },
+        { "SetLifeRecoveryCooldownTimer",             l_SetLifeRecoveryCooldownTimer },
 
         { "GetFultonCount",                           l_GetFultonCount },
         { "SetFultonCount",                           l_SetFultonCount },
         { "ResupplyFulton",                           l_ResupplyFulton },
+
+        { "GetItemBattery",                           l_GetItemBattery },
+        { "SetItemBattery",                           l_SetItemBattery },
+        { "SetItemOn",                                l_SetItemOn },
+        { "IsItemOn",                                 l_IsItemOn },
+        { "GetItemCount",                             l_GetItemCount },
+        { "SetItemCount",                             l_SetItemCount },
+
+        { "StartSkill",                               l_StartSkill },
+        { "StopSkill",                                l_StopSkill },
+        { "IsSkillActive",                            l_IsSkillActive },
+        { "GetSkillTime",                             l_GetSkillTime },
 
         { "RequestToSetTargetCqcStance",              l_RequestToSetTargetCqcStance },
 

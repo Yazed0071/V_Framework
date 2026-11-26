@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "EquipDevelopControllerImpl_GetSuitDevelopInfoIndex.h"
 #include "OutfitRegistry.h"
@@ -19,6 +19,7 @@
 #include "EquipDevelopControllerImpl_GetItemNameMessageId.h"
 #include "UniqueCharacterOwnSuit.h"
 #include "UniqueCharacterDefaultOutfit.h"
+#include "../player/FobPlayerCharacters.h"
 #include "log.h"
 #include "../equip/EquipDevelop_SetEquipUndeveloped.h"
 #include "../equip/EquipDevelop_AddToEquipDevelopTable.h"
@@ -160,6 +161,21 @@ namespace
                                : std::uint8_t{ 0x74 });
     }
 
+    static std::uint16_t WornCustomRow(const outfit::OutfitEntry* suit, std::uint8_t variant)
+    {
+        if (!suit) return 0;
+        const std::uint16_t keyed = outfit::GetOutfitVariantRow(suit->developId, 0xFF, variant);
+        return keyed != 0 ? keyed : suit->flowIndex;
+    }
+
+    static std::uint8_t WornCustomVariant(std::uint8_t selector)
+    {
+        const outfit::OutfitEntry* suit = nullptr;
+        std::uint8_t vi = 0;
+        outfit::TryGetOutfitByVariantSelector(selector, &suit, &vi);
+        return vi;
+    }
+
     static std::uint32_t __fastcall hkEdcGetSuitIndex(
         void* self, std::uint32_t camoType, std::uint32_t level)
     {
@@ -190,9 +206,10 @@ namespace
              && partsType <= outfit::kCustomPartsTypeEnd)
                 outfit::TryGetOutfitByPartsType(partsType, &liveSuit);
 
-            if (liveSuit && liveSuit->flowIndex != 0
-                && liveSuit->flowIndex < kEdcRowCapacity)
-                return liveSuit->flowIndex;
+            const std::uint16_t liveRow =
+                WornCustomRow(liveSuit, WornCustomVariant(selector));
+            if (liveRow != 0 && liveRow < kEdcRowCapacity)
+                return liveRow;
 
             const std::uint16_t own = uniqueownsuit::GetOwnSuitRow(livePT);
             if (own != 0 && own < kEdcRowCapacity)
@@ -217,11 +234,9 @@ namespace
                 std::uint8_t wvi = 0;
                 if (!outfit::TryGetOutfitByVariantSelector(selector, &worn, &wvi))
                     outfit::TryGetOutfitByPartsType(partsType, &worn);
-                if (worn && worn->flowIndex != 0
-                    && worn->flowIndex < kEdcRowCapacity)
-                {
-                    return worn->flowIndex;
-                }
+                const std::uint16_t wornRow = WornCustomRow(worn, wvi);
+                if (wornRow != 0 && wornRow < kEdcRowCapacity)
+                    return wornRow;
             }
             return ret;
         }
@@ -244,8 +259,9 @@ namespace
             outfit::TryGetOutfitByPartsType(partsType, &suit);
         }
 
-        if (suit && suit->flowIndex != 0 && suit->flowIndex < kEdcRowCapacity)
-            return suit->flowIndex;
+        const std::uint16_t suitRow = WornCustomRow(suit, vi);
+        if (suitRow != 0 && suitRow < kEdcRowCapacity)
+            return suitRow;
 
         if (selector >= outfit::kCustomSelectorStart &&
             selector <= outfit::kCustomSelectorEnd &&
@@ -256,6 +272,9 @@ namespace
             std::uint8_t vidx = 0;
             if (outfit::TryGetVanillaExtByVariantSelector(selector, &vpt, &vidx))
             {
+                const std::uint16_t keyedRow = outfit::GetOutfitVariantRow(0, vpt, vidx);
+                if (keyedRow != 0 && keyedRow < kEdcRowCapacity)
+                    return keyedRow;
                 const std::uint8_t baseCamo =
                     outfit::VanillaExtGetVariantSourceCamo(vpt, vidx);
                 if (baseCamo != 0xFF)
@@ -356,11 +375,12 @@ namespace
             outfit::TryGetOutfitByPartsType(partsType, &suit);
         }
 
-        if (!suit || suit->flowIndex == 0 || suit->flowIndex >= kEdcRowCapacity)
+        const std::uint16_t row = WornCustomRow(suit, vi);
+        if (row == 0 || row >= kEdcRowCapacity)
             return 0;
         if (outLiveSelector)
             *outLiveSelector = selector;
-        return suit->flowIndex;
+        return row;
     }
 
     static std::uint8_t ReadLiveSuitLevelClamped(void* edc)
@@ -369,7 +389,7 @@ namespace
         __try
         {
             auto* svm = *reinterpret_cast<std::uint8_t**>(
-                reinterpret_cast<std::uint8_t*>(edc) + 0x1e010);
+                reinterpret_cast<std::uint8_t*>(edc) + equip::DevFlagsPtrOffsetBase20() + 8);
             if (svm)
             {
                 const std::uint8_t v = svm[0xBA0];
@@ -405,7 +425,8 @@ namespace
                 && sel <= outfit::kCustomSelectorEnd)
             {
                 std::uint8_t vpt = 0, vidx = 0;
-                if (outfit::TryGetVanillaExtByVariantSelector(sel, &vpt, &vidx))
+                if (outfit::TryGetVanillaExtByVariantSelector(sel, &vpt, &vidx)
+                    && !outfit::IsOutfitVariantKeyed(0, vpt, vidx))
                 {
                     const std::uint8_t baseCamo =
                         outfit::VanillaExtGetVariantSourceCamo(vpt, vidx);
@@ -419,6 +440,11 @@ namespace
 
         if (r != 0xFFu)
             return r;
+
+        outfit::OutfitRowAlias alias{};
+        if (outfit::TryGetOutfitRowAlias(static_cast<std::uint16_t>(devIndex), &alias)
+            && alias.ownerDevelopId == 0)
+            return outfit::VanillaExtGetVariantSourceCamo(alias.vanillaPartsType, alias.variant);
 
         const outfit::OutfitEntry* rowOutfit = nullptr;
         if (!outfit::TryGetOutfitByFlowIndex(
@@ -440,6 +466,11 @@ namespace
             : std::uint8_t{0};
         if (r != 0)
             return r;
+
+        outfit::OutfitRowAlias alias{};
+        if (outfit::TryGetOutfitRowAlias(static_cast<std::uint16_t>(devIndex), &alias)
+            && alias.ownerDevelopId == 0)
+            return 1;
 
         const outfit::OutfitEntry* rowOutfit = nullptr;
         if (!outfit::TryGetOutfitByFlowIndex(
@@ -471,6 +502,9 @@ namespace
     {
         outfit::DrainPendingHeads();
         if (outfit::IsCustomHeadEquipId(static_cast<std::uint16_t>(devIndex)))
+            return 0;
+
+        if (playerType == fobchars::kPlayerType_Liquid)
             return 0;
 
         const outfit::OutfitEntry* e = nullptr;

@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <algorithm>
@@ -831,25 +831,8 @@ namespace equip
         g_GetQst = reinterpret_cast<GetQst_t>(
             ResolveGameAddress(gAddr.GetQuarkSystemTable));
 
-        std::uintptr_t flatTabA = 0;
-        std::uintptr_t flatTabB = 0;
-        switch (gGameBuild)
-        {
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_4a:
-            flatTabA = 0x142438780ull; flatTabB = 0x1424387c0ull; break;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4:
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_4a:
-            flatTabA = 0x142438a70ull; flatTabB = 0x142438ab0ull; break;
-        case ::AddressSetRuntime::GameBuild::En_1_0_15_3:
-            flatTabA = 0x142438b70ull; flatTabB = 0x142438bb0ull; break;
-        case ::AddressSetRuntime::GameBuild::Jp_1_0_15_3:
-            flatTabA = 0x142438bc0ull; flatTabB = 0x142438c00ull; break;
-        default:
-            break;
-        }
-        g_FlatTabTableA = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(flatTabA));
-        g_FlatTabTableB = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(flatTabB));
+        g_FlatTabTableA = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.MenuDevelopGrid_FlatTabTableA));
+        g_FlatTabTableB = reinterpret_cast<std::uintptr_t>(ResolveGameAddress(gAddr.MenuDevelopGrid_FlatTabTableB));
         if (!g_FlatTabTableA || !g_FlatTabTableB)
             LogError("MenuDevelopGrid: flat-tab row tables missing for %s, flat "
                 "develop tab broken", GetGameBuildName(gGameBuild));

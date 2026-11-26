@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <cmath>
 #include <cstdint>
@@ -11,6 +11,9 @@
 #include "V_TppBuddyServiceLib.h"
 #include "log.h"
 
+#include "../hooks/buddy/BattleGearArmory.h"
+#include "../hooks/buddy/BattleGearBuddy.h"
+#include "../hooks/buddy/BattleGearWeapons.h"
 #include "../hooks/buddy/BuddyOutfitEquip.h"
 #include "../hooks/buddy/BuddyOutfitRegistry.h"
 #include "../hooks/buddy/EquipControllerImpl_InitCurrentSlot.h"
@@ -95,10 +98,16 @@ namespace
         NumberField f = ReadNumberField(L, branchIdx, "damageRate", &n);
         if (f == NumberField::Number && n >= 0.0f)
         {
-            const long rate = std::lround(n * 200.0f);
-            fx.damageRate = rate > buddyoutfit::kHorseMaxDamageRate ? buddyoutfit::kHorseMaxDamageRate : static_cast<std::int32_t>(rate);
-            if (rate > buddyoutfit::kHorseMaxDamageRate)
+            const float scaledRate = n * 200.0f;
+            if (scaledRate > static_cast<float>(buddyoutfit::kHorseMaxDamageRate))
+            {
+                fx.damageRate = buddyoutfit::kHorseMaxDamageRate;
                 LogWarn("RegisterBuddyOutfit '%s': damageRate tops out at 1.275, 1.275 used", key);
+            }
+            else
+            {
+                fx.damageRate = static_cast<std::int32_t>(std::lround(scaledRate));
+            }
         }
         else if (f != NumberField::Absent)
         {
@@ -214,6 +223,129 @@ namespace
         return true;
     }
 
+#ifdef _DEBUG   // Battle Gear is unfinished: Debug test builds only
+    constexpr const char* kRoofGunFireType = "ROOF_GUN";
+    constexpr const char* kBuiltInRoofGun  = "MACHINE_GUN";
+
+    bool AllocateBattleGearDevelopId(const std::string& key, std::uint16_t* developId)
+    {
+        std::int32_t id = 0;
+        if (!V_FrameWorkState::ResolveOrCreateDevelopId(key.c_str(), 0, id) || id <= 0 || id > 0xFFFF)
+        {
+            LogError("RegisterBuddyOutfit '%s': developId allocation failed, not registered", key.c_str());
+            return false;
+        }
+        *developId = static_cast<std::uint16_t>(id);
+        return true;
+    }
+
+    // a TppDamage.ATK_* or TppEquip.BL_* value; 0 without the field
+    std::uint32_t ReadBattleGearId(lua_State* L, int branchIdx, const std::string& key, const char* field, float most)
+    {
+        float number = 0.0f;
+        const NumberField read = ReadNumberField(L, branchIdx, field, &number);
+        if (read == NumberField::Number && number >= 1.0f && number <= most)
+            return static_cast<std::uint32_t>(number);
+        if (read != NumberField::Absent)
+            LogWarn("RegisterBuddyOutfit '%s': %s must be a number from 1 to %.0f, the built-in gun's is used", key.c_str(), field, most);
+        return 0;
+    }
+
+    bool ReadBattleGearOffset(lua_State* L, int branchIdx, const std::string& key, const char* field, float* offset)   // { x, y, z }
+    {
+        LuaGetField(L, branchIdx, field);
+        const int type = LuaType(L, -1);
+        if (type == LUA_TTABLE)
+        {
+            const int at = GetLuaTop(L);
+            const char* const axes[3] = { "x", "y", "z" };
+            for (int i = 0; i < 3; ++i)
+                if (ReadNumberField(L, at, axes[i], &offset[i]) == NumberField::Invalid)
+                    LogWarn("RegisterBuddyOutfit '%s': %s.%s must be a number, 0 used", key.c_str(), field, axes[i]);
+        }
+        else if (type != LUA_TNIL)
+        {
+            LogWarn("RegisterBuddyOutfit '%s': %s must be a table { x, y, z } in metres, ignored", key.c_str(), field);
+        }
+        LuaPop(L, 1);
+        return type == LUA_TTABLE;
+    }
+
+    int RegisterBattleGearRoofGun(lua_State* L, int branchIdx, const std::string& key)
+    {
+        battleGearArmory::RoofGun gun;
+        gun.key = key;
+        if (const std::uint32_t attackId = ReadBattleGearId(L, branchIdx, key, "attackId", 65535.0f))
+            gun.attackId = static_cast<std::uint16_t>(attackId);
+        if (const std::uint32_t bulletId = ReadBattleGearId(L, branchIdx, key, "bulletId", 255.0f))
+            gun.bulletId = static_cast<std::uint8_t>(bulletId);
+        float interval = 0.0f;
+        const NumberField read = ReadNumberField(L, branchIdx, "fireInterval", &interval);
+        if (read == NumberField::Number && interval >= 0.03f && interval <= 10.0f)
+            gun.fireInterval = interval;
+        else if (read != NumberField::Absent)
+            LogWarn("RegisterBuddyOutfit '%s': fireInterval must be 0.03 to 10 seconds, the machine gun's is used", key.c_str());
+        if (!AllocateBattleGearDevelopId(key, &gun.developId) || !battleGearArmory::RegisterRoofGun(gun))
+        {
+            PushLuaBool(L, false);
+            return 1;
+        }
+        LogInfo("RegisterBuddyOutfit %s Battle Gear roof gun:%u developId:%u attackId:%u bulletId:%u fireInterval:%.3f", key.c_str(),
+            static_cast<unsigned>(gun.value), static_cast<unsigned>(gun.developId), static_cast<unsigned>(gun.attackId),
+            static_cast<unsigned>(gun.bulletId), gun.fireInterval);
+        PushLuaNumber(L, static_cast<float>(gun.value));
+        PushLuaNumber(L, static_cast<float>(gun.developId));
+        return 2;
+    }
+
+    int RegisterBattleGearMainWeapon(lua_State* L, int branchIdx, const std::string& key)
+    {
+        LuaGetField(L, branchIdx, "fireType");
+        const bool roofGun = LuaType(L, -1) == LUA_TSTRING && std::strcmp(GetLuaString(L, -1), kRoofGunFireType) == 0;
+        LuaPop(L, 1);
+        if (roofGun)
+            return RegisterBattleGearRoofGun(L, branchIdx, key);
+
+        battleGearArmory::MainWeapon weapon;
+        weapon.key = key;
+        weapon.fireType = battleGearArmory::kRailGun;
+        bool present = false;
+        weapon.fpkPath = ReadPathField(L, branchIdx, "RegisterBuddyOutfit", key.c_str(), "fpkPath", ".fpk", &present);
+        if (!weapon.fpkPath)
+        {
+            LogWarn("RegisterBuddyOutfit '%s': battleGear branch needs fpkPath, not registered", key.c_str());
+            PushLuaBool(L, false);
+            return 1;
+        }
+
+        LuaGetField(L, branchIdx, "fireType");
+        if (LuaType(L, -1) != LUA_TNIL
+            && !battleGearArmory::FireTypeFromName(LuaType(L, -1) == LUA_TSTRING ? GetLuaString(L, -1) : nullptr, &weapon.fireType))
+            LogWarn("RegisterBuddyOutfit '%s': fireType must be \"RAIL_GUN\", \"H_MISSILE\" or \"ROOF_GUN\", RAIL_GUN used", key.c_str());
+        LuaPop(L, 1);
+
+        if (weapon.fireType == battleGearArmory::kRailGun)   // the missiles are the walker's own: no round, muzzle or mount of the gun's
+        {
+            weapon.attackId = static_cast<std::uint16_t>(ReadBattleGearId(L, branchIdx, key, "attackId", 65535.0f));
+            weapon.bulletId = static_cast<std::uint8_t>(ReadBattleGearId(L, branchIdx, key, "bulletId", 255.0f));
+            weapon.hasMuzzle = ReadBattleGearOffset(L, branchIdx, key, "muzzle", weapon.muzzle);
+            weapon.hasMount = ReadBattleGearOffset(L, branchIdx, key, "mount", weapon.mount);
+        }
+
+        if (!AllocateBattleGearDevelopId(key, &weapon.developId) || !battleGearArmory::Register(weapon))
+        {
+            PushLuaBool(L, false);
+            return 1;
+        }
+
+        LogInfo("RegisterBuddyOutfit %s Battle Gear main weapon:%u developId:%u fireType:%s", key.c_str(),
+            static_cast<unsigned>(weapon.value), static_cast<unsigned>(weapon.developId), battleGearArmory::FireTypeName(weapon.fireType));
+        PushLuaNumber(L, static_cast<float>(weapon.value));
+        PushLuaNumber(L, static_cast<float>(weapon.developId));
+        return 2;
+    }
+#endif
+
     int __cdecl l_RegisterBuddyOutfit(lua_State* L)
     {
         V_FrameWorkState::SaveBatch batch;
@@ -235,6 +367,13 @@ namespace
             PushLuaBool(L, false);
             return 1;
         }
+
+#ifdef _DEBUG
+        LuaGetField(L, 1, "battleGear");
+        if (LuaType(L, -1) == LUA_TTABLE)
+            return RegisterBattleGearMainWeapon(L, GetLuaTop(L), key);
+        LuaPop(L, 1);
+#endif
 
         buddyoutfit::Entry e;
         e.key = key;
@@ -404,11 +543,83 @@ namespace
         return 1;
     }
 
+#ifdef _DEBUG   // Battle Gear is unfinished: Debug test builds only
+    int __cdecl l_SetBattleGearMainWeapon(lua_State* L)
+    {
+        const char* name = GetLuaString(L, 1);
+        battleGearArmory::MainWeapon weapon;
+        const bool ok = battleGearArmory::TryGetByKey(name, &weapon)
+                     && battleGearWeapons::SetChosenMainWeapon(battleGearArmory::FireTypeName(weapon.fireType))
+                     && battleGearArmory::SetScriptPick(name);
+        if (!ok)
+            LogWarn("V_TppBuddyService.SetBattleGearMainWeapon: needs \"RAIL_GUN\", \"H_MISSILE\" or a registered Battle Gear main "
+                    "weapon key, got %s", name ? name : "no name");
+        PushLuaBool(L, ok);
+        return 1;
+    }
+
+    int __cdecl l_GetBattleGearMainWeapon(lua_State* L)
+    {
+        const std::string key = battleGearArmory::Picked().key;
+        g_lua_pushstring(L, const_cast<char*>(key.c_str()));
+        return 1;
+    }
+
+    int __cdecl l_SetBattleGearRoofGun(lua_State* L)
+    {
+        const char* name = LuaType(L, 1) == LUA_TSTRING ? GetLuaString(L, 1) : nullptr;
+        const bool ok = name && battleGearArmory::SetRoofGunScriptPick(std::strcmp(name, kBuiltInRoofGun) == 0 ? nullptr : name);
+        if (!ok)
+            LogWarn("V_TppBuddyService.SetBattleGearRoofGun: needs \"MACHINE_GUN\" or a registered Battle Gear roof gun key, got %s",
+                    name ? name : "no name");
+        PushLuaBool(L, ok);
+        return 1;
+    }
+
+    int __cdecl l_GetBattleGearRoofGun(lua_State* L)
+    {
+        const std::string key = battleGearArmory::PickedRoofGun().key;
+        g_lua_pushstring(L, const_cast<char*>(key.empty() ? kBuiltInRoofGun : key.c_str()));
+        return 1;
+    }
+
+    int __cdecl l_RedeployBattleGear(lua_State* L)
+    {
+        PushLuaBool(L, battleGear::Redeploy());
+        return 1;
+    }
+
+    int __cdecl l_SetBattleGearHead(lua_State* L)
+    {
+        const char* name = GetLuaString(L, 1);
+        const bool ok = battleGearWeapons::SetChosenHead(name);
+        if (!ok)
+            LogWarn("V_TppBuddyService.SetBattleGearHead: needs \"SUPPORT\", \"SCOUTING\" or \"INTERCEPT\", got %s", name ? name : "no name");
+        PushLuaBool(L, ok);
+        return 1;
+    }
+
+    int __cdecl l_GetBattleGearHead(lua_State* L)
+    {
+        g_lua_pushstring(L, const_cast<char*>(battleGearWeapons::ChosenHeadName()));
+        return 1;
+    }
+#endif
+
     luaL_Reg g_VTppBuddyServiceLib[] =
     {
-        { "RegisterBuddyOutfit",   l_RegisterBuddyOutfit },
-        { "SetBuddyOutfit",        l_SetBuddyOutfit },
-        { "SetQuietWeaponMotion",  l_SetQuietWeaponMotion },
+        { "RegisterBuddyOutfit",       l_RegisterBuddyOutfit },
+        { "SetBuddyOutfit",            l_SetBuddyOutfit },
+        { "SetQuietWeaponMotion",      l_SetQuietWeaponMotion },
+#ifdef _DEBUG
+        { "SetBattleGearMainWeapon",   l_SetBattleGearMainWeapon },
+        { "GetBattleGearMainWeapon",   l_GetBattleGearMainWeapon },
+        { "SetBattleGearRoofGun",      l_SetBattleGearRoofGun },
+        { "GetBattleGearRoofGun",      l_GetBattleGearRoofGun },
+        { "RedeployBattleGear",        l_RedeployBattleGear },
+        { "SetBattleGearHead",         l_SetBattleGearHead },
+        { "GetBattleGearHead",         l_GetBattleGearHead },
+#endif
         { nullptr, nullptr }
     };
 }

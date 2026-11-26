@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include <Windows.h>
 #include <cstdint>
@@ -9,6 +9,7 @@
 #include "HookUtils.h"
 #include "log.h"
 #include "VIPHoldupHook.h"
+#include "VIPImportant.h"
 #include "MissionCodeGuard.h"
 #include "PlayerAlertPhase.h"
 #include "AddressSet.h"
@@ -27,9 +28,6 @@ namespace
     static constexpr std::uint32_t HASH_EVENT_HOLDUP_RECOVERY = 0x67926792u;
 
 
-    static constexpr std::uint32_t HASH_REACTION_CATEGORY_NOTICE = 0x95EA16B0u;
-
-
     static constexpr std::uint32_t HASH_HOLDUP_RECOVERY_VIP = 0x92D098DEu;
 
 
@@ -43,13 +41,6 @@ namespace
 
 
     static State_StandRecoveryHoldup_t g_OrigState_StandRecoveryHoldup = nullptr;
-
-
-    struct ImportantTargetInfo
-    {
-        bool important = false;
-        bool isOfficer = false;
-    };
 
 
     static bool UseCustomNonVipRecoveryNow()
@@ -70,9 +61,6 @@ namespace
     {
         ULONGLONG suppressUntilMs = 0;
     };
-
-
-    static std::unordered_map<std::uint16_t, ImportantTargetInfo> g_ImportantTargetsBySoldierIndex;
 
 
     static std::unordered_map<std::uint32_t, RecentRecoveryDispatch> g_RecentDispatchByActor;
@@ -102,157 +90,6 @@ static std::uint32_t MakeCustomNonVipRecoveryKey(
 }
 
 
-static bool SafeReadWord(std::uintptr_t addr, std::uint16_t& outValue)
-{
-    if (!addr)
-        return false;
-
-    __try
-    {
-        outValue = *reinterpret_cast<const std::uint16_t*>(addr);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-
-static std::uint16_t NormalizeSoldierIndexFromGameObjectId(std::uint32_t gameObjectId)
-{
-    const std::uint16_t raw = static_cast<std::uint16_t>(gameObjectId);
-
-    if (raw == 0xFFFFu)
-        return 0xFFFFu;
-
-    if ((raw & 0xFE00u) != 0x0400u)
-        return 0xFFFFu;
-
-    return static_cast<std::uint16_t>(raw & 0x01FFu);
-}
-
-
-static std::uintptr_t GetNoticeActionEntry(void* self, std::uint32_t actorId)
-{
-    if (!self)
-        return 0;
-
-    const std::uintptr_t selfAddr = reinterpret_cast<std::uintptr_t>(self);
-
-    __try
-    {
-        const std::uint32_t baseIndex =
-            *reinterpret_cast<const std::uint32_t*>(selfAddr + 0x98ull);
-
-        const std::uint64_t tableBase =
-            *reinterpret_cast<const std::uint64_t*>(selfAddr + 0x90ull);
-
-        const std::uint32_t slot = actorId - baseIndex;
-        return static_cast<std::uintptr_t>(
-            tableBase + (static_cast<std::uint64_t>(slot) * 0x68ull));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return 0;
-    }
-}
-
-
-static std::uint32_t GetEventHash(void* evt)
-{
-    if (!evt)
-        return 0;
-
-    __try
-    {
-        const auto objectAddr = reinterpret_cast<std::uintptr_t>(evt);
-        const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(objectAddr);
-        if (!vtbl)
-            return 0;
-
-        const auto fnAddr = *reinterpret_cast<const std::uintptr_t*>(vtbl + 0x0ull);
-        if (!fnAddr)
-            return 0;
-
-        using GetHashFn_t = std::uint32_t(__fastcall*)(void*);
-        auto fn = reinterpret_cast<GetHashFn_t>(fnAddr);
-        return fn(evt);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return 0;
-    }
-}
-
-
-static void DispatchNoticeReaction(void* noticeSelf, std::uint32_t actorId, std::uint32_t reactionHash)
-{
-    if (!noticeSelf)
-        return;
-
-    __try
-    {
-        const std::uintptr_t selfAddr = reinterpret_cast<std::uintptr_t>(noticeSelf);
-
-        const std::uint64_t soldierActionRoot =
-            *reinterpret_cast<const std::uint64_t*>(selfAddr + 0x78ull);
-        if (!soldierActionRoot)
-            return;
-
-        const std::uint64_t reactionMgr =
-            *reinterpret_cast<const std::uint64_t*>(
-                static_cast<std::uintptr_t>(soldierActionRoot) + 0xA8ull);
-        if (!reactionMgr)
-            return;
-
-        const std::uint64_t vtbl =
-            *reinterpret_cast<const std::uint64_t*>(static_cast<std::uintptr_t>(reactionMgr));
-        if (!vtbl)
-            return;
-
-        const std::uint64_t fnAddr =
-            *reinterpret_cast<const std::uint64_t*>(static_cast<std::uintptr_t>(vtbl) + 0x20ull);
-        if (!fnAddr)
-            return;
-
-        using DispatchFn_t =
-            void(__fastcall*)(void* mgr,
-                std::uint32_t actorId,
-                std::uint32_t categoryHash,
-                int arg4,
-                std::uint32_t reactionHash,
-                float delaySeconds);
-
-        auto fn = reinterpret_cast<DispatchFn_t>(fnAddr);
-        fn(
-            reinterpret_cast<void*>(reactionMgr),
-            actorId,
-            HASH_REACTION_CATEGORY_NOTICE,
-            1,
-            reactionHash,
-            1.0f);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        LogWarn("Holdup: recovery reaction dispatch faulted, reaction skipped");
-    }
-}
-
-
-static bool TryGetImportantTargetInfo(std::uint16_t soldierIndex, ImportantTargetInfo& outInfo)
-{
-    std::lock_guard<std::mutex> lock(g_HoldupMutex);
-
-    const auto it = g_ImportantTargetsBySoldierIndex.find(soldierIndex);
-    if (it == g_ImportantTargetsBySoldierIndex.end())
-        return false;
-
-    outInfo = it->second;
-    return outInfo.important;
-}
-
-
 static bool TryResolveHoldupRecoveredTargetIds(
     void* self,
     std::uint32_t actorId,
@@ -262,16 +99,11 @@ static bool TryResolveHoldupRecoveredTargetIds(
     outRecoveredGameObjectId = 0xFFFFu;
     outRecoveredSoldierIndex = 0xFFFFu;
 
-    const std::uintptr_t entry = GetNoticeActionEntry(self, actorId);
-    if (!entry)
-        return false;
-
     std::uint16_t recoveredGameObjectId = 0xFFFFu;
-    if (!SafeReadWord(entry + 0x52ull, recoveredGameObjectId))
+    if (!VIPImportant_ReadNoticeComrade(self, actorId, &recoveredGameObjectId, nullptr))
         return false;
 
-    const std::uint16_t recoveredSoldierIndex =
-        NormalizeSoldierIndexFromGameObjectId(recoveredGameObjectId);
+    const std::uint16_t recoveredSoldierIndex = SoldierIndexOfGameObjectId(recoveredGameObjectId);
 
     outRecoveredGameObjectId = recoveredGameObjectId;
     outRecoveredSoldierIndex = recoveredSoldierIndex;
@@ -383,20 +215,6 @@ static bool ShouldSuppressCustomNonVipRecoveryNow(
 }
 
 
-static void ClearAllCustomNonVipRecovery()
-{
-    std::lock_guard<std::mutex> lock(g_HoldupMutex);
-    g_CustomNonVipRecoveryPendingTargets.clear();
-}
-
-
-static void ClearAllCustomNonVipRecoverySuppressWindows()
-{
-    std::lock_guard<std::mutex> lock(g_HoldupMutex);
-    g_RecentNonVipSuppressByTarget.clear();
-}
-
-
 static void __fastcall hkState_StandRecoveryHoldup(
     void* self,
     std::uint32_t actorId,
@@ -409,7 +227,7 @@ static void __fastcall hkState_StandRecoveryHoldup(
     {
         const bool useCustomNonVipRecovery = UseCustomNonVipRecoveryNow();
 
-        const std::uint32_t eventHash = GetEventHash(evt);
+        const std::uint32_t eventHash = VIPImportant_EventHash(evt);
 
         std::uint16_t recoveredGameObjectId = 0xFFFFu;
         std::uint16_t recoveredSoldierIndex = 0xFFFFu;
@@ -420,10 +238,9 @@ static void __fastcall hkState_StandRecoveryHoldup(
                 recoveredGameObjectId,
                 recoveredSoldierIndex);
 
-        ImportantTargetInfo info{};
         const bool isImportant =
             resolvedTarget &&
-            TryGetImportantTargetInfo(recoveredSoldierIndex, info);
+            IsVIPSoldier(VIPImportant_NoticeSoldiers(self), recoveredSoldierIndex);
 
 
         if (useCustomNonVipRecovery &&
@@ -441,7 +258,7 @@ static void __fastcall hkState_StandRecoveryHoldup(
             {
                 if (ShouldDispatchHoldupRecovery(actorId, recoveredGameObjectId))
                 {
-                    DispatchNoticeReaction(self, actorId, HASH_HOLDUP_RECOVERY_VIP);
+                    VIPImportant_PlayVoiceLine(self, actorId, HASH_HOLDUP_RECOVERY_VIP);
                 }
 
 
@@ -453,7 +270,7 @@ static void __fastcall hkState_StandRecoveryHoldup(
             {
                 if (ShouldDispatchCustomNonVipRecovery(recoveredGameObjectId, recoveredSoldierIndex))
                 {
-                    DispatchNoticeReaction(self, actorId, HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM);
+                    VIPImportant_PlayVoiceLine(self, actorId, HASH_HOLDUP_RECOVERY_NONVIP_CUSTOM);
                     BeginCustomNonVipRecoverySuppressWindow(recoveredGameObjectId, recoveredSoldierIndex);
                 }
                 else
@@ -491,78 +308,12 @@ static void __fastcall hkState_StandRecoveryHoldup(
 }
 
 
-void Add_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId, bool isOfficer)
+void VIPHoldup_ClearForReload()
 {
-    const std::uint16_t soldierIndex =
-        NormalizeSoldierIndexFromGameObjectId(gameObjectId);
-
-    if (soldierIndex == 0xFFFFu)
-    {
-        LogWarn("SetVIPImportant: 0x%08X is not a soldier, holdup recovery not set", gameObjectId);
-        return;
-    }
-
-    ImportantTargetInfo info{};
-    info.important = true;
-    info.isOfficer = isOfficer;
-
-    {
-        std::lock_guard<std::mutex> lock(g_HoldupMutex);
-        g_ImportantTargetsBySoldierIndex[soldierIndex] = info;
-    }
-}
-
-
-void Remove_VIPHoldupImportantGameObjectId(std::uint32_t gameObjectId)
-{
-    const std::uint16_t soldierIndex =
-        NormalizeSoldierIndexFromGameObjectId(gameObjectId);
-
-    if (soldierIndex == 0xFFFFu)
-    {
-        LogWarn("RemoveVIPImportant: 0x%08X is not a soldier, ignored", gameObjectId);
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(g_HoldupMutex);
-        g_ImportantTargetsBySoldierIndex.erase(soldierIndex);
-        g_RecentDispatchByActor.clear();
-        g_CustomNonVipRecoveryPendingTargets.clear();
-        g_RecentNonVipSuppressByTarget.clear();
-    }
-}
-
-
-bool IsVIPHoldupImportantSoldierIndex(std::uint16_t soldierIndex, bool* outIsOfficer)
-{
-    ImportantTargetInfo info{};
-    if (!TryGetImportantTargetInfo(soldierIndex, info))
-        return false;
-
-    if (outIsOfficer)
-        *outIsOfficer = info.isOfficer;
-
-    return true;
-}
-
-
-void Clear_VIPHoldupImportantGameObjectIds()
-{
-    {
-        std::lock_guard<std::mutex> lock(g_HoldupMutex);
-        g_ImportantTargetsBySoldierIndex.clear();
-        g_RecentDispatchByActor.clear();
-        g_CustomNonVipRecoveryPendingTargets.clear();
-        g_RecentNonVipSuppressByTarget.clear();
-    }
-}
-
-
-void Reset_CustomNonVipRecoveryTracking()
-{
-    ClearAllCustomNonVipRecovery();
-    ClearAllCustomNonVipRecoverySuppressWindows();
+    std::lock_guard<std::mutex> lock(g_HoldupMutex);
+    g_RecentDispatchByActor.clear();
+    g_CustomNonVipRecoveryPendingTargets.clear();
+    g_RecentNonVipSuppressByTarget.clear();
 }
 
 
@@ -584,13 +335,7 @@ bool Uninstall_VIPHoldup_Hook()
     DisableAndRemoveHook(ResolveGameAddress(gAddr.State_StandRecoveryHoldup));
     g_OrigState_StandRecoveryHoldup = nullptr;
 
-    {
-        std::lock_guard<std::mutex> lock(g_HoldupMutex);
-        g_ImportantTargetsBySoldierIndex.clear();
-        g_RecentDispatchByActor.clear();
-        g_CustomNonVipRecoveryPendingTargets.clear();
-        g_RecentNonVipSuppressByTarget.clear();
-    }
+    VIPHoldup_ClearForReload();
 
     return true;
 }

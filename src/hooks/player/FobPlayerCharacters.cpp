@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 
 #include "FobPlayerCharacters.h"
 
@@ -9,8 +9,14 @@
 #include <cstring>
 
 #include "AddressSet.h"
+#include "FoxHashes.h"
+#include "FoxPath.h"
+#include "../fox/gm/GameObjectInstance.h"
+#include "../soldier/HostageGender.h"
+#include "../soldier/SoldierVoiceType.h"
 #include "HookUtils.h"
 #include "MissionCodeGuard.h"
+#include "Player2Impl_CallVoice.h"
 #include "log.h"
 #include "../outfit/OutfitRegistry.h"
 #include "../outfit/StaffControllerImpl_AddStaff.h"
@@ -32,6 +38,7 @@ namespace
         std::uint8_t*       site;
         std::uint8_t        original[kMaxPatchLen];
         bool                applied;
+        std::uint8_t        written[kMaxPatchLen];
     };
 
     const std::uint8_t kUniqueCharaListGatePattern[] = {
@@ -198,6 +205,7 @@ namespace
         if (!WriteBytes(s.site, patch, s.patchLen))
             return false;
 
+        std::memcpy(s.written, patch, s.patchLen);
         s.applied = true;
         return true;
     }
@@ -205,6 +213,12 @@ namespace
     void RestoreSite(PatchSite& s)
     {
         if (!s.applied || !s.site) return;
+        if (std::memcmp(s.site, s.written, s.patchLen) != 0)
+        {
+            LogWarn("FobChars: %s was changed by someone else, left as is", s.name);
+            s.applied = false;
+            return;
+        }
         if (WriteBytes(s.site, s.original, s.patchLen))
         {
             s.applied = false;
@@ -301,6 +315,7 @@ namespace
     static std::uint8_t* g_SlotRowGate    = nullptr;
     static std::uint8_t* g_SlotRowStub    = nullptr;
     static std::uint8_t  g_SlotRowOriginal[8]{};
+    static std::uint8_t  g_SlotRowWritten[8]{};
     static bool          g_SlotRowApplied = false;
 
     static std::uint8_t __fastcall SlotRowKeepVanillaFill()
@@ -444,6 +459,9 @@ namespace
             return false;
         }
 
+        std::memcpy(g_SlotRowWritten,     &newA, 4);
+        std::memcpy(g_SlotRowWritten + 4, &newB, 4);
+
         g_SlotRowGate    = hit;
         g_SlotRowStub    = stub;
         g_SlotRowApplied = true;
@@ -454,9 +472,15 @@ namespace
     {
         if (!g_SlotRowApplied || !g_SlotRowGate) return;
 
-        WriteBytes(g_SlotRowGate + kSlotRowRelVanillaA, g_SlotRowOriginal, 4);
-        WriteBytes(g_SlotRowGate + kSlotRowRelVanillaB,
-            g_SlotRowOriginal + 4, 4);
+        if (std::memcmp(g_SlotRowGate + kSlotRowRelVanillaA, g_SlotRowWritten, 4) == 0)
+            WriteBytes(g_SlotRowGate + kSlotRowRelVanillaA, g_SlotRowOriginal, 4);
+        else
+            LogWarn("FobChars: sortie-prep row gate A was changed by someone else, left as is");
+
+        if (std::memcmp(g_SlotRowGate + kSlotRowRelVanillaB, g_SlotRowWritten + 4, 4) == 0)
+            WriteBytes(g_SlotRowGate + kSlotRowRelVanillaB, g_SlotRowOriginal + 4, 4);
+        else
+            LogWarn("FobChars: sortie-prep row gate B was changed by someone else, left as is");
 
         g_SlotRowApplied = false;
     }
@@ -910,6 +934,393 @@ namespace
         g_QuietRowActive = true;
     }
 
+    using SetPlayerLoadoutInfoFromStaffId_t =
+        std::uint64_t (__fastcall*)(void*, std::uint8_t*, std::uint64_t);
+    using PrepModeQuery_t = std::uint8_t (__fastcall*)(void*);
+    using LangIdToKey_t   = void* (__fastcall*)(std::uint64_t*, const char*);
+    using GetLangText_t   = const char* (__fastcall*)(std::uint64_t);
+
+    constexpr std::size_t   kListEnabledOff     = 0x12C;  // one byte per row
+    constexpr std::size_t   kListSeedsOff       = 0x328;  // one packed staff seed per row
+    constexpr std::size_t   kListNamesOff       = 0x12E0; // 0x36 chars per row
+    constexpr std::size_t   kListPortraitsOff   = 0x8CB8; // one texture path hash per row
+    constexpr std::size_t   kListCountOff       = 0x9C8C;
+    constexpr std::size_t   kListCursorOff      = 0x9C90;
+    constexpr std::size_t   kListCurrentTypeOff = 0x9C94;
+    constexpr std::size_t   kListNameSize       = 0x36;
+    constexpr std::uint16_t kListMaxRows        = 0x1F7;
+
+    constexpr std::size_t kPrepIsSnakeOnlyVtbl = 0x4D0;
+    constexpr std::size_t kPrepIsFobSortieVtbl = 0x4F0;
+
+    constexpr std::uint8_t kUniqueStaffId_Snake  = 0xF8;
+    constexpr std::uint8_t kUniqueStaffId_Avatar = 0xF7;
+
+    constexpr std::uint64_t kLiquidSeedBit = 1ull << 32; // lowest bit of the random part of a unique seed
+
+    constexpr std::size_t kInfoPartsTypeOff  = 0x00;
+    constexpr std::size_t kInfoCamoTypeOff   = 0x01;
+    constexpr std::size_t kInfoHandTypeOff   = 0x02;
+    constexpr std::size_t kInfoHeadOptionOff = 0x03;
+    constexpr std::size_t kInfoPlayerTypeOff = 0xC0;
+
+    constexpr const char* kLiquidPartsFpk    = "/Assets/tpp/pack/player/parts/plparts_liquid.fpk";
+    constexpr const char* kLiquidNameLangId  = "marker_chara_eli";
+    constexpr const char* kLiquidPortrait    = "/Assets/tpp/ui/texture/StaffImage/mb_staff_face_liquid.ftex";
+
+    const std::uint8_t kSetPlayerLoadoutInfoEntry[] = {
+        0x40, 0x53, 0x56, 0x57, 0x41, 0x56,
+        0x48, 0x83, 0xEC, 0x28,
+        0x48, 0x8B, 0xDA,
+        0x4C, 0x89, 0x64, 0x24, 0x60,
+        0x4C, 0x89, 0x6C, 0x24, 0x68,
+        0x4D, 0x8B, 0xE8,
+        0x33, 0xD2,
+        0x41, 0xB8, 0xE8, 0x00, 0x00, 0x00
+    };
+
+    static SetPlayerLoadoutInfoFromStaffId_t g_SetPlayerLoadoutInfoOrig   = nullptr;
+    static void*                             g_SetPlayerLoadoutInfoTarget = nullptr;
+    static std::atomic<std::uint64_t>        g_LiquidSeed{ 0 };
+    static std::atomic<int>                  g_LoggedLiquidPackMissing{ 0 };
+
+    static std::uint8_t UniqueStaffIdOfSeed(std::uint64_t seed)
+    {
+        if (static_cast<std::uint8_t>((seed >> 7) & 0x3F) != kStaffUniqueMark) return 0;
+        return static_cast<std::uint8_t>(seed >> 45); // the id is the top byte of the seed's high word
+    }
+
+    static bool LiquidRowAllowed(void* selector)
+    {
+        __try
+        {
+            auto* base = reinterpret_cast<std::uint8_t*>(selector);
+            auto* host = *reinterpret_cast<std::uint8_t**>(base + 0x38);
+            auto* menu = *reinterpret_cast<std::uint8_t**>(host + 0x40);
+            void* prep = *reinterpret_cast<void**>(menu + 0x40);
+            if (!prep) return false;
+
+            auto** vtbl = *reinterpret_cast<void***>(prep);
+            auto snakeOnly = reinterpret_cast<PrepModeQuery_t>(vtbl[kPrepIsSnakeOnlyVtbl / sizeof(void*)]);
+            auto fobSortie = reinterpret_cast<PrepModeQuery_t>(vtbl[kPrepIsFobSortieVtbl / sizeof(void*)]);
+            return snakeOnly(prep) == 0 && fobSortie(prep) == 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static bool InsertLiquidRow(void* selector, const char* name, std::uint64_t portrait, std::uint64_t* outSeed)
+    {
+        __try
+        {
+            auto* base      = reinterpret_cast<std::uint8_t*>(selector);
+            auto* enabled   = base + kListEnabledOff;
+            auto* seeds     = reinterpret_cast<std::uint64_t*>(base + kListSeedsOff);
+            auto* names     = reinterpret_cast<char*>(base + kListNamesOff);
+            auto* portraits = reinterpret_cast<std::uint64_t*>(base + kListPortraitsOff);
+            auto* count     = reinterpret_cast<std::uint16_t*>(base + kListCountOff);
+            auto* cursor    = reinterpret_cast<std::uint32_t*>(base + kListCursorOff);
+            const int currentType = *reinterpret_cast<int*>(base + kListCurrentTypeOff);
+
+            std::uint16_t rows = *count;
+            if (rows == 0 || UniqueStaffIdOfSeed(seeds[0]) != kUniqueStaffId_Snake) return false;
+            if (rows >= kListMaxRows) rows = kListMaxRows - 1;
+
+            std::uint16_t at = 1;
+            while (at < rows)
+            {
+                const std::uint8_t id = UniqueStaffIdOfSeed(seeds[at]);
+                if (id != kUniqueStaffId_Avatar && id != kUniqueStaffId_Ocelot && id != kUniqueStaffId_Quiet) break;
+                ++at;
+            }
+
+            const std::size_t moved = static_cast<std::size_t>(rows - at);
+            std::memmove(enabled + at + 1, enabled + at, moved);
+            std::memmove(seeds + at + 1, seeds + at, moved * sizeof(std::uint64_t));
+            std::memmove(names + (at + 1) * kListNameSize, names + at * kListNameSize, moved * kListNameSize);
+            std::memmove(portraits + at + 1, portraits + at, moved * sizeof(std::uint64_t));
+
+            const std::uint64_t seed = seeds[0] ^ kLiquidSeedBit;
+            enabled[at]   = 1;
+            seeds[at]     = seed;
+            portraits[at] = portrait ? portrait : portraits[0];
+            std::memcpy(names + at * kListNameSize, names, kListNameSize);
+            if (name)
+            {
+                char* row = names + at * kListNameSize;
+                std::size_t i = 0;
+                for (; i + 1 < kListNameSize && name[i]; ++i) row[i] = name[i];
+                row[i] = 0;
+            }
+
+            if (currentType == fobchars::kPlayerType_Liquid) *cursor = at;
+            else if (*cursor >= at && *cursor < rows) *cursor += 1;
+
+            *count   = static_cast<std::uint16_t>(rows + 1);
+            *outSeed = seed;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static const char* LiquidNameText()
+    {
+        auto toKey   = reinterpret_cast<LangIdToKey_t>(ResolveGameAddress(gAddr.Ui_LangIdToKey));
+        auto getText = reinterpret_cast<GetLangText_t>(ResolveGameAddress(gAddr.Ui_GetLangText));
+        if (!toKey || !getText) return nullptr;
+
+        __try
+        {
+            std::uint64_t key = 0;
+            toKey(&key, kLiquidNameLangId);
+            const char* text = key ? getText(key) : nullptr;
+            return (text && text[0]) ? text : nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static void AddLiquidRow(void* selector)
+    {
+        g_LiquidSeed.store(0, std::memory_order_relaxed);
+
+        if (!selector || !g_SetPlayerLoadoutInfoTarget) return;
+        if (MissionCodeGuard::ShouldBypassHooks()) return;
+        if (!LiquidRowAllowed(selector)) return;
+
+        if (!fox::PathExists(kLiquidPartsFpk))
+        {
+            if (g_LoggedLiquidPackMissing.exchange(1, std::memory_order_relaxed) == 0)
+                LogWarn("FobChars: %s not installed, Liquid missing from character list", kLiquidPartsFpk);
+            return;
+        }
+
+        const std::uint64_t portrait =
+            fox::PathExists(kLiquidPortrait) ? FoxHashes::PathCode64Ext(kLiquidPortrait) : 0;   // without the texture the row keeps Snake's photo
+
+        std::uint64_t seed = 0;
+        if (InsertLiquidRow(selector, LiquidNameText(), portrait, &seed))
+            g_LiquidSeed.store(seed, std::memory_order_relaxed);
+    }
+
+    static std::uint64_t __fastcall hkSetPlayerLoadoutInfoFromStaffId(
+        void* self, std::uint8_t* info, std::uint64_t staffSeed)
+    {
+        const std::uint64_t result = g_SetPlayerLoadoutInfoOrig(self, info, staffSeed);
+
+        const std::uint64_t liquidSeed = g_LiquidSeed.load(std::memory_order_relaxed);
+        if (!info || liquidSeed == 0 || staffSeed != liquidSeed) return result;
+        if (MissionCodeGuard::ShouldBypassHooks()) return result;
+
+        __try
+        {
+            info[kInfoPlayerTypeOff] = fobchars::kPlayerType_Liquid;
+            info[kInfoPartsTypeOff]  = 0;
+            info[kInfoCamoTypeOff]   = 0;
+            info[kInfoHandTypeOff]   = 1; // PlayerHandType.NORMAL
+            info[kInfoHeadOptionOff] = 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+        return result;
+    }
+
+    bool InstallLiquidRow()
+    {
+        if (g_SetPlayerLoadoutInfoTarget) return true;
+
+        void* target = ResolveGameAddress(
+            gAddr.MissionPreparationSystemImpl_SetPlayerLoadoutInfoFromStaffId);
+        if (!target)
+        {
+            LogError("FobChars: no address for %s, Liquid missing from character list",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kSetPlayerLoadoutInfoEntry,
+            sizeof(kSetPlayerLoadoutInfoEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: staff loadout code differs on this build (%s), Liquid missing from character list", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: MissionPreparationSystemImpl::SetPlayerLoadoutInfoFromStaffId", target);
+
+        if (!CreateAndEnableHook(target, &hkSetPlayerLoadoutInfoFromStaffId,
+                reinterpret_cast<void**>(&g_SetPlayerLoadoutInfoOrig)))
+        {
+            LogError("FobChars: staff loadout hook failed at %p, Liquid missing from character list", target);
+            return false;
+        }
+
+        g_SetPlayerLoadoutInfoTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidRow()
+    {
+        g_LiquidSeed.store(0, std::memory_order_relaxed);
+        if (!g_SetPlayerLoadoutInfoTarget) return;
+        DisableAndRemoveHook(g_SetPlayerLoadoutInfoTarget);
+        g_SetPlayerLoadoutInfoTarget = nullptr;
+        g_SetPlayerLoadoutInfoOrig   = nullptr;
+    }
+
+    using StaffSeedToNameLangMessageCode_t =
+        std::uint64_t (__fastcall*)(void*, std::uint32_t, std::uint32_t, std::uint8_t);
+
+    constexpr std::uint32_t kSeedHighWordMask = 0xFFFFF800u; // callers pass the seed's upper bits here, moved down by 21
+
+    const std::uint8_t kStaffSeedToNameEntry[] = {
+        0x48, 0x89, 0x6C, 0x24, 0x10,
+        0x48, 0x89, 0x74, 0x24, 0x18,
+        0x57,
+        0x48, 0x83, 0xEC, 0x20,
+        0x8B, 0xC2,
+        0x41, 0x0F, 0xB6, 0xF9,
+        0x8B, 0xF2,
+        0xC1, 0xE8, 0x07
+    };
+
+    static StaffSeedToNameLangMessageCode_t g_StaffSeedToNameOrig   = nullptr;
+    static void*                            g_StaffSeedToNameTarget = nullptr;
+
+    static std::uint64_t __fastcall hkStaffSeedToNameLangMessageCode(
+        void* staffController, std::uint32_t seedLow, std::uint32_t seedHigh, std::uint8_t fullName)
+    {
+        const std::uint64_t liquidSeed = g_LiquidSeed.load(std::memory_order_relaxed);
+        if (liquidSeed == 0 || !fullName
+            || seedLow != static_cast<std::uint32_t>(liquidSeed)
+            || (seedHigh & kSeedHighWordMask) != (static_cast<std::uint32_t>(liquidSeed >> 21) & kSeedHighWordMask)
+            || MissionCodeGuard::ShouldBypassHooks())
+            return g_StaffSeedToNameOrig(staffController, seedLow, seedHigh, fullName);
+
+        std::uint64_t key = 0;
+        auto toKey = reinterpret_cast<LangIdToKey_t>(ResolveGameAddress(gAddr.Ui_LangIdToKey));
+        if (toKey) toKey(&key, kLiquidNameLangId);
+        if (key == 0) return g_StaffSeedToNameOrig(staffController, seedLow, seedHigh, fullName);
+        return key;
+    }
+
+    bool InstallLiquidSeedName()
+    {
+        if (g_StaffSeedToNameTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.StaffControllerImpl_StaffSeedToNameLangMessageCode);
+        if (!target)
+        {
+            LogError("FobChars: no staff name address for %s, Liquid's details say Snake",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kStaffSeedToNameEntry, sizeof(kStaffSeedToNameEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: staff name code differs on this build (%s), Liquid's details say Snake", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: StaffControllerImpl::StaffSeedToNameLangMessageCode", target);
+
+        if (!CreateAndEnableHook(target, &hkStaffSeedToNameLangMessageCode,
+                reinterpret_cast<void**>(&g_StaffSeedToNameOrig)))
+        {
+            LogError("FobChars: staff name hook failed at %p, Liquid's details say Snake", target);
+            return false;
+        }
+
+        g_StaffSeedToNameTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidSeedName()
+    {
+        if (!g_StaffSeedToNameTarget) return;
+        DisableAndRemoveHook(g_StaffSeedToNameTarget);
+        g_StaffSeedToNameTarget = nullptr;
+        g_StaffSeedToNameOrig   = nullptr;
+    }
+
+    using GetCharaSlotIconTexturePathId_t = std::uint64_t* (__fastcall*)(void*, std::uint64_t*, std::int32_t);
+
+    const std::uint8_t kGetCharaSlotIconEntry[] = {
+        0x48, 0x89, 0x5C, 0x24, 0x08,
+        0x57,
+        0x48, 0x83, 0xEC, 0x20,
+        0x48, 0x8B, 0x05
+    };
+
+    static GetCharaSlotIconTexturePathId_t g_GetCharaSlotIconOrig   = nullptr;
+    static void*                           g_GetCharaSlotIconTarget = nullptr;
+
+    static std::uint64_t* __fastcall hkGetCharaSlotIconTexturePathId(
+        void* missionPreparation, std::uint64_t* pathId, std::int32_t playerType)
+    {
+        if (!pathId || playerType != fobchars::kPlayerType_Liquid
+            || MissionCodeGuard::ShouldBypassHooks() || !fox::PathExists(kLiquidPortrait))
+            return g_GetCharaSlotIconOrig(missionPreparation, pathId, playerType);
+
+        *pathId = FoxHashes::PathCode64Ext(kLiquidPortrait);   // the game has no photo for this player type and shows Snake's
+        return pathId;
+    }
+
+    bool InstallLiquidSlotPortrait()
+    {
+        if (g_GetCharaSlotIconTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.MissionPreparationCallbackImpl_GetCharaSlotIconTexturePathId);
+        if (!target)
+        {
+            LogError("FobChars: no character slot photo address for %s, Liquid's sortie slot shows Snake",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kGetCharaSlotIconEntry, sizeof(kGetCharaSlotIconEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: character slot photo code differs on this build (%s), Liquid's sortie slot shows Snake", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: MissionPreparationCallbackImpl character slot photo", target);
+
+        if (!CreateAndEnableHook(target, &hkGetCharaSlotIconTexturePathId,
+                reinterpret_cast<void**>(&g_GetCharaSlotIconOrig)))
+        {
+            LogError("FobChars: character slot photo hook failed at %p, Liquid's sortie slot shows Snake", target);
+            return false;
+        }
+
+        g_GetCharaSlotIconTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidSlotPortrait()
+    {
+        if (!g_GetCharaSlotIconTarget) return;
+        DisableAndRemoveHook(g_GetCharaSlotIconTarget);
+        g_GetCharaSlotIconTarget = nullptr;
+        g_GetCharaSlotIconOrig   = nullptr;
+    }
+
     static std::uint64_t __fastcall hkSetupStaffList(void* self)
     {
         const bool outermost = (g_QuietRowDepth == 0);
@@ -917,7 +1328,6 @@ namespace
 
         void* sc = StaffControllerAt(self, kStaffControllerOff);
         if (outermost) PrepareQuietRowOn(sc);
-        void* previousPortraitContext = outfit::EnterOwnRosterPortraitContext(sc);
 
         std::uint64_t result = 0;
         __try
@@ -926,10 +1336,10 @@ namespace
         }
         __finally
         {
-            outfit::LeaveOwnRosterPortraitContext(previousPortraitContext);
             --g_QuietRowDepth;
             if (outermost) RestoreQuietRow(sc);
         }
+        if (outermost) AddLiquidRow(self);
         return result;
     }
 
@@ -940,7 +1350,6 @@ namespace
 
         void* sc = StaffControllerAt(self, kPrepStaffControllerOff);
         if (outermost) PrepareQuietRowOn(sc);
-        void* previousPortraitContext = outfit::EnterOwnRosterPortraitContext(sc);
 
         __try
         {
@@ -948,7 +1357,6 @@ namespace
         }
         __finally
         {
-            outfit::LeaveOwnRosterPortraitContext(previousPortraitContext);
             --g_QuietRowDepth;
             if (outermost) RestoreQuietRow(sc);
         }
@@ -1044,6 +1452,405 @@ namespace
     }
 }
 
+namespace
+{
+    using ExecActionButtonCarry_t =
+        std::uint8_t (__fastcall*)(void*, std::uint32_t, std::uint8_t, std::uint8_t*);
+
+    constexpr std::size_t   kCarryResultSize       = 0x44;
+    constexpr std::size_t   kCarryResultTargetOff  = 0x20; // game object id of the body the prompt is for
+    constexpr std::uint16_t kGameObjectTypeSoldier = 2;
+    constexpr std::size_t   kSoldier2Part          = 0x20; // the voice lookup takes this part, not FindSoldier's Soldier2Impl
+
+    const std::uint8_t kExecActionButtonCarryEntry[] = {
+        0x40, 0x55, 0x53, 0x41, 0x56, 0x41, 0x57,
+        0x48, 0x8D, 0xAC, 0x24, 0xA8, 0xFE, 0xFF, 0xFF,
+        0x48, 0x81, 0xEC, 0x58, 0x02, 0x00, 0x00
+    };
+
+    static ExecActionButtonCarry_t g_ExecActionButtonCarryOrig   = nullptr;
+    static void*                   g_ExecActionButtonCarryTarget = nullptr;
+
+    static bool LiquidCanCarry(std::uint16_t gameObjectId)
+    {
+        if ((gameObjectId >> 9) != kGameObjectTypeSoldier)
+        {
+            const int gender = HostageGender::Read(gameObjectId);
+            return gender == HostageGender::kChild || gender == HostageGender::kFemale;
+        }
+
+        const std::uint8_t* soldier2Impl = GameObjectInstance::FindSoldier(gameObjectId).object;
+        if (!soldier2Impl) return false;
+
+        switch (SoldierVoiceType::Of(soldier2Impl + kSoldier2Part, gameObjectId & 0x1FFu))
+        {
+        case SoldierVoiceType::kChildA:  case SoldierVoiceType::kChildB:
+        case SoldierVoiceType::kChildC:  case SoldierVoiceType::kChildD:
+        case SoldierVoiceType::kEneAFml: case SoldierVoiceType::kEneBFml:
+        case SoldierVoiceType::kEneCFml: case SoldierVoiceType::kEneDFml:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static std::uint8_t __fastcall hkExecActionButtonCarry(
+        void* self, std::uint32_t playerIndex, std::uint8_t arg, std::uint8_t* result)
+    {
+        if (!result || MissionCodeGuard::ShouldBypassHooks()
+            || outfit::ReadLivePlayerType() != fobchars::kPlayerType_Liquid)
+            return g_ExecActionButtonCarryOrig(self, playerIndex, arg, result);
+
+        std::uint8_t before[kCarryResultSize];
+        std::memcpy(before, result, kCarryResultSize);
+
+        const std::uint8_t found = g_ExecActionButtonCarryOrig(self, playerIndex, arg, result);
+        if (!found) return found;
+
+        std::uint16_t target = 0;
+        std::memcpy(&target, result + kCarryResultTargetOff, sizeof(target));
+        if (LiquidCanCarry(target)) return found;
+
+        std::memcpy(result, before, kCarryResultSize);
+        return 0;
+    }
+
+    bool InstallLiquidCarryLimit()
+    {
+        if (g_ExecActionButtonCarryTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.CarryActionPluginImpl_ExecActionButtonCarry);
+        if (!target)
+        {
+            LogError("FobChars: no carry address for %s, Liquid carries adults too",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kExecActionButtonCarryEntry,
+            sizeof(kExecActionButtonCarryEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: carry code differs on this build (%s), Liquid carries adults too", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: CarryActionPluginImpl::ExecActionButtonCarry", target);
+
+        if (!CreateAndEnableHook(target, &hkExecActionButtonCarry,
+                reinterpret_cast<void**>(&g_ExecActionButtonCarryOrig)))
+        {
+            LogError("FobChars: carry hook failed at %p, Liquid carries adults too", target);
+            return false;
+        }
+
+        g_ExecActionButtonCarryTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidCarryLimit()
+    {
+        if (!g_ExecActionButtonCarryTarget) return;
+        DisableAndRemoveHook(g_ExecActionButtonCarryTarget);
+        g_ExecActionButtonCarryTarget = nullptr;
+        g_ExecActionButtonCarryOrig   = nullptr;
+    }
+}
+
+namespace
+{
+    using CqcStateHoldStart_t = void (__fastcall*)(std::uint8_t*, std::uint32_t, std::uint32_t, void*);
+
+    constexpr std::size_t   kCqcPluginPlayers     = 0x38;
+    constexpr std::size_t   kCqcPlayersFirstIndex = 0x24;
+    constexpr std::size_t   kCqcPluginWorks       = 0x68;
+    constexpr std::size_t   kCqcWorkSize          = 0x610;
+    constexpr std::size_t   kCqcWorkTarget        = 0x78; // ExecCqc writes the target's game object id here
+    constexpr std::size_t   kCqcWorkTargetIsChild = 0x87; // the held soldier's side sets it every update; it turns the hold into the escape
+    constexpr std::uint32_t kCqcProcessUpdate     = 0xB;
+
+    bool IsAdultSoldier(std::uint16_t gameObjectId)
+    {
+        if ((gameObjectId >> 9) != kGameObjectTypeSoldier)
+            return false;
+
+        const std::uint8_t* soldier2Impl = GameObjectInstance::FindSoldier(gameObjectId).object;
+        if (!soldier2Impl) return false;
+
+        switch (SoldierVoiceType::Of(soldier2Impl + kSoldier2Part, gameObjectId & 0x1FFu))
+        {
+        case SoldierVoiceType::kChildA: case SoldierVoiceType::kChildB:
+        case SoldierVoiceType::kChildC: case SoldierVoiceType::kChildD:
+            return false;
+        default:
+            return true;
+        }
+    }
+
+    const std::uint8_t kCqcStateHoldStartEntry[] = {
+        0x4C, 0x8B, 0xDC,
+        0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57,
+        0x48, 0x8D, 0x6C, 0x24, 0x98,
+        0x48, 0x81, 0xEC, 0x68, 0x01, 0x00, 0x00
+    };
+
+    static CqcStateHoldStart_t g_CqcStateHoldStartOrig   = nullptr;
+    static void*               g_CqcStateHoldStartTarget = nullptr;
+
+    static void __fastcall hkCqcStateHoldStart(
+        std::uint8_t* plugin, std::uint32_t playerIndex, std::uint32_t process, void* argument)
+    {
+        if (plugin && !MissionCodeGuard::ShouldBypassHooks()
+            && outfit::ReadLivePlayerType() == fobchars::kPlayerType_Liquid)
+        {
+            const std::uint8_t* players = *reinterpret_cast<std::uint8_t**>(plugin + kCqcPluginPlayers);
+            std::uint8_t*       works   = *reinterpret_cast<std::uint8_t**>(plugin + kCqcPluginWorks);
+            if (players && works)
+            {
+                std::uint32_t firstPlayerIndex = 0;
+                std::memcpy(&firstPlayerIndex, players + kCqcPlayersFirstIndex, sizeof(firstPlayerIndex));
+
+                std::uint8_t* work = works + static_cast<std::size_t>(playerIndex - firstPlayerIndex) * kCqcWorkSize;
+                std::uint16_t target = 0;
+                std::memcpy(&target, work + kCqcWorkTarget, sizeof(target));
+                const std::uint8_t heldIsChild = IsAdultSoldier(target) ? 1 : 0;   // the other way round from Snake: an adult slips out of his grab, a child stays
+                if (work[kCqcWorkTargetIsChild] != heldIsChild)
+                {
+                    work[kCqcWorkTargetIsChild] = heldIsChild;
+                    if (process != kCqcProcessUpdate)
+                        LogDebug("FobChars: Liquid's hold on 0x%04X %s (hold start step %u)", target,
+                            heldIsChild ? "escapes like a child from Snake" : "kept on a child", process);
+                }
+            }
+        }
+
+        g_CqcStateHoldStartOrig(plugin, playerIndex, process, argument);
+    }
+
+    bool InstallLiquidChildHold()
+    {
+        if (g_CqcStateHoldStartTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.CqcActionPluginImpl_StateHoldStart);
+        if (!target)
+        {
+            LogError("FobChars: no CQC hold address for %s, children escape Liquid's hold",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kCqcStateHoldStartEntry, sizeof(kCqcStateHoldStartEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: CQC hold code differs on this build (%s), children escape Liquid's hold", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: CqcActionPluginImpl::StateHoldStart", target);
+
+        if (!CreateAndEnableHook(target, &hkCqcStateHoldStart,
+                reinterpret_cast<void**>(&g_CqcStateHoldStartOrig)))
+        {
+            LogError("FobChars: CQC hold hook failed at %p, children escape Liquid's hold", target);
+            return false;
+        }
+
+        g_CqcStateHoldStartTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidChildHold()
+    {
+        if (!g_CqcStateHoldStartTarget) return;
+        DisableAndRemoveHook(g_CqcStateHoldStartTarget);
+        g_CqcStateHoldStartTarget = nullptr;
+        g_CqcStateHoldStartOrig   = nullptr;
+    }
+}
+
+namespace
+{
+    using SetTpsParams_t = void (__fastcall*)(void*, const std::uint8_t*);
+
+    constexpr std::size_t kTpsParamsSize    = 0x7C;
+    constexpr std::size_t kTpsParamsOffsetX = 0x10; // the aim view's offset, a Vector4
+    constexpr std::size_t kTpsParamsOffsetY = 0x14;
+    constexpr std::size_t kTpsParamsOffsetZ = 0x18;
+    constexpr float       kLiquidAimHeight  = 0.8f;
+
+    const std::uint8_t kSetTpsParamsEntry[] = {
+        0x48, 0x89, 0x5C, 0x24, 0x08,
+        0x57,
+        0x48, 0x83, 0xEC, 0x20,
+        0x0F, 0xB6, 0x42, 0x20,
+        0x48, 0x8B, 0xFA,
+        0x48, 0x8B, 0xD9,
+        0x89, 0x81, 0x0C, 0x02, 0x00, 0x00
+    };
+
+    static SetTpsParams_t g_SetTpsParamsOrig   = nullptr;
+    static void*          g_SetTpsParamsTarget = nullptr;
+
+    static void __fastcall hkSetTpsParams(void* camera, const std::uint8_t* params)
+    {
+        if (!params || MissionCodeGuard::ShouldBypassHooks()
+            || outfit::ReadLivePlayerType() != fobchars::kPlayerType_Liquid)
+        {
+            g_SetTpsParamsOrig(camera, params);
+            return;
+        }
+
+        alignas(16) std::uint8_t lowered[0x80] = {};
+        std::memcpy(lowered, params, kTpsParamsSize);
+
+        float height = 0.0f;
+        std::memcpy(&height, lowered + kTpsParamsOffsetY, sizeof(height));
+        const float loweredHeight = height * kLiquidAimHeight;
+        std::memcpy(lowered + kTpsParamsOffsetY, &loweredHeight, sizeof(loweredHeight));
+
+        static float s_loggedHeight = -1000.0f;
+        if (height > s_loggedHeight + 0.01f || height < s_loggedHeight - 0.01f)
+        {
+            s_loggedHeight = height;
+            float side = 0.0f;
+            float depth = 0.0f;
+            std::memcpy(&side, lowered + kTpsParamsOffsetX, sizeof(side));
+            std::memcpy(&depth, lowered + kTpsParamsOffsetZ, sizeof(depth));
+            LogDebug("FobChars: Liquid aim view height %.2f -> %.2f (side %.2f, depth %.2f)",
+                height, loweredHeight, side, depth);
+        }
+
+        g_SetTpsParamsOrig(camera, lowered);
+    }
+
+    bool InstallLiquidAimCamera()
+    {
+        if (g_SetTpsParamsTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.PlayerCameraImpl_SetTpsParams);
+        if (!target)
+        {
+            LogError("FobChars: no aim camera address for %s, Liquid aims from Snake's height",
+                GetGameBuildName(gGameBuild));
+            return false;
+        }
+
+        const HookEntry state = CheckHookEntry(target, kSetTpsParamsEntry, sizeof(kSetTpsParamsEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: aim camera code differs on this build (%s), Liquid aims from Snake's height", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: PlayerCameraImpl::SetTpsParams", target);
+
+        if (!CreateAndEnableHook(target, &hkSetTpsParams,
+                reinterpret_cast<void**>(&g_SetTpsParamsOrig)))
+        {
+            LogError("FobChars: aim camera hook failed at %p, Liquid aims from Snake's height", target);
+            return false;
+        }
+
+        g_SetTpsParamsTarget = target;
+        return true;
+    }
+
+    void UninstallLiquidAimCamera()
+    {
+        if (!g_SetTpsParamsTarget) return;
+        DisableAndRemoveHook(g_SetTpsParamsTarget);
+        g_SetTpsParamsTarget = nullptr;
+        g_SetTpsParamsOrig   = nullptr;
+    }
+}
+
+namespace
+{
+    using ExecCqc_t = void (__fastcall*)(void*, std::uint32_t, std::uint16_t, std::uint8_t, std::uint8_t);
+
+    const std::uint8_t kExecCqcEntry[] = {
+        0x48, 0x89, 0x5C, 0x24, 0x08,
+        0x48, 0x89, 0x6C, 0x24, 0x10,
+        0x48, 0x89, 0x74, 0x24, 0x20,
+        0x66, 0x44, 0x89, 0x44, 0x24, 0x18,
+        0x57,
+        0x48, 0x83, 0xEC, 0x20
+    };
+
+    static ExecCqc_t g_ExecCqcOrig   = nullptr;
+    static void*     g_ExecCqcTarget = nullptr;
+
+    static void __fastcall hkExecCqc(void* plugin, std::uint32_t playerIndex, std::uint16_t target,
+        std::uint8_t command, std::uint8_t startsCqc)
+    {
+        if (!MissionCodeGuard::ShouldBypassHooks())
+        {
+            NotePlayerCqcCommand();
+#ifdef _DEBUG   // TEMP probe: which CQC command a press on a child sends; remove once the hold on a child is tested
+            std::uint32_t voice = 0;
+            if ((target >> 9) == kGameObjectTypeSoldier)
+            {
+                const std::uint8_t* soldier2Impl = GameObjectInstance::FindSoldier(target).object;
+                if (soldier2Impl)
+                    voice = SoldierVoiceType::Of(soldier2Impl + kSoldier2Part, target & 0x1FFu);
+            }
+
+            const bool childVoice = voice == SoldierVoiceType::kChildA || voice == SoldierVoiceType::kChildB
+                || voice == SoldierVoiceType::kChildC || voice == SoldierVoiceType::kChildD;
+
+            LogDebug("FobChars: CQC command %u (8 hold, 5 throw) on 0x%04X type %u, child voice %d (0x%08X), "
+                "hostage gender %d, starts %u, playerType %u",
+                command, target, target >> 9, childVoice ? 1 : 0, voice,
+                HostageGender::Read(target), startsCqc, outfit::ReadLivePlayerType());
+#endif
+        }
+
+        g_ExecCqcOrig(plugin, playerIndex, target, command, startsCqc);
+    }
+
+    bool InstallCqcCommandProbe()
+    {
+        if (g_ExecCqcTarget) return true;
+
+        void* target = ResolveGameAddress(gAddr.CqcActionPluginImpl_ExecCqc);
+        if (!target) return false;
+
+        const HookEntry state = CheckHookEntry(target, kExecCqcEntry, sizeof(kExecCqcEntry));
+        if (state == HookEntry::Unknown)
+        {
+            char desc[160] = {};
+            DescribeFunctionEntry(target, desc, sizeof(desc));
+            LogError("FobChars: CQC command code differs on this build (%s), Liquid's punches keep the plain effort line", desc);
+            return false;
+        }
+        if (state == HookEntry::ForeignHook)
+            LogHookedOnTop("FobChars: CqcActionPluginImpl::ExecCqc", target);
+
+        if (!CreateAndEnableHook(target, &hkExecCqc, reinterpret_cast<void**>(&g_ExecCqcOrig)))
+        {
+            LogError("FobChars: CQC command hook failed at %p, Liquid's punches keep the plain effort line", target);
+            return false;
+        }
+
+        g_ExecCqcTarget = target;
+        return true;
+    }
+
+    void UninstallCqcCommandProbe()
+    {
+        if (!g_ExecCqcTarget) return;
+        DisableAndRemoveHook(g_ExecCqcTarget);
+        g_ExecCqcTarget = nullptr;
+        g_ExecCqcOrig   = nullptr;
+    }
+}
+
 namespace fobchars
 {
     void NoteLoadoutPlayerType(std::uint8_t playerType, std::uint32_t flags)
@@ -1051,10 +1858,10 @@ namespace fobchars
         if ((flags & kInfoFlag_CarriesPlayerType) == 0) return;
         if (MissionCodeGuard::ShouldBypassHooks()) return;
 
-        const bool fobOnly =
-            playerType == kPlayerType_Ocelot || playerType == kPlayerType_Quiet;
+        const bool keptAcrossLoads =
+            playerType == kPlayerType_Liquid || playerType == kPlayerType_Ocelot || playerType == kPlayerType_Quiet;
 
-        const int want = fobOnly ? static_cast<int>(playerType) : -1;
+        const int want = keptAcrossLoads ? static_cast<int>(playerType) : -1;
         g_Selected.store(want, std::memory_order_relaxed);
     }
 
@@ -1067,9 +1874,17 @@ namespace fobchars
 
     void ReassertSelectedCharacter()
     {
+        if (MissionCodeGuard::ShouldBypassHooks())
+        {
+            std::uint8_t* fobState = QuarkPlayerState();
+            std::uint8_t  fobLive  = 0;
+            if (fobState && ReadPlayerTypeByte(fobState, &fobLive) && fobLive == kPlayerType_Liquid)
+                WritePlayerTypeByte(fobState, 0);
+            return;
+        }
+
         const int want = g_Selected.load(std::memory_order_relaxed);
         if (want < 0) return;
-        if (MissionCodeGuard::ShouldBypassHooks()) return;
 
         std::uint8_t* state = QuarkPlayerState();
         if (!state) return;
@@ -1092,6 +1907,13 @@ bool Install_FobPlayerCharacters_Patches()
     InstallStaffLookupFallback();
     InstallQuietRowSynthesis();
     InstallQuietPrepRowSynthesis();
+    InstallLiquidRow();
+    InstallLiquidSeedName();
+    InstallLiquidSlotPortrait();
+    InstallLiquidCarryLimit();
+    InstallLiquidChildHold();
+    InstallLiquidAimCamera();
+    InstallCqcCommandProbe();
 
     if (applied == 0)
     {
@@ -1114,6 +1936,13 @@ bool Install_FobPlayerCharacters_Patches()
 void Uninstall_FobPlayerCharacters_Patches()
 {
     g_Selected.store(-1, std::memory_order_relaxed);
+    UninstallCqcCommandProbe();
+    UninstallLiquidAimCamera();
+    UninstallLiquidChildHold();
+    UninstallLiquidCarryLimit();
+    UninstallLiquidSlotPortrait();
+    UninstallLiquidSeedName();
+    UninstallLiquidRow();
     UninstallQuietRowSynthesis();
     UninstallStaffLookupFallback();
     RestoreSlotRowGate();

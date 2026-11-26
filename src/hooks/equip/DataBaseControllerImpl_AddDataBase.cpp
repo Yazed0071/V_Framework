@@ -1,4 +1,4 @@
-#include "pch.h"
+#include <pch.h>
 #include "DataBaseControllerImpl_AddDataBase.h"
 
 #include <Windows.h>
@@ -23,7 +23,7 @@ namespace
 {
     constexpr std::uint16_t kNoDataBaseId   = 0xFFFF;
     constexpr std::uint16_t kFlagByteCount  = 0x1CB;
-    constexpr std::int32_t  kMaxRowsPerTab  = 108;
+    constexpr std::int32_t  kMaxRowsPerTab  = 0x7FFF - 108;   // a tab lists 0x7FFF rows, the game's own take at most 108
 
     constexpr std::size_t   kCtl_TempBuffer   = 0x320;
     constexpr std::size_t   kTempBuf_Count    = 0x40A;
@@ -46,6 +46,7 @@ namespace
     IsGotDataBase_t g_OrigIsGot = nullptr;
     AddTempDataBase_t g_OrigAddTemp = nullptr;
     bool g_Installed = false;
+    bool g_AddHookLive = false;
     bool g_IsGotInstalled = false;
     bool g_AddTempInstalled = false;
     bool g_OutOfRangeLogged = false;
@@ -229,6 +230,22 @@ namespace
         return langId;
     }
 
+    std::int32_t g_WantedLangIndex = 0;
+    std::string  g_FoundLangName;
+    std::vector<std::string> g_StaleLangNames;
+
+    void MatchPersistedLangIndex(const char* name, std::int32_t value)
+    {
+        if (name && value == g_WantedLangIndex && g_FoundLangName.empty())
+            g_FoundLangName = name;
+    }
+
+    void CollectPersistedLangIndex(const char* name, std::int32_t value)
+    {
+        if (name && value == g_WantedLangIndex)
+            g_StaleLangNames.emplace_back(name);
+    }
+
     void EnsureRewardLangRegistered(lua_State* L, std::int32_t publicId)
     {
         const std::string langId = RewardLangIdForDataBaseId(L, publicId);
@@ -289,6 +306,14 @@ namespace
             g_lua_settable(L, -3);
             V_FrameWorkState::SetPersistedConstant(kRewardLangSpace, evicted.c_str(), 0);
         }
+
+        g_WantedLangIndex = index;
+        g_StaleLangNames.clear();
+        V_FrameWorkState::ForEachPersistedConstant(kRewardLangSpace, &CollectPersistedLangIndex);
+        for (const std::string& stale : g_StaleLangNames)
+            if (stale != langId)
+                V_FrameWorkState::SetPersistedConstant(kRewardLangSpace, stale.c_str(), 0); // older session's name at this index
+        g_StaleLangNames.clear();
 
         V_FrameWorkState::SetPersistedConstant(kRewardLangSpace, langId.c_str(), index);
 
@@ -377,15 +402,6 @@ namespace
         if (langId.empty())
             LogWarn("BluePrint: TppTerminal.BLUE_PRINT_LANG_ID[%d] unset, announce shows raw text",
                 publicId);
-    }
-
-    std::int32_t g_WantedLangIndex = 0;
-    std::string  g_FoundLangName;
-
-    void MatchPersistedLangIndex(const char* name, std::int32_t value)
-    {
-        if (name && value == g_WantedLangIndex && g_FoundLangName.empty())
-            g_FoundLangName = name;
     }
 
     bool ReadRewardLangEnumAt(lua_State* L, std::int32_t slot, std::int32_t& out)
@@ -597,7 +613,7 @@ namespace
         {
             ReportBluePrintAnnounceLang(L, id);
 
-            if (BagCustomTempDataBaseSeh(g_Controller, static_cast<std::uint16_t>(id)))
+            if (g_AddHookLive && BagCustomTempDataBaseSeh(g_Controller, static_cast<std::uint16_t>(id)))
             {
                 CacheBluePrintNameLangId(L, id);
                 RestoreQueuedRewardLangs(L);
@@ -822,11 +838,13 @@ namespace bluePrintDb
         }
 
         g_Installed = true;
+        g_AddHookLive = true;
     }
 
     void RemoveAddDataBaseHook()
     {
         g_Installed = false;
+        g_AddHookLive = false;
         g_Orig = nullptr;
         g_RemoveInstalled = false;
         g_OrigRemove = nullptr;
