@@ -2273,6 +2273,12 @@ namespace AddressSetRuntime
         return value;
     }
 
+    inline bool& GetGameIsDay3800()
+    {
+        static bool value = false;
+        return value;
+    }
+
     inline AddressSet& GetAddressSet()
     {
         static AddressSet value{};
@@ -2289,8 +2295,8 @@ namespace AddressSetRuntime
     {
         switch (build)
         {
-        case GameBuild::En_1_0_15_4a:  return "EN 1.0.15.4a (day3900)";
-        case GameBuild::Jp_1_0_15_4a:  return "JP 1.0.15.4a (day3900)";
+        case GameBuild::En_1_0_15_4a:  return GetGameIsDay3800() ? "EN 1.0.15.4 (day3800)" : "EN 1.0.15.4a (day3900)";
+        case GameBuild::Jp_1_0_15_4a:  return GetGameIsDay3800() ? "JP 1.0.15.4 (day3800)" : "JP 1.0.15.4a (day3900)";
         default:                     return "Unknown";
         }
     }

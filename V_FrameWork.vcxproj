@@ -142,6 +142,7 @@
       <AdditionalIncludeDirectories>$(SolutionDir)\src\core;$(SolutionDir)\src\hooks\soldier;$(SolutionDir)\src\hooks\player;$(SolutionDir)\src\hooks\sound;$(SolutionDir)\src\hooks\ui;$(SolutionDir)\src\hooks\pickable;$(SolutionDir)\src\hooks\sahelan;$(SolutionDir)\src\hooks\securitycamera;$(SolutionDir)\src\hooks\menupopup;$(SolutionDir)\src\hooks\hud;$(SolutionDir)\src\lua;$(SolutionDir)\include;$(SolutionDir);$(SolutionDir)\src\hooks\fox;$(SolutionDir)\src\hooks\fox\gm;$(SolutionDir)\src\hooks\notice;$(SolutionDir)\src\hooks\outfit;$(SolutionDir)\src\hooks\equip</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

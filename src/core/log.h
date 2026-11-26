@@ -13,6 +13,7 @@ void EnsureConsole();
 unsigned long LogIoStalledMs();
 unsigned long LogIoOwnerThreadId();
 unsigned long LogLineSerial();
+bool LogFileOpen();
 void LogFlushIfDue();   // once per frame: lines that landed inside the flush gap reach the file
 
 #define LogInfo(...)  do { if (false) std::printf(__VA_ARGS__); LogLevelImpl("info: ", __VA_ARGS__); } while (0)

@@ -240,6 +240,12 @@ unsigned long LogLineSerial()
     return g_LogSerial.load(std::memory_order_relaxed);
 }
 
+bool LogFileOpen()
+{
+    std::lock_guard<std::mutex> lock(g_LogMutex);
+    return g_LogFile != nullptr;
+}
+
 unsigned long LogIoStalledMs()
 {
     const unsigned long began = g_LogIoBeginTick.load(std::memory_order_acquire);

@@ -2255,36 +2255,105 @@ namespace AddressSetRuntime
         }
     }
 
+    namespace
+    {
+        struct CodeAnchor
+        {
+            uintptr_t address;
+            std::uint8_t bytes[16];
+        };
+
+        const CodeAnchor kEnglish154Anchors[] =
+        {
+            { 0x1408d8200ull, { 0xe6, 0xff, 0xff, 0xb8, 0xf0, 0x1a, 0x00, 0x00, 0xe8, 0xa3, 0xdd, 0x12, 0x01, 0x48, 0x2b, 0xe0 } },
+            { 0x141a111f0ull, { 0xe8, 0xab, 0x24, 0x00, 0x00, 0x48, 0x8b, 0xf8, 0x49, 0x83, 0xc8, 0xff, 0x0f, 0x1f, 0x40, 0x00 } },
+            { 0x141a11780ull, { 0x8b, 0x49, 0x20, 0x49, 0x63, 0xf8, 0x48, 0x8b, 0xf2, 0x49, 0x8b, 0x41, 0x78, 0x48, 0x8b, 0xd9 } },
+            { 0x141a10e90ull, { 0x48, 0x83, 0xec, 0x20, 0x4c, 0x8b, 0x49, 0x20, 0x41, 0x8b, 0xf0, 0x8b, 0xea, 0x49, 0x8b, 0x41 } },
+        };
+
+        bool ExeRunsEnglish154Code(HMODULE hGame)
+        {
+            const auto* base = reinterpret_cast<const std::uint8_t*>(hGame);
+            if (!base)
+                return false;
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+                return false;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+                return false;
+            const uintptr_t imageSize = nt->OptionalHeader.SizeOfImage;
+            for (const CodeAnchor& anchor : kEnglish154Anchors)
+            {
+                const uintptr_t rva = anchor.address - 0x140000000ull;
+                if (rva + sizeof(anchor.bytes) > imageSize)
+                    return false;
+                if (std::memcmp(base + rva, anchor.bytes, sizeof(anchor.bytes)) != 0)
+                    return false;
+            }
+            return true;
+        }
+    }
+
     GameBuild DetectGameBuildFromVersionInfo(HMODULE hGame)
     {
-        const std::wstring dir = GetModuleDirectory(hGame ? hGame : GetModuleHandleW(nullptr));
-        if (dir.empty())
-            return GameBuild::Unknown;
+        const HMODULE exe = hGame ? hGame : GetModuleHandleW(nullptr);
+        const std::wstring dir = GetModuleDirectory(exe);
+        const std::string text = dir.empty()
+            ? std::string{}
+            : ToLowerAscii(ReadWholeFileUtf8OrAnsi(dir + L"\\version_info.txt"));
 
-        const std::wstring versionInfoPath = dir + L"\\version_info.txt";
-        std::string text = ReadWholeFileUtf8OrAnsi(versionInfoPath);
-        static bool s_unknownLogged = false;   // DllMain and the init thread both ask
-        if (text.empty())
-        {
-            if (!s_unknownLogged)
-                LogError("AddressSet: version_info.txt missing or unreadable, game build unknown");
-            s_unknownLogged = true;
-            return GameBuild::Unknown;
-        }
+        static bool s_reported = false;
+        const bool report = !s_reported && LogFileOpen();
+        if (report)
+            s_reported = true;
 
-        text = ToLowerAscii(text);
+        const bool jp      = text.find("mst_jp") != std::string::npos;
+        const bool day3800 = text.find("day3800") != std::string::npos;
+        GetGameIsDay3800() = false;
 
-        const bool jp = text.find("mst_jp") != std::string::npos;
         if (text.find("day3900") != std::string::npos)
             return jp ? GameBuild::Jp_1_0_15_4a : GameBuild::En_1_0_15_4a;
-        if (!s_unknownLogged)
+
+        if (text.find("day1820") != std::string::npos)
         {
-            if (text.find("day3800") != std::string::npos || text.find("day1820") != std::string::npos)
-                LogError("AddressSet: this game is 1.0.15.4 or older; V_FrameWork needs 1.0.15.4a (day3900)");
-            else
-                LogError("AddressSet: version_info.txt names a game build V_FrameWork does not know");
+            if (report)
+                LogError("AddressSet: this game is 1.0.15.3 (day1820), V_FrameWork needs 1.0.15.4 (day3800 or day3900)");
+            return GameBuild::Unknown;
         }
-        s_unknownLogged = true;
+
+        if (jp && day3800)
+        {
+            GetGameIsDay3800() = true;
+            if (report)
+                LogInfo("AddressSet: JP day3800 game, running the day3900 address set (the code it uses did not change)");
+            return GameBuild::Jp_1_0_15_4a;
+        }
+
+        if (!jp && ExeRunsEnglish154Code(exe))
+        {
+            GetGameIsDay3800() = day3800;
+            if (report)
+            {
+                if (day3800)
+                    LogInfo("AddressSet: EN day3800 game, its code matches day3900, running the day3900 address set");
+                else if (text.empty())
+                    LogWarn("AddressSet: version_info.txt missing or unreadable, the exe's code matches EN 1.0.15.4, running");
+                else
+                    LogWarn("AddressSet: version_info.txt names a build V_FrameWork does not know (%s), the exe's code matches EN 1.0.15.4, running",
+                            text.substr(0, 80).c_str());
+            }
+            return GameBuild::En_1_0_15_4a;
+        }
+
+        if (report)
+        {
+            if (text.empty())
+                LogError("AddressSet: version_info.txt missing or unreadable and the exe's code is not EN 1.0.15.4");
+            else
+                LogError("AddressSet: version_info.txt names a build V_FrameWork does not support (%s)",
+                         text.substr(0, 80).c_str());
+        }
         return GameBuild::Unknown;
     }
 
